@@ -18,7 +18,21 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
 class ImportCpt(GroundModelLogger):
-    """Use case: parse a CPT file and persist it as a CptOrm + CptSeriesOrm row."""
+    """Use case: parse a CPT file and persist it to the database.
+
+    A *use case* in this architecture is a single, self-contained operation that
+    orchestrates infrastructure components (parsers, repositories) without
+    containing any domain logic itself.  It owns exactly one database transaction:
+    the ``AsyncSession`` passed in is committed on success and left for the caller
+    to roll back on failure.
+
+    Typical call site::
+
+        async with AsyncSessionFactory() as session:
+            result = await ImportCpt(session).execute(Path("data/cpt/test.gef"))
+
+    Or from a FastAPI route via ``Depends(get_session)``.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialise with an active AsyncSession; transaction is committed on success."""
@@ -66,6 +80,8 @@ class ImportCpt(GroundModelLogger):
     # ------------------------------------------------------------------
 
     def _parse(self, file_path: Path, content: bytes) -> GEFParseResult:
+        # Format is determined by file extension — GEF files always use .gef.
+        # AGS (.ags) and LAS (.las) parsers will be added here in Phase 2.
         suffix = file_path.suffix.lower()
         if suffix == ".gef":
             return GEFParser().parse_bytes(content)
