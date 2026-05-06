@@ -5,7 +5,7 @@ from datetime import datetime
 from uuid import UUID
 
 from geoalchemy2 import Geometry, WKBElement
-from sqlalchemy import DateTime, Double, Integer, String, func
+from sqlalchemy import DateTime, Double, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +16,7 @@ class CptOrm(Base):
     """Persisted CPT — header metadata, cone properties, and denormalised summary."""
 
     __tablename__ = "cpt"
+    __table_args__ = (Index("idx_cpt_location", "location", postgresql_using="gist"),)
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -54,13 +55,9 @@ class CptOrm(Base):
     cone_type_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stop_criterion: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Denormalised summary — lets spatial / cross-CPT queries filter by depth or
-    # soil stiffness without loading the full series arrays (which can be 10k+
-    # floats per CPT).  avg_qc_mpa is a rough proxy for overall soil resistance
-    # useful for map-layer colouring and filtering ("show CPTs with avg qc > 5 MPa
-    # in this area").  Precise profile analysis always goes back to the full arrays.
+    # Denormalised summary — lets list/spatial queries filter without loading the
+    # full series arrays (which can be 10k+ floats per CPT).
     max_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)
-    avg_qc_mpa: Mapped[float | None] = mapped_column(Double, nullable=True)
     n_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
