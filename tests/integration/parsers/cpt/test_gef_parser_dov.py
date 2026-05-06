@@ -175,9 +175,14 @@ class TestCPTU_GEO12_S1:
     def test_u2_column_present(self) -> None:
         assert "u2_mpa" in _parse(self.FILE).data.columns
 
-    def test_u2_has_null_values_in_top_rows(self) -> None:
-        # u2 is voided (-9999.0) in the pre-drill zone
-        assert _parse(self.FILE).data["u2_mpa"].null_count() > 0
+    def test_u2_is_entirely_void(self) -> None:
+        # u2 channel declared but -9999.0 throughout — filter likely dry or malfunctioning
+        df = _parse(self.FILE).data
+        assert df["u2_mpa"].null_count() == len(df)
+
+    def test_no_partial_u2_when_u2_entirely_void(self) -> None:
+        # PARTIAL_U2 only fires when u2 transitions null→non-null; all-void is a different issue
+        assert "PARTIAL_U2" not in _warning_codes(_parse(self.FILE))
 
     def test_no_missing_required_columns(self) -> None:
         assert "MISSING_COLUMN" not in _error_codes(_parse(self.FILE))
