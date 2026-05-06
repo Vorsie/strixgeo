@@ -112,3 +112,25 @@ $RECYCLE.BIN/
 
 # Claude Code
 .claude/settings.local.json
+CLAUDE.md
+
+# Python version manager
+.python-version
+
+# Git merge artifacts
+*.orig
+
+# Hypothesis property testing cache
+.hypothesis/
+
+# Profiling output (Phase 3/4 performance work)
+*.prof
+*.lprof
+prof/
+
+# Geotechnical data files — use tests/fixtures/ for small synthetic test files
+data/
+
+# Generated outputs
+reports/
+uploads/
