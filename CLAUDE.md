@@ -86,75 +86,90 @@ Geophysical
 
 ## Project Structure
 
+Uses a `src` layout — the package lives under `src/groundmodel/`, keeping it isolated from the repo root and preventing accidental imports during testing.
+
 ```
-groundmodel/
+Strix/
 │
-├── domain/                        # pure logic, zero frameworks
-│   ├── models/
-│   │   ├── base/
-│   │   │   ├── insitu_test.py     # abstract base
-│   │   │   └── investigation_point.py
-│   │   ├── pushed/
-│   │   │   ├── cpt.py
-│   │   │   └── dmt.py
-│   │   ├── borehole/
-│   │   │   ├── borehole.py
-│   │   │   ├── sample.py
-│   │   │   └── borehole_test.py
-│   │   ├── lab/
-│   │   │   ├── lab_test.py
-│   │   │   └── grain_size.py
-│   │   └── monitoring/
-│   │       ├── piezometer.py
-│   │       └── inclinometer.py
-│   ├── services/                  # domain logic (Ic classification, EC7)
-│   │   ├── cpt_interpretation.py
-│   │   └── ec7/
-│   └── value_objects/             # depth, coordinate, measurement units
+├── src/
+│   └── groundmodel/
+│       ├── domain/                        # pure logic, zero frameworks
+│       │   ├── models/
+│       │   │   ├── base/
+│       │   │   │   ├── insitu_test.py     # abstract base
+│       │   │   │   └── investigation_point.py
+│       │   │   ├── pushed/
+│       │   │   │   ├── cpt.py
+│       │   │   │   └── dmt.py
+│       │   │   ├── borehole/
+│       │   │   │   ├── borehole.py
+│       │   │   │   ├── sample.py
+│       │   │   │   └── borehole_test.py
+│       │   │   ├── lab/
+│       │   │   │   ├── lab_test.py
+│       │   │   │   └── grain_size.py
+│       │   │   ├── monitoring/
+│       │   │   │   ├── piezometer.py
+│       │   │   │   └── inclinometer.py
+│       │   │   └── job.py                 # Job + JobStatus
+│       │   ├── services/                  # domain logic (Ic classification, EC7)
+│       │   │   ├── cpt_interpretation.py
+│       │   │   └── ec7/
+│       │   └── value_objects/             # depth, coordinate, measurement units
+│       │       ├── depth.py
+│       │       └── coordinate.py
+│       │
+│       ├── application/                   # use cases, orchestration
+│       │   ├── import_cpt.py
+│       │   ├── export_project.py
+│       │   ├── run_interpretation.py
+│       │   └── queue.py                   # TaskQueue ABC + SynchronousQueue
+│       │
+│       ├── infrastructure/
+│       │   ├── db/
+│       │   │   ├── models/                # SQLAlchemy ORM models
+│       │   │   ├── repositories/          # one per aggregate root
+│       │   │   └── migrations/            # Alembic
+│       │   │       └── env.py
+│       │   ├── parsers/
+│       │   │   ├── gef_parser.py
+│       │   │   ├── ags_parser.py
+│       │   │   └── las_parser.py
+│       │   ├── exporters/
+│       │   │   ├── base_exporter.py       # abstract interface
+│       │   │   ├── plaxis_exporter.py
+│       │   │   ├── geostudio_exporter.py
+│       │   │   └── dsheet_exporter.py
+│       │   ├── gis/
+│       │   │   └── postgis_service.py
+│       │   └── rust/                      # PyO3 bindings (Phase 4)
+│       │       └── groundmodel_core/
+│       │
+│       ├── api/
+│       │   ├── routers/
+│       │   │   ├── cpt.py
+│       │   │   ├── borehole.py
+│       │   │   └── jobs.py
+│       │   ├── schemas/                   # Pydantic I/O models
+│       │   └── main.py
+│       │
+│       └── shared/
+│           ├── logging/
+│           │   ├── logger_factory.py
+│           │   └── levels.py              # TRACE, SUCCESS
+│           ├── config.py                  # pydantic-settings
+│           └── exceptions.py
 │
-├── application/                   # use cases, orchestration
-│   ├── import_cpt.py
-│   ├── export_project.py
-│   └── run_interpretation.py
+├── tests/
+│   ├── conftest.py
+│   ├── unit/                      # domain logic, no DB, no I/O
+│   ├── integration/               # real DB, real files
+│   └── e2e/                       # full API round-trips
 │
-├── infrastructure/
-│   ├── db/
-│   │   ├── models/                # SQLAlchemy ORM models
-│   │   ├── repositories/          # one per aggregate root
-│   │   └── migrations/            # Alembic
-│   ├── parsers/
-│   │   ├── gef_parser.py
-│   │   ├── ags_parser.py
-│   │   └── las_parser.py
-│   ├── exporters/
-│   │   ├── base_exporter.py       # abstract interface
-│   │   ├── plaxis_exporter.py
-│   │   ├── geostudio_exporter.py
-│   │   └── dsheet_exporter.py
-│   ├── gis/
-│   │   └── postgis_service.py
-│   └── rust/                      # PyO3 bindings
-│       └── groundmodel_core/      # Rust crate lives here
-│
-├── api/
-│   ├── routers/
-│   │   ├── cpt.py
-│   │   ├── borehole.py
-│   │   └── jobs.py
-│   ├── schemas/                   # Pydantic I/O models
-│   └── main.py
-│
-├── shared/
-│   ├── logging/
-│   │   ├── logger_factory.py
-│   │   └── levels.py              # TRACE, SUCCESS
-│   ├── config.py
-│   └── exceptions.py
-│
-└── tests/
-    ├── unit/                      # domain logic, no DB, no I/O
-    ├── integration/               # real DB, real files
-    └── e2e/                       # full API round-trips
+├── pyproject.toml                 # dependencies, build config, tool settings
+├── docker-compose.yml             # PostgreSQL + PostGIS for local dev and tests
+├── alembic.ini                    # Alembic migration config
+└── .env.example                   # environment variable template
 ```
 
 ---
