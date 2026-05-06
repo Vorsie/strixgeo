@@ -112,6 +112,30 @@ Strix/
 
 ---
 
+## Development Workflow
+
+Package manager: **UV** (installed globally via winget). The `.venv` and `uv.lock` live in the repo root; `.venv` is gitignored, `uv.lock` is committed.
+
+```
+uv sync --group dev              # first-time setup or after pulling
+uv run pytest tests/unit         # fast, no Docker needed
+uv run pytest tests/integration  # requires docker-compose up
+uv run pytest tests/e2e          # requires full stack running
+uv run ruff check src tests      # lint
+uv run ruff format src tests     # format
+uv run mypy src                  # type check
+```
+
+**Pre-commit rules — apply to every Python file before staging:**
+
+1. `uv run ruff format <file>` — auto-format
+2. `uv run ruff check --fix <file>` — auto-fix lint issues
+3. Add complete numpy style docstrings to all public modules, classes, methods, and functions that lack one
+
+A PostToolUse hook auto-runs steps 1–2 after every file write. Step 3 is enforced by code review.
+
+---
+
 ## Tech Stack
 
 | Layer | Choice | Notes |
