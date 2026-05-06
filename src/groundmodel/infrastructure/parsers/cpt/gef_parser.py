@@ -2,138 +2,33 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from enum import Enum, StrEnum
 
 import polars as pl
 
+from groundmodel.infrastructure.parsers.cpt.cpt_type import CPTType
+from groundmodel.infrastructure.parsers.cpt.gef_constants import (
+    MVAR_CONE_TYPE,
+    MVAR_NET_AREA_RATIO,
+    MVAR_PRE_DRILL,
+    MVAR_STOP_CRITERION,
+    MVAR_WATER_DEPTH,
+    PRESSURE_COLUMNS,
+    QUANTITY_TO_COLUMN,
+    UNIT_TO_MPA,
+)
+from groundmodel.infrastructure.parsers.cpt.gef_header import GEFHeader
+from groundmodel.infrastructure.parsers.cpt.gef_parse_result import GEFParseResult
+from groundmodel.infrastructure.parsers.cpt.validation_issue import ValidationIssue
+from groundmodel.infrastructure.parsers.cpt.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
-from groundmodel.shared.logging.logger_factory import LoggerFactory
-
-logger = LoggerFactory.get_logger(__name__)
-
-# GEF quantity number → standard column name
-_QUANTITY_TO_COLUMN: dict[int, str] = {
-    1: "depth_m",
-    2: "qc_mpa",
-    3: "fs_mpa",
-    4: "rf_pct",
-    5: "u1_mpa",
-    6: "u2_mpa",
-    7: "u3_mpa",
-    8: "inclination_deg",
-    9: "inclination_ns_deg",
-    10: "inclination_ew_deg",
-    11: "length_m",   # penetration length — needs inclination correction for true depth
-    15: "qt_mpa",
-    16: "qn_mpa",
-    17: "bq",
-    99: "time_s",
-}
-
-# Conversion factors to MPa
-_UNIT_TO_MPA: dict[str, float] = {
-    "mpa": 1.0,
-    "n/mm2": 1.0,
-    "kpa": 0.001,
-    "kn/m2": 0.001,
-    "pa": 1e-6,
-    "bar": 0.1,
-    "tf/m2": 0.009807,
-    "kgf/cm2": 0.098067,
-}
-
-_PRESSURE_COLUMNS = {"qc_mpa", "fs_mpa", "u1_mpa", "u2_mpa", "u3_mpa", "qt_mpa", "qn_mpa"}
-
-# #MEASUREMENTVAR indices (GEF-CPT-Report standard)
-_MVAR_PRE_DRILL = 13        # DIEPTE PUT — pit/pre-drill depth
-_MVAR_WATER_DEPTH = 14      # DIEPTE GRONDWATER — groundwater depth
-_MVAR_STOP_CRITERION = 17   # Stop criteria
-_MVAR_NET_AREA_RATIO = 3    # Net surface area quotient of cone tip (a-value)
-_MVAR_CONE_TYPE = 12        # 0 = electric, 1 = mechanical
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
-class CPTType(Enum):
-    """GEF CPT classification by available measurement channels."""
-
-    CPTU = "CPTU"     # piezocone: qc + fs + u2
-    CPTE = "CPTE"     # electric: qc + fs, no u2
-    CPTM = "CPTM"     # mechanical: qc only
-    UNKNOWN = "UNKNOWN"
-
-
-class ValidationLevel(StrEnum):
-    """Severity of a parse validation issue."""
-
-    ERROR = "error"
-    WARNING = "warning"
-    INFO = "info"
-
-
-@dataclass
-class ValidationIssue:
-    """A single validation finding from GEF parsing."""
-
-    level: ValidationLevel
-    code: str
-    message: str
-    rows: list[int] = field(default_factory=list)
-
-
-@dataclass
-class GEFHeader:
-    """Parsed GEF file header — metadata, coordinates, column mapping."""
-    project_id: str = ""
-    test_id: str = ""
-    file_date: str = ""
-    company: str = ""
-    report_code: str = ""
-
-    x: float | None = None
-    y: float | None = None
-    z: float | None = None
-    epsg: int | None = None    # horizontal CRS from #XYID (e.g. 32000 = Belgian Lambert 72)
-    z_epsg: int | None = None  # vertical datum from #ZID (e.g. 32001 = Belgian mTAW/NGF)
-
-    pre_drill_m: float = 0.0
-    # TODO: water depth in a CPT hole is not reliable; prefer piezometer data when normalising.
-    water_depth_m: float | None = None
-    net_area_ratio: float | None = None
-    stop_criterion: int | None = None
-    cone_type_code: int | None = None   # 0=electric, 1=mechanical
-
-    # 1-based column number → GEF quantity number
-    column_map: dict[int, int] = field(default_factory=dict)
-    # 1-based column number → unit string (lower-cased)
-    unit_map: dict[int, str] = field(default_factory=dict)
-    # 1-based column number → void value
-    void_map: dict[int, float] = field(default_factory=dict)
-
-    n_columns: int = 0
-
-
-@dataclass
-class GEFParseResult:
-    """Result of a GEF parse — header, detected type, data frame, and issues."""
-
-    header: GEFHeader
-    cpt_type: CPTType
-    data: pl.DataFrame
-    issues: list[ValidationIssue] = field(default_factory=list)
-
-    @property
-    def has_errors(self) -> bool:
-        """Return True if any issue has ERROR severity."""
-        return any(i.level == ValidationLevel.ERROR for i in self.issues)
-
-    @property
-    def warnings(self) -> list[ValidationIssue]:
-        """Return all WARNING-level issues."""
-        return [i for i in self.issues if i.level == ValidationLevel.WARNING]
-
-
-class GEFParser:
+class GEFParser(GroundModelLogger):
     """Parses GEF-CPT files into a validated GEFParseResult with a Polars DataFrame."""
+
+    def __init__(self) -> None:
+        super().__init__(__name__)
 
     def parse(self, content: str) -> GEFParseResult:
         """Parse a GEF file string into a validated result.
@@ -170,7 +65,7 @@ class GEFParser:
         result = GEFParseResult(header=header, cpt_type=cpt_type, data=df, issues=issues)
 
         n_issues = len(issues)
-        logger.success(f"GEF parsed: {len(df)} rows, type={cpt_type.value}, {n_issues} issue(s)")
+        self.success(f"GEF parsed: {len(df)} rows, type={cpt_type.value}, {n_issues} issue(s)")
         return result
 
     def parse_bytes(self, content: bytes) -> GEFParseResult:
@@ -211,7 +106,7 @@ class GEFParser:
             if ";" in line:
                 line = line[: line.index(";")].strip()
             if line.upper().startswith("#EOH"):
-                logger.debug(
+                self.debug(
                     f"GEF header: {header.n_columns} columns, EPSG={header.epsg}, z={header.z}"
                 )
                 return header, i
@@ -248,7 +143,7 @@ class GEFParser:
                 case "MEASUREMENTVAR":
                     self._parse_measurementvar(header, value)
         except (ValueError, IndexError) as exc:
-            logger.warning(f"Could not parse GEF header field {key}={value!r}: {exc}")
+            self.warning(f"Could not parse GEF header field {key}={value!r}: {exc}")
 
     def _parse_columninfo(self, header: GEFHeader, value: str) -> None:
         parts = [p.strip() for p in value.split(",")]
@@ -293,15 +188,15 @@ class GEFParser:
         var_num = int(parts[0])
         val = parts[1]
         match var_num:
-            case _ if var_num == _MVAR_NET_AREA_RATIO:
+            case _ if var_num == MVAR_NET_AREA_RATIO:
                 header.net_area_ratio = float(val)
-            case _ if var_num == _MVAR_PRE_DRILL:
+            case _ if var_num == MVAR_PRE_DRILL:
                 header.pre_drill_m = float(val)
-            case _ if var_num == _MVAR_WATER_DEPTH:
+            case _ if var_num == MVAR_WATER_DEPTH:
                 header.water_depth_m = float(val)
-            case _ if var_num == _MVAR_STOP_CRITERION:
+            case _ if var_num == MVAR_STOP_CRITERION:
                 header.stop_criterion = int(float(val))
-            case _ if var_num == _MVAR_CONE_TYPE:
+            case _ if var_num == MVAR_CONE_TYPE:
                 header.cone_type_code = int(float(val))
 
     # ------------------------------------------------------------------
@@ -320,7 +215,7 @@ class GEFParser:
                 if row:
                     rows.append(row)
             except ValueError:
-                logger.trace(f"Skipping unparseable data line: {raw_line!r}")
+                self.trace(f"Skipping unparseable data line: {raw_line!r}")
 
         if not rows:
             raise ParseError("GEF file contains no data rows")
@@ -347,7 +242,7 @@ class GEFParser:
         rename: dict[str, str] = {}
         for col_num, qty_num in header.column_map.items():
             src = f"col_{col_num}"
-            dst = _QUANTITY_TO_COLUMN.get(qty_num)
+            dst = QUANTITY_TO_COLUMN.get(qty_num)
             if src in df.columns and dst:
                 rename[src] = dst
         return df.rename(rename)
@@ -357,21 +252,21 @@ class GEFParser:
             qty_num = header.column_map.get(col_num)
             if qty_num is None:
                 continue
-            std_col = _QUANTITY_TO_COLUMN.get(qty_num, "")
-            if std_col not in _PRESSURE_COLUMNS or std_col not in df.columns:
+            std_col = QUANTITY_TO_COLUMN.get(qty_num, "")
+            if std_col not in PRESSURE_COLUMNS or std_col not in df.columns:
                 continue
-            factor = _UNIT_TO_MPA.get(unit.lower())
+            factor = UNIT_TO_MPA.get(unit.lower())
             if factor is None or factor == 1.0:
                 continue
             df = df.with_columns((pl.col(std_col) * factor).alias(std_col))
-            logger.debug(f"Normalised {std_col}: {unit} → MPa (×{factor})")
+            self.debug(f"Normalised {std_col}: {unit} → MPa (×{factor})")
         return df
 
     def _ensure_depth_column(self, df: pl.DataFrame) -> pl.DataFrame:
         if "depth_m" not in df.columns and "length_m" in df.columns:
             df = df.rename({"length_m": "depth_m"})
             # TODO: check for inclination columns and apply depth correction before falling back.
-            logger.warning(
+            self.warning(
                 "GEF uses penetration length (qty 11) — inclination correction not applied"
             )
         return df
@@ -383,7 +278,7 @@ class GEFParser:
             .otherwise(None)
             .alias("rf_pct")
         )
-        logger.debug("Calculated Rf(%) from qc and fs")
+        self.debug("Calculated Rf(%) from qc and fs")
         return df
 
     # ------------------------------------------------------------------
@@ -421,7 +316,7 @@ class GEFParser:
         ]
         issues = [issue for group in checks for issue in group]
         for issue in issues:
-            logger.trace(f"[{issue.level.upper()}] {issue.code}: {issue.message}")
+            self.trace(f"[{issue.level.upper()}] {issue.code}: {issue.message}")
         return issues
 
     def _check_coordinates(self, header: GEFHeader) -> list[ValidationIssue]:
