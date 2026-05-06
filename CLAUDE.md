@@ -1,19 +1,17 @@
-# Ground Model Platform — Architecture & Build Plan
+# Ground Model Platform — CLAUDE.md
 
 ## Project Overview
 
-A commercial geotechnical data platform targeting EC7 Gen2 compliance.
-Supports CPT, borehole, lab tests, monitoring, DMT, pressuremeter, and geophysical data.
-Built for solo development, designed for eventual SaaS or desktop commercial release.
+Commercial geotechnical data platform targeting EC7 Gen2 compliance. Supports CPT, borehole, lab tests, monitoring, DMT, pressuremeter, and geophysical data. Built for solo development; targets Electron + React desktop first, SaaS later.
 
 ---
 
 ## Core Philosophy
 
 - **Domain correctness first** — geotechnical logic before infrastructure
-- **Clean architecture** — dependencies flow one way only (API → Application → Domain → Infrastructure)
-- **Queue-ready, not queue-first** — abstract the queue from day one, add a broker when there is evidence it is needed
-- **No premature optimization** — Python + Polars first, Rust only where profiling proves it is needed
+- **Clean architecture** — dependencies flow one way: API → Application → Domain ← Infrastructure
+- **Queue-ready, not queue-first** — abstract the queue from day one, add a broker when needed
+- **No premature optimisation** — Python + Polars first; Rust only where profiling proves it is needed
 - **Never design a layer you haven't needed yet** — build, feel the pain, then abstract
 
 ---
@@ -33,143 +31,82 @@ Built for solo development, designed for eventual SaaS or desktop commercial rel
 ```
 
 The domain layer has zero knowledge of FastAPI, PostgreSQL, or Polars.
-This is what makes the system testable, auditable, and extensible.
 
 ---
 
 ## Domain Model
 
-### Fundamental distinction
-
 ```
 InSituTest (abstract base)
-│
-├── PushedInTest                  ← independent of borehole
-│   ├── CPT                       ← GEF / AGS / LAS
-│   └── DMT                       ← flat dilatometer, also pushed
-│
-└── BoreholeTest                  ← executed inside a borehole
+├── PushedInTest
+│   ├── CPT   ← GEF / AGS / LAS
+│   └── DMT   ← flat dilatometer, also pushed
+└── BoreholeTest
     ├── Pressuremeter (PMT)
     ├── SPT
-    ├── VST (vane shear)
-    └── ...
+    └── VST
 
-Borehole                          ← a physical hole, not a test
+Borehole                     ← a physical hole, not a test
 ├── BoreholeTests[]
 ├── Samples[]
-└── Observations[]                ← visual log, soil description
+└── Observations[]           ← visual log, soil description
 
-LabTest                           ← performed on a Sample, NOT on a Borehole
-├── GrainSize
-├── Atterberg
-├── Triaxial
-└── ...
+LabTest                      ← performed on a Sample, NOT on a Borehole
+├── GrainSize / Atterberg / Triaxial / ...
 
-Monitoring
-├── Piezometer
-├── Inclinometer
-└── ...
-
-Geophysical
-├── MASW
-├── Seismic CPT
-└── ...
+Monitoring: Piezometer, Inclinometer
+Geophysical: MASW, Seismic CPT
 ```
 
-### Key rules
-- `LabTest` is **not** a subclass of `Borehole` — it is associated with a `Sample`
-- `DMT` is a **pushed test**, not a borehole test
-- `Pressuremeter` is a **borehole test**
-- Shared location ≠ inheritance — use composition and relationships
+**Key rules:**
+- `LabTest` is associated with a `Sample`, not a `Borehole`
+- `DMT` is a pushed test; `Pressuremeter` is a borehole test
+- Shared location ≠ inheritance — use composition
 
 ---
 
 ## Project Structure
 
-Uses a `src` layout — the package lives under `src/groundmodel/`, keeping it isolated from the repo root and preventing accidental imports during testing.
+`src` layout — package lives under `src/groundmodel/`.
 
 ```
 Strix/
-│
-├── src/
-│   └── groundmodel/
-│       ├── domain/                        # pure logic, zero frameworks
-│       │   ├── models/
-│       │   │   ├── base/
-│       │   │   │   ├── insitu_test.py     # abstract base
-│       │   │   │   └── investigation_point.py
-│       │   │   ├── pushed/
-│       │   │   │   ├── cpt.py
-│       │   │   │   └── dmt.py
-│       │   │   ├── borehole/
-│       │   │   │   ├── borehole.py
-│       │   │   │   ├── sample.py
-│       │   │   │   └── borehole_test.py
-│       │   │   ├── lab/
-│       │   │   │   ├── lab_test.py
-│       │   │   │   └── grain_size.py
-│       │   │   ├── monitoring/
-│       │   │   │   ├── piezometer.py
-│       │   │   │   └── inclinometer.py
-│       │   │   └── job.py                 # Job + JobStatus
-│       │   ├── services/                  # domain logic (Ic classification, EC7)
-│       │   │   ├── cpt_interpretation.py
-│       │   │   └── ec7/
-│       │   └── value_objects/             # depth, coordinate, measurement units
-│       │       ├── depth.py
-│       │       └── coordinate.py
-│       │
-│       ├── application/                   # use cases, orchestration
-│       │   ├── import_cpt.py
-│       │   ├── export_project.py
-│       │   ├── run_interpretation.py
-│       │   └── queue.py                   # TaskQueue ABC + SynchronousQueue
-│       │
-│       ├── infrastructure/
-│       │   ├── db/
-│       │   │   ├── models/                # SQLAlchemy ORM models
-│       │   │   ├── repositories/          # one per aggregate root
-│       │   │   └── migrations/            # Alembic
-│       │   │       └── env.py
-│       │   ├── parsers/
-│       │   │   ├── gef_parser.py
-│       │   │   ├── ags_parser.py
-│       │   │   └── las_parser.py
-│       │   ├── exporters/
-│       │   │   ├── base_exporter.py       # abstract interface
-│       │   │   ├── plaxis_exporter.py
-│       │   │   ├── geostudio_exporter.py
-│       │   │   └── dsheet_exporter.py
-│       │   ├── gis/
-│       │   │   └── postgis_service.py
-│       │   └── rust/                      # PyO3 bindings (Phase 4)
-│       │       └── groundmodel_core/
-│       │
-│       ├── api/
-│       │   ├── routers/
-│       │   │   ├── cpt.py
-│       │   │   ├── borehole.py
-│       │   │   └── jobs.py
-│       │   ├── schemas/                   # Pydantic I/O models
-│       │   └── main.py
-│       │
-│       └── shared/
-│           ├── logging/
-│           │   ├── logger_factory.py
-│           │   └── levels.py              # TRACE, SUCCESS
-│           ├── config.py                  # pydantic-settings
-│           └── exceptions.py
-│
+├── src/groundmodel/
+│   ├── domain/
+│   │   ├── models/
+│   │   │   ├── base/          insitu_test.py, investigation_point.py
+│   │   │   ├── pushed/        cpt.py, dmt.py
+│   │   │   ├── borehole/      borehole.py, sample.py, borehole_test.py
+│   │   │   ├── lab/           lab_test.py, grain_size.py
+│   │   │   ├── monitoring/    piezometer.py, inclinometer.py
+│   │   │   └── job.py         Job + JobStatus
+│   │   ├── services/          cpt_interpretation.py, ec7/
+│   │   └── value_objects/     depth.py, coordinate.py
+│   ├── application/           import_cpt.py, export_project.py,
+│   │                          run_interpretation.py, queue.py
+│   ├── infrastructure/
+│   │   ├── db/                models/, repositories/, migrations/
+│   │   ├── parsers/           gef_parser.py, ags_parser.py, las_parser.py
+│   │   ├── exporters/         base_exporter.py, plaxis_exporter.py, ...
+│   │   ├── gis/               postgis_service.py
+│   │   └── rust/              groundmodel_core/ (Phase 4)
+│   ├── api/
+│   │   ├── routers/           cpt.py, borehole.py, jobs.py
+│   │   ├── schemas/
+│   │   └── main.py
+│   └── shared/
+│       ├── logging/           levels.py, ground_model_logger.py,
+│       │                      logger_factory.py
+│       ├── config.py          pydantic-settings Settings
+│       └── exceptions.py
 ├── tests/
-│   ├── conftest.py
-│   ├── unit/                      # domain logic, no DB, no I/O
-│   ├── integration/               # real DB, real files
-│   └── e2e/                       # full API round-trips
-│
-├── pyproject.toml                 # dependencies, build config, tool settings
-├── docker-compose.yml             # PostgreSQL + PostGIS for local dev and tests
-├── alembic.ini                    # Alembic migration config
-└── .env.example                   # environment variable template
+│   ├── unit/                  no DB, no I/O
+│   ├── integration/           real DB (Docker Compose)
+│   └── e2e/                   full HTTP round-trips
+├── pyproject.toml
+├── docker-compose.yml         PostgreSQL + PostGIS
+├── alembic.ini
+└── .env.example
 ```
 
 ---
@@ -178,325 +115,171 @@ Strix/
 
 | Layer | Choice | Notes |
 |---|---|---|
-| API | FastAPI | async-ready, Pydantic validation |
+| API | FastAPI | async, Pydantic validation |
 | Database | PostgreSQL + PostGIS | spatial queries, depth series |
 | ORM | SQLAlchemy + Alembic | migrations |
-| Data processing | Polars | fast, modern, no GeoPolars yet → use PostGIS for spatial |
-| Performance | Rust via PyO3 | Phase 4 only, after profiling |
-| Testing | pytest + pytest-asyncio + factory_boy | |
-| Frontend | React + Electron (desktop) or React SaaS | decide before Phase 3 |
-| 3D viewer | CesiumJS (geo context) or Three.js | |
+| Data | Polars | fast series processing; PostGIS for spatial |
+| Performance | Rust / PyO3 | Phase 4 only |
+| Testing | pytest, pytest-asyncio, factory-boy | |
+| Frontend | Electron + React | desktop first, SaaS later |
+| 3D | CesiumJS | geographic context |
 
 ---
 
-## Depth Series — Solve Before Writing Schema
+## Depth Series Storage
 
-The hardest data modeling decision in the system. A CPT has 10,000+ rows of `(depth, qc, fs, u2, ...)`.
+Hardest schema decision — decide before writing any ORM model.
 
-**Option A — Wide table**
+**Recommended (Option C — Hybrid):** store raw series as PostgreSQL arrays (one row per CPT, Polars-friendly) plus a materialized summary table for spatial and cross-CPT queries.
+
 ```sql
-cpt_measurements (cpt_id, depth_m, qc_mpa, fs_kpa, u2_kpa, ...)
-```
-✅ Easy depth-range queries. ❌ Can reach 100M+ rows at scale.
-
-**Option B — Array columns**
-```sql
+-- raw storage
 cpt_series (cpt_id, depths FLOAT[], qc FLOAT[], fs FLOAT[], u2 FLOAT[])
-```
-✅ One row per CPT, fast bulk retrieval. ❌ Hard to query across CPTs by depth.
 
-**Option C — Hybrid (recommended)**
-Store raw series as arrays (fast retrieval, Polars-friendly) plus a materialized summary table for spatial and cross-CPT queries. Decide this before writing a single ORM model.
+-- queryable summary
+cpt_summary (cpt_id, max_depth_m, avg_qc_mpa, location GEOMETRY, ...)
+```
 
 ---
 
 ## Logging
 
-Three files under `shared/logging/`:
+Three files under `shared/logging/` — see source for full implementation.
 
 | File | Purpose |
 |---|---|
-| `levels.py` | Registers TRACE (5) and SUCCESS (25) with the stdlib logging system |
-| `ground_model_logger.py` | `GroundModelLogger` — typed wrapper exposing all standard levels plus `.trace()` and `.success()` |
-| `logger_factory.py` | `LoggerFactory` — singleton configurator, returns `GroundModelLogger` instances |
+| `levels.py` | Registers TRACE (5) and SUCCESS (25) |
+| `ground_model_logger.py` | Typed wrapper: `.trace()` `.debug()` `.info()` `.warning()` `.error()` `.critical()` `.success()` `.exception()` |
+| `logger_factory.py` | Singleton configurator, returns `GroundModelLogger` |
 
-**Custom levels:**
-- `TRACE = 5` — below DEBUG, for per-row parsing detail and calculation steps
-- `SUCCESS = 25` — between INFO and WARNING, for confirmed successful operations
-
-```python
-# shared/logging/ground_model_logger.py
-class GroundModelLogger:
-    def trace(self, msg: str, *args, **kwargs) -> None: ...
-    def debug(self, msg: str, *args, **kwargs) -> None: ...
-    def info(self, msg: str, *args, **kwargs) -> None: ...
-    def warning(self, msg: str, *args, **kwargs) -> None: ...
-    def error(self, msg: str, *args, **kwargs) -> None: ...
-    def critical(self, msg: str, *args, **kwargs) -> None: ...
-    def success(self, msg: str, *args, **kwargs) -> None: ...
-    def exception(self, msg: str, *args, **kwargs) -> None: ...
-```
-
-```python
-# shared/logging/logger_factory.py
-class LoggerFactory:
-    @classmethod
-    def get_logger(cls, name: str) -> GroundModelLogger: ...
-```
-
-**Usage everywhere:**
 ```python
 logger = LoggerFactory.get_logger(__name__)
 logger.trace("Parsing depth increment 1042")
 logger.success("CPT imported: 10,432 rows in 0.3s")
 ```
 
-**Usage everywhere:**
-```python
-logger = LoggerFactory.get_logger(__name__)
-logger.trace("Parsing depth increment 1042")
-logger.success("CPT imported: 10,432 rows in 0.3s")
-```
+**Always log:** imports, parsing errors, calculation steps, job execution, exports.
 
-**Log these things without exception:** imports, parsing errors, calculation steps (traceability), job execution, export operations.
+---
+
+## GEF Parser
+
+Implemented in `infrastructure/parsers/gef_parser.py`. Handles CPTU, CPTE, CPTM, and UNKNOWN types.
+
+**Parsing flow:** header → data → CPT type detection → void masking → column rename → unit normalisation → depth column → Rf calculation → validation → `GEFParseResult`
+
+**Unit normalisation:** MPa, kPa, bar, tf/m², Pa, kgf/cm² → MPa
+
+**Validation checks (ValidationLevel: ERROR / WARNING / INFO):**
+- `NO_COORDINATES` / `ZERO_COORDINATES` / `NO_EPSG` / `NO_ELEVATION`
+- `MISSING_COLUMN` (qc required; fs required for CPTU/CPTE)
+- `DEPTH_NOT_MONOTONIC` — ERROR
+- `NEGATIVE_VALUES` — qc, fs must be ≥ 0
+- `NULL_VALUES` — after void masking
+- `PRE_DRILL` — detected when depth starts > 0.5 m
+- `NO_NET_AREA_RATIO` — WARNING for CPTU without `a` coefficient
+- `RF_OUT_OF_RANGE` — Rf outside 0–10 % is suspicious
+- `QC_SPIKES` — flags outliers > 3 std from rolling median
 
 ---
 
 ## Job System
 
-```python
-# domain/models/job.py
-from enum import Enum
-from dataclasses import dataclass, field
-from datetime import datetime
-from uuid import UUID, uuid4
+See `domain/models/job.py` (Job, JobStatus) and `application/queue.py` (TaskQueue ABC, SynchronousQueue).
 
-class JobStatus(Enum):
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    DONE = "DONE"
-    FAILED = "FAILED"
-
-@dataclass
-class Job:
-    type: str
-    payload: dict
-    id: UUID = field(default_factory=uuid4)
-    status: JobStatus = JobStatus.PENDING
-    result: dict | None = None
-    logs: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    finished_at: datetime | None = None
-```
-
-```python
-# application/queue.py
-from abc import ABC, abstractmethod
-
-class TaskQueue(ABC):
-    @abstractmethod
-    async def enqueue(self, job: Job) -> None: ...
-
-    @abstractmethod
-    async def get_status(self, job_id: UUID) -> Job: ...
-
-class SynchronousQueue(TaskQueue):
-    """MVP — runs inline, no broker needed"""
-    async def enqueue(self, job: Job) -> None:
-        await self._execute(job)
-```
-
-When ready to go async: swap `SynchronousQueue` for `RQQueue` or `CeleryQueue` without touching anything else. Do not add RabbitMQ until there is a specific, demonstrated problem it solves.
+MVP uses `SynchronousQueue` (inline execution). When load justifies it, swap for `RQQueue` or `CeleryQueue` — nothing else changes. Do not add a broker until there is a demonstrated need.
 
 ---
 
 ## Testing Strategy
 
+**Rule:** a domain test that needs a DB connection means the architecture is leaking.
+
 ```
 tests/
-├── unit/              # fast, no I/O, no DB
-│   ├── test_cpt_interpretation.py   # Ic classification, Robertson chart
-│   └── test_gef_parser.py           # parser logic on fixture files
-├── integration/       # real DB, real files
-│   ├── test_cpt_repository.py
-│   └── test_import_use_case.py
-└── e2e/               # full HTTP round-trips
-    └── test_cpt_api.py
+├── unit/          domain logic, fixture files only
+├── integration/   real PostgreSQL (Docker Compose), real files
+└── e2e/           full HTTP round-trips via httpx
 ```
-
-**Rule:** If a domain logic test needs a database connection, the architecture is leaking. Domain tests must have zero dependencies on FastAPI, PostgreSQL, or Polars.
-
-Use a real PostgreSQL instance via Docker Compose for integration tests — not SQLite mocks.
-
----
-
-## Rust Strategy
-
-Do not learn Rust and build the application simultaneously.
-
-| Phase | Approach |
-|---|---|
-| Phase 1–2 | Pure Python everywhere, Polars for data |
-| Phase 3 | Profile actual bottlenecks — do not guess |
-| Phase 4 | Replace hotspots with Rust via PyO3 |
-
-**Where Rust earns its place:**
-- GEF/AGS parser for large files (10MB+)
-- Ic classification over 100k depth points
-- Spatial interpolation for ground model generation
-- Export serialization for large projects
-
-**Where it will not help:** API routing, DB queries, anything I/O-bound.
-
----
-
-## Frontend Decision
-
-| Option | Effort | 3D | Commercial viability | Verdict |
-|---|---|---|---|---|
-| Flet | Low | ❌ | Low | Dead end for this product |
-| Dash/Plotly | Medium | Limited | Medium | OK for internal tool only |
-| React + CesiumJS | High | ✅ | High | Right for SaaS |
-| Electron + React | High | ✅ | High | Right for desktop commercial |
-
-**Recommendation:** Electron + React for first commercial version. Geotech firms have IT security restrictions, procurement processes, and resistance to cloud subscriptions for sensitive site data. A desktop app is an easier first sale. SaaS can follow.
-
-3D viewer: **CesiumJS** for real geographic context (recommended). **Three.js** for custom rendering. They can coexist.
-
----
-
-## Export System
-
-```python
-# infrastructure/exporters/base_exporter.py
-from abc import ABC, abstractmethod
-
-class BaseExporter(ABC):
-    @abstractmethod
-    def export(self, project) -> bytes: ...
-```
-
-Implement: `PlaxisExporter`, `GeoStudioExporter`, `DSheetExporter`. Do not build export until Phase 4 — it expands in complexity the moment you hit a real format.
 
 ---
 
 ## Build Sequence
 
-### Phase 0 — Know your data (weeks 1–2)
-Before writing application code, parse 10–20 real GEF files manually. Document what fields are present, what is missing, what edge cases appear. Do the same for borehole logs and lab data.
-
-Output: a data reality document and a first-draft DB schema grounded in actual files.
-
-### Phase 1 — Thin vertical slice (weeks 3–6)
-One complete workflow only: **import one GEF file → parse → store → plot qc/fs vs depth.**
-
-No export. No map. No borehole. No job system. No frontend framework. Return a plot image or JSON array from the API. Every hard decision gets made once, on a small surface.
-
-### Phase 2 — Expand domain (weeks 7–12)
-Add borehole + samples + lab tests. Add the job system. Add basic EC7 CPT interpretation (Robertson Ic classification, soil classification). This is where clean architecture earns its value.
-
-### Phase 3 — Make it usable (weeks 13–20)
-Build the real frontend. Commit to Electron + React here — stop deferring. Add map visualization (Leaflet or CesiumJS). Add enough EC7 interpretation to use it in real consulting work. Daily use is your QA.
-
-### Phase 4 — Commercial features (ongoing)
-Multi-project management, user accounts, export formats, report generation (PDF), remaining data types (DMT, monitoring, geophysics). Add Rust where profiling shows it is needed.
+| Phase | Focus | Weeks |
+|---|---|---|
+| 0 | Parse 10–20 real GEF files; produce data reality doc and first-draft schema | 1–2 |
+| 1 | Thin slice: import GEF → parse → store → plot qc/fs vs depth | 3–6 |
+| 2 | Borehole + samples + lab; job system; EC7 Ic classification | 7–12 |
+| 3 | Real frontend (Electron + React); map; EC7 for consulting use | 13–20 |
+| 4 | Multi-project, accounts, exports, PDF reports, Rust where profiling shows need | ongoing |
 
 ---
 
-## What Will Make or Break This System
+## Rust Strategy
 
-**Do these well:**
-- Domain model (especially the Sample → LabTest relationship)
-- DB schema for depth series (decide the hybrid strategy before writing ORM models)
-- Clean architecture separation (domain must never import infrastructure)
-- Job system with proper audit trail (critical for engineering traceability)
-- Logging at every layer (EC7 calculations must be traceable)
+| Phase | Approach |
+|---|---|
+| 1–2 | Pure Python + Polars |
+| 3 | Profile — do not guess |
+| 4 | Replace hotspots: GEF parser (10MB+), Ic classification (100k points), spatial interpolation, export serialisation |
 
-**Avoid:**
-- Deep inheritance trees
-- Premature optimization (no Rust until Phase 4)
-- Tight coupling between layers
-- Designing abstractions before you have felt the pain they solve
-- Leaving the frontend decision open past Phase 2
+Rust will not help: API routing, DB queries, anything I/O-bound.
+
+---
+
+## Export System
+
+See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4. Do not build this until Phase 4 — it expands in complexity the moment you touch a real format.
+
+---
+
+## API Endpoints
+
+```
+POST /jobs/import-cpt
+GET  /jobs/{id}
+GET  /cpt/{id}
+GET  /cpt/{id}/plot
+POST /export/plaxis
+```
+
+The frontend always goes through the API — never directly to domain or DB.
 
 ---
 
 ## Git Workflow
 
-### Commit Format
-
-Use [Conventional Commits](https://www.conventionalcommits.org/). One file per commit.
+### Commit Format — Conventional Commits, one file per commit
 
 ```
-<type>(<scope>): <short description>
-
-[optional body]
+<type>(<scope>): <description>
 ```
 
-**Types:**
-| Type | When to use |
+| Type | Use |
 |---|---|
-| `feat` | New feature or capability |
-| `fix` | Bug fix |
-| `docs` | Documentation only |
-| `refactor` | Code restructure, no behaviour change |
-| `test` | Adding or updating tests |
-| `chore` | Config, dependencies, build system |
-| `perf` | Performance improvement |
+| `feat` | new feature |
+| `fix` | bug fix |
+| `docs` | documentation |
+| `refactor` | restructure, no behaviour change |
+| `test` | tests |
+| `chore` | config, dependencies, build |
+| `perf` | performance |
 
-**Scope** — the layer or module affected: `domain`, `api`, `application`, `infrastructure`, `parser`, `db`, `cpt`, `borehole`, `lab`, `shared`, etc.
+Scope: `domain`, `api`, `application`, `infrastructure`, `parser`, `db`, `cpt`, `borehole`, `lab`, `shared`
 
-**Rules:**
-- One file per commit — stage and commit files individually
-- Present tense, lowercase, no trailing period
-- First line max 72 characters
-- Add a body if the why is non-obvious
-
-**Examples:**
-```
-feat(domain): add CPT value object with qc/fs/u2 fields
-fix(parser): handle missing u2 column in GEF files
-refactor(db): switch depth series storage to hybrid array strategy
-test(domain): add Ic classification boundary tests
-chore: add .gitignore for Python and Rust artifacts
-```
-
----
+Rules: present tense, lowercase, no trailing period, ≤ 72 chars on first line.
 
 ### Issue Format
 
-**Title:** `[type] short description` — same types as commits.
+**Title:** `[type] short description`
 
 **Body:**
 ```markdown
 ## Description
-What needs to be done and why.
-
 ## Acceptance Criteria
-- [ ] criterion 1
-- [ ] criterion 2
-
+- [ ] ...
 ## Notes
-Constraints, links, relevant context.
 ```
 
-**Labels** (apply at least one):
-- `feat`, `bug`, `refactor`, `test`, `docs`, `chore`
-- `domain`, `api`, `infrastructure`, `frontend`, `db`, `parser`
-- `phase-0`, `phase-1`, `phase-2`, `phase-3`, `phase-4`
-
----
-
-## API Role
-
-The API is the control layer, not a data pipe. It handles: validation, parsing orchestration, calculation triggers, and job management.
-
-```
-POST /jobs/import-cpt       ← triggers import job
-GET  /jobs/{id}             ← poll job status
-GET  /cpt/{id}              ← retrieve parsed CPT
-GET  /cpt/{id}/plot         ← return plot data
-POST /export/plaxis         ← triggers export job
-```
-
-The frontend never talks directly to the domain or database — always through the API.
+**Labels:** type (`feat`, `bug`, ...) + layer (`domain`, `parser`, ...) + phase (`phase-0` … `phase-4`)
