@@ -167,6 +167,44 @@ cpt_summary (cpt_id, max_depth_m, avg_qc_mpa, location GEOMETRY, ...)
 
 ---
 
+## Code Conventions
+
+### One class per file
+Every class lives in its own `.py` file named after the class in `snake_case`. The only exception is `shared/exceptions.py`, where the full exception hierarchy is grouped by convention.
+
+### Constants in a dedicated file
+Module-level constants (lookup dicts, conversion factors, magic numbers) belong in a `*_constants.py` file alongside the classes that use them (e.g. `gef_constants.py` next to `gef_parser.py`). Never define constants at the top of a class file.
+
+### Logging via inheritance — not module-level loggers
+All service and logic classes inherit `GroundModelLogger` from `groundmodel.shared.logging.ground_model_logger`.
+
+```python
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+class MyService(GroundModelLogger):
+    def __init__(self) -> None:
+        super().__init__(__name__)   # logger name = module path
+
+    def do_work(self) -> None:
+        self.debug("starting")
+        self.success("done")
+```
+
+**Who inherits:** parsers, exporters, services, queue implementations, any class with non-trivial logic.
+
+**Who does NOT inherit:** dataclasses, frozen value objects, enums, exception classes. These hold data — they don't act, so they don't log.
+
+When a class already inherits from an ABC or another base, use multiple inheritance — `GroundModelLogger` goes first:
+
+```python
+class BaseExporter(GroundModelLogger, ABC): ...
+class TaskQueue(GroundModelLogger, ABC): ...
+```
+
+Concrete subclasses always call `super().__init__(__name__)` with their own `__name__` so the logger reflects the correct module.
+
+---
+
 ## Logging
 
 Three files under `shared/logging/` — see source for full implementation.
