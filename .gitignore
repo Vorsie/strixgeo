@@ -1,0 +1,114 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+.eggs/
+*.whl
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+!.env.example
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# mypy / ruff / pyright
+.mypy_cache/
+.ruff_cache/
+pyrightconfig.json
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Distribution / packaging
+*.manifest
+*.spec
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+*.sqlite
+
+# Alembic
+# Keep alembic.ini and migrations/ tracked, exclude local overrides
+alembic.ini.local
+
+# Docker
+.docker/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Rust (PyO3 extension)
+target/
+Cargo.lock
+*.pdb
+
+# Node / frontend (React + Electron)
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+dist/
+out/
+.next/
+.nuxt/
+.cache/
+
+# Build artifacts
+*.wasm
+*.node
+
+# Secrets / credentials
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# OS
+.DS_Store
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Claude Code
+.claude/settings.local.json
