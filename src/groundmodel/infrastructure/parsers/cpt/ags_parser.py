@@ -1,11 +1,12 @@
 """AGS format CPT parser (stub — Phase 2)."""
-from groundmodel.shared.logging.logger_factory import LoggerFactory
-
-logger = LoggerFactory.get_logger(__name__)
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
-class AGSParser:
+class AGSParser(GroundModelLogger):
     """Parser for the AGS4 geotechnical data exchange format."""
+
+    def __init__(self) -> None:
+        super().__init__(__name__)
 
     def parse(self, content: str) -> list:
         """Parse AGS4 text content into a list of records.
