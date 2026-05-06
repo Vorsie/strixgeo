@@ -314,6 +314,7 @@ class GEFParser(GroundModelLogger):
             self._check_rf_range(df),
             self._check_qc_spikes(df),
             self._check_hybrid_method(df),
+            self._check_partial_u2(header, df, cpt_type),
         ]
         issues = [issue for group in checks for issue in group]
         for issue in issues:
@@ -462,4 +463,21 @@ class GEFParser(GroundModelLogger):
             ValidationLevel.WARNING, "HYBRID_METHOD",
             f"Depth increment changes significantly{depth_str} — likely combines multiple test "
             "methods (e.g. electric then mechanical); interpret segments separately",
+        )]
+
+    def _check_partial_u2(
+        self, header: GEFHeader, df: pl.DataFrame, cpt_type: CPTType
+    ) -> list[ValidationIssue]:
+        if cpt_type != CPTType.CPTU or "u2_mpa" not in df.columns or "depth_m" not in df.columns:
+            return []
+        non_null_indices = df["u2_mpa"].is_not_null().arg_true()
+        if len(non_null_indices) == 0 or int(non_null_indices[0]) == 0:
+            return []
+        first_u2_depth = df["depth_m"][int(non_null_indices[0])]
+        if first_u2_depth is None or first_u2_depth <= header.pre_drill_m + 0.5:
+            return []
+        return [ValidationIssue(
+            ValidationLevel.WARNING, "PARTIAL_U2",
+            f"u2 pore pressure only available from {first_u2_depth:.2f} m — "
+            "test likely combines CPTE (dry filter) and CPTU (saturated filter) methods",
         )]
