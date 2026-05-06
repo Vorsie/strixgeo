@@ -1,18 +1,21 @@
+"""Domain and infrastructure exception hierarchy."""
+
+
 class GroundModelError(Exception):
-    pass
+    """Base exception for all ground model errors."""
 
 
 class ParseError(GroundModelError):
-    pass
+    """Raised when a data file cannot be parsed."""
 
 
 class DomainValidationError(GroundModelError):
-    pass
+    """Raised when domain invariants are violated."""
 
 
 class NotFoundError(GroundModelError):
-    pass
+    """Raised when a requested resource does not exist."""
 
 
 class RepositoryError(GroundModelError):
-    pass
+    """Raised on unexpected database or repository failures."""

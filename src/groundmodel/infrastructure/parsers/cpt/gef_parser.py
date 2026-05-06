@@ -1,8 +1,9 @@
+"""GEF-CPT parser — header, data, type detection, unit normalisation, validation."""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 
 import polars as pl
 
@@ -53,13 +54,17 @@ _MVAR_CONE_TYPE = 12        # 0 = electric, 1 = mechanical
 
 
 class CPTType(Enum):
+    """GEF CPT classification by available measurement channels."""
+
     CPTU = "CPTU"     # piezocone: qc + fs + u2
     CPTE = "CPTE"     # electric: qc + fs, no u2
     CPTM = "CPTM"     # mechanical: qc only
     UNKNOWN = "UNKNOWN"
 
 
-class ValidationLevel(str, Enum):
+class ValidationLevel(StrEnum):
+    """Severity of a parse validation issue."""
+
     ERROR = "error"
     WARNING = "warning"
     INFO = "info"
@@ -67,6 +72,8 @@ class ValidationLevel(str, Enum):
 
 @dataclass
 class ValidationIssue:
+    """A single validation finding from GEF parsing."""
+
     level: ValidationLevel
     code: str
     message: str
@@ -75,6 +82,7 @@ class ValidationIssue:
 
 @dataclass
 class GEFHeader:
+    """Parsed GEF file header — metadata, coordinates, column mapping."""
     project_id: str = ""
     test_id: str = ""
     file_date: str = ""
@@ -88,7 +96,8 @@ class GEFHeader:
     z_epsg: int | None = None  # vertical datum from #ZID (e.g. 32001 = Belgian mTAW/NGF)
 
     pre_drill_m: float = 0.0
-    water_depth_m: float | None = None #TODO: water depth in a CPT hole is not reliable, we can use it if there is no other data but piezometer data is preferred we need to keep this in mind when normalizing
+    # TODO: water depth in a CPT hole is not reliable; prefer piezometer data when normalising.
+    water_depth_m: float | None = None
     net_area_ratio: float | None = None
     stop_criterion: int | None = None
     cone_type_code: int | None = None   # 0=electric, 1=mechanical
@@ -105,6 +114,8 @@ class GEFHeader:
 
 @dataclass
 class GEFParseResult:
+    """Result of a GEF parse — header, detected type, data frame, and issues."""
+
     header: GEFHeader
     cpt_type: CPTType
     data: pl.DataFrame
@@ -112,15 +123,36 @@ class GEFParseResult:
 
     @property
     def has_errors(self) -> bool:
+        """Return True if any issue has ERROR severity."""
         return any(i.level == ValidationLevel.ERROR for i in self.issues)
 
     @property
     def warnings(self) -> list[ValidationIssue]:
+        """Return all WARNING-level issues."""
         return [i for i in self.issues if i.level == ValidationLevel.WARNING]
 
 
 class GEFParser:
+    """Parses GEF-CPT files into a validated GEFParseResult with a Polars DataFrame."""
+
     def parse(self, content: str) -> GEFParseResult:
+        """Parse a GEF file string into a validated result.
+
+        Parameters
+        ----------
+        content : str
+            Full GEF file content as a string.
+
+        Returns
+        -------
+        GEFParseResult
+            Parsed header, CPT type, data frame, and validation issues.
+
+        Raises
+        ------
+        ParseError
+            If the file has no #EOH= marker or contains no data rows.
+        """
         lines = content.splitlines()
         header, eoh_index = self._parse_header(lines)
         raw_df = self._parse_data(lines[eoh_index + 1:], header)
@@ -142,6 +174,23 @@ class GEFParser:
         return result
 
     def parse_bytes(self, content: bytes) -> GEFParseResult:
+        """Decode raw bytes and parse, trying UTF-8, Windows-1252, then Latin-1.
+
+        Parameters
+        ----------
+        content : bytes
+            Raw GEF file bytes.
+
+        Returns
+        -------
+        GEFParseResult
+            Parsed header, CPT type, data frame, and validation issues.
+
+        Raises
+        ------
+        ParseError
+            If the bytes cannot be decoded with any supported encoding.
+        """
         for encoding in ("utf-8", "windows-1252", "latin-1"):
             try:
                 return self.parse(content.decode(encoding))
@@ -162,7 +211,9 @@ class GEFParser:
             if ";" in line:
                 line = line[: line.index(";")].strip()
             if line.upper().startswith("#EOH"):
-                logger.debug(f"GEF header: {header.n_columns} columns, EPSG={header.epsg}, z={header.z}")
+                logger.debug(
+                    f"GEF header: {header.n_columns} columns, EPSG={header.epsg}, z={header.z}"
+                )
                 return header, i
             key, _, value = line.partition("=")
             key = key.strip().upper().lstrip("#")
@@ -319,7 +370,10 @@ class GEFParser:
     def _ensure_depth_column(self, df: pl.DataFrame) -> pl.DataFrame:
         if "depth_m" not in df.columns and "length_m" in df.columns:
             df = df.rename({"length_m": "depth_m"})
-            logger.warning("GEF uses penetration length (qty 11) — inclination correction not applied") #TODO: shouldn't we check if there are inclination columns and try to calculate depth if the columns are present and default after that check to length?
+            # TODO: check for inclination columns and apply depth correction before falling back.
+            logger.warning(
+                "GEF uses penetration length (qty 11) — inclination correction not applied"
+            )
         return df
 
     def _calculate_rf(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -340,9 +394,10 @@ class GEFParser:
         if header.cone_type_code == 1:
             return CPTType.CPTM
         qty_nums = set(header.column_map.values())
-        if 6 in qty_nums: #TODO: won't this logic break if there are more or less columns in a different .gef file, maybe check for u measurement and if not present default to CPTE?
+        # TODO: check for u measurement presence rather than relying solely on column count.
+        if 6 in qty_nums:
             return CPTType.CPTU
-        if 3 in qty_nums: #TODO: won't this logic break if there are more or less columns in a different .gef file?
+        if 3 in qty_nums:
             return CPTType.CPTE
         return CPTType.CPTM
 
@@ -385,7 +440,8 @@ class GEFParser:
                 "No elevation (Z) — depth series will be relative only"))
         return issues
 
-    def _check_required_columns( #TODO: we should also check for the presence of fs (and thus rf) for CPTE and CPTU
+    # TODO: also check for presence of fs (and thus Rf) for CPTE and CPTU.
+    def _check_required_columns(
         self, df: pl.DataFrame, cpt_type: CPTType
     ) -> list[ValidationIssue]:
         required = {"depth_m", "qc_mpa"}
@@ -397,12 +453,15 @@ class GEFParser:
             for col in required - set(df.columns)
         ]
 
-    def _check_depth_monotonic(self, df: pl.DataFrame) -> list[ValidationIssue]: #TODO: test if makeing a second array with 1 shifted position and deducting both to find negative values is more performant
+    # TODO: benchmark shifted-array diff vs element-wise loop for large CPTs.
+    def _check_depth_monotonic(self, df: pl.DataFrame) -> list[ValidationIssue]:
         if "depth_m" not in df.columns:
             return []
         depths = df["depth_m"].to_list()
-        bad = [i for i in range(1, len(depths))
-               if depths[i] is not None and depths[i - 1] is not None and depths[i] <= depths[i - 1]]
+        bad = [
+            i for i in range(1, len(depths))
+            if depths[i] is not None and depths[i - 1] is not None and depths[i] <= depths[i - 1]
+        ]
         if bad:
             return [ValidationIssue(ValidationLevel.ERROR, "DEPTH_NOT_MONOTONIC",
                 f"Depth not strictly increasing at {len(bad)} row(s)", rows=bad[:10])]
@@ -412,7 +471,8 @@ class GEFParser:
         issues: list[ValidationIssue] = []
         for col in ("qc_mpa", "fs_mpa"):
             if col in df.columns:
-                n = df.filter(pl.col(col) < 0).height #TODO: explain this .height call, it's not clear what it does'
+                # TODO: document .height — returns row count of the filtered DataFrame.
+                n = df.filter(pl.col(col) < 0).height
                 if n:
                     issues.append(ValidationIssue(ValidationLevel.WARNING, "NEGATIVE_VALUES",
                         f"{n} negative value(s) in '{col}' — possible sensor calibration issue"))
@@ -430,10 +490,13 @@ class GEFParser:
         if "depth_m" not in df.columns:
             return []
         if header.pre_drill_m > 0:
-            n = df.filter(pl.col("depth_m") <= header.pre_drill_m).height #todo: explain this .height call, it's not clear what it does'
+            n = df.filter(pl.col("depth_m") <= header.pre_drill_m).height
             if n:
-                return [ValidationIssue(ValidationLevel.INFO, "PRE_DRILL",
-                    f"{n} row(s) within pre-drill zone (≤{header.pre_drill_m} m) — exclude from interpretation")]
+                return [ValidationIssue(
+                    ValidationLevel.INFO, "PRE_DRILL",
+                    f"{n} row(s) within pre-drill zone (≤{header.pre_drill_m} m)"
+                    " — exclude from interpretation",
+                )]
         else:
             first_depth = df["depth_m"].drop_nulls().first()
             if first_depth is not None and first_depth > 0.5:
@@ -445,12 +508,14 @@ class GEFParser:
         self, header: GEFHeader, cpt_type: CPTType
     ) -> list[ValidationIssue]:
         if cpt_type == CPTType.CPTU and header.net_area_ratio is None:
+            # TODO: add fallback based on standard a-values for common cone sizes.
             return [ValidationIssue(ValidationLevel.WARNING, "NO_NET_AREA_RATIO",
-                "CPTU missing net area ratio (a-value) — Qt correction not possible")] #TODO: can we add a fallback based on standard area ratio's for standard surfaces of cone?
+                "CPTU missing net area ratio (a-value) — Qt correction not possible")]
         return []
 
     def _check_rf_range(self, df: pl.DataFrame) -> list[ValidationIssue]:
-        if "rf_pct" not in df.columns: #TODO: for CPTM we will not have an rf_column, will this check be executed on those?
+        # TODO: CPTM has no Rf column — confirm this guard handles that case correctly.
+        if "rf_pct" not in df.columns:
             return []
         n = df.filter((pl.col("rf_pct") < 0.05) | (pl.col("rf_pct") > 15.0)).height
         if n:

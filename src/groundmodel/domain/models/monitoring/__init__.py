@@ -1,0 +1,1 @@
+"""Monitoring instrument models."""

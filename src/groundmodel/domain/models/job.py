@@ -1,3 +1,4 @@
+"""Job and JobStatus domain models."""
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -7,6 +8,8 @@ from uuid6 import uuid7
 
 
 class JobStatus(Enum):
+    """Lifecycle states for an asynchronous job."""
+
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     DONE = "DONE"
@@ -15,6 +18,7 @@ class JobStatus(Enum):
 
 @dataclass
 class Job:
+    """Asynchronous job — tracks payload, status, and execution logs."""
     type: str
     payload: dict
     id: UUID = field(default_factory=uuid7)

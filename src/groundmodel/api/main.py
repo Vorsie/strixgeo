@@ -1,3 +1,4 @@
+"""FastAPI application entry point."""
 from fastapi import FastAPI
 
 from groundmodel.api.routers import borehole, cpt, jobs
