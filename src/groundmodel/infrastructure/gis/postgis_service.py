@@ -1,8 +1,9 @@
 """PostGIS spatial data service (stub — Phase 1)."""
-from groundmodel.shared.logging.logger_factory import LoggerFactory
-
-logger = LoggerFactory.get_logger(__name__)
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
-class PostGISService:
+class PostGISService(GroundModelLogger):
     """Spatial query and storage service backed by PostGIS."""
+
+    def __init__(self) -> None:
+        super().__init__(__name__)
