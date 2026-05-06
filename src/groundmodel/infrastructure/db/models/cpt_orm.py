@@ -35,18 +35,30 @@ class CptOrm(Base):
     epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
     z_epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # PostGIS geometry (populated on import when CRS is known; NULL otherwise)
+    # PostGIS geometry in the source CRS (same SRID as epsg column).
+    # NULL when the GEF file has no usable EPSG code (NO_EPSG / NO_COORDINATES
+    # validation issues).  We still store the CPT — raw x/y/epsg columns always
+    # capture whatever the file contained, and the parse issues document the gap.
     # spatial_index=False — the migration creates idx_cpt_location explicitly via USING GIST
     location: Mapped[WKBElement | None] = mapped_column(Geometry("POINT", spatial_index=False), nullable=True)
 
     # Cone properties
     pre_drill_m: Mapped[float] = mapped_column(Double, default=0.0)
     water_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+    # Net area ratio (a-value) — parsed directly from GEF MEASUREMENTVAR 3.
+    # No fallback is ever inferred: the a-value is a physical cone property
+    # (manufacturer-stated or calibrated) and must not be invented.  Using the
+    # wrong value corrupts the qt and Bq corrections used in EC7 soil
+    # classification.  Absence is flagged by the NO_NET_AREA_RATIO warning.
     cone_area_ratio: Mapped[float | None] = mapped_column(Double, nullable=True)
     cone_type_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stop_criterion: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Denormalised summary (avoids loading full arrays for list queries)
+    # Denormalised summary — lets spatial / cross-CPT queries filter by depth or
+    # soil stiffness without loading the full series arrays (which can be 10k+
+    # floats per CPT).  avg_qc_mpa is a rough proxy for overall soil resistance
+    # useful for map-layer colouring and filtering ("show CPTs with avg qc > 5 MPa
+    # in this area").  Precise profile analysis always goes back to the full arrays.
     max_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)
     avg_qc_mpa: Mapped[float | None] = mapped_column(Double, nullable=True)
     n_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
