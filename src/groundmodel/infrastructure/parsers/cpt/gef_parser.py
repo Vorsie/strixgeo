@@ -84,10 +84,11 @@ class GEFHeader:
     x: float | None = None
     y: float | None = None
     z: float | None = None
-    epsg: int | None = None
+    epsg: int | None = None    # horizontal CRS from #XYID (e.g. 32000 = Belgian Lambert 72)
+    z_epsg: int | None = None  # vertical datum from #ZID (e.g. 32001 = Belgian mTAW/NGF)
 
     pre_drill_m: float = 0.0
-    water_depth_m: float | None = None
+    water_depth_m: float | None = None #TODO: water depth in a CPT hole is not reliable, we can use it if there is no other data but piezometer data is preferred we need to keep this in mind when normalizing
     net_area_ratio: float | None = None
     stop_criterion: int | None = None
     cone_type_code: int | None = None   # 0=electric, 1=mechanical
@@ -229,6 +230,8 @@ class GEFParser:
 
     def _parse_zid(self, header: GEFHeader, value: str) -> None:
         parts = [p.strip() for p in value.split(",")]
+        if len(parts) >= 1 and parts[0]:
+            header.z_epsg = int(parts[0])
         if len(parts) >= 2 and parts[1]:
             header.z = float(parts[1])
 
@@ -316,7 +319,7 @@ class GEFParser:
     def _ensure_depth_column(self, df: pl.DataFrame) -> pl.DataFrame:
         if "depth_m" not in df.columns and "length_m" in df.columns:
             df = df.rename({"length_m": "depth_m"})
-            logger.warning("GEF uses penetration length (qty 11) — inclination correction not applied")
+            logger.warning("GEF uses penetration length (qty 11) — inclination correction not applied") #TODO: shouldn't we check if there are inclination columns and try to calculate depth if the columns are present and default after that check to length?
         return df
 
     def _calculate_rf(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -337,9 +340,9 @@ class GEFParser:
         if header.cone_type_code == 1:
             return CPTType.CPTM
         qty_nums = set(header.column_map.values())
-        if 6 in qty_nums:
+        if 6 in qty_nums: #TODO: won't this logic break if there are more or less columns in a different .gef file, maybe check for u measurement and if not present default to CPTE?
             return CPTType.CPTU
-        if 3 in qty_nums:
+        if 3 in qty_nums: #TODO: won't this logic break if there are more or less columns in a different .gef file?
             return CPTType.CPTE
         return CPTType.CPTM
 
@@ -382,7 +385,7 @@ class GEFParser:
                 "No elevation (Z) — depth series will be relative only"))
         return issues
 
-    def _check_required_columns(
+    def _check_required_columns( #TODO: we should also check for the presence of fs (and thus rf) for CPTE and CPTU
         self, df: pl.DataFrame, cpt_type: CPTType
     ) -> list[ValidationIssue]:
         required = {"depth_m", "qc_mpa"}
@@ -394,7 +397,7 @@ class GEFParser:
             for col in required - set(df.columns)
         ]
 
-    def _check_depth_monotonic(self, df: pl.DataFrame) -> list[ValidationIssue]:
+    def _check_depth_monotonic(self, df: pl.DataFrame) -> list[ValidationIssue]: #TODO: test if makeing a second array with 1 shifted position and deducting both to find negative values is more performant
         if "depth_m" not in df.columns:
             return []
         depths = df["depth_m"].to_list()
@@ -409,7 +412,7 @@ class GEFParser:
         issues: list[ValidationIssue] = []
         for col in ("qc_mpa", "fs_mpa"):
             if col in df.columns:
-                n = df.filter(pl.col(col) < 0).height
+                n = df.filter(pl.col(col) < 0).height #TODO: explain this .height call, it's not clear what it does'
                 if n:
                     issues.append(ValidationIssue(ValidationLevel.WARNING, "NEGATIVE_VALUES",
                         f"{n} negative value(s) in '{col}' — possible sensor calibration issue"))
@@ -427,7 +430,7 @@ class GEFParser:
         if "depth_m" not in df.columns:
             return []
         if header.pre_drill_m > 0:
-            n = df.filter(pl.col("depth_m") <= header.pre_drill_m).height
+            n = df.filter(pl.col("depth_m") <= header.pre_drill_m).height #todo: explain this .height call, it's not clear what it does'
             if n:
                 return [ValidationIssue(ValidationLevel.INFO, "PRE_DRILL",
                     f"{n} row(s) within pre-drill zone (≤{header.pre_drill_m} m) — exclude from interpretation")]
@@ -443,11 +446,11 @@ class GEFParser:
     ) -> list[ValidationIssue]:
         if cpt_type == CPTType.CPTU and header.net_area_ratio is None:
             return [ValidationIssue(ValidationLevel.WARNING, "NO_NET_AREA_RATIO",
-                "CPTU missing net area ratio (a-value) — Qt correction not possible")]
+                "CPTU missing net area ratio (a-value) — Qt correction not possible")] #TODO: can we add a fallback based on standard area ratio's for standard surfaces of cone?
         return []
 
     def _check_rf_range(self, df: pl.DataFrame) -> list[ValidationIssue]:
-        if "rf_pct" not in df.columns:
+        if "rf_pct" not in df.columns: #TODO: for CPTM we will not have an rf_column, will this check be executed on those?
             return []
         n = df.filter((pl.col("rf_pct") < 0.05) | (pl.col("rf_pct") > 15.0)).height
         if n:
