@@ -1,4 +1,5 @@
 """Async database engine and session factory."""
+
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -8,6 +9,17 @@ from groundmodel.shared.config import settings
 engine = create_async_engine(settings.database_url, echo=settings.debug)
 
 AsyncSessionFactory = async_sessionmaker(engine, expire_on_commit=False)
+
+
+def get_queue():
+    """Return a ``SynchronousQueue`` wired to the module-level session factory.
+
+    Imported lazily to avoid a circular import between session ↔ queue.
+    Provided as a FastAPI dependency via ``Depends(get_queue)``.
+    """
+    from groundmodel.application.synchronous_queue import SynchronousQueue  # noqa: PLC0415
+
+    return SynchronousQueue(AsyncSessionFactory)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
