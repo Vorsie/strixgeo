@@ -440,6 +440,18 @@ class TestValidationValues:
         result = parser.parse(_gef(data=data))
         assert "QC_SPIKES" in _warning_codes(result)
 
+    def test_hybrid_method_detected_on_step_size_change(self, parser: GEFParser) -> None:
+        # 20 rows at 0.01 m step (electric), then 20 rows at 0.20 m step (mechanical)
+        electric = "".join(f"{0.01 * i:.2f}; 1.0; 0.05\n" for i in range(1, 21))
+        mechanical = "".join(f"{0.20 + 0.20 * i:.2f}; 2.0; 0.08\n" for i in range(20))
+        data = electric + mechanical
+        result = parser.parse(_gef(data=data))
+        assert "HYBRID_METHOD" in _warning_codes(result)
+
+    def test_uniform_step_size_no_hybrid_flag(self, parser: GEFParser) -> None:
+        result = parser.parse(_gef())
+        assert "HYBRID_METHOD" not in _codes(result)
+
 
 # ---------------------------------------------------------------------------
 # parse_bytes
