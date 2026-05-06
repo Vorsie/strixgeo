@@ -116,7 +116,6 @@ class ImportCpt(GroundModelLogger):
             cone_type_code=h.cone_type_code,
             stop_criterion=h.stop_criterion,
             max_depth_m=float(df["depth_m"].max()) if len(df) > 0 else None,
-            avg_qc_mpa=float(df["qc_mpa"].mean()) if len(df) > 0 else None,
             n_rows=len(df),
             series=CptSeriesOrm(
                 cpt_id=cpt_id,
