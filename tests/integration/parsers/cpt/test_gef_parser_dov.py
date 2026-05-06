@@ -102,6 +102,16 @@ def test_all_files_have_no_missing_required_columns(filename: str) -> None:
     assert "MISSING_COLUMN" not in _error_codes(result)
 
 
+@pytest.mark.parametrize("filename", [
+    "1778054387093.gef",
+    "1778056765226.gef",
+    "1778056769825.gef",
+    "1778056773736.gef",
+])
+def test_single_method_files_have_no_hybrid_flag(filename: str) -> None:
+    assert "HYBRID_METHOD" not in _warning_codes(_parse(filename))
+
+
 # ---------------------------------------------------------------------------
 # 1778054387093.gef — CPTE (TE1), GEO-25/122-S22
 # Dual depth/length columns (qty 1 and qty 11), negative fs in top rows.
@@ -272,6 +282,10 @@ class TestCPTM_TM2_GEO13_S5:
     def test_pre_drill_issue_raised(self) -> None:
         # First data row is at 2.20 m = pre-drill depth → rows within zone flagged
         assert "PRE_DRILL" in _codes(_parse(self.FILE))
+
+    def test_hybrid_method_flagged(self) -> None:
+        # Electric portion (0.01 m steps) transitions to mechanical (0.20 m steps) at ~4.60 m
+        assert "HYBRID_METHOD" in _warning_codes(_parse(self.FILE))
 
     def test_total_resistance_voided_only_in_electric_portion(self) -> None:
         import polars as pl
