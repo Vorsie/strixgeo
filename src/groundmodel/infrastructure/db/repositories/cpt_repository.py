@@ -10,7 +10,23 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
 class CptRepository(GroundModelLogger):
-    """Async CRUD operations for CptOrm records."""
+    """Async CRUD operations for CptOrm records.
+
+    Concurrent access is handled at two levels without a message broker:
+
+    * **Connection pool** — SQLAlchemy keeps a pool of connections; each
+      concurrent request gets its own ``AsyncSession`` and its own connection,
+      so they never block each other at the Python layer.
+    * **PostgreSQL MVCC** — the database uses Multi-Version Concurrency Control
+      so reads never block writes and vice-versa.  Conflicting writes on the
+      same row are serialised by PostgreSQL's row-level locking, not by us.
+
+    A message broker (RabbitMQ, Redis Streams) belongs at the *application*
+    layer when you need async task queuing — e.g. processing large batch imports
+    in the background.  The ``TaskQueue`` abstraction in ``application/queue.py``
+    is the hook for that.  The repository itself stays simple: one session, one
+    unit of work.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialise with an active AsyncSession."""
