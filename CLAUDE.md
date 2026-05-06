@@ -16,16 +16,6 @@ Commercial geotechnical data platform targeting EC7 Gen2 compliance. Supports CP
 
 ---
 
-## Maintenance Rules
-
-These apply to every task, without being asked:
-
-- **Keep CLAUDE.md current** — whenever code structure, conventions, or architecture decisions change, update the relevant section of this file in the same commit.
-- **Keep `.claude/settings.local.json` current** — if permissions or hooks are added or changed, the settings file must reflect that.
-- **One file per commit** — stage and commit files individually, following Conventional Commits format.
-
----
-
 ## Architecture
 
 ```
@@ -175,7 +165,7 @@ logger.success("CPT imported: 10,432 rows in 0.3s")
 
 ## GEF Parser
 
-Implemented in `infrastructure/parsers/gef_parser.py`. Handles CPTU, CPTE, CPTM, and UNKNOWN types.
+Implemented in `infrastructure/parsers/cpt/gef_parser.py`. Handles CPTU, CPTE, CPTM, and UNKNOWN types.
 
 **Parsing flow:** header → data → CPT type detection → void masking → column rename → unit normalisation → depth column → Rf calculation → validation → `GEFParseResult`
 
@@ -183,14 +173,21 @@ Implemented in `infrastructure/parsers/gef_parser.py`. Handles CPTU, CPTE, CPTM,
 
 **Validation checks (ValidationLevel: ERROR / WARNING / INFO):**
 - `NO_COORDINATES` / `ZERO_COORDINATES` / `NO_EPSG` / `NO_ELEVATION`
-- `MISSING_COLUMN` (qc required; fs required for CPTU/CPTE)
+- `MISSING_COLUMN` (qc required always; fs and u2 required for CPTU; fs required for CPTE)
 - `DEPTH_NOT_MONOTONIC` — ERROR
 - `NEGATIVE_VALUES` — qc, fs must be ≥ 0
 - `NULL_VALUES` — after void masking
-- `PRE_DRILL` — detected when depth starts > 0.5 m
-- `NO_NET_AREA_RATIO` — WARNING for CPTU without `a` coefficient
-- `RF_OUT_OF_RANGE` — Rf outside 0–10 % is suspicious
-- `QC_SPIKES` — flags outliers > 3 std from rolling median
+- `PRE_DRILL` — detected from MVAR 13, or inferred when first depth > 0.5 m
+- `NO_NET_AREA_RATIO` — WARNING for CPTU without `a` coefficient (MVAR 3)
+- `RF_OUT_OF_RANGE` — Rf outside 0.05–15 % is suspicious
+- `QC_SPIKES` — flags outliers > 5× neighbouring values
+
+**Key MEASUREMENTVAR indices (GEF-CPT-Report standard):**
+- 3 = net area ratio (a-value)
+- 12 = cone type (0=electric, 1=mechanical)
+- 13 = pre-drill depth
+- 14 = groundwater depth
+- 17 = stop criterion
 
 ---
 
@@ -217,13 +214,13 @@ tests/
 
 ## Build Sequence
 
-| Phase | Focus | Weeks |
-|---|---|---|
-| 0 | Parse 10–20 real GEF files; produce data reality doc and first-draft schema | 1–2 |
-| 1 | Thin slice: import GEF → parse → store → plot qc/fs vs depth | 3–6 |
-| 2 | Borehole + samples + lab; job system; EC7 Ic classification | 7–12 |
-| 3 | Real frontend (Electron + React); map; EC7 for consulting use | 13–20 |
-| 4 | Multi-project, accounts, exports, PDF reports, Rust where profiling shows need | ongoing |
+| Phase | Focus |
+|---|---|
+| 0 | Parse real GEF files; data reality doc; first-draft schema |
+| 1 | Thin slice: import GEF → parse → store → plot qc/fs vs depth |
+| 2 | Borehole + samples + lab; job system; EC7 Ic classification |
+| 3 | Real frontend (Electron + React); map; EC7 for consulting use |
+| 4 | Multi-project, accounts, exports, PDF reports, Rust hotspots |
 
 ---
 
@@ -241,7 +238,7 @@ Rust will not help: API routing, DB queries, anything I/O-bound.
 
 ## Export System
 
-See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4. Do not build this until Phase 4 — it expands in complexity the moment you touch a real format.
+See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4. Do not build until Phase 4.
 
 ---
 
@@ -256,41 +253,3 @@ POST /export/plaxis
 ```
 
 The frontend always goes through the API — never directly to domain or DB.
-
----
-
-## Git Workflow
-
-### Commit Format — Conventional Commits, one file per commit
-
-```
-<type>(<scope>): <description>
-```
-
-| Type | Use |
-|---|---|
-| `feat` | new feature |
-| `fix` | bug fix |
-| `docs` | documentation |
-| `refactor` | restructure, no behaviour change |
-| `test` | tests |
-| `chore` | config, dependencies, build |
-| `perf` | performance |
-
-Scope: `domain`, `api`, `application`, `infrastructure`, `parser`, `db`, `cpt`, `borehole`, `lab`, `shared`
-
-Rules: present tense, lowercase, no trailing period, ≤ 72 chars on first line.
-
-### Issue Format
-
-**Title:** `[type] short description`
-
-**Body:**
-```markdown
-## Description
-## Acceptance Criteria
-- [ ] ...
-## Notes
-```
-
-**Labels:** type (`feat`, `bug`, ...) + layer (`domain`, `parser`, ...) + phase (`phase-0` … `phase-4`)
