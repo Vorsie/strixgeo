@@ -1,34 +1,5 @@
-"""Task queue abstraction and synchronous MVP implementation."""
-from abc import ABC, abstractmethod
-from uuid import UUID
+"""Re-export shim — import from task_queue.py and synchronous_queue.py directly."""
+from groundmodel.application.synchronous_queue import SynchronousQueue
+from groundmodel.application.task_queue import TaskQueue
 
-from groundmodel.domain.models.job import Job
-
-
-class TaskQueue(ABC):
-    """Abstract task queue — submit jobs and query their status."""
-
-    @abstractmethod
-    async def enqueue(self, job: Job) -> None:
-        """Submit a job for execution."""
-        ...
-
-    @abstractmethod
-    async def get_status(self, job_id: UUID) -> Job:
-        """Return the current state of job_id."""
-        ...
-
-
-class SynchronousQueue(TaskQueue):
-    """MVP — runs jobs inline, no broker needed."""
-
-    async def enqueue(self, job: Job) -> None:
-        """Execute the job inline and await completion."""
-        await self._execute(job)
-
-    async def get_status(self, job_id: UUID) -> Job:
-        """Not implemented — synchronous queue has no persistent state."""
-        raise NotImplementedError
-
-    async def _execute(self, job: Job) -> None:
-        ...
+__all__ = ["TaskQueue", "SynchronousQueue"]
