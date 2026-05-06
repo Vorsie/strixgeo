@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
-from uuid import UUID, uuid4
+from uuid import UUID
+
+from uuid6 import uuid7
 
 
 @dataclass
@@ -8,4 +10,4 @@ class Sample:
     depth_top_m: float
     depth_base_m: float
     description: str = ""
-    id: UUID = field(default_factory=uuid4)
+    id: UUID = field(default_factory=uuid7)
