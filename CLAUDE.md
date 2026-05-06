@@ -212,45 +212,43 @@ Store raw series as arrays (fast retrieval, Polars-friendly) plus a materialized
 
 ## Logging
 
-```python
-# shared/logging/levels.py
-import logging
+Three files under `shared/logging/`:
 
-TRACE = 5
-SUCCESS = 25
-logging.addLevelName(TRACE, "TRACE")
-logging.addLevelName(SUCCESS, "SUCCESS")
+| File | Purpose |
+|---|---|
+| `levels.py` | Registers TRACE (5) and SUCCESS (25) with the stdlib logging system |
+| `ground_model_logger.py` | `GroundModelLogger` — typed wrapper exposing all standard levels plus `.trace()` and `.success()` |
+| `logger_factory.py` | `LoggerFactory` — singleton configurator, returns `GroundModelLogger` instances |
+
+**Custom levels:**
+- `TRACE = 5` — below DEBUG, for per-row parsing detail and calculation steps
+- `SUCCESS = 25` — between INFO and WARNING, for confirmed successful operations
+
+```python
+# shared/logging/ground_model_logger.py
+class GroundModelLogger:
+    def trace(self, msg: str, *args, **kwargs) -> None: ...
+    def debug(self, msg: str, *args, **kwargs) -> None: ...
+    def info(self, msg: str, *args, **kwargs) -> None: ...
+    def warning(self, msg: str, *args, **kwargs) -> None: ...
+    def error(self, msg: str, *args, **kwargs) -> None: ...
+    def critical(self, msg: str, *args, **kwargs) -> None: ...
+    def success(self, msg: str, *args, **kwargs) -> None: ...
+    def exception(self, msg: str, *args, **kwargs) -> None: ...
 ```
 
 ```python
 # shared/logging/logger_factory.py
 class LoggerFactory:
-    _handlers_configured = False
-
     @classmethod
-    def get_logger(cls, name: str) -> logging.Logger:
-        if not cls._handlers_configured:
-            cls._configure()
-        logger = logging.getLogger(name)
-        cls._add_custom_methods(logger)
-        return logger
+    def get_logger(cls, name: str) -> GroundModelLogger: ...
+```
 
-    @classmethod
-    def _configure(cls):
-        logging.basicConfig(
-            format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-            level=TRACE
-        )
-        cls._handlers_configured = True
-
-    @staticmethod
-    def _add_custom_methods(logger):
-        def trace(msg, *args, **kwargs):
-            logger.log(TRACE, msg, *args, **kwargs)
-        def success(msg, *args, **kwargs):
-            logger.log(SUCCESS, msg, *args, **kwargs)
-        logger.trace = trace
-        logger.success = success
+**Usage everywhere:**
+```python
+logger = LoggerFactory.get_logger(__name__)
+logger.trace("Parsing depth increment 1042")
+logger.success("CPT imported: 10,432 rows in 0.3s")
 ```
 
 **Usage everywhere:**
