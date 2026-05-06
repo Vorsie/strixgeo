@@ -16,6 +16,16 @@ Commercial geotechnical data platform targeting EC7 Gen2 compliance. Supports CP
 
 ---
 
+## Maintenance Rules
+
+These apply to every task, without being asked:
+
+- **Keep CLAUDE.md current** — whenever code structure, conventions, or architecture decisions change, update the relevant section of this file in the same commit.
+- **Keep `.claude/settings.local.json` current** — if permissions or hooks are added or changed, the settings file must reflect that.
+- **One file per commit** — stage and commit files individually, following Conventional Commits format.
+
+---
+
 ## Architecture
 
 ```
@@ -86,7 +96,8 @@ Strix/
 │   │                          run_interpretation.py, queue.py
 │   ├── infrastructure/
 │   │   ├── db/                models/, repositories/, migrations/
-│   │   ├── parsers/           gef_parser.py, ags_parser.py, las_parser.py
+│   │   ├── parsers/
+│   │   │   └── cpt/           gef_parser.py, ags_parser.py, las_parser.py
 │   │   ├── exporters/         base_exporter.py, plaxis_exporter.py, ...
 │   │   ├── gis/               postgis_service.py
 │   │   └── rust/              groundmodel_core/ (Phase 4)
