@@ -5,10 +5,14 @@ from groundmodel.shared.logging.levels import SUCCESS, TRACE
 
 
 class GroundModelLogger:
-    """Typed logger wrapper exposing all standard levels plus TRACE and SUCCESS."""
+    """Typed logger wrapper exposing all standard levels plus TRACE and SUCCESS.
 
-    def __init__(self, logger: logging.Logger) -> None:
-        self._logger = logger
+    Can be used directly via LoggerFactory.get_logger(), or subclassed — subclasses
+    call ``super().__init__(__name__)`` and gain all log methods on ``self``.
+    """
+
+    def __init__(self, logger: logging.Logger | str) -> None:
+        self._logger = logging.getLogger(logger) if isinstance(logger, str) else logger
 
     @property
     def name(self) -> str:
