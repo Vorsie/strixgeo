@@ -313,6 +313,7 @@ class GEFParser(GroundModelLogger):
             self._check_net_area_ratio(header, cpt_type),
             self._check_rf_range(df),
             self._check_qc_spikes(df),
+            self._check_hybrid_method(df),
         ]
         issues = [issue for group in checks for issue in group]
         for issue in issues:
@@ -433,3 +434,32 @@ class GEFParser(GroundModelLogger):
             return [ValidationIssue(ValidationLevel.WARNING, "QC_SPIKES",
                 f"{len(spikes)} possible qc spike(s) (>5× neighbouring values)", rows=spikes[:10])]
         return []
+
+    def _check_hybrid_method(self, df: pl.DataFrame) -> list[ValidationIssue]:
+        if "depth_m" not in df.columns:
+            return []
+        depths = df["depth_m"].drop_nulls()
+        if len(depths) < 20:
+            return []
+        diffs = depths.diff().drop_nulls()
+        pos_diffs = diffs.filter(diffs > 0)
+        if len(pos_diffs) < 10:
+            return []
+        p10 = pos_diffs.quantile(0.10)
+        p90 = pos_diffs.quantile(0.90)
+        if p10 is None or p10 <= 0 or p90 is None or p90 / p10 <= 10:
+            return []
+        step_threshold = p10 * 5
+        depths_list = depths.to_list()
+        diffs_list = diffs.to_list()
+        transition_depth: float | None = None
+        for i, d in enumerate(diffs_list):
+            if d is not None and d > step_threshold:
+                transition_depth = depths_list[i + 1] if i + 1 < len(depths_list) else None
+                break
+        depth_str = f" near {transition_depth:.2f} m" if transition_depth is not None else ""
+        return [ValidationIssue(
+            ValidationLevel.WARNING, "HYBRID_METHOD",
+            f"Depth increment changes significantly{depth_str} — likely combines multiple test "
+            "methods (e.g. electric then mechanical); interpret segments separately",
+        )]
