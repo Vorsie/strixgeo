@@ -16,7 +16,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Only autogenerate against tables defined in our metadata — ignore PostGIS/Tiger tables.
+# Importing the models above registers each ORM class on Base.metadata.
+# target_metadata.tables is a dict of {table_name: Table object}.
+# We extract just the names so the include_name callback below can compare them.
+# This prevents Alembic from treating the PostGIS Tiger geocoder tables
+# (which live in the 'tiger' schema but are visible to autogenerate) as
+# "tables we need to drop".
 _our_tables = {t.name for t in target_metadata.tables.values()}
 
 
