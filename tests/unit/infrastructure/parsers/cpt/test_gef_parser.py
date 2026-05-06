@@ -454,6 +454,61 @@ class TestValidationValues:
 
 
 # ---------------------------------------------------------------------------
+# Validation — partial u2
+# ---------------------------------------------------------------------------
+
+class TestValidationPartialU2:
+    _CPTU_HEADER = (
+        "#TESTID= CPT-01\n"
+        "#XYID= 32000, 200000.0, 100000.0\n"
+        "#ZID= 32001, 5.0\n"
+        "#COLUMN= 4\n"
+        "#COLUMNINFO= 1, m, depth, 1\n"
+        "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+        "#COLUMNINFO= 3, MPa, sleeve friction, 3\n"
+        "#COLUMNINFO= 4, MPa, pore pressure u2, 6\n"
+        "#COLUMNVOID= 4, -9999.0\n"
+        "#MEASUREMENTVAR= 3, 0.80\n"
+    )
+
+    def test_partial_u2_flagged_when_u2_starts_deep(self, parser: GEFParser) -> None:
+        # First 10 rows: u2 void; last 10 rows: u2 real — transition at 1.00 m
+        data = "".join(
+            f"{0.10 * i:.2f}; 1.0; 0.05; -9999.0\n" for i in range(1, 11)
+        ) + "".join(
+            f"{1.00 + 0.10 * i:.2f}; 1.0; 0.05; 0.02\n" for i in range(10)
+        )
+        result = parser.parse(_gef(header=self._CPTU_HEADER, data=data))
+        assert "PARTIAL_U2" in _warning_codes(result)
+
+    def test_no_partial_u2_when_u2_present_from_start(self, parser: GEFParser) -> None:
+        data = "0.10; 1.0; 0.05; 0.02\n0.20; 1.5; 0.06; 0.02\n0.30; 2.0; 0.07; 0.02\n"
+        result = parser.parse(_gef(header=self._CPTU_HEADER, data=data))
+        assert "PARTIAL_U2" not in _codes(result)
+
+    def test_no_partial_u2_when_u2_void_only_in_predrill_zone(self, parser: GEFParser) -> None:
+        header = self._CPTU_HEADER + "#MEASUREMENTVAR= 13, 0.5\n"
+        # u2 void up to 0.60 m (just past the 0.5 m pre-drill + 0.5 m tolerance)
+        data = "".join(
+            f"{0.10 * i:.2f}; 1.0; 0.05; -9999.0\n" for i in range(1, 7)
+        ) + "".join(
+            f"{0.60 + 0.10 * i:.2f}; 1.0; 0.05; 0.02\n" for i in range(5)
+        )
+        result = parser.parse(_gef(header=header, data=data))
+        assert "PARTIAL_U2" not in _codes(result)
+
+    def test_no_partial_u2_for_cpte(self, parser: GEFParser) -> None:
+        result = parser.parse(_gef())
+        assert "PARTIAL_U2" not in _codes(result)
+
+    def test_no_partial_u2_when_u2_entirely_void(self, parser: GEFParser) -> None:
+        # All u2 void — NULL_VALUES covers this; PARTIAL_U2 should not fire
+        data = "0.10; 1.0; 0.05; -9999.0\n0.20; 1.5; 0.06; -9999.0\n0.30; 2.0; 0.07; -9999.0\n"
+        result = parser.parse(_gef(header=self._CPTU_HEADER, data=data))
+        assert "PARTIAL_U2" not in _codes(result)
+
+
+# ---------------------------------------------------------------------------
 # parse_bytes
 # ---------------------------------------------------------------------------
 
