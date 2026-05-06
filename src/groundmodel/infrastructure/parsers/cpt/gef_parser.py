@@ -44,12 +44,12 @@ _UNIT_TO_MPA: dict[str, float] = {
 
 _PRESSURE_COLUMNS = {"qc_mpa", "fs_mpa", "u1_mpa", "u2_mpa", "u3_mpa", "qt_mpa", "qn_mpa"}
 
-# #MEASUREMENTVAR indices
-_MVAR_PRE_DRILL = 13
-_MVAR_STOP_CRITERION = 14
-_MVAR_WATER_DEPTH = 16
-_MVAR_NET_AREA_RATIO = 20
-_MVAR_CONE_TYPE = 41
+# #MEASUREMENTVAR indices (GEF-CPT-Report standard)
+_MVAR_PRE_DRILL = 13        # DIEPTE PUT — pit/pre-drill depth
+_MVAR_WATER_DEPTH = 14      # DIEPTE GRONDWATER — groundwater depth
+_MVAR_STOP_CRITERION = 17   # Stop criteria
+_MVAR_NET_AREA_RATIO = 3    # Net surface area quotient of cone tip (a-value)
+_MVAR_CONE_TYPE = 12        # 0 = electric, 1 = mechanical
 
 
 class CPTType(Enum):
@@ -239,14 +239,14 @@ class GEFParser:
         var_num = int(parts[0])
         val = parts[1]
         match var_num:
-            case _ if var_num == _MVAR_PRE_DRILL:
-                header.pre_drill_m = float(val)
-            case _ if var_num == _MVAR_STOP_CRITERION:
-                header.stop_criterion = int(float(val))
-            case _ if var_num == _MVAR_WATER_DEPTH:
-                header.water_depth_m = float(val)
             case _ if var_num == _MVAR_NET_AREA_RATIO:
                 header.net_area_ratio = float(val)
+            case _ if var_num == _MVAR_PRE_DRILL:
+                header.pre_drill_m = float(val)
+            case _ if var_num == _MVAR_WATER_DEPTH:
+                header.water_depth_m = float(val)
+            case _ if var_num == _MVAR_STOP_CRITERION:
+                header.stop_criterion = int(float(val))
             case _ if var_num == _MVAR_CONE_TYPE:
                 header.cone_type_code = int(float(val))
 
@@ -424,11 +424,18 @@ class GEFParser:
         ]
 
     def _check_pre_drill(self, header: GEFHeader, df: pl.DataFrame) -> list[ValidationIssue]:
-        if header.pre_drill_m > 0 and "depth_m" in df.columns:
+        if "depth_m" not in df.columns:
+            return []
+        if header.pre_drill_m > 0:
             n = df.filter(pl.col("depth_m") <= header.pre_drill_m).height
             if n:
                 return [ValidationIssue(ValidationLevel.INFO, "PRE_DRILL",
                     f"{n} row(s) within pre-drill zone (≤{header.pre_drill_m} m) — exclude from interpretation")]
+        else:
+            first_depth = df["depth_m"].drop_nulls().first()
+            if first_depth is not None and first_depth > 0.5:
+                return [ValidationIssue(ValidationLevel.INFO, "PRE_DRILL",
+                    f"Data starts at {first_depth:.2f} m — likely pre-drilled but MVAR 13 not set")]
         return []
 
     def _check_net_area_ratio(
