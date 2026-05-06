@@ -113,6 +113,7 @@ $RECYCLE.BIN/
 # Claude Code
 .claude/settings.local.json
 CLAUDE.md
+CLAUDE.local.md
 
 # Python version manager
 .python-version
