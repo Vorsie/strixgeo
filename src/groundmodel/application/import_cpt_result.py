@@ -8,7 +8,19 @@ from groundmodel.infrastructure.parsers.cpt.validation.validation_level import V
 
 @dataclass
 class ImportCptResult:
-    """Outcome of a single CPT import — ID and parse issues."""
+    """Outcome of a single CPT import.
+
+    Returned by ``ImportCpt.execute()``.  The CPT is always persisted even when
+    ``has_errors`` is True — callers decide whether to surface or suppress the
+    record based on their context.
+
+    Attributes
+    ----------
+    cpt_id : UUID
+        UUID7 of the newly created ``CptOrm`` row.
+    issues : list[ValidationIssue]
+        All parse findings (ERROR, WARNING, INFO) from the GEF parser.
+    """
 
     cpt_id: UUID
     issues: list[ValidationIssue]
