@@ -8,4 +8,4 @@ app = FastAPI(title="Ground Model Platform", version="0.1.0")
 
 app.include_router(cpt.router)
 app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
-app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
+app.include_router(jobs.router)
