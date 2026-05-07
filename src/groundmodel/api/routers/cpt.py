@@ -15,6 +15,7 @@ from groundmodel.api.schemas.cpt_response import CptResponse
 from groundmodel.api.schemas.import_cpt_response import ImportCptResponse
 from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.import_cpt import ImportCpt
+from groundmodel.domain.services.cpt_interpretation import calculate_ic_series
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.exceptions import DuplicateCptError, ParseError
@@ -212,6 +213,8 @@ async def get_cpt_plot(
             detail="Series data not found for this CPT",
         )
 
+    ic = calculate_ic_series(s.qc_mpa, s.rf_pct) if s.rf_pct is not None else None
+
     return CptPlotResponse(
         cpt_id=cpt.id,
         depths_m=s.depths_m,
@@ -220,4 +223,5 @@ async def get_cpt_plot(
         u2_mpa=s.u2_mpa,
         rf_pct=s.rf_pct,
         qt_mpa=s.qt_mpa,
+        ic=ic,
     )
