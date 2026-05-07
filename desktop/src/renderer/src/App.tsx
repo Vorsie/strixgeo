@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Map, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import { api, setBaseUrl } from './api/client'
 import type { CptListItem, CptResponse, CptPlotResponse } from './api/client'
 import Toolbar from './components/Toolbar'
@@ -171,7 +171,7 @@ export default function App() {
           {selectedId && (
             <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-200 bg-gray-50">
               <ViewTab
-                icon={<Map size={13} />}
+                icon={<MapIcon size={13} />}
                 label="Map"
                 active={view === 'map'}
                 onClick={() => setView('map')}
