@@ -64,22 +64,48 @@ class ImportCpt(GroundModelLogger):
         self.info(f"Importing CPT: {file_path.name}")
         content = file_path.read_bytes()
         result = self._parse(file_path, content)
+        name = result.header.test_id.strip() or file_path.stem
+        return await self.persist(result, name, app_project_id)
 
+    async def persist(
+        self, result: GEFParseResult, name: str, app_project_id: UUID | None = None
+    ) -> ImportCptResult:
+        """Validate and persist an already-parsed CPT result.
+
+        Parameters
+        ----------
+        result : GEFParseResult
+            Parsed CPT data (from GEFParser, DovParser, or any other source).
+        name : str
+            Display name for the CPT record.
+        app_project_id : UUID | None
+            Project scope for duplicate detection and storage.
+
+        Returns
+        -------
+        ImportCptResult
+            UUID of the saved CPT and the list of parse validation issues.
+
+        Raises
+        ------
+        ParseError
+            If XY coordinates or EPSG code are missing.
+        DuplicateCptError
+            If a CPT with the same project_id + test_id already exists in this project.
+        """
         h = result.header
 
         # Location is mandatory — a CPT without a CRS-tagged position cannot be placed
         # on a map or used in spatial queries.
         if h.x is None or h.y is None:
-            raise ParseError(f"Cannot import '{file_path.name}': XY coordinates are required")
+            raise ParseError(f"Cannot import '{name}': XY coordinates are required")
         if h.epsg is None:
             raise ParseError(
-                f"Cannot import '{file_path.name}': EPSG code is required"
-                " when coordinates are present"
+                f"Cannot import '{name}': EPSG code is required when coordinates are present"
             )
 
-        # Duplicate guard: only when the GEF file has both contract number and test number
-        # (GEF: opdrachtnummer + proefnummer). Scoped to app_project_id so the same file
-        # can be imported into different projects.
+        # Duplicate guard scoped to app_project_id so the same CPT can be imported into
+        # different projects. project_id + test_id uniquely identify a CPT within its source.
         if h.project_id and h.test_id:
             existing = await self._repo.find_by_project_test(
                 h.project_id, h.test_id, app_project_id
@@ -92,7 +118,7 @@ class ImportCpt(GroundModelLogger):
                 )
 
         cpt_id: UUID = uuid7()
-        cpt_orm = self._to_orm(cpt_id, file_path, result, app_project_id)
+        cpt_orm = self._to_orm(cpt_id, name, result, app_project_id)
 
         await self._repo.save(cpt_orm)
         await self._session.commit()
@@ -123,7 +149,7 @@ class ImportCpt(GroundModelLogger):
     # ------------------------------------------------------------------
 
     def _to_orm(
-        self, cpt_id: UUID, file_path: Path, result: GEFParseResult, app_project_id: UUID | None
+        self, cpt_id: UUID, name: str, result: GEFParseResult, app_project_id: UUID | None
     ) -> CptOrm:
         h = result.header
         df = result.data
@@ -131,7 +157,7 @@ class ImportCpt(GroundModelLogger):
         return CptOrm(
             id=cpt_id,
             app_project_id=app_project_id,
-            name=h.test_id.strip() or file_path.stem,
+            name=name,
             cpt_type=result.cpt_type.value,
             project_id=h.project_id,
             test_id=h.test_id,
