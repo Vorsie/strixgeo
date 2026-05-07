@@ -133,7 +133,9 @@ class ImportCpt(GroundModelLogger):
         cpt_id: UUID = uuid7()
         cpt_orm = self._to_orm(cpt_id, name, result, app_project_id)
 
-        await self._repo.save(cpt_orm)
+        # In batch mode (commit=False) skip the per-row flush too — the final
+        # commit will batch all INSERTs into one network exchange.
+        await self._repo.save(cpt_orm, flush=commit)
         if commit:
             await self._session.commit()
 

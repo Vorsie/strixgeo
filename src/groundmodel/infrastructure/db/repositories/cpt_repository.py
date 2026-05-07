@@ -34,11 +34,21 @@ class CptRepository(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
-    async def save(self, cpt: CptOrm) -> None:
-        """Persist a new or updated CPT (including its series)."""
+    async def save(self, cpt: CptOrm, *, flush: bool = True) -> None:
+        """Persist a new or updated CPT (including its series).
+
+        Parameters
+        ----------
+        flush : bool
+            When True (default), flush the INSERT to PostgreSQL immediately so the
+            CPT id round-trips to the DB. Bulk callers should pass False — flushing
+            per-row burns one network round-trip per CPT (200 rows = 200 trips);
+            batching with a single commit at the end sends them in one go.
+        """
         self._session.add(cpt)
-        await self._session.flush()
-        self.success(f"CPT saved: {cpt.id} — {cpt.name}")
+        if flush:
+            await self._session.flush()
+            self.success(f"CPT saved: {cpt.id} — {cpt.name}")
 
     async def get_by_id(self, cpt_id: UUID) -> CptOrm | None:
         """Return a CPT with its series loaded, or None if not found."""
