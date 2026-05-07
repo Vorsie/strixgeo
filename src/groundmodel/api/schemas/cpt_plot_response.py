@@ -39,3 +39,4 @@ class CptPlotResponse(BaseModel):
     u2_mpa: list[float | None] | None
     rf_pct: list[float | None] | None
     qt_mpa: list[float | None] | None
+    ic: list[float | None] | None
