@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "uuid6>=2.0",
     "geoalchemy2>=0.15",
+    "python-multipart>=0.0.27",
 ]
 
 [dependency-groups]
