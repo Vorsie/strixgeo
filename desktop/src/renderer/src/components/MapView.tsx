@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import type { CptListItem, CptResponse } from '../api/client'
 import { lambertToWgs84 } from '../hooks/useWgs84'
 import { useEffect } from 'react'
+import BboxDrawer from './BboxDrawer'
 
 // Leaflet's default icon path breaks with bundlers — point to CDN instead.
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
@@ -27,6 +28,9 @@ interface Props {
   selectedId: string | null
   detailMap: Map<string, CptResponse>
   onSelect: (id: string) => void
+  drawMode?: boolean
+  onBboxDrawn?: (west: number, south: number, east: number, north: number) => void
+  onCancelDraw?: () => void
 }
 
 function FlyToSelected({ cpts, selectedId, detailMap }: Omit<Props, 'onSelect'>) {
@@ -45,7 +49,15 @@ function FlyToSelected({ cpts, selectedId, detailMap }: Omit<Props, 'onSelect'>)
   return null
 }
 
-export default function MapView({ cpts, selectedId, detailMap, onSelect }: Props) {
+export default function MapView({
+  cpts,
+  selectedId,
+  detailMap,
+  onSelect,
+  drawMode = false,
+  onBboxDrawn,
+  onCancelDraw,
+}: Props) {
   // Belgium center as default
   const defaultCenter: [number, number] = [50.85, 4.35]
 
@@ -70,6 +82,12 @@ export default function MapView({ cpts, selectedId, detailMap, onSelect }: Props
       />
 
       <FlyToSelected cpts={cpts} selectedId={selectedId} detailMap={detailMap} />
+
+      <BboxDrawer
+        active={drawMode}
+        onBboxDrawn={onBboxDrawn ?? (() => {})}
+        onCancel={onCancelDraw ?? (() => {})}
+      />
 
       {markers.map(m => (
         <Marker

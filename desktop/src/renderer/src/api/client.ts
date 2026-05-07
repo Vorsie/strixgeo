@@ -38,6 +38,13 @@ export interface ImportCptResponse {
   issues: { level: string; code: string; message: string; rows: number[] }[]
 }
 
+export interface ImportDovResponse {
+  imported: number
+  duplicates: number
+  failed: number
+  cpt_ids: string[]
+}
+
 export class DuplicateCptError extends Error {
   cptId: string
   constructor(cptId: string) {
@@ -74,6 +81,19 @@ export const api = {
     plot: (id: string): Promise<CptPlotResponse> => get(`/cpt/${id}/plot`),
 
     delete: (id: string): Promise<void> => del(`/cpt/${id}`),
+
+    importDov: async (
+      bbox: { west: number; south: number; east: number; north: number },
+      projectId?: string,
+    ): Promise<ImportDovResponse> => {
+      const res = await fetch(`${_base}/cpt/import-dov`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...bbox, project_id: projectId ?? null }),
+      })
+      if (!res.ok) throw new Error(`DOV import failed: ${res.status}`)
+      return res.json()
+    },
 
     import: async (filePath: string, projectId?: string): Promise<ImportCptResponse> => {
       // Read via IPC — fetch('file://') is blocked in the renderer sandbox.

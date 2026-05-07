@@ -42,6 +42,8 @@ export default function App() {
   const [plotMap, setPlotMap] = useState<Map<string, CptPlotResponse>>(new Map())
   const [view, setView] = useState<View>('map')
   const [importing, setImporting] = useState(false)
+  const [drawingBbox, setDrawingBbox] = useState(false)
+  const [dovImporting, setDovImporting] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
 
@@ -165,6 +167,46 @@ export default function App() {
   }, [project, refreshList, loadChart])
 
   // ---------------------------------------------------------------------------
+  // DOV import
+  // ---------------------------------------------------------------------------
+
+  const handleImportDov = useCallback(() => {
+    setView('map')
+    setDrawingBbox(true)
+  }, [])
+
+  const handleBboxDrawn = useCallback(
+    async (west: number, south: number, east: number, north: number) => {
+      if (!project) return
+      setDrawingBbox(false)
+      setDovImporting(true)
+      try {
+        const result = await api.cpt.importDov({ west, south, east, north }, project.id)
+        const parts: string[] = []
+        if (result.imported > 0) parts.push(`${result.imported} imported`)
+        if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
+        if (result.failed > 0) parts.push(`${result.failed} failed`)
+        toast(
+          result.failed > 0 && result.imported === 0 ? 'error' : 'success',
+          parts.join(', ') || 'No CPTs found in this area',
+        )
+        await refreshList()
+        if (result.imported === 1 && result.cpt_ids.length > 0) {
+          const id = result.cpt_ids[0]
+          setSelectedId(id)
+          await loadChart(id)
+          setView('chart')
+        }
+      } catch {
+        toast('error', 'DOV import failed')
+      } finally {
+        setDovImporting(false)
+      }
+    },
+    [project, refreshList, loadChart],
+  )
+
+  // ---------------------------------------------------------------------------
   // Delete
   // ---------------------------------------------------------------------------
 
@@ -224,7 +266,12 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-white overflow-hidden">
-      <Toolbar onImportCpt={handleImportCpt} importing={importing} />
+      <Toolbar
+            onImportCpt={handleImportCpt}
+            onImportDov={handleImportDov}
+            importing={importing || dovImporting}
+            drawingBbox={drawingBbox}
+          />
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
@@ -245,7 +292,15 @@ export default function App() {
 
           <div className="flex-1 overflow-hidden">
             {view === 'map' || !selectedId ? (
-              <MapView cpts={cpts} selectedId={selectedId} detailMap={detailMap} onSelect={handleSelect} />
+              <MapView
+                    cpts={cpts}
+                    selectedId={selectedId}
+                    detailMap={detailMap}
+                    onSelect={handleSelect}
+                    drawMode={drawingBbox}
+                    onBboxDrawn={handleBboxDrawn}
+                    onCancelDraw={() => setDrawingBbox(false)}
+                  />
             ) : (
               selectedCpt && plotMap.has(selectedId)
                 ? <CptChart

@@ -9,12 +9,15 @@ interface ImportAction {
 
 interface Props {
   onImportCpt: () => void
+  onImportDov: () => void
   importing: boolean
+  drawingBbox: boolean
 }
 
-export default function Toolbar({ onImportCpt, importing }: Props) {
+export default function Toolbar({ onImportCpt, onImportDov, importing, drawingBbox }: Props) {
   const importActions: ImportAction[] = [
     { label: 'Import CPT (.gef)', available: true, onClick: onImportCpt },
+    { label: 'Import CPT from DOV (draw bbox)', available: true, onClick: onImportDov },
     { label: 'Import Borehole', available: false },
     { label: 'Import DMT', available: false },
     { label: 'Import Lab Test', available: false },
@@ -24,9 +27,9 @@ export default function Toolbar({ onImportCpt, importing }: Props) {
   return (
     <div className="flex items-center gap-0.5 px-2 py-1 border-b border-gray-200 bg-gray-50 select-none">
       <DropdownMenu
-        label="Import"
+        label={drawingBbox ? 'Drawing bbox…' : 'Import'}
         icon={importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-        highlight={!importing}
+        highlight={!importing && !drawingBbox}
       >
         {importActions.map(action => (
           <MenuItem
