@@ -34,6 +34,7 @@ class CptPlotResponse(BaseModel):
     cpt_id: UUID
     depths_m: list[float]
     qc_mpa: list[float]
-    fs_mpa: list[float] | None
-    u2_mpa: list[float] | None
-    rf_pct: list[float] | None
+    # Inner None: PostgreSQL FLOAT[] can contain NULL elements (void-masked rows).
+    fs_mpa: list[float | None] | None
+    u2_mpa: list[float | None] | None
+    rf_pct: list[float | None] | None
