@@ -41,8 +41,14 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 _WFS_URL = "https://www.dov.vlaanderen.be/geoserver/ows"
 _LAYER = "dov-pub:Sonderingen"  # plural; verified via GetCapabilities
 _WFS_LIMIT = 500  # default server-side cap on features per request
-_PARALLEL = 10  # max concurrent XML downloads
+_PARALLEL = 20  # max concurrent XML downloads
 _MAX_DEPTH = 5  # bbox split recursion limit (2^5 = 32 subdivisions per axis)
+
+# DOV's /data/sondering/{id}.xml endpoint always 302-redirects to the proxy below.
+# Hitting the proxy directly cuts every download from 2 HTTP round-trips to 1.
+# Verified live 2026-05-07: the redirect target is deterministic for every sondering.
+_FICHE_PREFIX = "/data/sondering/"
+_PROXY_PREFIX = "/xdov/proxy/export/sondering/"
 
 # Match `numberMatched="123"` anywhere in the XML hits response.
 _NUMBER_MATCHED_RE = re.compile(r'numberMatched="(\d+)"')
@@ -251,7 +257,14 @@ class DovClient(GroundModelLogger):
             fiche_url: str = props.get("fiche", "")
             test_name: str = props.get("sondeernummer", "") or _last_path_segment(fiche_url)
             if fiche_url:
-                xml_url = fiche_url.rstrip("/") + ".xml"
+                # Construct the proxy URL directly to avoid the 302 round-trip.
+                # Falls back to fiche+'.xml' (and follow_redirects) if the URL
+                # doesn't match the expected prefix.
+                xml_url = (
+                    fiche_url.replace(_FICHE_PREFIX, _PROXY_PREFIX, 1)
+                    if _FICHE_PREFIX in fiche_url
+                    else fiche_url.rstrip("/") + ".xml"
+                )
                 url_to_name[xml_url] = test_name
             else:
                 missing_url += 1
