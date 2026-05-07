@@ -170,6 +170,13 @@ class ImportCpt(GroundModelLogger):
         h = result.header
         df = result.data
 
+        # persist() guarantees x and y are non-None before _to_orm runs (it raises
+        # ParseError otherwise). The asserts are here so mypy can narrow the types
+        # AND a future refactor that bypasses persist() crashes loudly instead of
+        # silently writing meaningless 0.0 coordinates to the DB.
+        assert h.x is not None, "_to_orm called with header.x=None — persist() should have raised"
+        assert h.y is not None, "_to_orm called with header.y=None — persist() should have raised"
+
         return CptOrm(
             id=cpt_id,
             app_project_id=app_project_id,
@@ -180,8 +187,8 @@ class ImportCpt(GroundModelLogger):
             file_date=h.file_date or None,
             company=h.company or None,
             report_code=h.report_code or None,
-            location_x=h.x or 0.0,
-            location_y=h.y or 0.0,
+            location_x=h.x,
+            location_y=h.y,
             elevation_m=h.z,
             epsg=h.epsg,
             z_epsg=h.z_epsg,
