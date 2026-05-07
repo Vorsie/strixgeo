@@ -77,6 +77,24 @@ class CptRepository(GroundModelLogger):
         result = await self._session.execute(stmt.limit(1))
         return result.scalar_one_or_none()
 
+    async def find_existing_test_ids(
+        self, project_id: str, test_ids: list[str], app_project_id: UUID | None = None
+    ) -> dict[str, UUID]:
+        """Batch dedup: return ``{test_id: existing_cpt_id}`` for any test_id already imported.
+
+        One query instead of N — used by bulk imports (e.g. DOV bbox) so a 200-CPT
+        batch checks duplicates with one round-trip instead of 200.
+        """
+        if not test_ids:
+            return {}
+        stmt = select(CptOrm.test_id, CptOrm.id).where(
+            CptOrm.project_id == project_id, CptOrm.test_id.in_(test_ids)
+        )
+        if app_project_id is not None:
+            stmt = stmt.where(CptOrm.app_project_id == app_project_id)
+        result = await self._session.execute(stmt)
+        return {row.test_id: row.id for row in result}
+
     async def delete(self, cpt_id: UUID) -> None:
         """Delete a CPT and its series (cascade handles series row)."""
         cpt = await self.get_by_id(cpt_id)
