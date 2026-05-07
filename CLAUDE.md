@@ -227,15 +227,19 @@ logger.success("CPT imported: 10,432 rows in 0.3s")
 
 ## GEF Parser
 
-Implemented in `infrastructure/parsers/cpt/gef_parser.py`. Handles CPTU, CPTE, CPTM, and UNKNOWN types.
+Implemented in `infrastructure/parsers/cpt/gef/gef_parser.py`. Constants in `gef_constants.py`. Handles CPTU, CPTE, CPTM, and UNKNOWN types.
 
 **Parsing flow:** header → data → CPT type detection → void masking → column rename → unit normalisation → depth column → Rf calculation → validation → `GEFParseResult`
 
-**Unit normalisation:** MPa, kPa, bar, tf/m², Pa, kgf/cm² → MPa
+**Unit normalisation:** MPa, kPa, bar, tf/m², Pa, kgf/cm² → MPa. kN (qty 128 totaalweerstand) is left as-is — for the standard 1000 mm² Belgian CPTM cone the numeric value equals MPa.
+
+**Key quantity → column mappings (`QUANTITY_TO_COLUMN`):**
+- qty 1 = `depth_m`, qty 2 = `qc_mpa`, qty 3 = `fs_mpa`, qty 4 = `rf_pct`
+- qty 6 = `u2_mpa`, qty 11 = `length_m`, qty 15 = `qt_mpa`, qty 128 = `qt_mpa` (CPTM totaalweerstand)
 
 **Validation checks (ValidationLevel: ERROR / WARNING / INFO):**
 - `NO_COORDINATES` / `ZERO_COORDINATES` / `NO_EPSG` / `NO_ELEVATION`
-- `MISSING_COLUMN` (qc required always; fs and u2 required for CPTU; fs required for CPTE)
+- `MISSING_COLUMN` — qc always required; fs + u2 required for CPTU; fs required for CPTE
 - `DEPTH_NOT_MONOTONIC` — ERROR
 - `NEGATIVE_VALUES` — qc, fs must be ≥ 0
 - `NULL_VALUES` — after void masking
@@ -243,6 +247,8 @@ Implemented in `infrastructure/parsers/cpt/gef_parser.py`. Handles CPTU, CPTE, C
 - `NO_NET_AREA_RATIO` — WARNING for CPTU without `a` coefficient (MVAR 3)
 - `RF_OUT_OF_RANGE` — Rf outside 0.05–15 % is suspicious
 - `QC_SPIKES` — flags outliers > 5× neighbouring values
+- `HYBRID_METHOD` — depth increment changes significantly (electric → mechanical mid-test)
+- `PARTIAL_U2` — u2 only available from a depth > 0 (CPTE → CPTU mid-test)
 
 **Key MEASUREMENTVAR indices (GEF-CPT-Report standard):**
 - 3 = net area ratio (a-value)
@@ -250,6 +256,8 @@ Implemented in `infrastructure/parsers/cpt/gef_parser.py`. Handles CPTU, CPTE, C
 - 13 = pre-drill depth
 - 14 = groundwater depth
 - 17 = stop criterion
+
+**Import guard:** `ImportCpt.execute()` raises `ParseError` (→ HTTP 400) when XY coordinates or EPSG code are missing — a CPT without a CRS-tagged position cannot be placed on a map.
 
 ---
 
@@ -310,7 +318,7 @@ See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement 
 POST   /cpt/import          Import a GEF file (multipart form; project_id form field)
 GET    /cpt/                List CPTs (optional ?project_id=UUID filters by project)
 GET    /cpt/{id}            CPT metadata (location, elevation, cone props, summary)
-GET    /cpt/{id}/plot       Depth-series arrays for plotting (qc, fs, u2, rf, depths)
+GET    /cpt/{id}/plot       Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt)
 DELETE /cpt/{id}            Delete CPT and its series (cascade)
 ```
 
@@ -346,7 +354,9 @@ desktop/src/
 ### CptChart conventions
 - `Y_W = 52` — width constant used for ALL Y-axes (real and ghost) to align plot areas across side-by-side `ComposedChart` panels
 - Ghost axes: `tick={false} axisLine={false} tickLine={false} width={Y_W}` — reserve pixel space without display
-- Peil (mTAW) always on the leftmost panel's left axis; Lengte (m) always on the rightmost panel's right axis
+- Level (mTAW) always on the leftmost panel's left axis; Length (m) always on the rightmost panel's right axis
 - CPTU layout: u2 panel (kPa) | qc+fs panel | Rf panel
-- CPTM layout: single panel with qc only, both axes on same chart
+- CPTM layout: single panel with qc (black) + Qt total resistance (blue `#1d4ed8`) on same qc axis
 - Panel renderers are called as functions `{renderPanel(...)}` not JSX components — no hooks, avoids remount
+- Colors: `QC_CLR=#111827`, `FS_CLR=#16a34a`, `RF_CLR=#b45309`, `U2_CLR=#7c3aed`, `QT_CLR=#1d4ed8`, `PD_CLR=#dc2626`
+- `surfaceElevationRef` — ReferenceLine at depth=0 labelled with mTAW elevation when known
