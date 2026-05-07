@@ -197,8 +197,9 @@ export default function App() {
           await loadChart(id)
           setView('chart')
         }
-      } catch {
-        toast('error', 'DOV import failed')
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'DOV import failed'
+        toast('error', msg)
       } finally {
         setDovImporting(false)
       }
