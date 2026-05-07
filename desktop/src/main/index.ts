@@ -56,7 +56,7 @@ function createWindow(): void {
     minHeight: 600,
     title: 'Ground Model',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
     }
