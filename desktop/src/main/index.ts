@@ -157,11 +157,13 @@ ipcMain.handle('fs:read-file', (_event, filePath: string): Buffer => {
 })
 
 ipcMain.handle('api:ready', async () => {
-  // Poll until the API responds, up to 10s.
-  for (let i = 0; i < 20; i++) {
+  // Poll /openapi.json — FastAPI serves it without a DB connection, so it
+  // passes as soon as uvicorn is listening regardless of PostgreSQL state.
+  // 60 × 500 ms = 30 s; Python cold-start on Windows needs the extra headroom.
+  for (let i = 0; i < 60; i++) {
     try {
-      const res = await fetch(`${API_BASE}/cpt/`)
-      if (res.ok || res.status === 404) return true
+      const res = await fetch(`${API_BASE}/openapi.json`)
+      if (res.ok) return true
     } catch {
       // not ready yet
     }
