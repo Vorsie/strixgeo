@@ -1,4 +1,5 @@
 """Fixtures for DB integration tests."""
+
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -18,6 +19,10 @@ async def db_session() -> AsyncSession:
     """
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as pre:
+        await pre.execute(text("TRUNCATE TABLE cpt CASCADE"))
+        await pre.commit()
 
     async with factory() as session:
         yield session
