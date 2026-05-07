@@ -1,4 +1,5 @@
 """GEF-CPT parser — header, data, type detection, unit normalisation, validation."""
+
 from __future__ import annotations
 
 import re
@@ -50,7 +51,7 @@ class GEFParser(GroundModelLogger):
         """
         lines = content.splitlines()
         header, eoh_index = self._parse_header(lines)
-        raw_df = self._parse_data(lines[eoh_index + 1:], header)
+        raw_df = self._parse_data(lines[eoh_index + 1 :], header)
         cpt_type = self._detect_cpt_type(header)
 
         df = self._apply_void_values(raw_df, header)
@@ -265,7 +266,6 @@ class GEFParser(GroundModelLogger):
     def _ensure_depth_column(self, df: pl.DataFrame) -> pl.DataFrame:
         if "depth_m" not in df.columns and "length_m" in df.columns:
             df = df.rename({"length_m": "depth_m"})
-            # TODO: check for inclination columns and apply depth correction before falling back.
             self.warning(
                 "GEF uses penetration length (qty 11) — inclination correction not applied"
             )
@@ -289,8 +289,7 @@ class GEFParser(GroundModelLogger):
         if header.cone_type_code == 1:
             return CPTType.CPTM
         qty_nums = set(header.column_map.values())
-        # TODO: check for u measurement presence rather than relying solely on column count.
-        if 6 in qty_nums:
+        if 6 in qty_nums:  # qty 6 = u2 (pore water pressure) in GEF-CPT-Report standard
             return CPTType.CPTU
         if 3 in qty_nums:
             return CPTType.CPTE
@@ -324,61 +323,96 @@ class GEFParser(GroundModelLogger):
     def _check_coordinates(self, header: GEFHeader) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         if header.x is None or header.y is None:
-            issues.append(ValidationIssue(ValidationLevel.WARNING, "NO_COORDINATES",
-                "No XY coordinates — test cannot be placed on map"))
+            issues.append(
+                ValidationIssue(
+                    ValidationLevel.WARNING,
+                    "NO_COORDINATES",
+                    "No XY coordinates — test cannot be placed on map",
+                )
+            )
         elif header.x == 0.0 and header.y == 0.0:
-            issues.append(ValidationIssue(ValidationLevel.WARNING, "ZERO_COORDINATES",
-                "Coordinates are (0, 0) — likely not recorded, not a real origin"))
+            issues.append(
+                ValidationIssue(
+                    ValidationLevel.WARNING,
+                    "ZERO_COORDINATES",
+                    "Coordinates are (0, 0) — likely not recorded, not a real origin",
+                )
+            )
         if header.x is not None and header.epsg is None:
-            issues.append(ValidationIssue(ValidationLevel.WARNING, "NO_EPSG",
-                "Coordinates present but no EPSG code — coordinate system unknown"))
+            issues.append(
+                ValidationIssue(
+                    ValidationLevel.WARNING,
+                    "NO_EPSG",
+                    "Coordinates present but no EPSG code — coordinate system unknown",
+                )
+            )
         if header.z is None:
-            issues.append(ValidationIssue(ValidationLevel.INFO, "NO_ELEVATION",
-                "No elevation (Z) — depth series will be relative only"))
+            issues.append(
+                ValidationIssue(
+                    ValidationLevel.INFO,
+                    "NO_ELEVATION",
+                    "No elevation (Z) — depth series will be relative only",
+                )
+            )
         return issues
 
-    # TODO: also check for presence of fs (and thus Rf) for CPTE and CPTU.
-    def _check_required_columns(
-        self, df: pl.DataFrame, cpt_type: CPTType
-    ) -> list[ValidationIssue]:
+    def _check_required_columns(self, df: pl.DataFrame, cpt_type: CPTType) -> list[ValidationIssue]:
         required = {"depth_m", "qc_mpa"}
+        if cpt_type in (CPTType.CPTU, CPTType.CPTE):
+            required.add("fs_mpa")
         if cpt_type == CPTType.CPTU:
             required.add("u2_mpa")
         return [
-            ValidationIssue(ValidationLevel.ERROR, "MISSING_COLUMN",
-                f"Required column '{col}' missing for {cpt_type.value}")
+            ValidationIssue(
+                ValidationLevel.ERROR,
+                "MISSING_COLUMN",
+                f"Required column '{col}' missing for {cpt_type.value}",
+            )
             for col in required - set(df.columns)
         ]
 
-    # TODO: benchmark shifted-array diff vs element-wise loop for large CPTs.
     def _check_depth_monotonic(self, df: pl.DataFrame) -> list[ValidationIssue]:
         if "depth_m" not in df.columns:
             return []
         depths = df["depth_m"].to_list()
         bad = [
-            i for i in range(1, len(depths))
+            i
+            for i in range(1, len(depths))
             if depths[i] is not None and depths[i - 1] is not None and depths[i] <= depths[i - 1]
         ]
         if bad:
-            return [ValidationIssue(ValidationLevel.ERROR, "DEPTH_NOT_MONOTONIC",
-                f"Depth not strictly increasing at {len(bad)} row(s)", rows=bad[:10])]
+            return [
+                ValidationIssue(
+                    ValidationLevel.ERROR,
+                    "DEPTH_NOT_MONOTONIC",
+                    f"Depth not strictly increasing at {len(bad)} row(s)",
+                    rows=bad[:10],
+                )
+            ]
         return []
 
     def _check_negative_values(self, df: pl.DataFrame) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         for col in ("qc_mpa", "fs_mpa"):
             if col in df.columns:
-                # TODO: document .height — returns row count of the filtered DataFrame.
                 n = df.filter(pl.col(col) < 0).height
                 if n:
-                    issues.append(ValidationIssue(ValidationLevel.WARNING, "NEGATIVE_VALUES",
-                        f"{n} negative value(s) in '{col}' — possible sensor calibration issue"))
+                    issues.append(
+                        ValidationIssue(
+                            ValidationLevel.WARNING,
+                            "NEGATIVE_VALUES",
+                            f"{n} negative value(s) in '{col}' — possible sensor calibration issue",
+                        )
+                    )
         return issues
 
     def _check_null_values(self, df: pl.DataFrame) -> list[ValidationIssue]:
         return [
-            ValidationIssue(ValidationLevel.INFO, "NULL_VALUES",
-                f"{df[col].null_count()} null/void value(s) in '{col}'")
+            ValidationIssue(
+                ValidationLevel.INFO,
+                "NULL_VALUES",
+                f"{df[col].null_count()} null/void value(s) in '{col}'",
+            )
             for col in df.columns
             if df[col].null_count() > 0
         ]
@@ -389,35 +423,50 @@ class GEFParser(GroundModelLogger):
         if header.pre_drill_m > 0:
             n = df.filter(pl.col("depth_m") <= header.pre_drill_m).height
             if n:
-                return [ValidationIssue(
-                    ValidationLevel.INFO, "PRE_DRILL",
-                    f"{n} row(s) within pre-drill zone (≤{header.pre_drill_m} m)"
-                    " — exclude from interpretation",
-                )]
+                return [
+                    ValidationIssue(
+                        ValidationLevel.INFO,
+                        "PRE_DRILL",
+                        f"{n} row(s) within pre-drill zone (≤{header.pre_drill_m} m)"
+                        " — exclude from interpretation",
+                    )
+                ]
         else:
             first_depth = df["depth_m"].drop_nulls().first()
             if first_depth is not None and first_depth > 0.5:
-                return [ValidationIssue(ValidationLevel.INFO, "PRE_DRILL",
-                    f"Data starts at {first_depth:.2f} m — likely pre-drilled but MVAR 13 not set")]
+                return [
+                    ValidationIssue(
+                        ValidationLevel.INFO,
+                        "PRE_DRILL",
+                        f"Data starts at {first_depth:.2f} m"
+                        " — likely pre-drilled but MVAR 13 not set",
+                    )
+                ]
         return []
 
-    def _check_net_area_ratio(
-        self, header: GEFHeader, cpt_type: CPTType
-    ) -> list[ValidationIssue]:
+    def _check_net_area_ratio(self, header: GEFHeader, cpt_type: CPTType) -> list[ValidationIssue]:
         if cpt_type == CPTType.CPTU and header.net_area_ratio is None:
-            # TODO: add fallback based on standard a-values for common cone sizes.
-            return [ValidationIssue(ValidationLevel.WARNING, "NO_NET_AREA_RATIO",
-                "CPTU missing net area ratio (a-value) — Qt correction not possible")]
+            return [
+                ValidationIssue(
+                    ValidationLevel.WARNING,
+                    "NO_NET_AREA_RATIO",
+                    "CPTU missing net area ratio (a-value) — Qt correction not possible",
+                )
+            ]
         return []
 
     def _check_rf_range(self, df: pl.DataFrame) -> list[ValidationIssue]:
-        # TODO: CPTM has no Rf column — confirm this guard handles that case correctly.
         if "rf_pct" not in df.columns:
             return []
         n = df.filter((pl.col("rf_pct") < 0.05) | (pl.col("rf_pct") > 15.0)).height
         if n:
-            return [ValidationIssue(ValidationLevel.WARNING, "RF_OUT_OF_RANGE",
-                f"{n} row(s) with Rf outside 0.05–15% — review for sensor errors")]
+            return [
+                ValidationIssue(
+                    ValidationLevel.WARNING,
+                    "RF_OUT_OF_RANGE",
+                    f"{n} row(s) with Rf outside 0.05–15% — review for sensor errors",
+                )
+            ]
         return []
 
     def _check_qc_spikes(self, df: pl.DataFrame) -> list[ValidationIssue]:
@@ -425,15 +474,23 @@ class GEFParser(GroundModelLogger):
             return []
         qc = df["qc_mpa"].to_list()
         spikes = [
-            i for i in range(1, len(qc) - 1)
+            i
+            for i in range(1, len(qc) - 1)
             if None not in (qc[i - 1], qc[i], qc[i + 1])
-            and qc[i - 1] > 0 and qc[i + 1] > 0
+            and qc[i - 1] > 0
+            and qc[i + 1] > 0
             and qc[i] / qc[i - 1] > 5  # type: ignore[operator]
             and qc[i] / qc[i + 1] > 5  # type: ignore[operator]
         ]
         if spikes:
-            return [ValidationIssue(ValidationLevel.WARNING, "QC_SPIKES",
-                f"{len(spikes)} possible qc spike(s) (>5× neighbouring values)", rows=spikes[:10])]
+            return [
+                ValidationIssue(
+                    ValidationLevel.WARNING,
+                    "QC_SPIKES",
+                    f"{len(spikes)} possible qc spike(s) (>5× neighbouring values)",
+                    rows=spikes[:10],
+                )
+            ]
         return []
 
     def _check_hybrid_method(self, df: pl.DataFrame) -> list[ValidationIssue]:
@@ -459,11 +516,14 @@ class GEFParser(GroundModelLogger):
                 transition_depth = depths_list[i + 1] if i + 1 < len(depths_list) else None
                 break
         depth_str = f" near {transition_depth:.2f} m" if transition_depth is not None else ""
-        return [ValidationIssue(
-            ValidationLevel.WARNING, "HYBRID_METHOD",
-            f"Depth increment changes significantly{depth_str} — likely combines multiple test "
-            "methods (e.g. electric then mechanical); interpret segments separately",
-        )]
+        return [
+            ValidationIssue(
+                ValidationLevel.WARNING,
+                "HYBRID_METHOD",
+                f"Depth increment changes significantly{depth_str} — likely combines multiple test "
+                "methods (e.g. electric then mechanical); interpret segments separately",
+            )
+        ]
 
     def _check_partial_u2(
         self, header: GEFHeader, df: pl.DataFrame, cpt_type: CPTType
@@ -476,8 +536,11 @@ class GEFParser(GroundModelLogger):
         first_u2_depth = df["depth_m"][int(non_null_indices[0])]
         if first_u2_depth is None or first_u2_depth <= header.pre_drill_m + 0.5:
             return []
-        return [ValidationIssue(
-            ValidationLevel.WARNING, "PARTIAL_U2",
-            f"u2 pore pressure only available from {first_u2_depth:.2f} m — "
-            "test likely combines CPTE (dry filter) and CPTU (saturated filter) methods",
-        )]
+        return [
+            ValidationIssue(
+                ValidationLevel.WARNING,
+                "PARTIAL_U2",
+                f"u2 pore pressure only available from {first_u2_depth:.2f} m — "
+                "test likely combines CPTE (dry filter) and CPTU (saturated filter) methods",
+            )
+        ]
