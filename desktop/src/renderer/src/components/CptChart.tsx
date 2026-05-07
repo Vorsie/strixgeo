@@ -16,42 +16,81 @@ interface Props {
   detail?: CptResponse
 }
 
-const GRID = '#fce4ec'
-const QC_CLR = '#111827'
-const FS_CLR = '#16a34a'
-const RF_CLR = '#b45309'
-const PD_CLR = '#dc2626'
+// Geotechnical standard axis ranges (DOV / EC7)
+const QC_MAX = 40   // MPa
+const FS_MAX = 1    // MPa
+const RF_MAX = 10   // %
+
+const GRID    = '#fce4ec'
+const QC_CLR  = '#111827'
+const FS_CLR  = '#16a34a'
+const RF_CLR  = '#b45309'
+const PD_CLR  = '#dc2626'
+
+// In Recharts layout="vertical" a number YAxis naturally reads top→bottom
+// (min at top, max at bottom). No `reversed` prop needed — adding it flips
+// to max-at-top, which is the wrong direction for a depth profile.
+function depthYAxis(
+  yAxisId: string,
+  orientation: 'left' | 'right',
+  domain: [number, number],
+  formatter: (v: number) => string,
+  label: string,
+  hidden = false,
+): React.ReactElement {
+  if (hidden) {
+    return (
+      <YAxis
+        key={yAxisId}
+        yAxisId={yAxisId}
+        dataKey="depth"
+        type="number"
+        domain={domain}
+        orientation={orientation}
+        tick={false}
+        axisLine={false}
+        tickLine={false}
+        width={1}
+      />
+    )
+  }
+  return (
+    <YAxis
+      key={yAxisId}
+      yAxisId={yAxisId}
+      dataKey="depth"
+      type="number"
+      domain={domain}
+      orientation={orientation}
+      tickFormatter={formatter}
+      tickCount={11}
+      tick={{ fontSize: 9 }}
+      label={{ value: label, angle: orientation === 'left' ? -90 : 90, position: 'insideLeft', offset: -8, style: { fontSize: 9 } }}
+      width={50}
+    />
+  )
+}
 
 export default function CptChart({ plot, name, detail }: Props) {
   const elevationM = detail?.elevation_m ?? null
-  const preDrillM = detail?.pre_drill_m ?? 0
+  const preDrillM  = detail?.pre_drill_m ?? 0
 
   const data = plot.depths_m.map((d, i) => ({
     depth: d,
-    qc: plot.qc_mpa[i] ?? null,
-    fs: plot.fs_mpa ? (plot.fs_mpa[i] ?? null) : null,
-    rf: plot.rf_pct ? (plot.rf_pct[i] ?? null) : null,
+    qc:   plot.qc_mpa[i] ?? null,
+    fs:   plot.fs_mpa  ? (plot.fs_mpa[i]  ?? null) : null,
+    rf:   plot.rf_pct  ? (plot.rf_pct[i]  ?? null) : null,
   }))
 
-  const maxDepth = Math.ceil((plot.depths_m.at(-1) ?? 1) * 10) / 10
+  const maxDepth   = Math.ceil((plot.depths_m.at(-1) ?? 1) * 10) / 10
   const depthDomain: [number, number] = [0, maxDepth]
 
   const hasFs = plot.fs_mpa != null
   const hasRf = plot.rf_pct != null
 
-  const peilFmt = (d: number) =>
-    elevationM !== null ? (elevationM - d).toFixed(1) : d.toFixed(1)
-
   const depthFmt = (d: number) => d.toFixed(1)
-
-  const sharedY = {
-    dataKey: 'depth',
-    type: 'number' as const,
-    domain: depthDomain,
-    reversed: true,
-    tickCount: 11,
-    tick: { fontSize: 9 },
-  }
+  const peilFmt  = (d: number) =>
+    elevationM !== null ? (elevationM - d).toFixed(1) : d.toFixed(1)
 
   const topMargin = 28
   const botMargin = hasFs ? 28 : 12
@@ -78,7 +117,7 @@ export default function CptChart({ plot, name, detail }: Props) {
       </div>
 
       {/* Panels */}
-      <div className="flex flex-1 overflow-hidden pb-2 px-1 gap-0">
+      <div className="flex flex-1 overflow-hidden pb-2 px-1">
 
         {/* ── qc + fs panel ── */}
         <div style={{ flex: hasRf ? 3 : 1 }} className="min-w-0">
@@ -90,65 +129,35 @@ export default function CptChart({ plot, name, detail }: Props) {
             >
               <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
 
-              {/* Left Y — diepte (m) */}
-              <YAxis
-                {...sharedY}
-                yAxisId="y"
-                orientation="left"
-                tickFormatter={depthFmt}
-                label={{
-                  value: 'Diepte (m)',
-                  angle: -90,
-                  position: 'insideLeft',
-                  offset: -8,
-                  style: { fontSize: 9 },
-                }}
-                width={50}
-              />
+              {depthYAxis('y', 'left', depthDomain, depthFmt, 'Diepte (m)')}
 
-              {/* Top X — qc 0–40 MPa */}
               <XAxis
                 xAxisId="qc"
                 type="number"
                 orientation="top"
-                domain={[0, 40]}
+                domain={[0, QC_MAX]}
                 tick={{ fontSize: 9, fill: QC_CLR }}
                 tickCount={9}
-                label={{
-                  value: 'qc (MPa)',
-                  position: 'insideTopLeft',
-                  offset: 2,
-                  style: { fontSize: 9, fill: QC_CLR },
-                }}
+                label={{ value: 'qc (MPa)', position: 'insideTopLeft', offset: 2, style: { fontSize: 9, fill: QC_CLR } }}
               />
 
-              {/* Bottom X — fs 0–1 MPa */}
               {hasFs && (
                 <XAxis
                   xAxisId="fs"
                   type="number"
                   orientation="bottom"
-                  domain={[0, 1]}
+                  domain={[0, FS_MAX]}
                   tick={{ fontSize: 9, fill: FS_CLR }}
                   tickCount={6}
-                  label={{
-                    value: 'fs (MPa)',
-                    position: 'insideBottomLeft',
-                    offset: 2,
-                    style: { fontSize: 9, fill: FS_CLR },
-                  }}
+                  label={{ value: 'fs (MPa)', position: 'insideBottomLeft', offset: 2, style: { fontSize: 9, fill: FS_CLR } }}
                 />
               )}
 
-              {/* Pre-drill reference */}
               {preDrillM > 0 && (
                 <ReferenceLine
-                  yAxisId="y"
-                  xAxisId="qc"
+                  yAxisId="y" xAxisId="qc"
                   y={preDrillM}
-                  stroke={PD_CLR}
-                  strokeDasharray="6 3"
-                  strokeWidth={1.5}
+                  stroke={PD_CLR} strokeDasharray="6 3" strokeWidth={1.5}
                 />
               )}
 
@@ -166,28 +175,18 @@ export default function CptChart({ plot, name, detail }: Props) {
               />
 
               <Line
-                yAxisId="y"
-                xAxisId="qc"
-                dataKey="qc"
-                name="qc (MPa)"
-                stroke={QC_CLR}
-                dot={false}
-                strokeWidth={1.5}
-                isAnimationActive={false}
-                connectNulls={false}
+                yAxisId="y" xAxisId="qc"
+                dataKey="qc" name="qc (MPa)"
+                stroke={QC_CLR} dot={false} strokeWidth={1.5}
+                isAnimationActive={false} connectNulls={false}
               />
 
               {hasFs && (
                 <Line
-                  yAxisId="y"
-                  xAxisId="fs"
-                  dataKey="fs"
-                  name="fs (MPa)"
-                  stroke={FS_CLR}
-                  dot={false}
-                  strokeWidth={1.5}
-                  isAnimationActive={false}
-                  connectNulls={false}
+                  yAxisId="y" xAxisId="fs"
+                  dataKey="fs" name="fs (MPa)"
+                  stroke={FS_CLR} dot={false} strokeWidth={1.5}
+                  isAnimationActive={false} connectNulls={false}
                 />
               )}
             </ComposedChart>
@@ -205,68 +204,39 @@ export default function CptChart({ plot, name, detail }: Props) {
               >
                 <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
 
-                {/* Hidden left Y — same scale as main panel, controls positioning */}
-                <YAxis
-                  {...sharedY}
-                  yAxisId="y"
-                  orientation="left"
-                  tick={false}
-                  axisLine={false}
-                  tickLine={false}
-                  width={1}
-                />
+                {/* Hidden left axis keeps grid lines and line positioning in sync with main panel */}
+                {depthYAxis('y', 'left', depthDomain, depthFmt, '', true)}
 
-                {/* Right Y — peil mTAW (or depth if no elevation) */}
-                <YAxis
-                  {...sharedY}
-                  yAxisId="yr"
-                  orientation="right"
-                  tickFormatter={peilFmt}
-                  label={{
-                    value: elevationM !== null ? 'Peil (m TAW)' : 'Diepte (m)',
-                    angle: 90,
-                    position: 'insideRight',
-                    offset: -8,
-                    style: { fontSize: 9 },
-                  }}
-                  width={50}
-                />
+                {depthYAxis(
+                  'yr', 'right', depthDomain,
+                  peilFmt,
+                  elevationM !== null ? 'Peil (m TAW)' : 'Diepte (m)',
+                )}
 
-                {/* Top X — Rf 0–10 % */}
                 <XAxis
                   xAxisId="rf"
                   type="number"
                   orientation="top"
-                  domain={[0, 10]}
+                  domain={[0, RF_MAX]}
                   tick={{ fontSize: 9, fill: RF_CLR }}
                   tickCount={6}
-                  label={{
-                    value: 'Rf (%)',
-                    position: 'insideTopLeft',
-                    offset: 2,
-                    style: { fontSize: 9, fill: RF_CLR },
-                  }}
+                  label={{ value: 'Rf (%)', position: 'insideTopLeft', offset: 2, style: { fontSize: 9, fill: RF_CLR } }}
                 />
 
-                {/* Bottom X — mirror of Rf axis */}
                 <XAxis
                   xAxisId="rf_bot"
                   type="number"
                   orientation="bottom"
-                  domain={[0, 10]}
+                  domain={[0, RF_MAX]}
                   tick={{ fontSize: 9, fill: RF_CLR }}
                   tickCount={6}
                 />
 
-                {/* Pre-drill reference */}
                 {preDrillM > 0 && (
                   <ReferenceLine
-                    yAxisId="y"
-                    xAxisId="rf"
+                    yAxisId="y" xAxisId="rf"
                     y={preDrillM}
-                    stroke={PD_CLR}
-                    strokeDasharray="6 3"
-                    strokeWidth={1.5}
+                    stroke={PD_CLR} strokeDasharray="6 3" strokeWidth={1.5}
                   />
                 )}
 
@@ -279,15 +249,10 @@ export default function CptChart({ plot, name, detail }: Props) {
                 />
 
                 <Line
-                  yAxisId="y"
-                  xAxisId="rf"
-                  dataKey="rf"
-                  name="Rf (%)"
-                  stroke={RF_CLR}
-                  dot={false}
-                  strokeWidth={1.5}
-                  isAnimationActive={false}
-                  connectNulls={false}
+                  yAxisId="y" xAxisId="rf"
+                  dataKey="rf" name="Rf (%)"
+                  stroke={RF_CLR} dot={false} strokeWidth={1.5}
+                  isAnimationActive={false} connectNulls={false}
                 />
               </ComposedChart>
             </ResponsiveContainer>
@@ -298,24 +263,12 @@ export default function CptChart({ plot, name, detail }: Props) {
   )
 }
 
-function LegendItem({
-  color,
-  label,
-  dashed,
-}: {
-  color: string
-  label: string
-  dashed?: boolean
-}) {
+function LegendItem({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
   return (
     <div className="flex items-center gap-1 text-[10px] text-gray-600">
       <div
         className="w-6"
-        style={{
-          borderTopWidth: 1.5,
-          borderTopStyle: dashed ? 'dashed' : 'solid',
-          borderTopColor: color,
-        }}
+        style={{ borderTopWidth: 1.5, borderTopStyle: dashed ? 'dashed' : 'solid', borderTopColor: color }}
       />
       {label}
     </div>
