@@ -65,9 +65,20 @@ class ImportCpt(GroundModelLogger):
         content = file_path.read_bytes()
         result = self._parse(file_path, content)
 
+        h = result.header
+
+        # Location is mandatory — a CPT without a CRS-tagged position cannot be placed
+        # on a map or used in spatial queries.
+        if h.x is None or h.y is None:
+            raise ParseError(f"Cannot import '{file_path.name}': XY coordinates are required")
+        if h.epsg is None:
+            raise ParseError(
+                f"Cannot import '{file_path.name}': EPSG code is required"
+                " when coordinates are present"
+            )
+
         # Duplicate guard: only when GEF file has both opdrachtnummer and proefnummer.
         # Scoped to app_project_id so the same file can be imported in different projects.
-        h = result.header
         if h.project_id and h.test_id:
             existing = await self._repo.find_by_project_test(
                 h.project_id, h.test_id, app_project_id
