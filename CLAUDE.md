@@ -169,6 +169,11 @@ cpt_summary (cpt_id, max_depth_m, avg_qc_mpa, location GEOMETRY, ...)
 
 ## Code Conventions
 
+### English only
+All identifiers (variables, functions, classes, modules, constants), comments, and docstrings must be in English. This applies to Python and TypeScript/React code alike.
+
+GEF format field names from the Dutch spec (e.g. `opdrachtnummer`, `proefnummer`, `totaalweerstand`) may be mentioned in comments when cross-referencing the spec — but always alongside their English translation. Example: `# contract number (GEF: opdrachtnummer)`.
+
 ### One class per file
 Every class lives in its own `.py` file named after the class in `snake_case`. The only exception is `shared/exceptions.py`, where the full exception hierarchy is grouped by convention.
 
