@@ -82,17 +82,12 @@ export default function App() {
     try {
       const list = await api.cpt.list(project.id)
       setCpts(list)
-      for (const c of list) {
-        if (!detailMap.has(c.id)) {
-          api.cpt.get(c.id).then(detail => {
-            setDetailMap(prev => new Map(prev).set(c.id, detail))
-          })
-        }
-      }
+      // No per-CPT detail fetch here: CptListItem already carries location_x/y for
+      // map markers. Detail is fetched lazily by handleSelect when a CPT is clicked.
     } catch {
       toast('error', 'Failed to load CPT list')
     }
-  }, [detailMap, project])
+  }, [project])
 
   const loadChart = useCallback(async (id: string) => {
     if (plotMap.has(id)) return
@@ -110,9 +105,15 @@ export default function App() {
 
   const handleSelect = useCallback(async (id: string) => {
     setSelectedId(id)
+    // Lazy-load full detail for the chart panel (mTAW elevation, cone props, etc).
+    if (!detailMap.has(id)) {
+      api.cpt.get(id).then(detail => {
+        setDetailMap(prev => new Map(prev).set(id, detail))
+      }).catch(() => { /* chart can render without detail */ })
+    }
     await loadChart(id)
     setView('chart')
-  }, [loadChart])
+  }, [loadChart, detailMap])
 
   // ---------------------------------------------------------------------------
   // Import
@@ -296,7 +297,6 @@ export default function App() {
               <MapView
                     cpts={cpts}
                     selectedId={selectedId}
-                    detailMap={detailMap}
                     onSelect={handleSelect}
                     drawMode={drawingBbox}
                     onBboxDrawn={handleBboxDrawn}
