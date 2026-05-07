@@ -11,7 +11,7 @@ from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_dov_result import ImportCptDovResult
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import DovClient
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
-from groundmodel.shared.exceptions import DuplicateCptError
+from groundmodel.shared.exceptions import DuplicateCptError, ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -54,30 +54,70 @@ class ImportCptDov(GroundModelLogger):
         ImportCptDovResult
             Summary of imported, duplicate, and failed counts plus CPT IDs.
         """
-        self.info(f"DOV import bbox: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}")
+        self.info(
+            f"DOV import started: bbox W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}  "
+            f"project_id={app_project_id}"
+        )
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as http:
-            items = await DovClient(http).fetch_bbox(west, south, east, north)
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as http:
+                items = await DovClient(http).fetch_bbox(west, south, east, north)
+        except httpx.HTTPStatusError as exc:
+            self.error(
+                f"DOV WFS request failed with HTTP {exc.response.status_code}: {exc}  "
+                f"response body: {exc.response.text[:300]!r}"
+            )
+            raise
+        except httpx.RequestError as exc:
+            self.error(f"DOV network error during WFS/download phase: {type(exc).__name__}: {exc}")
+            raise
+
+        total = len(items)
+        self.info(f"DOV import: {total} CPTs to process")
+
+        if total == 0:
+            self.info("DOV import: no CPTs found in bbox — nothing to persist")
+            return ImportCptDovResult(imported=0, duplicates=0, failed=0, cpt_ids=[])
 
         parser = DovParser()
         imported = duplicates = failed = 0
         cpt_ids: list[UUID] = []
 
-        for name, xml_bytes in items:
+        for i, (name, xml_bytes) in enumerate(items, 1):
+            self.debug(f"DOV import [{i}/{total}]: processing '{name}'")
             try:
                 result = parser.parse(xml_bytes, name)
+
+                if result.has_errors:
+                    self.warning(
+                        f"DOV import [{i}/{total}]: '{name}' parsed with errors — "
+                        + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
+                    )
+
                 res = await self._import.persist(result, name, app_project_id)
                 imported += 1
                 cpt_ids.append(res.cpt_id)
+                self.debug(f"DOV import [{i}/{total}]: '{name}' → {res.cpt_id}")
+
             except DuplicateCptError as exc:
                 duplicates += 1
                 cpt_ids.append(exc.existing_id)
-            except Exception as exc:
-                self.warning(f"DOV: skipping '{name}': {exc}")
+                self.debug(f"DOV import [{i}/{total}]: '{name}' already exists ({exc.existing_id})")
+
+            except ParseError as exc:
                 failed += 1
+                self.error(f"DOV import [{i}/{total}]: parse error for '{name}': {exc}")
+
+            except Exception as exc:
+                failed += 1
+                self.error(
+                    f"DOV import [{i}/{total}]: unexpected error for '{name}': "
+                    f"{type(exc).__name__}: {exc}"
+                )
 
         self.success(
-            f"DOV import done: {imported} imported, {duplicates} duplicates, {failed} failed"
+            f"DOV import done: {imported} imported, {duplicates} duplicates, "
+            f"{failed} failed  (total={total})"
         )
         return ImportCptDovResult(
             imported=imported,
