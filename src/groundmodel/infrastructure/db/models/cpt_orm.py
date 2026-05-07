@@ -1,4 +1,5 @@
 """ORM model for CPT metadata and summary statistics."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,11 +17,19 @@ class CptOrm(Base):
     """Persisted CPT — header metadata, cone properties, and denormalised summary."""
 
     __tablename__ = "cpt"
-    __table_args__ = (Index("idx_cpt_location", "location", postgresql_using="gist"),)
+    __table_args__ = (
+        Index("idx_cpt_location", "location", postgresql_using="gist"),
+        Index("idx_cpt_app_project_id", "app_project_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    cpt_type: Mapped[str] = mapped_column(String(10), nullable=False)  # CPTE / CPTU / CPTM / UNKNOWN
+    cpt_type: Mapped[str] = mapped_column(
+        String(10), nullable=False
+    )  # CPTE / CPTU / CPTM / UNKNOWN
+
+    # App-level project scoping (separate from the GEF file's project reference)
+    app_project_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
 
     # Source file metadata
     project_id: Mapped[str] = mapped_column(String(200), default="")
@@ -41,7 +50,9 @@ class CptOrm(Base):
     # validation issues).  We still store the CPT — raw x/y/epsg columns always
     # capture whatever the file contained, and the parse issues document the gap.
     # spatial_index=False — the migration creates idx_cpt_location explicitly via USING GIST
-    location: Mapped[WKBElement | None] = mapped_column(Geometry("POINT", spatial_index=False), nullable=True)
+    location: Mapped[WKBElement | None] = mapped_column(
+        Geometry("POINT", spatial_index=False), nullable=True
+    )
 
     # Cone properties
     pre_drill_m: Mapped[float] = mapped_column(Double, default=0.0)
