@@ -1,5 +1,4 @@
 // Typed fetch wrappers for the Ground Model FastAPI backend.
-
 export interface CptListItem {
   id: string
   name: string
@@ -29,6 +28,7 @@ export interface CptPlotResponse {
   fs_mpa: (number | null)[] | null
   u2_mpa: (number | null)[] | null
   rf_pct: (number | null)[] | null
+  qt_mpa: (number | null)[] | null
 }
 
 export interface ImportCptResponse {

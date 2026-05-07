@@ -24,6 +24,7 @@ const QC_CLR = '#111827'
 const FS_CLR = '#16a34a'
 const RF_CLR = '#b45309'
 const U2_CLR = '#7c3aed'
+const QT_CLR = '#1d4ed8'
 const PD_CLR = '#dc2626'
 
 // Tick formatter: shows depth as peil mTAW (with explicit + sign) or plain depth
@@ -90,6 +91,7 @@ export default function CptChart({ plot, name, detail }: Props) {
     rf:      plot.rf_pct ?  (plot.rf_pct[i]    ?? null) : null,
     // Store u2 in kPa for display (source data is MPa)
     u2_kpa:  plot.u2_mpa && plot.u2_mpa[i] != null ? plot.u2_mpa[i]! * 1000 : null,
+    qt:      plot.qt_mpa ?  (plot.qt_mpa[i]    ?? null) : null,
   }))
 
   const maxDepth   = Math.ceil((plot.depths_m.at(-1) ?? 1) * 10) / 10
@@ -98,6 +100,7 @@ export default function CptChart({ plot, name, detail }: Props) {
   const hasFs  = plot.fs_mpa != null
   const hasRf  = plot.rf_pct != null
   const hasU2  = plot.u2_mpa != null
+  const hasQt  = plot.qt_mpa != null
   // Show u2 panel when CPTU type or actual u2 data present
   const showU2 = hasU2 && (cptType === 'CPTU' || hasU2)
 
@@ -182,6 +185,10 @@ export default function CptChart({ plot, name, detail }: Props) {
         />
         <Line yAxisId="y" xAxisId="qc" dataKey="qc" name="qc (MPa)"
           stroke={QC_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
+        {hasQt && (
+          <Line yAxisId="y" xAxisId="qc" dataKey="qt" name="Qt (MPa)"
+            stroke={QT_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
+        )}
         {hasFs && (
           <Line yAxisId="y" xAxisId="fs" dataKey="fs" name="fs (MPa)"
             stroke={FS_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
@@ -232,6 +239,7 @@ export default function CptChart({ plot, name, detail }: Props) {
       {/* Legend */}
       <div className="flex items-center gap-4 px-4 pb-1 shrink-0">
         <LegendItem color={QC_CLR} label="qc (MPa)" />
+        {hasQt  && <LegendItem color={QT_CLR} label="Qt (MPa)" />}
         {hasFs  && <LegendItem color={FS_CLR} label="fs (MPa)" />}
         {hasRf  && <LegendItem color={RF_CLR} label="Rf (%)" />}
         {showU2 && <LegendItem color={U2_CLR} label="u (kPa)" />}
