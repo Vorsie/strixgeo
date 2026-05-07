@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
-import { api, setBaseUrl } from './api/client'
+import { api, setBaseUrl, DuplicateCptError } from './api/client'
 import type { CptListItem, CptResponse, CptPlotResponse } from './api/client'
 import { useProject } from './hooks/useProject'
 import Toolbar from './components/Toolbar'
@@ -135,7 +135,15 @@ export default function App() {
       await loadChart(result.cpt_id)
       setView('chart')
     } catch (e) {
-      toast('error', e instanceof Error ? e.message : 'Import failed')
+      if (e instanceof DuplicateCptError) {
+        toast('success', 'Already in project — loaded from database')
+        await refreshList()
+        setSelectedId(e.cptId)
+        await loadChart(e.cptId)
+        setView('chart')
+      } else {
+        toast('error', e instanceof Error ? e.message : 'Import failed')
+      }
     } finally {
       setImporting(false)
     }
