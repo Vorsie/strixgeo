@@ -12,7 +12,7 @@ interface Props {
 
 // ── DOV standard axis ranges ────────────────────────────────────────────────
 // All Y-axis columns use the same pixel width so grid lines align across panels.
-const Y_W    = 52    // px — peil and lengte axes
+const Y_W    = 52    // px — level and length axes
 const QC_MAX = 40    // MPa
 const FS_MAX = 1     // MPa
 const RF_MAX = 10    // %
@@ -38,7 +38,6 @@ const fmtDepth = (d: number) => d.toFixed(1)
 // ── Y-axis builders ─────────────────────────────────────────────────────────
 // Called as render helpers (not React components) — they close over chart-level
 // constants, have no hooks, and are re-called only when the parent re-renders.
-
 function yPeil(domain: [number, number], fmt: (d: number) => string, label: string) {
   return (
     <YAxis yAxisId="y" orientation="left" dataKey="depth" type="number"
@@ -55,7 +54,7 @@ function yLengte(domain: [number, number]) {
     <YAxis yAxisId="yr" orientation="right" dataKey="depth" type="number"
       domain={domain} tickCount={11} tick={{ fontSize: 9 }}
       tickFormatter={fmtDepth}
-      label={{ value: 'Lengte (m)', angle: 90, position: 'insideRight', offset: -(Y_W - 12), style: { fontSize: 9 } }}
+      label={{ value: 'Length (m)', angle: 90, position: 'insideRight', offset: -(Y_W - 12), style: { fontSize: 9 } }}
       width={Y_W}
     />
   )
@@ -103,7 +102,7 @@ export default function CptChart({ plot, name, detail }: Props) {
   const showU2 = hasU2 && (cptType === 'CPTU' || hasU2)
 
   const fmtPeil   = makePeilFmt(elevationM)
-  const peilLabel = elevationM !== null ? 'Peil (m TAW)' : 'Diepte (m)'
+  const peilLabel = elevationM !== null ? 'Level (m TAW)' : 'Depth (m)'
 
   const topM = 28
   const botM = hasFs ? 28 : 12
@@ -119,19 +118,17 @@ export default function CptChart({ plot, name, detail }: Props) {
         stroke={PD_CLR} strokeDasharray="6 3" strokeWidth={1.5} />
     )
   }
-
-  function aanvangspeilRef(xAxisId: string) {
+  function surfaceElevationRef(xAxisId: string) {
     if (elevationM === null) return null
     return (
       <ReferenceLine yAxisId="y" xAxisId={xAxisId} y={0}
         stroke="#9ca3af" strokeDasharray="3 3" strokeWidth={1}
-        label={{ value: `${fmtPeil(0)} Aanvangspeil`, position: 'insideTopLeft', style: { fontSize: 8, fill: '#6b7280' } }}
+        label={{ value: `${fmtPeil(0)} m — surface`, position: 'insideTopLeft', style: { fontSize: 8, fill: '#6b7280' } }}
       />
     )
   }
 
   // ── Panel renderers (called as functions, not as JSX components) ─────────
-
   function renderU2Panel(isLeft: boolean, isRight: boolean) {
     return (
       <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
@@ -150,7 +147,7 @@ export default function CptChart({ plot, name, detail }: Props) {
         {preDrillRef('u2')}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(1)} kPa`, key]}
-          labelFormatter={d => `Diepte: ${Number(d).toFixed(2)} m`}
+          labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
         />
         <Line yAxisId="y" xAxisId="u2" dataKey="u2_kpa" name="u (kPa)"
           stroke={U2_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
@@ -174,13 +171,13 @@ export default function CptChart({ plot, name, detail }: Props) {
             label={{ value: 'fs (MPa)', position: 'insideBottomLeft', offset: 2, style: { fontSize: 9, fill: FS_CLR } }}
           />
         )}
-        {aanvangspeilRef('qc')}
+        {surfaceElevationRef('qc')}
         {preDrillRef('qc')}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(4)}`, key]}
           labelFormatter={d =>
-            `Diepte: ${Number(d).toFixed(2)} m` +
-            (elevationM !== null ? `  |  Peil: ${fmtPeil(Number(d))} m TAW` : '')
+            `Depth: ${Number(d).toFixed(2)} m` +
+            (elevationM !== null ? `  |  Level: ${fmtPeil(Number(d))} m TAW` : '')
           }
         />
         <Line yAxisId="y" xAxisId="qc" dataKey="qc" name="qc (MPa)"
@@ -209,7 +206,7 @@ export default function CptChart({ plot, name, detail }: Props) {
         {preDrillRef('rf')}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(2)} %`, key]}
-          labelFormatter={d => `Diepte: ${Number(d).toFixed(2)} m`}
+          labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
         />
         <Line yAxisId="y" xAxisId="rf" dataKey="rf" name="Rf (%)"
           stroke={RF_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
