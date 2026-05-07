@@ -78,7 +78,10 @@ async def import_cpt(
     try:
         result = await ImportCpt(session).execute(tmp_path, app_project_uuid)
     except DuplicateCptError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"cpt_id": str(exc.existing_id), "message": str(exc)},
+        )
     finally:
         tmp_path.unlink(missing_ok=True)
 
