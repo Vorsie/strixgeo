@@ -293,12 +293,12 @@ class TestCPTM_TM2_GEO13_S5:
         assert "HYBRID_METHOD" in _warning_codes(_parse(self.FILE))
 
     def test_total_resistance_voided_only_in_electric_portion(self) -> None:
+        """qty 128 (totaalweerstand) maps to qt_mpa; void-masked in the electric portion."""
         import polars as pl
 
         df = _parse(self.FILE).data
-        # The column stays as col_3 (qty 128 not in standard mapping)
-        assert "col_3" in df.columns
+        assert "qt_mpa" in df.columns
         # Electric CPT portion (2.20–4.59 m, 240 rows) has void total resistance
-        assert df.filter(pl.col("depth_m") <= 4.59)["col_3"].null_count() == 240
+        assert df.filter(pl.col("depth_m") <= 4.59)["qt_mpa"].null_count() == 240
         # Mechanical portion (4.60 m onwards) has real total resistance measurements
-        assert df.filter(pl.col("depth_m") >= 4.60)["col_3"].null_count() == 0
+        assert df.filter(pl.col("depth_m") >= 4.60)["qt_mpa"].null_count() == 0
