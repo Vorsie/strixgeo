@@ -1,4 +1,11 @@
-import { FolderOpen, Save, Upload, Loader2 } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { ChevronDown, FolderOpen, Save, Upload, Loader2 } from 'lucide-react'
+
+interface ImportAction {
+  label: string
+  available: boolean
+  onClick?: () => void
+}
 
 interface Props {
   onImportCpt: () => void
@@ -6,53 +13,134 @@ interface Props {
 }
 
 export default function Toolbar({ onImportCpt, importing }: Props) {
+  const importActions: ImportAction[] = [
+    { label: 'Import CPT (.gef)', available: true, onClick: onImportCpt },
+    { label: 'Import Borehole', available: false },
+    { label: 'Import DMT', available: false },
+    { label: 'Import Lab Test', available: false },
+    { label: 'Import Monitoring', available: false },
+  ]
+
   return (
-    <div className="flex items-center gap-1 px-2 py-1 border-b border-gray-200 bg-gray-50 select-none">
-      {/* Standard file operations — placeholders for future project save/open */}
-      <ToolButton icon={<FolderOpen size={15} />} label="Open" disabled />
-      <ToolButton icon={<Save size={15} />} label="Save" disabled />
+    <div className="flex items-center gap-0.5 px-2 py-1 border-b border-gray-200 bg-gray-50 select-none">
+      <DropdownMenu label="File" icon={null}>
+        <MenuItem icon={<FolderOpen size={13} />} label="Open Project…" disabled />
+        <MenuItem icon={<Save size={13} />} label="Save Project" disabled shortcut="Ctrl+S" />
+        <MenuDivider />
+        <MenuItem icon={<Save size={13} />} label="Save Project As…" disabled />
+      </DropdownMenu>
 
-      <div className="w-px h-5 bg-gray-300 mx-1" />
-
-      {/* Import actions */}
-      <ToolButton
-        icon={importing ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-        label="Import CPT"
-        onClick={onImportCpt}
-        disabled={importing}
-        primary
-      />
-      <ToolButton icon={<Upload size={15} />} label="Import Borehole" disabled />
-      <ToolButton icon={<Upload size={15} />} label="Import DMT" disabled />
+      <DropdownMenu
+        label="Import"
+        icon={importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+        highlight={!importing}
+      >
+        {importActions.map(action => (
+          <MenuItem
+            key={action.label}
+            label={action.label}
+            disabled={!action.available || importing}
+            dimmed={!action.available}
+            onClick={action.onClick}
+            tag={!action.available ? 'Phase 3' : undefined}
+          />
+        ))}
+      </DropdownMenu>
     </div>
   )
 }
 
-interface BtnProps {
-  icon: React.ReactNode
+// ---------------------------------------------------------------------------
+// Dropdown
+// ---------------------------------------------------------------------------
+
+interface DropdownMenuProps {
   label: string
-  onClick?: () => void
-  disabled?: boolean
-  primary?: boolean
+  icon?: React.ReactNode
+  highlight?: boolean
+  children: React.ReactNode
 }
 
-function ToolButton({ icon, label, onClick, disabled, primary }: BtnProps) {
+function DropdownMenu({ label, icon, highlight, children }: DropdownMenuProps) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e: MouseEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={[
+          'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
+          open
+            ? 'bg-gray-200 text-gray-800'
+            : highlight
+            ? 'text-blue-700 hover:bg-blue-50'
+            : 'text-gray-600 hover:bg-gray-200',
+        ].join(' ')}
+      >
+        {icon}
+        {label}
+        <ChevronDown size={11} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute top-full left-0 mt-0.5 w-52 bg-white border border-gray-200 rounded shadow-lg z-50 py-1"
+          onClick={() => setOpen(false)}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Menu items
+// ---------------------------------------------------------------------------
+
+interface MenuItemProps {
+  icon?: React.ReactNode
+  label: string
+  shortcut?: string
+  disabled?: boolean
+  dimmed?: boolean
+  tag?: string
+  onClick?: () => void
+}
+
+function MenuItem({ icon, label, shortcut, disabled, dimmed, tag, onClick }: MenuItemProps) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       disabled={disabled}
-      title={label}
       className={[
-        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
+        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors',
         disabled
-          ? 'text-gray-400 cursor-not-allowed'
-          : primary
-          ? 'text-blue-700 hover:bg-blue-50 active:bg-blue-100'
-          : 'text-gray-600 hover:bg-gray-200 active:bg-gray-300',
+          ? 'cursor-not-allowed'
+          : 'hover:bg-gray-50 active:bg-gray-100',
+        dimmed ? 'text-gray-400' : 'text-gray-700',
       ].join(' ')}
     >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
+      {icon && <span className="w-4 shrink-0">{icon}</span>}
+      <span className="flex-1">{label}</span>
+      {shortcut && <span className="text-gray-400 text-[10px]">{shortcut}</span>}
+      {tag && (
+        <span className="text-[9px] bg-gray-100 text-gray-400 px-1 py-0.5 rounded">{tag}</span>
+      )}
     </button>
   )
+}
+
+function MenuDivider() {
+  return <div className="my-1 border-t border-gray-100" />
 }
