@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ESNext",
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "electron-vite.config.ts",
+    "src/main/**/*",
+    "src/preload/**/*"
+  ]
+}
