@@ -20,7 +20,7 @@ Commercial geotechnical data platform targeting EC7 Gen2 compliance. Supports CP
 
 ```
 ┌─────────────────────────────────────┐
-│           API Layer (FastAPI)        │  ← HTTP, validation, routing
+│           API Layer (FastAPI)       │  ← HTTP, validation, routing
 ├─────────────────────────────────────┤
 │        Application Layer            │  ← use cases, orchestration
 ├─────────────────────────────────────┤
@@ -282,7 +282,21 @@ MVP uses `SynchronousQueue` (inline execution). When load justifies it, swap for
 tests/
 ├── unit/          domain logic, fixture files only
 ├── integration/   real PostgreSQL (Docker Compose), real files
-└── e2e/           full HTTP round-trips via httpx
+├── e2e/           full HTTP round-trips via httpx
+└── benchmarks/    pytest-benchmark performance tests (disabled by default)
+```
+
+Benchmarks use `bench_*.py` naming and are excluded from normal `pytest` runs via `addopts = "--benchmark-disable"` in pyproject.toml.
+
+```
+# Run benchmarks
+uv run pytest tests/benchmarks/ --benchmark-enable -v
+
+# Save a named result for comparison
+uv run pytest tests/benchmarks/ --benchmark-enable --benchmark-save=baseline
+
+# Compare against saved baseline
+uv run pytest tests/benchmarks/ --benchmark-enable --benchmark-compare=baseline
 ```
 
 ---
