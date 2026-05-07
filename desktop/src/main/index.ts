@@ -12,9 +12,9 @@ let apiProcess: ChildProcess | null = null
 // ---------------------------------------------------------------------------
 
 function startApi(): void {
-  // Locate the uv / uvicorn executable relative to the repo root, one level
-  // above the desktop/ directory when running in dev.
-  const repoRoot = join(__dirname, '..', '..', '..', '..')
+  // In dev: __dirname = desktop/out/main/ → 3 levels up = repo root (Strix/).
+  // In packaged build: adjust this path to point at the bundled venv.
+  const repoRoot = join(__dirname, '..', '..', '..')
   const uvExe = join(repoRoot, '.venv', 'Scripts', 'uvicorn.exe')
 
   apiProcess = spawn(uvExe, [
