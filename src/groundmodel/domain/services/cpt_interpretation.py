@@ -1,4 +1,15 @@
-"""CPT soil behaviour type interpretation functions."""
+"""CPT soil behaviour type interpretation — PREVIEW (Phase 5 / final-phase scope).
+
+Per the project Build Sequence (see CLAUDE.md), all engineering interpretation
+is deferred to the final phase. This module exists as a preview implementation
+of Robertson Ic so the chart can render an Ic panel today, but the production
+engineering layer (Robertson Ic + auto soil profiling + per-layer unit weights
++ derived parameters across the model) is built out in Phase 5.
+
+Do not extend this module with additional engineering calculations until Phase 5.
+Bug fixes to the existing functions are fine. The Ic chart panel in CptChart.tsx
+is similarly preview-status.
+"""
 
 import math
 
