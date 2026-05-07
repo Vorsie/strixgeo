@@ -144,6 +144,14 @@ ipcMain.handle('dialog:open-file', async (_event, filters: Electron.FileFilter[]
   return result.canceled ? null : result.filePaths[0]
 })
 
+ipcMain.handle('dialog:open-files', async (_event, filters: Electron.FileFilter[]) => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile', 'multiSelections'],
+    filters
+  })
+  return result.canceled ? [] : result.filePaths
+})
+
 ipcMain.handle('fs:read-file', (_event, filePath: string): Buffer => {
   return readFileSync(filePath)
 })
