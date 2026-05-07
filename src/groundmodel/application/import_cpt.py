@@ -68,7 +68,13 @@ class ImportCpt(GroundModelLogger):
         return await self.persist(result, name, app_project_id)
 
     async def persist(
-        self, result: GEFParseResult, name: str, app_project_id: UUID | None = None
+        self,
+        result: GEFParseResult,
+        name: str,
+        app_project_id: UUID | None = None,
+        *,
+        commit: bool = True,
+        skip_duplicate_check: bool = False,
     ) -> ImportCptResult:
         """Validate and persist an already-parsed CPT result.
 
@@ -80,6 +86,13 @@ class ImportCpt(GroundModelLogger):
             Display name for the CPT record.
         app_project_id : UUID | None
             Project scope for duplicate detection and storage.
+        commit : bool
+            When True (default), commit the transaction after the insert. Bulk callers
+            should pass False and commit once at the end of the batch — committing
+            per CPT in a 200-row import burns 200 fsync round-trips for no benefit.
+        skip_duplicate_check : bool
+            When True, skip the per-CPT duplicate query. Bulk callers that have
+            already done a single batch dedup pass should set this True.
 
         Returns
         -------
@@ -106,7 +119,7 @@ class ImportCpt(GroundModelLogger):
 
         # Duplicate guard scoped to app_project_id so the same CPT can be imported into
         # different projects. project_id + test_id uniquely identify a CPT within its source.
-        if h.project_id and h.test_id:
+        if not skip_duplicate_check and h.project_id and h.test_id:
             existing = await self._repo.find_by_project_test(
                 h.project_id, h.test_id, app_project_id
             )
@@ -121,7 +134,8 @@ class ImportCpt(GroundModelLogger):
         cpt_orm = self._to_orm(cpt_id, name, result, app_project_id)
 
         await self._repo.save(cpt_orm)
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
 
         n_err = sum(1 for i in result.issues if i.level == "error")
         n_warn = sum(1 for i in result.issues if i.level == "warning")
