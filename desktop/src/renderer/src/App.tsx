@@ -15,6 +15,7 @@ declare global {
       getApiBaseUrl: () => Promise<string>
       waitForApi: () => Promise<boolean>
       openFile: (filters: Electron.FileFilter[]) => Promise<string | null>
+      openFiles: (filters: Electron.FileFilter[]) => Promise<string[]>
       readFile: (filePath: string) => Promise<Buffer>
       onMenuImportCpt: (cb: () => void) => () => void
       onMenuImportBorehole: (cb: () => void) => () => void
@@ -115,34 +116,46 @@ export default function App() {
 
   const handleImportCpt = useCallback(async () => {
     if (!project) return
-    const filePath = await window.electron.openFile([
+    const filePaths = await window.electron.openFiles([
       { name: 'GEF Files', extensions: ['gef'] },
       { name: 'All Files', extensions: ['*'] }
     ])
-    if (!filePath) return
+    if (filePaths.length === 0) return
 
     setImporting(true)
     try {
-      const result = await api.cpt.import(filePath, project.id)
-      if (result.has_errors) {
-        const codes = result.issues.filter(i => i.level === 'error').map(i => i.code).join(', ')
-        toast('error', `Imported with errors: ${codes}`)
-      } else {
-        toast('success', 'CPT imported successfully')
+      const results = await Promise.allSettled(
+        filePaths.map(fp => api.cpt.import(fp, project.id))
+      )
+
+      let imported = 0, warnings = 0, duplicates = 0, errors = 0
+      let firstId: string | null = null
+
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          if (r.value.has_errors) warnings++
+          else imported++
+          firstId ??= r.value.cpt_id
+        } else if (r.reason instanceof DuplicateCptError) {
+          duplicates++
+          firstId ??= r.reason.cptId
+        } else {
+          errors++
+        }
       }
+
+      const ok = imported + warnings
+      const parts: string[] = []
+      if (ok > 0) parts.push(`${ok} imported${warnings > 0 ? ` (${warnings} with warnings)` : ''}`)
+      if (duplicates > 0) parts.push(`${duplicates} already existed`)
+      if (errors > 0) parts.push(`${errors} failed`)
+      toast(errors > 0 && ok === 0 ? 'error' : 'success', parts.join(', '))
+
       await refreshList()
-      setSelectedId(result.cpt_id)
-      await loadChart(result.cpt_id)
-      setView('chart')
-    } catch (e) {
-      if (e instanceof DuplicateCptError) {
-        toast('success', 'Already in project — loaded from database')
-        await refreshList()
-        setSelectedId(e.cptId)
-        await loadChart(e.cptId)
-        setView('chart')
-      } else {
-        toast('error', e instanceof Error ? e.message : 'Import failed')
+      if (firstId) {
+        setSelectedId(firstId)
+        await loadChart(firstId)
+        if (filePaths.length === 1) setView('chart')
       }
     } finally {
       setImporting(false)
