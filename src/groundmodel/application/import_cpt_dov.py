@@ -13,7 +13,6 @@ from groundmodel.application.import_cpt_dov_result import ImportCptDovResult
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import DovClient
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
-from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -70,16 +69,23 @@ class ImportCptDov(GroundModelLogger):
 
         t_total = time.perf_counter()
 
+        # Phase 1+2 combined — stream-parse: each XML is parsed inside its download
+        # task as soon as the bytes are available, so parse work overlaps with the
+        # next batch of downloads instead of running sequentially after them.
+        parser = DovParser()
         try:
-            # follow_redirects=True kept as a safety net for any fiche URL we couldn't
-            # rewrite to the proxy form; the typical path now hits the proxy directly.
             t_fetch = time.perf_counter()
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(60.0, connect=10.0),
                 follow_redirects=True,
             ) as http:
-                items = await DovClient(http).fetch_bbox(west, south, east, north)
-            self.info(f"DOV phase 1 (WFS + downloads): {_ms(t_fetch)} ms — {len(items)} XMLs")
+                parsed = await DovClient(http).fetch_bbox_processed(
+                    west, south, east, north, parser.parse
+                )
+            self.info(
+                f"DOV phase 1+2 (WFS + download + parse): {_ms(t_fetch)} ms — "
+                f"{len(parsed)} CPTs ready"
+            )
         except httpx.HTTPStatusError as exc:
             self.error(
                 f"DOV WFS request failed with HTTP {exc.response.status_code}: {exc}  "
@@ -90,40 +96,21 @@ class ImportCptDov(GroundModelLogger):
             self.error(f"DOV network error during WFS/download phase: {type(exc).__name__}: {exc}")
             raise
 
-        total = len(items)
-        self.info(f"DOV import: {total} CPTs to process")
-
+        total = len(parsed)
         if total == 0:
             self.info("DOV import: no CPTs found in bbox — nothing to persist")
             return ImportCptDovResult(imported=0, duplicates=0, failed=0, cpt_ids=[])
 
-        # Phase 2 — parse all XMLs (CPU-bound, no DB).
-        t_parse = time.perf_counter()
-        parser = DovParser()
-        parsed: list[tuple[str, object]] = []  # list of (name, GEFParseResult)
+        # Per-CPT failures during download/parse are logged inside DovClient and
+        # excluded from `parsed`. We don't have a separate count here without
+        # threading it through; absent CPTs vs. expected count is the diff.
         failed = 0
-        for i, (name, xml_bytes) in enumerate(items, 1):
-            try:
-                result = parser.parse(xml_bytes, name)
-                if result.has_errors:
-                    self.warning(
-                        f"DOV import [{i}/{total}]: '{name}' parsed with errors — "
-                        + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
-                    )
-                parsed.append((name, result))
-            except ParseError as exc:
-                failed += 1
-                self.error(f"DOV import [{i}/{total}]: parse error for '{name}': {exc}")
-            except Exception as exc:
-                failed += 1
-                self.error(
-                    f"DOV import [{i}/{total}]: unexpected parse error for '{name}': "
-                    f"{type(exc).__name__}: {exc}"
+        for name, result in parsed:
+            if result.has_errors:
+                self.warning(
+                    f"DOV import: '{name}' parsed with errors — "
+                    + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
                 )
-
-        self.info(
-            f"DOV phase 2 (parse XMLs): {_ms(t_parse)} ms — {len(parsed)} parsed, {failed} failed"
-        )
 
         # Phase 3 — batch dedup: one IN-query for all incoming test_ids.
         # All DOV CPTs share project_id="DOV"; gather every test_id and lookup once.

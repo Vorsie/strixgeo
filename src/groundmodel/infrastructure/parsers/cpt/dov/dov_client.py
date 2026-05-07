@@ -32,16 +32,21 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
+from typing import TypeVar
 
 import httpx
 from pyproj import Transformer
 
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
+_T = TypeVar("_T")
+ProcessFn = Callable[[bytes, str], _T]
+
 _WFS_URL = "https://www.dov.vlaanderen.be/geoserver/ows"
 _LAYER = "dov-pub:Sonderingen"  # plural; verified via GetCapabilities
 _WFS_LIMIT = 500  # default server-side cap on features per request
-_PARALLEL = 20  # max concurrent XML downloads
+_PARALLEL = 50  # max concurrent XML downloads
 _MAX_DEPTH = 5  # bbox split recursion limit (2^5 = 32 subdivisions per axis)
 
 # DOV's /data/sondering/{id}.xml endpoint always 302-redirects to the proxy below.
@@ -113,6 +118,82 @@ class DovClient(GroundModelLogger):
             f"{len(name_by_url) - len(results)} failed out of {len(name_by_url)} total"
         )
         return results
+
+    async def fetch_bbox_processed(
+        self,
+        west: float,
+        south: float,
+        east: float,
+        north: float,
+        process: ProcessFn[_T],
+    ) -> list[tuple[str, _T]]:
+        """Same as fetch_bbox but runs *process(xml_bytes, name)* on each download.
+
+        Why this exists: parsing 200+ XMLs sequentially after they all downloaded
+        was costing 8+ extra seconds. Running process inside each download task
+        means parse work happens between async waits — the parse phase wall time
+        disappears into the download wait time. Failures from process() are
+        caught per-CPT so one bad XML doesn't kill the batch.
+
+        Returns
+        -------
+        list[tuple[str, _T]]
+            (sondeernummer, process_result) for every CPT processed successfully.
+        """
+        x1, y1 = _to_lambert.transform(west, south)
+        x2, y2 = _to_lambert.transform(east, north)
+        self.debug(f"DOV bbox WGS84: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}")
+
+        name_by_url = await self._collect_pkeys(x1, y1, x2, y2, depth=0)
+        self.info(f"DOV WFS: {len(name_by_url)} unique CPTs found in bbox")
+        if not name_by_url:
+            return []
+
+        self.info(
+            f"DOV: streaming download+process of {len(name_by_url)} XMLs (max {_PARALLEL} parallel)"
+        )
+        sem = asyncio.Semaphore(_PARALLEL)
+        tasks = [
+            self._download_and_process(xml_url, name, process, sem)
+            for xml_url, name in name_by_url.items()
+        ]
+        raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+        out: list[tuple[str, _T]] = []
+        for (xml_url, name), result in zip(name_by_url.items(), raw):
+            if isinstance(result, Exception):
+                self.error(
+                    f"DOV: download/process failed for '{name}'  "
+                    f"url={xml_url}  error={type(result).__name__}: {result}"
+                )
+            else:
+                out.append((name, result))
+        return out
+
+    async def _download_and_process(
+        self, xml_url: str, name: str, process: ProcessFn[_T], sem: asyncio.Semaphore
+    ) -> _T:
+        """Download one XML, then run process synchronously inside the same task.
+
+        Process runs after the semaphore is released so the slot becomes available
+        for the next download immediately.
+        """
+        async with sem:
+            try:
+                resp = await self._http.get(xml_url)
+            except httpx.RequestError as exc:
+                self.error(f"DOV: network error fetching '{name}' ({xml_url}): {exc}")
+                raise
+            if not resp.is_success:
+                self.error(
+                    f"DOV: HTTP {resp.status_code} for '{name}'  "
+                    f"url={xml_url}  body={resp.text[:200]!r}"
+                )
+                resp.raise_for_status()
+            xml_bytes = resp.content
+        # Process runs outside the semaphore — parse blocks the event loop briefly
+        # (~16ms per CPT) while the freed semaphore slot starts the next download.
+        return process(xml_bytes, name)
 
     # ------------------------------------------------------------------
     # WFS queries
