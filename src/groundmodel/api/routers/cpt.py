@@ -124,14 +124,45 @@ async def import_cpt_dov(
     -------
     ImportDovResponse
         Counts of imported, duplicate, and failed CPTs plus all CPT IDs.
+
+    Raises
+    ------
+    HTTPException(503)
+        DOV unreachable (DNS / connection refused / no network).
+    HTTPException(504)
+        DOV did not respond within the timeout.
+    HTTPException(502)
+        DOV returned an unexpected error response (4xx/5xx from upstream).
     """
-    result = await ImportCptDov(session).execute(
-        west=request.west,
-        south=request.south,
-        east=request.east,
-        north=request.north,
-        app_project_id=request.project_id,
-    )
+    try:
+        result = await ImportCptDov(session).execute(
+            west=request.west,
+            south=request.south,
+            east=request.east,
+            north=request.north,
+            app_project_id=request.project_id,
+        )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"DOV did not respond in time ({exc.__class__.__name__})",
+        ) from exc
+    except httpx.ConnectError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cannot reach DOV — check your internet connection",
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"DOV returned HTTP {exc.response.status_code}",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"DOV request failed: {exc.__class__.__name__}: {exc}",
+        ) from exc
+
     return ImportDovResponse(
         imported=result.imported,
         duplicates=result.duplicates,
