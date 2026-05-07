@@ -167,6 +167,33 @@ cpt_summary (cpt_id, max_depth_m, avg_qc_mpa, location GEOMETRY, ...)
 
 ---
 
+## Definition of Done
+
+Every implementation is only complete when ALL of the following are satisfied.
+Apply this checklist before committing any Python file:
+
+### 1. Logging
+- **Entry point** — every public method logs what it received (key params at INFO or DEBUG).
+- **Exit point** — log the outcome at SUCCESS (happy path) or WARNING/ERROR (degraded path).
+- **External calls** — every HTTP request logs the URL + params at TRACE/DEBUG *before* the call, and the status code + response size *after*. On non-2xx: log the full response body (truncated to 500 chars).
+- **Null/missing structure** — log what *was* found when expected elements are absent (e.g. print actual XML child tags, actual JSON keys) so the mismatch is immediately visible without re-running with a debugger.
+- **Progress in loops** — `[i/total]` prefix on every item in a bulk loop (imports, downloads, etc.).
+- **Level guide:** `trace` = per-row / per-byte detail; `debug` = per-item decisions; `info` = phase boundaries; `warning` = degraded but continuing; `error` = item failed, processing continues; `success` = happy-path completion.
+
+### 2. Docstrings
+All public modules, classes, and methods must have a numpy-style docstring. Private helpers need at least a one-line summary. Docstrings must document: what the function does, every parameter (name, type, meaning), return value, and exceptions raised.
+
+### 3. Comments
+Add a comment when the WHY is non-obvious: hidden constraints, schema quirks, coordinate order, protocol version choices, workarounds. Do NOT comment what the code says — only why it is written that way.
+
+### 4. Tests
+- Every new parser / service / use case needs unit tests.
+- Cover: happy path, at least one structural error path (missing field, bad input), and the type/variant detection logic if applicable.
+- Tests live in `tests/unit/` (no DB, no I/O) unless integration is unavoidable.
+- Run `uv run pytest tests/unit/ -q` and confirm all pass before committing.
+
+---
+
 ## Code Conventions
 
 ### English only
