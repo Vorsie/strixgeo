@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
