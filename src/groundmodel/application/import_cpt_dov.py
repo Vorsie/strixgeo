@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from uuid import UUID
 
 import httpx
@@ -14,6 +15,11 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_client import DovClient
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+def _ms(start: float) -> int:
+    """Return elapsed time since *start* (perf_counter) as integer milliseconds."""
+    return int((time.perf_counter() - start) * 1000)
 
 
 class ImportCptDov(GroundModelLogger):
@@ -62,14 +68,18 @@ class ImportCptDov(GroundModelLogger):
             f"project_id={app_project_id}"
         )
 
+        t_total = time.perf_counter()
+
         try:
-            # follow_redirects=True is required: the DOV XML endpoint
-            # /data/sondering/{id}.xml 302-redirects to /xdov/proxy/export/sondering/{id}.
+            # follow_redirects=True kept as a safety net for any fiche URL we couldn't
+            # rewrite to the proxy form; the typical path now hits the proxy directly.
+            t_fetch = time.perf_counter()
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(60.0, connect=10.0),
                 follow_redirects=True,
             ) as http:
                 items = await DovClient(http).fetch_bbox(west, south, east, north)
+            self.info(f"DOV phase 1 (WFS + downloads): {_ms(t_fetch)} ms — {len(items)} XMLs")
         except httpx.HTTPStatusError as exc:
             self.error(
                 f"DOV WFS request failed with HTTP {exc.response.status_code}: {exc}  "
@@ -87,7 +97,8 @@ class ImportCptDov(GroundModelLogger):
             self.info("DOV import: no CPTs found in bbox — nothing to persist")
             return ImportCptDovResult(imported=0, duplicates=0, failed=0, cpt_ids=[])
 
-        # Phase 1 — parse all XMLs (CPU-bound, no DB).
+        # Phase 2 — parse all XMLs (CPU-bound, no DB).
+        t_parse = time.perf_counter()
         parser = DovParser()
         parsed: list[tuple[str, object]] = []  # list of (name, GEFParseResult)
         failed = 0
@@ -110,17 +121,26 @@ class ImportCptDov(GroundModelLogger):
                     f"{type(exc).__name__}: {exc}"
                 )
 
-        # Phase 2 — batch dedup: one IN-query for all incoming test_ids.
+        self.info(
+            f"DOV phase 2 (parse XMLs): {_ms(t_parse)} ms — {len(parsed)} parsed, {failed} failed"
+        )
+
+        # Phase 3 — batch dedup: one IN-query for all incoming test_ids.
         # All DOV CPTs share project_id="DOV"; gather every test_id and lookup once.
+        t_dedup = time.perf_counter()
         test_ids = [r.header.test_id for _, r in parsed if r.header.test_id]
         existing = (
             await self._repo.find_existing_test_ids("DOV", test_ids, app_project_id)
             if test_ids
             else {}
         )
-        self.debug(f"DOV import: dedup found {len(existing)} of {len(test_ids)} already in project")
+        self.info(
+            f"DOV phase 3 (dedup query): {_ms(t_dedup)} ms — "
+            f"{len(existing)} of {len(test_ids)} already in project"
+        )
 
-        # Phase 3 — persist non-duplicates without committing per-CPT.
+        # Phase 4 — persist non-duplicates without committing per-CPT.
+        t_persist = time.perf_counter()
         imported = 0
         duplicates = 0
         cpt_ids: list[UUID] = []
@@ -153,14 +173,17 @@ class ImportCptDov(GroundModelLogger):
                     f"{type(exc).__name__}: {exc}"
                 )
 
-        # Phase 4 — single commit for the entire batch.
+        self.info(f"DOV phase 4 (persist {imported} CPTs, no commit): {_ms(t_persist)} ms")
+
+        # Phase 5 — single commit flushes all queued INSERTs in one shot.
         if imported > 0:
+            t_commit = time.perf_counter()
             await self._session.commit()
-            self.debug(f"DOV import: committed batch of {imported} CPTs")
+            self.info(f"DOV phase 5 (commit batch of {imported} CPTs): {_ms(t_commit)} ms")
 
         self.success(
-            f"DOV import done: {imported} imported, {duplicates} duplicates, "
-            f"{failed} failed  (total={total})"
+            f"DOV import done in {_ms(t_total)} ms: {imported} imported, "
+            f"{duplicates} duplicates, {failed} failed  (total={total})"
         )
         return ImportCptDovResult(
             imported=imported,
