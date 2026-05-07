@@ -52,7 +52,7 @@ cd Strix
 # Install Python deps + create venv
 uv sync --group dev
 
-# Copy and configure environment
+# Copy environment file (defaults work as-is against the included docker-compose)
 cp .env.example .env
 
 # Start PostgreSQL + PostGIS
@@ -124,8 +124,8 @@ Strix/
 ├── desktop/             # Electron + React + TS frontend
 ├── tests/
 │   ├── unit/            # no DB, no I/O, no network
-│   ├── integration/     # real DB / real fixture files
-│   ├── e2e/             # full HTTP round-trips
+│   ├── integration/     # real DB / real fixture files (Docker required)
+│   ├── e2e/             # full HTTP round-trips (placeholder — not yet populated)
 │   └── benchmarks/      # pytest-benchmark, disabled by default
 ├── data/cpt/            # real DOV GEF fixtures (gitignored)
 ├── docker-compose.yml   # PostgreSQL + PostGIS
@@ -167,10 +167,9 @@ Engineering interpretation is intentionally pushed to the final phase. Earlier p
 
 ## Contributing
 
-Private solo-development project. Conventions enforced:
+Private solo-development project. Conventions enforced (full details in [CLAUDE.md](CLAUDE.md)):
 
 - **Conventional Commits** — `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`. Lowercase, no trailing period, ≤ 72 chars on the first line.
 - **One file per commit** — stage and commit files individually.
-- **Definition of Done** for every Python module: comprehensive logging (entry/exit/null-paths/HTTP bodies), numpy-style docstrings, unit tests covering happy + error paths. See [CLAUDE.md](CLAUDE.md) for the full checklist.
-
-Issue and PR templates are in [CLAUDE.md](CLAUDE.md).
+- **Definition of Done** for every Python module: comprehensive logging (entry/exit/null-paths/HTTP bodies), numpy-style docstrings, unit tests covering happy + error paths.
+- **English only** for every identifier, comment, and docstring. Dutch DOV/GEF spec field names are allowed only as string literals or in comments alongside their English translation.
