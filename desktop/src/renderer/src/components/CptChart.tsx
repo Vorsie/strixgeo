@@ -484,10 +484,13 @@ const IC_ZONE_SHORT: Record<string, string> = {
 }
 
 function IcZoneLabelsOverlay() {
+  // Labels are rotated 90° so they read bottom-to-top inside their zone column.
+  // This keeps each label horizontally inside its zone regardless of chart width
+  // (no diagonal overflow into neighbouring zones or the depth axis on the right).
   return (
     <div
       className="absolute pointer-events-none select-none"
-      style={{ bottom: 60, left: Y_W + 2, right: Y_W + 2, height: 44 }}
+      style={{ bottom: 32, left: Y_W, right: Y_W, height: 44 }}
     >
       {IC_ZONES.map(z => {
         const centerPct = ((z.x1 + z.x2) / 2 / IC_MAX) * 100
@@ -496,14 +499,15 @@ function IcZoneLabelsOverlay() {
             key={z.x1}
             style={{
               position:        'absolute',
-              bottom:          0,
+              bottom:          2,
               left:            `${centerPct}%`,
-              transform:       'translateX(-50%) rotate(-55deg)',
-              transformOrigin: 'bottom center',
-              fontSize:        7.5,
+              transform:       'translate(-50%, 0) rotate(-90deg)',
+              transformOrigin: 'center bottom',
+              fontSize:        8,
               color:           '#374151',
               fontWeight:      500,
               whiteSpace:      'nowrap',
+              lineHeight:      1,
             }}
           >
             {IC_ZONE_SHORT[z.label] ?? z.label}
