@@ -90,14 +90,14 @@ export default function CptChart({ plot, name, detail }: Props) {
             >
               <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
 
-              {/* Left Y — peil mTAW (or depth if no elevation) */}
+              {/* Left Y — diepte (m) */}
               <YAxis
                 {...sharedY}
                 yAxisId="y"
                 orientation="left"
-                tickFormatter={peilFmt}
+                tickFormatter={depthFmt}
                 label={{
-                  value: elevationM !== null ? 'Peil (m TAW)' : 'Diepte (m)',
+                  value: 'Diepte (m)',
                   angle: -90,
                   position: 'insideLeft',
                   offset: -8,
@@ -158,7 +158,7 @@ export default function CptChart({ plot, name, detail }: Props) {
                   val === null ? ['—', key] : [`${Number(val).toFixed(4)}`, key]
                 }
                 labelFormatter={d =>
-                  `Depth: ${Number(d).toFixed(2)} m` +
+                  `Diepte: ${Number(d).toFixed(2)} m` +
                   (elevationM !== null
                     ? `  |  Peil: ${(elevationM - Number(d)).toFixed(2)} m TAW`
                     : '')
@@ -216,14 +216,14 @@ export default function CptChart({ plot, name, detail }: Props) {
                   width={1}
                 />
 
-                {/* Right Y — depth m */}
+                {/* Right Y — peil mTAW (or depth if no elevation) */}
                 <YAxis
                   {...sharedY}
                   yAxisId="yr"
                   orientation="right"
-                  tickFormatter={depthFmt}
+                  tickFormatter={peilFmt}
                   label={{
-                    value: 'Diepte (m)',
+                    value: elevationM !== null ? 'Peil (m TAW)' : 'Diepte (m)',
                     angle: 90,
                     position: 'insideRight',
                     offset: -8,
@@ -275,7 +275,7 @@ export default function CptChart({ plot, name, detail }: Props) {
                   formatter={(val, key) =>
                     val === null ? ['—', key] : [`${Number(val).toFixed(2)} %`, key]
                   }
-                  labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
+                  labelFormatter={d => `Diepte: ${Number(d).toFixed(2)} m`}
                 />
 
                 <Line
