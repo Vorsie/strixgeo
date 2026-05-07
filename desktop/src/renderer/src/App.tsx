@@ -196,7 +196,11 @@ export default function App() {
               />
             ) : (
               selectedCpt && plotMap.has(selectedId)
-                ? <CptChart plot={plotMap.get(selectedId)!} name={selectedCpt.name} />
+                ? <CptChart
+                    plot={plotMap.get(selectedId)!}
+                    name={selectedCpt.name}
+                    detail={detailMap.get(selectedId)}
+                  />
                 : <div className="flex items-center justify-center h-full text-sm text-gray-400">
                     Loading chart…
                   </div>
