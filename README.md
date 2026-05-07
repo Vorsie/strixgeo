@@ -1,8 +1,18 @@
 # Ground Model Platform
 
-Commercial geotechnical data platform targeting EC7 Gen2 compliance. Supports CPT, borehole, lab tests, monitoring, DMT, pressuremeter, and geophysical data.
+Commercial **ground model platform** — builds and manages the unified subsurface dataset for a project. Ingests CPT, borehole, lab, monitoring, DMT, pressuremeter, and geophysical data; derives parameters and statistics; exports to design tools (Plaxis, D-Sheet, GeoStudio).
 
 Built for solo development — Electron + React desktop first, SaaS later.
+
+## Scope
+
+The platform's job is to deliver a clean, validated **ground model + derived parameters + statistics**. Design checks happen elsewhere using this output as input.
+
+| | |
+|---|---|
+| **In scope** | data ingest, storage, spatial queries, visualisation, derived parameters, statistics, exports |
+| **Out of scope (forever)** | Eurocode (EC7) design calculations, bearing capacity, settlement, slope/pile/wall design — those belong in the downstream tools we export to |
+| **Deferred to the final phase** | Robertson Ic, auto soil profiling, per-layer unit weights, geotech-judgement validation. Preview implementations exist today but production lives in Phase 5. |
 
 ---
 
@@ -10,13 +20,16 @@ Built for solo development — Electron + React desktop first, SaaS later.
 
 | Layer | Choice |
 |---|---|
-| API | FastAPI (async) |
-| Database | PostgreSQL + PostGIS |
-| ORM | SQLAlchemy + Alembic |
+| API | FastAPI (async, HTTP/2 via httpx) |
+| Database | PostgreSQL 16 + PostGIS 3.4 |
+| ORM | SQLAlchemy 2 + Alembic |
 | Data processing | Polars |
-| Testing | pytest + pytest-asyncio + factory-boy |
-| Frontend | Electron + React (Phase 3) |
-| 3D | CesiumJS |
+| Coordinate transforms | pyproj |
+| Testing | pytest + pytest-asyncio + pytest-benchmark |
+| Frontend | Electron + React + TypeScript (electron-vite) |
+| Map | react-leaflet |
+| Charts | Recharts |
+| 3D (Phase 4) | CesiumJS |
 
 ---
 
@@ -24,9 +37,10 @@ Built for solo development — Electron + React desktop first, SaaS later.
 
 ### Prerequisites
 
-- Python 3.11+
-- Docker + Docker Compose
-- [GitHub CLI](https://cli.github.com/) (optional, for issue/PR workflows)
+- **Python 3.11+** (uv manages the venv automatically)
+- **uv** — install via `winget install astral-sh.uv` (Windows) or [astral.sh/uv](https://astral.sh/uv)
+- **Docker Desktop** (for PostgreSQL + PostGIS)
+- **Node 20+** + **npm** (for the desktop app)
 
 ### Setup
 
@@ -35,13 +49,8 @@ Built for solo development — Electron + React desktop first, SaaS later.
 git clone https://github.com/Vorsie/Strix.git
 cd Strix
 
-# Create virtual environment
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS / Linux
-
-# Install dependencies
-pip install -e ".[dev]"
+# Install Python deps + create venv
+uv sync --group dev
 
 # Copy and configure environment
 cp .env.example .env
@@ -49,64 +58,119 @@ cp .env.example .env
 # Start PostgreSQL + PostGIS
 docker compose up -d
 
-# Run migrations
-alembic upgrade head
+# Run database migrations
+uv run alembic upgrade head
+
+# Install desktop app deps
+cd desktop
+npm install
+```
+
+### Running
+
+```bash
+# Backend API only (port 8765)
+uv run uvicorn groundmodel.api.main:app --reload --port 8765
+
+# Desktop app (spawns the API automatically)
+cd desktop
+npm run dev
 ```
 
 ### Running Tests
 
 ```bash
-# Unit tests (no DB required)
-pytest tests/unit
-
-# Integration tests (requires Docker Compose running)
-pytest tests/integration
-
-# All tests
-pytest
+uv run pytest tests/unit                # fast, no Docker
+uv run pytest tests/integration         # needs docker compose up
+uv run pytest                           # all
+uv run pytest tests/benchmarks --benchmark-enable -v   # perf benchmarks
 ```
+
+### Lint / format / type-check
+
+```bash
+uv run ruff format src tests
+uv run ruff check --fix src tests
+uv run mypy src
+```
+
+---
+
+## Features Today (Phase 2)
+
+- **CPT import** from local GEF files (multi-file selection)
+- **DOV import** — draw a bounding box on the map; the backend queries Vlaanderen's WFS, downloads CPT XMLs in parallel (HTTP/2, semaphore-limited), and persists them. Persistent on-disk XML cache means re-imports of overlapping regions skip the network entirely.
+- **Project system** — projects scope CPTs and dedupe imports.
+- **Map view** — Leaflet basemap with CPT markers coloured by type (CPTU / CPTE / CPTM).
+- **CPT chart** — DOV-standard depth plot: qc / fs / Rf for CPTU/CPTE; qc + Qt for CPTM. Includes a preview Robertson Ic panel (Phase 5 production).
+- **Click marker → chart** with hover tooltips.
 
 ---
 
 ## Project Structure
 
 ```
-src/groundmodel/
-├── domain/          # pure geotechnical logic — no frameworks
-├── application/     # use cases and orchestration
-├── infrastructure/  # DB, parsers, exporters, GIS
-│   └── parsers/
-│       └── cpt/     # GEF, AGS, LAS parsers
-├── api/             # FastAPI routers and schemas
-└── shared/          # logging, config, exceptions
+Strix/
+├── src/groundmodel/
+│   ├── api/             # FastAPI routers + Pydantic schemas
+│   ├── application/     # use cases (ImportCpt, ImportCptDov, ...)
+│   ├── domain/          # pure geotechnical logic — models, services, value objects
+│   ├── infrastructure/
+│   │   ├── db/          # SQLAlchemy ORM + repositories + Alembic migrations
+│   │   ├── parsers/cpt/ # GEF, DOV (and future AGS, LAS)
+│   │   ├── exporters/   # Plaxis, D-Sheet, GeoStudio (Phase 4)
+│   │   └── gis/         # PostGIS helpers
+│   └── shared/          # logging, config, exceptions
+├── desktop/             # Electron + React + TS frontend
+├── tests/
+│   ├── unit/            # no DB, no I/O, no network
+│   ├── integration/     # real DB / real fixture files
+│   ├── e2e/             # full HTTP round-trips
+│   └── benchmarks/      # pytest-benchmark, disabled by default
+├── data/cpt/            # real DOV GEF fixtures (gitignored)
+├── docker-compose.yml   # PostgreSQL + PostGIS
+├── alembic.ini
+├── pyproject.toml
+└── CLAUDE.md            # full architecture, conventions, build sequence
 ```
 
-See [CLAUDE.md](CLAUDE.md) for full architecture, domain model, build sequence, and conventions.
+See **[CLAUDE.md](CLAUDE.md)** for the full architecture, domain model, code conventions, DOV import internals, and Definition of Done checklist.
 
 ---
 
-## Supported Data Formats
+## Supported Data Sources
 
-| Format | Type | Status |
+| Source | Type | Status |
 |---|---|---|
-| GEF | CPT (CPTU / CPTE / CPTM) | Phase 0 — implemented |
-| AGS | CPT + borehole + lab | Phase 1 |
-| LAS | CPT / borehole logs | Phase 1 |
+| GEF (.gef) | CPT (CPTU / CPTE / CPTM) | Phase 0 — implemented |
+| DOV WFS / XML | CPT (Belgian public dataset) | Phase 2 — implemented |
+| AGS | CPT + borehole + lab | Phase 3 |
+| LAS | CPT / borehole logs | Phase 3 |
+| Borehole + lab + monitoring + DMT + pressuremeter | mixed | Phase 3 |
 
 ---
 
 ## Build Phases
 
-| Phase | Focus | Weeks |
+| Phase | Focus | Status |
 |---|---|---|
-| 0 | Parse real GEF files; validate parser against production data | 1–2 |
-| 1 | Import GEF → parse → store → plot qc/fs vs depth | 3–6 |
-| 2 | Borehole, samples, lab tests; EC7 Ic classification | 7–12 |
-| 3 | Electron + React frontend; map; consulting-ready EC7 | 13–20 |
-| 4 | Multi-project, accounts, exports, PDF reports, Rust hotspots | ongoing |
+| 0 | Parse real GEF files; data reality doc; first-draft schema | ✓ done |
+| 1 | Thin slice: import GEF → parse → store → FastAPI CPT routes | ✓ done |
+| 2 | Electron + React desktop; project system; map; DOV chart; multi-file GEF + DOV bbox import + persistent XML cache | ✓ done |
+| 3 | Data sources expansion: borehole + samples + lab; monitoring (piezometer, inclinometer); DMT; pressuremeter | next |
+| 4 | Exports (Plaxis, D-Sheet, GeoStudio); PDF reports; multi-project; accounts; map / 3D model viz enhancements | future |
+| 5 (final / engineering layer) | Robertson Ic (production), auto soil profiling, per-layer unit weights, derived parameters, statistics, Rust hotspots | future |
+
+Engineering interpretation is intentionally pushed to the final phase. Earlier phases focus on getting the data plumbing rock-solid.
 
 ---
 
 ## Contributing
 
-This is a private solo-development project. Conventional Commits format is enforced — one file per commit. See [CLAUDE.md](CLAUDE.md) for commit format, issue templates, and branch conventions.
+Private solo-development project. Conventions enforced:
+
+- **Conventional Commits** — `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`. Lowercase, no trailing period, ≤ 72 chars on the first line.
+- **One file per commit** — stage and commit files individually.
+- **Definition of Done** for every Python module: comprehensive logging (entry/exit/null-paths/HTTP bodies), numpy-style docstrings, unit tests covering happy + error paths. See [CLAUDE.md](CLAUDE.md) for the full checklist.
+
+Issue and PR templates are in [CLAUDE.md](CLAUDE.md).
