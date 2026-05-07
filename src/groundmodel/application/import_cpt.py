@@ -66,13 +66,17 @@ class ImportCpt(GroundModelLogger):
         result = self._parse(file_path, content)
 
         # Duplicate guard: only when GEF file has both opdrachtnummer and proefnummer.
+        # Scoped to app_project_id so the same file can be imported in different projects.
         h = result.header
         if h.project_id and h.test_id:
-            existing = await self._repo.find_by_project_test(h.project_id, h.test_id)
+            existing = await self._repo.find_by_project_test(
+                h.project_id, h.test_id, app_project_id
+            )
             if existing is not None:
                 raise DuplicateCptError(
                     f"CPT already exists: opdrachtnummer={h.project_id!r}, "
-                    f"proefnummer={h.test_id!r} (id={existing.id})"
+                    f"proefnummer={h.test_id!r} (id={existing.id})",
+                    existing_id=existing.id,
                 )
 
         cpt_id: UUID = uuid7()
