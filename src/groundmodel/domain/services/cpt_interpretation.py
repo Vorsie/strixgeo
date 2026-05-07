@@ -58,7 +58,7 @@ def calculate_ic_series(
     depths_m: list[float],
     qc_mpa: list[float],
     fs_mpa: list[float | None],
-    gwt_m: float = 1.0,
+    gwt_m: float = 0.0,
     profile: UnitWeightProfile | None = None,
     max_iter: int = 5,
 ) -> list[float | None]:
@@ -76,7 +76,9 @@ def calculate_ic_series(
     fs_mpa : list[float | None]
         Sleeve friction in MPa; None elements yield None in the output.
     gwt_m : float
-        Groundwater table depth in metres below surface.  Defaults to 1.0 m.
+        Groundwater table depth in metres below surface.  Defaults to 0.0 m
+        (water table at surface — conservative).  Pass ``cpt.water_depth_m``
+        from the GEF header when available.
     profile : UnitWeightProfile | None
         Unit weights for stress calculation.  Uses Belgian/Dutch defaults when None.
     max_iter : int
