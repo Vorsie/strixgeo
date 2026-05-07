@@ -6,8 +6,8 @@ which 302-redirects to:
   https://www.dov.vlaanderen.be/xdov/proxy/export/sondering/{permkey}
 
 XML structure (verified against live DOV data 2026-05-07):
-  Namespace: http://kern.schemas.dov.vlaanderen.be (with prefix ns4 in source)
-  GML namespace: http://www.opengis.net/gml/3.2
+  Namespace: http://kern.schemas.dov.vlaanderen.be (root only — children unprefixed)
+  GML namespace: http://www.opengis.net/gml/3.2 (used for coordinates)
 
   dov-schema/sondering/sondeernummer            (test ID, e.g. "GEO-02/079-S3")
   dov-schema/sondering/datum_aanvang            (start date, ISO format)
@@ -21,18 +21,30 @@ UNITS (this is critical):
   qc, Qt: MPa  (no conversion needed)
   fs, u:  kPa  (DOV stores as integers like 10, 20, 90 — divide by 1000 for MPa)
   lengte, diepte: meters
-  i:      degrees (inclination, currently unused)
+  i:      degrees (inclination)
+
+DEPTH:
+  ``<diepte>`` is the vertical depth (already corrected for inclination by DOV
+  using the ``<i>`` series) — we trust it and use it directly. Fall back to
+  ``<lengte>`` (raw penetration length) only when ``<diepte>`` is missing, which
+  happens for some mechanical cones where verticality is assumed.
 
 CONE TYPE detection from <conustype>:
   M*    → CPTM (mechanical: only qc + Qt available)
   E*    → CPTE (electric: qc + fs + i, no pore pressure)
   U*/EU → CPTU (piezocone: qc + fs + u + i)
 
+  The cone type code we store on GEFHeader (0=electric / 1=mechanical) follows the
+  GEF MEASUREMENTVAR 12 convention, so it can't distinguish CPTE from CPTU on its
+  own — those are both code 0. The CPTU vs CPTE distinction is then made from the
+  data: presence of u2 readings → CPTU, otherwise CPTE.
+
 Rf is NOT in the DOV XML — we calculate it as (fs/qc)*100 when fs is available.
 
 DOV XML element names are Dutch (schema-defined); they must appear as string literals
 in find/findall calls but must NOT be used as Python identifiers. English equivalents
-are noted in comments next to each tag reference.
+are noted in comments next to each tag reference. Module-level constants for the
+namespace and tag prefixes live in ``dov_constants.py``.
 
 Debugging: parse() logs the actual root tag and child element names at DEBUG level
 when expected paths are missing, so schema mismatches are immediately visible.
@@ -44,6 +56,12 @@ import xml.etree.ElementTree as ET
 
 import polars as pl
 
+from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
+    DOV_GML_TAG_PREFIX,
+    DOV_HORIZONTAL_EPSG,
+    DOV_VERTICAL_EPSG,
+    DOV_XML_NAMESPACE,
+)
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
@@ -51,15 +69,6 @@ from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import V
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-_NS = "http://kern.schemas.dov.vlaanderen.be"
-_GML = "http://www.opengis.net/gml/3.2"
-
-# DOV's actual XML quirk: only the <dov-schema> ROOT is in the _NS namespace
-# (declared as xmlns:ns4="..."). Its children (<sondering>, <sondeernummer>, etc.)
-# are unprefixed — they live in NO namespace at all. So we use bare tag strings
-# to find them. GML elements ARE namespaced (xmlns:gml="...") so they keep _GML_T.
-_GML_T = f"{{{_GML}}}"
 
 
 def _text(elem: ET.Element | None, tag: str) -> str:
@@ -123,7 +132,7 @@ class DovParser(GroundModelLogger):
         cpt_elem = root.find("sondering")  # sondering = sounding / CPT
         if cpt_elem is None:
             self.error(
-                f"DOV XML '{name}': expected <sondering> in namespace {_NS!r} "
+                f"DOV XML '{name}': expected <sondering> in namespace {DOV_XML_NAMESPACE!r} "
                 f"but root <{root.tag}> children are: {[c.tag for c in root]}"
             )
             raise ParseError(f"DOV XML for '{name}': missing <sondering> element")
@@ -165,8 +174,8 @@ class DovParser(GroundModelLogger):
             x=x,
             y=y,
             z=z,
-            epsg=31370,  # Belgian Lambert 72 (DOV's primary horizontal CRS)
-            z_epsg=5710,  # Belgian mTAW (TAW/NGF)
+            epsg=DOV_HORIZONTAL_EPSG,
+            z_epsg=DOV_VERTICAL_EPSG,
             net_area_ratio=net_area_ratio,
             cone_type_code=cone_type_code,
         )
@@ -186,7 +195,7 @@ class DovParser(GroundModelLogger):
             self.warning(f"DOV XML '{name}': <ligging> not found — no coordinates")
             return None, None, None
 
-        point_elem = location_elem.find(f"{_GML_T}Point")
+        point_elem = location_elem.find(f"{DOV_GML_TAG_PREFIX}Point")
         if point_elem is None:
             self.warning(
                 f"DOV XML '{name}': <gml:Point> not found inside <ligging>. "
@@ -194,7 +203,7 @@ class DovParser(GroundModelLogger):
             )
             return None, None, None
 
-        pos_elem = point_elem.find(f"{_GML_T}pos")
+        pos_elem = point_elem.find(f"{DOV_GML_TAG_PREFIX}pos")
         if pos_elem is None or not pos_elem.text:
             self.warning(f"DOV XML '{name}': <gml:pos> empty or missing")
             return None, None, None
@@ -230,6 +239,9 @@ class DovParser(GroundModelLogger):
         Cone type code mapping (matches GEF MEASUREMENTVAR 12 convention):
           0 = electric (E*, U*, EU)
           1 = mechanical (M*)
+
+        Note: code 0 covers both pure-electric (CPTE) and piezocone (CPTU). The
+        CPTE vs CPTU distinction is made later in _detect_type using the data.
         """
         # sondeonderzoek = the test data container; sondeerapparaat = sounding apparatus
         test_data_elem = cpt_elem.find("sondeonderzoek")
@@ -346,16 +358,24 @@ class DovParser(GroundModelLogger):
         """Build measurement row dicts from <meetdata> elements.
 
         Returns (rows, skipped_count). A row is skipped when depth or qc is missing.
-        Units: qc/Qt are MPa (no conversion); fs/u are kPa → divided by 1000.
-        Depth: prefer <diepte> (corrected vertical), fall back to <lengte> (penetration length).
+
+        Units conversion:
+          qc, Qt: MPa (no conversion)
+          fs, u:  kPa → /1000 → MPa to match GEFParser output
+
+        Depth:
+          ``<diepte>`` is the vertical depth, already corrected for inclination by
+          DOV using the per-row ``<i>`` series. We trust it and use it directly —
+          no need to recompute lengte * cos(i). Fall back to ``<lengte>`` (raw
+          penetration length) only when ``<diepte>`` is absent, which happens for
+          some mechanical cones with no inclination tracking.
         """
         rows: list[dict[str, float | None]] = []
         skipped = 0
         for measurement in measurement_elements:
-            # Prefer corrected vertical depth (<diepte>) over raw penetration length (<lengte>)
-            depth = _float(measurement, "diepte")
+            depth = _float(measurement, "diepte")  # already inclination-corrected by DOV
             if depth is None:
-                depth = _float(measurement, "lengte")
+                depth = _float(measurement, "lengte")  # mechanical / no-i fallback
             qc_mpa = _float(measurement, "qc")
 
             if depth is None or qc_mpa is None:
@@ -384,22 +404,31 @@ class DovParser(GroundModelLogger):
 
     @staticmethod
     def _detect_type(cone_type_code: int | None, df: pl.DataFrame) -> CPTType:
-        """Detect CPTU / CPTE / CPTM from cone type code and column availability.
+        """Detect CPTU / CPTE / CPTM from the cone type code and column availability.
 
-        Cone type code from <conustype> is the primary signal; falls back to column
-        presence when the cone type is unknown.
+        Decision order:
+          1. cone_type_code 1 (mechanical) → CPTM, regardless of stray fs/u columns.
+          2. u2 column has values → CPTU. (CPTU also has fs, but we don't need to
+             check for it: presence of u2 alone uniquely identifies a piezocone.)
+          3. fs column has values (and no u2) → CPTE — an electric cone *without*
+             the piezo sensor. The fs check ISN'T redundant with step 2: it's the
+             discriminator that separates CPTE from a CPTM that happens to lack
+             a cone_type_code.
+          4. Otherwise (only qc/Qt) → CPTM.
         """
-        has_u = "u2_mpa" in df.columns and df["u2_mpa"].drop_nulls().len() > 0
-        has_fs = "fs_mpa" in df.columns and df["fs_mpa"].drop_nulls().len() > 0
-
-        # Cone type 1 = mechanical: always CPTM regardless of stray fs/u
+        # Step 1 — mechanical cone overrides everything.
         if cone_type_code == 1:
             return CPTType.CPTM
 
-        if has_u:
+        # Step 2 — piezocone signal: any u2 reading implies CPTU.
+        if "u2_mpa" in df.columns and df["u2_mpa"].drop_nulls().len() > 0:
             return CPTType.CPTU
-        if has_fs:
+
+        # Step 3 — electric cone without piezo: has fs but no u2 → CPTE.
+        if "fs_mpa" in df.columns and df["fs_mpa"].drop_nulls().len() > 0:
             return CPTType.CPTE
+
+        # Step 4 — bare qc/Qt only → CPTM.
         return CPTType.CPTM
 
 
