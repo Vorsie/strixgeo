@@ -8,10 +8,14 @@ Elevations are in mTAW (Belgian ordnance datum, EPSG:5710).
 Tip resistance (qc) and sleeve friction (fs) are in MPa; pore pressure (u) in MPa.
 
 XML structure assumption (namespace http://www.dov.vlaanderen.be/schema/dov/1.0.0):
-  dov/sondering/identificatie/proefnummer
-  dov/sondering/ligging/xy/{x,y}
-  dov/sondering/ligging/oorspronkelijk_maaiveld/waarde
-  dov/sondering/sondering/data/laag/{tot,qc,fs,u,friction_ratio}
+  dov/sondering/identificatie/proefnummer        (test ID)
+  dov/sondering/ligging/xy/{x,y}                (location in Lambert72)
+  dov/sondering/ligging/oorspronkelijk_maaiveld/waarde  (ground elevation mTAW)
+  dov/sondering/sondering/data/laag/{tot,qc,fs,u,friction_ratio}  (measurements)
+
+DOV XML element names are Dutch (schema-defined); they must appear as string literals
+in findall/find calls but must NOT be used as Python identifiers. English equivalents
+are noted in comments next to each tag reference.
 
 If the structure does not match, parse() logs the actual root tag and child
 element names at DEBUG level so the mismatch is immediately visible.
@@ -70,7 +74,7 @@ class DovParser(GroundModelLogger):
         xml_bytes : bytes
             Raw XML from https://www.dov.vlaanderen.be/data/sondering/{id}.xml
         name : str
-            Fallback display name when the XML proefnummer is absent.
+            Fallback display name when the XML test ID is absent.
 
         Returns
         -------
@@ -92,8 +96,8 @@ class DovParser(GroundModelLogger):
         # Log root structure to diagnose namespace or schema mismatches.
         self.trace(f"DOV XML root tag: {root.tag!r}  children: {[c.tag for c in root]}")
 
-        sond = root.find(f"{_T}sondering")
-        if sond is None:
+        cpt_elem = root.find(f"{_T}sondering")  # sondering = sounding / CPT
+        if cpt_elem is None:
             # Log what IS there so the mismatch is immediately visible in the logs.
             self.error(
                 f"DOV XML '{name}': expected <sondering> in namespace {_NS!r} "
@@ -101,8 +105,8 @@ class DovParser(GroundModelLogger):
             )
             raise ParseError(f"DOV XML for '{name}': missing <sondering> element")
 
-        header = self._parse_header(sond, name)
-        data, issues = self._parse_data(sond, name)
+        header = self._parse_header(cpt_elem, name)
+        data, issues = self._parse_data(cpt_elem, name)
         cpt_type = self._detect_type(data)
 
         self.debug(
@@ -115,22 +119,28 @@ class DovParser(GroundModelLogger):
     # Header
     # ------------------------------------------------------------------
 
-    def _parse_header(self, sond: ET.Element, name: str) -> GEFHeader:
-        ident = sond.find(f"{_T}identificatie")
-        ligging = sond.find(f"{_T}ligging")
+    def _parse_header(self, cpt_elem: ET.Element, name: str) -> GEFHeader:
+        identification = cpt_elem.find(f"{_T}identificatie")  # identificatie = identification
+        location_elem = cpt_elem.find(f"{_T}ligging")  # ligging = location
 
-        if ident is None:
+        if identification is None:
             self.warning(f"DOV XML '{name}': <identificatie> element not found")
-        if ligging is None:
+        if location_elem is None:
             self.warning(f"DOV XML '{name}': <ligging> element not found — no coordinates")
 
-        probe_id = _text(ident, f"{_T}proefnummer") if ident is not None else ""
-        company = _text(ident, f"{_T}uitvoerder") if ident is not None else ""
-        file_date = _text(ident, f"{_T}datum_aanvang") if ident is not None else ""
+        probe_id = (
+            _text(identification, f"{_T}proefnummer") if identification is not None else ""
+        )  # proefnummer = test number
+        company = (
+            _text(identification, f"{_T}uitvoerder") if identification is not None else ""
+        )  # uitvoerder = company/executor
+        file_date = (
+            _text(identification, f"{_T}datum_aanvang") if identification is not None else ""
+        )  # datum_aanvang = start date
 
         x = y = z = None
-        if ligging is not None:
-            xy = ligging.find(f"{_T}xy")
+        if location_elem is not None:
+            xy = location_elem.find(f"{_T}xy")
             if xy is None:
                 self.warning(f"DOV XML '{name}': <xy> not found inside <ligging>")
             else:
@@ -142,13 +152,14 @@ class DovParser(GroundModelLogger):
                         f"(x={_text(xy, f'{_T}x')!r}, y={_text(xy, f'{_T}y')!r})"
                     )
 
-            mv = ligging.find(f"{_T}oorspronkelijk_maaiveld")
-            if mv is None:
+            # oorspronkelijk_maaiveld = original ground level
+            surface_elem = location_elem.find(f"{_T}oorspronkelijk_maaiveld")
+            if surface_elem is None:
                 self.debug(f"DOV XML '{name}': <oorspronkelijk_maaiveld> not found — no elevation")
             else:
-                z = _float(mv, f"{_T}waarde")
+                z = _float(surface_elem, f"{_T}waarde")  # waarde = value
                 if z is None:
-                    self.debug(f"DOV XML '{name}': elevation waarde is missing/non-numeric")
+                    self.debug(f"DOV XML '{name}': ground level <waarde> is missing/non-numeric")
 
         return GEFHeader(
             # project_id="DOV" scopes duplicate detection to DOV imports per project
@@ -168,16 +179,16 @@ class DovParser(GroundModelLogger):
     # ------------------------------------------------------------------
 
     def _parse_data(
-        self, sond: ET.Element, name: str
+        self, cpt_elem: ET.Element, name: str
     ) -> tuple[pl.DataFrame, list[ValidationIssue]]:
         issues: list[ValidationIssue] = []
 
-        # The inner <sondering> element holds the actual measurement data.
-        inner = sond.find(f"{_T}sondering")
-        if inner is None:
+        # The inner <sondering> element (same tag as the outer container) holds measurements.
+        measurements_elem = cpt_elem.find(f"{_T}sondering")  # sondering = sounding
+        if measurements_elem is None:
             self.error(
                 f"DOV XML '{name}': inner <sondering> not found. "
-                f"Outer <sondering> children: {[c.tag for c in sond]}"
+                f"Outer <sondering> children: {[c.tag for c in cpt_elem]}"
             )
             issues.append(
                 ValidationIssue(
@@ -188,11 +199,11 @@ class DovParser(GroundModelLogger):
             )
             return pl.DataFrame({"depth_m": [], "qc_mpa": []}), issues
 
-        data_elem = inner.find(f"{_T}data")
+        data_elem = measurements_elem.find(f"{_T}data")
         if data_elem is None:
             self.error(
                 f"DOV XML '{name}': <data> not found inside inner <sondering>. "
-                f"Inner <sondering> children: {[c.tag for c in inner]}"
+                f"Inner <sondering> children: {[c.tag for c in measurements_elem]}"
             )
             issues.append(
                 ValidationIssue(
@@ -203,19 +214,20 @@ class DovParser(GroundModelLogger):
             )
             return pl.DataFrame({"depth_m": [], "qc_mpa": []}), issues
 
-        laag_elements = data_elem.findall(f"{_T}laag")
-        self.trace(f"DOV XML '{name}': found {len(laag_elements)} <laag> elements")
+        # laag = layer (one measurement depth step)
+        layer_elements = data_elem.findall(f"{_T}laag")
+        self.trace(f"DOV XML '{name}': found {len(layer_elements)} <laag> (layer) elements")
 
-        if laag_elements:
-            # Log the tags in the first row to verify field names.
-            first_tags = [c.tag.replace(f"{_T}", "") for c in laag_elements[0]]
-            self.debug(f"DOV XML '{name}': first <laag> fields: {first_tags}")
+        if layer_elements:
+            # Log field names from the first layer to verify the schema hasn't changed.
+            first_fields = [c.tag.replace(f"{_T}", "") for c in layer_elements[0]]
+            self.debug(f"DOV XML '{name}': first layer fields: {first_fields}")
 
         rows: list[dict[str, float | None]] = []
         skipped = 0
-        for laag in laag_elements:
-            depth = _float(laag, f"{_T}tot")
-            qc = _float(laag, f"{_T}qc")
+        for layer in layer_elements:
+            depth = _float(layer, f"{_T}tot")  # tot = bottom of depth interval
+            qc = _float(layer, f"{_T}qc")
             if depth is None or qc is None:
                 skipped += 1
                 continue
@@ -223,17 +235,17 @@ class DovParser(GroundModelLogger):
                 {
                     "depth_m": depth,
                     "qc_mpa": qc,
-                    "fs_mpa": _float(laag, f"{_T}fs"),
-                    "u2_mpa": _float(laag, f"{_T}u"),
-                    "rf_pct": _float(laag, f"{_T}friction_ratio"),
+                    "fs_mpa": _float(layer, f"{_T}fs"),
+                    "u2_mpa": _float(layer, f"{_T}u"),
+                    "rf_pct": _float(layer, f"{_T}friction_ratio"),
                 }
             )
 
         if skipped:
-            self.warning(f"DOV XML '{name}': skipped {skipped} rows with missing depth or qc")
+            self.warning(f"DOV XML '{name}': skipped {skipped} layers with missing depth or qc")
 
         if not rows:
-            self.error(f"DOV XML '{name}': zero valid measurement rows after parsing")
+            self.error(f"DOV XML '{name}': zero valid measurement layers after parsing")
             issues.append(
                 ValidationIssue(
                     level=ValidationLevel.WARNING,
