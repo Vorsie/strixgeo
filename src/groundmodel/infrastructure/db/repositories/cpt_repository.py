@@ -1,4 +1,5 @@
 """Repository for CPT persistence."""
+
 from uuid import UUID
 
 from sqlalchemy import select
@@ -42,16 +43,38 @@ class CptRepository(GroundModelLogger):
     async def get_by_id(self, cpt_id: UUID) -> CptOrm | None:
         """Return a CPT with its series loaded, or None if not found."""
         result = await self._session.execute(
-            select(CptOrm)
-            .where(CptOrm.id == cpt_id)
-            .options(selectinload(CptOrm.series))
+            select(CptOrm).where(CptOrm.id == cpt_id).options(selectinload(CptOrm.series))
         )
         return result.scalar_one_or_none()
 
-    async def list_all(self) -> list[CptOrm]:
-        """Return all CPTs without loading series arrays."""
-        result = await self._session.execute(select(CptOrm).order_by(CptOrm.created_at))
+    async def list_all(self, app_project_id: UUID | None = None) -> list[CptOrm]:
+        """Return all CPTs without loading series arrays.
+
+        Parameters
+        ----------
+        app_project_id:
+            When provided, only return CPTs belonging to that project.
+            When None, return all CPTs (used by tests and admin tools).
+        """
+        stmt = select(CptOrm).order_by(CptOrm.created_at)
+        if app_project_id is not None:
+            stmt = stmt.where(CptOrm.app_project_id == app_project_id)
+        result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def find_by_project_test(self, project_id: str, test_id: str) -> CptOrm | None:
+        """Return the first CPT matching the GEF (project_id, test_id) pair, or None.
+
+        Used for duplicate detection before import.  Only called when both
+        identifiers are non-empty — files without project or test IDs are
+        always accepted.
+        """
+        result = await self._session.execute(
+            select(CptOrm)
+            .where(CptOrm.project_id == project_id, CptOrm.test_id == test_id)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def delete(self, cpt_id: UUID) -> None:
         """Delete a CPT and its series (cascade handles series row)."""
