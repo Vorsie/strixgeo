@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('electron', {
   openFile: (filters: Electron.FileFilter[]): Promise<string | null> =>
     ipcRenderer.invoke('dialog:open-file', filters),
 
+  readFile: (filePath: string): Promise<Buffer> =>
+    ipcRenderer.invoke('fs:read-file', filePath),
+
   onMenuImportCpt: (cb: () => void) => {
     ipcRenderer.on('menu:import-cpt', cb)
     return () => ipcRenderer.removeListener('menu:import-cpt', cb)

@@ -13,6 +13,7 @@ declare global {
       getApiBaseUrl: () => Promise<string>
       waitForApi: () => Promise<boolean>
       openFile: (filters: Electron.FileFilter[]) => Promise<string | null>
+      readFile: (filePath: string) => Promise<Buffer>
       onMenuImportCpt: (cb: () => void) => () => void
       onMenuImportBorehole: (cb: () => void) => () => void
     }

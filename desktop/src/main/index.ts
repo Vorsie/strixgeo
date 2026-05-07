@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
+import { readFileSync } from 'fs'
 
 const API_PORT = 8765
 const API_BASE = `http://127.0.0.1:${API_PORT}`
@@ -141,6 +142,10 @@ ipcMain.handle('dialog:open-file', async (_event, filters: Electron.FileFilter[]
     filters
   })
   return result.canceled ? null : result.filePaths[0]
+})
+
+ipcMain.handle('fs:read-file', (_event, filePath: string): Buffer => {
+  return readFileSync(filePath)
 })
 
 ipcMain.handle('api:ready', async () => {

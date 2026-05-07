@@ -56,10 +56,11 @@ export const api = {
     plot: (id: string): Promise<CptPlotResponse> => get(`/cpt/${id}/plot`),
 
     import: async (filePath: string): Promise<ImportCptResponse> => {
-      // Read file via Electron's file system, send as multipart upload.
-      const blob = await fetch(`file://${filePath}`).then(r => r.blob())
-      const form = new FormData()
+      // Read via IPC — fetch('file://') is blocked in the renderer sandbox.
+      const buffer: Buffer = await window.electron.readFile(filePath)
       const fileName = filePath.split(/[\\/]/).pop() ?? 'upload.gef'
+      const blob = new Blob([buffer])
+      const form = new FormData()
       form.append('file', blob, fileName)
       const res = await fetch(`${_base}/cpt/import`, { method: 'POST', body: form })
       if (!res.ok) throw new Error(`Import failed: ${res.status}`)
