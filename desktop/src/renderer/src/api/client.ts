@@ -15,6 +15,8 @@ export interface CptResponse {
   location_x: number
   location_y: number
   epsg: number | null
+  elevation_m: number | null
+  pre_drill_m: number
   cone_area_ratio: number | null
   max_depth_m: number | null
   n_rows: number | null
