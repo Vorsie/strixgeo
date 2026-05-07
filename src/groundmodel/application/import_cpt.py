@@ -77,16 +77,17 @@ class ImportCpt(GroundModelLogger):
                 " when coordinates are present"
             )
 
-        # Duplicate guard: only when GEF file has both opdrachtnummer and proefnummer.
-        # Scoped to app_project_id so the same file can be imported in different projects.
+        # Duplicate guard: only when the GEF file has both contract number and test number
+        # (GEF: opdrachtnummer + proefnummer). Scoped to app_project_id so the same file
+        # can be imported into different projects.
         if h.project_id and h.test_id:
             existing = await self._repo.find_by_project_test(
                 h.project_id, h.test_id, app_project_id
             )
             if existing is not None:
                 raise DuplicateCptError(
-                    f"CPT already exists: opdrachtnummer={h.project_id!r}, "
-                    f"proefnummer={h.test_id!r} (id={existing.id})",
+                    f"CPT already exists: contract_number={h.project_id!r}, "
+                    f"test_number={h.test_id!r} (id={existing.id})",
                     existing_id=existing.id,
                 )
 
