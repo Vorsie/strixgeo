@@ -91,7 +91,12 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...bbox, project_id: projectId ?? null }),
       })
-      if (!res.ok) throw new Error(`DOV import failed: ${res.status}`)
+      if (!res.ok) {
+        // FastAPI surfaces specific reasons (network down, timeout, upstream error)
+        // in body.detail; fall back to status code if the body is unparseable.
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail ?? `DOV import failed (HTTP ${res.status})`)
+      }
       return res.json()
     },
 
