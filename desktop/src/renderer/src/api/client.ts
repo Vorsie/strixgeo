@@ -5,6 +5,9 @@ export interface CptListItem {
   cpt_type: string
   max_depth_m: number | null
   n_rows: number | null
+  location_x: number
+  location_y: number
+  epsg: number | null
 }
 
 export interface CptResponse {
