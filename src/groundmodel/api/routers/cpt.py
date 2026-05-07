@@ -51,7 +51,7 @@ async def import_cpt(
     ------
     HTTPException(400)
         When the file extension is not supported, or the file is a duplicate
-        (same opdrachtnummer + proefnummer already in the database).
+        (same contract number + test number already in the database).
     """
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".gef"}:
