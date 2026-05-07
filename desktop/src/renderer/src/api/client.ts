@@ -29,6 +29,7 @@ export interface CptPlotResponse {
   u2_mpa: (number | null)[] | null
   rf_pct: (number | null)[] | null
   qt_mpa: (number | null)[] | null
+  ic: (number | null)[] | null
 }
 
 export interface ImportCptResponse {
