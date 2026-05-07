@@ -22,6 +22,12 @@ class CptResponse(BaseModel):
         Northing in the source coordinate reference system.
     epsg:
         EPSG code of the source CRS, or None when absent from the file.
+    elevation_m:
+        Surface elevation in the vertical datum reported by the file (mTAW for
+        Belgian files).  Used to convert depth → absolute peil on the chart.
+        None when absent from the file.
+    pre_drill_m:
+        Pre-drill depth in metres.  The CPT measurement starts below this.
     cone_area_ratio:
         Net area ratio (a-value) from MVAR 3; None for CPTE/CPTM.
     max_depth_m:
@@ -36,6 +42,8 @@ class CptResponse(BaseModel):
     location_x: float
     location_y: float
     epsg: int | None
+    elevation_m: float | None
+    pre_drill_m: float
     cone_area_ratio: float | None
     max_depth_m: float | None
     n_rows: int | None
