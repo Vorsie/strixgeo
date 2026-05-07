@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Leaflet z-index fix inside flex containers */
+.leaflet-pane { z-index: 10; }
+.leaflet-top, .leaflet-bottom { z-index: 20; }
