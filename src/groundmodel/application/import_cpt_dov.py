@@ -75,9 +75,14 @@ class ImportCptDov(GroundModelLogger):
         parser = DovParser()
         try:
             t_fetch = time.perf_counter()
+            # HTTP/2 multiplexes all requests over a single TLS connection — avoids
+            # the per-connection TLS handshake cost when fanning out 50-100 concurrent
+            # downloads. Larger keepalive pool keeps connections warm across the batch.
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(60.0, connect=10.0),
                 follow_redirects=True,
+                http2=True,
+                limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
             ) as http:
                 parsed = await DovClient(http).fetch_bbox_processed(
                     west, south, east, north, parser.parse

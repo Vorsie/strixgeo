@@ -46,8 +46,8 @@ ProcessFn = Callable[[bytes, str], _T]
 _WFS_URL = "https://www.dov.vlaanderen.be/geoserver/ows"
 _LAYER = "dov-pub:Sonderingen"  # plural; verified via GetCapabilities
 _WFS_LIMIT = 500  # default server-side cap on features per request
-_PARALLEL = 100  # max concurrent XML downloads (tested: DOV's CDN handles this fine;
-# diminishing returns past here because of DOV's per-request server-side latency)
+_PARALLEL = 50  # max concurrent XML downloads. Higher (100) sometimes triggers DOV's
+# per-IP rate limit during peak hours; 50 hits a sweet spot of throughput without throttling.
 _MAX_DEPTH = 5  # bbox split recursion limit (2^5 = 32 subdivisions per axis)
 
 # DOV's /data/sondering/{id}.xml endpoint always 302-redirects to the proxy below.
