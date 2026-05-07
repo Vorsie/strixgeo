@@ -205,6 +205,9 @@ async def list_cpts(
             cpt_type=c.cpt_type,
             max_depth_m=c.max_depth_m,
             n_rows=c.n_rows,
+            location_x=c.location_x,
+            location_y=c.location_y,
+            epsg=c.epsg,
         )
         for c in cpts
     ]

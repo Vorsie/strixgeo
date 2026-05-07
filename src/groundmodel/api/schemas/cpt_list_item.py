@@ -30,3 +30,8 @@ class CptListItem(BaseModel):
     cpt_type: str
     max_depth_m: float | None
     n_rows: int | None
+    # Location fields are included so map markers render from a single list call
+    # without firing one GET /cpt/{id} per CPT just to get coordinates.
+    location_x: float
+    location_y: float
+    epsg: int | None
