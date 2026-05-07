@@ -19,3 +19,7 @@ class NotFoundError(GroundModelError):
 
 class RepositoryError(GroundModelError):
     """Raised on unexpected database or repository failures."""
+
+
+class DuplicateCptError(GroundModelError):
+    """Raised when a CPT with the same project_id + test_id already exists."""
