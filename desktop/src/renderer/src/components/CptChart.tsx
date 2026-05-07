@@ -487,7 +487,7 @@ function IcZoneLabelsOverlay() {
   return (
     <div
       className="absolute pointer-events-none select-none"
-      style={{ bottom: 46, left: Y_W + 2, right: Y_W + 2, height: 44 }}
+      style={{ bottom: 60, left: Y_W + 2, right: Y_W + 2, height: 44 }}
     >
       {IC_ZONES.map(z => {
         const centerPct = ((z.x1 + z.x2) / 2 / IC_MAX) * 100
