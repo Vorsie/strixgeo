@@ -265,3 +265,38 @@ def test_missing_sondeonderzoek_records_error_issue():
     result = DovParser().parse(xml, name="X")
     assert any(i.code == "NO_DATA" for i in result.issues)
     assert len(result.data) == 0
+
+
+# ------------------------------------------------------------------
+# Resilience — corrupted, empty, and unexpected payloads
+# ------------------------------------------------------------------
+
+
+def test_empty_body_raises_parse_error():
+    with pytest.raises(ParseError, match="DOV XML parse error"):
+        DovParser().parse(b"", name="empty")
+
+
+def test_truncated_xml_raises_parse_error():
+    truncated = (
+        f'<?xml version="1.0"?><ns4:dov-schema xmlns:ns4="{_NS}"><sondering><sondeer'
+    ).encode()
+    with pytest.raises(ParseError, match="DOV XML parse error"):
+        DovParser().parse(truncated, name="truncated")
+
+
+def test_html_error_page_raises_parse_error():
+    # If DOV returns an HTML error page (e.g. maintenance), it must fail cleanly.
+    html = b"<!DOCTYPE html><html><body>503 Service Unavailable</body></html>"
+    with pytest.raises(ParseError):
+        DovParser().parse(html, name="html-error")
+
+
+def test_non_numeric_qc_row_skipped_not_crashed():
+    rows = (
+        "<meetdata><lengte>0.20</lengte><diepte>0.20</diepte><qc>NOTANUMBER</qc></meetdata>"
+        + _row("0.40", qc="2.0", fs="30")
+    )
+    result = DovParser().parse(_xml(rows=rows))
+    assert len(result.data) == 1
+    assert result.data["depth_m"].to_list() == pytest.approx([0.40])
