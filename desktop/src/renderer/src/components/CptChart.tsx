@@ -1,6 +1,6 @@
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ReferenceLine, ResponsiveContainer,
+  Tooltip, ReferenceLine, ReferenceArea, ResponsiveContainer,
 } from 'recharts'
 import type { CptPlotResponse, CptResponse } from '../api/client'
 
@@ -18,6 +18,7 @@ const FS_MAX = 1     // MPa
 const RF_MAX = 10    // %
 const U2_MIN = -100  // kPa
 const U2_MAX = 300   // kPa
+const IC_MAX = 4     // dimensionless
 
 const GRID   = '#fce4ec'
 const QC_CLR = '#111827'
@@ -25,7 +26,18 @@ const FS_CLR = '#16a34a'
 const RF_CLR = '#b45309'
 const U2_CLR = '#7c3aed'
 const QT_CLR = '#1d4ed8'
+const IC_CLR = '#374151'
 const PD_CLR = '#dc2626'
+
+// Robertson (1990) SBT zone backgrounds — light fills, left to right on Ic axis
+const IC_ZONES = [
+  { x1: 0,    x2: 1.31, fill: '#fef9c3' }, // Sands
+  { x1: 1.31, x2: 2.05, fill: '#ffedd5' }, // Sand mixtures
+  { x1: 2.05, x2: 2.60, fill: '#dcfce7' }, // Silt mixtures
+  { x1: 2.60, x2: 2.95, fill: '#dbeafe' }, // Clays
+  { x1: 2.95, x2: 3.60, fill: '#fef3c7' }, // Organic soils
+  { x1: 3.60, x2: 4.00, fill: '#f3e8ff' }, // Sensitive fine-grained
+] as const
 
 // Tick formatter: shows depth as peil mTAW (with explicit + sign) or plain depth
 function makePeilFmt(elevationM: number | null) {
@@ -92,6 +104,7 @@ export default function CptChart({ plot, name, detail }: Props) {
     // Store u2 in kPa for display (source data is MPa)
     u2_kpa:  plot.u2_mpa && plot.u2_mpa[i] != null ? plot.u2_mpa[i]! * 1000 : null,
     qt:      plot.qt_mpa ?  (plot.qt_mpa[i]    ?? null) : null,
+    ic:      plot.ic     ?  (plot.ic[i]         ?? null) : null,
   }))
 
   const maxDepth   = Math.ceil((plot.depths_m.at(-1) ?? 1) * 10) / 10
@@ -101,6 +114,7 @@ export default function CptChart({ plot, name, detail }: Props) {
   const hasRf  = plot.rf_pct != null
   const hasU2  = plot.u2_mpa != null
   const hasQt  = plot.qt_mpa != null
+  const hasIc  = plot.ic != null
   // Show u2 panel when CPTU type or actual u2 data present
   const showU2 = hasU2 && (cptType === 'CPTU' || hasU2)
 
@@ -114,11 +128,15 @@ export default function CptChart({ plot, name, detail }: Props) {
   const chartProps = { data, layout: 'vertical' as const }
 
   // ── Pre-drill & surface reference lines (shared logic) ──────────────────
-  function preDrillRef(xAxisId: string) {
+  function preDrillZone(xAxisId: string) {
     if (preDrillM <= 0) return null
     return (
-      <ReferenceLine yAxisId="y" xAxisId={xAxisId} y={preDrillM}
-        stroke={PD_CLR} strokeDasharray="6 3" strokeWidth={1.5} />
+      <>
+        <ReferenceArea yAxisId="y" xAxisId={xAxisId} y1={0} y2={preDrillM}
+          fill={PD_CLR} fillOpacity={0.08} />
+        <ReferenceLine yAxisId="y" xAxisId={xAxisId} y={preDrillM}
+          stroke={PD_CLR} strokeDasharray="6 3" strokeWidth={1.5} />
+      </>
     )
   }
   function surfaceElevationRef(xAxisId: string) {
@@ -147,7 +165,7 @@ export default function CptChart({ plot, name, detail }: Props) {
         />
         {/* Hydrostatic zero reference */}
         <ReferenceLine yAxisId="y" xAxisId="u2" x={0} stroke="#9ca3af" strokeWidth={0.5} />
-        {preDrillRef('u2')}
+        {preDrillZone('u2')}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(1)} kPa`, key]}
           labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
@@ -175,7 +193,7 @@ export default function CptChart({ plot, name, detail }: Props) {
           />
         )}
         {surfaceElevationRef('qc')}
-        {preDrillRef('qc')}
+        {preDrillZone('qc')}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(4)}`, key]}
           labelFormatter={d =>
@@ -210,7 +228,7 @@ export default function CptChart({ plot, name, detail }: Props) {
         <XAxis xAxisId="rfb" type="number" orientation="bottom" domain={[0, RF_MAX]}
           tick={{ fontSize: 9, fill: RF_CLR }} tickCount={6}
         />
-        {preDrillRef('rf')}
+        {preDrillZone('rf')}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(2)} %`, key]}
           labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
@@ -221,9 +239,43 @@ export default function CptChart({ plot, name, detail }: Props) {
     )
   }
 
+  function renderIcPanel(isLeft: boolean, isRight: boolean) {
+    return (
+      <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
+        <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
+        {isLeft  ? yPeil(domain, fmtPeil, peilLabel) : yGhostLeft(domain)}
+        {isRight ? yLengte(domain)                   : yGhostRight(domain)}
+        <XAxis xAxisId="ic" type="number" orientation="top" domain={[0, IC_MAX]}
+          tick={{ fontSize: 9 }} tickCount={9}
+          label={{ value: 'Ic', position: 'insideTopLeft', offset: 2, style: { fontSize: 9 } }}
+        />
+        <XAxis xAxisId="icb" type="number" orientation="bottom" domain={[0, IC_MAX]}
+          tick={{ fontSize: 9 }} tickCount={9}
+        />
+        {IC_ZONES.map(z => (
+          <ReferenceArea key={z.x1} yAxisId="y" xAxisId="ic"
+            x1={z.x1} x2={z.x2} fill={z.fill} fillOpacity={1} />
+        ))}
+        {/* SBT zone boundary lines */}
+        {[1.31, 2.05, 2.60, 2.95, 3.60].map(v => (
+          <ReferenceLine key={v} yAxisId="y" xAxisId="ic" x={v}
+            stroke="#d1d5db" strokeWidth={0.8} />
+        ))}
+        {surfaceElevationRef('ic')}
+        {preDrillZone('ic')}
+        <Tooltip contentStyle={{ fontSize: 10 }}
+          formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(2)}`, key]}
+          labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
+        />
+        <Line yAxisId="y" xAxisId="ic" dataKey="ic" name="Ic"
+          stroke={IC_CLR} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls={false} />
+      </ComposedChart>
+    )
+  }
+
   // ── Layout: leftmost panel gets peil axis, rightmost gets lengte axis ────
   const leftmost  = showU2 ? 'u2' : 'qcfs'
-  const rightmost = hasRf  ? 'rf' : 'qcfs'
+  const rightmost = hasIc ? 'ic' : (hasRf ? 'rf' : 'qcfs')
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -243,6 +295,7 @@ export default function CptChart({ plot, name, detail }: Props) {
         {hasFs  && <LegendItem color={FS_CLR} label="fs (MPa)" />}
         {hasRf  && <LegendItem color={RF_CLR} label="Rf (%)" />}
         {showU2 && <LegendItem color={U2_CLR} label="u (kPa)" />}
+        {hasIc  && <LegendItem color={IC_CLR} label="Ic (Robertson 1990)" />}
         {preDrillM > 0 && <LegendItem color={PD_CLR} label={`Pre-drill ${preDrillM.toFixed(1)} m`} dashed />}
       </div>
 
@@ -258,7 +311,7 @@ export default function CptChart({ plot, name, detail }: Props) {
 
         <div
           style={{ flex: 3 }}
-          className={`min-w-0${hasRf ? ' border-r border-gray-200' : ''}`}
+          className={`min-w-0${(hasRf || hasIc) ? ' border-r border-gray-200' : ''}`}
         >
           <ResponsiveContainer width="100%" height="100%">
             {renderQcFsPanel(leftmost === 'qcfs', rightmost === 'qcfs')}
@@ -266,9 +319,17 @@ export default function CptChart({ plot, name, detail }: Props) {
         </div>
 
         {hasRf && (
-          <div style={{ flex: 1 }} className="min-w-0">
+          <div style={{ flex: 1 }} className={`min-w-0${hasIc ? ' border-r border-gray-200' : ''}`}>
             <ResponsiveContainer width="100%" height="100%">
               {renderRfPanel(leftmost === 'rf', rightmost === 'rf')}
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {hasIc && (
+          <div style={{ flex: 1 }} className="min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              {renderIcPanel(leftmost === 'ic', rightmost === 'ic')}
             </ResponsiveContainer>
           </div>
         )}
