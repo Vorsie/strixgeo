@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, FolderOpen, Save, Upload, Loader2 } from 'lucide-react'
+import { ChevronDown, Upload, Loader2 } from 'lucide-react'
 
 interface ImportAction {
   label: string
@@ -23,13 +23,6 @@ export default function Toolbar({ onImportCpt, importing }: Props) {
 
   return (
     <div className="flex items-center gap-0.5 px-2 py-1 border-b border-gray-200 bg-gray-50 select-none">
-      <DropdownMenu label="File" icon={null}>
-        <MenuItem icon={<FolderOpen size={13} />} label="Open Project…" disabled />
-        <MenuItem icon={<Save size={13} />} label="Save Project" disabled shortcut="Ctrl+S" />
-        <MenuDivider />
-        <MenuItem icon={<Save size={13} />} label="Save Project As…" disabled />
-      </DropdownMenu>
-
       <DropdownMenu
         label="Import"
         icon={importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
@@ -139,8 +132,4 @@ function MenuItem({ icon, label, shortcut, disabled, dimmed, tag, onClick }: Men
       )}
     </button>
   )
-}
-
-function MenuDivider() {
-  return <div className="my-1 border-t border-gray-100" />
 }
