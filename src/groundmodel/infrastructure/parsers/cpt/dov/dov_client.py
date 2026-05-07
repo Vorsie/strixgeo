@@ -183,7 +183,7 @@ class DovClient(GroundModelLogger):
 
         out: list[tuple[str, _T]] = []
         for (xml_url, name), result in zip(name_by_url.items(), raw):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 self.error(
                     f"DOV: download/process failed for '{name}'  "
                     f"url={xml_url}  error={type(result).__name__}: {result}"
@@ -435,7 +435,7 @@ class DovClient(GroundModelLogger):
 
         out: list[tuple[str, bytes]] = []
         for (xml_url, name), result in zip(url_to_name.items(), raw_results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 self.error(
                     f"DOV: XML download failed for '{name}'  "
                     f"url={xml_url}  error={type(result).__name__}: {result}"
