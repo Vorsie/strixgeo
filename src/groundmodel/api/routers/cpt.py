@@ -150,6 +150,8 @@ async def get_cpt(
         location_x=cpt.location_x,
         location_y=cpt.location_y,
         epsg=cpt.epsg,
+        elevation_m=cpt.elevation_m,
+        pre_drill_m=cpt.pre_drill_m,
         cone_area_ratio=cpt.cone_area_ratio,
         max_depth_m=cpt.max_depth_m,
         n_rows=cpt.n_rows,
