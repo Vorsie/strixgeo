@@ -1,4 +1,9 @@
-"""Unit weight profile for vertical stress estimation."""
+"""Unit weight profile for vertical stress estimation — PREVIEW (Phase 5 scope).
+
+Used by the preview Ic implementation in domain/services/cpt_interpretation.py.
+Production per-layer unit-weight inference (Robertson SBT-driven) is built in
+the final phase (see CLAUDE.md "Build Sequence" → Phase 5 / engineering layer).
+"""
 
 from dataclasses import dataclass
 
