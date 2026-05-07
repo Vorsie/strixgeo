@@ -49,28 +49,43 @@ class TestClassifySoilIc:
 
 
 class TestCalculateIcSeries:
+    # depths, qc, fs chosen so net_qc >> sigma_v — stress effect is small,
+    # results are predictable without knowing the exact normalised value.
+
     def test_basic_series_all_valid(self) -> None:
-        result = calculate_ic_series([20.0, 5.0, 0.5], [0.5, 3.0, 8.0])
+        depths = [1.0, 2.0, 3.0]
+        qc     = [20.0, 5.0, 0.5]
+        # fs chosen to produce positive Fr in every row
+        fs     = [0.1, 0.15, 0.04]
+        result = calculate_ic_series(depths, qc, fs)
         assert len(result) == 3
         assert all(v is not None for v in result)
 
-    def test_none_rf_yields_none(self) -> None:
-        assert calculate_ic_series([10.0], [None]) == [None]
-
-    def test_zero_rf_yields_none(self) -> None:
-        assert calculate_ic_series([10.0], [0.0]) == [None]
+    def test_none_fs_yields_none(self) -> None:
+        assert calculate_ic_series([1.0], [10.0], [None]) == [None]
 
     def test_zero_qc_yields_none(self) -> None:
-        assert calculate_ic_series([0.0], [1.0]) == [None]
+        assert calculate_ic_series([1.0], [0.0], [0.05]) == [None]
+
+    def test_zero_fs_yields_none(self) -> None:
+        # fs=0 → Fr=0 → log10(0) is undefined
+        assert calculate_ic_series([1.0], [10.0], [0.0]) == [None]
 
     def test_mixed_valid_and_none(self) -> None:
-        result = calculate_ic_series([10.0, 20.0, 5.0], [1.0, None, 3.0])
+        result = calculate_ic_series([1.0, 2.0, 3.0], [10.0, 5.0, 20.0], [0.1, None, 0.2])
         assert len(result) == 3
         assert result[0] is not None
         assert result[1] is None
         assert result[2] is not None
 
-    def test_output_matches_direct_calculate_ic(self) -> None:
-        qc, rf = 10.0, 1.0
-        series_result = calculate_ic_series([qc], [rf])
-        assert series_result[0] == pytest.approx(calculate_ic(qc / 0.1, rf), abs=1e-9)
+    def test_low_qc_high_friction_gives_high_ic(self) -> None:
+        # Low qc, high fs → clay-like → Ic > 2.6
+        result = calculate_ic_series([2.0], [0.5], [0.05], gwt_m=1.0)
+        assert result[0] is not None
+        assert result[0] > 2.6
+
+    def test_high_qc_low_friction_gives_low_ic(self) -> None:
+        # High qc, low fs → sand → Ic < 2.0
+        result = calculate_ic_series([2.0], [20.0], [0.04], gwt_m=1.0)
+        assert result[0] is not None
+        assert result[0] < 2.0
