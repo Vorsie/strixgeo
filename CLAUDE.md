@@ -205,7 +205,12 @@ GEF format field names from the Dutch spec (e.g. `opdrachtnummer`, `proefnummer`
 Every class lives in its own `.py` file named after the class in `snake_case`. The only exception is `shared/exceptions.py`, where the full exception hierarchy is grouped by convention.
 
 ### Constants in a dedicated file
-Module-level constants (lookup dicts, conversion factors, magic numbers) belong in a `*_constants.py` file alongside the classes that use them (e.g. `gef_constants.py` next to `gef_parser.py`). Never define constants at the top of a class file.
+Module-level constants (lookup dicts, conversion factors, magic numbers, regexes, URLs, namespaces, singleton transformers) belong in a `*_constants.py` file alongside the classes that use them. Examples:
+
+- `gef_constants.py` next to `gef_parser.py` — quantity-to-column dict, unit conversions, MEASUREMENTVAR indices.
+- `dov_constants.py` next to `dov_parser.py` — WFS URL/layer, parallelism, namespace strings, permkey regex, the WGS84→Lambert72 transformer.
+
+Never define module-level constants at the top of a class file. Constants are uppercase public names (`DOV_WFS_URL`, not `_wfs_url`) so they're importable and discoverable. Comment WHY each value was chosen, not just what it is.
 
 ### Logging via inheritance — not module-level loggers
 All service and logic classes inherit `GroundModelLogger` from `groundmodel.shared.logging.ground_model_logger`.
@@ -318,7 +323,7 @@ DOV (Databank Ondergrond Vlaanderen) CPTs are imported via `POST /cpt/import-dov
 1. `DovClient.fetch_bbox_processed()`:
    - Transforms bbox to Lambert72 (EPSG:31370) via pyproj `always_xy=True`.
    - WFS `resultType=hits` count check; auto-splits into 4 quadrants if `> 500` features (recursive, max depth 5).
-   - Streams: each XML download immediately runs the parse callback in the same async task — parse wall time is hidden inside download wait. Concurrency limited by `_PARALLEL = 50` semaphore.
+   - Streams: each XML download immediately runs the parse callback in the same async task — parse wall time is hidden inside download wait. Concurrency limited by `DOV_DOWNLOAD_PARALLELISM` (50, in `dov_constants.py`).
    - HTTP/2 client (`httpx[http2]`, `follow_redirects=True`) multiplexes requests over one TLS connection.
    - **Cache check first** — `DovXmlCache.get(permkey)` skips the network entirely on hit.
 2. `_repo.find_existing_test_ids("DOV", test_ids, app_project_id)` — single batch IN-query.
@@ -353,6 +358,13 @@ Important schema quirk: only the `<dov-schema>` root is in the DOV namespace —
 - `TimeoutException` → 504
 - `HTTPStatusError` / other `RequestError` → 502 with upstream details
 
+**Module layout** under `infrastructure/parsers/cpt/dov/`:
+- `dov_constants.py` — all module-level constants (URLs, namespaces, parallelism, regexes, transformer)
+- `dov_parser.py` — XML → `GEFParseResult`
+- `dov_client.py` — async WFS + parallel XML downloads (with optional cache)
+- `dov_xml_cache.py` — filesystem cache, atomic writes, permkey validation
+- `__init__.py` — package marker (kept explicit for setuptools / mypy / pytest)
+
 ---
 
 ## Job System
@@ -369,11 +381,16 @@ MVP uses `SynchronousQueue` (inline execution). When load justifies it, swap for
 
 ```
 tests/
-├── unit/          domain logic, fixture files only
-├── integration/   real PostgreSQL (Docker Compose), real files
+├── unit/          domain logic, fixture files only — no DB, no I/O, no network
+├── integration/   real fixtures + real DB (or real files):
+│                    db/        — full ImportCpt cycle against PostgreSQL (Docker)
+│                    parsers/   — parser end-to-end against real DOV GEF files
+│                    domain/    — domain services (e.g. Ic interpretation) on real data
 ├── e2e/           full HTTP round-trips via httpx
 └── benchmarks/    pytest-benchmark performance tests (disabled by default)
 ```
+
+Integration tests that need `data/cpt/` (gitignored) skip themselves at collection time when the directory is absent — see the `pytest.mark.skipif` at the top of each file.
 
 Benchmarks use `bench_*.py` naming and are excluded from normal `pytest` runs via `addopts = "--benchmark-disable"` in pyproject.toml.
 
