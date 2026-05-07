@@ -35,6 +35,7 @@ export default function App() {
   const { project, createProject } = useProject()
 
   const [ready, setReady] = useState(false)
+  const [apiError, setApiError] = useState(false)
   const [cpts, setCpts] = useState<CptListItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detailMap, setDetailMap] = useState<Map<string, CptResponse>>(new Map())
@@ -54,6 +55,7 @@ export default function App() {
       setBaseUrl(base)
       const ok = await window.electron.waitForApi()
       if (ok) setReady(true)
+      else setApiError(true)
     }
     boot()
   }, [])
@@ -195,6 +197,15 @@ export default function App() {
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+
+  if (apiError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-100 text-gray-500 text-sm gap-2">
+        <div className="text-red-500 font-medium">Failed to start the Ground Model API</div>
+        <div className="text-xs text-gray-400">Check the developer console for the Python traceback.</div>
+      </div>
+    )
+  }
 
   if (!ready) {
     return (
