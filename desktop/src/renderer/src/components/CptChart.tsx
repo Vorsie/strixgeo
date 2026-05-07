@@ -39,8 +39,8 @@ const IC_ZONES = [
   { x1: 3.60, x2: 4.00, fill: '#f3e8ff' }, // Sensitive fine-grained
 ] as const
 
-// Tick formatter: shows depth as peil mTAW (with explicit + sign) or plain depth
-function makePeilFmt(elevationM: number | null) {
+// Tick formatter: shows depth as level m TAW (with explicit + sign) or plain depth
+function makeLevelFmt(elevationM: number | null) {
   return (d: number) => {
     const v = elevationM !== null ? elevationM - d : d
     return (v >= 0 ? '+' : '') + v.toFixed(1)
@@ -51,7 +51,7 @@ const fmtDepth = (d: number) => d.toFixed(1)
 // ── Y-axis builders ─────────────────────────────────────────────────────────
 // Called as render helpers (not React components) — they close over chart-level
 // constants, have no hooks, and are re-called only when the parent re-renders.
-function yPeil(domain: [number, number], fmt: (d: number) => string, label: string) {
+function yLevel(domain: [number, number], fmt: (d: number) => string, label: string) {
   return (
     <YAxis yAxisId="y" orientation="left" dataKey="depth" type="number"
       domain={domain} tickCount={11} tick={{ fontSize: 9 }}
@@ -62,7 +62,7 @@ function yPeil(domain: [number, number], fmt: (d: number) => string, label: stri
   )
 }
 
-function yLengte(domain: [number, number]) {
+function yLength(domain: [number, number]) {
   return (
     <YAxis yAxisId="yr" orientation="right" dataKey="depth" type="number"
       domain={domain} tickCount={11} tick={{ fontSize: 9 }}
@@ -118,8 +118,8 @@ export default function CptChart({ plot, name, detail }: Props) {
   // Show u2 panel when CPTU type or actual u2 data present
   const showU2 = hasU2 && (cptType === 'CPTU' || hasU2)
 
-  const fmtPeil   = makePeilFmt(elevationM)
-  const peilLabel = elevationM !== null ? 'Level (m TAW)' : 'Depth (m)'
+  const fmtLevel   = makeLevelFmt(elevationM)
+  const levelLabel = elevationM !== null ? 'Level (m TAW)' : 'Depth (m)'
 
   const topM = 28
   const botM = hasFs ? 28 : 12
@@ -144,7 +144,7 @@ export default function CptChart({ plot, name, detail }: Props) {
     return (
       <ReferenceLine yAxisId="y" xAxisId={xAxisId} y={0}
         stroke="#9ca3af" strokeDasharray="3 3" strokeWidth={1}
-        label={{ value: `${fmtPeil(0)} m — surface`, position: 'insideTopLeft', style: { fontSize: 8, fill: '#6b7280' } }}
+        label={{ value: `${fmtLevel(0)} m — surface`, position: 'insideTopLeft', style: { fontSize: 8, fill: '#6b7280' } }}
       />
     )
   }
@@ -154,8 +154,8 @@ export default function CptChart({ plot, name, detail }: Props) {
     return (
       <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
         <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
-        {isLeft  ? yPeil(domain, fmtPeil, peilLabel) : yGhostLeft(domain)}
-        {isRight ? yLengte(domain)                   : yGhostRight(domain)}
+        {isLeft  ? yLevel(domain, fmtLevel, levelLabel) : yGhostLeft(domain)}
+        {isRight ? yLength(domain)                   : yGhostRight(domain)}
         <XAxis xAxisId="u2" type="number" orientation="top" domain={[U2_MIN, U2_MAX]}
           tick={{ fontSize: 9, fill: U2_CLR }} tickCount={5}
           label={{ value: 'u (kPa)', position: 'insideTopLeft', offset: 2, style: { fontSize: 9, fill: U2_CLR } }}
@@ -180,8 +180,8 @@ export default function CptChart({ plot, name, detail }: Props) {
     return (
       <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
         <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
-        {isLeft  ? yPeil(domain, fmtPeil, peilLabel) : yGhostLeft(domain)}
-        {isRight ? yLengte(domain)                   : yGhostRight(domain)}
+        {isLeft  ? yLevel(domain, fmtLevel, levelLabel) : yGhostLeft(domain)}
+        {isRight ? yLength(domain)                   : yGhostRight(domain)}
         <XAxis xAxisId="qc" type="number" orientation="top" domain={[0, QC_MAX]}
           tick={{ fontSize: 9, fill: QC_CLR }} tickCount={9}
           label={{ value: 'qc (MPa)', position: 'insideTopLeft', offset: 2, style: { fontSize: 9, fill: QC_CLR } }}
@@ -198,7 +198,7 @@ export default function CptChart({ plot, name, detail }: Props) {
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(4)}`, key]}
           labelFormatter={d =>
             `Depth: ${Number(d).toFixed(2)} m` +
-            (elevationM !== null ? `  |  Level: ${fmtPeil(Number(d))} m TAW` : '')
+            (elevationM !== null ? `  |  Level: ${fmtLevel(Number(d))} m TAW` : '')
           }
         />
         <Line yAxisId="y" xAxisId="qc" dataKey="qc" name="qc (MPa)"
@@ -219,8 +219,8 @@ export default function CptChart({ plot, name, detail }: Props) {
     return (
       <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
         <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
-        {isLeft  ? yPeil(domain, fmtPeil, peilLabel) : yGhostLeft(domain)}
-        {isRight ? yLengte(domain)                   : yGhostRight(domain)}
+        {isLeft  ? yLevel(domain, fmtLevel, levelLabel) : yGhostLeft(domain)}
+        {isRight ? yLength(domain)                   : yGhostRight(domain)}
         <XAxis xAxisId="rf" type="number" orientation="top" domain={[0, RF_MAX]}
           tick={{ fontSize: 9, fill: RF_CLR }} tickCount={6}
           label={{ value: 'Rf (%)', position: 'insideTopLeft', offset: 2, style: { fontSize: 9, fill: RF_CLR } }}
@@ -243,8 +243,8 @@ export default function CptChart({ plot, name, detail }: Props) {
     return (
       <ComposedChart {...chartProps} margin={{ top: topM, right: 0, bottom: botM, left: 0 }}>
         <CartesianGrid strokeDasharray="2 4" stroke={GRID} />
-        {isLeft  ? yPeil(domain, fmtPeil, peilLabel) : yGhostLeft(domain)}
-        {isRight ? yLengte(domain)                   : yGhostRight(domain)}
+        {isLeft  ? yLevel(domain, fmtLevel, levelLabel) : yGhostLeft(domain)}
+        {isRight ? yLength(domain)                   : yGhostRight(domain)}
         <XAxis xAxisId="ic" type="number" orientation="top" domain={[0, IC_MAX]}
           tick={{ fontSize: 9 }} tickCount={9}
           label={{ value: 'Ic', position: 'insideTopLeft', offset: 2, style: { fontSize: 9 } }}
@@ -273,7 +273,7 @@ export default function CptChart({ plot, name, detail }: Props) {
     )
   }
 
-  // ── Layout: leftmost panel gets peil axis, rightmost gets lengte axis ────
+  // ── Layout: leftmost panel gets level axis, rightmost gets length axis ────
   const leftmost  = showU2 ? 'u2' : 'qcfs'
   const rightmost = hasIc ? 'ic' : (hasRf ? 'rf' : 'qcfs')
 
