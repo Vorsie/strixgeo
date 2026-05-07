@@ -2,17 +2,42 @@
 
 ## Project Overview
 
-Commercial geotechnical data platform targeting EC7 Gen2 compliance. Supports CPT, borehole, lab tests, monitoring, DMT, pressuremeter, and geophysical data. Built for solo development; targets Electron + React desktop first, SaaS later.
+Commercial **ground model platform** — builds and manages the unified subsurface dataset for a project. Ingests CPT, borehole, lab, monitoring, DMT, pressuremeter, and geophysical data; derives parameters and statistics; exports to design tools (Plaxis, D-Sheet, GeoStudio, ...). Built for solo development; targets Electron + React desktop first, SaaS later.
+
+---
+
+## Scope
+
+This platform's job is to deliver a clean, validated **ground model + derived parameters + statistics**. Design checks happen elsewhere using this output as input.
+
+**In scope:**
+- Data ingestion (CPT, borehole, lab, monitoring, DMT, pressuremeter, geophysical)
+- Storage, search, spatial queries
+- Visualization (depth-series charts, 2D map, eventually 3D model)
+- Derived parameters and statistics (e.g. statistical aggregates from CPT/lab series, soil profile interpretation)
+- Exports to design tools
+
+**Out of scope (forever):**
+- Geotechnical design calculations: bearing capacity, ULS/SLS verifications, settlement, slope stability, pile capacity, retaining-wall design
+- Anything that produces a value used directly in a design check — those calculations belong in the downstream design tool (Plaxis, D-Sheet, GeoStudio, ...)
+- EC7 / Eurocode design rule application (we do not target EC7 design conformance)
+
+**Deferred to the final phase (preview implementations may exist earlier):**
+- Robertson Ic / Soil Behaviour Type classification
+- Auto soil profiling (merging Ic into layers)
+- Per-layer unit weights from Robertson SBT
+- Per-CPT validation that requires geotech judgement (RF range checks, qc spike detection, hybrid-method detection)
 
 ---
 
 ## Core Philosophy
 
-- **Domain correctness first** — geotechnical logic before infrastructure
+- **Data correctness first** — clean ingestion + storage before any interpretation
 - **Clean architecture** — dependencies flow one way: API → Application → Domain ← Infrastructure
 - **Queue-ready, not queue-first** — abstract the queue from day one, add a broker when needed
 - **No premature optimisation** — Python + Polars first; Rust only where profiling proves it is needed
 - **Never design a layer you haven't needed yet** — build, feel the pain, then abstract
+- **Engineering interpretation last** — soil behaviour type, layer detection, derived parameters all happen after data plumbing is solid
 
 ---
 
@@ -409,13 +434,18 @@ uv run pytest tests/benchmarks/ --benchmark-enable --benchmark-compare=baseline
 
 ## Build Sequence
 
+Engineering interpretation (Robertson Ic, soil profiling, derived per-layer parameters, statistics across the model) is intentionally pushed to the **final phase**. Earlier phases focus on data: ingest it, store it, visualise it, export it. A small "preview" Ic implementation already exists from earlier work — it's kept and visible in the chart, but not extended until the final phase.
+
 | Phase | Focus |
 |---|---|
 | 0 | Parse real GEF files; data reality doc; first-draft schema ✓ |
 | 1 | Thin slice: import GEF → parse → store → FastAPI CPT routes ✓ |
-| 2 | Electron + React desktop; project system; DOV chart; EC7 Ic |
-| 3 | Borehole + samples + lab; PDF reports; map enhancements |
-| 4 | Multi-project, accounts, exports, Rust hotspots |
+| 2 | Electron + React desktop; project system; map; DOV chart; multi-file GEF + DOV bbox import + persistent XML cache ✓ |
+| 3 | Data sources expansion: borehole + samples + lab; monitoring (piezometer, inclinometer); DMT; pressuremeter |
+| 4 | Exports (Plaxis, D-Sheet, GeoStudio); PDF reports; multi-project; accounts; map / 3D model viz enhancements |
+| 5 (final / engineering layer) | Robertson Ic (production), auto soil profiling, per-layer unit weights, derived parameters across the model, statistics, Rust hotspots for batch compute |
+
+**Out of scope at every phase:** Eurocode (EC7) design calculations, bearing capacity, settlement, slope stability, pile/wall design. Those belong in the downstream tools we export to.
 
 ---
 
@@ -423,17 +453,16 @@ uv run pytest tests/benchmarks/ --benchmark-enable --benchmark-compare=baseline
 
 | Phase | Approach |
 |---|---|
-| 1–2 | Pure Python + Polars |
-| 3 | Profile — do not guess |
-| 4 | Replace hotspots: GEF parser (10MB+), Ic classification (100k points), spatial interpolation, export serialisation |
+| 1–4 | Pure Python + Polars (data ingest, storage, viz, exports — all I/O- or framework-bound, Rust wouldn't help) |
+| 5 (final) | Profile first, then replace genuine hotspots: GEF parser at 10MB+ files, Ic classification on 100k+ points, spatial interpolation, batch model statistics |
 
-Rust will not help: API routing, DB queries, anything I/O-bound.
+Rust will not help: API routing, DB queries, HTTP downloads — anything I/O-bound. Bench results in `CLAUDE.local.md` show current Python performance is fine for typical project scopes; Rust gets brought in only when benchmarks prove Python is the bottleneck for the model-statistics workload (Phase 5).
 
 ---
 
 ## Export System
 
-See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4. Do not build until Phase 4.
+See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4. **Exports are how engineering happens** — once the ground model + parameters + statistics are exported, all design checks (bearing capacity, settlement, slope stability, etc.) run in the destination tool. The platform itself does not perform those calculations.
 
 ---
 
