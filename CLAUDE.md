@@ -264,6 +264,37 @@ Implemented in `infrastructure/parsers/cpt/gef/gef_parser.py`. Constants in `gef
 
 **Import guard:** `ImportCpt.execute()` raises `ParseError` (→ HTTP 400) when XY coordinates or EPSG code are missing — a CPT without a CRS-tagged position cannot be placed on a map.
 
+**`ImportCpt.persist(result, name, app_project_id)`** — public method that accepts any `GEFParseResult` (from GEFParser, DovParser, or future parsers) and handles coordinate validation, duplicate detection, ORM mapping, and commit. `execute()` wraps this: it parses the file then calls `persist()`. Other use cases (e.g. `ImportCptDov`) call `persist()` directly without going through a file.
+
+---
+
+## DOV Import
+
+DOV (Databank Ondergrond Vlaanderen) CPTs are imported via `POST /cpt/import-dov` with a WGS84 bounding box. No pydov dependency — direct WFS + async XML downloads are ~10× faster.
+
+**Flow:**
+1. Frontend: user clicks "Import from DOV", map switches to crosshair draw mode (`BboxDrawer`)
+2. User drags a rectangle; `onBboxDrawn` fires with `(west, south, east, north)` in WGS84
+3. `ImportCptDov.execute()` → `DovClient.fetch_bbox()`:
+   - Transforms bbox to Lambert72 (EPSG:31370) via pyproj `always_xy=True`
+   - WFS `resultType=hits` count check; auto-splits into 4 quadrants if > 500 features (recursive, max depth 5)
+   - Downloads all `{pkey}.xml` files in parallel (asyncio.Semaphore(10))
+4. `DovParser.parse()` → `GEFParseResult` with EPSG:31370 header
+5. `ImportCpt.persist()` reused for each CPT — same duplicate guard and ORM mapping as GEF import
+6. Response: `{imported, duplicates, failed, cpt_ids}`
+
+**Deduplication:** DOV CPTs use `project_id="DOV"` + `test_id=<proefnummer>` so the same CPT cannot be imported twice into the same project.
+
+**DOV XML structure** (namespace `http://www.dov.vlaanderen.be/schema/dov/1.0.0`):
+```
+dov/sondering/identificatie/proefnummer    — CPT ID
+dov/sondering/ligging/xy/x,y              — Lambert72 coordinates
+dov/sondering/ligging/oorspronkelijk_maaiveld/waarde — elevation mTAW
+dov/sondering/sondering/data/laag/tot,qc,fs,u,friction_ratio — measurements
+```
+
+**WFS endpoint:** `https://www.dov.vlaanderen.be/geoserver/ows`, feature type `dov-pub:Sondering`
+
 ---
 
 ## Job System
@@ -335,6 +366,7 @@ See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement 
 
 ```
 POST   /cpt/import          Import a GEF file (multipart form; project_id form field)
+POST   /cpt/import-dov      Import CPTs from DOV bbox (JSON body: west,south,east,north,project_id)
 GET    /cpt/                List CPTs (optional ?project_id=UUID filters by project)
 GET    /cpt/{id}            CPT metadata (location, elevation, cone props, summary)
 GET    /cpt/{id}/plot       Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt)
@@ -360,10 +392,11 @@ desktop/src/
     │   └── client.ts  Typed fetch wrappers; DuplicateCptError class for 409 handling
     ├── components/
     │   ├── ui/        Button.tsx — shared variant (primary/secondary/danger/ghost) + size (sm/md)
+    │   ├── BboxDrawer.tsx     Inside MapContainer; crosshair draw mode for DOV bbox selection
     │   ├── CptChart.tsx   DOV-standard chart: type-aware panels, ghost axis alignment
-    │   ├── MapView.tsx    Leaflet map with CPT markers
+    │   ├── MapView.tsx    Leaflet map with CPT markers; accepts drawMode + onBboxDrawn props
     │   ├── Sidebar.tsx    CPT list with delete; project name header
-    │   ├── Toolbar.tsx    Import button
+    │   ├── Toolbar.tsx    Import button (GEF + DOV)
     │   └── WelcomeScreen.tsx  Shown until a project is created
     ├── hooks/
     │   └── useProject.ts  localStorage project persistence (id, name, createdAt)
