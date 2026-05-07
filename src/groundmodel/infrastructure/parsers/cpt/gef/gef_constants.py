@@ -12,9 +12,12 @@ QUANTITY_TO_COLUMN: dict[int, str] = {
     8: "inclination_deg",
     9: "inclination_ns_deg",
     10: "inclination_ew_deg",
-    11: "length_m",   # penetration length — needs inclination correction for true depth
+    11: "length_m",  # penetration length — needs inclination correction for true depth
     15: "qt_mpa",
     16: "qn_mpa",
+    # 128 = totaalweerstand (total resistance) in kN — Belgian CPTM/Begemann.
+    # For the standard 1000 mm² cone: Qt[MPa] = Qt[kN] / 0.001 m² × 0.001 = Qt[kN] numerically.
+    128: "qt_mpa",
     17: "bq",
     99: "time_s",
 }
@@ -31,13 +34,21 @@ UNIT_TO_MPA: dict[str, float] = {
     "kgf/cm2": 0.098067,
 }
 
-PRESSURE_COLUMNS: frozenset[str] = frozenset({
-    "qc_mpa", "fs_mpa", "u1_mpa", "u2_mpa", "u3_mpa", "qt_mpa", "qn_mpa",
-})
+PRESSURE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "qc_mpa",
+        "fs_mpa",
+        "u1_mpa",
+        "u2_mpa",
+        "u3_mpa",
+        "qt_mpa",
+        "qn_mpa",
+    }
+)
 
 # #MEASUREMENTVAR indices (GEF-CPT-Report standard)
-MVAR_NET_AREA_RATIO = 3    # Net surface area quotient of cone tip (a-value)
-MVAR_CONE_TYPE = 12        # 0 = electric, 1 = mechanical
-MVAR_PRE_DRILL = 13        # DIEPTE PUT — pit/pre-drill depth
-MVAR_WATER_DEPTH = 14      # DIEPTE GRONDWATER — groundwater depth
-MVAR_STOP_CRITERION = 17   # Stop criteria
+MVAR_NET_AREA_RATIO = 3  # Net surface area quotient of cone tip (a-value)
+MVAR_CONE_TYPE = 12  # 0 = electric, 1 = mechanical
+MVAR_PRE_DRILL = 13  # DIEPTE PUT — pit/pre-drill depth
+MVAR_WATER_DEPTH = 14  # DIEPTE GRONDWATER — groundwater depth
+MVAR_STOP_CRITERION = 17  # Stop criteria
