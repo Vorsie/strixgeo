@@ -1,10 +1,12 @@
 """ORM model for CPT raw depth-series arrays."""
+
 from __future__ import annotations
 
 from uuid import UUID
 
 from sqlalchemy import ForeignKey
-from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from groundmodel.infrastructure.db.base import Base
@@ -26,6 +28,7 @@ class CptSeriesOrm(Base):
     fs_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
     u2_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
     rf_pct: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
+    qt_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
 
     cpt: Mapped[CptOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "CptOrm", back_populates="series"
