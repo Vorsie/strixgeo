@@ -17,7 +17,7 @@ from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchem
 from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.db.session import get_session
-from groundmodel.shared.exceptions import DuplicateCptError
+from groundmodel.shared.exceptions import DuplicateCptError, ParseError
 
 router = APIRouter(prefix="/cpt", tags=["cpt"])
 
@@ -82,6 +82,8 @@ async def import_cpt(
             status_code=status.HTTP_409_CONFLICT,
             detail={"cpt_id": str(exc.existing_id), "message": str(exc)},
         )
+    except ParseError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     finally:
         tmp_path.unlink(missing_ok=True)
 
