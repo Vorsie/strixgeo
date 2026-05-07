@@ -2,9 +2,12 @@
 
 import math
 
+from groundmodel.domain.value_objects.unit_weight_profile import UnitWeightProfile
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 logger = LoggerFactory.get_logger(__name__)
+
+_PA_KPA = 100.0  # atmospheric pressure in kPa
 
 
 def calculate_ic(qtn: float, fr: float) -> float:
@@ -52,32 +55,75 @@ def classify_soil_ic(ic: float) -> str:
 
 
 def calculate_ic_series(
+    depths_m: list[float],
     qc_mpa: list[float],
-    rf_pct: list[float | None],
+    fs_mpa: list[float | None],
+    gwt_m: float = 1.0,
+    profile: UnitWeightProfile | None = None,
+    max_iter: int = 5,
 ) -> list[float | None]:
-    """Calculate Ic for every depth point in a CPT series.
+    """Calculate Ic for every depth point using the Robertson & Wride (1998) iterative method.
 
-    Uses simplified atmospheric-pressure normalisation (Qtn = qc / 0.1 MPa)
-    without effective-stress correction; adequate until stress profiles are
-    available in the data model.
+    Stress normalisation uses a two-layer unit weight model (above/below the
+    groundwater table) with a converging stress exponent n.
 
     Parameters
     ----------
+    depths_m : list[float]
+        Measurement depths in metres (ascending).
     qc_mpa : list[float]
         Cone resistance in MPa.
-    rf_pct : list[float | None]
-        Friction ratio in percent; None elements yield None in the output.
+    fs_mpa : list[float | None]
+        Sleeve friction in MPa; None elements yield None in the output.
+    gwt_m : float
+        Groundwater table depth in metres below surface.  Defaults to 1.0 m.
+    profile : UnitWeightProfile | None
+        Unit weights for stress calculation.  Uses Belgian/Dutch defaults when None.
+    max_iter : int
+        Maximum iterations for the stress-exponent n convergence loop.
 
     Returns
     -------
     list[float | None]
-        Ic for each depth point, or None where qc or rf is unusable.
+        Ic for each depth point, or None where inputs are unusable.
     """
+    p = profile or UnitWeightProfile()
     result: list[float | None] = []
-    for qc, rf in zip(qc_mpa, rf_pct):
-        if rf is None or rf <= 0.0 or qc <= 0.0:
+
+    for depth, qc, fs in zip(depths_m, qc_mpa, fs_mpa):
+        if fs is None or qc <= 0.0:
             result.append(None)
-        else:
-            qtn = qc / 0.1  # Pa = 0.1 MPa; no effective-stress correction yet
-            result.append(calculate_ic(qtn, rf))
+            continue
+
+        # Vertical total and effective stress [kPa]
+        above = min(depth, gwt_m)
+        below = max(0.0, depth - gwt_m)
+        sigma_v = p.gamma_unsat * above + p.gamma_sat * below
+        sigma_v_eff = max(sigma_v - p.gamma_w * below, 1.0)  # floor at 1 kPa
+
+        qc_kpa = qc * 1000.0
+        fs_kpa = fs * 1000.0
+        net_qc = max(qc_kpa - sigma_v, 1.0)  # net cone resistance, floor at 1 kPa
+
+        fr = fs_kpa / net_qc * 100.0  # normalised friction ratio [%]
+        if fr <= 0.0:
+            result.append(None)
+            continue
+
+        # Iterate stress exponent n until convergence (Robertson & Wride 1998)
+        n = 1.0
+        ic = 0.0
+        for _ in range(max_iter):
+            qtn = (net_qc / _PA_KPA) * (_PA_KPA / sigma_v_eff) ** n
+            if qtn <= 0.0:
+                ic = 0.0
+                break
+            ic = calculate_ic(qtn, fr)
+            n_new = min(max(0.381 * ic + 0.05 * (sigma_v_eff / _PA_KPA) - 0.15, 0.5), 1.0)
+            if abs(n_new - n) < 0.01:
+                break
+            n = n_new
+
+        result.append(ic if ic > 0.0 else None)
+
     return result
