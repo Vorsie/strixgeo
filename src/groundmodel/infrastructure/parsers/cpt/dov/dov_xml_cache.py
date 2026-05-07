@@ -13,19 +13,18 @@ async tasks racing on the same permkey can't corrupt the cached file.
 Failure mode: cache errors (disk full, permission denied, etc.) NEVER block the
 import. The cache is a pure performance optimisation — every operation logs a
 warning on failure and falls through to the network path.
+
+The permkey-validation regex lives in ``dov_constants.py`` per the project's
+"constants in a dedicated file" convention.
 """
 
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 
+from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import DOV_VALID_PERMKEY_RE
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-# Permkey format: digits and hyphens only (e.g. "2009-000089"). Reject anything
-# else so a malformed key can't escape the cache directory via "../" tricks.
-_VALID_PERMKEY = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class DovXmlCache(GroundModelLogger):
@@ -85,7 +84,7 @@ class DovXmlCache(GroundModelLogger):
 
     def _path_for(self, permkey: str) -> Path | None:
         """Return the cache file path for *permkey*, or None if the key is unsafe."""
-        if not _VALID_PERMKEY.match(permkey):
+        if not DOV_VALID_PERMKEY_RE.match(permkey):
             self.warning(f"DOV cache: rejecting unsafe permkey {permkey!r}")
             return None
         return self._dir / f"{permkey}.xml"
