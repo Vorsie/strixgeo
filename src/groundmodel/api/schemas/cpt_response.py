@@ -24,7 +24,7 @@ class CptResponse(BaseModel):
         EPSG code of the source CRS, or None when absent from the file.
     elevation_m:
         Surface elevation in the vertical datum reported by the file (mTAW for
-        Belgian files).  Used to convert depth → absolute peil on the chart.
+        Belgian files).  Used to convert depth to absolute level (m TAW) on the chart.
         None when absent from the file.
     pre_drill_m:
         Pre-drill depth in metres.  The CPT measurement starts below this.
