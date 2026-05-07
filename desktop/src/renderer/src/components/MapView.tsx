@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { CptListItem } from '../api/client'
 import { lambertToWgs84 } from '../hooks/useWgs84'
@@ -94,13 +94,16 @@ export default function MapView({
               fillColor: color,
               fillOpacity: 0.85,
             }}
+            // Click goes straight to the chart view; hover shows a Tooltip with name/type.
+            // Using Tooltip instead of Popup means the click event isn't intercepted to
+            // open a popup, so the view switch happens immediately.
             eventHandlers={{ click: () => onSelect(m.id) }}
           >
-            <Popup>
+            <Tooltip direction="top" offset={[0, -4]} opacity={0.95}>
               <strong>{m.name}</strong>
               <br />
               {m.type} · {m.depth != null ? `${m.depth.toFixed(1)} m` : '—'}
-            </Popup>
+            </Tooltip>
           </CircleMarker>
         )
       })}
