@@ -379,3 +379,4 @@ desktop/src/
 - Panel renderers are called as functions `{renderPanel(...)}` not JSX components — no hooks, avoids remount
 - Colors: `QC_CLR=#111827`, `FS_CLR=#16a34a`, `RF_CLR=#b45309`, `U2_CLR=#7c3aed`, `QT_CLR=#1d4ed8`, `PD_CLR=#dc2626`
 - `surfaceElevationRef` — ReferenceLine at depth=0 labelled with mTAW elevation when known
+- `IcZoneLabelsOverlay` — absolute overlay at `bottom: 46` inside the Ic panel; each label is pinned at its zone's x-centre and rotated -55° (`transformOrigin: bottom center`) so they read diagonally upward; uses `IC_ZONE_SHORT` for abbreviated names in narrow zones
