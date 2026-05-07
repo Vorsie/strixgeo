@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('electron', {
   openFile: (filters: Electron.FileFilter[]): Promise<string | null> =>
     ipcRenderer.invoke('dialog:open-file', filters),
 
+  openFiles: (filters: Electron.FileFilter[]): Promise<string[]> =>
+    ipcRenderer.invoke('dialog:open-files', filters),
+
   readFile: (filePath: string): Promise<Buffer> =>
     ipcRenderer.invoke('fs:read-file', filePath),
 
