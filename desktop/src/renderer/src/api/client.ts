@@ -24,9 +24,9 @@ export interface CptPlotResponse {
   cpt_id: string
   depths_m: number[]
   qc_mpa: number[]
-  fs_mpa: number[] | null
-  u2_mpa: number[] | null
-  rf_pct: number[] | null
+  fs_mpa: (number | null)[] | null
+  u2_mpa: (number | null)[] | null
+  rf_pct: (number | null)[] | null
 }
 
 export interface ImportCptResponse {
