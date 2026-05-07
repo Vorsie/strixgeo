@@ -160,7 +160,10 @@ ipcMain.handle('api:ready', async () => {
   // Poll /openapi.json — FastAPI serves it without a DB connection, so it
   // passes as soon as uvicorn is listening regardless of PostgreSQL state.
   // 60 × 500 ms = 30 s; Python cold-start on Windows needs the extra headroom.
+  // After the first tick, if the process has already exited we bail immediately
+  // rather than waiting out the full 30 s.
   for (let i = 0; i < 60; i++) {
+    if (i > 0 && apiProcess === null) return false  // process crashed
     try {
       const res = await fetch(`${API_BASE}/openapi.json`)
       if (res.ok) return true
