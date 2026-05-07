@@ -31,12 +31,12 @@ const PD_CLR = '#dc2626'
 
 // Robertson (1990) SBT zone backgrounds — light fills, left to right on Ic axis
 const IC_ZONES = [
-  { x1: 0,    x2: 1.31, fill: '#fef9c3' }, // Sands
-  { x1: 1.31, x2: 2.05, fill: '#ffedd5' }, // Sand mixtures
-  { x1: 2.05, x2: 2.60, fill: '#dcfce7' }, // Silt mixtures
-  { x1: 2.60, x2: 2.95, fill: '#dbeafe' }, // Clays
-  { x1: 2.95, x2: 3.60, fill: '#fef3c7' }, // Organic soils
-  { x1: 3.60, x2: 4.00, fill: '#f3e8ff' }, // Sensitive fine-grained
+  { x1: 0,    x2: 1.31, fill: '#fef9c3', label: 'Sand'      },
+  { x1: 1.31, x2: 2.05, fill: '#ffedd5', label: 'Sand mix'  },
+  { x1: 2.05, x2: 2.60, fill: '#dcfce7', label: 'Silt mix'  },
+  { x1: 2.60, x2: 2.95, fill: '#dbeafe', label: 'Clay'      },
+  { x1: 2.95, x2: 3.60, fill: '#fef3c7', label: 'Organic'   },
+  { x1: 3.60, x2: 4.00, fill: '#f3e8ff', label: 'Sensitive' },
 ] as const
 
 // Tick formatter: shows depth as level m TAW (with explicit + sign) or plain depth
@@ -254,7 +254,23 @@ export default function CptChart({ plot, name, detail }: Props) {
         />
         {IC_ZONES.map(z => (
           <ReferenceArea key={z.x1} yAxisId="y" xAxisId="ic"
-            x1={z.x1} x2={z.x2} fill={z.fill} fillOpacity={1} />
+            x1={z.x1} x2={z.x2} fill={z.fill} fillOpacity={1}
+            label={(props: { viewBox?: { x: number; y: number; width: number; height: number } }) => {
+              const vb = props.viewBox
+              if (!vb) return null
+              const cx = vb.x + vb.width / 2
+              const cy = vb.y + 6
+              return (
+                <text x={cx} y={cy}
+                  transform={`rotate(90, ${cx}, ${cy})`}
+                  textAnchor="start" dominantBaseline="middle"
+                  fontSize={7} fill="#6b7280" style={{ userSelect: 'none' }}
+                >
+                  {z.label}
+                </text>
+              )
+            }}
+          />
         ))}
         {/* SBT zone boundary lines */}
         {[1.31, 2.05, 2.60, 2.95, 3.60].map(v => (
@@ -298,6 +314,19 @@ export default function CptChart({ plot, name, detail }: Props) {
         {hasIc  && <LegendItem color={IC_CLR} label="Ic (Robertson 1990)" />}
         {preDrillM > 0 && <LegendItem color={PD_CLR} label={`Pre-drill ${preDrillM.toFixed(1)} m`} dashed />}
       </div>
+
+      {/* Ic SBT zone colour key */}
+      {hasIc && (
+        <div className="flex items-center gap-2 px-4 pb-1 shrink-0 flex-wrap">
+          <span className="text-[9px] text-gray-400 mr-1">SBT:</span>
+          {IC_ZONES.map(z => (
+            <div key={z.x1} className="flex items-center gap-1 text-[9px] text-gray-500">
+              <div className="w-3 h-2.5 rounded-sm border border-gray-200" style={{ background: z.fill }} />
+              {z.label}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Panels */}
       <div className="flex flex-1 overflow-hidden pb-2 px-1">
