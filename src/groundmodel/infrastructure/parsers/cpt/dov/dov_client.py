@@ -46,7 +46,8 @@ ProcessFn = Callable[[bytes, str], _T]
 _WFS_URL = "https://www.dov.vlaanderen.be/geoserver/ows"
 _LAYER = "dov-pub:Sonderingen"  # plural; verified via GetCapabilities
 _WFS_LIMIT = 500  # default server-side cap on features per request
-_PARALLEL = 50  # max concurrent XML downloads
+_PARALLEL = 100  # max concurrent XML downloads (tested: DOV's CDN handles this fine;
+# diminishing returns past here because of DOV's per-request server-side latency)
 _MAX_DEPTH = 5  # bbox split recursion limit (2^5 = 32 subdivisions per axis)
 
 # DOV's /data/sondering/{id}.xml endpoint always 302-redirects to the proxy below.
@@ -149,12 +150,15 @@ class DovClient(GroundModelLogger):
         if not name_by_url:
             return []
 
-        self.info(
-            f"DOV: streaming download+process of {len(name_by_url)} XMLs (max {_PARALLEL} parallel)"
-        )
+        total = len(name_by_url)
+        self.info(f"DOV: streaming download+process of {total} XMLs (max {_PARALLEL} parallel)")
         sem = asyncio.Semaphore(_PARALLEL)
+        # Mutable counter shared across tasks — asyncio is single-threaded so
+        # increments are atomic without a lock. Used purely for progress logging.
+        progress = {"done": 0}
+        progress_step = max(50, total // 5)  # log every 50 OR every 20% of total
         tasks = [
-            self._download_and_process(xml_url, name, process, sem)
+            self._download_and_process(xml_url, name, process, sem, progress, total, progress_step)
             for xml_url, name in name_by_url.items()
         ]
         raw = await asyncio.gather(*tasks, return_exceptions=True)
@@ -171,12 +175,21 @@ class DovClient(GroundModelLogger):
         return out
 
     async def _download_and_process(
-        self, xml_url: str, name: str, process: ProcessFn[_T], sem: asyncio.Semaphore
+        self,
+        xml_url: str,
+        name: str,
+        process: ProcessFn[_T],
+        sem: asyncio.Semaphore,
+        progress: dict[str, int],
+        total: int,
+        progress_step: int,
     ) -> _T:
         """Download one XML, then run process synchronously inside the same task.
 
         Process runs after the semaphore is released so the slot becomes available
-        for the next download immediately.
+        for the next download immediately. *progress* is shared across tasks for
+        periodic INFO logging — asyncio is single-threaded so the increment is
+        race-free without a lock.
         """
         async with sem:
             try:
@@ -193,7 +206,11 @@ class DovClient(GroundModelLogger):
             xml_bytes = resp.content
         # Process runs outside the semaphore — parse blocks the event loop briefly
         # (~16ms per CPT) while the freed semaphore slot starts the next download.
-        return process(xml_bytes, name)
+        result = process(xml_bytes, name)
+        progress["done"] += 1
+        if progress["done"] % progress_step == 0 or progress["done"] == total:
+            self.info(f"DOV progress: {progress['done']}/{total} downloaded+parsed")
+        return result
 
     # ------------------------------------------------------------------
     # WFS queries
