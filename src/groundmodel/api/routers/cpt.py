@@ -213,7 +213,16 @@ async def get_cpt_plot(
             detail="Series data not found for this CPT",
         )
 
-    ic = calculate_ic_series(s.qc_mpa, s.rf_pct) if s.rf_pct is not None else None
+    ic = (
+        calculate_ic_series(
+            depths_m=s.depths_m,
+            qc_mpa=s.qc_mpa,
+            fs_mpa=s.fs_mpa,
+            gwt_m=cpt.water_depth_m if cpt.water_depth_m is not None else 1.0,
+        )
+        if s.fs_mpa is not None
+        else None
+    )
 
     return CptPlotResponse(
         cpt_id=cpt.id,
