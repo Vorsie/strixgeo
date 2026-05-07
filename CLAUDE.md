@@ -278,11 +278,11 @@ tests/
 
 | Phase | Focus |
 |---|---|
-| 0 | Parse real GEF files; data reality doc; first-draft schema |
-| 1 | Thin slice: import GEF → parse → store → plot qc/fs vs depth |
-| 2 | Borehole + samples + lab; job system; EC7 Ic classification |
-| 3 | Real frontend (Electron + React); map; EC7 for consulting use |
-| 4 | Multi-project, accounts, exports, PDF reports, Rust hotspots |
+| 0 | Parse real GEF files; data reality doc; first-draft schema ✓ |
+| 1 | Thin slice: import GEF → parse → store → FastAPI CPT routes ✓ |
+| 2 | Electron + React desktop; project system; DOV chart; EC7 Ic |
+| 3 | Borehole + samples + lab; PDF reports; map enhancements |
+| 4 | Multi-project, accounts, exports, Rust hotspots |
 
 ---
 
@@ -307,11 +307,46 @@ See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement 
 ## API Endpoints
 
 ```
-POST /jobs/import-cpt
-GET  /jobs/{id}
-GET  /cpt/{id}
-GET  /cpt/{id}/plot
-POST /export/plaxis
+POST   /cpt/import          Import a GEF file (multipart form; project_id form field)
+GET    /cpt/                List CPTs (optional ?project_id=UUID filters by project)
+GET    /cpt/{id}            CPT metadata (location, elevation, cone props, summary)
+GET    /cpt/{id}/plot       Depth-series arrays for plotting (qc, fs, u2, rf, depths)
+DELETE /cpt/{id}            Delete CPT and its series (cascade)
 ```
 
+409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
+
 The frontend always goes through the API — never directly to domain or DB.
+
+---
+
+## Desktop Frontend
+
+Electron + React (TypeScript), built with `electron-vite`. Entry: `desktop/`.
+
+```
+desktop/src/
+├── main/              Electron main process — spawns FastAPI, IPC handlers
+├── preload/           Context bridge: openFile, readFile, waitForApi, menu events
+└── renderer/src/
+    ├── api/
+    │   └── client.ts  Typed fetch wrappers; DuplicateCptError class for 409 handling
+    ├── components/
+    │   ├── ui/        Button.tsx — shared variant (primary/secondary/danger/ghost) + size (sm/md)
+    │   ├── CptChart.tsx   DOV-standard chart: type-aware panels, ghost axis alignment
+    │   ├── MapView.tsx    Leaflet map with CPT markers
+    │   ├── Sidebar.tsx    CPT list with delete; project name header
+    │   ├── Toolbar.tsx    Import button
+    │   └── WelcomeScreen.tsx  Shown until a project is created
+    ├── hooks/
+    │   └── useProject.ts  localStorage project persistence (id, name, createdAt)
+    └── App.tsx            Project gate, data loading, import/delete handlers, toasts
+```
+
+### CptChart conventions
+- `Y_W = 52` — width constant used for ALL Y-axes (real and ghost) to align plot areas across side-by-side `ComposedChart` panels
+- Ghost axes: `tick={false} axisLine={false} tickLine={false} width={Y_W}` — reserve pixel space without display
+- Peil (mTAW) always on the leftmost panel's left axis; Lengte (m) always on the rightmost panel's right axis
+- CPTU layout: u2 panel (kPa) | qc+fs panel | Rf panel
+- CPTM layout: single panel with qc only, both axes on same chart
+- Panel renderers are called as functions `{renderPanel(...)}` not JSX components — no hooks, avoids remount
