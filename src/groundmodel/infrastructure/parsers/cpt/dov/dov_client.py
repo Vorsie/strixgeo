@@ -7,17 +7,10 @@ Data sources (verified live 2026-05-07):
         https://www.dov.vlaanderen.be/data/sondering/{permkey}
         Appending `.xml` returns a 302 redirect to the proxy at
         https://www.dov.vlaanderen.be/xdov/proxy/export/sondering/{permkey}
-        — httpx must therefore have follow_redirects=True.
+        — we hit the proxy directly to skip the redirect.
 
-Coordinates from the frontend arrive as WGS84 (EPSG:4326). They are transformed
-to Belgian Lambert 72 (EPSG:31370) for the WFS BBOX filter, which is the native
-CRS of the DOV service.
-
-WFS quirks worth knowing:
-  - resultType=hits returns XML even when outputFormat=application/json is requested.
-    We extract the numberMatched attribute via regex from the XML root element.
-  - The default WFS server-side cap is 500 features; we recursively split bboxes
-    that exceed it.
+Constants (URL, namespace, parallelism, regexes, transformer) live in
+``dov_constants.py`` per the project's "constants in a dedicated file" convention.
 
 XML cache:
   When a DovXmlCache is passed to the client, every download first checks the
@@ -31,43 +24,34 @@ Debugging tips:
   - On WFS count = 0 when you expect results, check that the bbox Lambert72
     coordinates look plausible for Belgium (X ≈ 20 000–290 000, Y ≈ 150 000–245 000).
   - If XML downloads return 404, the `fiche` URL format may have changed —
-    check the property dump from `_wfs_pkeys` at TRACE level.
+    check the property dump from `_wfs_features` at TRACE level.
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
 from collections.abc import Callable
 from typing import TypeVar
 
 import httpx
-from pyproj import Transformer
 
+from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
+    DOV_DOWNLOAD_PARALLELISM,
+    DOV_FICHE_URL_PREFIX,
+    DOV_HORIZONTAL_EPSG,
+    DOV_PROXY_URL_PREFIX,
+    DOV_WFS_FEATURE_LIMIT,
+    DOV_WFS_LAYER,
+    DOV_WFS_MAX_SPLIT_DEPTH,
+    DOV_WFS_NUMBER_MATCHED_RE,
+    DOV_WFS_URL,
+    DOV_WGS84_TO_LAMBERT72,
+)
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
 ProcessFn = Callable[[bytes, str], _T]
-
-_WFS_URL = "https://www.dov.vlaanderen.be/geoserver/ows"
-_LAYER = "dov-pub:Sonderingen"  # plural; verified via GetCapabilities
-_WFS_LIMIT = 500  # default server-side cap on features per request
-_PARALLEL = 50  # max concurrent XML downloads. Higher (100) sometimes triggers DOV's
-# per-IP rate limit during peak hours; 50 hits a sweet spot of throughput without throttling.
-_MAX_DEPTH = 5  # bbox split recursion limit (2^5 = 32 subdivisions per axis)
-
-# DOV's /data/sondering/{id}.xml endpoint always 302-redirects to the proxy below.
-# Hitting the proxy directly cuts every download from 2 HTTP round-trips to 1.
-# Verified live 2026-05-07: the redirect target is deterministic for every sondering.
-_FICHE_PREFIX = "/data/sondering/"
-_PROXY_PREFIX = "/xdov/proxy/export/sondering/"
-
-# Match `numberMatched="123"` anywhere in the XML hits response.
-_NUMBER_MATCHED_RE = re.compile(r'numberMatched="(\d+)"')
-
-# Transform WGS84 lon/lat → Lambert72 easting/northing (always_xy enforces lon,lat input order)
-_to_lambert = Transformer.from_crs("EPSG:4326", "EPSG:31370", always_xy=True)
 
 
 class DovClient(GroundModelLogger):
@@ -78,7 +62,7 @@ class DovClient(GroundModelLogger):
     http : httpx.AsyncClient
         Shared async HTTP client. Caller is responsible for setting
         ``follow_redirects=True`` because the XML endpoint 302-redirects
-        to a proxy URL.
+        to a proxy URL when the proxy-direct shortcut isn't applicable.
     cache : DovXmlCache | None
         Optional persistent cache. When provided, downloads consult the cache
         first and store fresh downloads for next time. None disables caching.
@@ -108,8 +92,8 @@ class DovClient(GroundModelLogger):
         list[tuple[str, bytes]]
             (sondeernummer, xml_bytes) pairs — one per CPT successfully downloaded.
         """
-        x1, y1 = _to_lambert.transform(west, south)
-        x2, y2 = _to_lambert.transform(east, north)
+        x1, y1 = DOV_WGS84_TO_LAMBERT72.transform(west, south)
+        x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
 
         self.debug(f"DOV bbox WGS84: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}")
         self.debug(
@@ -155,8 +139,8 @@ class DovClient(GroundModelLogger):
         list[tuple[str, _T]]
             (sondeernummer, process_result) for every CPT processed successfully.
         """
-        x1, y1 = _to_lambert.transform(west, south)
-        x2, y2 = _to_lambert.transform(east, north)
+        x1, y1 = DOV_WGS84_TO_LAMBERT72.transform(west, south)
+        x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
         self.debug(f"DOV bbox WGS84: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}")
 
         name_by_url = await self._collect_pkeys(x1, y1, x2, y2, depth=0)
@@ -168,9 +152,9 @@ class DovClient(GroundModelLogger):
         cache_state = "with cache" if self._cache is not None else "no cache"
         self.info(
             f"DOV: streaming download+process of {total} XMLs "
-            f"(max {_PARALLEL} parallel, {cache_state})"
+            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel, {cache_state})"
         )
-        sem = asyncio.Semaphore(_PARALLEL)
+        sem = asyncio.Semaphore(DOV_DOWNLOAD_PARALLELISM)
         # Mutable counter shared across tasks — asyncio is single-threaded so
         # increments are atomic without a lock. Used purely for progress logging.
         progress = {"done": 0, "hits": 0}
@@ -266,7 +250,7 @@ class DovClient(GroundModelLogger):
         """Return {xml_url: sondeernummer} for all CPTs in this Lambert72 bbox.
 
         Recursively splits into four quadrants when the feature count exceeds
-        _WFS_LIMIT, ensuring we never miss CPTs due to server-side result caps.
+        DOV_WFS_FEATURE_LIMIT, ensuring we never miss CPTs due to server-side caps.
         """
         count = await self._wfs_count(x1, y1, x2, y2)
 
@@ -276,18 +260,18 @@ class DovClient(GroundModelLogger):
             )
             return {}
 
-        if count <= _WFS_LIMIT or depth >= _MAX_DEPTH:
-            if count > _WFS_LIMIT:
+        if count <= DOV_WFS_FEATURE_LIMIT or depth >= DOV_WFS_MAX_SPLIT_DEPTH:
+            if count > DOV_WFS_FEATURE_LIMIT:
                 self.warning(
                     f"DOV WFS: bbox at max recursion depth={depth} still has {count} features "
-                    f"(> {_WFS_LIMIT} limit) — some CPTs may be missed"
+                    f"(> {DOV_WFS_FEATURE_LIMIT} limit) — some CPTs may be missed"
                 )
             self.debug(f"DOV WFS: fetching {count} features (depth={depth})")
             return await self._wfs_features(x1, y1, x2, y2)
 
         mx, my = (x1 + x2) / 2, (y1 + y2) / 2
         self.debug(
-            f"DOV WFS: {count} features > limit={_WFS_LIMIT} at depth={depth}, "
+            f"DOV WFS: {count} features > limit={DOV_WFS_FEATURE_LIMIT} at depth={depth}, "
             f"splitting into 4 quadrants"
         )
         quadrants = [
@@ -315,19 +299,19 @@ class DovClient(GroundModelLogger):
         DOV's WFS returns XML for resultType=hits even when JSON is requested.
         We extract the numberMatched attribute from the FeatureCollection root.
         """
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:31370"
+        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
         params = {
             "service": "WFS",
             "version": "2.0.0",
             "request": "GetFeature",
-            "typeNames": _LAYER,
+            "typeNames": DOV_WFS_LAYER,
             "resultType": "hits",
             "BBOX": bbox,
         }
         self.trace(f"DOV WFS count request: BBOX={bbox}")
 
         try:
-            resp = await self._http.get(_WFS_URL, params=params)
+            resp = await self._http.get(DOV_WFS_URL, params=params)
         except httpx.RequestError as exc:
             self.error(f"DOV WFS count request failed (network error): {exc}")
             raise
@@ -336,7 +320,7 @@ class DovClient(GroundModelLogger):
             self.error(f"DOV WFS count returned HTTP {resp.status_code}  body: {resp.text[:500]!r}")
             resp.raise_for_status()
 
-        match = _NUMBER_MATCHED_RE.search(resp.text)
+        match = DOV_WFS_NUMBER_MATCHED_RE.search(resp.text)
         if match is None:
             self.error(
                 f"DOV WFS count: 'numberMatched' attribute not found. "
@@ -349,28 +333,28 @@ class DovClient(GroundModelLogger):
         return count
 
     async def _wfs_features(self, x1: float, y1: float, x2: float, y2: float) -> dict[str, str]:
-        """Fetch up to _WFS_LIMIT features from the WFS for this Lambert72 bbox.
+        """Fetch up to DOV_WFS_FEATURE_LIMIT features from the WFS for this bbox.
 
         Returns
         -------
         dict[str, str]
-            {xml_url: sondeernummer} — the XML URL is the WFS `fiche` property
-            with ``.xml`` appended.
+            {xml_url: sondeernummer} — the XML URL is the proxy URL derived from
+            the `fiche` property (skipping the 302 redirect).
         """
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:31370"
+        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
         params = {
             "service": "WFS",
             "version": "2.0.0",
             "request": "GetFeature",
-            "typeNames": _LAYER,
+            "typeNames": DOV_WFS_LAYER,
             "outputFormat": "application/json",
-            "count": str(_WFS_LIMIT),
+            "count": str(DOV_WFS_FEATURE_LIMIT),
             "BBOX": bbox,
         }
         self.trace(f"DOV WFS features request: BBOX={bbox}")
 
         try:
-            resp = await self._http.get(_WFS_URL, params=params)
+            resp = await self._http.get(DOV_WFS_URL, params=params)
         except httpx.RequestError as exc:
             self.error(f"DOV WFS features request failed (network error): {exc}")
             raise
@@ -403,8 +387,8 @@ class DovClient(GroundModelLogger):
                 # Falls back to fiche+'.xml' (and follow_redirects) if the URL
                 # doesn't match the expected prefix.
                 xml_url = (
-                    fiche_url.replace(_FICHE_PREFIX, _PROXY_PREFIX, 1)
-                    if _FICHE_PREFIX in fiche_url
+                    fiche_url.replace(DOV_FICHE_URL_PREFIX, DOV_PROXY_URL_PREFIX, 1)
+                    if DOV_FICHE_URL_PREFIX in fiche_url
                     else fiche_url.rstrip("/") + ".xml"
                 )
                 url_to_name[xml_url] = test_name
@@ -427,9 +411,12 @@ class DovClient(GroundModelLogger):
     # ------------------------------------------------------------------
 
     async def _download_all(self, url_to_name: dict[str, str]) -> list[tuple[str, bytes]]:
-        """Download XML for every entry, bounded by _PARALLEL concurrent requests."""
-        self.info(f"DOV: downloading {len(url_to_name)} XML files (max {_PARALLEL} parallel)")
-        sem = asyncio.Semaphore(_PARALLEL)
+        """Download XML for every entry, bounded by DOV_DOWNLOAD_PARALLELISM."""
+        self.info(
+            f"DOV: downloading {len(url_to_name)} XML files "
+            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel)"
+        )
+        sem = asyncio.Semaphore(DOV_DOWNLOAD_PARALLELISM)
         tasks = [self._download_one(xml_url, name, sem) for xml_url, name in url_to_name.items()]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
