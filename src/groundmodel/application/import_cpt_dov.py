@@ -13,6 +13,8 @@ from groundmodel.application.import_cpt_dov_result import ImportCptDovResult
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import DovClient
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
+from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.shared.config import settings
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -39,6 +41,11 @@ class ImportCptDov(GroundModelLogger):
         self._session = session
         self._import = ImportCpt(session)
         self._repo = CptRepository(session)
+        # Persistent on-disk XML cache shared across imports — DOV measurement data
+        # is historical so cached entries are valid forever. Path comes from
+        # settings (overridable via DOV_CACHE_DIR env var). Constructed once per
+        # use case rather than per request so directory creation only logs once.
+        self._cache = DovXmlCache(settings.dov_cache_dir)
 
     async def execute(
         self,
@@ -84,7 +91,7 @@ class ImportCptDov(GroundModelLogger):
                 http2=True,
                 limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
             ) as http:
-                parsed = await DovClient(http).fetch_bbox_processed(
+                parsed = await DovClient(http, cache=self._cache).fetch_bbox_processed(
                     west, south, east, north, parser.parse
                 )
             self.info(

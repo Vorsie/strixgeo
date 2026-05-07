@@ -19,6 +19,12 @@ WFS quirks worth knowing:
   - The default WFS server-side cap is 500 features; we recursively split bboxes
     that exceed it.
 
+XML cache:
+  When a DovXmlCache is passed to the client, every download first checks the
+  cache by permkey. Cache hits skip the network entirely. Misses are downloaded
+  AND stored in the cache for next time. Because DOV measurement data is
+  historical, a cached XML stays valid forever.
+
 Debugging tips:
   - Set log level to TRACE to see every HTTP request, response body, and feature
     property dump from the WFS.
@@ -38,6 +44,7 @@ from typing import TypeVar
 import httpx
 from pyproj import Transformer
 
+from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
@@ -72,11 +79,15 @@ class DovClient(GroundModelLogger):
         Shared async HTTP client. Caller is responsible for setting
         ``follow_redirects=True`` because the XML endpoint 302-redirects
         to a proxy URL.
+    cache : DovXmlCache | None
+        Optional persistent cache. When provided, downloads consult the cache
+        first and store fresh downloads for next time. None disables caching.
     """
 
-    def __init__(self, http: httpx.AsyncClient) -> None:
+    def __init__(self, http: httpx.AsyncClient, cache: DovXmlCache | None = None) -> None:
         super().__init__(__name__)
         self._http = http
+        self._cache = cache
 
     async def fetch_bbox(
         self,
@@ -136,6 +147,9 @@ class DovClient(GroundModelLogger):
         disappears into the download wait time. Failures from process() are
         caught per-CPT so one bad XML doesn't kill the batch.
 
+        When a cache is configured, cache hits skip the network entirely — the
+        bytes go straight from disk into process(). Hit/miss counts are logged.
+
         Returns
         -------
         list[tuple[str, _T]]
@@ -151,11 +165,15 @@ class DovClient(GroundModelLogger):
             return []
 
         total = len(name_by_url)
-        self.info(f"DOV: streaming download+process of {total} XMLs (max {_PARALLEL} parallel)")
+        cache_state = "with cache" if self._cache is not None else "no cache"
+        self.info(
+            f"DOV: streaming download+process of {total} XMLs "
+            f"(max {_PARALLEL} parallel, {cache_state})"
+        )
         sem = asyncio.Semaphore(_PARALLEL)
         # Mutable counter shared across tasks — asyncio is single-threaded so
         # increments are atomic without a lock. Used purely for progress logging.
-        progress = {"done": 0}
+        progress = {"done": 0, "hits": 0}
         progress_step = max(50, total // 5)  # log every 50 OR every 20% of total
         tasks = [
             self._download_and_process(xml_url, name, process, sem, progress, total, progress_step)
@@ -172,6 +190,12 @@ class DovClient(GroundModelLogger):
                 )
             else:
                 out.append((name, result))
+
+        if self._cache is not None:
+            hits = progress["hits"]
+            misses = progress["done"] - hits
+            pct = (hits * 100 // progress["done"]) if progress["done"] else 0
+            self.info(f"DOV cache: {hits} hits, {misses} misses ({pct}% hit rate)")
         return out
 
     async def _download_and_process(
@@ -184,30 +208,50 @@ class DovClient(GroundModelLogger):
         total: int,
         progress_step: int,
     ) -> _T:
-        """Download one XML, then run process synchronously inside the same task.
+        """Download (or read from cache), then run process synchronously.
 
-        Process runs after the semaphore is released so the slot becomes available
-        for the next download immediately. *progress* is shared across tasks for
+        On cache hit the network is skipped entirely. On cache miss the XML is
+        downloaded and then written back to the cache for next time. Process
+        runs after the semaphore is released so the slot becomes available for
+        the next download immediately. *progress* is shared across tasks for
         periodic INFO logging — asyncio is single-threaded so the increment is
         race-free without a lock.
         """
-        async with sem:
-            try:
-                resp = await self._http.get(xml_url)
-            except httpx.RequestError as exc:
-                self.error(f"DOV: network error fetching '{name}' ({xml_url}): {exc}")
-                raise
-            if not resp.is_success:
-                self.error(
-                    f"DOV: HTTP {resp.status_code} for '{name}'  "
-                    f"url={xml_url}  body={resp.text[:200]!r}"
-                )
-                resp.raise_for_status()
-            xml_bytes = resp.content
+        permkey = _last_path_segment(xml_url)
+        xml_bytes: bytes | None = None
+        from_cache = False
+
+        # Cache lookup — file read is ~0.1ms, faster than acquiring the semaphore
+        # on a contended import, so we check before queueing for download.
+        if self._cache is not None:
+            xml_bytes = self._cache.get(permkey)
+            from_cache = xml_bytes is not None
+
+        if xml_bytes is None:
+            async with sem:
+                try:
+                    resp = await self._http.get(xml_url)
+                except httpx.RequestError as exc:
+                    self.error(f"DOV: network error fetching '{name}' ({xml_url}): {exc}")
+                    raise
+                if not resp.is_success:
+                    self.error(
+                        f"DOV: HTTP {resp.status_code} for '{name}'  "
+                        f"url={xml_url}  body={resp.text[:200]!r}"
+                    )
+                    resp.raise_for_status()
+                xml_bytes = resp.content
+            # Write-through cache: store the fresh bytes so next import skips this
+            # round-trip. Cache write failures are logged but never raised.
+            if self._cache is not None:
+                self._cache.put(permkey, xml_bytes)
+
         # Process runs outside the semaphore — parse blocks the event loop briefly
         # (~16ms per CPT) while the freed semaphore slot starts the next download.
         result = process(xml_bytes, name)
         progress["done"] += 1
+        if from_cache:
+            progress["hits"] += 1
         if progress["done"] % progress_step == 0 or progress["done"] == total:
             self.info(f"DOV progress: {progress['done']}/{total} downloaded+parsed")
         return result
@@ -379,7 +423,7 @@ class DovClient(GroundModelLogger):
         return url_to_name
 
     # ------------------------------------------------------------------
-    # XML downloads
+    # XML downloads (legacy non-streaming path; kept for fetch_bbox)
     # ------------------------------------------------------------------
 
     async def _download_all(self, url_to_name: dict[str, str]) -> list[tuple[str, bytes]]:
