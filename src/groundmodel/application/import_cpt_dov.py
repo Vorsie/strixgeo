@@ -60,7 +60,12 @@ class ImportCptDov(GroundModelLogger):
         )
 
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as http:
+            # follow_redirects=True is required: the DOV XML endpoint
+            # /data/sondering/{id}.xml 302-redirects to /xdov/proxy/export/sondering/{id}.
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(60.0, connect=10.0),
+                follow_redirects=True,
+            ) as http:
                 items = await DovClient(http).fetch_bbox(west, south, east, north)
         except httpx.HTTPStatusError as exc:
             self.error(
