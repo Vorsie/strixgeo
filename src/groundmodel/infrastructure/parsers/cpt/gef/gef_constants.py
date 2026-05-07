@@ -15,7 +15,7 @@ QUANTITY_TO_COLUMN: dict[int, str] = {
     11: "length_m",  # penetration length — needs inclination correction for true depth
     15: "qt_mpa",
     16: "qn_mpa",
-    # 128 = totaalweerstand (total resistance) in kN — Belgian CPTM/Begemann.
+    # 128 = total resistance (GEF: totaalweerstand) in kN — Belgian CPTM/Begemann.
     # For the standard 1000 mm² cone: Qt[MPa] = Qt[kN] / 0.001 m² × 0.001 = Qt[kN] numerically.
     128: "qt_mpa",
     17: "bq",
