@@ -54,9 +54,9 @@ class TestCalculateIcSeries:
 
     def test_basic_series_all_valid(self) -> None:
         depths = [1.0, 2.0, 3.0]
-        qc     = [20.0, 5.0, 0.5]
+        qc = [20.0, 5.0, 0.5]
         # fs chosen to produce positive Fr in every row
-        fs     = [0.1, 0.15, 0.04]
+        fs = [0.1, 0.15, 0.04]
         result = calculate_ic_series(depths, qc, fs)
         assert len(result) == 3
         assert all(v is not None for v in result)
