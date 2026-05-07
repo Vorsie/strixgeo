@@ -49,24 +49,36 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
+async function del(path: string): Promise<void> {
+  const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`DELETE ${path} → ${res.status}`)
+}
+
 export const api = {
   cpt: {
-    list: (): Promise<CptListItem[]> => get('/cpt/'),
+    list: (projectId?: string): Promise<CptListItem[]> =>
+      get(`/cpt/${projectId ? `?project_id=${projectId}` : ''}`),
 
     get: (id: string): Promise<CptResponse> => get(`/cpt/${id}`),
 
     plot: (id: string): Promise<CptPlotResponse> => get(`/cpt/${id}/plot`),
 
-    import: async (filePath: string): Promise<ImportCptResponse> => {
+    delete: (id: string): Promise<void> => del(`/cpt/${id}`),
+
+    import: async (filePath: string, projectId?: string): Promise<ImportCptResponse> => {
       // Read via IPC — fetch('file://') is blocked in the renderer sandbox.
       const buffer: Buffer = await window.electron.readFile(filePath)
       const fileName = filePath.split(/[\\/]/).pop() ?? 'upload.gef'
       const blob = new Blob([buffer])
       const form = new FormData()
       form.append('file', blob, fileName)
+      if (projectId) form.append('project_id', projectId)
       const res = await fetch(`${_base}/cpt/import`, { method: 'POST', body: form })
-      if (!res.ok) throw new Error(`Import failed: ${res.status}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail ?? `Import failed: ${res.status}`)
+      }
       return res.json()
-    }
-  }
+    },
+  },
 }
