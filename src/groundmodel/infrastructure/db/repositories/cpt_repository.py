@@ -62,18 +62,19 @@ class CptRepository(GroundModelLogger):
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
-    async def find_by_project_test(self, project_id: str, test_id: str) -> CptOrm | None:
-        """Return the first CPT matching the GEF (project_id, test_id) pair, or None.
+    async def find_by_project_test(
+        self, project_id: str, test_id: str, app_project_id: UUID | None = None
+    ) -> CptOrm | None:
+        """Return the first CPT matching (project_id, test_id) within the project, or None.
 
-        Used for duplicate detection before import.  Only called when both
-        identifiers are non-empty — files without project or test IDs are
-        always accepted.
+        Scoped to ``app_project_id`` when provided so the same GEF file may be
+        imported into different app projects without triggering a duplicate error.
+        Only called when both GEF identifiers are non-empty.
         """
-        result = await self._session.execute(
-            select(CptOrm)
-            .where(CptOrm.project_id == project_id, CptOrm.test_id == test_id)
-            .limit(1)
-        )
+        stmt = select(CptOrm).where(CptOrm.project_id == project_id, CptOrm.test_id == test_id)
+        if app_project_id is not None:
+            stmt = stmt.where(CptOrm.app_project_id == app_project_id)
+        result = await self._session.execute(stmt.limit(1))
         return result.scalar_one_or_none()
 
     async def delete(self, cpt_id: UUID) -> None:
