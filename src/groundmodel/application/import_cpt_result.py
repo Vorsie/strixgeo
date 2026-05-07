@@ -1,4 +1,5 @@
 """Result returned by the ImportCpt use case."""
+
 from dataclasses import dataclass
 from uuid import UUID
 

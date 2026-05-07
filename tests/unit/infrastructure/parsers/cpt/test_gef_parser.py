@@ -1,4 +1,5 @@
 """Unit tests for GEFParser — header, data, type detection, normalisation, validation."""
+
 from __future__ import annotations
 
 import pytest
@@ -49,6 +50,7 @@ def parser() -> GEFParser:
 # ---------------------------------------------------------------------------
 # Header parsing
 # ---------------------------------------------------------------------------
+
 
 class TestHeaderParsing:
     def test_test_id_parsed(self, parser: GEFParser) -> None:
@@ -107,6 +109,7 @@ class TestHeaderParsing:
 # Data parsing
 # ---------------------------------------------------------------------------
 
+
 class TestDataParsing:
     def test_semicolon_separated_rows_loaded(self, parser: GEFParser) -> None:
         result = parser.parse(_gef())
@@ -137,6 +140,7 @@ class TestDataParsing:
 # ---------------------------------------------------------------------------
 # CPT type detection
 # ---------------------------------------------------------------------------
+
 
 class TestCPTTypeDetection:
     def test_cptu_detected_from_qty6(self, parser: GEFParser) -> None:
@@ -169,6 +173,7 @@ class TestCPTTypeDetection:
 # Column renaming and depth fallback
 # ---------------------------------------------------------------------------
 
+
 class TestColumnRenaming:
     def test_standard_columns_present_after_rename(self, parser: GEFParser) -> None:
         result = parser.parse(_gef())
@@ -193,6 +198,7 @@ class TestColumnRenaming:
 # ---------------------------------------------------------------------------
 # Unit normalisation
 # ---------------------------------------------------------------------------
+
 
 class TestUnitNormalisation:
     def test_kpa_normalised_to_mpa(self, parser: GEFParser) -> None:
@@ -230,6 +236,7 @@ class TestUnitNormalisation:
 # Rf calculation
 # ---------------------------------------------------------------------------
 
+
 class TestRfCalculation:
     def test_rf_calculated_from_qc_and_fs(self, parser: GEFParser) -> None:
         # row 0: fs=0.05, qc=1.0 → Rf = 5.0%
@@ -261,6 +268,7 @@ class TestRfCalculation:
 # ---------------------------------------------------------------------------
 # Validation — coordinates
 # ---------------------------------------------------------------------------
+
 
 class TestValidationCoordinates:
     def test_no_coordinates_raises_warning(self, parser: GEFParser) -> None:
@@ -316,12 +324,15 @@ class TestValidationCoordinates:
 
     def test_valid_coordinates_produce_no_coordinate_issues(self, parser: GEFParser) -> None:
         result = parser.parse(_gef())
-        assert not {"NO_COORDINATES", "ZERO_COORDINATES", "NO_EPSG", "NO_ELEVATION"} & _codes(result)
+        assert not {"NO_COORDINATES", "ZERO_COORDINATES", "NO_EPSG", "NO_ELEVATION"} & _codes(
+            result
+        )
 
 
 # ---------------------------------------------------------------------------
 # Validation — required columns
 # ---------------------------------------------------------------------------
+
 
 class TestValidationColumns:
     def test_missing_qc_is_error(self, parser: GEFParser) -> None:
@@ -362,6 +373,7 @@ class TestValidationColumns:
 # Validation — depth monotonicity
 # ---------------------------------------------------------------------------
 
+
 class TestValidationDepth:
     def test_decreasing_depth_is_error(self, parser: GEFParser) -> None:
         data = "0.20; 1.0; 0.05\n0.40; 1.5; 0.06\n0.30; 2.0; 0.07\n"
@@ -381,6 +393,7 @@ class TestValidationDepth:
 # ---------------------------------------------------------------------------
 # Validation — value checks
 # ---------------------------------------------------------------------------
+
 
 class TestValidationValues:
     def test_negative_qc_is_warning(self, parser: GEFParser) -> None:
@@ -431,11 +444,7 @@ class TestValidationValues:
     def test_qc_spikes_detected(self, parser: GEFParser) -> None:
         # row 1: qc=10.0 is 10× neighbours (1.0) → spike
         data = (
-            "0.20; 1.0; 0.05\n"
-            "0.40; 10.0; 0.05\n"
-            "0.60; 1.0; 0.05\n"
-            "0.80; 1.0; 0.05\n"
-            "1.00; 1.0; 0.05\n"
+            "0.20; 1.0; 0.05\n0.40; 10.0; 0.05\n0.60; 1.0; 0.05\n0.80; 1.0; 0.05\n1.00; 1.0; 0.05\n"
         )
         result = parser.parse(_gef(data=data))
         assert "QC_SPIKES" in _warning_codes(result)
@@ -457,6 +466,7 @@ class TestValidationValues:
 # Validation — partial u2
 # ---------------------------------------------------------------------------
 
+
 class TestValidationPartialU2:
     _CPTU_HEADER = (
         "#TESTID= CPT-01\n"
@@ -473,9 +483,7 @@ class TestValidationPartialU2:
 
     def test_partial_u2_flagged_when_u2_starts_deep(self, parser: GEFParser) -> None:
         # First 10 rows: u2 void; last 10 rows: u2 real — transition at 1.00 m
-        data = "".join(
-            f"{0.10 * i:.2f}; 1.0; 0.05; -9999.0\n" for i in range(1, 11)
-        ) + "".join(
+        data = "".join(f"{0.10 * i:.2f}; 1.0; 0.05; -9999.0\n" for i in range(1, 11)) + "".join(
             f"{1.00 + 0.10 * i:.2f}; 1.0; 0.05; 0.02\n" for i in range(10)
         )
         result = parser.parse(_gef(header=self._CPTU_HEADER, data=data))
@@ -489,9 +497,7 @@ class TestValidationPartialU2:
     def test_no_partial_u2_when_u2_void_only_in_predrill_zone(self, parser: GEFParser) -> None:
         header = self._CPTU_HEADER + "#MEASUREMENTVAR= 13, 0.5\n"
         # u2 void up to 0.60 m (just past the 0.5 m pre-drill + 0.5 m tolerance)
-        data = "".join(
-            f"{0.10 * i:.2f}; 1.0; 0.05; -9999.0\n" for i in range(1, 7)
-        ) + "".join(
+        data = "".join(f"{0.10 * i:.2f}; 1.0; 0.05; -9999.0\n" for i in range(1, 7)) + "".join(
             f"{0.60 + 0.10 * i:.2f}; 1.0; 0.05; 0.02\n" for i in range(5)
         )
         result = parser.parse(_gef(header=header, data=data))
@@ -511,6 +517,7 @@ class TestValidationPartialU2:
 # ---------------------------------------------------------------------------
 # parse_bytes
 # ---------------------------------------------------------------------------
+
 
 class TestParseBytes:
     def test_utf8_bytes_decoded_correctly(self, parser: GEFParser) -> None:
