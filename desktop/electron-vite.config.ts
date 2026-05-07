@@ -20,11 +20,6 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/preload/index.ts')
         },
-        // Electron's sandboxed preload cannot use ESM — force CJS output.
-        output: {
-          format: 'cjs',
-          entryFileNames: '[name].js'
-        }
       }
     }
   },
