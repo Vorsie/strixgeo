@@ -13,8 +13,11 @@ from groundmodel.api.schemas.cpt_list_item import CptListItem
 from groundmodel.api.schemas.cpt_plot_response import CptPlotResponse
 from groundmodel.api.schemas.cpt_response import CptResponse
 from groundmodel.api.schemas.import_cpt_response import ImportCptResponse
+from groundmodel.api.schemas.import_dov_request import ImportDovRequest
+from groundmodel.api.schemas.import_dov_response import ImportDovResponse
 from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.import_cpt import ImportCpt
+from groundmodel.application.import_cpt_dov import ImportCptDov
 from groundmodel.domain.services.cpt_interpretation import calculate_ic_series
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.db.session import get_session
@@ -100,6 +103,40 @@ async def import_cpt(
             )
             for i in result.issues
         ],
+    )
+
+
+@router.post("/import-dov", response_model=ImportDovResponse)
+async def import_cpt_dov(
+    request: ImportDovRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ImportDovResponse:
+    """Import CPTs from DOV within a WGS84 bounding box.
+
+    Parameters
+    ----------
+    request:
+        Bounding box (west, south, east, north in decimal degrees) and optional
+        project_id.  The backend queries the DOV WFS, downloads CPT XMLs in
+        parallel, and persists each one.
+
+    Returns
+    -------
+    ImportDovResponse
+        Counts of imported, duplicate, and failed CPTs plus all CPT IDs.
+    """
+    result = await ImportCptDov(session).execute(
+        west=request.west,
+        south=request.south,
+        east=request.east,
+        north=request.north,
+        app_project_id=request.project_id,
+    )
+    return ImportDovResponse(
+        imported=result.imported,
+        duplicates=result.duplicates,
+        failed=result.failed,
+        cpt_ids=result.cpt_ids,
     )
 
 
