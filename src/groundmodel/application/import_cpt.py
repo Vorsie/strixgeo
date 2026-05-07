@@ -1,4 +1,5 @@
 """CPT import use case — parse a GEF file and persist it to the database."""
+
 from pathlib import Path
 from uuid import UUID
 
@@ -13,7 +14,7 @@ from groundmodel.infrastructure.db.repositories.cpt_repository import CptReposit
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parser import GEFParser
-from groundmodel.shared.exceptions import ParseError
+from groundmodel.shared.exceptions import DuplicateCptError, ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -40,7 +41,7 @@ class ImportCpt(GroundModelLogger):
         self._session = session
         self._repo = CptRepository(session)
 
-    async def execute(self, file_path: Path) -> ImportCptResult:
+    async def execute(self, file_path: Path, app_project_id: UUID | None = None) -> ImportCptResult:
         """Parse *file_path* and persist the result.
 
         Parameters
@@ -64,15 +65,27 @@ class ImportCpt(GroundModelLogger):
         content = file_path.read_bytes()
         result = self._parse(file_path, content)
 
+        # Duplicate guard: only when GEF file has both opdrachtnummer and proefnummer.
+        h = result.header
+        if h.project_id and h.test_id:
+            existing = await self._repo.find_by_project_test(h.project_id, h.test_id)
+            if existing is not None:
+                raise DuplicateCptError(
+                    f"CPT already exists: opdrachtnummer={h.project_id!r}, "
+                    f"proefnummer={h.test_id!r} (id={existing.id})"
+                )
+
         cpt_id: UUID = uuid7()
-        cpt_orm = self._to_orm(cpt_id, file_path, result)
+        cpt_orm = self._to_orm(cpt_id, file_path, result, app_project_id)
 
         await self._repo.save(cpt_orm)
         await self._session.commit()
 
         n_err = sum(1 for i in result.issues if i.level == "error")
         n_warn = sum(1 for i in result.issues if i.level == "warning")
-        self.success(f"CPT imported: {cpt_id} ({len(result.data)} rows, {n_err} errors, {n_warn} warnings)")
+        self.success(
+            f"CPT imported: {cpt_id} ({len(result.data)} rows, {n_err} errors, {n_warn} warnings)"
+        )
         return ImportCptResult(cpt_id=cpt_id, issues=result.issues)
 
     # ------------------------------------------------------------------
@@ -85,18 +98,23 @@ class ImportCpt(GroundModelLogger):
         suffix = file_path.suffix.lower()
         if suffix == ".gef":
             return GEFParser().parse_bytes(content)
-        raise ParseError(f"Unsupported CPT file format: {suffix!r} — only .gef is supported in Phase 1")
+        raise ParseError(
+            f"Unsupported CPT file format: {suffix!r} — only .gef is supported in Phase 1"
+        )
 
     # ------------------------------------------------------------------
     # ORM mapping
     # ------------------------------------------------------------------
 
-    def _to_orm(self, cpt_id: UUID, file_path: Path, result: GEFParseResult) -> CptOrm:
+    def _to_orm(
+        self, cpt_id: UUID, file_path: Path, result: GEFParseResult, app_project_id: UUID | None
+    ) -> CptOrm:
         h = result.header
         df = result.data
 
         return CptOrm(
             id=cpt_id,
+            app_project_id=app_project_id,
             name=h.test_id.strip() or file_path.stem,
             cpt_type=result.cpt_type.value,
             project_id=h.project_id,
