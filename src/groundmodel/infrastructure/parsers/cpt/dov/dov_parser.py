@@ -1,24 +1,41 @@
 """DOV XML → GEFParseResult parser.
 
 DOV sonderings are published as XML at:
-  https://www.dov.vlaanderen.be/data/sondering/{pkey_id}.xml
+  https://www.dov.vlaanderen.be/data/sondering/{permkey}.xml
+which 302-redirects to:
+  https://www.dov.vlaanderen.be/xdov/proxy/export/sondering/{permkey}
 
-All coordinates are in Belgian Lambert 72 (EPSG:31370).
-Elevations are in mTAW (Belgian ordnance datum, EPSG:5710).
-Tip resistance (qc) and sleeve friction (fs) are in MPa; pore pressure (u) in MPa.
+XML structure (verified against live DOV data 2026-05-07):
+  Namespace: http://kern.schemas.dov.vlaanderen.be (with prefix ns4 in source)
+  GML namespace: http://www.opengis.net/gml/3.2
 
-XML structure assumption (namespace http://www.dov.vlaanderen.be/schema/dov/1.0.0):
-  dov/sondering/identificatie/proefnummer        (test ID)
-  dov/sondering/ligging/xy/{x,y}                (location in Lambert72)
-  dov/sondering/ligging/oorspronkelijk_maaiveld/waarde  (ground elevation mTAW)
-  dov/sondering/sondering/data/laag/{tot,qc,fs,u,friction_ratio}  (measurements)
+  dov-schema/sondering/sondeernummer            (test ID, e.g. "GEO-02/079-S3")
+  dov-schema/sondering/datum_aanvang            (start date, ISO format)
+  dov-schema/sondering/uitvoerder/naam          (company name)
+  dov-schema/sondering/ligging/gml:Point/gml:pos (X Y Z space-separated, EPSG:31370)
+  dov-schema/sondering/sondeonderzoek/sondeerapparaat/sondeerconus/conustype  (E, U, M1, ...)
+  dov-schema/sondering/sondeonderzoek/sondeerapparaat/sondeerconus/net_area_ratio
+  dov-schema/sondering/sondeonderzoek/penetratietest/meetdata/{lengte,diepte,qc,fs,u,Qt,i}
+
+UNITS (this is critical):
+  qc, Qt: MPa  (no conversion needed)
+  fs, u:  kPa  (DOV stores as integers like 10, 20, 90 — divide by 1000 for MPa)
+  lengte, diepte: meters
+  i:      degrees (inclination, currently unused)
+
+CONE TYPE detection from <conustype>:
+  M*    → CPTM (mechanical: only qc + Qt available)
+  E*    → CPTE (electric: qc + fs + i, no pore pressure)
+  U*/EU → CPTU (piezocone: qc + fs + u + i)
+
+Rf is NOT in the DOV XML — we calculate it as (fs/qc)*100 when fs is available.
 
 DOV XML element names are Dutch (schema-defined); they must appear as string literals
-in findall/find calls but must NOT be used as Python identifiers. English equivalents
+in find/findall calls but must NOT be used as Python identifiers. English equivalents
 are noted in comments next to each tag reference.
 
-If the structure does not match, parse() logs the actual root tag and child
-element names at DEBUG level so the mismatch is immediately visible.
+Debugging: parse() logs the actual root tag and child element names at DEBUG level
+when expected paths are missing, so schema mismatches are immediately visible.
 """
 
 from __future__ import annotations
@@ -35,8 +52,14 @@ from groundmodel.infrastructure.parsers.cpt.validation.validation_level import V
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-_NS = "http://www.dov.vlaanderen.be/schema/dov/1.0.0"
-_T = f"{{{_NS}}}"  # '{http://...}' tag prefix shorthand
+_NS = "http://kern.schemas.dov.vlaanderen.be"
+_GML = "http://www.opengis.net/gml/3.2"
+
+# DOV's actual XML quirk: only the <dov-schema> ROOT is in the _NS namespace
+# (declared as xmlns:ns4="..."). Its children (<sondering>, <sondeernummer>, etc.)
+# are unprefixed — they live in NO namespace at all. So we use bare tag strings
+# to find them. GML elements ARE namespaced (xmlns:gml="...") so they keep _GML_T.
+_GML_T = f"{{{_GML}}}"
 
 
 def _text(elem: ET.Element | None, tag: str) -> str:
@@ -59,8 +82,8 @@ def _float(elem: ET.Element | None, tag: str) -> float | None:
 class DovParser(GroundModelLogger):
     """Parse a DOV sondering XML document into a GEFParseResult.
 
-    The parser reuses the same result type as GEFParser so the full persist
-    pipeline (ImportCpt.persist) can be called without modification.
+    Reuses the GEFParseResult type so the full persist pipeline
+    (ImportCpt.persist) can be called without modification.
     """
 
     def __init__(self) -> None:
@@ -72,9 +95,9 @@ class DovParser(GroundModelLogger):
         Parameters
         ----------
         xml_bytes : bytes
-            Raw XML from https://www.dov.vlaanderen.be/data/sondering/{id}.xml
+            Raw XML body fetched from the DOV sondering endpoint.
         name : str
-            Fallback display name when the XML test ID is absent.
+            Fallback display name when the XML <sondeernummer> is absent.
 
         Returns
         -------
@@ -84,7 +107,7 @@ class DovParser(GroundModelLogger):
         Raises
         ------
         ParseError
-            When the document is not a valid DOV sondering XML.
+            When the document is not parseable XML or has no <sondering> child.
         """
         self.debug(f"DOV parser: parsing '{name}' ({len(xml_bytes)} bytes)")
 
@@ -93,25 +116,26 @@ class DovParser(GroundModelLogger):
         except ET.ParseError as exc:
             raise ParseError(f"DOV XML parse error for '{name}': {exc}") from exc
 
-        # Log root structure to diagnose namespace or schema mismatches.
+        # Log root structure so namespace or schema mismatches are immediately visible.
         self.trace(f"DOV XML root tag: {root.tag!r}  children: {[c.tag for c in root]}")
 
-        cpt_elem = root.find(f"{_T}sondering")  # sondering = sounding / CPT
+        # The root is <dov-schema>; we want the <sondering> child inside it.
+        cpt_elem = root.find("sondering")  # sondering = sounding / CPT
         if cpt_elem is None:
-            # Log what IS there so the mismatch is immediately visible in the logs.
             self.error(
                 f"DOV XML '{name}': expected <sondering> in namespace {_NS!r} "
-                f"but root children are: {[c.tag for c in root]}"
+                f"but root <{root.tag}> children are: {[c.tag for c in root]}"
             )
             raise ParseError(f"DOV XML for '{name}': missing <sondering> element")
 
         header = self._parse_header(cpt_elem, name)
         data, issues = self._parse_data(cpt_elem, name)
-        cpt_type = self._detect_type(data)
+        cpt_type = self._detect_type(header.cone_type_code, data)
 
         self.debug(
             f"DOV parser: '{name}' → {cpt_type.value}, "
-            f"{len(data)} rows, x={header.x}, y={header.y}, z={header.z}"
+            f"{len(data)} rows, x={header.x}, y={header.y}, z={header.z}, "
+            f"a={header.net_area_ratio}"
         )
         return GEFParseResult(header=header, cpt_type=cpt_type, data=data, issues=issues)
 
@@ -120,59 +144,120 @@ class DovParser(GroundModelLogger):
     # ------------------------------------------------------------------
 
     def _parse_header(self, cpt_elem: ET.Element, name: str) -> GEFHeader:
-        identification = cpt_elem.find(f"{_T}identificatie")  # identificatie = identification
-        location_elem = cpt_elem.find(f"{_T}ligging")  # ligging = location
+        # sondeernummer = test number; uitvoerder = company; datum_aanvang = start date
+        test_id = _text(cpt_elem, "sondeernummer")
+        file_date = _text(cpt_elem, "datum_aanvang")
 
-        if identification is None:
-            self.warning(f"DOV XML '{name}': <identificatie> element not found")
-        if location_elem is None:
-            self.warning(f"DOV XML '{name}': <ligging> element not found — no coordinates")
+        company = ""
+        company_elem = cpt_elem.find("uitvoerder")
+        if company_elem is not None:
+            company = _text(company_elem, "naam")  # naam = name (nested)
 
-        probe_id = (
-            _text(identification, f"{_T}proefnummer") if identification is not None else ""
-        )  # proefnummer = test number
-        company = (
-            _text(identification, f"{_T}uitvoerder") if identification is not None else ""
-        )  # uitvoerder = company/executor
-        file_date = (
-            _text(identification, f"{_T}datum_aanvang") if identification is not None else ""
-        )  # datum_aanvang = start date
-
-        x = y = z = None
-        if location_elem is not None:
-            xy = location_elem.find(f"{_T}xy")
-            if xy is None:
-                self.warning(f"DOV XML '{name}': <xy> not found inside <ligging>")
-            else:
-                x = _float(xy, f"{_T}x")
-                y = _float(xy, f"{_T}y")
-                if x is None or y is None:
-                    self.warning(
-                        f"DOV XML '{name}': <x> or <y> missing/non-numeric "
-                        f"(x={_text(xy, f'{_T}x')!r}, y={_text(xy, f'{_T}y')!r})"
-                    )
-
-            # oorspronkelijk_maaiveld = original ground level
-            surface_elem = location_elem.find(f"{_T}oorspronkelijk_maaiveld")
-            if surface_elem is None:
-                self.debug(f"DOV XML '{name}': <oorspronkelijk_maaiveld> not found — no elevation")
-            else:
-                z = _float(surface_elem, f"{_T}waarde")  # waarde = value
-                if z is None:
-                    self.debug(f"DOV XML '{name}': ground level <waarde> is missing/non-numeric")
+        x, y, z = self._parse_location(cpt_elem, name)
+        net_area_ratio, cone_type_code = self._parse_cone_metadata(cpt_elem, name)
 
         return GEFHeader(
             # project_id="DOV" scopes duplicate detection to DOV imports per project
             project_id="DOV",
-            test_id=probe_id or name,
+            test_id=test_id or name,
             company=company,
             file_date=file_date,
             x=x,
             y=y,
             z=z,
-            epsg=31370,  # Belgian Lambert 72
+            epsg=31370,  # Belgian Lambert 72 (DOV's primary horizontal CRS)
             z_epsg=5710,  # Belgian mTAW (TAW/NGF)
+            net_area_ratio=net_area_ratio,
+            cone_type_code=cone_type_code,
         )
+
+    def _parse_location(
+        self, cpt_elem: ET.Element, name: str
+    ) -> tuple[float | None, float | None, float | None]:
+        """Extract X, Y, Z from the GML Point inside <ligging>.
+
+        DOV stores coordinates as ``<gml:pos>X Y Z</gml:pos>`` (space-separated)
+        with srsName urn:ogc:def:crs:EPSG::6190 — but the numeric values match
+        Belgian Lambert 72 (EPSG:31370), confirmed against the WFS X_mL72/Y_mL72
+        properties. We treat them as 31370.
+        """
+        location_elem = cpt_elem.find("ligging")  # ligging = location
+        if location_elem is None:
+            self.warning(f"DOV XML '{name}': <ligging> not found — no coordinates")
+            return None, None, None
+
+        point_elem = location_elem.find(f"{_GML_T}Point")
+        if point_elem is None:
+            self.warning(
+                f"DOV XML '{name}': <gml:Point> not found inside <ligging>. "
+                f"<ligging> children: {[c.tag for c in location_elem]}"
+            )
+            return None, None, None
+
+        pos_elem = point_elem.find(f"{_GML_T}pos")
+        if pos_elem is None or not pos_elem.text:
+            self.warning(f"DOV XML '{name}': <gml:pos> empty or missing")
+            return None, None, None
+
+        parts = pos_elem.text.strip().split()
+        if len(parts) < 2:
+            self.warning(
+                f"DOV XML '{name}': <gml:pos> has fewer than 2 components: {pos_elem.text!r}"
+            )
+            return None, None, None
+
+        try:
+            x = float(parts[0])
+            y = float(parts[1])
+        except ValueError:
+            self.warning(f"DOV XML '{name}': <gml:pos> non-numeric: {pos_elem.text!r}")
+            return None, None, None
+
+        z: float | None = None
+        if len(parts) >= 3:
+            try:
+                z = float(parts[2])
+            except ValueError:
+                self.debug(f"DOV XML '{name}': <gml:pos> Z component non-numeric: {parts[2]!r}")
+
+        return x, y, z
+
+    def _parse_cone_metadata(
+        self, cpt_elem: ET.Element, name: str
+    ) -> tuple[float | None, int | None]:
+        """Extract net area ratio and cone type code from <sondeerconus>.
+
+        Cone type code mapping (matches GEF MEASUREMENTVAR 12 convention):
+          0 = electric (E*, U*, EU)
+          1 = mechanical (M*)
+        """
+        # sondeonderzoek = the test data container; sondeerapparaat = sounding apparatus
+        test_data_elem = cpt_elem.find("sondeonderzoek")
+        if test_data_elem is None:
+            return None, None
+
+        apparatus_elem = test_data_elem.find("sondeerapparaat")
+        if apparatus_elem is None:
+            return None, None
+
+        cone_elem = apparatus_elem.find("sondeerconus")  # sondeerconus = sounding cone
+        if cone_elem is None:
+            return None, None
+
+        net_area_ratio = _float(cone_elem, "net_area_ratio")
+        cone_type_str = _text(cone_elem, "conustype")
+
+        cone_type_code: int | None
+        if cone_type_str.startswith("M"):
+            cone_type_code = 1  # mechanical
+        elif cone_type_str.startswith(("E", "U")):
+            cone_type_code = 0  # electric (E, U, EU)
+        else:
+            cone_type_code = None
+            if cone_type_str:
+                self.debug(f"DOV XML '{name}': unknown <conustype>={cone_type_str!r}")
+
+        return net_area_ratio, cone_type_code
 
     # ------------------------------------------------------------------
     # Measurement data
@@ -182,99 +267,142 @@ class DovParser(GroundModelLogger):
         self, cpt_elem: ET.Element, name: str
     ) -> tuple[pl.DataFrame, list[ValidationIssue]]:
         issues: list[ValidationIssue] = []
+        empty = pl.DataFrame({"depth_m": [], "qc_mpa": []})
 
-        # The inner <sondering> element (same tag as the outer container) holds measurements.
-        measurements_elem = cpt_elem.find(f"{_T}sondering")  # sondering = sounding
-        if measurements_elem is None:
+        # sondeonderzoek = test data container; penetratietest = penetration test
+        test_data_elem = cpt_elem.find("sondeonderzoek")
+        if test_data_elem is None:
             self.error(
-                f"DOV XML '{name}': inner <sondering> not found. "
-                f"Outer <sondering> children: {[c.tag for c in cpt_elem]}"
+                f"DOV XML '{name}': <sondeonderzoek> not found. "
+                f"<sondering> children: {[c.tag for c in cpt_elem]}"
             )
             issues.append(
-                ValidationIssue(
-                    level=ValidationLevel.ERROR,
-                    code="NO_DATA",
-                    message=f"DOV XML '{name}': missing inner <sondering> element",
+                _issue(
+                    ValidationLevel.ERROR, "NO_DATA", f"DOV XML '{name}': missing <sondeonderzoek>"
                 )
             )
-            return pl.DataFrame({"depth_m": [], "qc_mpa": []}), issues
+            return empty, issues
 
-        data_elem = measurements_elem.find(f"{_T}data")
-        if data_elem is None:
+        penetration_elem = test_data_elem.find("penetratietest")
+        if penetration_elem is None:
             self.error(
-                f"DOV XML '{name}': <data> not found inside inner <sondering>. "
-                f"Inner <sondering> children: {[c.tag for c in measurements_elem]}"
+                f"DOV XML '{name}': <penetratietest> not found. "
+                f"<sondeonderzoek> children: {[c.tag for c in test_data_elem]}"
             )
             issues.append(
-                ValidationIssue(
-                    level=ValidationLevel.ERROR,
-                    code="NO_DATA",
-                    message=f"DOV XML '{name}': missing <data> element",
+                _issue(
+                    ValidationLevel.ERROR, "NO_DATA", f"DOV XML '{name}': missing <penetratietest>"
                 )
             )
-            return pl.DataFrame({"depth_m": [], "qc_mpa": []}), issues
+            return empty, issues
 
-        # laag = layer (one measurement depth step)
-        layer_elements = data_elem.findall(f"{_T}laag")
-        self.trace(f"DOV XML '{name}': found {len(layer_elements)} <laag> (layer) elements")
+        # meetdata = measurement record (one per depth step)
+        measurement_elements = penetration_elem.findall("meetdata")
+        self.trace(f"DOV XML '{name}': found {len(measurement_elements)} <meetdata> rows")
 
-        if layer_elements:
-            # Log field names from the first layer to verify the schema hasn't changed.
-            first_fields = [c.tag.replace(f"{_T}", "") for c in layer_elements[0]]
-            self.debug(f"DOV XML '{name}': first layer fields: {first_fields}")
+        if measurement_elements:
+            # Log fields in the first row to verify the schema hasn't changed.
+            first_fields = [c.tag for c in measurement_elements[0]]
+            self.debug(f"DOV XML '{name}': first row fields: {first_fields}")
 
-        rows: list[dict[str, float | None]] = []
-        skipped = 0
-        for layer in layer_elements:
-            depth = _float(layer, f"{_T}tot")  # tot = bottom of depth interval
-            qc = _float(layer, f"{_T}qc")
-            if depth is None or qc is None:
-                skipped += 1
-                continue
-            rows.append(
-                {
-                    "depth_m": depth,
-                    "qc_mpa": qc,
-                    "fs_mpa": _float(layer, f"{_T}fs"),
-                    "u2_mpa": _float(layer, f"{_T}u"),
-                    "rf_pct": _float(layer, f"{_T}friction_ratio"),
-                }
-            )
+        rows, skipped = self._extract_rows(measurement_elements, name)
 
         if skipped:
-            self.warning(f"DOV XML '{name}': skipped {skipped} layers with missing depth or qc")
+            self.warning(f"DOV XML '{name}': skipped {skipped} rows with missing depth or qc")
 
         if not rows:
-            self.error(f"DOV XML '{name}': zero valid measurement layers after parsing")
+            self.error(f"DOV XML '{name}': zero valid measurement rows after parsing")
             issues.append(
-                ValidationIssue(
-                    level=ValidationLevel.WARNING,
-                    code="EMPTY_DATA",
-                    message=f"DOV XML '{name}': no measurement rows found",
+                _issue(
+                    ValidationLevel.WARNING,
+                    "EMPTY_DATA",
+                    f"DOV XML '{name}': no measurement rows found",
                 )
             )
-            return pl.DataFrame({"depth_m": [], "qc_mpa": []}), issues
+            return empty, issues
 
         df = pl.DataFrame(rows)
 
-        # Drop optional columns that contain only nulls so _to_orm skips them.
-        for col in ("fs_mpa", "u2_mpa", "rf_pct"):
+        # Calculate Rf (%) from qc and fs since DOV doesn't store it directly.
+        if "fs_mpa" in df.columns:
+            df = df.with_columns(
+                pl.when(pl.col("qc_mpa") > 0)
+                .then((pl.col("fs_mpa") / pl.col("qc_mpa")) * 100.0)
+                .otherwise(None)
+                .alias("rf_pct")
+            )
+
+        # Drop columns that ended up entirely null so _to_orm skips them.
+        for col in ("fs_mpa", "u2_mpa", "rf_pct", "qt_mpa"):
             if col in df.columns and df[col].drop_nulls().len() == 0:
                 df = df.drop(col)
                 self.trace(f"DOV XML '{name}': dropped all-null column '{col}'")
 
         return df, issues
 
+    def _extract_rows(
+        self, measurement_elements: list[ET.Element], name: str
+    ) -> tuple[list[dict[str, float | None]], int]:
+        """Build measurement row dicts from <meetdata> elements.
+
+        Returns (rows, skipped_count). A row is skipped when depth or qc is missing.
+        Units: qc/Qt are MPa (no conversion); fs/u are kPa → divided by 1000.
+        Depth: prefer <diepte> (corrected vertical), fall back to <lengte> (penetration length).
+        """
+        rows: list[dict[str, float | None]] = []
+        skipped = 0
+        for measurement in measurement_elements:
+            # Prefer corrected vertical depth (<diepte>) over raw penetration length (<lengte>)
+            depth = _float(measurement, "diepte")
+            if depth is None:
+                depth = _float(measurement, "lengte")
+            qc_mpa = _float(measurement, "qc")
+
+            if depth is None or qc_mpa is None:
+                skipped += 1
+                continue
+
+            fs_kpa = _float(measurement, "fs")
+            u_kpa = _float(measurement, "u")
+            qt_mpa = _float(measurement, "Qt")  # capital Q, lowercase t
+
+            rows.append(
+                {
+                    "depth_m": depth,
+                    "qc_mpa": qc_mpa,
+                    # DOV stores fs and u in kPa as integers; convert to MPa to match GEF.
+                    "fs_mpa": (fs_kpa / 1000.0) if fs_kpa is not None else None,
+                    "u2_mpa": (u_kpa / 1000.0) if u_kpa is not None else None,
+                    "qt_mpa": qt_mpa,
+                }
+            )
+        return rows, skipped
+
     # ------------------------------------------------------------------
     # CPT type detection
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _detect_type(df: pl.DataFrame) -> CPTType:
+    def _detect_type(cone_type_code: int | None, df: pl.DataFrame) -> CPTType:
+        """Detect CPTU / CPTE / CPTM from cone type code and column availability.
+
+        Cone type code from <conustype> is the primary signal; falls back to column
+        presence when the cone type is unknown.
+        """
         has_u = "u2_mpa" in df.columns and df["u2_mpa"].drop_nulls().len() > 0
         has_fs = "fs_mpa" in df.columns and df["fs_mpa"].drop_nulls().len() > 0
+
+        # Cone type 1 = mechanical: always CPTM regardless of stray fs/u
+        if cone_type_code == 1:
+            return CPTType.CPTM
+
         if has_u:
             return CPTType.CPTU
         if has_fs:
             return CPTType.CPTE
         return CPTType.CPTM
+
+
+def _issue(level: ValidationLevel, code: str, message: str) -> ValidationIssue:
+    """Build a ValidationIssue with the given level/code/message."""
+    return ValidationIssue(level=level, code=code, message=message)
