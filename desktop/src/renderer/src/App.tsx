@@ -2,10 +2,12 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import { api, setBaseUrl } from './api/client'
 import type { CptListItem, CptResponse, CptPlotResponse } from './api/client'
+import { useProject } from './hooks/useProject'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
 import CptChart from './components/CptChart'
+import WelcomeScreen from './components/WelcomeScreen'
 
 declare global {
   interface Window {
@@ -29,6 +31,8 @@ interface Toast {
 }
 
 export default function App() {
+  const { project, createProject } = useProject()
+
   const [ready, setReady] = useState(false)
   const [cpts, setCpts] = useState<CptListItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -40,7 +44,7 @@ export default function App() {
   const toastId = useRef(0)
 
   // ---------------------------------------------------------------------------
-  // Boot
+  // Boot — wait for API regardless of project state
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -48,15 +52,17 @@ export default function App() {
       const base = await window.electron.getApiBaseUrl()
       setBaseUrl(base)
       const ok = await window.electron.waitForApi()
-      if (ok) {
-        setReady(true)
-        await refreshList()
-      }
+      if (ok) setReady(true)
     }
     boot()
   }, [])
 
-  // Wire menu → import action
+  // Load CPTs whenever the API is ready and a project is selected
+  useEffect(() => {
+    if (ready && project) refreshList()
+  }, [ready, project?.id])
+
+  // Wire Electron menu → import
   useEffect(() => {
     const off = window.electron.onMenuImportCpt(handleImportCpt)
     return off
@@ -67,10 +73,10 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   const refreshList = useCallback(async () => {
+    if (!project) return
     try {
-      const list = await api.cpt.list()
+      const list = await api.cpt.list(project.id)
       setCpts(list)
-      // Load detail (location) for any CPTs we don't have yet
       for (const c of list) {
         if (!detailMap.has(c.id)) {
           api.cpt.get(c.id).then(detail => {
@@ -78,10 +84,10 @@ export default function App() {
           })
         }
       }
-    } catch (e) {
+    } catch {
       toast('error', 'Failed to load CPT list')
     }
-  }, [detailMap])
+  }, [detailMap, project])
 
   const loadChart = useCallback(async (id: string) => {
     if (plotMap.has(id)) return
@@ -108,6 +114,7 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   const handleImportCpt = useCallback(async () => {
+    if (!project) return
     const filePath = await window.electron.openFile([
       { name: 'GEF Files', extensions: ['gef'] },
       { name: 'All Files', extensions: ['*'] }
@@ -116,7 +123,7 @@ export default function App() {
 
     setImporting(true)
     try {
-      const result = await api.cpt.import(filePath)
+      const result = await api.cpt.import(filePath, project.id)
       if (result.has_errors) {
         const codes = result.issues.filter(i => i.level === 'error').map(i => i.code).join(', ')
         toast('error', `Imported with errors: ${codes}`)
@@ -128,11 +135,31 @@ export default function App() {
       await loadChart(result.cpt_id)
       setView('chart')
     } catch (e) {
-      toast('error', `Import failed: ${e instanceof Error ? e.message : 'unknown error'}`)
+      toast('error', e instanceof Error ? e.message : 'Import failed')
     } finally {
       setImporting(false)
     }
-  }, [refreshList, loadChart])
+  }, [project, refreshList, loadChart])
+
+  // ---------------------------------------------------------------------------
+  // Delete
+  // ---------------------------------------------------------------------------
+
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      await api.cpt.delete(id)
+      setCpts(prev => prev.filter(c => c.id !== id))
+      setDetailMap(prev => { const m = new Map(prev); m.delete(id); return m })
+      setPlotMap(prev => { const m = new Map(prev); m.delete(id); return m })
+      if (selectedId === id) {
+        setSelectedId(null)
+        setView('map')
+      }
+      toast('success', 'CPT deleted')
+    } catch {
+      toast('error', 'Failed to delete CPT')
+    }
+  }, [selectedId])
 
   // ---------------------------------------------------------------------------
   // Toasts
@@ -157,6 +184,10 @@ export default function App() {
     )
   }
 
+  if (!project) {
+    return <WelcomeScreen onCreateProject={name => createProject(name)} />
+  }
+
   const selectedCpt = cpts.find(c => c.id === selectedId)
 
   return (
@@ -164,36 +195,25 @@ export default function App() {
       <Toolbar onImportCpt={handleImportCpt} importing={importing} />
 
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar cpts={cpts} selectedId={selectedId} onSelect={handleSelect} />
+        <Sidebar
+          cpts={cpts}
+          selectedId={selectedId}
+          onSelect={handleSelect}
+          onDelete={handleDelete}
+          projectName={project.name}
+        />
 
-        {/* Main content */}
         <main className="flex flex-col flex-1 overflow-hidden">
-          {/* View switcher — only shown when a CPT is selected */}
           {selectedId && (
             <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-200 bg-gray-50">
-              <ViewTab
-                icon={<MapIcon size={13} />}
-                label="Map"
-                active={view === 'map'}
-                onClick={() => setView('map')}
-              />
-              <ViewTab
-                icon={<BarChart2 size={13} />}
-                label="Chart"
-                active={view === 'chart'}
-                onClick={() => setView('chart')}
-              />
+              <ViewTab icon={<MapIcon size={13} />} label="Map" active={view === 'map'} onClick={() => setView('map')} />
+              <ViewTab icon={<BarChart2 size={13} />} label="Chart" active={view === 'chart'} onClick={() => setView('chart')} />
             </div>
           )}
 
           <div className="flex-1 overflow-hidden">
             {view === 'map' || !selectedId ? (
-              <MapView
-                cpts={cpts}
-                selectedId={selectedId}
-                detailMap={detailMap}
-                onSelect={handleSelect}
-              />
+              <MapView cpts={cpts} selectedId={selectedId} detailMap={detailMap} onSelect={handleSelect} />
             ) : (
               selectedCpt && plotMap.has(selectedId)
                 ? <CptChart
@@ -201,9 +221,7 @@ export default function App() {
                     name={selectedCpt.name}
                     detail={detailMap.get(selectedId)}
                   />
-                : <div className="flex items-center justify-center h-full text-sm text-gray-400">
-                    Loading chart…
-                  </div>
+                : <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading chart…</div>
             )}
           </div>
         </main>
@@ -219,9 +237,7 @@ export default function App() {
               t.type === 'success' ? 'bg-green-600' : 'bg-red-600'
             ].join(' ')}
           >
-            {t.type === 'success'
-              ? <CheckCircle size={14} />
-              : <AlertTriangle size={14} />}
+            {t.type === 'success' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
             {t.message}
           </div>
         ))}
