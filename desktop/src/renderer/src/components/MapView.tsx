@@ -1,50 +1,45 @@
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
-import L from 'leaflet'
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { CptListItem, CptResponse } from '../api/client'
+import type { CptListItem } from '../api/client'
 import { lambertToWgs84 } from '../hooks/useWgs84'
 import { useEffect } from 'react'
 import BboxDrawer from './BboxDrawer'
 
-// Leaflet's default icon path breaks with bundlers — point to CDN instead.
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
+// CircleMarkers are used instead of Leaflet's default pin icons because at high
+// CPT density (e.g. 200 DOV CPTs in a small bbox), pins overlap into an unreadable
+// stack. Circles stay compact, are colored by CPT type, and grow slightly when selected.
+const RADIUS = 4
+const RADIUS_SELECTED = 7
 
-const selectedIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
-  iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-})
+// Color per CPT type — kept consistent with the chart color scheme.
+const TYPE_COLORS: Record<string, string> = {
+  CPTU: '#7c3aed',  // violet (matches U2_CLR in CptChart)
+  CPTE: '#16a34a',  // green (matches FS_CLR)
+  CPTM: '#1d4ed8',  // blue (matches QT_CLR)
+  UNKNOWN: '#6b7280',
+}
 
 interface Props {
   cpts: CptListItem[]
   selectedId: string | null
-  detailMap: Map<string, CptResponse>
   onSelect: (id: string) => void
   drawMode?: boolean
   onBboxDrawn?: (west: number, south: number, east: number, north: number) => void
   onCancelDraw?: () => void
 }
 
-function FlyToSelected({ cpts, selectedId, detailMap }: Omit<Props, 'onSelect'>) {
+function FlyToSelected({ cpts, selectedId }: { cpts: CptListItem[]; selectedId: string | null }) {
   const map = useMap()
 
   useEffect(() => {
     if (!selectedId) return
-    const detail = detailMap.get(selectedId)
-    if (!detail) return
-    const [lat, lng] = lambertToWgs84(detail.location_x, detail.location_y)
+    const cpt = cpts.find(c => c.id === selectedId)
+    if (!cpt) return
+    const [lat, lng] = lambertToWgs84(cpt.location_x, cpt.location_y)
     if (isFinite(lat) && isFinite(lng)) {
       map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 0.8 })
     }
-  }, [selectedId, detailMap, map])
+  }, [selectedId, cpts, map])
 
   return null
 }
@@ -52,19 +47,15 @@ function FlyToSelected({ cpts, selectedId, detailMap }: Omit<Props, 'onSelect'>)
 export default function MapView({
   cpts,
   selectedId,
-  detailMap,
   onSelect,
   drawMode = false,
   onBboxDrawn,
   onCancelDraw,
 }: Props) {
-  // Belgium center as default
-  const defaultCenter: [number, number] = [50.85, 4.35]
+  const defaultCenter: [number, number] = [50.85, 4.35]  // Belgium
 
   const markers = cpts.flatMap(c => {
-    const detail = detailMap.get(c.id)
-    if (!detail) return []
-    const [lat, lng] = lambertToWgs84(detail.location_x, detail.location_y)
+    const [lat, lng] = lambertToWgs84(c.location_x, c.location_y)
     if (!isFinite(lat) || !isFinite(lng)) return []
     return [{ id: c.id, lat, lng, name: c.name, type: c.cpt_type, depth: c.max_depth_m }]
   })
@@ -81,7 +72,7 @@ export default function MapView({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
-      <FlyToSelected cpts={cpts} selectedId={selectedId} detailMap={detailMap} />
+      <FlyToSelected cpts={cpts} selectedId={selectedId} />
 
       <BboxDrawer
         active={drawMode}
@@ -89,19 +80,30 @@ export default function MapView({
         onCancel={onCancelDraw ?? (() => {})}
       />
 
-      {markers.map(m => (
-        <Marker
-          key={m.id}
-          position={[m.lat, m.lng]}
-          icon={m.id === selectedId ? selectedIcon : new L.Icon.Default()}
-          eventHandlers={{ click: () => onSelect(m.id) }}
-        >
-          <Popup>
-            <strong>{m.name}</strong><br />
-            {m.type} · {m.depth != null ? `${m.depth.toFixed(1)} m` : '—'}
-          </Popup>
-        </Marker>
-      ))}
+      {markers.map(m => {
+        const selected = m.id === selectedId
+        const color = TYPE_COLORS[m.type] ?? TYPE_COLORS.UNKNOWN
+        return (
+          <CircleMarker
+            key={m.id}
+            center={[m.lat, m.lng]}
+            radius={selected ? RADIUS_SELECTED : RADIUS}
+            pathOptions={{
+              color: selected ? '#1e3a8a' : '#1f2937',
+              weight: selected ? 2 : 1,
+              fillColor: color,
+              fillOpacity: 0.85,
+            }}
+            eventHandlers={{ click: () => onSelect(m.id) }}
+          >
+            <Popup>
+              <strong>{m.name}</strong>
+              <br />
+              {m.type} · {m.depth != null ? `${m.depth.toFixed(1)} m` : '—'}
+            </Popup>
+          </CircleMarker>
+        )
+      })}
     </MapContainer>
   )
 }
