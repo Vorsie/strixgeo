@@ -37,6 +37,15 @@ export interface ImportCptResponse {
   issues: { level: string; code: string; message: string; rows: number[] }[]
 }
 
+export class DuplicateCptError extends Error {
+  cptId: string
+  constructor(cptId: string) {
+    super('CPT already exists in this project')
+    this.name = 'DuplicateCptError'
+    this.cptId = cptId
+  }
+}
+
 let _base = 'http://127.0.0.1:8765'
 
 export function setBaseUrl(url: string): void {
@@ -76,7 +85,10 @@ export const api = {
       const res = await fetch(`${_base}/cpt/import`, { method: 'POST', body: form })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.detail ?? `Import failed: ${res.status}`)
+        if (res.status === 409 && body.detail?.cpt_id) {
+          throw new DuplicateCptError(body.detail.cpt_id)
+        }
+        throw new Error(body.detail?.message ?? body.detail ?? `Import failed: ${res.status}`)
       }
       return res.json()
     },
