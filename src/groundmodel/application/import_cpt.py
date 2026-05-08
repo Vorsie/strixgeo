@@ -208,6 +208,8 @@ class ImportCpt(GroundModelLogger):
                 u2_mpa=df["u2_mpa"].to_list() if "u2_mpa" in df.columns else None,
                 rf_pct=df["rf_pct"].to_list() if "rf_pct" in df.columns else None,
                 qt_mpa=df["qt_mpa"].to_list() if "qt_mpa" in df.columns else None,
+                rf_source=result.rf_source.value if result.rf_source else None,
+                qt_source=result.qt_source.value if result.qt_source else None,
             ),
         )
 
