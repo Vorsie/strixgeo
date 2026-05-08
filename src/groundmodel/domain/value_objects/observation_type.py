@@ -12,7 +12,8 @@ class ObservationType(StrEnum):
     * GEOTECHNICAL_CODING — geotechnical re-interpretation by an engineer.
     * LITHOLOGICAL_DESCRIPTION — free-text lithological description.
     * INFORMAL_STRATIGRAPHY — informal stratigraphic units.
-    * FORMAL_STRATIGRAPHY — formal stratigraphic units (e.g. "HyEg - Lid van Egem").
+    * FORMAL_STRATIGRAPHY — formal stratigraphic units (e.g. "HyEg - Lid van
+      Egem" = "Member of Egem", from the Formation of Hyon).
     * QUATERNARY_STRATIGRAPHY — Quaternary-specific stratigraphic interpretation.
     * HYDROGEOLOGICAL_STRATIGRAPHY — HCOV / hydrogeological units.
     * INFORMAL_HYDROGEOLOGICAL_STRATIGRAPHY — informal hydrogeological units.
