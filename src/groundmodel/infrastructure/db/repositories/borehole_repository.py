@@ -45,11 +45,16 @@ class BoreholeRepository(GroundModelLogger):
             self.success(f"Borehole saved: {borehole.id} — {borehole.name}")
 
     async def get_by_id(self, borehole_id: UUID) -> BoreholeOrm | None:
-        """Return a borehole with its drill segments and field log loaded, or ``None``.
+        """Return a borehole with all of its child collections loaded, or ``None``.
 
-        Uses ``selectinload`` rather than ``joinedload`` so each child collection
-        comes back as one extra round-trip per type — keeps the parent row
-        small and avoids a Cartesian explosion if a borehole has many of each.
+        Loads drill_segments, field_log_intervals, samples, and the
+        observation tree (observation → layers → admixtures). Uses
+        ``selectinload`` rather than ``joinedload`` so each collection comes
+        back as one extra round-trip per type — keeps the parent row small
+        and avoids a Cartesian explosion if a borehole has many of each. The
+        observation chain uses nested selectinload, which still issues only
+        three queries total for the whole tree (one per level), regardless of
+        how many observations or layers exist.
         """
         stmt = (
             select(BoreholeOrm)
@@ -57,6 +62,10 @@ class BoreholeRepository(GroundModelLogger):
             .options(
                 selectinload(BoreholeOrm.drill_segments),
                 selectinload(BoreholeOrm.field_log_intervals),
+                selectinload(BoreholeOrm.samples),
+                selectinload(BoreholeOrm.observations)
+                .selectinload(ObservationOrm.layers)
+                .selectinload(ObservationLayerOrm.admixtures),
             )
         )
         result = await self._session.execute(stmt)
