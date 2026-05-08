@@ -281,6 +281,12 @@ class DovBoringParser(GroundModelLogger):
             )
 
         start_date = _date(boring_elem, DOV_BORING_START_DATE_TAG)
+        # `doel` = drilling purpose. Free-text source-vocabulary string passed
+        # through unchanged. DOV examples: "Geotechnisch onderzoek" =
+        # geotechnical investigation, "Geologisch onderzoek" = geological,
+        # "Hydrogeologisch onderzoek" = hydrogeological. Translation to
+        # English happens at the API/UI boundary, never at ingest
+        # (CLAUDE.md "Data Integrity Rules" + reference_dov_codelists memory).
         purpose = _text(boring_elem, DOV_BORING_PURPOSE_TAG) or None
         borehole_type = _text(boring_elem, DOV_BORING_TYPE_TAG) or None
         executor = _text(boring_elem.find(DOV_BORING_EXECUTOR_PARENT_TAG), "naam") or None
@@ -308,76 +314,49 @@ class DovBoringParser(GroundModelLogger):
     ) -> tuple[float | None, float | None, float | None]:
         """Extract X, Y, Z from ``<ligging>/<gml:Point>/<gml:pos>``.
 
+        Five different ways to fail the coord parse — missing ``<ligging>``,
+        missing ``<gml:Point>``, empty ``<gml:pos>``, fewer than two
+        components, non-numeric components — all share the same outcome (log
+        WARNING + emit NO_COORDINATES ERROR issue + return ``(None, None, None)``)
+        so they're funneled through the ``_no_coords`` helper. Z is treated
+        differently: it is OPTIONAL (many boreholes ship X/Y only), so a
+        missing or non-numeric Z is logged at debug and silently dropped
+        rather than being a validation issue.
+
         DOV's gml:Point advertises EPSG:6190 (Belgian-specific code) but the
         numeric values match Lambert 72 (EPSG:31370). We treat them as 31370 —
         confirmed via the matching WFS Boringen row's X_mL72 / Y_mL72 columns.
         """
         location_elem = boring_elem.find(DOV_BORING_LOCATION_TAG)
         if location_elem is None:
-            self.warning(f"DOV boring '{name}': <{DOV_BORING_LOCATION_TAG}> missing")
-            issues.append(
-                _issue(
-                    ValidationLevel.ERROR,
-                    "NO_COORDINATES",
-                    f"DOV boring '{name}': missing <{DOV_BORING_LOCATION_TAG}> element",
-                )
-            )
-            return None, None, None
+            return self._no_coords(name, f"missing <{DOV_BORING_LOCATION_TAG}> element", issues)
 
         point_elem = location_elem.find(f"{DOV_GML_TAG_PREFIX}Point")
         if point_elem is None:
-            self.warning(
-                f"DOV boring '{name}': <gml:Point> missing inside <{DOV_BORING_LOCATION_TAG}>; "
-                f"children: {[c.tag for c in location_elem]}"
+            return self._no_coords(
+                name,
+                f"missing <gml:Point> inside <{DOV_BORING_LOCATION_TAG}> "
+                f"(children: {[c.tag for c in location_elem]})",
+                issues,
             )
-            issues.append(
-                _issue(
-                    ValidationLevel.ERROR,
-                    "NO_COORDINATES",
-                    f"DOV boring '{name}': missing <gml:Point>",
-                )
-            )
-            return None, None, None
 
         pos_elem = point_elem.find(f"{DOV_GML_TAG_PREFIX}pos")
         if pos_elem is None or not pos_elem.text:
-            self.warning(f"DOV boring '{name}': <gml:pos> empty or missing")
-            issues.append(
-                _issue(
-                    ValidationLevel.ERROR,
-                    "NO_COORDINATES",
-                    f"DOV boring '{name}': empty <gml:pos>",
-                )
-            )
-            return None, None, None
+            return self._no_coords(name, "empty <gml:pos>", issues)
 
         parts = pos_elem.text.strip().split()
         if len(parts) < 2:
-            self.warning(
-                f"DOV boring '{name}': <gml:pos> has fewer than 2 components: {pos_elem.text!r}"
+            return self._no_coords(
+                name,
+                f"<gml:pos> only {len(parts)} component(s): {pos_elem.text!r}",
+                issues,
             )
-            issues.append(
-                _issue(
-                    ValidationLevel.ERROR,
-                    "NO_COORDINATES",
-                    f"DOV boring '{name}': <gml:pos> only {len(parts)} component(s)",
-                )
-            )
-            return None, None, None
 
         try:
             x = float(parts[0])
             y = float(parts[1])
         except ValueError:
-            self.warning(f"DOV boring '{name}': non-numeric <gml:pos>: {pos_elem.text!r}")
-            issues.append(
-                _issue(
-                    ValidationLevel.ERROR,
-                    "NO_COORDINATES",
-                    f"DOV boring '{name}': non-numeric <gml:pos> {pos_elem.text!r}",
-                )
-            )
-            return None, None, None
+            return self._no_coords(name, f"non-numeric <gml:pos> {pos_elem.text!r}", issues)
 
         z: float | None = None
         if len(parts) >= 3:
@@ -397,6 +376,32 @@ class DovBoringParser(GroundModelLogger):
                 )
             )
         return x, y, z
+
+    def _no_coords(
+        self, name: str, detail: str, issues: list[ValidationIssue]
+    ) -> tuple[None, None, None]:
+        """Emit a NO_COORDINATES error issue and return all-None coords.
+
+        Helper for ``_parse_location`` — every coord-extraction failure mode
+        emits the same WARNING log + NO_COORDINATES ERROR issue + returns
+        ``(None, None, None)``, so collapsing the 4-line repeat into a named
+        helper kills the original copy-paste smell and lets each early-return
+        read as a single intent line at the call site.
+
+        Parameters
+        ----------
+        name : str
+            Borehole identifier used in log + issue messages.
+        detail : str
+            Failure-specific tail of the message (e.g. "missing <gml:pos>").
+        issues : list[ValidationIssue]
+            The active issue list — appended to in place so the caller's
+            collection picks up the new entry.
+        """
+        full_msg = f"DOV boring '{name}': {detail}"
+        self.warning(full_msg)
+        issues.append(_issue(ValidationLevel.ERROR, "NO_COORDINATES", full_msg))
+        return None, None, None
 
     # ------------------------------------------------------------------
     # Drill segments
