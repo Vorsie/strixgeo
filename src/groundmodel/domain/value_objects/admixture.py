@@ -8,7 +8,10 @@ class Admixture:
     """Secondary soil component within a lithological layer.
 
     A layer's main soil type (e.g. "fine sand") may contain admixtures of other
-    soil types (e.g. "weak clay", "some shells"). DOV represents these in the
+    soil types (e.g. "weak clay", "some shells"). The MAIN soil type lives on
+    the parent layer at ``ObservationLayer.main_soil_codes`` (a list, since DOV
+    allows multiple equally-dominant main soils per layer); ``Admixture`` only
+    carries the SECONDARY components. DOV represents these in the
     ``<bijmenging>`` element of an interpretation XML.
 
     Parameters
