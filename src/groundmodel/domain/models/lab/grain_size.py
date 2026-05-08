@@ -59,19 +59,22 @@ class GrainSize(LabTest):
 
     Notes
     -----
-    Measured contents and other index properties are SEPARATE lab tests, not
-    fields on ``GrainSize``. They will land as their own ``LabTest`` subclasses
-    in later phases when their data sources come online:
+    Measured contents and other index properties are SEPARATE ``LabTest``
+    subclasses on the parent ``Sample``, NOT fields on ``GrainSize``. The ones
+    already modelled:
 
-    * Lime / CaCO3 content (% by mass) — calcimetry / loss-on-acid
-    * Organic content (% by mass) — loss on ignition
-    * Atterberg limits — liquid limit, plastic limit, plasticity index
-    * Water content, bulk density, specific gravity
-    * Strength tests — triaxial, direct shear, UCS
+    * :class:`groundmodel.domain.models.lab.caco3_content.CaCO3Content` — lime / CaCO3 content
+    * :class:`groundmodel.domain.models.lab.organic_content.OrganicContent` — organic carbon and matter
+    * :class:`groundmodel.domain.models.lab.atterberg_limits.AtterbergLimits` — LL, PL, derived PI
+    * :class:`groundmodel.domain.models.lab.water_content.WaterContent` — moisture content
 
-    DOV exposes them through the same ``monster:observaties`` WFS layer with
-    different ``parametergroep`` filters, so the ingest plumbing is shared with
-    grain size.
+    Future additions (not yet modelled): bulk density, specific gravity,
+    triaxial, direct shear, UCS, oedometer / consolidation, permeability,
+    mineralogy.
+
+    DOV exposes all of them through the same ``monster:observaties`` WFS layer
+    with different ``parametergroep`` filters, so the ingest plumbing is
+    shared with grain size.
 
     Raises
     ------
