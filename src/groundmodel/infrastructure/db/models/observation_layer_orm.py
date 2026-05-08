@@ -15,22 +15,46 @@ from groundmodel.infrastructure.db.base import Base
 class ObservationLayerOrm(Base):
     """Persisted ObservationLayer — one depth interval inside an Observation.
 
-    Same row shape fits both lithology streams (color + main_soil_codes +
-    admixtures) and stratigraphy streams (description). Lithology layers
-    typically leave ``description`` empty; stratigraphy layers typically leave
-    the lithology fields empty. Both shapes co-exist on the same borehole
-    when its source ships multiple interpretation streams.
+    Single-table layout for two physically-different sub-shapes (intentional)
+    -----------------------------------------------------------------------
+    The same row holds two layer sub-shapes, discriminated by the parent
+    Observation's ``observation_type``:
 
-    ``main_soil_codes`` is a Postgres ARRAY because DOV's ``<hoofdnaam>`` can
-    repeat — a single layer with two equally-dominant main soils (e.g.
-    ``["XZ", "KL"]``). Order is preserved.
+    * **Lithology** layers (``coded_lithology``, ``geotechnical_coding``,
+      ``lithological_description``) populate ``color`` + ``main_soil_codes`` +
+      ``admixtures`` and typically leave ``description`` NULL.
+    * **Stratigraphy** layers (``formal_stratigraphy``, ``informal_stratigraphy``,
+      ``quaternary_stratigraphy``, ``hydrogeological_stratigraphy``,
+      ``informal_hydrogeological_stratigraphy``) populate ``description`` and
+      typically leave the lithology fields empty.
 
-    ``layer_index`` is the zero-based source order. Loaded via the parent
-    Observation's ``order_by="ObservationLayerOrm.layer_index"``, so consumers
-    receive layers depth-ordered.
+    Within one observation, all layers are the same sub-shape; across
+    different observations on the same borehole, sub-shapes co-exist. We
+    deliberately keep both in one table rather than splitting into
+    ``lithology_layer`` + ``stratigraphy_layer`` because: the unified domain
+    ``ObservationLayer`` already mirrors this shape; a single relationship
+    from Observation is simpler than two; "all layers in this observation"
+    queries don't need a UNION; and DOV could add a ninth observation type
+    tomorrow with yet another sub-shape, which a wide-and-flexible row
+    absorbs more cleanly than a per-type table sprawl.
 
-    ``admixtures`` is a relationship to a separate table rather than JSONB
-    because we want to query by admixture (e.g. "find layers with glauconite").
+    Trade-off acknowledged: lithology rows carry a NULL ``description``
+    column and stratigraphy rows carry an empty ``main_soil_codes`` array
+    and zero admixtures. If query patterns later demand strict per-type
+    schemas (e.g. severe NULL-column slowness, accidental cross-type field
+    reads), splitting is a bounded refactor — both halves still hang off the
+    same ``observation`` parent.
+
+    Other layout decisions:
+
+    * ``main_soil_codes`` is a Postgres ARRAY because DOV's ``<hoofdnaam>``
+      can repeat for equally-dominant main soils (e.g. ``["XZ", "KL"]``);
+      order is preserved.
+    * ``layer_index`` is the zero-based source order; the parent's
+      ``order_by="ObservationLayerOrm.layer_index"`` makes consumers receive
+      layers depth-ordered.
+    * ``admixtures`` is a relationship to a separate table rather than JSONB
+      so the ``soil_code`` index can answer "find all layers with glauconite".
     """
 
     __tablename__ = "observation_layer"
