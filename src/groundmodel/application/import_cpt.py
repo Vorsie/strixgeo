@@ -207,7 +207,10 @@ class ImportCpt(GroundModelLogger):
                 fs_mpa=df["fs_mpa"].to_list() if "fs_mpa" in df.columns else None,
                 u2_mpa=df["u2_mpa"].to_list() if "u2_mpa" in df.columns else None,
                 rf_pct=df["rf_pct"].to_list() if "rf_pct" in df.columns else None,
-                qt_mpa=df["qt_mpa"].to_list() if "qt_mpa" in df.columns else None,
+                # qt_mpa (CPTU corrected qc) is intentionally NOT persisted;
+                # see cpt_series_orm.py and Data Integrity Rules §1. Source
+                # qty 15 / DOV <Qt> for CPTU lands in the parser DataFrame
+                # but is dropped here.
                 q_total_mpa=(df["q_total_mpa"].to_list() if "q_total_mpa" in df.columns else None),
                 rf_source=result.rf_source.value if result.rf_source else None,
             ),
