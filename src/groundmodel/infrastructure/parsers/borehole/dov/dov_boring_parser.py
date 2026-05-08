@@ -314,14 +314,31 @@ class DovBoringParser(GroundModelLogger):
     ) -> tuple[float | None, float | None, float | None]:
         """Extract X, Y, Z from ``<ligging>/<gml:Point>/<gml:pos>``.
 
-        Five different ways to fail the coord parse — missing ``<ligging>``,
+        Five different ways to fail the X/Y parse — missing ``<ligging>``,
         missing ``<gml:Point>``, empty ``<gml:pos>``, fewer than two
         components, non-numeric components — all share the same outcome (log
         WARNING + emit NO_COORDINATES ERROR issue + return ``(None, None, None)``)
-        so they're funneled through the ``_no_coords`` helper. Z is treated
-        differently: it is OPTIONAL (many boreholes ship X/Y only), so a
-        missing or non-numeric Z is logged at debug and silently dropped
-        rather than being a validation issue.
+        so they're funneled through the ``_no_coords`` helper.
+
+        Z (surface elevation) handling
+        ------------------------------
+        Z is **not optional** for a unified ground model. Borehole depths are
+        measured from the ground surface, so two boreholes' "5 m" layers can
+        only be related to each other in absolute elevation if both have a
+        surface Z. Without it, cross-borehole layer correlation, profile
+        sections, and the eventual auto-soil-profiling pass cannot operate on
+        the row.
+
+        We still allow Z to be ``None`` at the entity layer because legacy
+        and partial sources do omit it — but we emit a WARNING ``NO_ELEVATION``
+        validation issue so the gap is visible in the import report. The
+        orchestrator (Phase C) gets one chance to fill Z from a fallback
+        source (Boringen WFS row's ``Z_mTAW`` column, project default,
+        manual entry) before deciding whether to persist the row.
+
+        Two failure modes for Z, both flagged the same way:
+        * ``<gml:pos>`` has only two components — Z absent.
+        * ``<gml:pos>`` has three components but the third isn't numeric.
 
         DOV's gml:Point advertises EPSG:6190 (Belgian-specific code) but the
         numeric values match Lambert 72 (EPSG:31370). We treat them as 31370 —
@@ -359,13 +376,33 @@ class DovBoringParser(GroundModelLogger):
             return self._no_coords(name, f"non-numeric <gml:pos> {pos_elem.text!r}", issues)
 
         z: float | None = None
-        if len(parts) >= 3:
+        if len(parts) < 3:
+            # X/Y only — surface elevation absent. Cross-borehole layer
+            # correlation needs Z, so flag it for the import report. The
+            # orchestrator (Phase C) can fill from the WFS Z_mTAW column.
+            self.warning(f"DOV boring '{name}': <gml:pos> has no Z component")
+            issues.append(
+                _issue(
+                    ValidationLevel.WARNING,
+                    "NO_ELEVATION",
+                    f"DOV boring '{name}': <gml:pos> has no Z component "
+                    f"({len(parts)} component(s))",
+                )
+            )
+        else:
             try:
                 z = float(parts[2])
             except ValueError:
-                # Z missing or non-numeric is OK: many boreholes ship X/Y only.
-                # Logged at debug for diagnosis but not emitted as a validation issue.
-                self.debug(f"DOV boring '{name}': <gml:pos> Z component non-numeric: {parts[2]!r}")
+                self.warning(
+                    f"DOV boring '{name}': <gml:pos> Z component non-numeric: {parts[2]!r}"
+                )
+                issues.append(
+                    _issue(
+                        ValidationLevel.WARNING,
+                        "NO_ELEVATION",
+                        f"DOV boring '{name}': <gml:pos> Z component non-numeric: {parts[2]!r}",
+                    )
+                )
 
         if x == 0.0 and y == 0.0:
             issues.append(
