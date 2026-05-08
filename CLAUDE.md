@@ -104,7 +104,8 @@ Strix/
 │   │   │   ├── borehole/      borehole.py, sample.py, borehole_test.py,
 │   │   │   │                  observation.py, observation_layer.py,
 │   │   │   │                  drill_segment.py, field_log_interval.py
-│   │   │   ├── lab/           lab_test.py, grain_size.py
+│   │   │   ├── lab/           lab_test.py, grain_size.py, atterberg_limits.py,
+│   │   │   │                  caco3_content.py, organic_content.py, water_content.py
 │   │   │   ├── monitoring/    piezometer.py, inclinometer.py
 │   │   │   └── job.py         Job + JobStatus
 │   │   ├── services/          cpt_interpretation.py, ec7/
