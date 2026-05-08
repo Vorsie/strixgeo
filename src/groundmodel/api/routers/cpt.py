@@ -296,6 +296,15 @@ async def get_cpt_plot(
         else None
     )
 
+    # qt (CPTU corrected cone resistance) is recomputed on every read from the
+    # persisted qc, u2, and cone_area_ratio. Returns None when any input is
+    # missing — never invents a value (see Data Integrity Rules §1).
+    qt_mpa = calculate_qt_series(
+        qc_mpa=s.qc_mpa,
+        u2_mpa=s.u2_mpa,
+        cone_area_ratio=cpt.cone_area_ratio,
+    )
+
     return CptPlotResponse(
         cpt_id=cpt.id,
         depths_m=s.depths_m,
@@ -303,7 +312,7 @@ async def get_cpt_plot(
         fs_mpa=s.fs_mpa,
         u2_mpa=s.u2_mpa,
         rf_pct=s.rf_pct,
-        qt_mpa=s.qt_mpa,
+        qt_mpa=qt_mpa,
         q_total_mpa=s.q_total_mpa,
         ic=ic,
         rf_source=s.rf_source,
