@@ -117,7 +117,9 @@ Strix/
 │   ├── infrastructure/
 │   │   ├── db/                models/         cpt_orm.py, cpt_series_orm.py,
 │   │   │                                      borehole_orm.py, drill_segment_orm.py,
-│   │   │                                      field_log_interval_orm.py
+│   │   │                                      field_log_interval_orm.py,
+│   │   │                                      observation_orm.py, observation_layer_orm.py,
+│   │   │                                      admixture_orm.py, sample_orm.py
 │   │   │                      repositories/   cpt_repository.py, borehole_repository.py
 │   │   │                      migrations/
 │   │   ├── parsers/
