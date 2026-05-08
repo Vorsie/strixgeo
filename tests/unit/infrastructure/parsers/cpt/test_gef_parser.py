@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parser import GEFParser
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
@@ -243,6 +244,11 @@ class TestRfCalculation:
         result = parser.parse(_gef())
         assert result.data["rf_pct"][0] == pytest.approx(5.0)
 
+    def test_rf_source_is_computed_when_derived(self, parser: GEFParser) -> None:
+        # Base GEF has qc + fs but no qty 4, so the parser computes Rf.
+        result = parser.parse(_gef())
+        assert result.rf_source is DerivedValueSource.COMPUTED
+
     def test_rf_null_when_qc_is_zero(self, parser: GEFParser) -> None:
         data = "0.20; 0.0; 0.05\n0.40; 1.5; 0.06\n0.60; 2.0; 0.07\n"
         result = parser.parse(_gef(data=data))
@@ -263,6 +269,43 @@ class TestRfCalculation:
         data = "0.20; 1.0; 0.05; 9.9\n0.40; 1.5; 0.06; 9.9\n0.60; 2.0; 0.07; 9.9\n"
         result = parser.parse(_gef(header=header, data=data))
         assert result.data["rf_pct"][0] == pytest.approx(9.9)
+        # Source-provided Rf must be tagged MEASURED, not COMPUTED.
+        assert result.rf_source is DerivedValueSource.MEASURED
+
+    def test_rf_source_none_when_only_qc(self, parser: GEFParser) -> None:
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 2\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+        )
+        result = parser.parse(_gef(header=header, data="0.20; 1.0\n0.40; 1.5\n"))
+        assert "rf_pct" not in result.data.columns
+        assert result.rf_source is None
+
+    def test_qt_source_measured_when_in_source(self, parser: GEFParser) -> None:
+        # qty 15 = qt_mpa (CPTU corrected cone resistance)
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#COLUMN= 4\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+            "#COLUMNINFO= 3, MPa, sleeve friction, 3\n"
+            "#COLUMNINFO= 4, MPa, qt corrected, 15\n"
+        )
+        data = "0.20; 1.0; 0.05; 1.02\n0.40; 1.5; 0.06; 1.55\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert result.qt_source is DerivedValueSource.MEASURED
+
+    def test_qt_source_none_when_absent(self, parser: GEFParser) -> None:
+        # Base GEF has only qc + fs, no qt.
+        result = parser.parse(_gef())
+        assert "qt_mpa" not in result.data.columns
+        assert result.qt_source is None
 
 
 # ---------------------------------------------------------------------------
