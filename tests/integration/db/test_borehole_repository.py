@@ -5,10 +5,11 @@ data files are needed — these tests use synthetic ORM rows.
 
 Tests verify the full migration + ORM + repository stack end-to-end:
 * Round-trip save → get_by_id with selectinload of children.
-* Cascade insert: attaching ``drill_segments`` / ``field_log_intervals`` to a
-  Borehole and saving once persists them all.
-* Cascade delete: deleting the borehole removes its children automatically
-  via the FK ``ondelete="CASCADE"``.
+* Cascade insert: attaching ``drill_segments`` / ``field_log_intervals`` /
+  observations / samples / lab tests to a Borehole and saving once persists
+  them all.
+* Cascade delete: deleting the borehole removes its full child tree
+  automatically via the chained FK ``ondelete="CASCADE"``.
 * Batch dedup: ``find_existing_test_ids`` returns one map for many ids in a
   single round-trip.
 * App project scoping: the same (project_id, test_id) lives independently in
@@ -22,11 +23,22 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
+from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
 from groundmodel.infrastructure.db.models.field_log_interval_orm import (
     FieldLogIntervalOrm,
 )
+from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
+from groundmodel.infrastructure.db.models.observation_layer_orm import (
+    ObservationLayerOrm,
+)
+from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.infrastructure.db.models.water_content_orm import WaterContentOrm
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
 )
@@ -444,3 +456,143 @@ async def test_delete_cascades_to_samples(db_session: AsyncSession) -> None:
 
     rows = (await db_session.execute(select(SampleOrm).where(SampleOrm.id == sample_id))).all()
     assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Lab tests — cascade insert from sample, load on get_by_id, cascade delete
+# ---------------------------------------------------------------------------
+
+
+async def test_save_persists_full_lab_test_battery(db_session: AsyncSession) -> None:
+    """All five lab tests cascade-insert via Sample and load back via get_by_id."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="lab-battery")
+    sample = SampleOrm(
+        id=uuid7(),
+        depth_top_m=2.0,
+        depth_base_m=3.0,
+        sample_number="1",
+    )
+    sample.grain_sizes = [
+        GrainSizeOrm(
+            id=uuid7(),
+            diameters_mm=[0.063, 0.125, 0.25, 0.5, 1.0, 2.0],
+            pct_larger=[95.0, 87.0, 45.0, 8.0, 3.0, 1.0],
+            method="Zeving",
+            lime_removed=False,
+            organics_removed=False,
+        )
+    ]
+    sample.atterberg_limits_tests = [
+        AtterbergLimitsOrm(
+            id=uuid7(),
+            liquid_limit_pct=45.0,
+            plastic_limit_pct=22.0,
+            non_plastic=False,
+            method="Casagrande",
+        )
+    ]
+    sample.caco3_content_tests = [
+        CaCO3ContentOrm(id=uuid7(), content_pct=15.0, method="Calcimetrie")
+    ]
+    sample.organic_content_tests = [OrganicContentOrm(id=uuid7(), carbon_pct=2.5, matter_pct=4.3)]
+    sample.water_content_tests = [
+        # Peat-range value (>100%) accepted at the DB layer; domain entity
+        # validates the upper bound separately.
+        WaterContentOrm(id=uuid7(), content_pct=180.0, method="Oven drying")
+    ]
+    bh.samples = [sample]
+
+    await repo.save(bh)
+    await db_session.commit()
+
+    got = await repo.get_by_id(bh.id)
+    assert got is not None
+    assert len(got.samples) == 1
+    s = got.samples[0]
+    assert len(s.grain_sizes) == 1
+    assert s.grain_sizes[0].diameters_mm == [0.063, 0.125, 0.25, 0.5, 1.0, 2.0]
+    assert s.grain_sizes[0].pct_larger == [95.0, 87.0, 45.0, 8.0, 3.0, 1.0]
+    assert s.grain_sizes[0].method == "Zeving"
+    assert len(s.atterberg_limits_tests) == 1
+    assert s.atterberg_limits_tests[0].liquid_limit_pct == 45.0
+    assert s.atterberg_limits_tests[0].plastic_limit_pct == 22.0
+    assert s.atterberg_limits_tests[0].non_plastic is False
+    assert len(s.caco3_content_tests) == 1
+    assert s.caco3_content_tests[0].content_pct == 15.0
+    assert len(s.organic_content_tests) == 1
+    assert s.organic_content_tests[0].carbon_pct == 2.5
+    assert s.organic_content_tests[0].matter_pct == 4.3
+    assert len(s.water_content_tests) == 1
+    assert s.water_content_tests[0].content_pct == 180.0
+
+
+async def test_organic_content_independent_oc_om(db_session: AsyncSession) -> None:
+    """Setting one of OC / OM does NOT auto-populate the other."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="oc-om")
+    sample = SampleOrm(id=uuid7(), depth_top_m=1.0, depth_base_m=2.0)
+    sample.organic_content_tests = [
+        # Lab reported only OC.
+        OrganicContentOrm(id=uuid7(), carbon_pct=3.0, matter_pct=None),
+        # Different lab reported only OM.
+        OrganicContentOrm(id=uuid7(), carbon_pct=None, matter_pct=5.0),
+    ]
+    bh.samples = [sample]
+    await repo.save(bh)
+    await db_session.commit()
+
+    got = await repo.get_by_id(bh.id)
+    assert got is not None
+    tests = got.samples[0].organic_content_tests
+    assert len(tests) == 2
+    by_carbon = {t.carbon_pct for t in tests}
+    by_matter = {t.matter_pct for t in tests}
+    assert by_carbon == {3.0, None}
+    assert by_matter == {5.0, None}
+
+
+async def test_delete_cascades_through_sample_to_lab_tests(
+    db_session: AsyncSession,
+) -> None:
+    """Deleting a borehole removes lab tests via borehole → sample → lab cascade."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="cascade-lab")
+    sample = SampleOrm(id=uuid7(), depth_top_m=1.0, depth_base_m=2.0)
+    grain_size_id = uuid7()
+    atterberg_id = uuid7()
+    caco3_id = uuid7()
+    organic_id = uuid7()
+    water_id = uuid7()
+    sample.grain_sizes = [
+        GrainSizeOrm(
+            id=grain_size_id,
+            diameters_mm=[0.063],
+            pct_larger=[95.0],
+            method="Zeving",
+        )
+    ]
+    sample.atterberg_limits_tests = [AtterbergLimitsOrm(id=atterberg_id, liquid_limit_pct=40.0)]
+    sample.caco3_content_tests = [CaCO3ContentOrm(id=caco3_id, content_pct=10.0)]
+    sample.organic_content_tests = [OrganicContentOrm(id=organic_id, carbon_pct=2.0)]
+    sample.water_content_tests = [WaterContentOrm(id=water_id, content_pct=30.0)]
+    bh.samples = [sample]
+    await repo.save(bh)
+    await db_session.commit()
+    bh_id = bh.id
+
+    await repo.delete(bh_id)
+    await db_session.commit()
+
+    from sqlalchemy import select
+
+    # Each lab table should have zero rows for the deleted ids.
+    for cls, row_id in (
+        (GrainSizeOrm, grain_size_id),
+        (AtterbergLimitsOrm, atterberg_id),
+        (CaCO3ContentOrm, caco3_id),
+        (OrganicContentOrm, organic_id),
+        (WaterContentOrm, water_id),
+    ):
+        rows = (await db_session.execute(select(cls).where(cls.id == row_id))).all()
+        assert rows == [], f"{cls.__name__} row {row_id} should be cascaded out"
