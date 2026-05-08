@@ -77,6 +77,15 @@ class BoreholeOrm(Base):
     n_drill_segments: Mapped[int | None] = mapped_column(Integer, nullable=True)
     n_field_log_intervals: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # ``created_at`` and ``updated_at`` are timestamps — they record WHEN the
+    # row was inserted or last changed, NOT what changed. We deliberately do
+    # not maintain a version history at this layer. A real audit trail would
+    # need a separate ``borehole_history`` table populated by trigger or by
+    # the application on every UPDATE (capturing the prior column values), or
+    # a temporal-column pattern (``valid_from`` / ``valid_to`` + soft updates).
+    # Either is a substantial design decision and CPT doesn't have one either —
+    # add when there's a concrete driver (regulatory audit, dispute resolution,
+    # multi-user undo) rather than speculatively.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
