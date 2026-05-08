@@ -180,14 +180,38 @@ class TestCoordinates:
         assert result.borehole.location_y == pytest.approx(188493.50)
         assert result.borehole.elevation_m == pytest.approx(7.84)
 
-    def test_xy_only_z_missing(self) -> None:
-        # gml:pos can be 2D when Z isn't recorded.
+    def test_xy_only_z_missing_emits_no_elevation_warning(self) -> None:
+        # gml:pos can be 2D when Z isn't recorded. XY parse fine, but Z
+        # (surface elevation) is essential for cross-borehole layer
+        # correlation, so its absence must be flagged at WARNING level —
+        # the orchestrator can still fill Z from the WFS Boringen row's
+        # Z_mTAW field, but the gap must be visible in the import report.
         result = DovBoringParser().parse(_xml(pos="200000.0 200000.0"))
         assert result.borehole.location_x == pytest.approx(200000.0)
         assert result.borehole.location_y == pytest.approx(200000.0)
         assert result.borehole.elevation_m is None
-        # No ERROR — XY were valid; Z absence is silent.
+        # Not an ERROR — XY were valid, the row is recoverable. But a
+        # NO_ELEVATION WARNING must be present.
         assert result.has_errors is False
+        no_elev = [i for i in result.issues if i.code == "NO_ELEVATION"]
+        assert len(no_elev) == 1
+        assert no_elev[0].level == ValidationLevel.WARNING
+
+    def test_non_numeric_z_emits_no_elevation_warning(self) -> None:
+        # gml:pos has three components but the third isn't a float — Z is
+        # effectively absent. Same NO_ELEVATION WARNING as the missing-Z case.
+        result = DovBoringParser().parse(_xml(pos="200000.0 200000.0 NaN-marker"))
+        assert result.borehole.elevation_m is None
+        assert result.has_errors is False
+        no_elev = [i for i in result.issues if i.code == "NO_ELEVATION"]
+        assert len(no_elev) == 1
+        assert no_elev[0].level == ValidationLevel.WARNING
+
+    def test_full_xyz_emits_no_elevation_warning_only_when_z_missing(self) -> None:
+        # Sanity: the default fixture has X Y Z — no NO_ELEVATION expected.
+        result = DovBoringParser().parse(_xml())  # default pos has Z
+        assert result.borehole.elevation_m == pytest.approx(5.0)
+        assert all(i.code != "NO_ELEVATION" for i in result.issues)
 
     def test_no_ligging_emits_no_coordinates_error(self) -> None:
         result = DovBoringParser().parse(_xml(omit_ligging=True))
