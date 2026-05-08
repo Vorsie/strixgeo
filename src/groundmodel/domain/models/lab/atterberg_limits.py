@@ -71,7 +71,21 @@ class AtterbergLimits(LabTest):
 
     @property
     def plasticity_index_pct(self) -> float | None:
-        """Plasticity index PI = LL - PL.
+        """Plasticity index PI = LL - PL — derived on read, not persisted.
+
+        Implemented as a Python ``@property`` rather than a dataclass field, so
+        it is recomputed every time it is accessed and never stored. Concretely:
+
+        * Not present in ``__init__`` (callers cannot set it).
+        * Not listed in ``dataclasses.fields(AtterbergLimits)``.
+        * Skipped by ``dataclasses.asdict()`` and similar serializers.
+        * The Layer 2 ORM maps only ``liquid_limit_pct``, ``plastic_limit_pct``,
+          and ``non_plastic`` as columns — the DB stores measured values only.
+
+        Keeping derived values out of storage avoids the classic data-integrity
+        trap where a row's stored PI drifts away from its stored LL/PL after an
+        edit. Consumers that need PI in an API response or export simply call
+        this property at serialization time.
 
         Returns
         -------
