@@ -29,6 +29,14 @@ class CptPlotResponse(BaseModel):
         Pore pressure at the shoulder in MPa; None for CPTE and CPTM.
     rf_pct:
         Friction ratio (fs/qc × 100) in percent; None when fs is absent.
+    rf_source:
+        Provenance of ``rf_pct``: ``"measured"`` if the source file provided
+        Rf directly, ``"computed"`` if our parser derived it from qc and fs.
+        ``None`` when ``rf_pct`` is absent or the row predates this flag.
+    qt_source:
+        Provenance of ``qt_mpa``: ``"measured"`` (source-provided) /
+        ``"computed"`` / ``None``. Useful for frontends that want to badge
+        derived series differently from instrument readings.
     """
 
     cpt_id: UUID
@@ -40,3 +48,5 @@ class CptPlotResponse(BaseModel):
     rf_pct: list[float | None] | None
     qt_mpa: list[float | None] | None
     ic: list[float | None] | None
+    rf_source: str | None = None
+    qt_source: str | None = None
