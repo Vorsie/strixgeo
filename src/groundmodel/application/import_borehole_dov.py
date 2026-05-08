@@ -28,11 +28,13 @@ from groundmodel.infrastructure.db.repositories.borehole_repository import (
 from groundmodel.infrastructure.parsers.borehole.dov.borehole_parse_result import (
     BoreholeParseResult,
 )
+from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import (
+    BoreholeWfsRow,
+)
 from groundmodel.infrastructure.parsers.borehole.dov.dov_boring_parser import (
     DovBoringParser,
 )
 from groundmodel.infrastructure.parsers.borehole.dov.dov_client import (
-    BoreholeWfsRow,
     DovBoreholeClient,
 )
 from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
@@ -40,14 +42,9 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_VERTICAL_EPSG,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import DOV_PROJECT_ID
 from groundmodel.shared.config import settings
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-# DOV uses ``project_id="DOV"`` as the source-system tag for every borehole
-# coming through the WFS pipeline. Matches the CPT side so the dedup
-# pattern (``find_existing_test_ids("DOV", test_ids, app_project_id)``) is
-# uniform across record types.
-DOV_PROJECT_ID = "DOV"
 
 
 def _ms(start: float) -> int:
@@ -316,6 +313,16 @@ class ImportBoreholeDov(GroundModelLogger):
                 borehole.location_x = wfs_row.x
                 borehole.location_y = wfs_row.y
                 borehole.epsg = DOV_HORIZONTAL_EPSG
+            else:
+                # Both XML and WFS are missing x/y. The borehole is unmappable
+                # and not safe to persist — raising here pushes the row into
+                # the per-row failed-counter path in execute() so the rest of
+                # the batch still imports.
+                raise ValueError(
+                    f"borehole '{borehole.name}' has no usable coordinates "
+                    f"(boring XML emitted NO_COORDINATES and WFS row's "
+                    f"X_mL72/Y_mL72 are also null)"
+                )
 
         # Z (surface elevation) fallback — the user-flagged NO_ELEVATION
         # case. WFS Z_mTAW fills the gap when the boring XML omits Z.
