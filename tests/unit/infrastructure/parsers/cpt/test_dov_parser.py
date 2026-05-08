@@ -11,6 +11,7 @@ Units in DOV XML:
 
 import pytest
 
+from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.shared.exceptions import ParseError
@@ -214,13 +215,34 @@ def test_rf_calculated_from_qc_and_fs():
     assert result.data["rf_pct"].to_list() == pytest.approx([1.0])
 
 
+def test_rf_source_is_computed_for_dov():
+    # DOV XML never carries Rf — DovParser always computes it from qc+fs,
+    # so any row with rf_pct present must be flagged COMPUTED.
+    rows = _row("1.0", qc="2.0", fs="20")
+    result = DovParser().parse(_xml(rows=rows))
+    assert result.rf_source is DerivedValueSource.COMPUTED
+
+
+def test_qt_source_is_measured_for_dov():
+    # DOV ships <Qt> directly in <meetdata>, so qt is a measured value.
+    rows = _row("1.0", qc="2.0", fs="20", qt="2.05")
+    result = DovParser().parse(_xml(rows=rows))
+    assert "qt_mpa" in result.data.columns
+    assert result.qt_source is DerivedValueSource.MEASURED
+
+
 def test_optional_columns_dropped_when_all_null():
     xml = _xml(conustype="M1", rows=_row("0.20", qc="5.66", qt="9.36"))
-    df = DovParser().parse(xml).data
+    result = DovParser().parse(xml)
+    df = result.data
     assert "fs_mpa" not in df.columns
     assert "u2_mpa" not in df.columns
     assert "rf_pct" not in df.columns
     assert "qt_mpa" in df.columns
+    # rf_pct dropped → flag must be cleared so (column present ⇔ flag set).
+    assert result.rf_source is None
+    # qt_mpa still present → flag remains MEASURED.
+    assert result.qt_source is DerivedValueSource.MEASURED
 
 
 def test_multiple_rows_preserved_in_order():
