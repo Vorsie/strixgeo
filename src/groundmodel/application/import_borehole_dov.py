@@ -1,9 +1,11 @@
 """Use case: import boreholes from DOV within a WGS84 bounding box.
 
 Phase C1 scope: borehole headers + drill segments + field log.
-Interpretations and lab-side samples land in subsequent phases (C2, C3) so
-this module stays focused. Once those land, persist() will be extended to
-attach the additional child collections in the same single-commit batch.
+Phase C2 extension: also fetch and attach all eight interpretation streams
+(``ObservationOrm`` rows with their layers and admixtures) for newly-
+imported boreholes — see ``ImportInterpretationsDov`` for the per-stream
+WFS pipeline. Lab-side samples land in Phase C3 and will plug into the
+same execute() flow with the same single-commit-at-the-end discipline.
 """
 
 from __future__ import annotations
@@ -16,6 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.import_borehole_dov_result import ImportBoreholeDovResult
+from groundmodel.application.import_interpretations_dov import (
+    ImportInterpretationsDov,
+    ImportInterpretationsDovResult,
+)
 from groundmodel.domain.models.borehole.borehole import Borehole
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
@@ -78,10 +84,12 @@ class ImportBoreholeDov(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
         self._repo = BoreholeRepository(session)
-        # Persistent on-disk cache rooted under boring/ so the same parent
-        # cache dir can host caches for sondering / interpretation /
-        # observation without permkey collisions.
-        self._cache = DovXmlCache(settings.dov_cache_dir / "boring")
+        # Persistent on-disk caches rooted under per-resource subdirs so
+        # boring / interpretation / sondering / observation permkeys never
+        # collide (DOV's YYYY-NNNNNN permkey format isn't unique across
+        # resource types).
+        self._boring_cache = DovXmlCache(settings.dov_cache_dir / "boring")
+        self._interpretation_cache = DovXmlCache(settings.dov_cache_dir / "interpretatie")
 
     async def execute(
         self,
@@ -116,23 +124,133 @@ class ImportBoreholeDov(GroundModelLogger):
 
         t_total = time.perf_counter()
 
-        # Phase 1+2 — WFS discovery + parallel download + stream-parse.
+        # Open ONE HTTP client and reuse it across the borehole download
+        # phase AND the interpretation download phase. This keeps the
+        # HTTP/2 connection pool warm so the second phase doesn't pay
+        # connect-handshake latency.
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=10.0),
+            follow_redirects=True,
+            http2=True,
+            limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
+        ) as http:
+            parsed = await self._fetch_boreholes(http, west, south, east, north)
+
+            total = len(parsed)
+            if total == 0:
+                self.info("DOV import: no boreholes found in bbox — nothing to persist")
+                return ImportBoreholeDovResult(imported=0, duplicates=0, failed=0, borehole_ids=[])
+
+            for wfs_row, result in parsed:
+                if result.has_errors:
+                    self.warning(
+                        f"DOV import: '{wfs_row.test_id}' parsed with errors — "
+                        + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
+                    )
+
+            # Phase 3 — batch dedup. One IN-query for all incoming test_ids.
+            t_dedup = time.perf_counter()
+            test_ids = [row.test_id for row, _ in parsed if row.test_id]
+            existing = (
+                await self._repo.find_existing_test_ids(DOV_PROJECT_ID, test_ids, app_project_id)
+                if test_ids
+                else {}
+            )
+            self.info(
+                f"DOV phase 3 (dedup query): {_ms(t_dedup)} ms — "
+                f"{len(existing)} of {len(test_ids)} already in project"
+            )
+
+            # Phase 4 — persist non-duplicates without committing per-row.
+            # Build {test_id: borehole_id} for newly-imported rows so the
+            # interpretation phase can attach observations by FK.
+            t_persist = time.perf_counter()
+            imported = 0
+            duplicates = 0
+            failed = 0
+            borehole_ids: list[UUID] = []
+            new_borehole_map: dict[str, UUID] = {}
+
+            for i, (wfs_row, result) in enumerate(parsed, 1):
+                existing_id = existing.get(wfs_row.test_id)
+                if existing_id is not None:
+                    duplicates += 1
+                    borehole_ids.append(existing_id)
+                    self.debug(
+                        f"DOV import [{i}/{total}]: '{wfs_row.test_id}' "
+                        f"already exists ({existing_id})"
+                    )
+                    continue
+
+                try:
+                    borehole_orm = self._build_orm(wfs_row, result, app_project_id)
+                    await self._repo.save(borehole_orm, flush=False)
+                    imported += 1
+                    borehole_ids.append(borehole_orm.id)
+                    new_borehole_map[wfs_row.test_id] = borehole_orm.id
+                    self.debug(f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}")
+                except Exception as exc:
+                    failed += 1
+                    self.error(
+                        f"DOV import [{i}/{total}]: persist failed for "
+                        f"'{wfs_row.test_id}': {type(exc).__name__}: {exc}"
+                    )
+
+            self.info(f"DOV phase 4 (persist {imported} boreholes, no commit): {_ms(t_persist)} ms")
+
+            # Phase 4b — fetch + attach interpretations for newly-imported
+            # boreholes only. Duplicates keep whatever interpretations they
+            # already had (re-importing the same bbox stays idempotent).
+            interp_result = await self._fetch_and_attach_interpretations(
+                http, west, south, east, north, new_borehole_map
+            )
+
+            # Phase 5 — single commit flushes the whole batch (boreholes +
+            # observations + layers + admixtures, all in one transaction).
+            if imported > 0:
+                t_commit = time.perf_counter()
+                await self._session.commit()
+                self.info(
+                    f"DOV phase 5 (commit batch of {imported} boreholes "
+                    f"+ {interp_result.attached} observations): {_ms(t_commit)} ms"
+                )
+
+        self.success(
+            f"DOV borehole import done in {_ms(t_total)} ms: "
+            f"{imported} imported, {duplicates} duplicates, {failed} failed  "
+            f"(total={total}); "
+            f"interpretations: {interp_result.attached} attached, "
+            f"{interp_result.failed} failed"
+        )
+        return ImportBoreholeDovResult(
+            imported=imported,
+            duplicates=duplicates,
+            failed=failed,
+            interpretations_attached=interp_result.attached,
+            interpretations_failed=interp_result.failed,
+            borehole_ids=borehole_ids,
+        )
+
+    async def _fetch_boreholes(
+        self,
+        http: httpx.AsyncClient,
+        west: float,
+        south: float,
+        east: float,
+        north: float,
+    ) -> list[tuple[BoreholeWfsRow, BoreholeParseResult]]:
+        """Run Phase 1+2 — WFS discovery + parallel download + stream-parse."""
         parser = DovBoringParser()
         try:
             t_fetch = time.perf_counter()
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(60.0, connect=10.0),
-                follow_redirects=True,
-                http2=True,
-                limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
-            ) as http:
-                parsed = await DovBoreholeClient(http, cache=self._cache).fetch_bbox_processed(
-                    west, south, east, north, parser.parse
-                )
+            parsed = await DovBoreholeClient(http, cache=self._boring_cache).fetch_bbox_processed(
+                west, south, east, north, parser.parse
+            )
             self.info(
                 f"DOV phase 1+2 (WFS + download + parse): {_ms(t_fetch)} ms — "
                 f"{len(parsed)} boreholes ready"
             )
+            return parsed
         except httpx.HTTPStatusError as exc:
             self.error(
                 f"DOV WFS request failed with HTTP "
@@ -144,80 +262,45 @@ class ImportBoreholeDov(GroundModelLogger):
             self.error(f"DOV network error during WFS/download phase: {type(exc).__name__}: {exc}")
             raise
 
-        total = len(parsed)
-        if total == 0:
-            self.info("DOV import: no boreholes found in bbox — nothing to persist")
-            return ImportBoreholeDovResult(imported=0, duplicates=0, failed=0, borehole_ids=[])
+    async def _fetch_and_attach_interpretations(
+        self,
+        http: httpx.AsyncClient,
+        west: float,
+        south: float,
+        east: float,
+        north: float,
+        new_borehole_map: dict[str, UUID],
+    ) -> ImportInterpretationsDovResult:
+        """Run Phase 4b — interpretation orchestrator over the same bbox.
 
-        for wfs_row, result in parsed:
-            if result.has_errors:
-                self.warning(
-                    f"DOV import: '{wfs_row.test_id}' parsed with errors — "
-                    + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
-                )
+        Network errors here do NOT roll back the borehole-side persist queue;
+        we degrade gracefully so a transient interpretation outage still
+        leaves the user with the boreholes they imported. The exception is
+        logged and surfaced as ``failed=fetched`` in the result.
+        """
+        if not new_borehole_map:
+            self.info("DOV phase 4b (interpretations): no new boreholes — skipping fetch")
+            return ImportInterpretationsDovResult()
 
-        # Phase 3 — batch dedup. One IN-query for all incoming test_ids.
-        t_dedup = time.perf_counter()
-        test_ids = [row.test_id for row, _ in parsed if row.test_id]
-        existing = (
-            await self._repo.find_existing_test_ids(DOV_PROJECT_ID, test_ids, app_project_id)
-            if test_ids
-            else {}
-        )
-        self.info(
-            f"DOV phase 3 (dedup query): {_ms(t_dedup)} ms — "
-            f"{len(existing)} of {len(test_ids)} already in project"
-        )
-
-        # Phase 4 — persist non-duplicates without committing per-row.
-        t_persist = time.perf_counter()
-        imported = 0
-        duplicates = 0
-        failed = 0
-        borehole_ids: list[UUID] = []
-
-        for i, (wfs_row, result) in enumerate(parsed, 1):
-            existing_id = existing.get(wfs_row.test_id)
-            if existing_id is not None:
-                duplicates += 1
-                borehole_ids.append(existing_id)
-                self.debug(
-                    f"DOV import [{i}/{total}]: '{wfs_row.test_id}' already exists ({existing_id})"
-                )
-                continue
-
-            try:
-                borehole_orm = self._build_orm(wfs_row, result, app_project_id)
-                await self._repo.save(borehole_orm, flush=False)
-                imported += 1
-                borehole_ids.append(borehole_orm.id)
-                self.debug(f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}")
-            except Exception as exc:
-                failed += 1
-                self.error(
-                    f"DOV import [{i}/{total}]: persist failed for "
-                    f"'{wfs_row.test_id}': {type(exc).__name__}: {exc}"
-                )
-
-        self.info(f"DOV phase 4 (persist {imported} boreholes, no commit): {_ms(t_persist)} ms")
-
-        # Phase 5 — single commit flushes the whole batch.
-        if imported > 0:
-            t_commit = time.perf_counter()
-            await self._session.commit()
-            self.info(f"DOV phase 5 (commit batch of {imported} boreholes): {_ms(t_commit)} ms")
-
-        self.success(
-            f"DOV borehole import done in {_ms(t_total)} ms: "
-            f"{imported} imported, {duplicates} duplicates, {failed} failed  "
-            f"(total={total})"
-        )
-        return ImportBoreholeDovResult(
-            imported=imported,
-            duplicates=duplicates,
-            failed=failed,
-            borehole_ids=borehole_ids,
-        )
+        try:
+            return await ImportInterpretationsDov(self._session).execute(
+                west,
+                south,
+                east,
+                north,
+                new_borehole_map,
+                self._interpretation_cache,
+                http,
+            )
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            # Don't propagate — keep boreholes alive even when interpretations
+            # can't be fetched. The result will show 0 attached and the
+            # parent log carries the error code for diagnosis.
+            self.error(
+                f"DOV phase 4b (interpretations): fetch failed, continuing "
+                f"with boreholes only: {type(exc).__name__}: {exc}"
+            )
+            return ImportInterpretationsDovResult(failed=len(new_borehole_map))
 
     # ------------------------------------------------------------------
     # Domain → ORM mapping
