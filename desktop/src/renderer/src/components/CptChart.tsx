@@ -96,7 +96,12 @@ export default function CptChart({ plot, name, detail }: Props) {
     fs:      plot.fs_mpa ?  (plot.fs_mpa[i]    ?? null) : null,
     rf:      plot.rf_pct ?  (plot.rf_pct[i]    ?? null) : null,
     u2_kpa:  plot.u2_mpa && plot.u2_mpa[i] != null ? plot.u2_mpa[i]! * 1000 : null,
-    qt:      plot.qt_mpa ?  (plot.qt_mpa[i]    ?? null) : null,
+    // CPTM uses q_total_mpa (totaalweerstand); CPTU uses qt_mpa (corrected qc).
+    // The two are physically different quantities, mutually exclusive per CPT,
+    // and historically conflated under the symbol "qt". The chart shows
+    // whichever the parser populated.
+    qt:      plot.q_total_mpa ?  (plot.q_total_mpa[i] ?? null)
+            : plot.qt_mpa     ?  (plot.qt_mpa[i]      ?? null) : null,
     ic:      plot.ic     ?  (plot.ic[i]         ?? null) : null,
   }))
 
@@ -183,7 +188,7 @@ export default function CptChart({ plot, name, detail }: Props) {
   const hasFs  = plot.fs_mpa != null
   const hasRf  = plot.rf_pct != null
   const hasU2  = plot.u2_mpa != null
-  const hasQt  = plot.qt_mpa != null
+  const hasQt  = plot.q_total_mpa != null || plot.qt_mpa != null
   const hasIc  = plot.ic != null
   const showU2 = hasU2 && (cptType === 'CPTU' || hasU2)
 
