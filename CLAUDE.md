@@ -110,7 +110,8 @@ Strix/
 │   │   │   └── job.py         Job + JobStatus
 │   │   ├── services/          cpt_interpretation.py, ec7/
 │   │   └── value_objects/     depth.py, coordinate.py, unit_weight_profile.py,
-│   │                          observation_type.py, field_log_kind.py, admixture.py
+│   │                          observation_type.py, field_log_kind.py, admixture.py,
+│   │                          derived_value_source.py
 │   ├── application/           import_cpt.py, export_project.py,
 │   │                          run_interpretation.py, queue.py
 │   ├── infrastructure/
@@ -220,6 +221,50 @@ Add a comment when the WHY is non-obvious: hidden constraints, schema quirks, co
 - Cover: happy path, at least one structural error path (missing field, bad input), and the type/variant detection logic if applicable.
 - Tests live in `tests/unit/` (no DB, no I/O) unless integration is unavoidable.
 - Run `uv run pytest tests/unit/ -q` and confirm all pass before committing.
+
+---
+
+## Data Integrity Rules
+
+These rules govern what we store, what we compute on demand, and how we tag the difference. Their goal is to keep the database honest: a stored value should never silently disagree with the values you'd derive from its inputs.
+
+### 1. Never store a value WE derived from other stored values without tagging its provenance
+
+If our parser computes `Y` from `X1` and `X2`, then storing `Y` next to `X1` and `X2` creates a drift risk: editing `X1` later silently invalidates `Y`. Two acceptable patterns:
+
+- **Compute on read.** Don't store `Y` at all. Implement it as a `@property` on the dataclass (e.g. `AtterbergLimits.plasticity_index_pct`) or recompute in the API endpoint (e.g. `Ic` in `/cpt/{id}/plot`). This is the default — choose it unless query performance forces otherwise.
+- **Store with provenance.** Persist `Y` alongside a `*_source` column carrying `DerivedValueSource.MEASURED` (the source file gave us `Y` directly — preserve it as-is) or `DerivedValueSource.COMPUTED` (we derived it; safe to recompute and replace). Example: `cpt_series.rf_pct` + `cpt_series.rf_source`. Use this only when recomputing on every read is genuinely too expensive.
+
+`NULL` provenance means "unknown" — typically a legacy row that pre-dates the flag. UI and consumers must handle the unknown case gracefully.
+
+### 2. Pass-through values are NOT derived
+
+A value the source provides directly — even if conceptually it could have been derived elsewhere — is a measurement, not a derivation. Examples:
+
+- `depth_m` — DOV ships `<diepte>` already inclination-corrected; GEF ships `depth_m` directly. Our parsers never recompute depth from length and inclination, so they never own a derivation. No provenance flag needed.
+- `Borehole.drill_method` (the WFS-level summary) — DOV provides it as its own field, not derived from the per-segment `DrillSegment` list.
+- `Borehole.total_depth_m` — DOV ships `diepte_tot_m` as a header field.
+
+If we ever start computing one of these from other stored fields, the rule from §1 kicks in and we add a provenance flag.
+
+### 3. Don't auto-convert between independently measured quantities
+
+When two related quantities are measured by different methods and the conversion factor is empirical (i.e. soil-type dependent), keep them as independent fields and refuse to derive one from the other. Examples:
+
+- `OrganicContent.carbon_pct` and `OrganicContent.matter_pct` — Van Bemmelen `OM ≈ 1.724 × OC` is empirical; auto-converting would fabricate data the consumer can't tell from a measurement. Each lab reports either or both, and we store what was reported.
+- `pct_passing` vs `pct_larger` for grain size — store the form the source uses (DOV: % larger). Conversion is trivial for the consumer; auto-flipping at ingest would require choosing a canonical direction and discarding source fidelity.
+
+### 4. Denormalised summary columns are an exception, with discipline
+
+A small number of aggregations (`cpt.max_depth_m`, `cpt.n_rows`, future `borehole.n_observations`, `borehole.n_samples`) are stored alongside the full series for cheap list/spatial queries. They will drift if the underlying rows are mutated. The rule:
+
+- They MUST be written atomically with the parent row (same transaction).
+- They MUST be recomputable from the persisted data — i.e. they're a query-perf optimisation, not a source of truth.
+- They MUST NOT be exposed as separate API resources that consumers can update independently.
+
+### 5. Validation invariants belong in the parse result, not in the domain
+
+Cross-field invariants — e.g. `Borehole.total_depth_m ≈ max(drill_segments.base_m)`, sample/observation depths within `[0, total_depth_m]`, observations contiguous within a stream — are flagged as `ValidationIssue`s emitted by the parser, not enforced by raising in the domain dataclass. Reasoning: the domain has to accept whatever the source gave us (occasionally messy real-world data) so the rest of the pipeline can run; the validator records the problem for the user to see.
 
 ---
 
