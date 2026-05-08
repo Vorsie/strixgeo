@@ -31,14 +31,15 @@ class Observation:
     observation_date : date | None
         Date the interpretation was recorded.
     reliability : str | None
-        Source-vocabulary reliability rating
-        (DOV: "goed", "matig", "onbekend", ...).
+        Source-vocabulary reliability rating. DOV values with English meaning:
+        "goed" = good, "matig" = moderate, "onbekend" = unknown.
     score_category : str | None
-        Source-vocabulary overall quality score
-        (DOV: "zeer goed", "goed", "matig", ...).
+        Source-vocabulary overall quality score. DOV values with English
+        meaning: "zeer goed" = very good, "goed" = good, "matig" = moderate.
     drill_method_score : str | None
         Source-vocabulary suitability of the drilling method for this
-        interpretation (DOV ``<geschiktheid_boormethode>``: "Hoog" / "Laag" / ...).
+        interpretation (DOV ``<geschiktheid_boormethode>`` = drill-method
+        suitability): "Hoog" = high, "Laag" = low.
     layers : list[ObservationLayer]
         Depth-ordered layers comprising this observation. Aggregated here so an
         observation always travels with its content; the parent ``borehole_id``
