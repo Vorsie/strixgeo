@@ -1,0 +1,326 @@
+"""Use case: import boreholes from DOV within a WGS84 bounding box.
+
+Phase C1 scope: borehole headers + drill segments + field log.
+Interpretations and lab-side samples land in subsequent phases (C2, C3) so
+this module stays focused. Once those land, persist() will be extended to
+attach the additional child collections in the same single-commit batch.
+"""
+
+from __future__ import annotations
+
+import time
+from uuid import UUID
+
+import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid6 import uuid7
+
+from groundmodel.application.import_borehole_dov_result import ImportBoreholeDovResult
+from groundmodel.domain.models.borehole.borehole import Borehole
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
+from groundmodel.infrastructure.db.models.field_log_interval_orm import (
+    FieldLogIntervalOrm,
+)
+from groundmodel.infrastructure.db.repositories.borehole_repository import (
+    BoreholeRepository,
+)
+from groundmodel.infrastructure.parsers.borehole.dov.borehole_parse_result import (
+    BoreholeParseResult,
+)
+from groundmodel.infrastructure.parsers.borehole.dov.dov_boring_parser import (
+    DovBoringParser,
+)
+from groundmodel.infrastructure.parsers.borehole.dov.dov_client import (
+    BoreholeWfsRow,
+    DovBoreholeClient,
+)
+from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
+    DOV_HORIZONTAL_EPSG,
+    DOV_VERTICAL_EPSG,
+)
+from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.shared.config import settings
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# DOV uses ``project_id="DOV"`` as the source-system tag for every borehole
+# coming through the WFS pipeline. Matches the CPT side so the dedup
+# pattern (``find_existing_test_ids("DOV", test_ids, app_project_id)``) is
+# uniform across record types.
+DOV_PROJECT_ID = "DOV"
+
+
+def _ms(start: float) -> int:
+    """Return elapsed time since *start* (perf_counter) as integer milliseconds."""
+    return int((time.perf_counter() - start) * 1000)
+
+
+class ImportBoreholeDov(GroundModelLogger):
+    """Use case: query DOV WFS for a bbox, download borehole XMLs, persist them.
+
+    Mirrors ``ImportCptDov`` deliberately — same five-phase split (WFS
+    discovery → parallel download+parse → batch dedup → persist queue →
+    single commit), same error-handling story, same network → 502/503/504
+    HTTP error mapping at the API boundary.
+
+    The borehole XML cache lives in a ``boring/`` subdirectory of the
+    shared DOV cache so boring permkeys never collide with sondering /
+    interpretation / observation permkeys (DOV's ``YYYY-NNNNNN`` permkey
+    format isn't globally unique across resource types).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Database session. All borehole rows for one bbox import are
+        persisted under a single transaction commit at the end of the
+        run, so a parse failure on one borehole does NOT roll back the
+        rest — failures are isolated and reported in the result.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        super().__init__(__name__)
+        self._session = session
+        self._repo = BoreholeRepository(session)
+        # Persistent on-disk cache rooted under boring/ so the same parent
+        # cache dir can host caches for sondering / interpretation /
+        # observation without permkey collisions.
+        self._cache = DovXmlCache(settings.dov_cache_dir / "boring")
+
+    async def execute(
+        self,
+        west: float,
+        south: float,
+        east: float,
+        north: float,
+        app_project_id: UUID | None = None,
+    ) -> ImportBoreholeDovResult:
+        """Fetch and persist all boreholes within the WGS84 bounding box.
+
+        Parameters
+        ----------
+        west, south, east, north : float
+            Bounding box corners in WGS84 decimal degrees.
+        app_project_id : UUID | None
+            Project scope for storage and duplicate detection. Same
+            ``boornummer`` in different ``app_project_id`` namespaces is
+            allowed (the DOV record imports independently into each).
+
+        Returns
+        -------
+        ImportBoreholeDovResult
+            Summary of imported / duplicates / failed counts plus the
+            UUIDs of all boreholes the caller now sees (new + pre-existing).
+        """
+        self.info(
+            f"DOV borehole import started: "
+            f"bbox W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}  "
+            f"project_id={app_project_id}"
+        )
+
+        t_total = time.perf_counter()
+
+        # Phase 1+2 — WFS discovery + parallel download + stream-parse.
+        parser = DovBoringParser()
+        try:
+            t_fetch = time.perf_counter()
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(60.0, connect=10.0),
+                follow_redirects=True,
+                http2=True,
+                limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
+            ) as http:
+                parsed = await DovBoreholeClient(http, cache=self._cache).fetch_bbox_processed(
+                    west, south, east, north, parser.parse
+                )
+            self.info(
+                f"DOV phase 1+2 (WFS + download + parse): {_ms(t_fetch)} ms — "
+                f"{len(parsed)} boreholes ready"
+            )
+        except httpx.HTTPStatusError as exc:
+            self.error(
+                f"DOV WFS request failed with HTTP "
+                f"{exc.response.status_code}: {exc}  "
+                f"response body: {exc.response.text[:300]!r}"
+            )
+            raise
+        except httpx.RequestError as exc:
+            self.error(f"DOV network error during WFS/download phase: {type(exc).__name__}: {exc}")
+            raise
+
+        total = len(parsed)
+        if total == 0:
+            self.info("DOV import: no boreholes found in bbox — nothing to persist")
+            return ImportBoreholeDovResult(imported=0, duplicates=0, failed=0, borehole_ids=[])
+
+        for wfs_row, result in parsed:
+            if result.has_errors:
+                self.warning(
+                    f"DOV import: '{wfs_row.test_id}' parsed with errors — "
+                    + ", ".join(f"{iss.code}: {iss.message}" for iss in result.issues)
+                )
+
+        # Phase 3 — batch dedup. One IN-query for all incoming test_ids.
+        t_dedup = time.perf_counter()
+        test_ids = [row.test_id for row, _ in parsed if row.test_id]
+        existing = (
+            await self._repo.find_existing_test_ids(DOV_PROJECT_ID, test_ids, app_project_id)
+            if test_ids
+            else {}
+        )
+        self.info(
+            f"DOV phase 3 (dedup query): {_ms(t_dedup)} ms — "
+            f"{len(existing)} of {len(test_ids)} already in project"
+        )
+
+        # Phase 4 — persist non-duplicates without committing per-row.
+        t_persist = time.perf_counter()
+        imported = 0
+        duplicates = 0
+        failed = 0
+        borehole_ids: list[UUID] = []
+
+        for i, (wfs_row, result) in enumerate(parsed, 1):
+            existing_id = existing.get(wfs_row.test_id)
+            if existing_id is not None:
+                duplicates += 1
+                borehole_ids.append(existing_id)
+                self.debug(
+                    f"DOV import [{i}/{total}]: '{wfs_row.test_id}' already exists ({existing_id})"
+                )
+                continue
+
+            try:
+                borehole_orm = self._build_orm(wfs_row, result, app_project_id)
+                await self._repo.save(borehole_orm, flush=False)
+                imported += 1
+                borehole_ids.append(borehole_orm.id)
+                self.debug(f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}")
+            except Exception as exc:
+                failed += 1
+                self.error(
+                    f"DOV import [{i}/{total}]: persist failed for "
+                    f"'{wfs_row.test_id}': {type(exc).__name__}: {exc}"
+                )
+
+        self.info(f"DOV phase 4 (persist {imported} boreholes, no commit): {_ms(t_persist)} ms")
+
+        # Phase 5 — single commit flushes the whole batch.
+        if imported > 0:
+            t_commit = time.perf_counter()
+            await self._session.commit()
+            self.info(f"DOV phase 5 (commit batch of {imported} boreholes): {_ms(t_commit)} ms")
+
+        self.success(
+            f"DOV borehole import done in {_ms(t_total)} ms: "
+            f"{imported} imported, {duplicates} duplicates, {failed} failed  "
+            f"(total={total})"
+        )
+        return ImportBoreholeDovResult(
+            imported=imported,
+            duplicates=duplicates,
+            failed=failed,
+            borehole_ids=borehole_ids,
+        )
+
+    # ------------------------------------------------------------------
+    # Domain → ORM mapping
+    # ------------------------------------------------------------------
+
+    def _build_orm(
+        self,
+        wfs_row: BoreholeWfsRow,
+        result: BoreholeParseResult,
+        app_project_id: UUID | None,
+    ) -> BoreholeOrm:
+        """Merge WFS-row metadata into the parsed Borehole, then build the ORM row.
+
+        The boring XML omits a few fields that live on the WFS row
+        (``methode`` summary, the eight stream flags, sometimes ``Z_mTAW``).
+        This is the merge point: WFS values fill in any gaps the parser
+        left ``None``, never overwriting fields the XML did populate.
+        """
+        bh = self._merge_wfs(result.borehole, wfs_row)
+        return BoreholeOrm(
+            id=uuid7(),
+            name=bh.name,
+            app_project_id=app_project_id,
+            project_id=DOV_PROJECT_ID,
+            test_id=wfs_row.test_id,
+            location_x=bh.location_x,
+            location_y=bh.location_y,
+            elevation_m=bh.elevation_m,
+            epsg=bh.epsg,
+            z_epsg=bh.z_epsg,
+            location=None,  # PostGIS point — wired in Phase C2 / when the GIS path lands
+            start_date=bh.start_date,
+            drill_method=bh.drill_method,
+            borehole_type=bh.borehole_type,
+            purpose=bh.purpose,
+            municipality=bh.municipality,
+            executor=bh.executor,
+            total_depth_m=bh.total_depth_m,
+            water_table_depth_m=bh.water_table_depth_m,
+            n_drill_segments=len(result.drill_segments),
+            n_field_log_intervals=len(result.field_log),
+            drill_segments=[
+                DrillSegmentOrm(
+                    id=uuid7(),
+                    top_m=seg.top_m,
+                    base_m=seg.base_m,
+                    method=seg.method,
+                )
+                for seg in result.drill_segments
+            ],
+            field_log_intervals=[
+                FieldLogIntervalOrm(
+                    id=uuid7(),
+                    top_m=fl.top_m,
+                    base_m=fl.base_m,
+                    kind=fl.kind.value,
+                    value=fl.value,
+                )
+                for fl in result.field_log
+            ],
+        )
+
+    @staticmethod
+    def _merge_wfs(borehole: Borehole, wfs_row: BoreholeWfsRow) -> Borehole:
+        """Fill XML-side ``None`` fields from the WFS row.
+
+        Order matters: XML wins when both have a value (the XML is the more
+        detailed source), WFS fills only when the parser left a field empty.
+        Z_mTAW from the WFS row is the canonical fallback when the boring
+        XML omitted Z (NO_ELEVATION warning emitted by the parser).
+
+        We assign in place (the parser's Borehole is already constructed
+        and we don't have a structural-update copy method); same instance
+        is returned for clarity.
+        """
+        if borehole.drill_method is None and wfs_row.drill_method is not None:
+            borehole.drill_method = wfs_row.drill_method
+        if borehole.municipality is None and wfs_row.municipality is not None:
+            borehole.municipality = wfs_row.municipality
+        if borehole.executor is None and wfs_row.executor is not None:
+            borehole.executor = wfs_row.executor
+        if borehole.purpose is None and wfs_row.purpose is not None:
+            borehole.purpose = wfs_row.purpose
+        if borehole.total_depth_m is None and wfs_row.total_depth_m is not None:
+            borehole.total_depth_m = wfs_row.total_depth_m
+
+        # Coordinate fallbacks. The boring XML's gml:Point matches the WFS
+        # row exactly when both ship them, so this only matters for boreholes
+        # whose XML had a NO_COORDINATES error — we fill from WFS so the row
+        # is at least mappable.
+        if borehole.location_x == 0.0 and borehole.location_y == 0.0:
+            if wfs_row.x is not None and wfs_row.y is not None:
+                borehole.location_x = wfs_row.x
+                borehole.location_y = wfs_row.y
+                borehole.epsg = DOV_HORIZONTAL_EPSG
+
+        # Z (surface elevation) fallback — the user-flagged NO_ELEVATION
+        # case. WFS Z_mTAW fills the gap when the boring XML omits Z.
+        if borehole.elevation_m is None and wfs_row.z is not None:
+            borehole.elevation_m = wfs_row.z
+            borehole.z_epsg = DOV_VERTICAL_EPSG
+
+        return borehole
