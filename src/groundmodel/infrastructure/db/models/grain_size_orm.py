@@ -32,6 +32,28 @@ class GrainSizeOrm(Base):
     indicating whether those substances were chemically stripped BEFORE the
     test, NOT measurements of CaCO3 / organic content (those are separate
     lab tests).
+
+    Variable sieve sets across samples (intentional)
+    -------------------------------------------------
+    Each test may use a different set of sieve apertures: ISO mm, US
+    standard, hydrometer time series, laser-diffraction logarithmic bins.
+    Postgres ARRAY handles variable lengths per row natively, so per-sample
+    queries (load curve, render chart, compute D-stats for one sample) are
+    completely unaffected.
+
+    Cross-sample aggregates ARE harder — "median % passing 0.063 mm across
+    the project" can't be done in pure SQL because each row's index for
+    0.063 differs (or 0.063 is absent and needs interpolation). That work
+    belongs in a domain service that loads the curves and interpolates per-
+    row, not in the storage shape — interpolating at ingest would store
+    derived data and lose source fidelity (Data Integrity Rules §1).
+
+    Escape hatch when cross-sample queries become a real workload:
+    denormalise the standard D-stats (D10, D30, D50, D60, D85, in mm) as
+    additional columns computed at write time. Atomic with the parent
+    write, recomputable from the curve, indexable for fast filtering — the
+    canonical Data Integrity Rules §4 use case. Add when a concrete query
+    pattern motivates it, not speculatively.
     """
 
     __tablename__ = "grain_size"
