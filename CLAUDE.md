@@ -346,7 +346,9 @@ Implemented in `infrastructure/parsers/cpt/gef/gef_parser.py`. Constants in `gef
 
 **Key quantity → column mappings (`QUANTITY_TO_COLUMN`):**
 - qty 1 = `depth_m`, qty 2 = `qc_mpa`, qty 3 = `fs_mpa`, qty 4 = `rf_pct`
-- qty 6 = `u2_mpa`, qty 11 = `length_m`, qty 15 = `qt_mpa`, qty 128 = `qt_mpa` (CPTM totaalweerstand)
+- qty 6 = `u2_mpa`, qty 11 = `length_m`
+- qty 15 = `qt_mpa` (**CPTU only** — corrected cone resistance, qt = qc + u2(1-a))
+- qty 128 = `q_total_mpa` (**CPTM only** — totaalweerstand: combined tip + sleeve force read in one go by a mechanical Begemann cone). Physically distinct from qty 15 — they share the historic "qt" symbol but are different quantities, and they're stored in separate columns to keep the data model honest.
 
 **Validation checks (ValidationLevel: ERROR / WARNING / INFO):**
 - `NO_COORDINATES` / `ZERO_COORDINATES` / `NO_EPSG` / `NO_ELEVATION`
@@ -561,7 +563,7 @@ desktop/src/
 - Ghost axes: `tick={false} axisLine={false} tickLine={false} width={Y_W}` — reserve pixel space without display
 - Level (mTAW) always on the leftmost panel's left axis; Length (m) always on the rightmost panel's right axis
 - CPTU layout: u2 panel (kPa) | qc+fs panel | Rf panel
-- CPTM layout: single panel with qc (black) + Qt total resistance (blue `#1d4ed8`) on same qc axis
+- CPTM layout: single panel with qc (black) + Qt total resistance from `q_total_mpa` (blue `#1d4ed8`) on same qc axis. The chart's `qt` data field falls back to `qt_mpa` for CPTU but renders the line only when present.
 - Panel renderers are called as functions `{renderPanel(...)}` not JSX components — no hooks, avoids remount
 - Colors: `QC_CLR=#111827`, `FS_CLR=#16a34a`, `RF_CLR=#b45309`, `U2_CLR=#7c3aed`, `QT_CLR=#1d4ed8`, `PD_CLR=#dc2626`
 - `surfaceElevationRef` — ReferenceLine at depth=0 labelled with mTAW elevation when known
