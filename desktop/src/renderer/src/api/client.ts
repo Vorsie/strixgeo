@@ -31,8 +31,14 @@ export interface CptPlotResponse {
   fs_mpa: (number | null)[] | null
   u2_mpa: (number | null)[] | null
   rf_pct: (number | null)[] | null
+  // qt_mpa: CPTU corrected cone resistance (qt = qc + u2(1-a)). Populated for
+  // piezocones only.
   qt_mpa: (number | null)[] | null
+  // q_total_mpa: CPTM totaalweerstand — combined tip + sleeve force read by a
+  // mechanical Begemann cone in one go. Populated for CPTM only.
+  q_total_mpa: (number | null)[] | null
   ic: (number | null)[] | null
+  rf_source: string | null
 }
 
 export interface ImportCptResponse {
