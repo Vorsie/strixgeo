@@ -285,8 +285,8 @@ class TestRfCalculation:
         assert "rf_pct" not in result.data.columns
         assert result.rf_source is None
 
-    def test_qt_source_measured_when_in_source(self, parser: GEFParser) -> None:
-        # qty 15 = qt_mpa (CPTU corrected cone resistance)
+    def test_qty_15_routes_to_qt_mpa_for_cptu(self, parser: GEFParser) -> None:
+        # qty 15 = CPTU corrected cone resistance (qt = qc + u2(1-a))
         header = (
             "#TESTID= CPT-01\n"
             "#XYID= 32000, 200000.0, 100000.0\n"
@@ -299,13 +299,28 @@ class TestRfCalculation:
         )
         data = "0.20; 1.0; 0.05; 1.02\n0.40; 1.5; 0.06; 1.55\n"
         result = parser.parse(_gef(header=header, data=data))
-        assert result.qt_source is DerivedValueSource.MEASURED
+        assert "qt_mpa" in result.data.columns
+        assert "q_total_mpa" not in result.data.columns
+        assert result.data["qt_mpa"][0] == pytest.approx(1.02)
 
-    def test_qt_source_none_when_absent(self, parser: GEFParser) -> None:
-        # Base GEF has only qc + fs, no qt.
-        result = parser.parse(_gef())
+    def test_qty_128_routes_to_q_total_mpa_for_cptm(self, parser: GEFParser) -> None:
+        # qty 128 = CPTM totaalweerstand (totally different physical quantity
+        # from qty 15) — must land in its own column, never qt_mpa.
+        header = (
+            "#TESTID= CPT-01\n"
+            "#XYID= 32000, 200000.0, 100000.0\n"
+            "#ZID= 32001, 5.0\n"
+            "#MEASUREMENTVAR= 12, 1.0\n"
+            "#COLUMN= 3\n"
+            "#COLUMNINFO= 1, m, depth, 1\n"
+            "#COLUMNINFO= 2, MPa, cone resistance, 2\n"
+            "#COLUMNINFO= 3, MPa, totaalweerstand, 128\n"
+        )
+        data = "0.20; 1.0; 1.20\n0.40; 1.5; 1.80\n"
+        result = parser.parse(_gef(header=header, data=data))
+        assert "q_total_mpa" in result.data.columns
         assert "qt_mpa" not in result.data.columns
-        assert result.qt_source is None
+        assert result.data["q_total_mpa"][0] == pytest.approx(1.20)
 
 
 # ---------------------------------------------------------------------------
