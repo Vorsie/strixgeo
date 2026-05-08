@@ -24,6 +24,15 @@ class ImportBoreholeDovResult:
         Number of boreholes that could not be downloaded, parsed, or
         persisted. Per-borehole failures are isolated — a single bad
         XML never aborts the batch.
+    interpretations_attached : int
+        Number of ``Observation`` rows attached to newly-imported
+        boreholes by the Phase C2 interpretation orchestrator. Zero when
+        no boreholes were newly imported (interpretations aren't refreshed
+        for duplicates — see ``ImportInterpretationsDov`` docstring).
+    interpretations_failed : int
+        Per-row failures during interpretation download / parse / persist.
+        Counted separately from ``failed`` because they don't roll back
+        the parent borehole row.
     borehole_ids : list[UUID]
         IDs of all boreholes the caller now sees in the project — newly
         imported plus pre-existing duplicates.
@@ -32,4 +41,6 @@ class ImportBoreholeDovResult:
     imported: int
     duplicates: int
     failed: int
+    interpretations_attached: int = 0
+    interpretations_failed: int = 0
     borehole_ids: list[UUID] = field(default_factory=list)
