@@ -25,7 +25,7 @@ from groundmodel.domain.models.borehole.borehole import Borehole
 from groundmodel.infrastructure.parsers.borehole.dov.borehole_parse_result import (
     BoreholeParseResult,
 )
-from groundmodel.infrastructure.parsers.borehole.dov.dov_client import (
+from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import (
     BoreholeWfsRow,
 )
 
