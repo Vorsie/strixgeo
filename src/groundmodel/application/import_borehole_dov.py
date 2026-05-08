@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.application.import_borehole_dov_result import ImportBoreholeDovResult
-from groundmodel.application.import_interpretations_dov import (
-    ImportInterpretationsDov,
+from groundmodel.application.import_interpretations_dov import ImportInterpretationsDov
+from groundmodel.application.import_interpretations_dov_result import (
     ImportInterpretationsDovResult,
 )
 from groundmodel.domain.models.borehole.borehole import Borehole

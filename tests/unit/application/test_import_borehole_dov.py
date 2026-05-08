@@ -112,7 +112,9 @@ def _patch_interpretation_orchestrator():
     The two interpretation-specific tests below override this fixture by
     using their own ``patch.object`` blocks inline.
     """
-    from groundmodel.application.import_borehole_dov import ImportInterpretationsDovResult
+    from groundmodel.application.import_interpretations_dov_result import (
+        ImportInterpretationsDovResult,
+    )
 
     with patch(
         "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
@@ -369,7 +371,9 @@ async def test_interpretation_orchestrator_invoked_with_new_borehole_map(
     map from newly imported (not duplicate) boreholes, and the resulting
     interpretation counts roll into the response.
     """
-    from groundmodel.application.import_borehole_dov import ImportInterpretationsDovResult
+    from groundmodel.application.import_interpretations_dov_result import (
+        ImportInterpretationsDovResult,
+    )
 
     existing_id = uuid4()
     use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]

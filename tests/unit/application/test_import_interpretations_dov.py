@@ -17,8 +17,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from groundmodel.application.import_interpretations_dov import (
-    ImportInterpretationsDov,
+from groundmodel.application.import_interpretations_dov import ImportInterpretationsDov
+from groundmodel.application.import_interpretations_dov_result import (
     ImportInterpretationsDovResult,
 )
 from groundmodel.domain.models.borehole.observation import Observation
