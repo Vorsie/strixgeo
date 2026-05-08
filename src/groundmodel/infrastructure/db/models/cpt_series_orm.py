@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import ARRAY, DOUBLE_PRECISION
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -29,6 +29,13 @@ class CptSeriesOrm(Base):
     u2_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
     rf_pct: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
     qt_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
+
+    # Provenance flags for the two derivable columns above. NULL means unknown
+    # (legacy rows persisted before these columns existed). Values match
+    # DerivedValueSource: "measured" = source-provided, "computed" = our parser
+    # derived it from other columns. See domain/value_objects/derived_value_source.py.
+    rf_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    qt_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     cpt: Mapped[CptOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "CptOrm", back_populates="series"
