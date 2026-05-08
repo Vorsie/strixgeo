@@ -112,8 +112,9 @@ Strix/
 │   │   └── value_objects/     depth.py, coordinate.py, unit_weight_profile.py,
 │   │                          observation_type.py, field_log_kind.py, admixture.py,
 │   │                          derived_value_source.py
-│   ├── application/           import_cpt.py, export_project.py,
-│   │                          run_interpretation.py, queue.py
+│   ├── application/           import_cpt.py, import_cpt_dov.py,
+│   │                          import_borehole_dov.py, import_borehole_dov_result.py,
+│   │                          export_project.py, run_interpretation.py, queue.py
 │   ├── infrastructure/
 │   │   ├── db/                models/         cpt_orm.py, cpt_series_orm.py,
 │   │   │                                      borehole_orm.py, drill_segment_orm.py,
@@ -546,12 +547,16 @@ See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement 
 ## API Endpoints
 
 ```
-POST   /cpt/import          Import a GEF file (multipart form; project_id form field)
-POST   /cpt/import-dov      Import CPTs from DOV bbox (JSON body: west,south,east,north,project_id)
-GET    /cpt/                List CPTs (optional ?project_id=UUID filters by project)
-GET    /cpt/{id}            CPT metadata (location, elevation, cone props, summary)
-GET    /cpt/{id}/plot       Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt)
-DELETE /cpt/{id}            Delete CPT and its series (cascade)
+POST   /cpt/import              Import a GEF file (multipart form; project_id form field)
+POST   /cpt/import-dov          Import CPTs from DOV bbox (JSON body: west,south,east,north,project_id)
+GET    /cpt/                    List CPTs (optional ?project_id=UUID filters by project)
+GET    /cpt/{id}                CPT metadata (location, elevation, cone props, summary)
+GET    /cpt/{id}/plot           Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt)
+DELETE /cpt/{id}                Delete CPT and its series (cascade)
+
+POST   /borehole/import-dov     Import boreholes from DOV bbox (Phase C1 — boreholes only;
+                                interpretations + samples land in C2 / C3)
+GET    /borehole/{id}           Borehole detail — stub (Phase C2 wires it up)
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
