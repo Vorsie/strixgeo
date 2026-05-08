@@ -22,8 +22,9 @@ class FieldLogInterval:
     kind : FieldLogKind
         Which property this interval describes (color, moisture, or consistency).
     value : str
-        Source-vocabulary value (e.g. "groenbruin" for colour, "vochtig" for
-        moisture, "plastisch" for consistency).
+        Source-vocabulary value. DOV examples (Dutch token = English meaning):
+        "groenbruin" = green-brown for colour, "vochtig" = moist for moisture,
+        "plastisch" = plastic for consistency.
 
     Raises
     ------
