@@ -56,6 +56,7 @@ import xml.etree.ElementTree as ET
 
 import polars as pl
 
+from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
 from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
     DOV_GML_TAG_PREFIX,
     DOV_HORIZONTAL_EPSG,
@@ -141,12 +142,29 @@ class DovParser(GroundModelLogger):
         data, issues = self._parse_data(cpt_elem, name)
         cpt_type = self._detect_type(header.cone_type_code, data)
 
+        # DOV provenance is fixed by the source schema:
+        #   * Rf is NEVER in the DOV XML — _parse_data computes it from fs and qc
+        #     when fs is present, so any rf_pct column is COMPUTED by us.
+        #   * qt comes straight from the <Qt> element when present, so MEASURED.
+        # Both columns may have been dropped if entirely null; in that case the
+        # source flag is left None to keep the (column present ⇔ flag set)
+        # invariant.
+        rf_source = DerivedValueSource.COMPUTED if "rf_pct" in data.columns else None
+        qt_source = DerivedValueSource.MEASURED if "qt_mpa" in data.columns else None
+
         self.debug(
             f"DOV parser: '{name}' → {cpt_type.value}, "
             f"{len(data)} rows, x={header.x}, y={header.y}, z={header.z}, "
             f"a={header.net_area_ratio}"
         )
-        return GEFParseResult(header=header, cpt_type=cpt_type, data=data, issues=issues)
+        return GEFParseResult(
+            header=header,
+            cpt_type=cpt_type,
+            data=data,
+            issues=issues,
+            rf_source=rf_source,
+            qt_source=qt_source,
+        )
 
     # ------------------------------------------------------------------
     # Header
