@@ -28,14 +28,26 @@ class CptSeriesOrm(Base):
     fs_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
     u2_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
     rf_pct: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
+
+    # qt_mpa stores ONLY the CPTU corrected cone resistance (qt = qc + u2(1-a)),
+    # populated for piezocones. CPTM mechanical totaalweerstand lives in the
+    # separate q_total_mpa column — they are physically different quantities
+    # despite the historic shared "qt" symbol.
     qt_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
 
-    # Provenance flags for the two derivable columns above. NULL means unknown
-    # (legacy rows persisted before these columns existed). Values match
-    # DerivedValueSource: "measured" = source-provided, "computed" = our parser
-    # derived it from other columns. See domain/value_objects/derived_value_source.py.
+    # CPTM totaalweerstand: combined tip + sleeve force a Begemann/CPTM cone
+    # reads in one go. Always source-measured. Mutually exclusive with qt_mpa
+    # in practice (CPTM populates this, CPTU populates qt_mpa).
+    q_total_mpa: Mapped[list[float] | None] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=True)
+
+    # Provenance flag for rf_pct. NULL means unknown (legacy rows persisted
+    # before this column existed). Values match DerivedValueSource:
+    # "measured" = source-provided (qty 4 in GEF), "computed" = derived by our
+    # parser from qc and fs. See domain/value_objects/derived_value_source.py.
+    # qt_mpa and q_total_mpa carry no source flag because both are always
+    # source-provided in our pipeline today; if a future _calculate_qt path is
+    # added for CPTU, qt_source can be reintroduced symmetrically.
     rf_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    qt_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     cpt: Mapped[CptOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "CptOrm", back_populates="series"
