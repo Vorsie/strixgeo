@@ -115,7 +115,11 @@ Strix/
 │   ├── application/           import_cpt.py, export_project.py,
 │   │                          run_interpretation.py, queue.py
 │   ├── infrastructure/
-│   │   ├── db/                models/, repositories/, migrations/
+│   │   ├── db/                models/         cpt_orm.py, cpt_series_orm.py,
+│   │   │                                      borehole_orm.py, drill_segment_orm.py,
+│   │   │                                      field_log_interval_orm.py
+│   │   │                      repositories/   cpt_repository.py, borehole_repository.py
+│   │   │                      migrations/
 │   │   ├── parsers/
 │   │   │   └── cpt/           gef_parser.py, ags_parser.py, las_parser.py
 │   │   ├── exporters/         base_exporter.py, plaxis_exporter.py, ...
