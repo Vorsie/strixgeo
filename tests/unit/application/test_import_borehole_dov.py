@@ -1,16 +1,19 @@
 """Unit tests for the ImportBoreholeDov use case orchestration.
 
-DovBoreholeClient (network) and BoreholeRepository (DB) are mocked.
-DovBoringParser is real but receives synthetic outputs we construct
-directly. We verify:
+DovBoreholeClient + DovInterpretationClient (network) and BoreholeRepository
+(DB) are mocked. DovBoringParser is real but receives synthetic outputs we
+construct directly. We verify:
 
 * empty bbox → all-zero result, no commit
-* all-new boreholes → every save called, single commit at the end
-* all-duplicates → no save calls, dedup ids preserved
+* all-new boreholes → every save called, single commit at the end,
+  interpretation orchestrator invoked with a populated test_id map
+* all-duplicates → no save calls, dedup ids preserved, interpretation
+  orchestrator NOT invoked (no new boreholes to attach to)
 * mix of new and duplicate → both counts correct
 * per-borehole save failure → counted as failed, others still imported
 * WFS-row metadata merged into Borehole when XML omitted it
 * Z fallback from WFS Z_mTAW when boring XML omitted Z
+* interpretation fetch error degrades gracefully — boreholes still commit
 """
 
 from __future__ import annotations
@@ -95,6 +98,27 @@ def use_case() -> ImportBoreholeDov:
     uc._repo.find_existing_test_ids = AsyncMock(return_value={})  # type: ignore[method-assign]
     uc._repo.save = AsyncMock()  # type: ignore[method-assign]
     return uc
+
+
+@pytest.fixture(autouse=True)
+def _patch_interpretation_orchestrator():
+    """Stub the Phase C2 interpretation orchestrator so unit tests never hit DOV.
+
+    Most tests don't care about interpretations — they assert on borehole
+    counts only. We replace ``ImportInterpretationsDov.execute`` with a
+    no-op returning a zero result so the existing assertions stand and
+    no network call leaks into the test run.
+
+    The two interpretation-specific tests below override this fixture by
+    using their own ``patch.object`` blocks inline.
+    """
+    from groundmodel.application.import_borehole_dov import ImportInterpretationsDovResult
+
+    with patch(
+        "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
+        new=AsyncMock(return_value=ImportInterpretationsDovResult()),
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -328,3 +352,140 @@ async def test_xml_elevation_wins_over_wfs_z(
         await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
     assert saved[0].elevation_m == pytest.approx(7.84)
+
+
+# ---------------------------------------------------------------------------
+# Phase C2 — interpretation orchestrator wiring
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_interpretation_orchestrator_invoked_with_new_borehole_map(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """New boreholes → interpretation orchestrator gets a populated test_id map.
+
+    Verifies the orchestrator builds the correct ``{test_id: borehole_id}``
+    map from newly imported (not duplicate) boreholes, and the resulting
+    interpretation counts roll into the response.
+    """
+    from groundmodel.application.import_borehole_dov import ImportInterpretationsDovResult
+
+    existing_id = uuid4()
+    use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]
+        return_value={"BH-DUP": existing_id}
+    )
+
+    parsed = [
+        (_wfs_row(test_id="BH-DUP", permkey="2025-200000"), _parse_result(test_id="BH-DUP")),
+        (_wfs_row(test_id="BH-NEW-1", permkey="2025-200001"), _parse_result(test_id="BH-NEW-1")),
+        (_wfs_row(test_id="BH-NEW-2", permkey="2025-200002"), _parse_result(test_id="BH-NEW-2")),
+    ]
+
+    saved_ids: list = []
+    use_case._repo.save = AsyncMock(  # type: ignore[method-assign]
+        side_effect=lambda orm, **kw: saved_ids.append((orm.test_id, orm.id))
+    )
+
+    interp_mock = AsyncMock(
+        return_value=ImportInterpretationsDovResult(
+            fetched=5, attached=4, skipped_no_borehole=0, failed=1
+        )
+    )
+
+    with (
+        patch(
+            "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
+            new=AsyncMock(return_value=parsed),
+        ),
+        patch(
+            "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
+            new=interp_mock,
+        ),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    # Interpretation phase was called exactly once.
+    assert interp_mock.await_count == 1
+    # Inspect the test_id_to_borehole_id map (5th positional arg).
+    test_id_map = interp_mock.call_args.args[4]
+    assert set(test_id_map.keys()) == {"BH-NEW-1", "BH-NEW-2"}
+    # Duplicates DO NOT appear in the map — they're skipped on the borehole
+    # side and we don't re-fetch their interpretations.
+    assert "BH-DUP" not in test_id_map
+
+    # Interpretation counts roll into the result.
+    assert result.imported == 2
+    assert result.duplicates == 1
+    assert result.interpretations_attached == 4
+    assert result.interpretations_failed == 1
+
+
+@pytest.mark.asyncio
+async def test_interpretation_phase_skipped_when_no_new_boreholes(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """All-duplicates → interpretation orchestrator NOT invoked at all."""
+    use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]
+        return_value={"BH-1": uuid4(), "BH-2": uuid4()}
+    )
+    parsed = [
+        (_wfs_row(test_id="BH-1", permkey="2025-200001"), _parse_result(test_id="BH-1")),
+        (_wfs_row(test_id="BH-2", permkey="2025-200002"), _parse_result(test_id="BH-2")),
+    ]
+
+    interp_mock = AsyncMock()  # would fail loudly if invoked
+
+    with (
+        patch(
+            "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
+            new=AsyncMock(return_value=parsed),
+        ),
+        patch(
+            "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
+            new=interp_mock,
+        ),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    # Phase 4b skipped because new_borehole_map is empty.
+    interp_mock.assert_not_called()
+    assert result.imported == 0
+    assert result.duplicates == 2
+    assert result.interpretations_attached == 0
+
+
+@pytest.mark.asyncio
+async def test_interpretation_network_error_does_not_abort_borehole_commit(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """Interpretation fetch raises httpx error → boreholes still commit cleanly.
+
+    Phase 4b's job is opportunistic; failures must not propagate up and
+    roll back the borehole transaction. The user gets the boreholes they
+    paid for, plus a failed-counter the API can surface.
+    """
+    import httpx
+
+    parsed = [
+        (_wfs_row(test_id="BH-1", permkey="2025-200001"), _parse_result(test_id="BH-1")),
+    ]
+
+    with (
+        patch(
+            "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
+            new=AsyncMock(return_value=parsed),
+        ),
+        patch(
+            "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
+            new=AsyncMock(side_effect=httpx.ConnectError("DOV unreachable")),
+        ),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    # Borehole import succeeded fully despite interpretation failure.
+    assert result.imported == 1
+    assert result.failed == 0
+    assert result.interpretations_attached == 0
+    assert result.interpretations_failed == 1
+    use_case._session.commit.assert_awaited_once()  # type: ignore[attr-defined]
