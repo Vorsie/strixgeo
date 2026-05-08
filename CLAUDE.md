@@ -126,7 +126,10 @@ Strix/
 │   │   │                      repositories/   cpt_repository.py, borehole_repository.py
 │   │   │                      migrations/
 │   │   ├── parsers/
-│   │   │   └── cpt/           gef_parser.py, ags_parser.py, las_parser.py
+│   │   │   ├── dov/           dov_common.py — DOV-domain shared constants
+│   │   │   ├── cpt/           gef_parser.py, ags_parser.py, las_parser.py
+│   │   │   └── borehole/      dov/dov_constants.py, dov_boring_parser.py,
+│   │   │                          borehole_parse_result.py
 │   │   ├── exporters/         base_exporter.py, plaxis_exporter.py, ...
 │   │   ├── gis/               postgis_service.py
 │   │   └── rust/              groundmodel_core/ (Phase 4)
