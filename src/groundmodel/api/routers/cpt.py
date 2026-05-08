@@ -19,6 +19,7 @@ from groundmodel.api.schemas.cpt.import_dov_response import ImportDovResponse
 from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_dov import ImportCptDov
+from groundmodel.domain.services.cpt_corrections import calculate_qt_series
 from groundmodel.domain.services.cpt_interpretation import calculate_ic_series
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.db.session import get_session
