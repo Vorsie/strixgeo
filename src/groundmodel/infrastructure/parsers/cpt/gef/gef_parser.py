@@ -60,19 +60,17 @@ class GEFParser(GroundModelLogger):
         df = self._normalise_units(df, header)
         df = self._ensure_depth_column(df)
 
-        # Provenance: capture rf/qt source BEFORE we maybe compute Rf, so we can
+        # Provenance: capture rf source BEFORE we maybe compute Rf, so we can
         # tell "the GEF file gave us Rf directly" (qty 4 → MEASURED) apart from
-        # "we derived Rf from qc and fs" (COMPUTED). qt is never computed by us
-        # today; if it's in df it came from qty 15 (CPTU) or qty 128 (CPTM).
+        # "we derived Rf from qc and fs" (COMPUTED). qt_mpa (CPTU corrected qc)
+        # and q_total_mpa (CPTM totaalweerstand) are always source-provided in
+        # our pipeline — no parser computes them — so they need no flag.
         rf_source: DerivedValueSource | None = None
-        qt_source: DerivedValueSource | None = None
         if "rf_pct" in df.columns:
             rf_source = DerivedValueSource.MEASURED
         elif "qc_mpa" in df.columns and "fs_mpa" in df.columns:
             df = self._calculate_rf(df)
             rf_source = DerivedValueSource.COMPUTED
-        if "qt_mpa" in df.columns:
-            qt_source = DerivedValueSource.MEASURED
 
         issues = self._validate(header, df, cpt_type)
         result = GEFParseResult(
@@ -81,7 +79,6 @@ class GEFParser(GroundModelLogger):
             data=df,
             issues=issues,
             rf_source=rf_source,
-            qt_source=qt_source,
         )
 
         n_issues = len(issues)
