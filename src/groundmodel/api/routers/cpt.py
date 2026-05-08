@@ -305,4 +305,6 @@ async def get_cpt_plot(
         rf_pct=s.rf_pct,
         qt_mpa=s.qt_mpa,
         ic=ic,
+        rf_source=s.rf_source,
+        qt_source=s.qt_source,
     )
