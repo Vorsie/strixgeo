@@ -18,7 +18,8 @@ class Borehole:
     Parameters
     ----------
     name : str
-        Human-readable identifier (DOV ``boornummer`` / "proefnummer").
+        Human-readable identifier — bore number
+        (DOV ``boornummer`` / ``proefnummer`` = test number).
     location_x : float
         X coordinate in the source CRS (DOV: Lambert 72, EPSG:31370).
     location_y : float
@@ -28,21 +29,25 @@ class Borehole:
     total_depth_m : float | None
         Total drilled depth in metres below the surface reference.
     start_date : date | None
-        Drilling start date (DOV ``datum_aanvang``).
+        Drilling start date (DOV ``datum_aanvang`` = start date).
     drill_method : str | None
-        Source-vocabulary drilling method summary
-        (DOV ``methode``: "spoelboor", "kerboor", "Meerdere technieken", ...).
-        Detailed per-interval methods live in ``DrillSegment`` records.
+        Source-vocabulary drilling method summary (DOV ``methode``). Examples
+        with English meaning: "spoelboor" = wash-boring, "kerboor" = core drill,
+        "Meerdere technieken" = multiple techniques. Detailed per-interval
+        methods live in ``DrillSegment`` records.
     borehole_type : str | None
-        Free-text borehole type
-        (DOV ``boringtype``, e.g. "Geotechnische boring - (dis)continue monstername").
+        Free-text borehole type. DOV ``boringtype``, e.g. "Geotechnische boring
+        - (dis)continue monstername" = "geotechnical borehole — (dis)continuous
+        sampling".
     purpose : str | None
-        Free-text purpose of drilling
-        (DOV ``doel``: "Geotechnisch onderzoek", "Geologisch onderzoek", ...).
+        Free-text purpose of drilling (DOV ``doel`` = purpose). Examples:
+        "Geotechnisch onderzoek" = geotechnical investigation, "Geologisch
+        onderzoek" = geological investigation.
     municipality : str | None
-        Municipality (DOV ``gemeente`` — sometimes a NIS code, sometimes a name).
+        Municipality (DOV ``gemeente`` = municipality — sometimes a NIS code,
+        sometimes a name).
     executor : str | None
-        Drilling executor (DOV ``uitvoerder``).
+        Drilling executor / contractor (DOV ``uitvoerder`` = executor).
     water_table_depth_m : float | None
         Groundwater depth measured during/after drilling, in metres below surface.
     id : UUID
