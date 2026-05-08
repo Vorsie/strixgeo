@@ -320,7 +320,9 @@ class TestFreeTextLayers:
 class TestStratigraphyLayers:
     def test_lid1_only_layer(self) -> None:
         # DOV ships some layers with just lid1 — the formation member is
-        # unambiguous and there's no relation needed.
+        # unambiguous and there's no relation needed. Formation codes go
+        # into description ONLY (different codelist namespace from soil-type
+        # codes, so main_soil_codes stays empty).
         laag = _stratigraphy_laag(van="0.00", tot="3.00", lid1="A")
         result = DovInterpretationParser().parse(
             _xml(inner_tag="formelestratigrafie", laag_xml=laag),
@@ -329,7 +331,7 @@ class TestStratigraphyLayers:
         )
         layer = result.observation.layers[0]
         assert layer.description == "A"
-        assert layer.main_soil_codes == ["A"]
+        assert layer.main_soil_codes == []
 
     def test_lid1_lid2_with_relation_layer(self) -> None:
         # Real DOV permkey 1990-002744 has lid1=Q, relation=T, lid2=Q —
@@ -343,11 +345,12 @@ class TestStratigraphyLayers:
         )
         layer = result.observation.layers[0]
         assert layer.description == "HyEg-T-Eg"
-        assert layer.main_soil_codes == ["HyEg", "Eg"]
+        # Formation codes don't share the soil-type-code column.
+        assert layer.main_soil_codes == []
 
-    def test_lid1_equals_lid2_collapses_to_single_code(self) -> None:
+    def test_lid1_equals_lid2_collapses_in_description(self) -> None:
         # Real example from probed XML: lid1=Q, lid2=Q. Same member twice —
-        # we keep one in main_soil_codes and use just lid1 in description.
+        # description folds to just "Q" (no point repeating).
         laag = _stratigraphy_laag(van="0.00", tot="2.25", lid1="Q", relatie="T", lid2="Q")
         result = DovInterpretationParser().parse(
             _xml(inner_tag="formelestratigrafie", laag_xml=laag),
@@ -355,10 +358,8 @@ class TestStratigraphyLayers:
             observation_type=ObservationType.FORMAL_STRATIGRAPHY,
         )
         layer = result.observation.layers[0]
-        assert layer.main_soil_codes == ["Q"]
-        # Description still represents the formal interpretation as "Q" since
-        # both members are the same.
         assert layer.description == "Q"
+        assert layer.main_soil_codes == []
 
 
 # ---------------------------------------------------------------------------
