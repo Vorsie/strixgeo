@@ -12,43 +12,45 @@ Schema (verified live 2026-05-08, real example permkey ``2022-2618228``)
 ::
 
     <ns4:dov-schema>
-      <observatie>
+      <observatie>                                                # = observation
         <identificator>
           <identificator>2022-2618228</identificator>
-          <toegekend_door>DOV</toegekend_door>
+          <toegekend_door>DOV</toegekend_door>                    # = assigned by
         </identificator>
-        <geobserveerd_object>
-          <objecttype>monster</objecttype>
-          <naam>19</naam>
+        <geobserveerd_object>                                     # = observed object
+          <objecttype>monster</objecttype>                        # = sample
+          <naam>19</naam>                                          # = name
           <permkey>2017-137886</permkey>
         </geobserveerd_object>
-        <diepte_van>18.000</diepte_van>
-        <diepte_tot>19.000</diepte_tot>
-        <parameter>Korrelverdeling d.m.v. zeefproef</parameter>
+        <diepte_van>18.000</diepte_van>                           # = depth from / top
+        <diepte_tot>19.000</diepte_tot>                           # = depth to / base
+        <parameter>Korrelverdeling d.m.v. zeefproef</parameter>   # = "grain-size distribution by sieve test"
         <parametergroep>Onderkenningsproeven-korrelverdeling </parametergroep>
-        <waarde_meetreeks>
-          <meetpuntparameter>Diameter</meetpuntparameter>
+                                                                  # = "identification tests - grain distribution"
+        <waarde_meetreeks>                                        # = value-series
+          <meetpuntparameter>Diameter</meetpuntparameter>         # = measurement-point parameter
           <meetpuntparameter_eenheid>mm</meetpuntparameter_eenheid>
           <meetwaardeparameter>Fractie met grotere diameter</meetwaardeparameter>
+                                                                  # = "fraction with larger diameter"
           <meetwaardeparameter_eenheid>%</meetwaardeparameter_eenheid>
-          <meetreekswaarde>
-            <meetwaarde_numeriek>95.0</meetwaarde_numeriek>      # % larger (counter-intuitive XML order)
-            <meetpunt_numeriek>0.063</meetpunt_numeriek>          # diameter mm
+          <meetreekswaarde>                                       # = series-value-row
+            <meetwaarde_numeriek>95.0</meetwaarde_numeriek>       # measurement value (% larger), counter-intuitive XML order
+            <meetpunt_numeriek>0.063</meetpunt_numeriek>          # measurement point (diameter mm)
           </meetreekswaarde>
           ...
         </waarde_meetreeks>
-        <methode>Zeving</methode>                                 # source-vocabulary method
-        <fenomeentijd>2002-11-26</fenomeentijd>                   # test date
-        <herkomst>LABO</herkomst>
-        <uitvoerder>
+        <methode>Zeving</methode>                                 # = "sieving" — source-vocabulary method
+        <fenomeentijd>2002-11-26</fenomeentijd>                   # = phenomenon time / test date
+        <herkomst>LABO</herkomst>                                  # = origin (LABO = laboratory)
+        <uitvoerder>                                              # = executor / lab
           <organisatie><naam>Aggregate Consultants BVBA</naam></organisatie>
         </uitvoerder>
-        <behandeling>                                              # pre-treatment, repeats
-          <behandeling>Kalk verwijderd</behandeling>
-          <behandeling_waarde>nee</behandeling_waarde>
+        <behandeling>                                              # = pre-treatment, repeats
+          <behandeling>Kalk verwijderd</behandeling>               # = "lime removed"
+          <behandeling_waarde>nee</behandeling_waarde>             # = "no" (treatment value)
         </behandeling>
         <behandeling>
-          <behandeling>Organisch materiaal verwijderd</behandeling>
+          <behandeling>Organisch materiaal verwijderd</behandeling>  # = "organic matter removed"
           <behandeling_waarde>nee</behandeling_waarde>
         </behandeling>
       </observatie>
