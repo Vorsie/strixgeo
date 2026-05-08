@@ -36,7 +36,20 @@ class FieldLogIntervalOrm(Base):
     )
     top_m: Mapped[float] = mapped_column(Double, nullable=False)
     base_m: Mapped[float] = mapped_column(Double, nullable=False)
+
+    # Which property of the soil this interval describes. One of the
+    # FieldLogKind enum string values: "color", "moisture", or "consistency".
+    # Stored as a plain VARCHAR rather than a Postgres ENUM so adding a new
+    # kind (e.g. "drilling_diameter") doesn't require an ENUM-evolution
+    # migration; the FieldLogKind enum at the application layer is the
+    # authoritative allow-list.
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # The property's value in the source vocabulary, e.g. "groenbruin" for
+    # color, "vochtig" for moisture, "plastisch" for consistency. DOV ships
+    # Dutch terms; we store them raw and translate at the API/UI boundary
+    # (see CLAUDE.md "Data Integrity Rules" and the reference_dov_codelists
+    # memory).
     value: Mapped[str] = mapped_column(String(200), nullable=False)
 
     borehole: Mapped[BoreholeOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
