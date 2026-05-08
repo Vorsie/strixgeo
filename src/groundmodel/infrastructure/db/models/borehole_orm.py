@@ -1,0 +1,98 @@
+"""ORM model for Borehole — physical hole anchoring tests, observations, samples."""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from uuid import UUID
+
+from geoalchemy2 import Geometry, WKBElement
+from sqlalchemy import Date, DateTime, Double, Index, Integer, String, func
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from groundmodel.infrastructure.db.base import Base
+
+
+class BoreholeOrm(Base):
+    """Persisted Borehole — header metadata, location, denormalised summary.
+
+    A borehole is *not* a test; it is a hole drilled into the ground. The
+    things it carries (drill segments, field log intervals, observations, lab
+    samples) live in their own tables linked by FK to ``borehole.id``.
+
+    The schema mirrors the CPT pattern: raw source coordinates as separate
+    floats with their own EPSG codes, plus a PostGIS geometry column in the
+    source CRS for spatial queries. ``location`` is nullable because legacy /
+    incomplete sources sometimes omit CRS metadata; the row is still stored
+    and the parser flags the gap as a validation issue.
+
+    Denormalised counts (``n_drill_segments``, etc.) are written atomically
+    with the parent on each import. Per CLAUDE.md "Data Integrity Rules" §4,
+    they are query-perf optimisations, not authoritative.
+    """
+
+    __tablename__ = "borehole"
+    __table_args__ = (
+        Index("idx_borehole_location", "location", postgresql_using="gist"),
+        Index("idx_borehole_app_project_id", "app_project_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    # App-level project scoping (separate from any source-file project reference)
+    app_project_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+
+    # Source identifiers for dedup. project_id="DOV" + test_id=<boornummer> is
+    # the DOV pattern; future GEF/AGS imports populate them from their own headers.
+    project_id: Mapped[str] = mapped_column(String(200), default="")
+    test_id: Mapped[str] = mapped_column(String(200), default="")
+
+    # Raw source coordinates (native CRS as parsed)
+    location_x: Mapped[float] = mapped_column(Double, nullable=False)
+    location_y: Mapped[float] = mapped_column(Double, nullable=False)
+    elevation_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+    epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    z_epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # PostGIS geometry in the source CRS (same SRID as epsg column).
+    # spatial_index=False — the migration creates idx_borehole_location explicitly via USING GIST
+    location: Mapped[WKBElement | None] = mapped_column(
+        Geometry("POINT", spatial_index=False), nullable=True
+    )
+
+    # Borehole metadata — all DOV-source-vocabulary strings, never translated at ingest.
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    drill_method: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    borehole_type: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    purpose: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    municipality: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    executor: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    total_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+    water_table_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+
+    # Denormalised summary — lets list/spatial queries skip joining the child
+    # tables. Per Data Integrity Rules §4, these are atomic with the parent
+    # write and never the source of truth.
+    n_drill_segments: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    n_field_log_intervals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    drill_segments: Mapped[list[DrillSegmentOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "DrillSegmentOrm",
+        back_populates="borehole",
+        cascade="all, delete-orphan",
+        order_by="DrillSegmentOrm.top_m",
+    )
+    field_log_intervals: Mapped[list[FieldLogIntervalOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "FieldLogIntervalOrm",
+        back_populates="borehole",
+        cascade="all, delete-orphan",
+        order_by="FieldLogIntervalOrm.top_m",
+    )
