@@ -13,11 +13,17 @@ QUANTITY_TO_COLUMN: dict[int, str] = {
     9: "inclination_ns_deg",
     10: "inclination_ew_deg",
     11: "length_m",  # penetration length — needs inclination correction for true depth
+    # qty 15 = corrected cone resistance (CPTU only). Robertson definition:
+    # qt = qc + u2·(1 - a). Some piezocone software emits this directly; otherwise
+    # downstream code derives it from qc + u2 + net area ratio.
     15: "qt_mpa",
     16: "qn_mpa",
-    # 128 = total resistance (GEF: totaalweerstand) in kN — Belgian CPTM/Begemann.
-    # For the standard 1000 mm² cone: Qt[MPa] = Qt[kN] / 0.001 m² × 0.001 = Qt[kN] numerically.
-    128: "qt_mpa",
+    # qty 128 = total resistance (GEF: totaalweerstand) in kN — Belgian CPTM /
+    # Begemann mechanical cone. Physically distinct from qty 15: a mechanical
+    # cone cannot separate tip and sleeve forces, so q_total measures the
+    # combined reading directly. For the standard 1000 mm² cone:
+    # q_total[MPa] = q_total[kN] / 0.001 m² × 0.001 = q_total[kN] numerically.
+    128: "q_total_mpa",
     17: "bq",
     99: "time_s",
 }
@@ -42,6 +48,7 @@ PRESSURE_COLUMNS: frozenset[str] = frozenset(
         "u2_mpa",
         "u3_mpa",
         "qt_mpa",
+        "q_total_mpa",
         "qn_mpa",
     }
 )
