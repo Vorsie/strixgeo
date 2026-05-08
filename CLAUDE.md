@@ -119,7 +119,10 @@ Strix/
 │   │   │                                      borehole_orm.py, drill_segment_orm.py,
 │   │   │                                      field_log_interval_orm.py,
 │   │   │                                      observation_orm.py, observation_layer_orm.py,
-│   │   │                                      admixture_orm.py, sample_orm.py
+│   │   │                                      admixture_orm.py, sample_orm.py,
+│   │   │                                      grain_size_orm.py, atterberg_limits_orm.py,
+│   │   │                                      caco3_content_orm.py, organic_content_orm.py,
+│   │   │                                      water_content_orm.py
 │   │   │                      repositories/   cpt_repository.py, borehole_repository.py
 │   │   │                      migrations/
 │   │   ├── parsers/
