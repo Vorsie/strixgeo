@@ -16,19 +16,32 @@ class GrainSize(LabTest):
     %-passing. DOV labels this "Fractie met grotere diameter" = "fraction with
     larger diameter". Convert to %-passing at the consumer if needed.
 
-    The shape is method-agnostic — it accepts the curves produced by all three
+    The shape is method-agnostic — it accepts the curves produced by all five
     DOV methods, which differ in particle-size range and resolution:
 
-    * Sieve test (DOV ``methode`` = "Zeving") — discrete sieve apertures, ISO
-      series 0.063 mm to ~31.5 mm typical, ~13 entries.
+    * Sieve test (DOV ``methode`` = "Zeving" = "sieving") — discrete sieve
+      apertures, ISO series 0.063 mm to ~31.5 mm typical, ~13 entries.
     * Hydrometer / areometer (DOV ``methode`` = "Hydrometer") — derives
       diameters by sedimentation (Stokes' law); covers the fines (< 0.063 mm).
-    * Laser diffraction (DOV ``methode`` = "D.m.v. Laserdiffractie") — fine
-      bin centers from a particle-size analyser; can cover the full range.
+    * Laser diffraction (DOV ``methode`` = "D.m.v. Laserdiffractie" =
+      "by means of laser diffraction") — fine bin centers from a
+      particle-size analyser; can cover the full range.
+    * Pipette method (DOV ``methode`` = "Pipette") — Stokes-law
+      sedimentation read by pipetting at calibrated times; classic
+      complement to sieve for the fines.
+    * Sedigraph (DOV ``methode`` = "Sedigraaf") — X-ray sedimentation
+      analyser; another fines technique.
 
     A single test may combine sieve + hydrometer to span both ends of the
     curve; in that case both source methods are recorded as one combined
     string in ``method`` and the arrays carry the merged curve.
+
+    The ``method`` field is open ``str | None`` — the parser passes the
+    source-vocabulary token through verbatim, including hybrid variants
+    DOV occasionally ships ("Hydrometer met ijking Geotechniek",
+    "Zeving op massa met grootte <= 2mm (fijnkorrelig)", etc.).
+    Translation to English happens at the API/UI boundary, never at ingest
+    (CLAUDE.md "Data Integrity Rules" + reference_dov_codelists memory).
 
     Parameters
     ----------
@@ -42,9 +55,11 @@ class GrainSize(LabTest):
         grotere diameter".
     method : str | None
         Raw source-vocabulary measurement method (passed through unmodified).
-        DOV examples: "Zeving" = sieving, "Hydrometer" = hydrometer/areometer,
-        "D.m.v. Laserdiffractie" = "by means of laser diffraction".
-        Translation to a UI label is a presentation concern.
+        Five known DOV values: "Zeving" = sieving, "Hydrometer" =
+        hydrometer/areometer, "D.m.v. Laserdiffractie" = "by means of
+        laser diffraction", "Pipette" = pipette method, "Sedigraaf" =
+        sedigraph. Hybrid / method-specific variants ("Hydrometer met
+        ijking Geotechniek" etc.) also pass through unchanged.
     test_date : date | None
         Date the test was performed.
     lime_removed : bool | None
