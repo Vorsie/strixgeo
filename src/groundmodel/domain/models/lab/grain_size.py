@@ -8,56 +8,78 @@ from groundmodel.domain.models.lab.lab_test import LabTest
 
 @dataclass
 class GrainSize(LabTest):
-    """Grain size distribution from a sieve and/or hydrometer analysis.
+    """Grain size distribution from any size-distribution analysis method.
 
     Stores the cumulative grain-size curve as two parallel arrays. Each entry
-    pairs a sieve aperture diameter with the percentage of sample mass having a
-    diameter LARGER than that sieve — i.e. % retained on the sieve, not %
-    passing. (DOV labels this "Fractie met grotere diameter" — fraction with
-    larger diameter.) Convert to %-passing at the consumer if needed.
+    pairs a particle diameter with the percentage of sample mass having a
+    diameter LARGER than that diameter — i.e. cumulative %-oversize, not
+    %-passing. DOV labels this "Fractie met grotere diameter" = "fraction with
+    larger diameter". Convert to %-passing at the consumer if needed.
+
+    The shape is method-agnostic — it accepts the curves produced by all three
+    DOV methods, which differ in particle-size range and resolution:
+
+    * Sieve test (DOV ``methode`` = "Zeving") — discrete sieve apertures, ISO
+      series 0.063 mm to ~31.5 mm typical, ~13 entries.
+    * Hydrometer / areometer (DOV ``methode`` = "Hydrometer") — derives
+      diameters by sedimentation (Stokes' law); covers the fines (< 0.063 mm).
+    * Laser diffraction (DOV ``methode`` = "D.m.v. Laserdiffractie") — fine
+      bin centers from a particle-size analyser; can cover the full range.
+
+    A single test may combine sieve + hydrometer to span both ends of the
+    curve; in that case both source methods are recorded as one combined
+    string in ``method`` and the arrays carry the merged curve.
 
     Parameters
     ----------
-    sieve_diameters_mm : list[float]
-        Sieve aperture diameters in millimetres, strictly ascending.
-    pct_retained : list[float]
-        Mass percentage retained on each corresponding sieve, in 0–100.
+    diameters_mm : list[float]
+        Particle diameters in millimetres, strictly ascending. For sieve tests
+        these are the aperture sizes; for hydrometer/laser these are the
+        instrument-reported particle diameters at each measurement.
+    pct_larger : list[float]
+        Cumulative mass percentage with diameter LARGER than the corresponding
+        ``diameters_mm`` entry, in 0–100. Maps directly to DOV's "Fractie met
+        grotere diameter".
     method : str | None
-        Source-vocabulary measurement method
-        (DOV ``methode``: "Zeving" = sieving, "Sedimentatie" = hydrometer, ...).
+        Raw source-vocabulary measurement method (passed through unmodified).
+        DOV examples: "Zeving" = sieving, "Hydrometer" = hydrometer/areometer,
+        "D.m.v. Laserdiffractie" = "by means of laser diffraction".
+        Translation to a UI label is a presentation concern.
     test_date : date | None
         Date the test was performed.
     lime_removed : bool | None
-        Whether lime (CaCO3) was removed before sieving. ``None`` if unknown.
+        Whether lime (CaCO3) was removed before testing. ``None`` if unknown
+        or method-irrelevant (e.g. typically not applied to laser diffraction).
     organics_removed : bool | None
-        Whether organic matter was removed before sieving. ``None`` if unknown.
+        Whether organic matter was removed before testing. ``None`` if unknown
+        or method-irrelevant.
 
     Raises
     ------
     ValueError
-        If the sieve and percentage arrays have different lengths,
+        If ``diameters_mm`` and ``pct_larger`` have different lengths,
         if any percentage is outside 0–100,
-        or if sieve diameters are not strictly ascending.
+        or if diameters are not strictly ascending.
     """
 
-    sieve_diameters_mm: list[float] = field(default_factory=list)
-    pct_retained: list[float] = field(default_factory=list)
+    diameters_mm: list[float] = field(default_factory=list)
+    pct_larger: list[float] = field(default_factory=list)
     method: str | None = None
     test_date: date | None = None
     lime_removed: bool | None = None
     organics_removed: bool | None = None
 
     def __post_init__(self) -> None:
-        if len(self.sieve_diameters_mm) != len(self.pct_retained):
+        if len(self.diameters_mm) != len(self.pct_larger):
             raise ValueError(
-                f"GrainSize sieve and percentage arrays length mismatch: "
-                f"{len(self.sieve_diameters_mm)} vs {len(self.pct_retained)}"
+                f"GrainSize diameter and percentage arrays length mismatch: "
+                f"{len(self.diameters_mm)} vs {len(self.pct_larger)}"
             )
-        for pct in self.pct_retained:
+        for pct in self.pct_larger:
             if pct < 0 or pct > 100:
                 raise ValueError(f"GrainSize percentage must be in [0, 100]: {pct}")
-        for prev, curr in zip(self.sieve_diameters_mm, self.sieve_diameters_mm[1:], strict=False):
+        for prev, curr in zip(self.diameters_mm, self.diameters_mm[1:], strict=False):
             if curr <= prev:
                 raise ValueError(
-                    f"GrainSize sieve_diameters_mm must be strictly ascending: {prev} >= {curr}"
+                    f"GrainSize diameters_mm must be strictly ascending: {prev} >= {curr}"
                 )
