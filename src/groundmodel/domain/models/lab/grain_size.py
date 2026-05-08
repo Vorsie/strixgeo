@@ -48,11 +48,30 @@ class GrainSize(LabTest):
     test_date : date | None
         Date the test was performed.
     lime_removed : bool | None
-        Whether lime (CaCO3) was removed before testing. ``None`` if unknown
+        **Pre-treatment flag** — whether lime (CaCO3) was chemically removed
+        from the sample BEFORE the grain-size test. This is procedural metadata
+        about the test, NOT a measurement of lime content. ``None`` if unknown
         or method-irrelevant (e.g. typically not applied to laser diffraction).
     organics_removed : bool | None
-        Whether organic matter was removed before testing. ``None`` if unknown
-        or method-irrelevant.
+        **Pre-treatment flag** — whether organic matter was removed from the
+        sample BEFORE the grain-size test. NOT a measurement of organic
+        content. ``None`` if unknown or method-irrelevant.
+
+    Notes
+    -----
+    Measured contents and other index properties are SEPARATE lab tests, not
+    fields on ``GrainSize``. They will land as their own ``LabTest`` subclasses
+    in later phases when their data sources come online:
+
+    * Lime / CaCO3 content (% by mass) — calcimetry / loss-on-acid
+    * Organic content (% by mass) — loss on ignition
+    * Atterberg limits — liquid limit, plastic limit, plasticity index
+    * Water content, bulk density, specific gravity
+    * Strength tests — triaxial, direct shear, UCS
+
+    DOV exposes them through the same ``monster:observaties`` WFS layer with
+    different ``parametergroep`` filters, so the ingest plumbing is shared with
+    grain size.
 
     Raises
     ------
