@@ -16,8 +16,9 @@ class ObservationLayer:
 
     * Lithology layers populate ``color``, ``main_soil_codes``, and ``admixtures``;
       ``description`` may also be set.
-    * Stratigraphy layers populate ``description`` (e.g. "HyEg - Lid van Egem")
-      and typically leave the lithology fields empty.
+    * Stratigraphy layers populate ``description`` (e.g. "HyEg - Lid van Egem"
+      = "Member of Egem", from the Formation of Hyon) and typically leave the
+      lithology fields empty.
 
     Parameters
     ----------
