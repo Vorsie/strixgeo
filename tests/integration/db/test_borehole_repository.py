@@ -249,3 +249,198 @@ async def test_bulk_save_with_flush_false(db_session: AsyncSession) -> None:
     assert len(found) == 5
     # Sanity: pre_commit should already see the rows because of the auto-flush
     assert len(pre_commit) == 5
+
+
+# ---------------------------------------------------------------------------
+# Observation tree — observation → layers → admixtures cascade
+# ---------------------------------------------------------------------------
+
+
+async def test_save_persists_observation_tree(db_session: AsyncSession) -> None:
+    """Attaching observations + layers + admixtures all persists in one save."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="obs-tree")
+    obs = ObservationOrm(
+        id=uuid7(),
+        observation_type="coded_lithology",
+        author="Scheirlynck, Victor (Geolab)",
+        reliability="goed",
+        score_category="zeer goed",
+        layers=[
+            ObservationLayerOrm(
+                id=uuid7(),
+                top_m=0.0,
+                base_m=0.5,
+                color="groenbruin",
+                main_soil_codes=["FZ"],
+                layer_index=0,
+                admixtures=[
+                    AdmixtureOrm(id=uuid7(), soil_code="KL", amount="Z", locally=False),
+                    AdmixtureOrm(id=uuid7(), soil_code="GL", amount="M", locally=True),
+                ],
+            ),
+            ObservationLayerOrm(
+                id=uuid7(),
+                top_m=0.5,
+                base_m=2.0,
+                main_soil_codes=["XZ", "KL"],  # equally-dominant main soils
+                layer_index=1,
+            ),
+        ],
+    )
+    bh.observations = [obs]
+    await repo.save(bh)
+    await db_session.commit()
+
+    got = await repo.get_by_id(bh.id)
+    assert got is not None
+    assert len(got.observations) == 1
+    loaded = got.observations[0]
+    assert loaded.observation_type == "coded_lithology"
+    assert loaded.author == "Scheirlynck, Victor (Geolab)"
+    assert len(loaded.layers) == 2
+    # Layers come back in layer_index order.
+    assert loaded.layers[0].layer_index == 0
+    assert loaded.layers[1].layer_index == 1
+    # ARRAY round-trips with order preserved.
+    assert loaded.layers[0].main_soil_codes == ["FZ"]
+    assert loaded.layers[1].main_soil_codes == ["XZ", "KL"]
+    # Admixtures attached to the right layer.
+    layer0_admixtures = loaded.layers[0].admixtures
+    assert len(layer0_admixtures) == 2
+    by_code = {a.soil_code: a for a in layer0_admixtures}
+    assert by_code["KL"].amount == "Z"
+    assert by_code["KL"].locally is False
+    assert by_code["GL"].amount == "M"
+    assert by_code["GL"].locally is True
+    # Layer 1 has no admixtures.
+    assert loaded.layers[1].admixtures == []
+
+
+async def test_main_soil_codes_default_empty_array(db_session: AsyncSession) -> None:
+    """Stratigraphy layers leave main_soil_codes empty — defaults to []."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="strat-layer")
+    obs = ObservationOrm(
+        id=uuid7(),
+        observation_type="formal_stratigraphy",
+        layers=[
+            ObservationLayerOrm(
+                id=uuid7(),
+                top_m=3.0,
+                base_m=8.5,
+                description="HyEg - Lid van Egem (Formatie van Hyon)",
+                layer_index=0,
+            ),
+        ],
+    )
+    bh.observations = [obs]
+    await repo.save(bh)
+    await db_session.commit()
+
+    got = await repo.get_by_id(bh.id)
+    assert got is not None
+    layer = got.observations[0].layers[0]
+    assert layer.main_soil_codes == []
+    assert layer.description == "HyEg - Lid van Egem (Formatie van Hyon)"
+
+
+async def test_delete_cascades_through_observation_tree(
+    db_session: AsyncSession,
+) -> None:
+    """Deleting a borehole removes observations, layers, and admixtures via cascade."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="cascade-obs")
+    layer = ObservationLayerOrm(
+        id=uuid7(),
+        top_m=0.0,
+        base_m=1.0,
+        main_soil_codes=["FZ"],
+        layer_index=0,
+        admixtures=[AdmixtureOrm(id=uuid7(), soil_code="GL", amount="M")],
+    )
+    obs = ObservationOrm(id=uuid7(), observation_type="coded_lithology", layers=[layer])
+    bh.observations = [obs]
+    await repo.save(bh)
+    await db_session.commit()
+    bh_id, obs_id, layer_id = bh.id, obs.id, layer.id
+
+    await repo.delete(bh_id)
+    await db_session.commit()
+
+    from sqlalchemy import select
+
+    obs_rows = (
+        await db_session.execute(select(ObservationOrm).where(ObservationOrm.id == obs_id))
+    ).all()
+    layer_rows = (
+        await db_session.execute(
+            select(ObservationLayerOrm).where(ObservationLayerOrm.id == layer_id)
+        )
+    ).all()
+    admixture_rows = (
+        await db_session.execute(
+            select(AdmixtureOrm).where(AdmixtureOrm.observation_layer_id == layer_id)
+        )
+    ).all()
+    assert obs_rows == []
+    assert layer_rows == []
+    assert admixture_rows == []
+
+
+# ---------------------------------------------------------------------------
+# Sample — cascade from borehole
+# ---------------------------------------------------------------------------
+
+
+async def test_save_persists_samples(db_session: AsyncSession) -> None:
+    """Samples attach to a borehole via cascade and load back via get_by_id."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="samples-1")
+    bh.samples = [
+        SampleOrm(
+            id=uuid7(),
+            depth_top_m=2.0,
+            depth_base_m=3.0,
+            sample_number="1",
+            sample_type="geroerd",
+            instrument="edelmanboor",
+        ),
+        # Spot sample — top == base — must be allowed (DOV ships these).
+        SampleOrm(
+            id=uuid7(),
+            depth_top_m=18.0,
+            depth_base_m=18.0,
+            sample_number="2",
+            sample_type="ongeroerd",
+        ),
+    ]
+    await repo.save(bh)
+    await db_session.commit()
+
+    got = await repo.get_by_id(bh.id)
+    assert got is not None
+    assert len(got.samples) == 2
+    # Loaded in depth_top_m order via the relationship's order_by clause.
+    assert got.samples[0].depth_top_m == 2.0
+    assert got.samples[1].depth_top_m == 18.0
+    assert got.samples[1].depth_base_m == 18.0
+    assert got.samples[0].instrument == "edelmanboor"
+
+
+async def test_delete_cascades_to_samples(db_session: AsyncSession) -> None:
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="cascade-samples")
+    sample_id = uuid7()
+    bh.samples = [SampleOrm(id=sample_id, depth_top_m=1.0, depth_base_m=2.0)]
+    await repo.save(bh)
+    await db_session.commit()
+    bh_id = bh.id
+
+    await repo.delete(bh_id)
+    await db_session.commit()
+
+    from sqlalchemy import select
+
+    rows = (await db_session.execute(select(SampleOrm).where(SampleOrm.id == sample_id))).all()
+    assert rows == []
