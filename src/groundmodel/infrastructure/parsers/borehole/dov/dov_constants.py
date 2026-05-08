@@ -143,3 +143,52 @@ DOV_BORING_FIELD_LOG_TAGS: dict[str, FieldLogKind] = {
 # and every field-log kind in DOV's schema).
 DOV_BORING_VAN_TAG = "van"
 DOV_BORING_TOT_TAG = "tot"
+
+
+# ----------------------------------------------------------------------
+# Interpretation XML — element names (Phase B2)
+# ----------------------------------------------------------------------
+
+# The interpretation XML's outer wrapper. Inside it sits exactly one element
+# whose tag matches the WFS layer (with underscores stripped and trailing
+# 'en' dropped — e.g. ``gecodeerdelithologie``, ``formelestratigrafie``,
+# ``lithologischebeschrijving``). The parser doesn't depend on knowing that
+# inner tag — it grabs the first element child.
+DOV_INTERP_WRAPPER_TAG = "interpretaties"
+
+# Interpretation header children — same names across all eight stream types.
+DOV_INTERP_BORING_TAG = "boring"  # source-side identificatie of the parent borehole
+DOV_INTERP_PERMKEY_PARENT_TAG = "dataidentifier"
+DOV_INTERP_AUTHOR_PARENT_TAG = (
+    "auteur"  # nested <persoon><naam>+<voornaam> + <bedrijf-dienst><naam>
+)
+DOV_INTERP_DATE_TAG = "datum"
+DOV_INTERP_RELIABILITY_TAG = "betrouwbaarheid"
+DOV_INTERP_QUALITY_PARENT_TAG = "kwaliteit"  # nested <categorie> + <geschiktheid_boormethode>
+DOV_INTERP_QUALITY_CATEGORY_TAG = "categorie"
+DOV_INTERP_QUALITY_DRILL_METHOD_TAG = "geschiktheid_boormethode"
+
+# Layer (laag) element name — same across all stream types.
+DOV_INTERP_LAYER_TAG = "laag"
+
+# Layer child elements — three sub-shapes share the row.
+# Lithology shape (gecodeerde_lithologie, geotechnische_codering):
+DOV_INTERP_LAYER_COLOR_TAG = "kleur"
+DOV_INTERP_LAYER_MAIN_SOIL_PARENT_TAG = "hoofdnaam"  # repeats for equally-dominant soils
+DOV_INTERP_LAYER_MAIN_SOIL_CODE_TAG = "grondsoort"  # inside <hoofdnaam>
+DOV_INTERP_LAYER_ADMIXTURE_TAG = "bijmenging"  # repeats; nested fields below
+DOV_INTERP_ADMIXTURE_LOCALLY_TAG = "plaatselijk"
+DOV_INTERP_ADMIXTURE_AMOUNT_TAG = "hoeveelheid"
+DOV_INTERP_ADMIXTURE_SOIL_CODE_TAG = "grondsoort"
+
+# Free-text shape (lithologische_beschrijving):
+DOV_INTERP_LAYER_DESCRIPTION_TAG = "beschrijving"
+
+# Stratigraphy shape (formele/informele/quartaire/hydrogeologische):
+# Two formation-member codes plus an optional relation between them. The
+# parser folds these into a single description string ("Q-T-Q" or just "Q")
+# because the domain ObservationLayer has one description field; the codes
+# also land in main_soil_codes for queryability.
+DOV_INTERP_LAYER_LID1_TAG = "lid1"
+DOV_INTERP_LAYER_LID2_TAG = "lid2"
+DOV_INTERP_LAYER_LID_RELATION_TAG = "relatie_lid1_lid2"
