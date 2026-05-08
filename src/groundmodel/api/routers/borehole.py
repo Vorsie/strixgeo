@@ -86,16 +86,45 @@ async def import_borehole_dov(
         imported=result.imported,
         duplicates=result.duplicates,
         failed=result.failed,
+        interpretations_attached=result.interpretations_attached,
+        interpretations_failed=result.interpretations_failed,
         borehole_ids=result.borehole_ids,
     )
 
 
-@router.get("/{borehole_id}")
-async def get_borehole(borehole_id: str) -> None:
-    """Retrieve borehole detail by ID.
+@router.get("/{borehole_id}", response_model=BoreholeDetailResponse)
+async def get_borehole(
+    borehole_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> BoreholeDetailResponse:
+    """Retrieve full borehole detail (header + drill segments + field log + observations).
 
-    Phase C2 wires this up to ``BoreholeRepository.get_by_id`` and
-    serialises the full tree (drill segments, field log, observations,
-    samples, lab tests). Stub for now so the route is reserved.
+    Phase C3 will extend the response to include samples and lab tests
+    once the sample-import pipeline lands; the repository already eager-
+    loads those collections, so this route only needs schema additions
+    when that work happens.
+
+    Parameters
+    ----------
+    borehole_id:
+        Primary key of the borehole record.
+
+    Returns
+    -------
+    BoreholeDetailResponse
+        Full borehole tree, with observations sorted by observation_date
+        and layers sorted by ``layer_index`` (per the ORM ``order_by``).
+
+    Raises
+    ------
+    HTTPException(404)
+        When no borehole with that id exists.
     """
-    ...
+    repo = BoreholeRepository(session)
+    borehole = await repo.get_by_id(borehole_id)
+    if borehole is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Borehole {borehole_id} not found",
+        )
+    return BoreholeDetailResponse.model_validate(borehole)
