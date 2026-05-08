@@ -63,3 +63,39 @@ class SampleOrm(Base):
     borehole: Mapped[BoreholeOrm] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "BoreholeOrm", back_populates="samples"
     )
+
+    # Reverse relationships per lab-test type. Loading a sample with all of
+    # its tests is one selectinload per type (no joins, no Cartesian
+    # explosion). Most samples carry one of each type at most; the
+    # order_by="<Class>.id" preserves uuid7 insertion order for the rare
+    # case where the same test is run twice.
+    grain_sizes: Mapped[list[GrainSizeOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "GrainSizeOrm",
+        back_populates="sample",
+        cascade="all, delete-orphan",
+        order_by="GrainSizeOrm.id",
+    )
+    atterberg_limits_tests: Mapped[list[AtterbergLimitsOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "AtterbergLimitsOrm",
+        back_populates="sample",
+        cascade="all, delete-orphan",
+        order_by="AtterbergLimitsOrm.id",
+    )
+    caco3_content_tests: Mapped[list[CaCO3ContentOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "CaCO3ContentOrm",
+        back_populates="sample",
+        cascade="all, delete-orphan",
+        order_by="CaCO3ContentOrm.id",
+    )
+    organic_content_tests: Mapped[list[OrganicContentOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "OrganicContentOrm",
+        back_populates="sample",
+        cascade="all, delete-orphan",
+        order_by="OrganicContentOrm.id",
+    )
+    water_content_tests: Mapped[list[WaterContentOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "WaterContentOrm",
+        back_populates="sample",
+        cascade="all, delete-orphan",
+        order_by="WaterContentOrm.id",
+    )
