@@ -50,6 +50,39 @@ class TestGrainSizeConstruction:
         )
         assert gs.method == "D.m.v. Laserdiffractie"
 
+    def test_pipette_method_accepted(self) -> None:
+        # DOV ``methode`` for pipette method (Stokes-law sedimentation read
+        # by pipetting at calibrated times).
+        gs = GrainSize(
+            sample_id=uuid4(),
+            diameters_mm=[0.001, 0.005, 0.02, 0.063],
+            pct_larger=[100.0, 90.0, 60.0, 25.0],
+            method="Pipette",
+        )
+        assert gs.method == "Pipette"
+
+    def test_sedigraph_method_accepted(self) -> None:
+        # DOV ``methode`` for X-ray sedimentation analyser.
+        gs = GrainSize(
+            sample_id=uuid4(),
+            diameters_mm=[0.001, 0.005, 0.02, 0.063],
+            pct_larger=[100.0, 92.0, 65.0, 30.0],
+            method="Sedigraaf",
+        )
+        assert gs.method == "Sedigraaf"
+
+    def test_hybrid_method_string_accepted(self) -> None:
+        # DOV occasionally ships method-specific variants combining the
+        # method name with calibration / scope info. The field accepts
+        # any string — translation at presentation.
+        gs = GrainSize(
+            sample_id=uuid4(),
+            diameters_mm=[0.001, 0.063],
+            pct_larger=[100.0, 90.0],
+            method="Hydrometer met ijking Geotechniek",
+        )
+        assert gs.method == "Hydrometer met ijking Geotechniek"
+
 
 class TestGrainSizeValidation:
     def test_array_length_mismatch_rejected(self) -> None:
