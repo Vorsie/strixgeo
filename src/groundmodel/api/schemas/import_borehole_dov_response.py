@@ -16,4 +16,6 @@ class ImportBoreholeDovResponse(BaseModel):
     imported: int
     duplicates: int
     failed: int
+    interpretations_attached: int = 0
+    interpretations_failed: int = 0
     borehole_ids: list[UUID]
