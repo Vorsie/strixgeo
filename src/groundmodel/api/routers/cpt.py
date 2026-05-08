@@ -10,12 +10,12 @@ import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.schemas.cpt_list_item import CptListItem
-from groundmodel.api.schemas.cpt_plot_response import CptPlotResponse
-from groundmodel.api.schemas.cpt_response import CptResponse
-from groundmodel.api.schemas.import_cpt_response import ImportCptResponse
-from groundmodel.api.schemas.import_dov_request import ImportDovRequest
-from groundmodel.api.schemas.import_dov_response import ImportDovResponse
+from groundmodel.api.schemas.cpt.cpt_list_item import CptListItem
+from groundmodel.api.schemas.cpt.cpt_plot_response import CptPlotResponse
+from groundmodel.api.schemas.cpt.cpt_response import CptResponse
+from groundmodel.api.schemas.cpt.import_cpt_response import ImportCptResponse
+from groundmodel.api.schemas.cpt.import_dov_request import ImportDovRequest
+from groundmodel.api.schemas.cpt.import_dov_response import ImportDovResponse
 from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_dov import ImportCptDov

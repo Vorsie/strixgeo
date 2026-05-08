@@ -1,15 +1,12 @@
-"""Pydantic request and response schemas."""
+"""Pydantic request and response schemas.
 
-from groundmodel.api.schemas.cpt_list_item import CptListItem
-from groundmodel.api.schemas.cpt_plot_response import CptPlotResponse
-from groundmodel.api.schemas.cpt_response import CptResponse
-from groundmodel.api.schemas.import_cpt_response import ImportCptResponse
-from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
+Schemas are organised by resource:
 
-__all__ = [
-    "CptListItem",
-    "CptPlotResponse",
-    "CptResponse",
-    "ImportCptResponse",
-    "ValidationIssueSchema",
-]
+* ``schemas/cpt/`` — CPT routes
+* ``schemas/borehole/`` — Borehole routes
+* ``schemas/validation_issue_schema.py`` — shared by both
+
+Convention: one Pydantic class per file, named after the class in
+``snake_case``. ``__init__`` modules are intentionally empty so each
+class is imported through its own module path (no implicit re-exports).
+"""

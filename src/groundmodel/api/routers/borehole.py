@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.schemas.import_borehole_dov_request import (
+from groundmodel.api.schemas.borehole.borehole_detail_response import (
+    BoreholeDetailResponse,
+)
+from groundmodel.api.schemas.borehole.import_borehole_dov_request import (
     ImportBoreholeDovRequest,
 )
-from groundmodel.api.schemas.import_borehole_dov_response import (
+from groundmodel.api.schemas.borehole.import_borehole_dov_response import (
     ImportBoreholeDovResponse,
 )
 from groundmodel.application.import_borehole_dov import ImportBoreholeDov
+from groundmodel.infrastructure.db.repositories.borehole_repository import (
+    BoreholeRepository,
+)
 from groundmodel.infrastructure.db.session import get_session
 
 router = APIRouter()
