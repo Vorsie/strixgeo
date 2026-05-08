@@ -55,9 +55,10 @@ fields the source provides:
 * lithology layer → ``color`` + ``main_soil_codes`` (one per ``<hoofdnaam>``)
   + ``admixtures``; ``description`` empty.
 * free-text layer → ``description`` only; lithology fields empty.
-* stratigraphy layer → ``main_soil_codes`` = ``[lid1]`` (or ``[lid1, lid2]``
-  when both present) and ``description`` built from ``lid1 + relation + lid2``
-  (e.g. ``"Q-T-Q"`` or just ``"Q"``); ``color``, ``admixtures`` empty.
+* stratigraphy layer → ``description`` only, built from ``lid1 + relation + lid2``
+  (e.g. ``"Q-T-Q"`` or just ``"Q"``); ``main_soil_codes`` stays empty —
+  formation codes (Q, HyEg, …) are a different codelist namespace from
+  soil-type codes (FZ, KL, GL, …) and don't share the column.
 
 Per-layer ``<betrouwbaarheid>`` (stratigraphy) is currently dropped — the
 domain ObservationLayer has no per-layer reliability field, only the
@@ -368,17 +369,16 @@ class DovInterpretationParser(GroundModelLogger):
                 continue
 
             color = _text(laag_elem, DOV_INTERP_LAYER_COLOR_TAG) or None
+            # main_soil_codes carries SOIL-type codes only (FZ, KL, GL, ...).
+            # Stratigraphy formation codes (Q, HyEg, Eg, ...) are a different
+            # codelist namespace and a different consumer concept; they live
+            # only in `description` (built below). Mirrors the design
+            # documented on observation_layer_orm: lithology layers populate
+            # color + main_soil_codes + admixtures; stratigraphy layers
+            # populate description.
             main_soil_codes = self._parse_main_soils(laag_elem)
             admixtures = self._parse_admixtures(laag_elem)
             description = self._build_description(laag_elem)
-            stratigraphy_codes = self._parse_stratigraphy_codes(laag_elem)
-
-            # Stratigraphy formation codes also count as "main soils" for
-            # query purposes — the column is the canonical "what classifies
-            # this layer" list, regardless of whether the source called them
-            # ``hoofdnaam/grondsoort`` or ``lid1/lid2``.
-            if not main_soil_codes and stratigraphy_codes:
-                main_soil_codes = stratigraphy_codes
 
             try:
                 layer = ObservationLayer(
@@ -443,20 +443,6 @@ class DovInterpretationParser(GroundModelLogger):
             locally = locally_raw.lower() == "true"
             admixtures.append(Admixture(soil_code=soil_code, amount=amount, locally=locally))
         return admixtures
-
-    def _parse_stratigraphy_codes(self, laag_elem: ET.Element) -> list[str]:
-        """Extract ``<lid1>`` and ``<lid2>`` formation codes when present."""
-        codes: list[str] = []
-        lid1 = _text(laag_elem, DOV_INTERP_LAYER_LID1_TAG)
-        if lid1:
-            codes.append(lid1)
-        lid2 = _text(laag_elem, DOV_INTERP_LAYER_LID2_TAG)
-        if lid2 and lid2 != lid1:
-            # Skip the redundant lid2==lid1 case (DOV ships some layers with
-            # both members equal to the same formation, which is just "this
-            # layer is in formation X" and doesn't need duplicate storage).
-            codes.append(lid2)
-        return codes
 
     def _build_description(self, laag_elem: ET.Element) -> str | None:
         """Build the description string from ``<beschrijving>`` or stratigraphy fields.
