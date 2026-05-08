@@ -105,6 +105,21 @@ DOV_INTERPRETATION_PROXY_URL_PREFIX = "/xdov/proxy/export/interpretatie/"
 
 
 # ----------------------------------------------------------------------
+# Interpretation — WFS feature property names (Phase C2)
+# ----------------------------------------------------------------------
+
+# Each row in any of the eight ``interpretaties:*`` layers references its
+# parent borehole via this property. Value equals the borehole's
+# ``boornummer`` (which we store as ``test_id``) so the orchestrator can
+# resolve interpretation → borehole UUID via the test-id map built during
+# the borehole-import phase. Verified live 2026-05-08.
+DOV_INTERP_WFS_PROEFNUMMER_PROP = "Proefnummer"
+
+# URL of the per-interpretation XML detail page (302-redirects to the proxy).
+DOV_INTERP_WFS_FICHE_PROP = "fiche"
+
+
+# ----------------------------------------------------------------------
 # Boring XML — element names and field-log discriminators
 # ----------------------------------------------------------------------
 
