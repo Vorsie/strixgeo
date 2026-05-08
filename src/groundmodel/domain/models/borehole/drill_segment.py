@@ -7,10 +7,11 @@ from dataclasses import dataclass
 class DrillSegment:
     """Interval of a borehole drilled with one specific drilling technique.
 
-    DOV records drill methods per interval — e.g. "spade" 0.0–0.5 m,
-    "edelmanboring" 0.5–2.0 m, "avegaarboring" 2.0–4.5 m. The borehole's overall
-    ``drill_method`` summarises this ("Meerdere technieken" = multiple techniques);
-    the segment list is the ground truth.
+    DOV records drill methods per interval — e.g. "spade" (manual spade)
+    0.0–0.5 m, "edelmanboring" (Edelman hand auger) 0.5–2.0 m, "avegaarboring"
+    (continuous-flight auger) 2.0–4.5 m. The borehole's overall ``drill_method``
+    summarises this ("Meerdere technieken" = multiple techniques); the segment
+    list is the ground truth.
 
     Parameters
     ----------
@@ -19,8 +20,11 @@ class DrillSegment:
     base_m : float
         Base of the segment in metres below ground surface (> top_m).
     method : str
-        Source-vocabulary drill method code (DOV examples: "spade", "edelmanboring",
-        "avegaarboring", "pulsboring", "kerboor", "spoelboor").
+        Source-vocabulary drill method code. DOV examples (Dutch token = English
+        meaning): "spade" = manual spade, "edelmanboring" = Edelman hand auger,
+        "avegaarboring" = continuous-flight auger, "pulsboring" = percussion
+        (clay) auger, "kerboor" = core drill, "spoelboor" = wash-boring (flush
+        drilling).
 
     Raises
     ------
