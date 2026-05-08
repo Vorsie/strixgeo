@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any, TypeVar
 
 import httpx
@@ -59,49 +58,6 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
 ProcessFn = Callable[[bytes, str], _T]
-
-
-@dataclass(frozen=True)
-class BoreholeWfsRow:
-    """WFS-row metadata for one borehole.
-
-    Holds the fields the orchestrator needs to enrich a parsed Borehole that
-    aren't available in the boring XML body itself. ``test_id`` is the
-    ``boornummer`` from the WFS row; ``permkey`` is the dataidentifier piece
-    extracted from the ``fiche`` URL.
-
-    Boolean flags map to the eight DOV interpretation streams. The
-    orchestrator (Phase C2) uses them to decide which interpretation WFS
-    layers to query for this borehole.
-    """
-
-    permkey: str
-    test_id: str  # boornummer
-    fiche_url: str
-    xml_url: str  # proxy URL constructed from fiche_url
-
-    # Coordinates from the WFS row. EPSG codes come from the constants — DOV
-    # always reports Lambert 72 + mTAW for these layers.
-    x: float | None
-    y: float | None
-    z: float | None  # Z_mTAW; orchestrator uses as fallback when boring XML omits Z
-
-    # Borehole header metadata that lives only in the WFS row.
-    drill_method: str | None  # Boringen.methode summary
-    municipality: str | None
-    executor: str | None
-    purpose: str | None
-    total_depth_m: float | None
-
-    # Eight interpretation-stream availability flags (Phase C2 uses these).
-    has_coded_lithology: bool
-    has_geotechnical_coding: bool
-    has_lithological_description: bool
-    has_informal_stratigraphy: bool
-    has_formal_stratigraphy: bool
-    has_quaternary_stratigraphy: bool
-    has_hydrogeological_stratigraphy: bool
-    has_informal_hydrogeological_stratigraphy: bool
 
 
 class DovBoreholeClient(GroundModelLogger):
@@ -424,7 +380,17 @@ class DovBoreholeClient(GroundModelLogger):
             if DOV_BORING_URL_PREFIX in fiche_url
             else fiche_url.rstrip("/") + ".xml"
         )
-
+        # x/y/z are typed ``float | None`` because DOV could in theory ship a
+        # null coordinate in a WFS row (the WFS schema allows it). The
+        # orchestrator's ``_merge_wfs`` rejects rows that end up with no x/y
+        # from either WFS or boring XML — we never persist a borehole that
+        # can't be placed on a map. Z (surface elevation in mTAW) is allowed
+        # to remain None: the parser flags NO_ELEVATION and the UI will
+        # surface a manual-entry editor (Phase 4 / Layer 4 todo).
+        # EPSG codes (Lambert 72 horizontal, mTAW vertical) are hardcoded
+        # via ``DOV_HORIZONTAL_EPSG`` / ``DOV_VERTICAL_EPSG`` because this
+        # is the DOV-only client — every other source brings its own
+        # parser/client pair with its own CRS constants.
         return BoreholeWfsRow(
             permkey=permkey,
             test_id=props.get("boornummer") or permkey,
