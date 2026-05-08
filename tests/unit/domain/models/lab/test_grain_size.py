@@ -10,25 +10,45 @@ from groundmodel.domain.models.lab.grain_size import GrainSize
 class TestGrainSizeConstruction:
     def test_minimal_construction(self) -> None:
         gs = GrainSize(sample_id=uuid4())
-        assert gs.sieve_diameters_mm == []
-        assert gs.pct_retained == []
+        assert gs.diameters_mm == []
+        assert gs.pct_larger == []
         assert gs.method is None
         assert gs.lime_removed is None
 
-    def test_real_dov_curve(self) -> None:
+    def test_real_dov_sieve_curve(self) -> None:
         # Real curve from the example we probed (monster 2017-137886, sieve test):
-        # diameters in mm, % retained = "Fractie met grotere diameter" from DOV
+        # diameters in mm, pct_larger = "Fractie met grotere diameter" from DOV
         gs = GrainSize(
             sample_id=uuid4(),
-            sieve_diameters_mm=[0.063, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0],
-            pct_retained=[95.0, 87.0, 45.0, 8.0, 3.0, 1.0, 0.0],
+            diameters_mm=[0.063, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0],
+            pct_larger=[95.0, 87.0, 45.0, 8.0, 3.0, 1.0, 0.0],
             method="Zeving",
             lime_removed=False,
             organics_removed=False,
         )
-        assert len(gs.sieve_diameters_mm) == 7
-        assert gs.pct_retained[0] == 95.0
+        assert len(gs.diameters_mm) == 7
+        assert gs.pct_larger[0] == 95.0
         assert gs.method == "Zeving"
+
+    def test_hydrometer_method_accepted(self) -> None:
+        # DOV ``methode`` for hydrometer/areometer test.
+        gs = GrainSize(
+            sample_id=uuid4(),
+            diameters_mm=[0.001, 0.002, 0.005, 0.02, 0.063],
+            pct_larger=[100.0, 95.0, 80.0, 50.0, 20.0],
+            method="Hydrometer",
+        )
+        assert gs.method == "Hydrometer"
+
+    def test_laser_diffraction_method_accepted(self) -> None:
+        # DOV ``methode`` for laser-diffraction analyser.
+        gs = GrainSize(
+            sample_id=uuid4(),
+            diameters_mm=[0.001, 0.01, 0.1, 1.0],
+            pct_larger=[99.0, 80.0, 30.0, 5.0],
+            method="D.m.v. Laserdiffractie",
+        )
+        assert gs.method == "D.m.v. Laserdiffractie"
 
 
 class TestGrainSizeValidation:
@@ -36,38 +56,38 @@ class TestGrainSizeValidation:
         with pytest.raises(ValueError, match="length mismatch"):
             GrainSize(
                 sample_id=uuid4(),
-                sieve_diameters_mm=[0.063, 0.125],
-                pct_retained=[95.0],
+                diameters_mm=[0.063, 0.125],
+                pct_larger=[95.0],
             )
 
     def test_percentage_above_100_rejected(self) -> None:
         with pytest.raises(ValueError, match="must be in"):
             GrainSize(
                 sample_id=uuid4(),
-                sieve_diameters_mm=[0.063],
-                pct_retained=[101.0],
+                diameters_mm=[0.063],
+                pct_larger=[101.0],
             )
 
     def test_negative_percentage_rejected(self) -> None:
         with pytest.raises(ValueError, match="must be in"):
             GrainSize(
                 sample_id=uuid4(),
-                sieve_diameters_mm=[0.063],
-                pct_retained=[-1.0],
+                diameters_mm=[0.063],
+                pct_larger=[-1.0],
             )
 
     def test_non_ascending_diameters_rejected(self) -> None:
         with pytest.raises(ValueError, match="strictly ascending"):
             GrainSize(
                 sample_id=uuid4(),
-                sieve_diameters_mm=[0.125, 0.063],
-                pct_retained=[87.0, 95.0],
+                diameters_mm=[0.125, 0.063],
+                pct_larger=[87.0, 95.0],
             )
 
     def test_duplicate_diameters_rejected(self) -> None:
         with pytest.raises(ValueError, match="strictly ascending"):
             GrainSize(
                 sample_id=uuid4(),
-                sieve_diameters_mm=[0.063, 0.063],
-                pct_retained=[95.0, 95.0],
+                diameters_mm=[0.063, 0.063],
+                pct_larger=[95.0, 95.0],
             )
