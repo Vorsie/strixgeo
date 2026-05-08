@@ -16,8 +16,21 @@ class SampleOrm(Base):
     """Persisted Sample — material taken from a borehole at a depth interval.
 
     A Sample is the link between a borehole and the lab tests performed on
-    its material (grain size, Atterberg, CaCO3, organic content, water
-    content — each in its own table linked to ``sample.id``).
+    its material. Phase A3 adds the lab-test tables (``grain_size``,
+    ``atterberg_limits``, ``caco3_content``, ``organic_content``,
+    ``water_content``) — each one FKs to ``sample.id`` and SampleOrm
+    gets a reverse relationship per test type so loading a sample with all
+    its tests is one selectinload per type, no joins.
+
+    Discovery pattern, intentional:
+
+    * Lab test → sample is a hard FK (test belongs to its sample).
+    * Sample → lab tests is reverse-only — there is no "tests_performed"
+      list column denormalised onto Sample. Storing such a list would
+      duplicate information already present in the lab tables and would
+      drift when tests are added or removed (Data Integrity Rules §4).
+    * Inheritance is NOT used (sample is not a test); the relationship is
+      purely compositional.
 
     ``depth_top_m`` and ``depth_base_m`` accept equal values: DOV uses spot
     samples (top == base) for non-depth-resolved samples and we store them
