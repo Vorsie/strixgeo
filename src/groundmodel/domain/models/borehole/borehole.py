@@ -21,11 +21,22 @@ class Borehole:
         Human-readable identifier — bore number
         (DOV ``boornummer`` / ``proefnummer`` = test number).
     location_x : float
-        X coordinate in the source CRS (DOV: Lambert 72, EPSG:31370).
+        X coordinate in the CRS identified by ``epsg``. For DOV that is
+        Lambert 72 (EPSG:31370); for other providers it can be UTM, WGS84, or
+        any projected CRS — which is exactly why ``epsg`` is stored alongside.
     location_y : float
-        Y coordinate in the source CRS.
+        Y coordinate in the CRS identified by ``epsg``.
+    epsg : int | None
+        Horizontal CRS code (e.g. 31370 = Belgian Lambert 72, 4326 = WGS84,
+        25831 = UTM 31N). ``None`` only when the source data omitted CRS
+        metadata; in that case the coordinates cannot be plotted alongside
+        data from other CRSes and the row is flagged at validation time.
     elevation_m : float | None
-        Ground-surface elevation in mTAW or other source vertical datum.
+        Ground-surface elevation in the vertical datum identified by
+        ``z_epsg`` (DOV: mTAW, EPSG:5710).
+    z_epsg : int | None
+        Vertical CRS code for ``elevation_m`` (DOV: 5710 = mTAW). May differ
+        from ``epsg`` because horizontal and vertical datums are independent.
     total_depth_m : float | None
         Total drilled depth in metres below the surface reference.
     start_date : date | None
@@ -45,7 +56,9 @@ class Borehole:
         onderzoek" = geological investigation.
     municipality : str | None
         Municipality (DOV ``gemeente`` = municipality — sometimes a NIS code,
-        sometimes a name).
+        sometimes a name). Optional: when absent, downstream code may resolve
+        it by reverse-geocoding ``location_x``/``location_y`` rather than
+        requiring it on every record.
     executor : str | None
         Drilling executor / contractor (DOV ``uitvoerder`` = executor).
     water_table_depth_m : float | None
@@ -57,7 +70,9 @@ class Borehole:
     name: str
     location_x: float
     location_y: float
+    epsg: int | None = None
     elevation_m: float | None = None
+    z_epsg: int | None = None
     total_depth_m: float | None = None
     start_date: date | None = None
     drill_method: str | None = None
