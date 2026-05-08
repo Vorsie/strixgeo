@@ -139,18 +139,16 @@ class DovParser(GroundModelLogger):
             raise ParseError(f"DOV XML for '{name}': missing <sondering> element")
 
         header = self._parse_header(cpt_elem, name)
-        data, issues = self._parse_data(cpt_elem, name)
+        data, issues = self._parse_data(cpt_elem, name, header.cone_type_code)
         cpt_type = self._detect_type(header.cone_type_code, data)
 
-        # DOV provenance is fixed by the source schema:
-        #   * Rf is NEVER in the DOV XML — _parse_data computes it from fs and qc
-        #     when fs is present, so any rf_pct column is COMPUTED by us.
-        #   * qt comes straight from the <Qt> element when present, so MEASURED.
-        # Both columns may have been dropped if entirely null; in that case the
-        # source flag is left None to keep the (column present ⇔ flag set)
-        # invariant.
+        # DOV Rf provenance is fixed by the source schema: Rf is NEVER in the
+        # DOV XML, so _parse_data computes it from fs and qc whenever fs is
+        # present. The column is dropped when all-null, in which case the
+        # source flag stays None to keep the (column present ⇔ flag set)
+        # invariant. q_total_mpa and qt_mpa are always source-provided
+        # (DOV's <Qt> element), so they carry no provenance flag.
         rf_source = DerivedValueSource.COMPUTED if "rf_pct" in data.columns else None
-        qt_source = DerivedValueSource.MEASURED if "qt_mpa" in data.columns else None
 
         self.debug(
             f"DOV parser: '{name}' → {cpt_type.value}, "
@@ -163,7 +161,6 @@ class DovParser(GroundModelLogger):
             data=data,
             issues=issues,
             rf_source=rf_source,
-            qt_source=qt_source,
         )
 
     # ------------------------------------------------------------------
@@ -294,7 +291,7 @@ class DovParser(GroundModelLogger):
     # ------------------------------------------------------------------
 
     def _parse_data(
-        self, cpt_elem: ET.Element, name: str
+        self, cpt_elem: ET.Element, name: str, cone_type_code: int | None
     ) -> tuple[pl.DataFrame, list[ValidationIssue]]:
         issues: list[ValidationIssue] = []
         empty = pl.DataFrame({"depth_m": [], "qc_mpa": []})
@@ -335,7 +332,7 @@ class DovParser(GroundModelLogger):
             first_fields = [c.tag for c in measurement_elements[0]]
             self.debug(f"DOV XML '{name}': first row fields: {first_fields}")
 
-        rows, skipped = self._extract_rows(measurement_elements, name)
+        rows, skipped = self._extract_rows(measurement_elements, name, cone_type_code)
 
         if skipped:
             self.warning(f"DOV XML '{name}': skipped {skipped} rows with missing depth or qc")
@@ -363,7 +360,7 @@ class DovParser(GroundModelLogger):
             )
 
         # Drop columns that ended up entirely null so _to_orm skips them.
-        for col in ("fs_mpa", "u2_mpa", "rf_pct", "qt_mpa"):
+        for col in ("fs_mpa", "u2_mpa", "rf_pct", "qt_mpa", "q_total_mpa"):
             if col in df.columns and df[col].drop_nulls().len() == 0:
                 df = df.drop(col)
                 self.trace(f"DOV XML '{name}': dropped all-null column '{col}'")
@@ -371,7 +368,7 @@ class DovParser(GroundModelLogger):
         return df, issues
 
     def _extract_rows(
-        self, measurement_elements: list[ET.Element], name: str
+        self, measurement_elements: list[ET.Element], name: str, cone_type_code: int | None
     ) -> tuple[list[dict[str, float | None]], int]:
         """Build measurement row dicts from <meetdata> elements.
 
@@ -387,7 +384,23 @@ class DovParser(GroundModelLogger):
           no need to recompute lengte * cos(i). Fall back to ``<lengte>`` (raw
           penetration length) only when ``<diepte>`` is absent, which happens for
           some mechanical cones with no inclination tracking.
+
+        Qt routing:
+          DOV's ``<Qt>`` is two physically different quantities depending on cone
+          type:
+
+          * Mechanical cone (``cone_type_code == 1``) → totaalweerstand, the
+            combined tip + sleeve force a Begemann/CPTM apparatus reads in one
+            go. Stored as ``q_total_mpa``.
+          * Electric / piezocone (``cone_type_code == 0`` or unknown) → Robertson
+            corrected cone resistance qt = qc + u2(1 - a). Stored as ``qt_mpa``.
+
+          When ``cone_type_code`` is ``None`` we default to ``qt_mpa`` because
+          most DOV CPTUs ship Qt in this slot, and CPTM rows have a populated
+          ``cone_type_code`` in practice.
         """
+        qt_key = "q_total_mpa" if cone_type_code == 1 else "qt_mpa"
+
         rows: list[dict[str, float | None]] = []
         skipped = 0
         for measurement in measurement_elements:
@@ -402,7 +415,7 @@ class DovParser(GroundModelLogger):
 
             fs_kpa = _float(measurement, "fs")
             u_kpa = _float(measurement, "u")
-            qt_mpa = _float(measurement, "Qt")  # capital Q, lowercase t
+            qt_value = _float(measurement, "Qt")  # capital Q, lowercase t
 
             rows.append(
                 {
@@ -411,7 +424,7 @@ class DovParser(GroundModelLogger):
                     # DOV stores fs and u in kPa as integers; convert to MPa to match GEF.
                     "fs_mpa": (fs_kpa / 1000.0) if fs_kpa is not None else None,
                     "u2_mpa": (u_kpa / 1000.0) if u_kpa is not None else None,
-                    "qt_mpa": qt_mpa,
+                    qt_key: qt_value,
                 }
             )
         return rows, skipped
