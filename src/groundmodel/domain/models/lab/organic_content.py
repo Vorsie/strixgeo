@@ -10,17 +10,28 @@ from groundmodel.domain.models.lab.lab_test import LabTest
 class OrganicContent(LabTest):
     """Organic content of a soil sample.
 
-    Two related but distinct quantities are stored as separate fields because
-    DOV (and many labs) report them independently:
+    OC and OM are easy to confuse but they are **different measurements of
+    different things, by different methods**:
 
-    * **Organic carbon (OC)** — measured by dry/wet combustion or chromic acid
-      oxidation; this is what DOV's ``Organische C - percentage`` parameter
-      contains.
-    * **Organic matter (OM)** — total organic content, typically measured by
-      loss on ignition (LOI). Often estimated from OC via the Van Bemmelen
-      factor (``OM ≈ 1.724 × OC``), but the conversion is empirical and
-      soil-type-dependent, so we keep both fields independent and let the
-      caller decide whether to derive one from the other.
+    * **Organic carbon (OC, ``carbon_pct``)** — the mass of elemental carbon
+      that lives inside the organic fraction, expressed as % of total dry mass.
+      Measured by combustion or chromic-acid oxidation (Walkley-Black, dry
+      combustion). DOV's ``Organische C - percentage`` parameter is OC.
+    * **Organic matter (OM, ``matter_pct``)** — the total mass of organic
+      substances (carbon + hydrogen + oxygen + nitrogen + …) expressed as % of
+      total dry mass. Measured directly by Loss on Ignition (burn the sample at
+      ~550 °C; the mass that disappears is the organic matter).
+
+    Numerically they differ because organic matter contains many elements
+    besides carbon. The Van Bemmelen factor ``OM ≈ 1.724 × OC`` is the textbook
+    conversion (it assumes organic matter is ~58 % carbon by mass), but the
+    actual ratio varies materially with soil type — peats range ~1.6–1.9, soft
+    organic clays differ again — so the conversion is empirical, not exact.
+
+    Practical consequence: a lab may report only OC, only OM, or both. We
+    store the two as **independent** fields and refuse to silently derive one
+    from the other; auto-conversion would fabricate data and the consumer
+    couldn't distinguish a measured value from a derived one.
 
     DOV path for organic carbon: ``parametergroep = "Bodem_chemisch"`` /
     ``parameter = "Organische C - percentage (organische_c_perc)"``, unit ``%``.
