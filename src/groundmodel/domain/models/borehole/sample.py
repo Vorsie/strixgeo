@@ -26,17 +26,19 @@ class Sample:
     description : str
         Free-text sample description.
     sample_number : str | None
-        Identifier assigned to the sample by the data provider
-        (DOV ``monster`` — often a small integer like "0", "19", or a sample tag).
+        Identifier assigned to the sample by the data provider — sample number
+        (DOV ``monster`` = sample — often a small integer like "0" or "19", or a
+        sample tag).
     sample_type : str | None
         Sample type from the source vocabulary
         (DOV ``monstertype``: "geroerd" = disturbed, "ongeroerd" = undisturbed).
     composition : str | None
-        Composition (DOV ``monstersamenstelling``: "Enkelvoudig monster" = single,
-        "Mengmonster" = composite).
+        Composition (DOV ``monstersamenstelling`` = sample composition):
+        "Enkelvoudig monster" = single sample, "Mengmonster" = composite sample.
     instrument : str | None
-        Sampling instrument
-        (DOV ``bemonsteringsinstrument``: "spoelboor", "pulsboor", "edelmanboor", ...).
+        Sampling instrument (DOV ``bemonsteringsinstrument`` = sampling
+        instrument). Examples with English meaning: "spoelboor" = wash-boring,
+        "pulsboor" = percussion auger, "edelmanboor" = Edelman hand auger.
     sampling_date : date | None
         Date the sample was taken.
     id : UUID
