@@ -24,6 +24,18 @@ import re
 from pyproj import Transformer
 
 # ----------------------------------------------------------------------
+# Source-system tag
+# ----------------------------------------------------------------------
+
+# Identifier we use as ``project_id`` on every record imported via DOV
+# (CPT, borehole, future sample / observation). The dedup contract on the
+# repositories (``find_existing_test_ids("DOV", ...)``) keys off this tag
+# so a DOV record imports independently into different app projects but
+# never duplicates within one.
+DOV_PROJECT_ID = "DOV"
+
+
+# ----------------------------------------------------------------------
 # WFS endpoint
 # ----------------------------------------------------------------------
 
