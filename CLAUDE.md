@@ -554,9 +554,12 @@ GET    /cpt/{id}                CPT metadata (location, elevation, cone props, s
 GET    /cpt/{id}/plot           Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt)
 DELETE /cpt/{id}                Delete CPT and its series (cascade)
 
-POST   /borehole/import-dov     Import boreholes from DOV bbox (Phase C1 — boreholes only;
-                                interpretations + samples land in C2 / C3)
-GET    /borehole/{id}           Borehole detail — stub (Phase C2 wires it up)
+POST   /borehole/import-dov     Import boreholes + 8 interpretation streams from DOV bbox
+                                (Phase C1+C2; lab samples land in C3). Response carries
+                                interpretations_attached / interpretations_failed counts
+                                alongside the borehole counts.
+GET    /borehole/{id}           Full borehole tree (header + drill segments + field log
+                                + observations with layers + admixtures). 404 when missing.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
