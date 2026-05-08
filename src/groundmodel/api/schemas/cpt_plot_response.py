@@ -30,9 +30,11 @@ class CptPlotResponse(BaseModel):
     rf_pct:
         Friction ratio (fs/qc × 100) in percent; None when fs is absent.
     qt_mpa:
-        CPTU corrected cone resistance (Robertson qt = qc + u2(1-a)) in MPa.
-        Populated only for piezocone CPTs that ship qt directly. None for
-        CPTE, CPTM, or CPTUs whose source omitted qt.
+        CPTU corrected cone resistance (Robertson qt = qc + u2(1-a)) in MPa,
+        **computed on read** from the persisted qc, u2, and cone_area_ratio.
+        Returns None when any input is missing (CPTE has no u2; CPTM has no a
+        in the Robertson sense; legacy CPTU rows without MEASUREMENTVAR 3).
+        NOT a stored column — see cpt_series_orm.py.
     q_total_mpa:
         CPTM totaalweerstand in MPa — the mechanical cone's combined tip +
         sleeve force read in one go. Populated only for CPTM. Mutually
