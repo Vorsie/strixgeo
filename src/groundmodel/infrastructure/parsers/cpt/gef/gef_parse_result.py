@@ -31,12 +31,15 @@ class GEFParseResult:
         Provenance of the ``rf_pct`` column. ``MEASURED`` when the source GEF
         provided Rf directly (qty 4); ``COMPUTED`` when the parser derived it
         from qc and fs; ``None`` when the data has no Rf at all.
-    qt_source : DerivedValueSource | None
-        Provenance of the ``qt_mpa`` column. ``MEASURED`` when the source GEF
-        provided qt directly (qty 15 for CPTU, qty 128 for CPTM totaalweerstand,
-        or DOV's ``<Qt>`` element); ``COMPUTED`` when our code derived it from
-        qc + u2 (1 - a) — currently never emitted because no parser computes qt;
-        ``None`` when the data has no qt at all.
+
+    Notes
+    -----
+    There is no ``qt_source`` field. ``qt_mpa`` (CPTU corrected cone resistance)
+    is currently always source-provided in our pipeline — we never compute
+    ``qt = qc + u2 (1 - a)`` ourselves. ``q_total_mpa`` (CPTM totaalweerstand)
+    is structurally a measurement, never a derivation. If a future
+    ``_calculate_qt`` pathway is added for CPTU, this field can be reintroduced
+    in symmetry with ``rf_source``.
     """
 
     header: GEFHeader
@@ -44,7 +47,6 @@ class GEFParseResult:
     data: pl.DataFrame
     issues: list[ValidationIssue] = field(default_factory=list)
     rf_source: DerivedValueSource | None = None
-    qt_source: DerivedValueSource | None = None
 
     @property
     def has_errors(self) -> bool:
