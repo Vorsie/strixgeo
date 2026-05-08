@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
+from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -47,14 +50,21 @@ class BoreholeRepository(GroundModelLogger):
     async def get_by_id(self, borehole_id: UUID) -> BoreholeOrm | None:
         """Return a borehole with all of its child collections loaded, or ``None``.
 
-        Loads drill_segments, field_log_intervals, samples, and the
-        observation tree (observation → layers → admixtures). Uses
-        ``selectinload`` rather than ``joinedload`` so each collection comes
-        back as one extra round-trip per type — keeps the parent row small
-        and avoids a Cartesian explosion if a borehole has many of each. The
-        observation chain uses nested selectinload, which still issues only
-        three queries total for the whole tree (one per level), regardless of
-        how many observations or layers exist.
+        Loads the full borehole detail tree:
+
+        * drill_segments and field_log_intervals (Phase A1)
+        * observations → layers → admixtures (Phase A2)
+        * samples → grain_sizes / atterberg_limits_tests / caco3_content_tests
+          / organic_content_tests / water_content_tests (Phase A3)
+
+        Uses ``selectinload`` rather than ``joinedload`` so each collection
+        comes back as one extra round-trip per type — keeps the parent row
+        small and avoids a Cartesian explosion. Total queries per call is
+        1 (parent) + 2 (drill segments + field log) + 3 (observation chain)
+        + 1 (samples) + 5 (one per lab test type) = 12 round-trips for a
+        fully-populated borehole. Each query receives the relevant parent ids
+        in a single ``IN (...)``, so the count is constant in the borehole's
+        size — a 100-sample borehole still issues 12 queries, not 100.
         """
         stmt = (
             select(BoreholeOrm)
@@ -62,10 +72,14 @@ class BoreholeRepository(GroundModelLogger):
             .options(
                 selectinload(BoreholeOrm.drill_segments),
                 selectinload(BoreholeOrm.field_log_intervals),
-                selectinload(BoreholeOrm.samples),
                 selectinload(BoreholeOrm.observations)
                 .selectinload(ObservationOrm.layers)
                 .selectinload(ObservationLayerOrm.admixtures),
+                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.grain_sizes),
+                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.atterberg_limits_tests),
+                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.caco3_content_tests),
+                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.organic_content_tests),
+                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.water_content_tests),
             )
         )
         result = await self._session.execute(stmt)
