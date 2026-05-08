@@ -105,3 +105,15 @@ class BoreholeOrm(Base):
         cascade="all, delete-orphan",
         order_by="FieldLogIntervalOrm.top_m",
     )
+    observations: Mapped[list[ObservationOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "ObservationOrm",
+        back_populates="borehole",
+        cascade="all, delete-orphan",
+        order_by="ObservationOrm.observation_date",
+    )
+    samples: Mapped[list[SampleOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "SampleOrm",
+        back_populates="borehole",
+        cascade="all, delete-orphan",
+        order_by="SampleOrm.depth_top_m",
+    )
