@@ -190,8 +190,10 @@ def test_qc_kept_in_mpa():
 
 
 def test_qt_kept_in_mpa():
+    # Mechanical cone (M1) → totaalweerstand lands in q_total_mpa, units unchanged
+    # (DOV ships <Qt> in MPa already, no conversion needed).
     result = DovParser().parse(_xml(conustype="M1", rows=_row("0.20", qc="5.66", qt="9.36")))
-    assert result.data["qt_mpa"].to_list() == pytest.approx([9.36])
+    assert result.data["q_total_mpa"].to_list() == pytest.approx([9.36])
 
 
 def test_diepte_preferred_over_lengte():
@@ -223,12 +225,23 @@ def test_rf_source_is_computed_for_dov():
     assert result.rf_source is DerivedValueSource.COMPUTED
 
 
-def test_qt_source_is_measured_for_dov():
-    # DOV ships <Qt> directly in <meetdata>, so qt is a measured value.
+def test_qt_routes_to_qt_mpa_for_cptu():
+    # Electric cone (CPTU): <Qt> is the corrected cone resistance.
     rows = _row("1.0", qc="2.0", fs="20", qt="2.05")
-    result = DovParser().parse(_xml(rows=rows))
+    result = DovParser().parse(_xml(conustype="U", rows=rows))
     assert "qt_mpa" in result.data.columns
-    assert result.qt_source is DerivedValueSource.MEASURED
+    assert "q_total_mpa" not in result.data.columns
+    assert result.data["qt_mpa"].to_list() == pytest.approx([2.05])
+
+
+def test_qt_routes_to_q_total_mpa_for_cptm():
+    # Mechanical cone (CPTM): <Qt> is totaalweerstand, a physically different
+    # quantity from CPTU's qt. Must land in its own column.
+    rows = _row("0.20", qc="5.66", qt="9.36")
+    result = DovParser().parse(_xml(conustype="M1", rows=rows))
+    assert "q_total_mpa" in result.data.columns
+    assert "qt_mpa" not in result.data.columns
+    assert result.data["q_total_mpa"].to_list() == pytest.approx([9.36])
 
 
 def test_optional_columns_dropped_when_all_null():
@@ -238,11 +251,10 @@ def test_optional_columns_dropped_when_all_null():
     assert "fs_mpa" not in df.columns
     assert "u2_mpa" not in df.columns
     assert "rf_pct" not in df.columns
-    assert "qt_mpa" in df.columns
+    assert "q_total_mpa" in df.columns
+    assert "qt_mpa" not in df.columns
     # rf_pct dropped → flag must be cleared so (column present ⇔ flag set).
     assert result.rf_source is None
-    # qt_mpa still present → flag remains MEASURED.
-    assert result.qt_source is DerivedValueSource.MEASURED
 
 
 def test_multiple_rows_preserved_in_order():
