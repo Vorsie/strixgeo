@@ -101,12 +101,15 @@ Strix/
 │   │   ├── models/
 │   │   │   ├── base/          insitu_test.py, investigation_point.py
 │   │   │   ├── pushed/        cpt.py, dmt.py
-│   │   │   ├── borehole/      borehole.py, sample.py, borehole_test.py
+│   │   │   ├── borehole/      borehole.py, sample.py, borehole_test.py,
+│   │   │   │                  observation.py, observation_layer.py,
+│   │   │   │                  drill_segment.py, field_log_interval.py
 │   │   │   ├── lab/           lab_test.py, grain_size.py
 │   │   │   ├── monitoring/    piezometer.py, inclinometer.py
 │   │   │   └── job.py         Job + JobStatus
 │   │   ├── services/          cpt_interpretation.py, ec7/
-│   │   └── value_objects/     depth.py, coordinate.py
+│   │   └── value_objects/     depth.py, coordinate.py, unit_weight_profile.py,
+│   │                          observation_type.py, field_log_kind.py, admixture.py
 │   ├── application/           import_cpt.py, export_project.py,
 │   │                          run_interpretation.py, queue.py
 │   ├── infrastructure/
