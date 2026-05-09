@@ -96,6 +96,10 @@ async def import_borehole_dov(
         failed=result.failed,
         interpretations_attached=result.interpretations_attached,
         interpretations_failed=result.interpretations_failed,
+        samples_attached=result.samples_attached,
+        samples_failed=result.samples_failed,
+        grain_sizes_attached=result.grain_sizes_attached,
+        grain_sizes_failed=result.grain_sizes_failed,
         borehole_ids=result.borehole_ids,
     )
 
