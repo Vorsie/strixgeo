@@ -135,6 +135,10 @@ prof/
 
 # Geotechnical data files — use tests/fixtures/ for small synthetic test files
 data/
+# Exception: codelists archive — authoritative DOV reference CSVs that
+# DO need to be checked in (see src/groundmodel/infrastructure/codelists/).
+!src/groundmodel/infrastructure/codelists/data/
+!src/groundmodel/infrastructure/codelists/data/**
 
 # Generated outputs
 reports/
