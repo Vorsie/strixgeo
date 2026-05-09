@@ -30,7 +30,6 @@ Constants live in ``dov_constants.py`` per project convention.
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 import httpx
@@ -55,6 +54,12 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.borehole.dov.sample_wfs_row import SampleWfsRow
+from groundmodel.infrastructure.parsers.dov.dov_common import (
+    last_path_segment,
+    optional_date,
+    optional_float,
+    optional_int,
+)
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -249,7 +254,7 @@ def _build_row(props: dict[str, Any]) -> SampleWfsRow | None:
     parent_link: str = props.get(DOV_GRONDMONSTER_WFS_PARENT_LINK_PROP) or ""
     if not parent_link:
         return None
-    parent_permkey = _last_path_segment(parent_link)
+    parent_permkey = last_path_segment(parent_link)
     if not parent_permkey:
         return None
 
@@ -257,47 +262,12 @@ def _build_row(props: dict[str, Any]) -> SampleWfsRow | None:
         permkey=permkey,
         parent_borehole_permkey=parent_permkey,
         monster_xml_url=props.get(DOV_GRONDMONSTER_WFS_MONSTER_LINK_PROP) or "",
-        depth_top_m=_optional_float(props.get(DOV_GRONDMONSTER_WFS_DEPTH_TOP_PROP)),
-        depth_base_m=_optional_float(props.get(DOV_GRONDMONSTER_WFS_DEPTH_BASE_PROP)),
+        depth_top_m=optional_float(props.get(DOV_GRONDMONSTER_WFS_DEPTH_TOP_PROP)),
+        depth_base_m=optional_float(props.get(DOV_GRONDMONSTER_WFS_DEPTH_BASE_PROP)),
         sample_number=props.get(DOV_GRONDMONSTER_WFS_SAMPLE_NUMBER_PROP) or None,
         sample_type=props.get(DOV_GRONDMONSTER_WFS_SAMPLE_TYPE_PROP) or None,
         composition=props.get(DOV_GRONDMONSTER_WFS_COMPOSITION_PROP) or None,
         instrument=props.get(DOV_GRONDMONSTER_WFS_INSTRUMENT_PROP) or None,
-        sampling_date=_optional_date(props.get(DOV_GRONDMONSTER_WFS_SAMPLING_DATE_PROP)),
-        observation_count=_optional_int(props.get(DOV_GRONDMONSTER_WFS_OBSERVATION_COUNT_PROP)),
+        sampling_date=optional_date(props.get(DOV_GRONDMONSTER_WFS_SAMPLING_DATE_PROP)),
+        observation_count=optional_int(props.get(DOV_GRONDMONSTER_WFS_OBSERVATION_COUNT_PROP)),
     )
-
-
-def _last_path_segment(url: str) -> str:
-    """Return the last path segment of *url* (e.g. ``"2017-137886"``)."""
-    return url.rstrip("/").rsplit("/", 1)[-1]
-
-
-def _optional_float(value: Any) -> float | None:
-    """Return float(value) or None when value is None / non-numeric."""
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _optional_int(value: Any) -> int | None:
-    """Return int(value) or None when value is None / non-numeric."""
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _optional_date(value: Any) -> date | None:
-    """Return ``date.fromisoformat(value)`` or None when value is None / unparseable."""
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(str(value))
-    except ValueError:
-        return None
