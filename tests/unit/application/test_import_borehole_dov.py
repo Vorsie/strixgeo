@@ -101,24 +101,34 @@ def use_case() -> ImportBoreholeDov:
 
 
 @pytest.fixture(autouse=True)
-def _patch_interpretation_orchestrator():
-    """Stub the Phase C2 interpretation orchestrator so unit tests never hit DOV.
+def _patch_child_orchestrators():
+    """Stub the Phase C2 + Phase C3 child orchestrators so unit tests never hit DOV.
 
-    Most tests don't care about interpretations — they assert on borehole
-    counts only. We replace ``ImportInterpretationsDov.execute`` with a
-    no-op returning a zero result so the existing assertions stand and
-    no network call leaks into the test run.
+    Most tests don't care about interpretations / samples — they assert
+    on borehole counts only. We replace both ``ImportInterpretationsDov.execute``
+    and ``ImportSamplesDov.execute`` with no-ops returning zero results so
+    the existing assertions stand and no network call leaks into the
+    test run.
 
-    The two interpretation-specific tests below override this fixture by
-    using their own ``patch.object`` blocks inline.
+    The interpretation-specific and sample-specific tests below override
+    this fixture using their own ``patch`` blocks inline.
     """
     from groundmodel.application.import_interpretations_dov_result import (
         ImportInterpretationsDovResult,
     )
+    from groundmodel.application.import_samples_dov_result import (
+        ImportSamplesDovResult,
+    )
 
-    with patch(
-        "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
-        new=AsyncMock(return_value=ImportInterpretationsDovResult()),
+    with (
+        patch(
+            "groundmodel.application.import_borehole_dov.ImportInterpretationsDov.execute",
+            new=AsyncMock(return_value=ImportInterpretationsDovResult()),
+        ),
+        patch(
+            "groundmodel.application.import_borehole_dov.ImportSamplesDov.execute",
+            new=AsyncMock(return_value=ImportSamplesDovResult()),
+        ),
     ):
         yield
 
@@ -492,4 +502,154 @@ async def test_interpretation_network_error_does_not_abort_borehole_commit(
     assert result.failed == 0
     assert result.interpretations_attached == 0
     assert result.interpretations_failed == 1
+    use_case._session.commit.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Phase C3 — sample + grain-size orchestrator wiring
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sample_orchestrator_invoked_with_new_permkey_map(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """New boreholes → sample orchestrator gets a populated permkey map.
+
+    Verifies execute() builds the correct ``{permkey: borehole_id}`` map
+    from newly-imported boreholes (excluding duplicates), and the
+    resulting sample/grain-size counts roll into the response.
+    """
+    from groundmodel.application.import_samples_dov_result import (
+        ImportSamplesDovResult,
+    )
+
+    existing_id = uuid4()
+    use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]
+        return_value={"BH-DUP": existing_id}
+    )
+
+    parsed = [
+        (
+            _wfs_row(test_id="BH-DUP", permkey="2025-200000"),
+            _parse_result(test_id="BH-DUP"),
+        ),
+        (
+            _wfs_row(test_id="BH-NEW-1", permkey="2025-200001"),
+            _parse_result(test_id="BH-NEW-1"),
+        ),
+        (
+            _wfs_row(test_id="BH-NEW-2", permkey="2025-200002"),
+            _parse_result(test_id="BH-NEW-2"),
+        ),
+    ]
+
+    use_case._repo.save = AsyncMock()  # type: ignore[method-assign]
+
+    samples_mock = AsyncMock(
+        return_value=ImportSamplesDovResult(
+            samples_attached=4,
+            samples_failed=1,
+            grain_sizes_fetched=6,
+            grain_sizes_attached=5,
+            grain_sizes_failed=1,
+        )
+    )
+
+    with (
+        patch(
+            "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
+            new=AsyncMock(return_value=parsed),
+        ),
+        patch(
+            "groundmodel.application.import_borehole_dov.ImportSamplesDov.execute",
+            new=samples_mock,
+        ),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    # Sample phase was called exactly once.
+    assert samples_mock.await_count == 1
+    # Inspect the permkey_to_borehole_id map (5th positional arg).
+    permkey_map = samples_mock.call_args.args[4]
+    assert set(permkey_map.keys()) == {"2025-200001", "2025-200002"}
+    # Duplicates DO NOT appear — same idempotency rule as interpretations.
+    assert "2025-200000" not in permkey_map
+
+    # Sample + grain-size counts roll into the result.
+    assert result.imported == 2
+    assert result.duplicates == 1
+    assert result.samples_attached == 4
+    assert result.samples_failed == 1
+    assert result.grain_sizes_attached == 5
+    assert result.grain_sizes_failed == 1
+
+
+@pytest.mark.asyncio
+async def test_sample_phase_skipped_when_no_new_boreholes(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """All-duplicates → sample orchestrator NOT invoked at all."""
+    use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]
+        return_value={"BH-1": uuid4(), "BH-2": uuid4()}
+    )
+    parsed = [
+        (_wfs_row(test_id="BH-1", permkey="2025-200001"), _parse_result(test_id="BH-1")),
+        (_wfs_row(test_id="BH-2", permkey="2025-200002"), _parse_result(test_id="BH-2")),
+    ]
+
+    samples_mock = AsyncMock()  # would fail loudly if invoked
+
+    with (
+        patch(
+            "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
+            new=AsyncMock(return_value=parsed),
+        ),
+        patch(
+            "groundmodel.application.import_borehole_dov.ImportSamplesDov.execute",
+            new=samples_mock,
+        ),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    # Phase 4c skipped because new_permkey_map is empty.
+    samples_mock.assert_not_called()
+    assert result.imported == 0
+    assert result.duplicates == 2
+    assert result.samples_attached == 0
+    assert result.grain_sizes_attached == 0
+
+
+@pytest.mark.asyncio
+async def test_sample_network_error_does_not_abort_borehole_commit(
+    use_case: ImportBoreholeDov,
+) -> None:
+    """Sample fetch raises httpx error → boreholes still commit cleanly.
+
+    Phase 4c is opportunistic; transient lab-side outage cannot roll
+    back the borehole transaction.
+    """
+    import httpx
+
+    parsed = [
+        (_wfs_row(test_id="BH-1", permkey="2025-200001"), _parse_result(test_id="BH-1")),
+    ]
+
+    with (
+        patch(
+            "groundmodel.application.import_borehole_dov.DovBoreholeClient.fetch_bbox_processed",
+            new=AsyncMock(return_value=parsed),
+        ),
+        patch(
+            "groundmodel.application.import_borehole_dov.ImportSamplesDov.execute",
+            new=AsyncMock(side_effect=httpx.ConnectError("DOV unreachable")),
+        ),
+    ):
+        result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
+
+    assert result.imported == 1
+    assert result.failed == 0
+    assert result.samples_attached == 0
+    # The whole permkey-map size is reported as samples_failed at the API.
+    assert result.samples_failed == 1
     use_case._session.commit.assert_awaited_once()  # type: ignore[attr-defined]
