@@ -54,6 +54,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_common import DOV_PROJECT_ID
+from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
 from groundmodel.shared.config import settings
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.timing import ms_since
@@ -132,15 +133,11 @@ class ImportBoreholeDov(GroundModelLogger):
         t_total = time.perf_counter()
 
         # Open ONE HTTP client and reuse it across the borehole download
-        # phase AND the interpretation download phase. This keeps the
-        # HTTP/2 connection pool warm so the second phase doesn't pay
-        # connect-handshake latency.
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(60.0, connect=10.0),
-            follow_redirects=True,
-            http2=True,
-            limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
-        ) as http:
+        # phase AND the interpretation + sample phases. This keeps the
+        # HTTP/2 connection pool warm so later phases don't pay
+        # connect-handshake latency. Tuning lives in
+        # ``dov_http.make_dov_async_client``.
+        async with make_dov_async_client() as http:
             parsed = await self._fetch_boreholes(http, west, south, east, north)
 
             total = len(parsed)
