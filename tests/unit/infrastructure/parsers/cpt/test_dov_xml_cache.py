@@ -97,3 +97,73 @@ def test_put_does_not_raise_on_write_failure(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(Path, "write_bytes", boom)
     # Should not raise — caller's import must continue
     cache.put("k", b"x")
+
+
+# ------------------------------------------------------------------
+# Eviction — bounded by max_bytes, oldest-mtime first
+# ------------------------------------------------------------------
+
+
+def _permkey(i: int) -> str:
+    return f"2009-{i:06d}"
+
+
+def test_eviction_disabled_when_max_bytes_is_none(tmp_path: Path):
+    """Without max_bytes the cache grows without bound — legacy behaviour."""
+    cache = DovXmlCache(tmp_path)
+    payload = b"x" * 1024
+    for i in range(200):
+        cache.put(_permkey(i), payload)
+    # Every file still on disk.
+    assert len(list(tmp_path.glob("*.xml"))) == 200
+
+
+def test_eviction_keeps_size_under_cap(tmp_path: Path, monkeypatch):
+    """When over max_bytes the sweep deletes oldest-mtime files first."""
+    # Force the sweep to run on every put for a deterministic test.
+    monkeypatch.setattr(
+        "groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache._EVICT_CHECK_INTERVAL",
+        1,
+    )
+
+    cache = DovXmlCache(tmp_path, max_bytes=4096)
+    payload = b"x" * 1024  # 1 KiB each
+    # Write 10 files, monotonically increasing mtime so order is deterministic.
+    import os
+    import time
+
+    for i in range(10):
+        cache.put(_permkey(i), payload)
+        os.utime(tmp_path / f"{_permkey(i)}.xml", (1_700_000_000 + i, 1_700_000_000 + i))
+        time.sleep(0.001)
+
+    # Last write triggered eviction. Cap is 4 KiB → headroom 0.9 → ~3.6 KiB.
+    # We expect ≤ 4 surviving files, and the oldest (i=0…) deleted first.
+    survivors = sorted(p.name for p in tmp_path.glob("*.xml"))
+    assert len(survivors) <= 4
+    assert _permkey(9) + ".xml" in survivors  # newest always kept
+    # None of the very oldest should remain.
+    assert _permkey(0) + ".xml" not in survivors
+
+
+def test_eviction_only_runs_after_interval(tmp_path: Path):
+    """Sweep doesn't fire until ``_EVICT_CHECK_INTERVAL`` writes have landed."""
+    cache = DovXmlCache(tmp_path, max_bytes=1)  # tiny cap, would evict everything if checked
+    cache.put(_permkey(0), b"x" * 1024)
+    cache.put(_permkey(1), b"x" * 1024)
+    # With the default interval (64), only 2 writes — no sweep yet.
+    assert len(list(tmp_path.glob("*.xml"))) == 2
+
+
+def test_eviction_skips_non_xml_files(tmp_path: Path, monkeypatch):
+    """Eviction only deletes files we own (``.xml``); foreign files survive."""
+    monkeypatch.setattr(
+        "groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache._EVICT_CHECK_INTERVAL",
+        1,
+    )
+    foreign = tmp_path / "README.txt"
+    foreign.write_bytes(b"hands off")
+
+    cache = DovXmlCache(tmp_path, max_bytes=512)
+    cache.put(_permkey(0), b"x" * 4096)  # one big file → over cap
+    assert foreign.exists()

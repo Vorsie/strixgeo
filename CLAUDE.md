@@ -911,15 +911,13 @@ the Phase 4 roadmap but not delivered.
 
 **When.** Phase 4 — multi-project / accounts / SaaS prep.
 
-### 5. DOV cache eviction (low)
+### 5. DOV cache eviction — DONE
 
-**What.** ``~/.groundmodel/dov_cache/`` grows forever — one file per
-permkey, never evicted. DOV measurements are historical so cache hits
-are valid forever, but a long-running install will fill the disk on a
-heavy user.
-
-**When.** When real users report a disk-space issue, OR when total
-cache size in a typical project exceeds 1 GB.
+Resolved by ``DovXmlCache(max_bytes=…)``. Each cache instance sweeps
+oldest-by-mtime when over its cap, with a 10 % headroom to avoid
+thrashing. Default per-instance budget: 256 MiB (``DOV_CACHE_MAX_BYTES``
+env override). With CPT + 4 borehole subdirs we ceiling at ≈1.25 GiB
+total. Set ``DOV_CACHE_MAX_BYTES=0`` to disable eviction entirely.
 
 ### 6. ``API include=`` parameter for SampleResponse (low)
 

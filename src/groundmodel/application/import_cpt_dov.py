@@ -42,7 +42,10 @@ class ImportCptDov(GroundModelLogger):
         # is historical so cached entries are valid forever. Path comes from
         # settings (overridable via DOV_CACHE_DIR env var). Constructed once per
         # use case rather than per request so directory creation only logs once.
-        self._cache = DovXmlCache(settings.dov_cache_dir)
+        self._cache = DovXmlCache(
+            settings.dov_cache_dir,
+            max_bytes=settings.dov_cache_max_bytes or None,
+        )
 
     async def execute(
         self,
