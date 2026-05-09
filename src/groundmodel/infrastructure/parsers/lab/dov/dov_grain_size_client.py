@@ -36,10 +36,12 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_DOWNLOAD_PARALLELISM,
     DOV_HORIZONTAL_EPSG,
     DOV_WFS_FEATURE_LIMIT,
-    DOV_WFS_MAX_SPLIT_DEPTH,
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
+    collect_wfs_features_recursive,
 )
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_OBSERVATIE_PROXY_URL_PREFIX,
@@ -117,7 +119,17 @@ class DovGrainSizeClient(GroundModelLogger):
         )
         self.debug(f"DOV grain-size bbox Lambert72: x=[{x1:.0f},{x2:.0f}] y=[{y1:.0f},{y2:.0f}]")
 
-        rows = await self._collect_rows(x1, y1, x2, y2, depth=0)
+        rows = await collect_wfs_features_recursive(
+            fetch_count=self._wfs_count,
+            fetch_features=self._wfs_features,
+            row_permkey=lambda r: r.permkey,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="DOV grain-size WFS",
+            logger=self,
+        )
         self.info(f"DOV grain-size WFS: {len(rows)} grain-size observations in bbox")
 
         if parent_permkeys is not None:
@@ -209,63 +221,10 @@ class DovGrainSizeClient(GroundModelLogger):
         return result
 
     # ------------------------------------------------------------------
-    # Recursive WFS bbox query with parametergroep CQL filter
+    # WFS request layer (count + features). Recursive split is delegated
+    # to ``dov_wfs_bbox.collect_wfs_features_recursive`` from
+    # ``fetch_bbox_processed``.
     # ------------------------------------------------------------------
-
-    async def _collect_rows(
-        self, x1: float, y1: float, x2: float, y2: float, depth: int
-    ) -> list[GrainSizeWfsRow]:
-        """Return GrainSizeWfsRow per observation in this Lambert72 bbox.
-
-        Recursively splits when the parametergroep-filtered count exceeds
-        ``DOV_WFS_FEATURE_LIMIT`` (rare for grain-size since it's already
-        a sparse subset of the 7.5M observation total).
-        """
-        count = await self._wfs_count(x1, y1, x2, y2)
-
-        if count == 0:
-            self.trace(
-                f"DOV grain-size WFS: 0 features at depth={depth} "
-                f"({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f})"
-            )
-            return []
-
-        if count <= DOV_WFS_FEATURE_LIMIT or depth >= DOV_WFS_MAX_SPLIT_DEPTH:
-            if count > DOV_WFS_FEATURE_LIMIT:
-                self.warning(
-                    f"DOV grain-size WFS: bbox at max recursion depth={depth} still has "
-                    f"{count} features — some observations may be missed"
-                )
-            self.debug(f"DOV grain-size WFS: fetching {count} features (depth={depth})")
-            return await self._wfs_features(x1, y1, x2, y2)
-
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        self.debug(
-            f"DOV grain-size WFS: {count} features > limit at depth={depth}, "
-            f"splitting into 4 quadrants"
-        )
-        quadrants = [
-            (x1, y1, mx, my),
-            (mx, y1, x2, my),
-            (x1, my, mx, y2),
-            (mx, my, x2, y2),
-        ]
-        results = await asyncio.gather(
-            *[self._collect_rows(qx1, qy1, qx2, qy2, depth + 1) for qx1, qy1, qx2, qy2 in quadrants]
-        )
-
-        seen: set[str] = set()
-        merged: list[GrainSizeWfsRow] = []
-        for chunk in results:
-            for row in chunk:
-                if row.permkey not in seen:
-                    seen.add(row.permkey)
-                    merged.append(row)
-        self.debug(
-            f"DOV grain-size WFS: depth={depth} quadrants merged → "
-            f"{len(merged)} unique observations"
-        )
-        return merged
 
     async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the parametergroep-filtered observation count for the bbox."""
