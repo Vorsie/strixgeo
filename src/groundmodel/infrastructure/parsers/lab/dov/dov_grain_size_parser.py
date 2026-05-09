@@ -88,12 +88,12 @@ What the parser does NOT do
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from datetime import date
 from uuid import UUID
 
 from groundmodel.domain.models.lab.grain_size import GrainSize
 from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import date_iso, text
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_BEHANDELING_LIME_REMOVED,
     DOV_BEHANDELING_NO_LOWER,
@@ -117,25 +117,6 @@ from groundmodel.infrastructure.parsers.lab.dov.grain_size_parse_result import (
 )
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-
-def _text(elem: ET.Element | None, tag: str) -> str:
-    """Return stripped text of *tag* child of *elem*, or empty string when absent."""
-    if elem is None:
-        return ""
-    child = elem.find(tag)
-    return (child.text or "").strip() if child is not None else ""
-
-
-def _date(elem: ET.Element | None, tag: str) -> date | None:
-    """Parse an ISO-format ``<tag>YYYY-MM-DD</tag>`` child, or None on failure."""
-    raw = _text(elem, tag)
-    if not raw:
-        return None
-    try:
-        return date.fromisoformat(raw)
-    except ValueError:
-        return None
 
 
 class DovGrainSizeParser(GroundModelLogger):
@@ -225,7 +206,7 @@ class DovGrainSizeParser(GroundModelLogger):
         # XML to this parser. Trailing-space dance: DOV emits the
         # canonical string with a trailing space, but we strip whitespace
         # on _text so the comparison is space-agnostic.
-        observed_pg = _text(observatie, DOV_OBSERVATIE_PARAMETERGROEP_TAG)
+        observed_pg = text(observatie, DOV_OBSERVATIE_PARAMETERGROEP_TAG)
         if observed_pg and observed_pg.strip() != DOV_PARAMETERGROEP_GRAIN_SIZE.strip():
             self.warning(
                 f"DOV grain-size '{name}': parametergroep mismatch — got "
@@ -240,7 +221,7 @@ class DovGrainSizeParser(GroundModelLogger):
                 )
             )
 
-        method = _text(observatie, DOV_OBSERVATIE_METHODE_TAG) or None
+        method = text(observatie, DOV_OBSERVATIE_METHODE_TAG) or None
         if method is None:
             issues.append(
                 _issue(
@@ -250,7 +231,7 @@ class DovGrainSizeParser(GroundModelLogger):
                 )
             )
 
-        test_date = _date(observatie, DOV_OBSERVATIE_DATE_TAG)
+        test_date = date_iso(observatie, DOV_OBSERVATIE_DATE_TAG)
         diameters, pct_larger = self._parse_curve(observatie, name, issues)
         lime_removed, organics_removed = self._parse_treatments(observatie, name)
 
@@ -347,8 +328,8 @@ class DovGrainSizeParser(GroundModelLogger):
             return [], []
 
         for row_index, row in enumerate(rows):
-            d_raw = _text(row, DOV_OBSERVATIE_DIAMETER_TAG)
-            p_raw = _text(row, DOV_OBSERVATIE_PERCENTAGE_TAG)
+            d_raw = text(row, DOV_OBSERVATIE_DIAMETER_TAG)
+            p_raw = text(row, DOV_OBSERVATIE_PERCENTAGE_TAG)
             if not d_raw or not p_raw:
                 self.warning(
                     f"DOV grain-size '{name}' row {row_index}: "
@@ -411,8 +392,8 @@ class DovGrainSizeParser(GroundModelLogger):
         organics_removed: bool | None = None
 
         for beh in observatie.findall(DOV_OBSERVATIE_BEHANDELING_TAG):
-            kind = _text(beh, DOV_OBSERVATIE_BEHANDELING_INNER_TAG)
-            value = _text(beh, DOV_OBSERVATIE_BEHANDELING_VALUE_TAG).lower()
+            kind = text(beh, DOV_OBSERVATIE_BEHANDELING_INNER_TAG)
+            value = text(beh, DOV_OBSERVATIE_BEHANDELING_VALUE_TAG).lower()
             if not kind:
                 continue
 
