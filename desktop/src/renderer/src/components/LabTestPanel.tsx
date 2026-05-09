@@ -1,14 +1,29 @@
-import { X } from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { useEffect } from 'react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import {
+  CartesianGrid,
+  Label,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 import type {
-  AtterbergLimitsResponse,
-  CaCO3ContentResponse,
   GrainSizeResponse,
-  OrganicContentResponse,
   SampleResponse,
-  WaterContentResponse,
+  ScalarLabTestResponse,
 } from '../api/client'
+import { isTypingTarget } from '../utils/keyboard'
+import {
+  astmDescription,
+  isAstmClassification,
+  labelForParameter,
+  labelForParameterGroup,
+} from '../utils/labTestLabels'
 
 // PR 4d — slide-in lab-test detail panel.
 //
@@ -22,23 +37,73 @@ import type {
 
 interface Props {
   sample: SampleResponse
+  // Full sample list from the parent borehole — needed for the
+  // prev / next nav and the "all samples" picker. Sorted by depth in
+  // BoreholeLog before being passed in.
+  allSamples: SampleResponse[]
+  onSelectSample: (id: string) => void
   onClose: () => void
 }
 
-export default function LabTestPanel({ sample, onClose }: Props): React.ReactElement {
+export default function LabTestPanel({
+  sample,
+  allSamples,
+  onSelectSample,
+  onClose,
+}: Props): React.ReactElement {
   const hasGrain = sample.grain_sizes.length > 0
   const hasAtterberg = sample.atterberg_limits_tests.length > 0
   const hasCaCO3 = sample.caco3_content_tests.length > 0
   const hasOrganic = sample.organic_content_tests.length > 0
   const hasWater = sample.water_content_tests.length > 0
-  const hasAny = hasGrain || hasAtterberg || hasCaCO3 || hasOrganic || hasWater
+  const hasScalar = sample.scalar_lab_tests.length > 0
+  const hasAny = hasGrain || hasAtterberg || hasCaCO3 || hasOrganic || hasWater || hasScalar
+
+  // Prev / next navigation through the sibling samples.
+  const currentIndex = allSamples.findIndex(s => s.id === sample.id)
+  const prevSample = currentIndex > 0 ? allSamples[currentIndex - 1] : null
+  const nextSample =
+    currentIndex >= 0 && currentIndex < allSamples.length - 1
+      ? allSamples[currentIndex + 1]
+      : null
+
+  // Global keyboard shortcuts active while the lab pane is mounted:
+  //   Esc      → close panel        (HIG: Esc dismisses transient UI)
+  //   ← / →    → prev / next sample (Apple-style spatial navigation)
+  // Skipped when an input / textarea / contentEditable owns focus so
+  // typing in a text field doesn't inadvertently nav. Listener is
+  // attached to ``document`` because the panel doesn't own focus.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (isTypingTarget(e.target)) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      } else if (e.key === 'ArrowLeft' && prevSample) {
+        e.preventDefault()
+        onSelectSample(prevSample.id)
+      } else if (e.key === 'ArrowRight' && nextSample) {
+        e.preventDefault()
+        onSelectSample(nextSample.id)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose, onSelectSample, prevSample?.id, nextSample?.id])
 
   return (
-    <aside className="absolute top-0 right-0 bottom-0 w-[420px] bg-white border-l border-gray-200 shadow-xl flex flex-col z-30">
+    <aside className="w-[420px] shrink-0 h-full bg-white border-l border-gray-200 shadow-lg flex flex-col">
       {/* Header */}
       <div className="flex items-start justify-between gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] uppercase tracking-wide text-gray-400">Sample</div>
+          <div className="text-[10px] uppercase tracking-wide text-gray-400 flex items-center gap-1">
+            <span>Sample</span>
+            {allSamples.length > 1 && (
+              <span className="text-gray-400 normal-case">
+                ({currentIndex + 1} / {allSamples.length})
+              </span>
+            )}
+          </div>
           <div className="text-sm font-semibold text-gray-800 truncate">
             {sample.sample_number ?? '(unnumbered)'}
             <span className="text-gray-400 font-normal ml-2">
@@ -54,36 +119,54 @@ export default function LabTestPanel({ sample, onClose }: Props): React.ReactEle
             {sample.sampling_date && <span>{sample.sampling_date}</span>}
           </div>
         </div>
-        <button
-          onClick={onClose}
-          title="Close"
-          className="text-gray-400 hover:text-gray-700 transition-colors p-1 -mr-1"
-        >
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => prevSample && onSelectSample(prevSample.id)}
+            disabled={!prevSample}
+            title={prevSample ? `Previous: ${prevSample.sample_number ?? '(unnumbered)'}` : 'No previous sample'}
+            className="p-1 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-200 disabled:text-gray-300 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            onClick={() => nextSample && onSelectSample(nextSample.id)}
+            disabled={!nextSample}
+            title={nextSample ? `Next: ${nextSample.sample_number ?? '(unnumbered)'}` : 'No next sample'}
+            className="p-1 rounded text-gray-500 hover:text-gray-800 hover:bg-gray-200 disabled:text-gray-300 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            <ChevronRight size={16} />
+          </button>
+          <button
+            onClick={onClose}
+            title="Close"
+            className="ml-1 text-gray-400 hover:text-gray-700 transition-colors p-1"
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
-      {/* Body — scrollable */}
+      {/* Body — scrollable. Per user request: ALL non-grain-size tests
+          (Atterberg, CaCO3, organic, water, scalar catch-all) merge under
+          one "Identification tests" header — translation of Dutch
+          "Onderkenningsproeven" — instead of a parallel section per
+          family. Grain size keeps its own section because of the chart
+          visualisation. The typed family records get virtually
+          flattened into ScalarLabTestResponse-shape rows and rendered
+          alongside the actual scalar tests grouped by parametergroep. */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {!hasAny && (
           <div className="text-xs text-gray-400 italic text-center py-8">
             No lab tests recorded for this sample.
           </div>
         )}
-        {hasGrain &&
-          sample.grain_sizes.map((gs, i) => (
-            <GrainSizeSection key={gs.id} gs={gs} index={i} total={sample.grain_sizes.length} />
-          ))}
-        {hasAtterberg &&
-          sample.atterberg_limits_tests.map(att => (
-            <AtterbergSection key={att.id} att={att} />
-          ))}
-        {hasCaCO3 &&
-          sample.caco3_content_tests.map(c => <CaCO3Section key={c.id} caco3={c} />)}
-        {hasOrganic &&
-          sample.organic_content_tests.map(o => <OrganicSection key={o.id} organic={o} />)}
-        {hasWater &&
-          sample.water_content_tests.map(w => <WaterSection key={w.id} water={w} />)}
+        {hasGrain && <GrainSizeSection grainSizes={sample.grain_sizes} />}
+        {(hasAtterberg || hasCaCO3 || hasOrganic || hasWater || hasScalar) && (
+          <ScalarTestsSection
+            title="Identification tests"
+            tests={collectIdentificationTests(sample)}
+          />
+        )}
       </div>
     </aside>
   )
@@ -102,38 +185,78 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle?: string | 
   )
 }
 
-function GrainSizeSection({
-  gs,
-  index,
-  total,
-}: {
-  gs: GrainSizeResponse
-  index: number
-  total: number
-}): React.ReactElement {
-  // Recharts data: pair diameters with pct_larger by index. The arrays
-  // SHOULD be the same length (parser guarantees this) but we defensively
-  // truncate to the shorter one if not.
-  const n = Math.min(gs.diameters_mm.length, gs.pct_larger.length)
-  const data = Array.from({ length: n }, (_, i) => ({
-    diameter: gs.diameters_mm[i],
-    pct: gs.pct_larger[i],
-  }))
+// Soil-fraction zone boundaries per ISO 14688-1 (used internationally + in
+// the user's reference plot). Boundaries are in mm:
+//   clay   <  0.002
+//   silt   0.002 – 0.063
+//   sand   0.063 – 2.0
+//   gravel 2.0 – 63
+//   cobbles >= 63
+// Used for the coloured background bands of the cumulative-curve chart.
+const GRAIN_FRACTIONS: { from: number; to: number; label: string; fill: string }[] = [
+  { from: 0.0001, to: 0.002, label: 'Clay', fill: '#f3f4f6' },
+  { from: 0.002, to: 0.063, label: 'Silt', fill: '#e7eaef' },
+  { from: 0.063, to: 2.0, label: 'Sand', fill: '#f3f4f6' },
+  { from: 2.0, to: 63.0, label: 'Gravel', fill: '#e7eaef' },
+  { from: 63.0, to: 200.0, label: 'Cobbles', fill: '#f3f4f6' },
+]
 
-  // Treatments shown as small pills underneath the title.
-  const treatments: string[] = []
-  if (gs.lime_removed) treatments.push('lime removed')
-  if (gs.organics_removed) treatments.push('organics removed')
+const GRAIN_X_DOMAIN: [number, number] = [0.0001, 200] // mm, log scale
+
+// Curve colours — one per grain-size record so multiple methods on the
+// same sample (sieve + hydrometer + laser) read as distinct lines on
+// the combined chart.
+const GRAIN_CURVE_COLORS = ['#1f5077', '#b45309', '#16a34a', '#9333ea', '#dc2626']
+
+interface GrainSizeChartPoint {
+  diameter: number
+  // One field per record so Recharts can plot N curves simultaneously.
+  // The field names are dynamic (`series_0`, `series_1`, …); see
+  // ``buildCombinedSeries`` below.
+  [key: string]: number | undefined
+}
+
+function GrainSizeSection({
+  grainSizes,
+}: {
+  grainSizes: GrainSizeResponse[]
+}): React.ReactElement {
+  // Combine all records into a single Recharts dataset where each row
+  // carries one ``diameter`` x-value and N ``series_i`` y-values. NaN
+  // is used for "no point" so Recharts skips the segment between
+  // missing points instead of dragging a line across the gap (each
+  // method covers a different diameter range — sieve hits gravel /
+  // sand, hydrometer hits silt / clay; we don't want a fake straight
+  // line bridging them).
+  const series = grainSizes.map((gs, i) => ({
+    record: gs,
+    color: GRAIN_CURVE_COLORS[i % GRAIN_CURVE_COLORS.length],
+    label: gs.method ?? `Method ${i + 1}`,
+    key: `series_${i}` as const,
+  }))
+  const data = buildCombinedSeries(grainSizes)
+
+  // Treatments collected across all records (deduped); one set of pills
+  // describes the chemistry pre-treatment regardless of method.
+  const treatments = new Set<string>()
+  for (const gs of grainSizes) {
+    if (gs.lime_removed) treatments.add('lime removed')
+    if (gs.organics_removed) treatments.add('organics removed')
+  }
 
   return (
     <section>
       <SectionTitle
-        title={total > 1 ? `Grain size (${index + 1}/${total})` : 'Grain size'}
-        subtitle={[gs.method, gs.test_date].filter(Boolean).join(' · ') || null}
+        title="Grain size"
+        subtitle={
+          grainSizes.length > 1
+            ? `${grainSizes.length} methods combined`
+            : grainSizes[0]?.test_date || null
+        }
       />
-      {treatments.length > 0 && (
+      {treatments.size > 0 && (
         <div className="flex gap-1.5 mt-1">
-          {treatments.map(t => (
+          {[...treatments].map(t => (
             <span key={t} className="text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
               {t}
             </span>
@@ -143,175 +266,357 @@ function GrainSizeSection({
       {data.length === 0 ? (
         <div className="text-[11px] text-gray-400 italic mt-2">Curve not recorded.</div>
       ) : (
-        <div className="mt-2 h-44">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 8, right: 12, bottom: 24, left: 4 }}>
-              <CartesianGrid stroke="#e5e7eb" strokeDasharray="2 2" />
-              <XAxis
-                dataKey="diameter"
-                scale="log"
-                domain={['auto', 'auto']}
-                type="number"
-                tick={{ fontSize: 9, fill: '#6b7280' }}
-                label={{
-                  value: 'Diameter (mm)',
-                  position: 'insideBottom',
-                  offset: -10,
-                  fontSize: 10,
-                  fill: '#6b7280',
-                }}
-              />
-              <YAxis
-                domain={[0, 100]}
-                tick={{ fontSize: 9, fill: '#6b7280' }}
-                label={{
-                  value: '% larger',
-                  angle: -90,
-                  position: 'insideLeft',
-                  offset: 12,
-                  fontSize: 10,
-                  fill: '#6b7280',
-                }}
-              />
-              <Tooltip
-                contentStyle={{ fontSize: 10, padding: '4px 8px' }}
-                formatter={(value: number, name: string) => [
-                  name === 'pct' ? `${value.toFixed(1)} %` : `${value.toFixed(3)} mm`,
-                  name === 'pct' ? '% larger' : 'Diameter',
-                ]}
-              />
-              <Line
-                type="monotone"
-                dataKey="pct"
-                stroke="#1f5077"
-                strokeWidth={1.5}
-                dot={{ r: 2 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <>
+          <div className="mt-2 h-52">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data} margin={{ top: 18, right: 8, bottom: 24, left: 4 }}>
+                {/* Soil-fraction zone backgrounds (ISO 14688-1). */}
+                {GRAIN_FRACTIONS.map(z => (
+                  <ReferenceArea
+                    key={z.label}
+                    x1={z.from}
+                    x2={z.to}
+                    fill={z.fill}
+                    fillOpacity={0.6}
+                    ifOverflow="visible"
+                    stroke="none"
+                  >
+                    <Label value={z.label} position="insideTop" fontSize={9} fill="#6b7280" />
+                  </ReferenceArea>
+                ))}
+                <CartesianGrid stroke="#cbd5e1" strokeDasharray="2 2" />
+                <XAxis
+                  dataKey="diameter"
+                  scale="log"
+                  domain={GRAIN_X_DOMAIN}
+                  type="number"
+                  allowDataOverflow
+                  // X-axis flipped per user preference: gravel / cobbles
+                  // on the LEFT, fines on the RIGHT.
+                  reversed
+                  tick={{ fontSize: 9, fill: '#6b7280' }}
+                  ticks={[0.001, 0.01, 0.1, 1, 10, 100]}
+                  tickFormatter={(v: number) =>
+                    v >= 1 ? v.toString() : v.toString().replace(/0+$/, '')
+                  }
+                  label={{
+                    value: 'Diameter (mm)',
+                    position: 'insideBottom',
+                    offset: -10,
+                    fontSize: 10,
+                    fill: '#6b7280',
+                  }}
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  tick={{ fontSize: 9, fill: '#6b7280' }}
+                  label={{
+                    value: '% finer',
+                    angle: -90,
+                    position: 'insideLeft',
+                    offset: 12,
+                    fontSize: 10,
+                    fill: '#6b7280',
+                  }}
+                />
+                <Tooltip
+                  contentStyle={{ fontSize: 10, padding: '4px 8px' }}
+                  formatter={(value: number, key: string) => {
+                    const s = series.find(ser => ser.key === key)
+                    return [`${value.toFixed(1)} %`, s?.label ?? '% finer']
+                  }}
+                  labelFormatter={(v: number) => `${v.toFixed(3)} mm`}
+                />
+                {series.map(s => (
+                  <Line
+                    key={s.key}
+                    type="monotone"
+                    dataKey={s.key}
+                    stroke={s.color}
+                    strokeWidth={1.6}
+                    dot={{ r: 2, fill: s.color }}
+                    isAnimationActive={false}
+                    connectNulls={false}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          {/* Method legend — colour swatch + DOV method name + test date. */}
+          <div className="mt-1 space-y-0.5 text-[10px] text-gray-600">
+            {series.map(s => (
+              <div key={s.key} className="flex items-center gap-1.5">
+                <span
+                  className="inline-block w-3 h-0.5"
+                  style={{ backgroundColor: s.color }}
+                />
+                <span className="flex-1 truncate">{s.label}</span>
+                {s.record.test_date && (
+                  <span className="text-gray-400">{s.record.test_date}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </section>
   )
 }
 
-function AtterbergSection({ att }: { att: AtterbergLimitsResponse }): React.ReactElement {
-  // PI is derived on read: LL - PL. None when either is null OR when
-  // non_plastic is true (the soil cannot be rolled into a 3 mm thread).
-  const pi =
-    att.non_plastic === true
-      ? null
-      : att.liquid_limit_pct != null && att.plastic_limit_pct != null
-        ? att.liquid_limit_pct - att.plastic_limit_pct
-        : null
+function buildCombinedSeries(grainSizes: GrainSizeResponse[]): GrainSizeChartPoint[] {
+  // Collect every unique diameter across all records, then for each
+  // diameter emit one row carrying the % finer for whichever record(s)
+  // actually measured at that point. ``NaN`` (encoded as ``undefined``
+  // in this dict shape) signals "no measurement" to Recharts.
+  const points = new Map<number, GrainSizeChartPoint>()
+  grainSizes.forEach((gs, i) => {
+    const key = `series_${i}` as const
+    const n = Math.min(gs.diameters_mm.length, gs.pct_larger.length)
+    for (let j = 0; j < n; j += 1) {
+      const d = gs.diameters_mm[j]
+      const pctFiner = 100 - gs.pct_larger[j]
+      const existing = points.get(d) ?? { diameter: d }
+      existing[key] = pctFiner
+      points.set(d, existing)
+    }
+  })
+  return [...points.values()].sort((a, b) => a.diameter - b.diameter)
+}
+
+// Removed: per-family `AtterbergSection`, `CaCO3Section`, `OrganicSection`,
+// `WaterSection` — all five non-grain-size families now flatten into the
+// single ``ScalarTestsSection`` rendered with title="Identification tests"
+// (translation of Dutch "Onderkenningsproeven"). See
+// ``collectIdentificationTests`` for the synthesis.
+
+function ScalarTestsSection({
+  tests,
+  title = 'Other lab tests',
+}: {
+  tests: ScalarLabTestResponse[]
+  // Configurable so the panel can pass "Identification tests" when the
+  // typed families and scalar catch-all are all flattened into one
+  // unified view.
+  title?: string
+}): React.ReactElement {
+  // Group rows by ``parameter_group`` so related tests cluster together
+  // (e.g. grain density + water content under "Density & water content"
+  // when both are present). Within each group, one row per test with
+  // value + unit + method / date metadata.
+  const groups = new Map<string, ScalarLabTestResponse[]>()
+  for (const t of tests) {
+    const list = groups.get(t.parameter_group) ?? []
+    list.push(t)
+    groups.set(t.parameter_group, list)
+  }
 
   return (
     <section>
       <SectionTitle
-        title="Atterberg limits"
-        subtitle={[att.method, att.test_date].filter(Boolean).join(' · ') || null}
+        title={title}
+        subtitle={`${tests.length} test${tests.length === 1 ? '' : 's'}`}
       />
-      <table className="w-full mt-2 text-[11px] border-collapse">
-        <tbody>
-          <Row label="Liquid limit (LL)" value={fmtPct(att.liquid_limit_pct)} />
-          <Row label="Plastic limit (PL)" value={fmtPct(att.plastic_limit_pct)} />
-          <Row label="Plasticity index (PI)" value={fmtPct(pi)} muted={pi == null} />
-          {att.non_plastic === true && (
-            <tr>
-              <td colSpan={2} className="pt-1.5 text-[10px] text-amber-700 italic">
-                Soil cannot be rolled into a 3 mm thread (non-plastic).
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <div className="space-y-3 mt-2">
+        {[...groups.entries()].map(([group, rows]) => (
+          <div key={group}>
+            <div
+              className="text-[10px] uppercase tracking-wide text-gray-400 mb-1"
+              title={group}
+            >
+              {labelForParameterGroup(group)}
+            </div>
+            <table className="w-full text-[11px] border-collapse">
+              <tbody>
+                {rows.map(t => (
+                  <ScalarRow key={t.id} test={t} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
     </section>
   )
 }
 
-function CaCO3Section({ caco3 }: { caco3: CaCO3ContentResponse }): React.ReactElement {
+function ScalarRow({ test }: { test: ScalarLabTestResponse }): React.ReactElement {
+  const value = formatScalarValue(test)
+  const meta = [test.method, test.test_date].filter(Boolean).join(' · ')
+  const label = labelForParameter(test.parameter)
+  // ASTM codes (CL, SW, MH, ...) are categorical, not numeric — surface
+  // the human-readable description below the code so non-geologists can
+  // read the row without a USCS chart in hand.
+  const astmDesc =
+    isAstmClassification(test.parameter) && test.value_text
+      ? astmDescription(test.value_text)
+      : null
   return (
-    <section>
-      <SectionTitle
-        title="Calcium carbonate (CaCO₃)"
-        subtitle={[caco3.method, caco3.test_date].filter(Boolean).join(' · ') || null}
-      />
-      <table className="w-full mt-2 text-[11px] border-collapse">
-        <tbody>
-          <Row label="Content" value={fmtPct(caco3.content_pct)} />
-        </tbody>
-      </table>
-    </section>
+    <tr className="border-t border-gray-100">
+      <td className="py-1 align-top" title={test.parameter}>
+        <div className="text-gray-700">{label}</div>
+        {meta && <div className="text-[10px] text-gray-400">{meta}</div>}
+      </td>
+      <td className="py-1 text-right align-top font-mono text-gray-800 whitespace-nowrap pl-3">
+        <div>{value}</div>
+        {astmDesc && (
+          <div className="text-[10px] text-gray-500 font-sans whitespace-normal mt-0.5">
+            {astmDesc}
+          </div>
+        )}
+      </td>
+    </tr>
   )
 }
 
-function OrganicSection({ organic }: { organic: OrganicContentResponse }): React.ReactElement {
-  return (
-    <section>
-      <SectionTitle
-        title="Organic content"
-        subtitle={[organic.method, organic.test_date].filter(Boolean).join(' · ') || null}
-      />
-      <table className="w-full mt-2 text-[11px] border-collapse">
-        <tbody>
-          <Row label="Organic carbon (OC)" value={fmtPct(organic.carbon_pct)} />
-          <Row label="Organic matter (OM)" value={fmtPct(organic.matter_pct)} />
-        </tbody>
-      </table>
-      {organic.carbon_pct != null && organic.matter_pct == null && (
-        <div className="text-[10px] text-gray-400 italic mt-1">
-          DOV reports OC only. OM (Van Bemmelen ≈ 1.724 × OC) is not stored — the
-          conversion is empirical and soil-type-dependent.
-        </div>
-      )}
-    </section>
-  )
-}
-
-function WaterSection({ water }: { water: WaterContentResponse }): React.ReactElement {
-  return (
-    <section>
-      <SectionTitle
-        title="Water content"
-        subtitle={[water.method, water.test_date].filter(Boolean).join(' · ') || null}
-      />
-      <table className="w-full mt-2 text-[11px] border-collapse">
-        <tbody>
-          <Row label="Water content (w)" value={fmtPct(water.content_pct)} />
-        </tbody>
-      </table>
-    </section>
-  )
+function formatScalarValue(t: ScalarLabTestResponse): string {
+  if (t.value_numeric != null) {
+    const unit = t.unit && t.unit !== '-' ? ` ${t.unit}` : ''
+    return `${t.value_numeric}${unit}`
+  }
+  if (t.value_text) return t.value_text
+  if (t.detection_condition) return t.detection_condition
+  return '—'
 }
 
 // ---------------------------------------------------------------------------
 // Tiny helpers
 // ---------------------------------------------------------------------------
 
-function Row({
-  label,
-  value,
-  muted,
-}: {
-  label: string
-  value: string
-  muted?: boolean
-}): React.ReactElement {
-  return (
-    <tr className="border-t border-gray-100">
-      <td className="py-1 text-gray-500">{label}</td>
-      <td
-        className={['py-1 text-right font-mono', muted ? 'text-gray-300' : 'text-gray-800'].join(
-          ' ',
-        )}
-      >
-        {value}
-      </td>
-    </tr>
-  )
-}
 
-function fmtPct(v: number | null | undefined): string {
-  if (v == null) return '—'
-  return `${v.toFixed(2)} %`
+/**
+ * Flatten every non-grain-size lab test family into a single
+ * ``ScalarLabTestResponse``-shaped list so they can all render in one
+ * "Identification tests" section. Atterberg explodes to LL + PL +
+ * computed PI rows; CaCO3 / organic / water typed families become one
+ * row each; scalar catch-all rows pass through unchanged.
+ *
+ * The synthetic IDs (``${realId}-LL`` etc.) are stable and unique
+ * across the merged list — Atterberg LL and PL share a parent record
+ * but get distinct synthetic suffixes so React's key prop stays sane.
+ */
+function collectIdentificationTests(
+  sample: SampleResponse,
+): ScalarLabTestResponse[] {
+  const rows: ScalarLabTestResponse[] = []
+
+  // Atterberg → up to 3 rows per parent record (LL, PL, PI/non-plastic).
+  for (const att of sample.atterberg_limits_tests) {
+    if (att.liquid_limit_pct != null) {
+      rows.push({
+        id: `${att.id}-LL`,
+        parameter_group: 'Onderkenning - proeven',
+        parameter: 'Consistentiegrenzen - Vloeigrens (Consistentiegrenzen - Vloeigrens)',
+        value_numeric: att.liquid_limit_pct,
+        value_text: null,
+        unit: '%',
+        method: att.method,
+        test_date: att.test_date,
+        detection_condition: null,
+      })
+    }
+    if (att.plastic_limit_pct != null) {
+      rows.push({
+        id: `${att.id}-PL`,
+        parameter_group: 'Onderkenning - proeven',
+        parameter:
+          'Consistentiegrenzen - Uitrolgrens (Consistentiegrenzen - Uitrolgrens)',
+        value_numeric: att.plastic_limit_pct,
+        value_text: null,
+        unit: '%',
+        method: att.method,
+        test_date: att.test_date,
+        detection_condition: null,
+      })
+    }
+    const pi =
+      att.liquid_limit_pct != null && att.plastic_limit_pct != null
+        ? att.liquid_limit_pct - att.plastic_limit_pct
+        : null
+    if (pi != null) {
+      rows.push({
+        id: `${att.id}-PI`,
+        parameter_group: 'Onderkenning - proeven',
+        parameter: 'Plasticity index (computed)',
+        value_numeric: pi,
+        value_text: null,
+        unit: '%',
+        method: 'computed (LL − PL)',
+        test_date: att.test_date,
+        detection_condition: null,
+      })
+    } else if (att.non_plastic) {
+      rows.push({
+        id: `${att.id}-NP`,
+        parameter_group: 'Onderkenning - proeven',
+        parameter: 'Plasticity index',
+        value_numeric: null,
+        value_text: 'Non-plastic',
+        unit: null,
+        method: att.method,
+        test_date: att.test_date,
+        detection_condition: 'NM',
+      })
+    }
+  }
+
+  // Typed CaCO3 / organic / water families — straight 1:1 mapping.
+  for (const c of sample.caco3_content_tests) {
+    rows.push({
+      id: c.id,
+      parameter_group: 'Bodem_chemisch',
+      parameter: 'Calciumcarbonaatgehalte (caco3_gehalte)',
+      value_numeric: c.content_pct,
+      value_text: null,
+      unit: '%',
+      method: c.method,
+      test_date: c.test_date,
+      detection_condition: null,
+    })
+  }
+  for (const o of sample.organic_content_tests) {
+    if (o.carbon_pct != null) {
+      rows.push({
+        id: `${o.id}-OC`,
+        parameter_group: 'Bodem_chemisch',
+        parameter: 'Organische C - percentage (organische_c_perc)',
+        value_numeric: o.carbon_pct,
+        value_text: null,
+        unit: '%',
+        method: o.method,
+        test_date: o.test_date,
+        detection_condition: null,
+      })
+    }
+    if (o.matter_pct != null) {
+      rows.push({
+        id: `${o.id}-OM`,
+        parameter_group: 'Bodem_chemisch',
+        parameter: 'Organic matter content',
+        value_numeric: o.matter_pct,
+        value_text: null,
+        unit: '%',
+        method: o.method,
+        test_date: o.test_date,
+        detection_condition: null,
+      })
+    }
+  }
+  for (const w of sample.water_content_tests) {
+    rows.push({
+      id: w.id,
+      parameter_group: 'Bodem_fysisch_vocht',
+      parameter: 'Vochtgehalte luchtdroge grond (vocht_luchtdroge_grond)',
+      value_numeric: w.content_pct,
+      value_text: null,
+      unit: '%',
+      method: w.method,
+      test_date: w.test_date,
+      detection_condition: null,
+    })
+  }
+
+  // Scalar catch-all — already in the right shape.
+  rows.push(...sample.scalar_lab_tests)
+
+  return rows
 }
