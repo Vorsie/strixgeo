@@ -1,94 +1,338 @@
+import { useMemo, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
+
 import type {
   BoreholeDetailResponse,
+  DrillSegmentResponse,
+  FieldLogIntervalResponse,
   ObservationLayerResponse,
   ObservationResponse,
+  SampleResponse,
 } from '../api/client'
 import { soilStyle } from '../utils/soilColors'
+import { SoilPatterns, getSoilFillUrl } from '../utils/soilPatterns'
+import { drillMethodStyle } from '../utils/drillMethodColors'
+import {
+  consistencyFill,
+  fieldColorFill,
+  moistureFill,
+} from '../utils/fieldLogColors'
+import LabTestPanel from './LabTestPanel'
 
-// PR 4a — first-iteration borelog. Header strip + mTAW axis + ONE
-// observation track (preferring `coded_lithology`) with solid soil-code
-// fills, plus a dynamic legend below.
+// PR 4b–4d — full-feature borelog modelled on DOV's Rapport BoorProfiel:
 //
-// Subsequent PRs add: SVG hatching patterns (4b), additional observation
-// tracks side-by-side mirroring the DOV PDF report (4b), drill-method +
-// field-log + sample tracks (4c), click-to-detail lab-test panel (4d).
+// * Header strip (HTML)
+// * SVG canvas with:
+//   - mTAW axis on the left (when surface elevation known)
+//   - One vertical track per observation stream (lithology with hatching
+//     patterns; stratigraphy with plain text labels)
+//   - Drill-method track (when drill_segments present)
+//   - Field-log track (3 sub-stripes: color / moisture / consistency)
+//   - Samples track with clickable per-test icons
+//   - Groundwater horizontal dashed line
+// * Legend (HTML) — only items actually used in this borehole
+// * LabTestPanel slide-in (HTML overlay) when a sample is clicked
+//
+// The canvas is one big SVG element so patterns, click-targets, and the
+// groundwater line all share the same coordinate space. Layout is computed
+// once via ``computeLayout`` so x-offsets stay aligned.
 
-const DEFAULT_PX_PER_M = 60 // pixels per metre of depth at default zoom
-const TRACK_WIDTH = 180 // px — wide enough for "fine sand + admixtures" labels
-const M_TAW_AXIS_WIDTH = 64 // px — left axis column
-const HEADER_HEIGHT = 56 // px — diagonal track headers
-const PAD = 16
+// ---------------------------------------------------------------------------
+// Geometry constants
+// ---------------------------------------------------------------------------
+
+const PX_PER_M = 60
+const HEADER_HEIGHT = 72 // px — diagonal track headers
+const M_TAW_AXIS_WIDTH = 64
+const OBS_TRACK_WIDTH = 150
+const DRILL_TRACK_WIDTH = 90
+const FIELD_LOG_SUB_WIDTH = 36
+const FIELD_LOG_TRACK_WIDTH = FIELD_LOG_SUB_WIDTH * 3
+const SAMPLES_TRACK_WIDTH = 220
+const TRACK_GAP = 1
+const SVG_X_PAD = 16
+const SVG_Y_PAD = 8
+
+// Lithology streams render with soil patterns; stratigraphy streams use plain
+// labelled rectangles (formation codes A / Q / HyEg, no soil meaning).
+const LITHOLOGY_TYPES = new Set([
+  'coded_lithology',
+  'geotechnical_coding',
+])
+const STRATIGRAPHY_TYPES = new Set([
+  'formal_stratigraphy',
+  'informal_stratigraphy',
+  'quaternary_stratigraphy',
+  'hydrogeological_stratigraphy',
+  'informal_hydrogeological_stratigraphy',
+])
+// Free-text descriptions render as labelled rectangles too.
+// (lithological_description has free text but no soil codes.)
+
+// Stable display order — driller's record first, engineer's reinterpretation
+// next, then text descriptions, then the four stratigraphy flavours.
+const OBSERVATION_TYPE_ORDER = [
+  'coded_lithology',
+  'geotechnical_coding',
+  'lithological_description',
+  'formal_stratigraphy',
+  'informal_stratigraphy',
+  'quaternary_stratigraphy',
+  'hydrogeological_stratigraphy',
+  'informal_hydrogeological_stratigraphy',
+]
+
+// ---------------------------------------------------------------------------
+// Public component
+// ---------------------------------------------------------------------------
 
 interface Props {
   borehole: BoreholeDetailResponse
 }
 
 export default function BoreholeLog({ borehole }: Props): React.ReactElement {
-  // Prefer the most-informative stream as the single track for PR 4a.
-  // Order: coded_lithology (driller's primary record) → geotechnical_coding
-  // (engineer's re-interpretation) → first available stream.
-  const track =
-    borehole.observations.find(o => o.observation_type === 'coded_lithology') ??
-    borehole.observations.find(o => o.observation_type === 'geotechnical_coding') ??
-    borehole.observations[0] ??
-    null
+  const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
 
-  // Total depth: prefer the header value; fall back to deepest layer in the
-  // chosen track; final fallback is 10 m so the canvas isn't zero-height.
-  const layersBottom = track ? Math.max(...track.layers.map(l => l.base_m), 0) : 0
-  const totalDepth = borehole.total_depth_m ?? layersBottom ?? 10
+  const layout = useMemo(() => computeLayout(borehole), [borehole])
 
-  const pxPerMetre = DEFAULT_PX_PER_M
-  const trackHeight = totalDepth * pxPerMetre
+  const selectedSample =
+    selectedSampleId != null
+      ? (borehole.samples.find(s => s.id === selectedSampleId) ?? null)
+      : null
 
   return (
-    <div className="flex flex-col h-full overflow-auto bg-white">
-      {/* Header strip — id, location, depth, date, executor, water table */}
+    <div className="flex flex-col h-full overflow-hidden bg-white relative">
       <BoreholeHeader borehole={borehole} />
 
-      {/* Borelog canvas — mTAW axis (when known) + the chosen observation track */}
-      <div className="flex p-4 gap-1 items-start">
-        {borehole.elevation_m != null ? (
-          <MTawAxis
-            surfaceElevation={borehole.elevation_m}
-            totalDepth={totalDepth}
-            pxPerMetre={pxPerMetre}
-            headerHeight={HEADER_HEIGHT}
-          />
-        ) : (
-          <NoElevationBadge totalDepth={totalDepth} pxPerMetre={pxPerMetre} />
-        )}
+      <div className="flex-1 overflow-auto">
+        <svg
+          width={layout.totalWidth}
+          height={layout.totalHeight}
+          className="block"
+        >
+          <defs>
+            <SoilPatterns />
+          </defs>
 
-        {track ? (
-          <ObservationTrack
-            track={track}
-            trackHeight={trackHeight}
-            pxPerMetre={pxPerMetre}
-            headerHeight={HEADER_HEIGHT}
-          />
-        ) : (
-          <div className="text-xs text-gray-400 italic px-4 py-2">
-            This borehole has no observations to display yet.
-          </div>
-        )}
+          {borehole.elevation_m != null ? (
+            <MTawAxis
+              x={SVG_X_PAD}
+              y={SVG_Y_PAD + HEADER_HEIGHT}
+              height={layout.canvasHeight}
+              surfaceElevation={borehole.elevation_m}
+              totalDepth={layout.totalDepth}
+            />
+          ) : (
+            <NoElevationLabel x={SVG_X_PAD} y={SVG_Y_PAD + HEADER_HEIGHT - 14} />
+          )}
+
+          {/* Observation tracks */}
+          {layout.observationTracks.map(t => (
+            <g key={t.observation.id}>
+              <TrackHeader
+                x={t.x}
+                width={OBS_TRACK_WIDTH}
+                y={SVG_Y_PAD}
+                title={humanizeObservationType(t.observation.observation_type)}
+                subtitle={[t.observation.author, t.observation.observation_date]
+                  .filter(Boolean)
+                  .join(' · ')}
+              />
+              <ObservationTrack
+                observation={t.observation}
+                x={t.x}
+                y={SVG_Y_PAD + HEADER_HEIGHT}
+                width={OBS_TRACK_WIDTH}
+                totalDepth={layout.totalDepth}
+              />
+            </g>
+          ))}
+
+          {/* Drill method track */}
+          {layout.drillMethodX != null && (
+            <g>
+              <TrackHeader
+                x={layout.drillMethodX}
+                width={DRILL_TRACK_WIDTH}
+                y={SVG_Y_PAD}
+                title="Drill method"
+                subtitle={null}
+              />
+              <DrillMethodTrack
+                segments={borehole.drill_segments}
+                x={layout.drillMethodX}
+                y={SVG_Y_PAD + HEADER_HEIGHT}
+                width={DRILL_TRACK_WIDTH}
+                totalDepth={layout.totalDepth}
+              />
+            </g>
+          )}
+
+          {/* Field log track */}
+          {layout.fieldLogX != null && (
+            <g>
+              <TrackHeader
+                x={layout.fieldLogX}
+                width={FIELD_LOG_TRACK_WIDTH}
+                y={SVG_Y_PAD}
+                title="Field log"
+                subtitle="col · mst · con"
+              />
+              <FieldLogTrack
+                intervals={borehole.field_log_intervals}
+                x={layout.fieldLogX}
+                y={SVG_Y_PAD + HEADER_HEIGHT}
+              />
+            </g>
+          )}
+
+          {/* Samples track — clickable */}
+          {layout.samplesX != null && (
+            <g>
+              <TrackHeader
+                x={layout.samplesX}
+                width={SAMPLES_TRACK_WIDTH}
+                y={SVG_Y_PAD}
+                title="Samples + lab tests"
+                subtitle={`${borehole.samples.length} sample${borehole.samples.length !== 1 ? 's' : ''}`}
+              />
+              <SamplesTrack
+                samples={borehole.samples}
+                x={layout.samplesX}
+                y={SVG_Y_PAD + HEADER_HEIGHT}
+                width={SAMPLES_TRACK_WIDTH}
+                selectedSampleId={selectedSampleId}
+                onSampleClick={setSelectedSampleId}
+              />
+            </g>
+          )}
+
+          {/* Groundwater line spanning every track */}
+          {borehole.water_table_depth_m != null && layout.canvasRight > layout.canvasLeft && (
+            <GroundwaterLine
+              waterDepth={borehole.water_table_depth_m}
+              fromX={layout.canvasLeft}
+              toX={layout.canvasRight}
+              y={SVG_Y_PAD + HEADER_HEIGHT}
+              totalDepth={layout.totalDepth}
+            />
+          )}
+        </svg>
       </div>
 
-      {/* Legend — only the soil tokens actually used in the track */}
-      {track && <SoilLegend track={track} />}
+      <Legend borehole={borehole} />
+
+      {selectedSample && (
+        <LabTestPanel
+          sample={selectedSample}
+          onClose={() => setSelectedSampleId(null)}
+        />
+      )}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Header strip
+// Layout — single source of truth for x positions and dimensions
+// ---------------------------------------------------------------------------
+
+interface ObservationTrackLayout {
+  observation: ObservationResponse
+  x: number
+}
+
+interface Layout {
+  totalWidth: number
+  totalHeight: number
+  totalDepth: number
+  canvasHeight: number
+  canvasLeft: number // x where the first track starts (for groundwater line)
+  canvasRight: number // x where the last track ends (for groundwater line)
+  observationTracks: ObservationTrackLayout[]
+  drillMethodX: number | null
+  fieldLogX: number | null
+  samplesX: number | null
+}
+
+function computeLayout(borehole: BoreholeDetailResponse): Layout {
+  // Observations to render — only those with at least one layer, in stable
+  // display order (driller's record first, engineer's next, then the
+  // stratigraphy flavours).
+  const observationsToShow = [...borehole.observations]
+    .filter(o => o.layers.length > 0)
+    .sort((a, b) => {
+      const ai = OBSERVATION_TYPE_ORDER.indexOf(a.observation_type)
+      const bi = OBSERVATION_TYPE_ORDER.indexOf(b.observation_type)
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+    })
+
+  // Total depth: take the deepest extent across header + every layer + every
+  // drill segment + every sample so the canvas covers everything that needs
+  // drawing.
+  const candidates: number[] = [borehole.total_depth_m ?? 0]
+  for (const o of observationsToShow) {
+    for (const l of o.layers) candidates.push(l.base_m)
+  }
+  for (const s of borehole.drill_segments) candidates.push(s.base_m)
+  for (const sa of borehole.samples) candidates.push(sa.depth_base_m)
+  const totalDepth = Math.max(...candidates, 1)
+
+  const canvasHeight = totalDepth * PX_PER_M
+
+  // X cursor — start with mTAW axis (always reserved, even when elevation is
+  // null, so headers align consistently), then accumulate per-track widths.
+  let cursor = SVG_X_PAD + M_TAW_AXIS_WIDTH + TRACK_GAP
+  const canvasLeft = cursor
+
+  const observationTracks: ObservationTrackLayout[] = []
+  for (const o of observationsToShow) {
+    observationTracks.push({ observation: o, x: cursor })
+    cursor += OBS_TRACK_WIDTH + TRACK_GAP
+  }
+
+  let drillMethodX: number | null = null
+  if (borehole.drill_segments.length > 0) {
+    drillMethodX = cursor
+    cursor += DRILL_TRACK_WIDTH + TRACK_GAP
+  }
+
+  let fieldLogX: number | null = null
+  if (borehole.field_log_intervals.length > 0) {
+    fieldLogX = cursor
+    cursor += FIELD_LOG_TRACK_WIDTH + TRACK_GAP
+  }
+
+  let samplesX: number | null = null
+  if (borehole.samples.length > 0) {
+    samplesX = cursor
+    cursor += SAMPLES_TRACK_WIDTH + TRACK_GAP
+  }
+
+  const canvasRight = cursor - TRACK_GAP
+  const totalWidth = canvasRight + SVG_X_PAD
+  const totalHeight = SVG_Y_PAD + HEADER_HEIGHT + canvasHeight + SVG_Y_PAD
+
+  return {
+    totalWidth,
+    totalHeight,
+    totalDepth,
+    canvasHeight,
+    canvasLeft,
+    canvasRight,
+    observationTracks,
+    drillMethodX,
+    fieldLogX,
+    samplesX,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Header strip (HTML)
 // ---------------------------------------------------------------------------
 
 function BoreholeHeader({ borehole }: { borehole: BoreholeDetailResponse }): React.ReactElement {
   return (
-    <div
-      className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-2 border-b border-gray-200 bg-gray-50 text-[11px]"
-      style={{ minHeight: 56 }}
-    >
+    <div className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-2 border-b border-gray-200 bg-gray-50 text-[11px] shrink-0">
       <Field label="Boring" value={borehole.name} bold />
       <Field
         label="X / Y"
@@ -145,61 +389,78 @@ function Field({
 }
 
 // ---------------------------------------------------------------------------
-// mTAW axis (left column)
+// mTAW axis (SVG)
 // ---------------------------------------------------------------------------
 
 function MTawAxis({
+  x,
+  y,
+  height,
   surfaceElevation,
   totalDepth,
-  pxPerMetre,
-  headerHeight,
 }: {
+  x: number
+  y: number
+  height: number
   surfaceElevation: number
   totalDepth: number
-  pxPerMetre: number
-  headerHeight: number
 }): React.ReactElement {
+  // Surface + every whole-metre level + bottom. Dedup so we don't double the
+  // surface or bottom when those happen to land on whole metres.
   const bottomElevation = surfaceElevation - totalDepth
-  const ticks: number[] = []
-  // Surface elevation explicitly + every whole-metre level down to the bottom.
-  ticks.push(surfaceElevation)
+  const ticks = new Set<number>()
+  ticks.add(roundTo(surfaceElevation, 2))
   for (let lvl = Math.floor(surfaceElevation); lvl > bottomElevation; lvl -= 1) {
-    if (lvl < surfaceElevation) ticks.push(lvl)
+    if (lvl < surfaceElevation && lvl > bottomElevation) ticks.add(lvl)
   }
-  ticks.push(bottomElevation)
+  ticks.add(roundTo(bottomElevation, 2))
 
-  const totalHeight = totalDepth * pxPerMetre
+  const axisRight = x + M_TAW_AXIS_WIDTH
 
   return (
-    <div
-      className="relative shrink-0 text-[10px] text-gray-500 font-mono"
-      style={{ width: M_TAW_AXIS_WIDTH }}
-    >
-      <div
-        className="text-[9px] uppercase tracking-wide text-gray-400 text-right pr-1"
-        style={{ height: headerHeight, paddingTop: headerHeight - 14 }}
+    <g>
+      {/* Vertical guide line */}
+      <line
+        x1={axisRight - 1}
+        x2={axisRight - 1}
+        y1={y}
+        y2={y + height}
+        stroke="#d4d4d8"
+        strokeWidth={1}
+      />
+      {/* "mTAW" header label */}
+      <text
+        x={axisRight - 4}
+        y={y - 6}
+        textAnchor="end"
+        fontSize={9}
+        fill="#9ca3af"
+        style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}
       >
         mTAW
-      </div>
-      <div className="relative" style={{ height: totalHeight }}>
-        {/* Vertical guide line */}
-        <div className="absolute right-0 top-0 bottom-0 w-px bg-gray-300" />
-        {ticks.map((lvl, i) => {
+      </text>
+      {[...ticks]
+        .sort((a, b) => b - a)
+        .map(lvl => {
           const depth = surfaceElevation - lvl
-          const y = depth * pxPerMetre
+          const ty = y + depth * PX_PER_M
           return (
-            <div
-              key={`${lvl}-${i}`}
-              className="absolute right-0 flex items-center gap-1 -translate-y-1/2"
-              style={{ top: y }}
-            >
-              <span className="pr-1.5">{formatMtaw(lvl)}</span>
-              <span className="block w-2 h-px bg-gray-400" />
-            </div>
+            <g key={lvl}>
+              <line x1={axisRight - 6} x2={axisRight - 1} y1={ty} y2={ty} stroke="#9ca3af" />
+              <text
+                x={axisRight - 8}
+                y={ty + 3}
+                textAnchor="end"
+                fontSize={10}
+                fill="#6b7280"
+                fontFamily="monospace"
+              >
+                {formatMtaw(lvl)}
+              </text>
+            </g>
           )
         })}
-      </div>
-    </div>
+    </g>
   )
 }
 
@@ -208,181 +469,735 @@ function formatMtaw(lvl: number): string {
   return `${sign}${lvl.toFixed(2)}`
 }
 
-function NoElevationBadge({
-  totalDepth,
-  pxPerMetre,
-}: {
-  totalDepth: number
-  pxPerMetre: number
-}): React.ReactElement {
-  // When elevation_m is null the borelog still draws, just without the absolute-
-  // level axis. The Phase 3a UX requirement (manual-Z-entry editor + yellow flag
-  // in the sidebar) lands in a separate PR; here we only avoid crashing.
+function NoElevationLabel({ x, y }: { x: number; y: number }): React.ReactElement {
   return (
-    <div
-      className="shrink-0 flex flex-col items-end justify-end pr-2 text-[10px] text-amber-600 italic"
-      style={{ width: M_TAW_AXIS_WIDTH, height: HEADER_HEIGHT + totalDepth * pxPerMetre }}
-    >
-      no Z
-    </div>
+    <text x={x} y={y} fontSize={10} fill="#d97706" fontStyle="italic">
+      no Z (manual entry needed)
+    </text>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Observation track — colored bars per layer + per-layer depth labels
+// Track header — diagonal-text title + author/date sub-line (SVG)
+// ---------------------------------------------------------------------------
+
+function TrackHeader({
+  x,
+  width,
+  y,
+  title,
+  subtitle,
+}: {
+  x: number
+  width: number
+  y: number
+  title: string
+  subtitle: string | null
+}): React.ReactElement {
+  // Render as horizontal text — diagonal looks nice at print sizes but is
+  // hard to read at on-screen sizes. Two lines: title + subtitle.
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={HEADER_HEIGHT}
+        fill="#fafafa"
+        stroke="#e5e7eb"
+        strokeWidth={0.5}
+      />
+      <text
+        x={x + 4}
+        y={y + 14}
+        fontSize={10}
+        fontWeight={600}
+        fill="#374151"
+      >
+        {truncate(title, 22)}
+      </text>
+      {subtitle && (
+        <text x={x + 4} y={y + 28} fontSize={9} fill="#9ca3af">
+          {truncate(subtitle, 26)}
+        </text>
+      )}
+    </g>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Observation track (SVG) — one rect per layer + per-layer depth labels
 // ---------------------------------------------------------------------------
 
 function ObservationTrack({
-  track,
-  trackHeight,
-  pxPerMetre,
-  headerHeight,
+  observation,
+  x,
+  y,
+  width,
+  totalDepth,
 }: {
-  track: ObservationResponse
-  trackHeight: number
-  pxPerMetre: number
-  headerHeight: number
+  observation: ObservationResponse
+  x: number
+  y: number
+  width: number
+  totalDepth: number
 }): React.ReactElement {
-  const friendly = humanizeObservationType(track.observation_type)
-  const sub =
-    track.author && track.observation_date
-      ? `${track.author} (${track.observation_date})`
-      : (track.author ?? track.observation_date ?? '')
+  const isLithology = LITHOLOGY_TYPES.has(observation.observation_type)
+  const isStratigraphy = STRATIGRAPHY_TYPES.has(observation.observation_type)
+  // Anything not lithology and not stratigraphy renders as text-card style
+  // (e.g. lithological_description, free-text).
+  const cardStyle = !isLithology
 
   return (
-    <div className="shrink-0" style={{ width: TRACK_WIDTH }}>
-      {/* Track header — title + author + date */}
-      <div
-        className="border-b border-gray-200 px-1 py-1 text-[10px] leading-tight"
-        style={{ height: headerHeight }}
-      >
-        <div className="font-semibold text-gray-700 truncate">{friendly}</div>
-        {sub && <div className="text-gray-400 truncate">{sub}</div>}
-      </div>
-
-      {/* Layer rectangles */}
-      <div
-        className="relative border-l border-r border-gray-300 bg-white"
-        style={{ height: trackHeight }}
-      >
-        {track.layers.map(layer => (
-          <LayerBlock
-            key={layer.id}
-            layer={layer}
-            pxPerMetre={pxPerMetre}
-            trackWidth={TRACK_WIDTH}
-          />
-        ))}
-      </div>
-    </div>
+    <g>
+      {/* Background — empty area below the deepest layer */}
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={totalDepth * PX_PER_M}
+        fill="#ffffff"
+        stroke="#e5e7eb"
+        strokeWidth={0.5}
+      />
+      {observation.layers.map(layer => (
+        <ObservationLayerBlock
+          key={layer.id}
+          layer={layer}
+          x={x}
+          y={y}
+          width={width}
+          cardStyle={cardStyle}
+          isStratigraphy={isStratigraphy}
+        />
+      ))}
+    </g>
   )
 }
 
-function LayerBlock({
+function ObservationLayerBlock({
   layer,
-  pxPerMetre,
-  trackWidth,
+  x,
+  y,
+  width,
+  cardStyle,
+  isStratigraphy,
 }: {
   layer: ObservationLayerResponse
-  pxPerMetre: number
-  trackWidth: number
+  x: number
+  y: number
+  width: number
+  cardStyle: boolean
+  isStratigraphy: boolean
 }): React.ReactElement {
-  const top = layer.top_m * pxPerMetre
-  const height = (layer.base_m - layer.top_m) * pxPerMetre
-  // PR 4a uses the FIRST main-soil token to pick the fill colour. Layers with
-  // multiple equally-dominant soils (DOV's <hoofdnaam> can repeat) get a label
-  // listing all of them; we'll add a visual mix-pattern in PR 4b.
+  const top = y + layer.top_m * PX_PER_M
+  const height = (layer.base_m - layer.top_m) * PX_PER_M
   const primary = layer.main_soil_codes[0] ?? null
-  const style = soilStyle(primary)
+  const fillUrl = cardStyle ? '#f8fafc' : getSoilFillUrl(primary)
 
-  const adminxtureLabel =
-    layer.admixtures.length > 0
-      ? layer.admixtures
-          .map(a => `${a.amount ? `${a.amount} ` : ''}${a.soil_code}${a.locally ? ' (loc.)' : ''}`)
-          .join(', ')
+  // Stratigraphy: centred formation code (e.g. "A", "Q", "HyEg") on a soft
+  // tinted background. Lithology: pattern fill + main soil code label in a
+  // small white badge near the top-left.
+  const stratLabel =
+    isStratigraphy && layer.description ? truncate(layer.description, 20) : null
+  const lithoBadge = !cardStyle && primary ? primary : null
+  const lithoSecondary =
+    !cardStyle && layer.main_soil_codes.length > 1
+      ? layer.main_soil_codes.slice(1).join(' + ')
       : null
+  const admixtureLabel = layer.admixtures
+    .map(a => `${a.amount ? a.amount + ' ' : ''}${a.soil_code}${a.locally ? ' (loc.)' : ''}`)
+    .join(', ')
+  const cardLabel = cardStyle && !isStratigraphy ? layer.description : null
+
+  // Build the hover tooltip — surfaces every fact about the layer.
+  const tooltipLines = [
+    `${layer.top_m.toFixed(2)} – ${layer.base_m.toFixed(2)} m`,
+    layer.color ? `Colour: ${layer.color}` : null,
+    layer.main_soil_codes.length > 0 ? `Main: ${layer.main_soil_codes.join(', ')}` : null,
+    admixtureLabel ? `Admixtures: ${admixtureLabel}` : null,
+    layer.description ? `Description: ${layer.description}` : null,
+  ].filter(Boolean)
 
   return (
-    <div
-      className="absolute left-0 right-0 border-b border-gray-200 px-1 overflow-hidden"
-      style={{ top, height, backgroundColor: style.fill }}
-      title={[
-        `${layer.top_m.toFixed(2)} – ${layer.base_m.toFixed(2)} m`,
-        layer.color ? `Colour: ${layer.color}` : null,
-        layer.main_soil_codes.length > 0 ? `Main: ${layer.main_soil_codes.join(', ')}` : null,
-        adminxtureLabel ? `Admixtures: ${adminxtureLabel}` : null,
-        layer.description ? `Description: ${layer.description}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n')}
-    >
-      {/* Inline label, hidden when the layer is too thin to show text legibly */}
-      {height >= 18 && (
-        <div className="text-[10px] text-gray-900 font-medium truncate">
-          {layer.main_soil_codes.length > 0
-            ? layer.main_soil_codes.join(' + ')
-            : (layer.description ?? '—')}
-          {adminxtureLabel && (
-            <span className="text-gray-700 font-normal"> · {adminxtureLabel}</span>
-          )}
-        </div>
+    <g>
+      <title>{tooltipLines.join('\n')}</title>
+      <rect
+        x={x}
+        y={top}
+        width={width}
+        height={height}
+        fill={fillUrl}
+        stroke="#9ca3af"
+        strokeWidth={0.4}
+      />
+
+      {/* Stratigraphy: centred formation code */}
+      {stratLabel && height >= 16 && (
+        <text
+          x={x + width / 2}
+          y={top + height / 2 + 3}
+          textAnchor="middle"
+          fontSize={11}
+          fontWeight={600}
+          fill="#1f2937"
+        >
+          {stratLabel}
+        </text>
       )}
 
-      {/* Per-layer depth label on the right edge — DOV-style */}
-      <div
-        className="absolute right-0 top-0 -translate-y-1/2 text-[9px] font-mono text-gray-600 bg-white px-1 rounded-l"
-        style={{ pointerEvents: 'none' }}
+      {/* Lithology: small badge with the main code(s), top-left */}
+      {lithoBadge && height >= 14 && (
+        <g>
+          <rect
+            x={x + 2}
+            y={top + 2}
+            width={Math.min(width - 4, 18 + lithoBadge.length * 6)}
+            height={12}
+            rx={1}
+            fill="white"
+            opacity={0.85}
+          />
+          <text
+            x={x + 5}
+            y={top + 11}
+            fontSize={9}
+            fontWeight={600}
+            fontFamily="monospace"
+            fill="#1f2937"
+          >
+            {lithoBadge}
+            {lithoSecondary ? ` + ${lithoSecondary}` : ''}
+          </text>
+        </g>
+      )}
+
+      {/* Lithology: admixture text bottom-left when room */}
+      {!cardStyle && admixtureLabel && height >= 28 && (
+        <text
+          x={x + 4}
+          y={top + height - 4}
+          fontSize={9}
+          fill="#1f2937"
+        >
+          {truncate(admixtureLabel, Math.floor(width / 5))}
+        </text>
+      )}
+
+      {/* Free-text card label (for lithological_description) */}
+      {cardLabel && height >= 14 && (
+        <text x={x + 4} y={top + 12} fontSize={9} fill="#374151">
+          {truncate(cardLabel, Math.floor(width / 5))}
+        </text>
+      )}
+
+      {/* Per-layer top-edge depth label, mirrors DOV's PDF style */}
+      <text
+        x={x + width - 3}
+        y={top + 8}
+        textAnchor="end"
+        fontSize={8}
+        fill="#6b7280"
+        fontFamily="monospace"
       >
         {layer.top_m.toFixed(2)}
-      </div>
-      {/* Bottom-edge label only on the deepest layer; DOV repeats the boundary
-          on each layer but that produces visual noise — one per boundary is enough. */}
-      <div
-        className="absolute right-0 bottom-0 translate-y-1/2 text-[9px] font-mono text-gray-600 bg-white px-1 rounded-l"
-        style={{ pointerEvents: 'none' }}
-      >
-        {layer.base_m.toFixed(2)}
-      </div>
-    </div>
+      </text>
+      {/* Bottom label only when the layer is tall enough that it wouldn't
+          overlap the next layer's top label. */}
+      {height >= 14 && (
+        <text
+          x={x + width - 3}
+          y={top + height - 3}
+          textAnchor="end"
+          fontSize={8}
+          fill="#6b7280"
+          fontFamily="monospace"
+        >
+          {layer.base_m.toFixed(2)}
+        </text>
+      )}
+    </g>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Legend — only renders soil tokens that appear in the track
+// Drill-method track (SVG)
 // ---------------------------------------------------------------------------
 
-function SoilLegend({ track }: { track: ObservationResponse }): React.ReactElement {
-  // Collect unique tokens across all layers (main + admixtures) so the legend
-  // documents everything visually rendered, including admixture tokens.
-  const codes = new Set<string>()
-  for (const layer of track.layers) {
-    layer.main_soil_codes.forEach(c => codes.add(c))
-    layer.admixtures.forEach(a => codes.add(a.soil_code))
+function DrillMethodTrack({
+  segments,
+  x,
+  y,
+  width,
+  totalDepth,
+}: {
+  segments: DrillSegmentResponse[]
+  x: number
+  y: number
+  width: number
+  totalDepth: number
+}): React.ReactElement {
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={totalDepth * PX_PER_M}
+        fill="#ffffff"
+        stroke="#e5e7eb"
+        strokeWidth={0.5}
+      />
+      {segments.map(seg => {
+        const top = y + seg.top_m * PX_PER_M
+        const height = (seg.base_m - seg.top_m) * PX_PER_M
+        const style = drillMethodStyle(seg.method)
+        return (
+          <g key={seg.id}>
+            <title>
+              {`${seg.top_m.toFixed(2)} – ${seg.base_m.toFixed(2)} m\n${seg.method ?? '—'}`}
+            </title>
+            <rect
+              x={x}
+              y={top}
+              width={width}
+              height={height}
+              fill={style.fill}
+              stroke="#9ca3af"
+              strokeWidth={0.4}
+            />
+            {height >= 14 && (
+              <text
+                x={x + width / 2}
+                y={top + height / 2 + 3}
+                textAnchor="middle"
+                fontSize={9}
+                fill="#1f2937"
+              >
+                {truncate(seg.method ?? '', 12)}
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Field-log track (SVG) — 3 sub-stripes: color / moisture / consistency
+// ---------------------------------------------------------------------------
+
+function FieldLogTrack({
+  intervals,
+  x,
+  y,
+}: {
+  intervals: FieldLogIntervalResponse[]
+  x: number
+  y: number
+}): React.ReactElement {
+  // Group intervals by kind so each sub-stripe renders its own list.
+  const colour = intervals.filter(i => i.kind === 'color')
+  const moisture = intervals.filter(i => i.kind === 'moisture')
+  const consistency = intervals.filter(i => i.kind === 'consistency')
+
+  return (
+    <g>
+      <FieldLogStripe
+        x={x}
+        y={y}
+        width={FIELD_LOG_SUB_WIDTH}
+        intervals={colour}
+        fillFor={fieldColorFill}
+      />
+      <FieldLogStripe
+        x={x + FIELD_LOG_SUB_WIDTH}
+        y={y}
+        width={FIELD_LOG_SUB_WIDTH}
+        intervals={moisture}
+        fillFor={moistureFill}
+      />
+      <FieldLogStripe
+        x={x + FIELD_LOG_SUB_WIDTH * 2}
+        y={y}
+        width={FIELD_LOG_SUB_WIDTH}
+        intervals={consistency}
+        fillFor={consistencyFill}
+      />
+    </g>
+  )
+}
+
+function FieldLogStripe({
+  x,
+  y,
+  width,
+  intervals,
+  fillFor,
+}: {
+  x: number
+  y: number
+  width: number
+  intervals: FieldLogIntervalResponse[]
+  fillFor: (v: string | null | undefined) => string
+}): React.ReactElement {
+  return (
+    <g>
+      {intervals.map(it => {
+        const top = y + it.top_m * PX_PER_M
+        const height = (it.base_m - it.top_m) * PX_PER_M
+        return (
+          <g key={it.id}>
+            <title>
+              {`${it.top_m.toFixed(2)} – ${it.base_m.toFixed(2)} m\n${it.kind}: ${it.value ?? '—'}`}
+            </title>
+            <rect
+              x={x}
+              y={top}
+              width={width}
+              height={height}
+              fill={fillFor(it.value)}
+              stroke="#9ca3af"
+              strokeWidth={0.4}
+            />
+            {/* Show the literal source value on the stripe when there's room */}
+            {height >= 12 && it.value && (
+              <text
+                x={x + width / 2}
+                y={top + height / 2 + 3}
+                textAnchor="middle"
+                fontSize={8}
+                fill="#1f2937"
+              >
+                {truncate(it.value, 8)}
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Samples track (SVG, clickable)
+// ---------------------------------------------------------------------------
+
+function SamplesTrack({
+  samples,
+  x,
+  y,
+  width,
+  selectedSampleId,
+  onSampleClick,
+}: {
+  samples: SampleResponse[]
+  x: number
+  y: number
+  width: number
+  selectedSampleId: string | null
+  onSampleClick: (id: string | null) => void
+}): React.ReactElement {
+  return (
+    <g>
+      {samples.map(sample => {
+        const top = y + sample.depth_top_m * PX_PER_M
+        const bottom = y + sample.depth_base_m * PX_PER_M
+        const mid = (top + bottom) / 2
+        const isSpot = sample.depth_top_m === sample.depth_base_m
+        const selected = sample.id === selectedSampleId
+
+        // Lab-test icons: which families have data?
+        const tests: { label: string; symbol: string; color: string }[] = []
+        if (sample.grain_sizes.length > 0)
+          tests.push({ label: 'grain size', symbol: '▣', color: '#8b6f47' })
+        if (sample.atterberg_limits_tests.length > 0)
+          tests.push({ label: 'Atterberg', symbol: '▲', color: '#1f5077' })
+        if (sample.caco3_content_tests.length > 0)
+          tests.push({ label: 'CaCO₃', symbol: '◆', color: '#d4a373' })
+        if (sample.organic_content_tests.length > 0)
+          tests.push({ label: 'organic', symbol: '●', color: '#2d6a3e' })
+        if (sample.water_content_tests.length > 0)
+          tests.push({ label: 'water', symbol: '◯', color: '#1e88e5' })
+
+        const hasAnyTest = tests.length > 0
+        const clickable = true // even sample-only rows are clickable to show metadata
+
+        return (
+          <g
+            key={sample.id}
+            style={{ cursor: clickable ? 'pointer' : 'default' }}
+            onClick={() => onSampleClick(selected ? null : sample.id)}
+          >
+            <title>
+              {`${sample.sample_number ?? '(unnumbered)'}\n${sample.depth_top_m.toFixed(2)} – ${sample.depth_base_m.toFixed(2)} m\n${tests.length} lab test${tests.length !== 1 ? 's' : ''}`}
+            </title>
+
+            {/* Selected highlight */}
+            {selected && (
+              <rect
+                x={x + 1}
+                y={top - 2}
+                width={width - 2}
+                height={Math.max(bottom - top, 12) + 4}
+                fill="#dbeafe"
+                stroke="#3b82f6"
+                strokeWidth={1}
+                rx={2}
+              />
+            )}
+
+            {/* Interval bracket OR spot marker */}
+            {!isSpot ? (
+              <rect
+                x={x + 8}
+                y={top}
+                width={4}
+                height={bottom - top}
+                fill="#374151"
+                rx={1}
+              />
+            ) : (
+              <circle cx={x + 10} cy={mid} r={4} fill="#374151" />
+            )}
+
+            {/* Sample label + test icons */}
+            <text x={x + 18} y={mid + 3} fontSize={10} fill="#1f2937">
+              {sample.sample_number ?? '#?'}
+            </text>
+            {hasAnyTest && (
+              <text x={x + 50} y={mid + 4} fontSize={11} fill="#1f2937">
+                {tests.map(t => t.symbol).join(' ')}
+              </text>
+            )}
+            {!hasAnyTest && (
+              <text x={x + 50} y={mid + 3} fontSize={9} fill="#9ca3af" fontStyle="italic">
+                no tests
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Groundwater line (SVG)
+// ---------------------------------------------------------------------------
+
+function GroundwaterLine({
+  waterDepth,
+  fromX,
+  toX,
+  y,
+  totalDepth,
+}: {
+  waterDepth: number
+  fromX: number
+  toX: number
+  y: number
+  totalDepth: number
+}): React.ReactElement | null {
+  // If the water table is below the deepest drawn extent, skip the line
+  // entirely — drawing it past the canvas just confuses.
+  if (waterDepth > totalDepth) return null
+
+  const ly = y + waterDepth * PX_PER_M
+  return (
+    <g>
+      <line
+        x1={fromX}
+        x2={toX}
+        y1={ly}
+        y2={ly}
+        stroke="#1e88e5"
+        strokeWidth={1.2}
+        strokeDasharray="6 3"
+      />
+      <text
+        x={fromX + 4}
+        y={ly - 3}
+        fontSize={9}
+        fill="#1e88e5"
+        fontStyle="italic"
+      >
+        ▾ water at {waterDepth.toFixed(2)} m
+      </text>
+    </g>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Legend (HTML) — only items actually present in this borehole
+// ---------------------------------------------------------------------------
+
+function Legend({ borehole }: { borehole: BoreholeDetailResponse }): React.ReactElement {
+  // 1. Soil codes used in any lithology track
+  const soilCodes = new Set<string>()
+  for (const obs of borehole.observations) {
+    if (!LITHOLOGY_TYPES.has(obs.observation_type)) continue
+    for (const layer of obs.layers) {
+      layer.main_soil_codes.forEach(c => soilCodes.add(c))
+      layer.admixtures.forEach(a => soilCodes.add(a.soil_code))
+    }
   }
 
-  if (codes.size === 0) {
+  // 2. Stratigraphy formation codes (description = formation label)
+  const stratEntries = new Map<string, string>() // code → full description
+  for (const obs of borehole.observations) {
+    if (!STRATIGRAPHY_TYPES.has(obs.observation_type)) continue
+    for (const layer of obs.layers) {
+      if (layer.description) {
+        const code = layer.description.split(/[\s-]/)[0] || layer.description
+        stratEntries.set(code, layer.description)
+      }
+    }
+  }
+
+  // 3. Drill methods used
+  const drillMethods = new Set<string>()
+  for (const seg of borehole.drill_segments) {
+    if (seg.method) drillMethods.add(seg.method)
+  }
+
+  // 4. Lab-test icons present (from samples)
+  const testIcons: { symbol: string; label: string; color: string }[] = []
+  if (borehole.samples.some(s => s.grain_sizes.length > 0))
+    testIcons.push({ symbol: '▣', label: 'grain size', color: '#8b6f47' })
+  if (borehole.samples.some(s => s.atterberg_limits_tests.length > 0))
+    testIcons.push({ symbol: '▲', label: 'Atterberg', color: '#1f5077' })
+  if (borehole.samples.some(s => s.caco3_content_tests.length > 0))
+    testIcons.push({ symbol: '◆', label: 'CaCO₃', color: '#d4a373' })
+  if (borehole.samples.some(s => s.organic_content_tests.length > 0))
+    testIcons.push({ symbol: '●', label: 'organic', color: '#2d6a3e' })
+  if (borehole.samples.some(s => s.water_content_tests.length > 0))
+    testIcons.push({ symbol: '◯', label: 'water', color: '#1e88e5' })
+
+  const sectionsPresent =
+    soilCodes.size > 0 || stratEntries.size > 0 || drillMethods.size > 0 || testIcons.length > 0
+
+  if (!sectionsPresent) {
     return <div />
   }
 
   return (
-    <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
-      <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Lithology codes</div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-gray-700">
-        {[...codes].sort().map(code => {
-          const style = soilStyle(code)
-          return (
-            <div key={code} className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-3.5 h-3.5 border border-gray-300 rounded-sm"
-                style={{ backgroundColor: style.fill }}
+    <div className="border-t border-gray-200 bg-gray-50 px-4 py-2 text-[11px] flex flex-wrap gap-x-6 gap-y-2 shrink-0">
+      {soilCodes.size > 0 && (
+        <LegendSection title="Lithology codes">
+          {[...soilCodes].sort().map(code => {
+            const style = soilStyle(code)
+            return (
+              <LegendChip
+                key={code}
+                code={code}
+                label={style.label}
+                preview={
+                  <svg width={14} height={14}>
+                    <defs>
+                      <SoilPatterns />
+                    </defs>
+                    <rect
+                      x={0}
+                      y={0}
+                      width={14}
+                      height={14}
+                      fill={getSoilFillUrl(code)}
+                      stroke="#9ca3af"
+                      strokeWidth={0.4}
+                    />
+                  </svg>
+                }
               />
-              <span className="font-mono text-gray-500">{code}</span>
-              <span className="text-gray-700">{style.label}</span>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </LegendSection>
+      )}
+
+      {stratEntries.size > 0 && (
+        <LegendSection title="Stratigraphy">
+          {[...stratEntries.entries()].map(([code, desc]) => (
+            <LegendChip key={code} code={code} label={desc} />
+          ))}
+        </LegendSection>
+      )}
+
+      {drillMethods.size > 0 && (
+        <LegendSection title="Drill method">
+          {[...drillMethods].sort().map(m => {
+            const s = drillMethodStyle(m)
+            return (
+              <LegendChip
+                key={m}
+                code={m}
+                label={s.label}
+                preview={
+                  <span
+                    className="inline-block w-3.5 h-3.5 border border-gray-300 rounded-sm"
+                    style={{ backgroundColor: s.fill }}
+                  />
+                }
+              />
+            )
+          })}
+        </LegendSection>
+      )}
+
+      {testIcons.length > 0 && (
+        <LegendSection title="Lab tests">
+          {testIcons.map(t => (
+            <span key={t.label} className="flex items-center gap-1.5 text-gray-700">
+              <span className="text-base leading-none" style={{ color: t.color }}>
+                {t.symbol}
+              </span>
+              <span>{t.label}</span>
+            </span>
+          ))}
+          <span className="text-[10px] text-gray-400 italic ml-2">click sample to view</span>
+        </LegendSection>
+      )}
+
+      {borehole.elevation_m == null && (
+        <div className="flex items-center gap-1 text-amber-600">
+          <AlertTriangle size={11} />
+          <span>Surface elevation missing — borelog renders without absolute level axis.</span>
+        </div>
+      )}
     </div>
+  )
+}
+
+function LegendSection({
+  title,
+  children,
+}: {
+  title: string
+  children: React.ReactNode
+}): React.ReactElement {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="text-[9px] uppercase tracking-wide text-gray-400">{title}</div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1">{children}</div>
+    </div>
+  )
+}
+
+function LegendChip({
+  code,
+  label,
+  preview,
+}: {
+  code: string
+  label: string
+  preview?: React.ReactNode
+}): React.ReactElement {
+  return (
+    <span className="flex items-center gap-1.5 text-gray-700">
+      {preview}
+      <span className="font-mono text-gray-500">{code}</span>
+      <span>{label}</span>
+    </span>
   )
 }
 
@@ -391,10 +1206,6 @@ function SoilLegend({ track }: { track: ObservationResponse }): React.ReactEleme
 // ---------------------------------------------------------------------------
 
 function humanizeObservationType(t: string): string {
-  // Convert the API's snake_case ObservationType.value into a friendly label.
-  // The DOV PDF uses Dutch ("Gecodeerde lithologie"); we surface English in
-  // the desktop UI. Translation to Dutch labels can be a presentation toggle
-  // later.
   switch (t) {
     case 'coded_lithology':
       return 'Coded lithology'
@@ -415,4 +1226,14 @@ function humanizeObservationType(t: string): string {
     default:
       return t
   }
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return s.slice(0, max - 1) + '…'
+}
+
+function roundTo(value: number, decimals: number): number {
+  const factor = Math.pow(10, decimals)
+  return Math.round(value * factor) / factor
 }
