@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import { api, setBaseUrl, DuplicateCptError } from './api/client'
 import type {
+  BoreholeAxis,
   BoreholeDetailResponse,
   BoreholeListItem,
   CptListItem,
@@ -9,6 +10,9 @@ import type {
   CptResponse,
 } from './api/client'
 import { useProject } from './hooks/useProject'
+import { usePersistedSet } from './hooks/usePersistedSet'
+import { useTheme } from './hooks/useTheme'
+import { log } from './utils/log'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
@@ -45,6 +49,12 @@ interface Toast {
 
 export default function App() {
   const { project, createProject } = useProject()
+  // Initialise the theme system. The hook itself owns the class on
+  // <html>; we don't need to consume ``resolved``/``setChoice`` until a
+  // theme-toggle UI lands (UX Conventions in CLAUDE.md flagged that as
+  // a future task — calling the hook here ensures system-preference
+  // tracking is active from app start).
+  useTheme()
 
   const [ready, setReady] = useState(false)
   const [apiError, setApiError] = useState(false)
@@ -67,6 +77,100 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
 
+  // Layer-visibility state — lifted from MapView so the Sidebar can also
+  // grey out + reorder hidden items. We track HIDDEN values (not visible
+  // ones) so an empty set means "show everything", which avoids the
+  // first-render flash that "visible-set + auto-init effect" would cause
+  // every time a new type appears in the data.
+  const [hiddenCptTypes, setHiddenCptTypes] = useState<Set<string>>(new Set())
+  const [boreholeAxis, setBoreholeAxis] = useState<BoreholeAxis>('drill_method')
+  const [hiddenBoreholeValues, setHiddenBoreholeValues] = useState<
+    Record<BoreholeAxis, Set<string>>
+  >({ drill_method: new Set(), borehole_type: new Set() })
+
+  const handleToggleCptType = useCallback((type: string, visible: boolean) => {
+    setHiddenCptTypes(prev => {
+      const next = new Set(prev)
+      if (visible) next.delete(type)
+      else next.add(type)
+      return next
+    })
+  }, [])
+
+  const handleToggleBoreholeValue = useCallback(
+    (value: string, visible: boolean) => {
+      setHiddenBoreholeValues(prev => {
+        const nextAxis = new Set(prev[boreholeAxis])
+        if (visible) nextAxis.delete(value)
+        else nextAxis.add(value)
+        return { ...prev, [boreholeAxis]: nextAxis }
+      })
+    },
+    [boreholeAxis],
+  )
+
+  // Project-local "removed" sets: items that are still in the database
+  // but the user has chosen to exclude from this project view. Each
+  // hook persists its set to localStorage under a project-scoped key,
+  // so closing and reopening the app preserves the user's curated set.
+  // Loading and the ref-skip-on-key-change machinery live in the hook.
+  const [removedCptIds, setRemovedCptIds] = usePersistedSet(
+    project ? `groundmodel.removed.${project.id}.cpt` : undefined,
+  )
+  const [removedBoreholeIds, setRemovedBoreholeIds] = usePersistedSet(
+    project ? `groundmodel.removed.${project.id}.borehole` : undefined,
+  )
+
+  // Apply the project-local filter before anything user-visible reads
+  // the lists. Map markers, sidebar rows, layer-control counts all work
+  // off the filtered view; the unfiltered cpts / boreholes lists never
+  // leave App.
+  const visibleCpts = useMemo(
+    () => cpts.filter(c => !removedCptIds.has(c.id)),
+    [cpts, removedCptIds],
+  )
+  const visibleBoreholes = useMemo(
+    () => boreholes.filter(b => !removedBoreholeIds.has(b.id)),
+    [boreholes, removedBoreholeIds],
+  )
+
+  const handleRemoveCpts = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return
+      setRemovedCptIds(prev => {
+        const next = new Set(prev)
+        for (const id of ids) next.add(id)
+        return next
+      })
+      // If the currently-selected CPT is being removed, clear the
+      // selection so the chart panel doesn't keep displaying it.
+      if (selectedId && ids.includes(selectedId)) {
+        setSelectedId(null)
+        setView('map')
+      }
+    },
+    [selectedId],
+  )
+
+  const handleRemoveBoreholes = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return
+      setRemovedBoreholeIds(prev => {
+        const next = new Set(prev)
+        for (const id of ids) next.add(id)
+        return next
+      })
+      if (selectedBoreholeId && ids.includes(selectedBoreholeId)) {
+        setSelectedBoreholeId(null)
+        setView('map')
+      }
+    },
+    [selectedBoreholeId],
+  )
+
+  const handleRestoreAllCpts = useCallback(() => setRemovedCptIds(new Set()), [])
+  const handleRestoreAllBoreholes = useCallback(() => setRemovedBoreholeIds(new Set()), [])
+
   // ---------------------------------------------------------------------------
   // Boot — wait for API regardless of project state
   // ---------------------------------------------------------------------------
@@ -75,9 +179,15 @@ export default function App() {
     async function boot() {
       const base = await window.electron.getApiBaseUrl()
       setBaseUrl(base)
+      log.info('boot', `API base = ${base}`)
       const ok = await window.electron.waitForApi()
-      if (ok) setReady(true)
-      else setApiError(true)
+      if (ok) {
+        log.info('boot', 'API ready')
+        setReady(true)
+      } else {
+        log.error('boot', 'API failed to come up within timeout')
+        setApiError(true)
+      }
     }
     boot()
   }, [])
@@ -105,9 +215,11 @@ export default function App() {
     try {
       const list = await api.cpt.list(project.id)
       setCpts(list)
+      log.debug('cpt', `refreshList: ${list.length} CPTs`)
       // No per-CPT detail fetch here: CptListItem already carries location_x/y for
       // map markers. Detail is fetched lazily by handleSelect when a CPT is clicked.
-    } catch {
+    } catch (err) {
+      log.error('cpt', 'refreshList failed', err)
       toast('error', 'Failed to load CPT list')
     }
   }, [project])
@@ -117,7 +229,8 @@ export default function App() {
     try {
       const plot = await api.cpt.plot(id)
       setPlotMap(prev => new Map(prev).set(id, plot))
-    } catch {
+    } catch (err) {
+      log.error('cpt', `loadChart(${id}) failed`, err)
       toast('error', 'Failed to load chart data')
     }
   }, [plotMap])
@@ -127,7 +240,9 @@ export default function App() {
     try {
       const list = await api.borehole.list(project.id)
       setBoreholes(list)
-    } catch {
+      log.debug('borehole', `refreshList: ${list.length} boreholes`)
+    } catch (err) {
+      log.error('borehole', 'refreshList failed', err)
       toast('error', 'Failed to load borehole list')
     }
   }, [project])
@@ -138,7 +253,8 @@ export default function App() {
       try {
         const detail = await api.borehole.get(id)
         setBoreholeDetailMap(prev => new Map(prev).set(id, detail))
-      } catch {
+      } catch (err) {
+        log.error('borehole', `loadDetail(${id}) failed`, err)
         toast('error', 'Failed to load borehole detail')
       }
     },
@@ -302,6 +418,7 @@ export default function App() {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'DOV import failed'
+        log.error('import', `DOV bbox import failed: ${msg}`, err)
         toast('error', msg)
       } finally {
         setDovImporting(false)
@@ -314,21 +431,10 @@ export default function App() {
   // Delete
   // ---------------------------------------------------------------------------
 
-  const handleDelete = useCallback(async (id: string) => {
-    try {
-      await api.cpt.delete(id)
-      setCpts(prev => prev.filter(c => c.id !== id))
-      setDetailMap(prev => { const m = new Map(prev); m.delete(id); return m })
-      setPlotMap(prev => { const m = new Map(prev); m.delete(id); return m })
-      if (selectedId === id) {
-        setSelectedId(null)
-        setView('map')
-      }
-      toast('success', 'CPT deleted')
-    } catch {
-      toast('error', 'Failed to delete CPT')
-    }
-  }, [selectedId])
+  // The old handleDelete (DB delete via api.cpt.delete) was replaced by
+  // project-local hide via handleRemoveCpts above. The DB-side data is
+  // intentionally kept so re-importing the same bbox doesn't re-fetch
+  // already-cached records.
 
   // ---------------------------------------------------------------------------
   // Toasts
@@ -382,14 +488,22 @@ export default function App() {
 
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
-          cpts={cpts}
-          boreholes={boreholes}
+          cpts={visibleCpts}
+          boreholes={visibleBoreholes}
           selectedCptId={selectedId}
           selectedBoreholeId={selectedBoreholeId}
           onSelectCpt={handleSelect}
           onSelectBorehole={handleSelectBorehole}
-          onDeleteCpt={handleDelete}
+          onRemoveCpts={handleRemoveCpts}
+          onRemoveBoreholes={handleRemoveBoreholes}
+          removedCptCount={removedCptIds.size}
+          removedBoreholeCount={removedBoreholeIds.size}
+          onRestoreAllCpts={handleRestoreAllCpts}
+          onRestoreAllBoreholes={handleRestoreAllBoreholes}
           projectName={project.name}
+          hiddenCptTypes={hiddenCptTypes}
+          hiddenBoreholeValues={hiddenBoreholeValues[boreholeAxis]}
+          boreholeAxis={boreholeAxis}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
@@ -403,9 +517,18 @@ export default function App() {
           <div className="flex-1 overflow-hidden">
             {view === 'map' || !hasSelection ? (
               <MapView
-                    cpts={cpts}
-                    selectedId={selectedId}
-                    onSelect={handleSelect}
+                    cpts={visibleCpts}
+                    boreholes={visibleBoreholes}
+                    selectedCptId={selectedId}
+                    selectedBoreholeId={selectedBoreholeId}
+                    onSelectCpt={handleSelect}
+                    onSelectBorehole={handleSelectBorehole}
+                    hiddenCptTypes={hiddenCptTypes}
+                    hiddenBoreholeValues={hiddenBoreholeValues}
+                    boreholeAxis={boreholeAxis}
+                    onToggleCptType={handleToggleCptType}
+                    onToggleBoreholeValue={handleToggleBoreholeValue}
+                    onChangeBoreholeAxis={setBoreholeAxis}
                     drawMode={drawingBbox}
                     onBboxDrawn={handleBboxDrawn}
                     onCancelDraw={() => setBboxImportType(null)}
@@ -466,3 +589,4 @@ function ViewTab({ icon, label, active, onClick }: {
     </button>
   )
 }
+

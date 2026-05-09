@@ -1,4 +1,10 @@
 // Typed fetch wrappers for the Ground Model FastAPI backend.
+
+// Borehole filter axis — which categorical field the user is filtering by.
+// Lifted to a shared type because both the map's layer-control and the
+// sidebar's row partitioning need to agree on which axis is active.
+export type BoreholeAxis = 'drill_method' | 'borehole_type'
+
 export interface CptListItem {
   id: string
   name: string
@@ -160,6 +166,22 @@ export interface WaterContentResponse {
   test_date: string | null
 }
 
+// Catch-all for scalar lab tests outside the 5 typed families above —
+// currently grain density, ASTM classification, descriptive calcareous
+// content. Numeric source values land in `value_numeric`; non-numeric
+// (e.g. ASTM code "CL") in `value_text`.
+export interface ScalarLabTestResponse {
+  id: string
+  parameter_group: string
+  parameter: string
+  value_numeric: number | null
+  value_text: string | null
+  unit: string | null
+  method: string | null
+  test_date: string | null
+  detection_condition: string | null
+}
+
 export interface SampleResponse {
   id: string
   depth_top_m: number
@@ -175,6 +197,7 @@ export interface SampleResponse {
   caco3_content_tests: CaCO3ContentResponse[]
   organic_content_tests: OrganicContentResponse[]
   water_content_tests: WaterContentResponse[]
+  scalar_lab_tests: ScalarLabTestResponse[]
 }
 
 export interface BoreholeDetailResponse {

@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, Upload, Loader2 } from 'lucide-react'
+import { ChevronDown, Upload, Loader2, Sun, Moon, Laptop } from 'lucide-react'
+
+import { useTheme, type ThemeChoice } from '../hooks/useTheme'
 
 interface ImportAction {
   label: string
@@ -53,7 +55,45 @@ export default function Toolbar({
           />
         ))}
       </DropdownMenu>
+
+      <div className="ml-auto">
+        <ThemeToggle />
+      </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Theme toggle — single button cycling System → Light → Dark → System.
+// Honours UX Conventions: dark mode strategy is "class on <html>", driven
+// by the ``useTheme`` hook. Icon reflects the CURRENT choice (not the
+// resolved theme), so the user can always see what they last picked.
+// ---------------------------------------------------------------------------
+
+const THEME_CYCLE: Record<ThemeChoice, ThemeChoice> = {
+  system: 'light',
+  light: 'dark',
+  dark: 'system',
+}
+
+const THEME_LABELS: Record<ThemeChoice, string> = {
+  system: 'System theme',
+  light: 'Light theme',
+  dark: 'Dark theme',
+}
+
+function ThemeToggle(): React.ReactElement {
+  const { choice, setChoice } = useTheme()
+  const next = THEME_CYCLE[choice]
+  const Icon = choice === 'light' ? Sun : choice === 'dark' ? Moon : Laptop
+  return (
+    <button
+      onClick={() => setChoice(next)}
+      title={`${THEME_LABELS[choice]} (click for ${THEME_LABELS[next].toLowerCase()})`}
+      className="p-1.5 rounded text-gray-600 hover:bg-gray-200 transition-colors"
+    >
+      <Icon size={14} />
+    </button>
   )
 }
 

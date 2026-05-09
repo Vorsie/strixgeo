@@ -8,6 +8,11 @@ const API_BASE = `http://127.0.0.1:${API_PORT}`
 
 let apiProcess: ChildProcess | null = null
 
+// True once the user has confirmed they want to exit. Without this flag,
+// programmatic ``app.quit()`` would re-trigger the close handler in a
+// loop because the BrowserWindow's close emits before the app's quit.
+let confirmedQuit = false
+
 // ---------------------------------------------------------------------------
 // Backend lifecycle
 // ---------------------------------------------------------------------------
@@ -65,6 +70,29 @@ function createWindow(): void {
 
   win.setMenuBarVisibility(true)
   buildMenu(win)
+
+  // Confirm exit on every close attempt (window X, Alt+F4, app menu).
+  // We preventDefault first to keep the window alive, ask the user, and
+  // only re-issue the close after they confirm. ``confirmedQuit`` makes
+  // the second close pass straight through without re-asking.
+  win.on('close', (event) => {
+    if (confirmedQuit) return
+    event.preventDefault()
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'question',
+      buttons: ['Cancel', 'Exit'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Exit Ground Model',
+      message: 'Are you sure you want to exit?',
+      detail: 'Any in-progress imports will be cancelled.',
+      noLink: true,
+    })
+    if (choice === 1) {
+      confirmedQuit = true
+      win.close()
+    }
+  })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
