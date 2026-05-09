@@ -33,6 +33,17 @@ class ImportBoreholeDovResult:
         Per-row failures during interpretation download / parse / persist.
         Counted separately from ``failed`` because they don't roll back
         the parent borehole row.
+    samples_attached : int
+        Number of ``Sample`` rows attached to newly-imported boreholes
+        by the Phase C3 sample orchestrator. Same idempotency rule as
+        interpretations — duplicates skip the sample fetch.
+    samples_failed : int
+        Per-row sample persist failures (constraint violation, etc.).
+        Isolated from the parent borehole row.
+    grain_sizes_attached : int
+        Number of ``GrainSize`` rows attached to newly-persisted samples.
+    grain_sizes_failed : int
+        Per-row grain-size download / parse / persist failures.
     borehole_ids : list[UUID]
         IDs of all boreholes the caller now sees in the project — newly
         imported plus pre-existing duplicates.
@@ -43,4 +54,8 @@ class ImportBoreholeDovResult:
     failed: int
     interpretations_attached: int = 0
     interpretations_failed: int = 0
+    samples_attached: int = 0
+    samples_failed: int = 0
+    grain_sizes_attached: int = 0
+    grain_sizes_failed: int = 0
     borehole_ids: list[UUID] = field(default_factory=list)
