@@ -51,6 +51,12 @@ class SampleOrm(Base):
         ForeignKey("borehole.id", ondelete="CASCADE"),
         nullable=False,
     )
+
+    # DOV permkey_monster — stable upstream identity used by
+    # ImportBoreholeDov to dedupe samples on re-import. See
+    # "Refresh-on-duplicate" in CLAUDE.md. Nullable for legacy rows.
+    dov_permkey: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     depth_top_m: Mapped[float] = mapped_column(Double, nullable=False)
     depth_base_m: Mapped[float] = mapped_column(Double, nullable=False)
     # TEXT (uncapped) because DOV samples occasionally ship long

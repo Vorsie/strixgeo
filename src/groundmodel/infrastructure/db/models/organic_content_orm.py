@@ -35,6 +35,10 @@ class OrganicContentOrm(Base):
         nullable=False,
     )
 
+    # DOV per-observation permkey — stable upstream identity for dedup
+    # on re-import. See "Refresh-on-duplicate" in CLAUDE.md.
+    dov_permkey: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Organic carbon (OC) — measured by combustion / Walkley-Black; % of dry mass.
     carbon_pct: Mapped[float | None] = mapped_column(Double, nullable=True)
     # Organic matter (OM) — measured by loss on ignition; % of dry mass.
