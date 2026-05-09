@@ -112,6 +112,49 @@ async def import_borehole_dov(
     )
 
 
+@router.get("/", response_model=list[BoreholeListItem])
+async def list_boreholes(
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> list[BoreholeListItem]:
+    """Return a lightweight summary list of boreholes.
+
+    Mirrors the CPT-side ``GET /cpt/`` endpoint exactly. Only header columns
+    + denormalised counts are included so the desktop app can render the
+    sidebar list + map markers from a single call without firing one
+    ``GET /borehole/{id}`` per row.
+
+    Parameters
+    ----------
+    project_id:
+        When provided, only return boreholes belonging to this app-level
+        project UUID. When absent, return all boreholes (used by tests
+        and admin tools — production frontend always passes a project_id).
+    session:
+        Database session injected by FastAPI dependency injection.
+
+    Raises
+    ------
+    HTTPException(400)
+        When ``project_id`` is provided but isn't a parseable UUID.
+    """
+    app_project_uuid: UUID | None = None
+    if project_id:
+        try:
+            app_project_uuid = UUID(project_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid project_id: {project_id!r}",
+            )
+
+    repo = BoreholeRepository(session)
+    boreholes = await repo.list_all(app_project_uuid)
+    # Pydantic ``from_attributes=True`` config on BoreholeListItem maps the
+    # ORM columns by name — no manual field forwarding needed.
+    return [BoreholeListItem.model_validate(b) for b in boreholes]
+
+
 @router.get("/{borehole_id}", response_model=BoreholeDetailResponse)
 async def get_borehole(
     borehole_id: UUID,
