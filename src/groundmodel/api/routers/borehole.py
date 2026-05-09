@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.api.schemas.borehole.borehole_detail_response import (
     BoreholeDetailResponse,
 )
+from groundmodel.api.schemas.borehole.borehole_list_item import BoreholeListItem
 from groundmodel.api.schemas.borehole.import_borehole_dov_request import (
     ImportBoreholeDovRequest,
 )
