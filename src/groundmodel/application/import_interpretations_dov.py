@@ -61,11 +61,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.interpretation_wfs_row impo
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-
-def _ms(start: float) -> int:
-    """Return elapsed time since *start* (perf_counter) as integer milliseconds."""
-    return int((time.perf_counter() - start) * 1000)
+from groundmodel.shared.timing import ms_since
 
 
 class ImportInterpretationsDov(GroundModelLogger):
@@ -171,7 +167,7 @@ class ImportInterpretationsDov(GroundModelLogger):
             )
             self.info(
                 f"DOV interpretation phase 1+2 (WFS + download + parse): "
-                f"{_ms(t_fetch)} ms — {len(parsed)} interpretations ready"
+                f"{ms_since(t_fetch)} ms — {len(parsed)} interpretations ready"
             )
         except httpx.HTTPStatusError as exc:
             self.error(
@@ -226,10 +222,10 @@ class ImportInterpretationsDov(GroundModelLogger):
 
         self.info(
             f"DOV interpretation phase 3 (persist {result.attached} observations, "
-            f"no commit): {_ms(t_persist)} ms"
+            f"no commit): {ms_since(t_persist)} ms"
         )
         self.success(
-            f"DOV interpretation import done in {_ms(t_total)} ms: "
+            f"DOV interpretation import done in {ms_since(t_total)} ms: "
             f"fetched={result.fetched} attached={result.attached} "
             f"skipped={result.skipped_no_borehole} failed={result.failed}  "
             f"per-stream={result.per_stream}"
