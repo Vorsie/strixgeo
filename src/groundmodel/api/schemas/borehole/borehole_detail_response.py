@@ -1,7 +1,5 @@
 """Pydantic schema for the full borehole detail tree returned by GET /borehole/{id}."""
 
-from __future__ import annotations
-
 from datetime import date
 from uuid import UUID
 
@@ -12,6 +10,7 @@ from groundmodel.api.schemas.borehole.field_log_interval_response import (
     FieldLogIntervalResponse,
 )
 from groundmodel.api.schemas.borehole.observation_response import ObservationResponse
+from groundmodel.api.schemas.borehole.sample_response import SampleResponse
 
 
 class BoreholeDetailResponse(BaseModel):
