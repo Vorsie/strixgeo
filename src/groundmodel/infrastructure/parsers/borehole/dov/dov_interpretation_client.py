@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from functools import partial
 from typing import Any, TypeVar
 
 import httpx
@@ -60,7 +61,6 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_INTERPRETATION_URL_PREFIX,
     DOV_WFS_FEATURE_LIMIT,
     DOV_WFS_INTERPRETATION_LAYERS,
-    DOV_WFS_MAX_SPLIT_DEPTH,
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
@@ -69,6 +69,9 @@ from groundmodel.infrastructure.parsers.borehole.dov.interpretation_wfs_row impo
     InterpretationWfsRow,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
+    collect_wfs_features_recursive,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
@@ -145,9 +148,22 @@ class DovInterpretationClient(GroundModelLogger):
 
         # Phase 1 — kick off all 8 WFS bbox-collects in parallel. Each runs
         # its own recursive split; total wall time = max(per-stream time).
+        # ``functools.partial`` binds (layer) for the count callable and
+        # (layer, obs_type) for the features callable, leaving the 4 bbox
+        # floats for ``collect_wfs_features_recursive`` to drive recursion.
         rows_per_stream = await asyncio.gather(
             *[
-                self._collect_rows(layer, obs_type, x1, y1, x2, y2, depth=0)
+                collect_wfs_features_recursive(
+                    fetch_count=partial(self._wfs_count, layer),
+                    fetch_features=partial(self._wfs_features, layer, obs_type),
+                    row_permkey=lambda r: r.permkey,
+                    x1=x1,
+                    y1=y1,
+                    x2=x2,
+                    y2=y2,
+                    label=f"DOV WFS interpretation '{layer}'",
+                    logger=self,
+                )
                 for obs_type, layer in DOV_WFS_INTERPRETATION_LAYERS.items()
             ]
         )
@@ -254,77 +270,10 @@ class DovInterpretationClient(GroundModelLogger):
         return result
 
     # ------------------------------------------------------------------
-    # WFS bbox queries — per stream, with auto-split
+    # WFS request layer (count + features) — per stream. Recursive split is
+    # delegated to ``dov_wfs_bbox.collect_wfs_features_recursive`` from the
+    # 8-stream parallel gather in ``fetch_bbox_processed``.
     # ------------------------------------------------------------------
-
-    async def _collect_rows(
-        self,
-        layer: str,
-        observation_type: ObservationType,
-        x1: float,
-        y1: float,
-        x2: float,
-        y2: float,
-        depth: int,
-    ) -> list[InterpretationWfsRow]:
-        """Return rows for one interpretation stream's bbox, auto-splitting if dense.
-
-        Mirrors ``DovBoreholeClient._collect_rows`` but parameterised on the
-        layer name + ``ObservationType`` because we run this once per stream.
-        """
-        count = await self._wfs_count(layer, x1, y1, x2, y2)
-
-        if count == 0:
-            self.trace(
-                f"DOV WFS interpretation '{layer}': 0 features at depth={depth} "
-                f"({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f})"
-            )
-            return []
-
-        if count <= DOV_WFS_FEATURE_LIMIT or depth >= DOV_WFS_MAX_SPLIT_DEPTH:
-            if count > DOV_WFS_FEATURE_LIMIT:
-                self.warning(
-                    f"DOV WFS interpretation '{layer}': bbox at max recursion "
-                    f"depth={depth} still has {count} features "
-                    f"(> {DOV_WFS_FEATURE_LIMIT}) — some interpretations may be missed"
-                )
-            self.debug(
-                f"DOV WFS interpretation '{layer}': fetching {count} features (depth={depth})"
-            )
-            return await self._wfs_features(layer, observation_type, x1, y1, x2, y2)
-
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        self.debug(
-            f"DOV WFS interpretation '{layer}': {count} features > limit at depth={depth}, "
-            f"splitting into 4 quadrants"
-        )
-        quadrants = [
-            (x1, y1, mx, my),
-            (mx, y1, x2, my),
-            (x1, my, mx, y2),
-            (mx, my, x2, y2),
-        ]
-        results = await asyncio.gather(
-            *[
-                self._collect_rows(layer, observation_type, qx1, qy1, qx2, qy2, depth + 1)
-                for qx1, qy1, qx2, qy2 in quadrants
-            ]
-        )
-
-        # Merge child results, dedup by permkey (an interpretation near a
-        # quadrant boundary can appear in multiple sub-bboxes).
-        seen: set[str] = set()
-        merged: list[InterpretationWfsRow] = []
-        for chunk in results:
-            for row in chunk:
-                if row.permkey not in seen:
-                    seen.add(row.permkey)
-                    merged.append(row)
-        self.debug(
-            f"DOV WFS interpretation '{layer}': depth={depth} quadrants merged → "
-            f"{len(merged)} unique interpretations"
-        )
-        return merged
 
     async def _wfs_count(self, layer: str, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the feature count for *layer* in the Lambert72 bbox."""
