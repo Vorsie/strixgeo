@@ -22,4 +22,12 @@ class ImportBoreholeDovResponse(BaseModel):
     samples_failed: int = 0
     grain_sizes_attached: int = 0
     grain_sizes_failed: int = 0
+    atterberg_attached: int = 0
+    atterberg_failed: int = 0
+    caco3_attached: int = 0
+    caco3_failed: int = 0
+    organic_attached: int = 0
+    organic_failed: int = 0
+    water_content_attached: int = 0
+    water_content_failed: int = 0
     borehole_ids: list[UUID]
