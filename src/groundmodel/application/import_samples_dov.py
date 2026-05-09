@@ -88,11 +88,7 @@ from groundmodel.infrastructure.parsers.lab.dov.scalar_observation_wfs_row impor
     ScalarObservationWfsRow,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-
-def _ms(start: float) -> int:
-    """Return elapsed time since *start* (perf_counter) as integer milliseconds."""
-    return int((time.perf_counter() - start) * 1000)
+from groundmodel.shared.timing import ms_since
 
 
 class ImportSamplesDov(GroundModelLogger):
@@ -180,7 +176,7 @@ class ImportSamplesDov(GroundModelLogger):
                 parent_permkeys=set(permkey_to_borehole_id),
             )
             self.info(
-                f"DOV sample phase 1 (WFS): {_ms(t_samples)} ms — "
+                f"DOV sample phase 1 (WFS): {ms_since(t_samples)} ms — "
                 f"{len(sample_rows)} samples for known boreholes"
             )
         except httpx.HTTPStatusError as exc:
@@ -223,7 +219,7 @@ class ImportSamplesDov(GroundModelLogger):
                 )
         self.info(
             f"DOV sample phase 2 (persist {result.samples_attached} samples, "
-            f"no commit): {_ms(t_persist_samples)} ms"
+            f"no commit): {ms_since(t_persist_samples)} ms"
         )
 
         if not permkey_to_sample_id:
@@ -257,7 +253,7 @@ class ImportSamplesDov(GroundModelLogger):
             )
             self.info(
                 f"DOV grain-size phase 3 (WFS + download + parse): "
-                f"{_ms(t_gs)} ms — {len(parsed)} grain-size results ready"
+                f"{ms_since(t_gs)} ms — {len(parsed)} grain-size results ready"
             )
         except httpx.HTTPStatusError as exc:
             self.error(
@@ -310,7 +306,7 @@ class ImportSamplesDov(GroundModelLogger):
                 )
         self.info(
             f"DOV grain-size phase 4 (persist {result.grain_sizes_attached} grain-sizes, "
-            f"no commit): {_ms(t_persist_gs)} ms"
+            f"no commit): {ms_since(t_persist_gs)} ms"
         )
 
         # ------------------------------------------------------------------
@@ -323,7 +319,7 @@ class ImportSamplesDov(GroundModelLogger):
         )
 
         self.success(
-            f"DOV sample import done in {_ms(t_total)} ms: "
+            f"DOV sample import done in {ms_since(t_total)} ms: "
             f"samples attached={result.samples_attached} failed={result.samples_failed}; "
             f"grain-sizes fetched={result.grain_sizes_fetched} "
             f"attached={result.grain_sizes_attached} failed={result.grain_sizes_failed}; "
@@ -410,7 +406,7 @@ class ImportSamplesDov(GroundModelLogger):
             return
 
         self.info(
-            f"DOV scalar-observation WFS done in {_ms(t_scalar)} ms — "
+            f"DOV scalar-observation WFS done in {ms_since(t_scalar)} ms — "
             f"atterberg={len(atterberg_rows)}, caco3={len(caco3_rows)}, "
             f"organic={len(organic_rows)}, water={len(water_rows)} rows"
         )
