@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import Double, ForeignKey, Index, Integer, String
+from sqlalchemy import Double, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -84,8 +84,10 @@ class ObservationLayerOrm(Base):
 
     # Free-text or formation-code description used by stratigraphy streams
     # (e.g. "HyEg - Lid van Egem (Formatie van Hyon)"). NULL for pure
-    # lithology layers.
-    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # lithology layers. TEXT (uncapped) because DOV's geotechnical-coding
+    # streams ship long human-written descriptions that blew past a
+    # previous VARCHAR(500) cap on real-world data.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Zero-based position of this layer within its parent observation.
     layer_index: Mapped[int] = mapped_column(Integer, nullable=False)

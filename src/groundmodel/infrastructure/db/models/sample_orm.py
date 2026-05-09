@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Date, Double, ForeignKey, Index, String
+from sqlalchemy import Date, Double, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -53,7 +53,10 @@ class SampleOrm(Base):
     )
     depth_top_m: Mapped[float] = mapped_column(Double, nullable=False)
     depth_base_m: Mapped[float] = mapped_column(Double, nullable=False)
-    description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    # TEXT (uncapped) because DOV samples occasionally ship long
+    # free-text descriptions; a previous VARCHAR(500) cap blew up on
+    # real-world data.
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     sample_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     sample_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     composition: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -98,4 +101,14 @@ class SampleOrm(Base):
         back_populates="sample",
         cascade="all, delete-orphan",
         order_by="WaterContentOrm.id",
+    )
+    # Catch-all family for scalar tests outside the 5 typed families above
+    # (grain density, ASTM classification, descriptive calcareous content,
+    # plus any future scalar parameters DOV adds — see
+    # DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS in lab/dov/dov_constants.py).
+    scalar_lab_tests: Mapped[list[ScalarLabTestOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "ScalarLabTestOrm",
+        back_populates="sample",
+        cascade="all, delete-orphan",
+        order_by="ScalarLabTestOrm.id",
     )
