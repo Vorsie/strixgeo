@@ -53,12 +53,12 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
-from groundmodel.infrastructure.parsers.dov.dov_common import (
-    last_path_segment,
-    optional_float,
-)
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
+    last_path_segment,
+    optional_float,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
