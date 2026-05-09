@@ -1,7 +1,5 @@
 """Pydantic schema for one field-log observation (color/moisture/consistency) by depth."""
 
-from __future__ import annotations
-
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
