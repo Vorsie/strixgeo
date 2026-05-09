@@ -116,7 +116,11 @@ DOV_INTERPRETATION_PROXY_URL_PREFIX = "/xdov/proxy/export/interpretatie/"
 DOV_INTERP_WFS_PROEFNUMMER_PROP = "Proefnummer"
 
 # URL of the per-interpretation XML detail page (302-redirects to the proxy).
-DOV_INTERP_WFS_FICHE_PROP = "fiche"
+# DOV's interpretation WFS layers expose this under a layer-specific name —
+# ``Interpretatiefiche`` (capitalised) — not the generic ``fiche`` field used
+# by the Boringen / Sonderingen layers. Verified live 2026-05-09; using the
+# generic name caused 100 % of interpretation rows to be skipped.
+DOV_INTERP_WFS_FICHE_PROP = "Interpretatiefiche"
 
 
 # ----------------------------------------------------------------------
@@ -125,11 +129,14 @@ DOV_INTERP_WFS_FICHE_PROP = "fiche"
 # (The layer name itself, ``DOV_WFS_GRONDMONSTERS_LAYER``, is defined
 # above in the WFS-layers section.)
 
-# Parent-borehole linkage. Verified live 2026-05-08:
-#   gekoppeld_aan   = "https://www.dov.vlaanderen.be/data/boring/<permkey>"
-# We extract the permkey via last-path-segment and use it to resolve the
-# parent borehole UUID via the parent orchestrator's permkey→UUID map.
-DOV_GRONDMONSTER_WFS_PARENT_LINK_PROP = "gekoppeld_aan"
+# Parent-borehole linkage. Re-verified live 2026-05-09: the
+# ``boringen:grondmonsters`` layer wraps multi-link fields in pipe
+# delimiters (``|<url>|`` or ``|<url1>|<url2>|`` for samples linked to
+# multiple boreholes), so callers MUST strip the surrounding pipes before
+# parsing. We use ``gekoppeld_aan_link`` (the URL form) rather than
+# ``gekoppeld_aan`` (which carries ``boring:<permkey>`` tokens that need
+# extra parsing).
+DOV_GRONDMONSTER_WFS_PARENT_LINK_PROP = "gekoppeld_aan_link"
 
 # Sample's own permkey + the per-sample XML URL (mostly redundant with the
 # WFS row but kept for the cache short-circuit if we ever need to fetch
