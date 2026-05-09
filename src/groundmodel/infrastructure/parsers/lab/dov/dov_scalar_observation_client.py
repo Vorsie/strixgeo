@@ -33,6 +33,7 @@ focused on the new functionality.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import partial
 from typing import Any
 
 import httpx
@@ -43,6 +44,9 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
+    collect_wfs_features_recursive,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
