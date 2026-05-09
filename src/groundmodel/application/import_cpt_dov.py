@@ -16,11 +16,7 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.shared.config import settings
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-
-def _ms(start: float) -> int:
-    """Return elapsed time since *start* (perf_counter) as integer milliseconds."""
-    return int((time.perf_counter() - start) * 1000)
+from groundmodel.shared.timing import ms_since
 
 
 class ImportCptDov(GroundModelLogger):
@@ -95,7 +91,7 @@ class ImportCptDov(GroundModelLogger):
                     west, south, east, north, parser.parse
                 )
             self.info(
-                f"DOV phase 1+2 (WFS + download + parse): {_ms(t_fetch)} ms — "
+                f"DOV phase 1+2 (WFS + download + parse): {ms_since(t_fetch)} ms — "
                 f"{len(parsed)} CPTs ready"
             )
         except httpx.HTTPStatusError as exc:
@@ -134,7 +130,7 @@ class ImportCptDov(GroundModelLogger):
             else {}
         )
         self.info(
-            f"DOV phase 3 (dedup query): {_ms(t_dedup)} ms — "
+            f"DOV phase 3 (dedup query): {ms_since(t_dedup)} ms — "
             f"{len(existing)} of {len(test_ids)} already in project"
         )
 
@@ -172,16 +168,16 @@ class ImportCptDov(GroundModelLogger):
                     f"{type(exc).__name__}: {exc}"
                 )
 
-        self.info(f"DOV phase 4 (persist {imported} CPTs, no commit): {_ms(t_persist)} ms")
+        self.info(f"DOV phase 4 (persist {imported} CPTs, no commit): {ms_since(t_persist)} ms")
 
         # Phase 5 — single commit flushes all queued INSERTs in one shot.
         if imported > 0:
             t_commit = time.perf_counter()
             await self._session.commit()
-            self.info(f"DOV phase 5 (commit batch of {imported} CPTs): {_ms(t_commit)} ms")
+            self.info(f"DOV phase 5 (commit batch of {imported} CPTs): {ms_since(t_commit)} ms")
 
         self.success(
-            f"DOV import done in {_ms(t_total)} ms: {imported} imported, "
+            f"DOV import done in {ms_since(t_total)} ms: {imported} imported, "
             f"{duplicates} duplicates, {failed} failed  (total={total})"
         )
         return ImportCptDovResult(
