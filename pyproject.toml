@@ -52,6 +52,13 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "D1"]
 ignore = ["D105", "D107"]
+# F401 (unused imports) stays a WARNING but is not auto-fixable — the
+# PostToolUse formatter hook in .claude/hooks/ruff_format.py runs after
+# every file write, and it would otherwise aggressively strip imports we
+# add in one Edit before we add their usage in a follow-up Edit. Keeping
+# the warning means real dead imports still surface in ``ruff check``;
+# making the rule unfixable means auto-fix can't surprise-delete them.
+unfixable = ["F401"]
 
 [tool.mypy]
 python_version = "3.11"
