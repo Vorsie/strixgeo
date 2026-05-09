@@ -7,8 +7,9 @@ from dataclasses import dataclass, field
 from groundmodel.domain.models.borehole.borehole import Borehole
 from groundmodel.domain.models.borehole.drill_segment import DrillSegment
 from groundmodel.domain.models.borehole.field_log_interval import FieldLogInterval
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    ValidationIssue,
+)
 
 
 @dataclass
@@ -65,9 +66,9 @@ class BoreholeParseResult:
     @property
     def has_errors(self) -> bool:
         """Return True if any issue has ERROR severity."""
-        return any(i.level == ValidationLevel.ERROR for i in self.issues)
+        return issues_have_errors(self.issues)
 
     @property
     def warnings(self) -> list[ValidationIssue]:
         """Return all WARNING-level issues."""
-        return [i for i in self.issues if i.level == ValidationLevel.WARNING]
+        return issue_warnings(self.issues)
