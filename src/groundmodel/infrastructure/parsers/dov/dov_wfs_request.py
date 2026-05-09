@@ -1,0 +1,180 @@
+"""Shared HTTP layer for DOV WFS GetFeature requests.
+
+Five DOV clients (boring, interpretation, sample, grain-size, scalar)
+share the same request shape — only the layer name + optional CQL
+filter + downstream row builder differ. Before this module each
+client carried its own ``_wfs_count`` / ``_wfs_features`` /
+``_common_params`` trio with copy-pasted error handling and logging.
+A DOV-side rule change (e.g. the BBOX+CQL_FILTER mutual-exclusion that
+broke us in 2026-05) had to be patched in five places.
+
+The two functions here own the HTTP / JSON / error-logging boundary;
+clients keep their per-layer row-building logic where it belongs.
+``cql_filter`` is folded INTO the CQL string via ``cql_bbox_predicate``
+when present, since DOV rejects requests that ship both a
+``BBOX=`` query param and a ``CQL_FILTER=`` (verified live; the
+upstream changed this behaviour without warning, so the helper carries
+the lesson).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+
+from groundmodel.infrastructure.parsers.dov.dov_common import (
+    DOV_HORIZONTAL_EPSG,
+    DOV_WFS_FEATURE_LIMIT,
+    DOV_WFS_NUMBER_MATCHED_RE,
+    DOV_WFS_URL,
+    cql_bbox_predicate,
+)
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+
+async def wfs_count(
+    http: httpx.AsyncClient,
+    logger: GroundModelLogger,
+    *,
+    layer: str,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    cql_filter: str | None = None,
+    label: str | None = None,
+) -> int:
+    """Issue a WFS ``resultType=hits`` request and return numberMatched.
+
+    Returns 0 (with an error log) when ``numberMatched`` isn't found in
+    the response — defensive: the regex hasn't failed in production
+    but a zero-result is preferable to crashing the recursive bbox
+    split. Raises ``httpx.HTTPStatusError`` / ``httpx.RequestError``
+    on network or HTTP errors so callers can surface them with their
+    own context.
+
+    Parameters
+    ----------
+    http
+        Shared async HTTP client (HTTP/2-multiplexed by the DOV factory).
+    logger
+        ``GroundModelLogger`` from the calling client; receives the
+        per-request trace / error lines so log scopes stay accurate.
+    layer
+        WFS ``typeNames`` value (e.g. ``"boringen:grondmonsters"``).
+    x1, y1, x2, y2
+        Bounding box corners in Lambert-72 (EPSG:31370) metres.
+    cql_filter
+        Optional attribute-level CQL predicate (e.g.
+        ``"parametergroep='Onderkenningsproeven-korrelverdeling '"``).
+        When provided, the bbox is folded into the CQL string and the
+        standalone ``BBOX=`` query param is omitted.
+    label
+        Human-readable name used in log lines. Defaults to ``layer``.
+    """
+    label = label or layer
+    params = _build_params(layer=layer, x1=x1, y1=y1, x2=x2, y2=y2, cql_filter=cql_filter)
+    params["resultType"] = "hits"
+    logger.trace(f"DOV {label} WFS count request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]")
+
+    try:
+        resp = await http.get(DOV_WFS_URL, params=params)
+    except httpx.RequestError as exc:
+        logger.error(f"DOV {label} WFS count request failed: {exc}")
+        raise
+
+    if not resp.is_success:
+        logger.error(
+            f"DOV {label} WFS count returned HTTP {resp.status_code}  body: {resp.text[:500]!r}"
+        )
+        resp.raise_for_status()
+
+    match = DOV_WFS_NUMBER_MATCHED_RE.search(resp.text)
+    if match is None:
+        logger.error(
+            f"DOV {label} WFS count: 'numberMatched' not found in response head: "
+            f"{resp.text[:300]!r}"
+        )
+        return 0
+
+    return int(match.group(1))
+
+
+async def wfs_features_json(
+    http: httpx.AsyncClient,
+    logger: GroundModelLogger,
+    *,
+    layer: str,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    cql_filter: str | None = None,
+    count: int = DOV_WFS_FEATURE_LIMIT,
+    label: str | None = None,
+) -> list[dict[str, Any]]:
+    """Issue a WFS GetFeature request and return the GeoJSON ``features`` list.
+
+    Each entry is a feature dict with ``id``, ``geometry``, and
+    ``properties`` keys. The caller is responsible for converting them
+    into typed rows — that logic varies per client (different field
+    names, different skip-reason counters) and stays in the client.
+
+    Parameters mirror ``wfs_count``; ``count`` caps the response size
+    (DOV's ``DOV_WFS_FEATURE_LIMIT``) so the recursive bbox-split
+    helper can detect "result truncated, split further".
+    """
+    label = label or layer
+    params = _build_params(layer=layer, x1=x1, y1=y1, x2=x2, y2=y2, cql_filter=cql_filter)
+    params["outputFormat"] = "application/json"
+    params["count"] = str(count)
+    logger.trace(f"DOV {label} WFS features request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]")
+
+    try:
+        resp = await http.get(DOV_WFS_URL, params=params)
+    except httpx.RequestError as exc:
+        logger.error(f"DOV {label} WFS features request failed: {exc}")
+        raise
+
+    if not resp.is_success:
+        logger.error(
+            f"DOV {label} WFS features returned HTTP {resp.status_code}  body: {resp.text[:500]!r}"
+        )
+        resp.raise_for_status()
+
+    data = resp.json()
+    features = data.get("features", [])
+    logger.debug(f"DOV {label} WFS: {len(features)} features in response")
+    return features
+
+
+def _build_params(
+    *,
+    layer: str,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    cql_filter: str | None,
+) -> dict[str, str]:
+    """Build the shared query-parameter dict.
+
+    ``cql_filter`` and the spatial bbox are mutually exclusive in DOV's
+    rules — when an attribute filter is supplied we fold the bbox into
+    the CQL string via ``BBOX(geom, ...)`` and skip the ``BBOX=`` query
+    param entirely. When no attribute filter is needed the standalone
+    ``BBOX=`` form is the right shape (smaller URL, marginally faster
+    server-side).
+    """
+    params: dict[str, str] = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "GetFeature",
+        "typeNames": layer,
+    }
+    if cql_filter is None:
+        params["BBOX"] = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
+    else:
+        params["CQL_FILTER"] = f"({cql_filter}) AND {cql_bbox_predicate(x1, y1, x2, y2)}"
+    return params

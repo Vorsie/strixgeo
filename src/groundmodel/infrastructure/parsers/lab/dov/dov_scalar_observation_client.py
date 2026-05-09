@@ -39,11 +39,7 @@ from typing import Any
 import httpx
 
 from groundmodel.infrastructure.parsers.dov.dov_common import (
-    DOV_WFS_FEATURE_LIMIT,
-    DOV_WFS_NUMBER_MATCHED_RE,
-    DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
-    cql_bbox_predicate,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
@@ -51,6 +47,10 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
     optional_date,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
+    wfs_count,
+    wfs_features_json,
 )
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_OBSERVATIE_WFS_DETECTIECONDITIE_PROP,
@@ -180,50 +180,33 @@ class DovScalarObservationClient(GroundModelLogger):
 
     async def _wfs_count(self, cql_filter: str, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the number of observations matching the filter in this bbox."""
-        params = self._common_params(cql_filter, x1, y1, x2, y2)
-        params["resultType"] = "hits"
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV scalar-observation WFS count request failed: {exc}")
-            raise
-        if not resp.is_success:
-            self.error(
-                f"DOV scalar-observation WFS count returned HTTP {resp.status_code}  "
-                f"body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-        match = DOV_WFS_NUMBER_MATCHED_RE.search(resp.text)
-        if match is None:
-            self.error(
-                f"DOV scalar-observation WFS count: 'numberMatched' not found in "
-                f"response head: {resp.text[:300]!r}"
-            )
-            return 0
-        return int(match.group(1))
+        return await wfs_count(
+            self._http,
+            self,
+            layer=DOV_WFS_OBSERVATIES_LAYER,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            cql_filter=cql_filter,
+            label="scalar-observation",
+        )
 
     async def _wfs_features(
         self, cql_filter: str, x1: float, y1: float, x2: float, y2: float
     ) -> list[ScalarObservationWfsRow]:
         """Fetch up to DOV_WFS_FEATURE_LIMIT scalar observation rows."""
-        params = self._common_params(cql_filter, x1, y1, x2, y2)
-        params["outputFormat"] = "application/json"
-        params["count"] = str(DOV_WFS_FEATURE_LIMIT)
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV scalar-observation WFS features request failed: {exc}")
-            raise
-        if not resp.is_success:
-            self.error(
-                f"DOV scalar-observation WFS features returned HTTP {resp.status_code}  "
-                f"body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-
-        data = resp.json()
-        features = data.get("features", [])
-        self.debug(f"DOV scalar-observation WFS: {len(features)} features in response")
+        features = await wfs_features_json(
+            self._http,
+            self,
+            layer=DOV_WFS_OBSERVATIES_LAYER,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            cql_filter=cql_filter,
+            label="scalar-observation",
+        )
         if features:
             first_props = list(features[0].get("properties", {}).keys())
             self.trace(f"DOV scalar-observation WFS feature properties: {first_props}")
@@ -245,25 +228,6 @@ class DovScalarObservationClient(GroundModelLogger):
                 f"parent sample link. Available properties: {available}"
             )
         return rows
-
-    @staticmethod
-    def _common_params(
-        cql_filter: str, x1: float, y1: float, x2: float, y2: float
-    ) -> dict[str, str]:
-        """Build the WFS query-parameter dict shared by count + features queries.
-
-        DOV rejects requests that pass BOTH a ``BBOX=`` query param AND a
-        ``CQL_FILTER=`` (since 2026-05). The bbox is folded into the CQL
-        string via the ``BBOX(geom, …)`` spatial predicate.
-        """
-        cql = f"({cql_filter}) AND {cql_bbox_predicate(x1, y1, x2, y2)}"
-        return {
-            "service": "WFS",
-            "version": "2.0.0",
-            "request": "GetFeature",
-            "typeNames": DOV_WFS_OBSERVATIES_LAYER,
-            "CQL_FILTER": cql,
-        }
 
 
 # ---------------------------------------------------------------------------

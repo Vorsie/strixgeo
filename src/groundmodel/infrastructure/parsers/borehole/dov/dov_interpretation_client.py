@@ -54,15 +54,11 @@ import httpx
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_DOWNLOAD_PARALLELISM,
-    DOV_HORIZONTAL_EPSG,
     DOV_INTERP_WFS_FICHE_PROP,
     DOV_INTERP_WFS_PROEFNUMMER_PROP,
     DOV_INTERPRETATION_PROXY_URL_PREFIX,
     DOV_INTERPRETATION_URL_PREFIX,
-    DOV_WFS_FEATURE_LIMIT,
     DOV_WFS_INTERPRETATION_LAYERS,
-    DOV_WFS_NUMBER_MATCHED_RE,
-    DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.borehole.dov.interpretation_wfs_row import (
@@ -73,6 +69,10 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import last_path_segment
+from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
+    wfs_count,
+    wfs_features_json,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
@@ -278,41 +278,16 @@ class DovInterpretationClient(GroundModelLogger):
 
     async def _wfs_count(self, layer: str, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the feature count for *layer* in the Lambert72 bbox."""
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
-        params = {
-            "service": "WFS",
-            "version": "2.0.0",
-            "request": "GetFeature",
-            "typeNames": layer,
-            "resultType": "hits",
-            "BBOX": bbox,
-        }
-        self.trace(f"DOV WFS interpretation count request: layer={layer} BBOX={bbox}")
-
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV WFS interpretation count request failed for '{layer}': {exc}")
-            raise
-
-        if not resp.is_success:
-            self.error(
-                f"DOV WFS interpretation count for '{layer}' returned "
-                f"HTTP {resp.status_code}  body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-
-        match = DOV_WFS_NUMBER_MATCHED_RE.search(resp.text)
-        if match is None:
-            self.error(
-                f"DOV WFS interpretation count for '{layer}': 'numberMatched' "
-                f"not found in response head: {resp.text[:300]!r}"
-            )
-            return 0
-
-        count = int(match.group(1))
-        self.trace(f"DOV WFS interpretation count for '{layer}': {count}")
-        return count
+        return await wfs_count(
+            self._http,
+            self,
+            layer=layer,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label=f"interpretation '{layer}'",
+        )
 
     async def _wfs_features(
         self,
@@ -324,35 +299,15 @@ class DovInterpretationClient(GroundModelLogger):
         y2: float,
     ) -> list[InterpretationWfsRow]:
         """Fetch up to DOV_WFS_FEATURE_LIMIT features and shape them as rows."""
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
-        params = {
-            "service": "WFS",
-            "version": "2.0.0",
-            "request": "GetFeature",
-            "typeNames": layer,
-            "outputFormat": "application/json",
-            "count": str(DOV_WFS_FEATURE_LIMIT),
-            "BBOX": bbox,
-        }
-        self.trace(f"DOV WFS interpretation features request: layer={layer} BBOX={bbox}")
-
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV WFS interpretation features request failed for '{layer}': {exc}")
-            raise
-
-        if not resp.is_success:
-            self.error(
-                f"DOV WFS interpretation features for '{layer}' returned "
-                f"HTTP {resp.status_code}  body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-
-        data = resp.json()
-        features = data.get("features", [])
-        self.debug(
-            f"DOV WFS interpretation '{layer}': {len(features)} features in response (bbox={bbox})"
+        features = await wfs_features_json(
+            self._http,
+            self,
+            layer=layer,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label=f"interpretation '{layer}'",
         )
         if features:
             first_props = list(features[0].get("properties", {}).keys())

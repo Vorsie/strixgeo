@@ -46,11 +46,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_GRONDMONSTER_WFS_SAMPLE_NUMBER_PROP,
     DOV_GRONDMONSTER_WFS_SAMPLE_TYPE_PROP,
     DOV_GRONDMONSTER_WFS_SAMPLING_DATE_PROP,
-    DOV_HORIZONTAL_EPSG,
-    DOV_WFS_FEATURE_LIMIT,
     DOV_WFS_GRONDMONSTERS_LAYER,
-    DOV_WFS_NUMBER_MATCHED_RE,
-    DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.borehole.dov.sample_wfs_row import SampleWfsRow
@@ -62,6 +58,10 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     optional_date,
     optional_float,
     optional_int,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
+    wfs_count,
+    wfs_features_json,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -143,69 +143,29 @@ class DovSampleClient(GroundModelLogger):
 
     async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the number of samples in the Lambert72 bbox."""
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
-        params = {
-            "service": "WFS",
-            "version": "2.0.0",
-            "request": "GetFeature",
-            "typeNames": DOV_WFS_GRONDMONSTERS_LAYER,
-            "resultType": "hits",
-            "BBOX": bbox,
-        }
-        self.trace(f"DOV sample WFS count request: BBOX={bbox}")
-
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV sample WFS count request failed: {exc}")
-            raise
-
-        if not resp.is_success:
-            self.error(
-                f"DOV sample WFS count returned HTTP {resp.status_code}  body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-
-        match = DOV_WFS_NUMBER_MATCHED_RE.search(resp.text)
-        if match is None:
-            self.error(
-                f"DOV sample WFS count: 'numberMatched' not found in response head: "
-                f"{resp.text[:300]!r}"
-            )
-            return 0
-
-        return int(match.group(1))
+        return await wfs_count(
+            self._http,
+            self,
+            layer=DOV_WFS_GRONDMONSTERS_LAYER,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="sample",
+        )
 
     async def _wfs_features(self, x1: float, y1: float, x2: float, y2: float) -> list[SampleWfsRow]:
         """Fetch up to DOV_WFS_FEATURE_LIMIT samples for this bbox."""
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
-        params = {
-            "service": "WFS",
-            "version": "2.0.0",
-            "request": "GetFeature",
-            "typeNames": DOV_WFS_GRONDMONSTERS_LAYER,
-            "outputFormat": "application/json",
-            "count": str(DOV_WFS_FEATURE_LIMIT),
-            "BBOX": bbox,
-        }
-        self.trace(f"DOV sample WFS features request: BBOX={bbox}")
-
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV sample WFS features request failed: {exc}")
-            raise
-
-        if not resp.is_success:
-            self.error(
-                f"DOV sample WFS features returned HTTP {resp.status_code}  "
-                f"body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-
-        data = resp.json()
-        features = data.get("features", [])
-        self.debug(f"DOV sample WFS: {len(features)} features in response (bbox={bbox})")
+        features = await wfs_features_json(
+            self._http,
+            self,
+            layer=DOV_WFS_GRONDMONSTERS_LAYER,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="sample",
+        )
         if features:
             first_props = list(features[0].get("properties", {}).keys())
             self.trace(f"DOV sample WFS feature properties: {first_props}")
