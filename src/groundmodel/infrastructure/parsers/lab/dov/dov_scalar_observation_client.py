@@ -32,7 +32,6 @@ focused on the new functionality.
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Sequence
 from datetime import date
 from typing import Any
@@ -42,7 +41,6 @@ import httpx
 from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_HORIZONTAL_EPSG,
     DOV_WFS_FEATURE_LIMIT,
-    DOV_WFS_MAX_SPLIT_DEPTH,
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
@@ -119,7 +117,21 @@ class DovScalarObservationClient(GroundModelLogger):
         )
 
         cql_filter = self._build_cql_filter(parameters)
-        rows = await self._collect_rows(cql_filter, params_label, x1, y1, x2, y2, depth=0)
+        # Delegate the count + recursive split + dedup pattern to the shared
+        # helper. We retain ownership of the WFS request shape (layer name,
+        # CQL filter, error wording, feature-property warnings) by passing
+        # ``_wfs_count`` and ``_wfs_features`` as bound callables.
+        rows = await collect_wfs_features_recursive(
+            fetch_count=partial(self._wfs_count, cql_filter),
+            fetch_features=partial(self._wfs_features, cql_filter),
+            row_permkey=lambda r: r.permkey,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label=f"DOV scalar-observation WFS [{params_label}]",
+            logger=self,
+        )
         self.info(
             f"DOV scalar-observation WFS: {len(rows)} observations in bbox (filter={params_label})"
         )
@@ -153,64 +165,10 @@ class DovScalarObservationClient(GroundModelLogger):
         return f"{DOV_OBSERVATIE_WFS_PARAMETER_PROP} IN ({quoted})"
 
     # ------------------------------------------------------------------
-    # Recursive WFS bbox query
+    # WFS request layer (count + features). The recursive bbox-split lives
+    # in ``dov_wfs_bbox.collect_wfs_features_recursive`` and reaches these
+    # via ``functools.partial`` from ``fetch_bbox``.
     # ------------------------------------------------------------------
-
-    async def _collect_rows(
-        self,
-        cql_filter: str,
-        params_label: str,
-        x1: float,
-        y1: float,
-        x2: float,
-        y2: float,
-        depth: int,
-    ) -> list[ScalarObservationWfsRow]:
-        """Return rows for this Lambert72 bbox, splitting if dense."""
-        count = await self._wfs_count(cql_filter, x1, y1, x2, y2)
-
-        if count == 0:
-            self.trace(
-                f"DOV scalar-observation WFS: 0 features at depth={depth} "
-                f"({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f}) filter={params_label}"
-            )
-            return []
-
-        if count <= DOV_WFS_FEATURE_LIMIT or depth >= DOV_WFS_MAX_SPLIT_DEPTH:
-            if count > DOV_WFS_FEATURE_LIMIT:
-                self.warning(
-                    f"DOV scalar-observation WFS: bbox at max recursion "
-                    f"depth={depth} still has {count} features "
-                    f"(> {DOV_WFS_FEATURE_LIMIT}) — some observations may be missed"
-                )
-            self.debug(f"DOV scalar-observation WFS: fetching {count} features (depth={depth})")
-            return await self._wfs_features(cql_filter, x1, y1, x2, y2)
-
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        self.debug(
-            f"DOV scalar-observation WFS: {count} features > limit at depth={depth}, "
-            f"splitting into 4 quadrants"
-        )
-        quadrants = [
-            (x1, y1, mx, my),
-            (mx, y1, x2, my),
-            (x1, my, mx, y2),
-            (mx, my, x2, y2),
-        ]
-        results = await asyncio.gather(
-            *[
-                self._collect_rows(cql_filter, params_label, qx1, qy1, qx2, qy2, depth + 1)
-                for qx1, qy1, qx2, qy2 in quadrants
-            ]
-        )
-        seen: set[str] = set()
-        merged: list[ScalarObservationWfsRow] = []
-        for chunk in results:
-            for row in chunk:
-                if row.permkey not in seen:
-                    seen.add(row.permkey)
-                    merged.append(row)
-        return merged
 
     async def _wfs_count(self, cql_filter: str, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the number of observations matching the filter in this bbox."""
