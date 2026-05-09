@@ -30,7 +30,6 @@ Constants live in ``dov_constants.py`` per project convention.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import date
 from typing import Any
 
@@ -51,12 +50,14 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_HORIZONTAL_EPSG,
     DOV_WFS_FEATURE_LIMIT,
     DOV_WFS_GRONDMONSTERS_LAYER,
-    DOV_WFS_MAX_SPLIT_DEPTH,
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.borehole.dov.sample_wfs_row import SampleWfsRow
+from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
+    collect_wfs_features_recursive,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -108,7 +109,17 @@ class DovSampleClient(GroundModelLogger):
         self.debug(f"DOV sample bbox WGS84: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}")
         self.debug(f"DOV sample bbox Lambert72: x=[{x1:.0f},{x2:.0f}] y=[{y1:.0f},{y2:.0f}]")
 
-        rows = await self._collect_rows(x1, y1, x2, y2, depth=0)
+        rows = await collect_wfs_features_recursive(
+            fetch_count=self._wfs_count,
+            fetch_features=self._wfs_features,
+            row_permkey=lambda r: r.permkey,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="DOV sample WFS",
+            logger=self,
+        )
         self.info(f"DOV sample WFS: {len(rows)} samples in bbox")
 
         if parent_permkeys is not None:
@@ -121,55 +132,9 @@ class DovSampleClient(GroundModelLogger):
         return rows
 
     # ------------------------------------------------------------------
-    # Recursive WFS bbox query (mirrors DovBoreholeClient pattern)
+    # WFS request layer (count + features). Recursive split is delegated
+    # to ``dov_wfs_bbox.collect_wfs_features_recursive`` from ``fetch_bbox``.
     # ------------------------------------------------------------------
-
-    async def _collect_rows(
-        self, x1: float, y1: float, x2: float, y2: float, depth: int
-    ) -> list[SampleWfsRow]:
-        """Return SampleWfsRow per sample in this Lambert72 bbox, splitting if dense."""
-        count = await self._wfs_count(x1, y1, x2, y2)
-
-        if count == 0:
-            self.trace(
-                f"DOV sample WFS: 0 features at depth={depth} "
-                f"({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f})"
-            )
-            return []
-
-        if count <= DOV_WFS_FEATURE_LIMIT or depth >= DOV_WFS_MAX_SPLIT_DEPTH:
-            if count > DOV_WFS_FEATURE_LIMIT:
-                self.warning(
-                    f"DOV sample WFS: bbox at max recursion depth={depth} still has "
-                    f"{count} features (> {DOV_WFS_FEATURE_LIMIT}) — "
-                    f"some samples may be missed"
-                )
-            self.debug(f"DOV sample WFS: fetching {count} features (depth={depth})")
-            return await self._wfs_features(x1, y1, x2, y2)
-
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        self.debug(
-            f"DOV sample WFS: {count} features > limit at depth={depth}, splitting into 4 quadrants"
-        )
-        quadrants = [
-            (x1, y1, mx, my),
-            (mx, y1, x2, my),
-            (x1, my, mx, y2),
-            (mx, my, x2, y2),
-        ]
-        results = await asyncio.gather(
-            *[self._collect_rows(qx1, qy1, qx2, qy2, depth + 1) for qx1, qy1, qx2, qy2 in quadrants]
-        )
-
-        seen: set[str] = set()
-        merged: list[SampleWfsRow] = []
-        for chunk in results:
-            for row in chunk:
-                if row.permkey not in seen:
-                    seen.add(row.permkey)
-                    merged.append(row)
-        self.debug(f"DOV sample WFS: depth={depth} quadrants merged → {len(merged)} unique samples")
-        return merged
 
     async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the number of samples in the Lambert72 bbox."""
