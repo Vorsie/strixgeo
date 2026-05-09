@@ -53,6 +53,10 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import (
+    last_path_segment,
+    optional_float,
+)
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -332,7 +336,7 @@ class DovBoreholeClient(GroundModelLogger):
         if not fiche_url:
             return None
 
-        permkey = _last_path_segment(fiche_url)
+        permkey = last_path_segment(fiche_url)
         # Hit the proxy directly to skip the 302; fall back to fiche+'.xml'
         # (and the httpx client's follow_redirects) when the URL prefix
         # doesn't match what we expect.
@@ -357,14 +361,14 @@ class DovBoreholeClient(GroundModelLogger):
             test_id=props.get("boornummer") or permkey,
             fiche_url=fiche_url,
             xml_url=xml_url,
-            x=_optional_float(props.get("X_mL72")),
-            y=_optional_float(props.get("Y_mL72")),
-            z=_optional_float(props.get("Z_mTAW")),
+            x=optional_float(props.get("X_mL72")),
+            y=optional_float(props.get("Y_mL72")),
+            z=optional_float(props.get("Z_mTAW")),
             drill_method=props.get("methode") or None,
             municipality=props.get("gemeente") or None,
             executor=props.get("uitvoerder") or None,
             purpose=props.get("doel") or None,
-            total_depth_m=_optional_float(props.get("diepte_tot_m")),
+            total_depth_m=optional_float(props.get("diepte_tot_m")),
             has_coded_lithology=bool(props.get("gecodeerde_lithologie")),
             has_geotechnical_coding=bool(props.get("geotechnische_codering")),
             has_lithological_description=bool(props.get("lithologische_beschrijving")),
@@ -376,18 +380,3 @@ class DovBoreholeClient(GroundModelLogger):
                 props.get("informele_hydrostratigrafie")
             ),
         )
-
-
-def _last_path_segment(url: str) -> str:
-    """Return the last path segment of *url* (e.g. '2025-232644' from a fiche URL)."""
-    return url.rstrip("/").rsplit("/", 1)[-1]
-
-
-def _optional_float(value: Any) -> float | None:
-    """Return float(value) or None when value is None / non-numeric."""
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
