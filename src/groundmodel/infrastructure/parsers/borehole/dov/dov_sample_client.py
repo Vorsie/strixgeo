@@ -246,12 +246,20 @@ def _build_row(props: dict[str, Any]) -> SampleWfsRow | None:
     Returns ``None`` when the feature lacks either the sample's own permkey
     (no stable identity) or the parent-borehole link (can't attach to any
     borehole). Both are mandatory; the rest is best-effort.
+
+    DOV's ``boringen:grondmonsters`` layer pipe-wraps multi-link fields
+    (``gekoppeld_aan_link``, ``bemonsteringsinstrument``) — a sample can
+    point at multiple parent boreholes / be taken with multiple
+    instruments — so we strip the outer pipes before parsing. For now we
+    take the FIRST parent borehole; multi-parent samples are rare and
+    multi-attachment is a structural change for later.
     """
     permkey = props.get(DOV_GRONDMONSTER_WFS_PERMKEY_PROP) or ""
     if not permkey:
         return None
 
-    parent_link: str = props.get(DOV_GRONDMONSTER_WFS_PARENT_LINK_PROP) or ""
+    parent_link_raw: str = props.get(DOV_GRONDMONSTER_WFS_PARENT_LINK_PROP) or ""
+    parent_link = _first_pipe_segment(parent_link_raw)
     if not parent_link:
         return None
     parent_permkey = last_path_segment(parent_link)
@@ -267,7 +275,26 @@ def _build_row(props: dict[str, Any]) -> SampleWfsRow | None:
         sample_number=props.get(DOV_GRONDMONSTER_WFS_SAMPLE_NUMBER_PROP) or None,
         sample_type=props.get(DOV_GRONDMONSTER_WFS_SAMPLE_TYPE_PROP) or None,
         composition=props.get(DOV_GRONDMONSTER_WFS_COMPOSITION_PROP) or None,
-        instrument=props.get(DOV_GRONDMONSTER_WFS_INSTRUMENT_PROP) or None,
+        instrument=_first_pipe_segment(props.get(DOV_GRONDMONSTER_WFS_INSTRUMENT_PROP) or "")
+        or None,
         sampling_date=optional_date(props.get(DOV_GRONDMONSTER_WFS_SAMPLING_DATE_PROP)),
         observation_count=optional_int(props.get(DOV_GRONDMONSTER_WFS_OBSERVATION_COUNT_PROP)),
     )
+
+
+def _first_pipe_segment(value: str) -> str:
+    """Return the first non-empty entry of a pipe-wrapped DOV multi-link field.
+
+    DOV encodes multi-valued grondmonster fields as ``|val1|val2|`` (pipes
+    on either side, pipes between entries). Splitting on ``|`` yields
+    leading/trailing empty strings around the real values; this helper
+    returns the first non-empty entry, or empty string when the input is
+    empty or contains only pipes.
+    """
+    if not value:
+        return ""
+    for entry in value.split("|"):
+        stripped = entry.strip()
+        if stripped:
+            return stripped
+    return ""
