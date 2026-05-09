@@ -10,15 +10,26 @@ interface ImportAction {
 interface Props {
   onImportCpt: () => void
   onImportDov: () => void
+  onImportBoreholeDov: () => void
   importing: boolean
   drawingBbox: boolean
 }
 
-export default function Toolbar({ onImportCpt, onImportDov, importing, drawingBbox }: Props) {
+export default function Toolbar({
+  onImportCpt,
+  onImportDov,
+  onImportBoreholeDov,
+  importing,
+  drawingBbox,
+}: Props) {
   const importActions: ImportAction[] = [
     { label: 'Import CPT (.gef)', available: true, onClick: onImportCpt },
     { label: 'Import CPT from DOV (draw bbox)', available: true, onClick: onImportDov },
-    { label: 'Import Borehole', available: false },
+    {
+      label: 'Import Borehole from DOV (draw bbox)',
+      available: true,
+      onClick: onImportBoreholeDov,
+    },
     { label: 'Import DMT', available: false },
     { label: 'Import Lab Test', available: false },
     { label: 'Import Monitoring', available: false },
@@ -38,7 +49,7 @@ export default function Toolbar({ onImportCpt, onImportDov, importing, drawingBb
             disabled={!action.available || importing}
             dimmed={!action.available}
             onClick={action.onClick}
-            tag={!action.available ? 'Phase 3' : undefined}
+            tag={!action.available ? 'Phase 4' : undefined}
           />
         ))}
       </DropdownMenu>
