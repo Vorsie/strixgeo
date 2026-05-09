@@ -43,6 +43,8 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
     optional_date,
 )
