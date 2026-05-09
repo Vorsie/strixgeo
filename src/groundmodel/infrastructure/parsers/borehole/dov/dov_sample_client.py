@@ -54,14 +54,14 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.borehole.dov.sample_wfs_row import SampleWfsRow
-from groundmodel.infrastructure.parsers.dov.dov_common import (
+from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
+    collect_wfs_features_recursive,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
     optional_date,
     optional_float,
     optional_int,
-)
-from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
-    collect_wfs_features_recursive,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
