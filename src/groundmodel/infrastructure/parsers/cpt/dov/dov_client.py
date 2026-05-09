@@ -47,6 +47,10 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import last_path_segment
+from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
+    collect_wfs_features_recursive,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
@@ -227,7 +231,7 @@ class DovClient(GroundModelLogger):
         periodic INFO logging — asyncio is single-threaded so the increment is
         race-free without a lock.
         """
-        permkey = _last_path_segment(xml_url)
+        permkey = last_path_segment(xml_url)
         xml_bytes: bytes | None = None
         from_cache = False
 
@@ -365,7 +369,7 @@ class DovClient(GroundModelLogger):
             # `fiche` = the canonical URL of the sondering record.
             # `sondeernummer` = the user-facing test name (e.g. "GEO-02/079-S3").
             fiche_url: str = props.get("fiche", "")
-            test_name: str = props.get("sondeernummer", "") or _last_path_segment(fiche_url)
+            test_name: str = props.get("sondeernummer", "") or last_path_segment(fiche_url)
             if fiche_url:
                 # Construct the proxy URL directly to avoid the 302 round-trip.
                 # Falls back to fiche+'.xml' (and follow_redirects) if the URL
@@ -435,8 +439,3 @@ class DovClient(GroundModelLogger):
                 resp.raise_for_status()
 
             return resp.content
-
-
-def _last_path_segment(url: str) -> str:
-    """Return the last path segment of *url* (e.g. '2009-000089' from a fiche URL)."""
-    return url.rstrip("/").rsplit("/", 1)[-1]
