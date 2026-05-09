@@ -1,20 +1,23 @@
 import { useState } from 'react'
-import { Activity, Drill, Gauge, MapPin, Trash2 } from 'lucide-react'
-import type { CptListItem } from '../api/client'
+import { Activity, AlertTriangle, Drill, Gauge, MapPin, Trash2 } from 'lucide-react'
+import type { BoreholeListItem, CptListItem } from '../api/client'
 
 type DataType = 'cpt' | 'borehole' | 'dmt'
 
 interface Props {
   cpts: CptListItem[]
-  selectedId: string | null
-  onSelect: (id: string) => void
-  onDelete: (id: string) => void
+  boreholes: BoreholeListItem[]
+  selectedCptId: string | null
+  selectedBoreholeId: string | null
+  onSelectCpt: (id: string) => void
+  onSelectBorehole: (id: string) => void
+  onDeleteCpt: (id: string) => void
   projectName: string
 }
 
 const TABS: { id: DataType; label: string; icon: React.ReactNode; available: boolean }[] = [
   { id: 'cpt',      label: 'CPT',      icon: <Activity size={14} />,  available: true  },
-  { id: 'borehole', label: 'Borehole', icon: <Drill size={14} />,     available: false },
+  { id: 'borehole', label: 'Borehole', icon: <Drill size={14} />,     available: true  },
   { id: 'dmt',      label: 'DMT',      icon: <Gauge size={14} />,     available: false },
 ]
 
@@ -27,7 +30,16 @@ function cptBadgeColor(type: string) {
   }
 }
 
-export default function Sidebar({ cpts, selectedId, onSelect, onDelete, projectName }: Props) {
+export default function Sidebar({
+  cpts,
+  boreholes,
+  selectedCptId,
+  selectedBoreholeId,
+  onSelectCpt,
+  onSelectBorehole,
+  onDeleteCpt,
+  projectName,
+}: Props) {
   const [activeTab, setActiveTab] = useState<DataType>('cpt')
 
   return (
@@ -61,27 +73,42 @@ export default function Sidebar({ cpts, selectedId, onSelect, onDelete, projectN
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'cpt' && (
-          cpts.length === 0
-            ? <EmptyState label="No CPTs imported yet" />
-            : cpts.map(c => (
-                <CptRow
-                  key={c.id}
-                  cpt={c}
-                  selected={c.id === selectedId}
-                  onClick={() => onSelect(c.id)}
-                  onDelete={() => onDelete(c.id)}
-                />
-              ))
-        )}
-        {activeTab !== 'cpt' && (
-          <EmptyState label="Available in Phase 3" />
-        )}
+        {activeTab === 'cpt' &&
+          (cpts.length === 0 ? (
+            <EmptyState label="No CPTs imported yet" />
+          ) : (
+            cpts.map(c => (
+              <CptRow
+                key={c.id}
+                cpt={c}
+                selected={c.id === selectedCptId}
+                onClick={() => onSelectCpt(c.id)}
+                onDelete={() => onDeleteCpt(c.id)}
+              />
+            ))
+          ))}
+        {activeTab === 'borehole' &&
+          (boreholes.length === 0 ? (
+            <EmptyState label="No boreholes imported yet" />
+          ) : (
+            boreholes.map(b => (
+              <BoreholeRow
+                key={b.id}
+                borehole={b}
+                selected={b.id === selectedBoreholeId}
+                onClick={() => onSelectBorehole(b.id)}
+              />
+            ))
+          ))}
+        {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
       </div>
 
       {/* Footer */}
       <div className="border-t border-gray-100 px-3 py-1.5 text-[10px] text-gray-400">
-        {activeTab === 'cpt' ? `${cpts.length} CPT${cpts.length !== 1 ? 's' : ''}` : '—'}
+        {activeTab === 'cpt' && `${cpts.length} CPT${cpts.length !== 1 ? 's' : ''}`}
+        {activeTab === 'borehole' &&
+          `${boreholes.length} borehole${boreholes.length !== 1 ? 's' : ''}`}
+        {activeTab === 'dmt' && '—'}
       </div>
     </aside>
   )
@@ -134,6 +161,50 @@ function CptRow({
         className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
+      </button>
+    </div>
+  )
+}
+
+function BoreholeRow({
+  borehole,
+  selected,
+  onClick,
+}: {
+  borehole: BoreholeListItem
+  selected: boolean
+  onClick: () => void
+}) {
+  // Phase 3a UX requirement: surface NO_ELEVATION boreholes distinctly so the
+  // user knows they need to add a Z manually (the inline editor lands in a
+  // later PR; this row just flags the state).
+  const noZ = borehole.elevation_m == null
+
+  return (
+    <div
+      className={[
+        'group relative border-b border-gray-100 transition-colors',
+        selected ? 'bg-blue-50' : 'hover:bg-gray-50',
+      ].join(' ')}
+    >
+      <button onClick={onClick} className="w-full text-left px-3 py-2">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <Drill size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
+          <span className="text-xs font-medium text-gray-800 truncate">{borehole.name}</span>
+          {noZ && (
+            <span title="No surface elevation — needs manual Z entry">
+              <AlertTriangle size={10} className="text-amber-500 shrink-0" />
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 pl-4 text-[10px] text-gray-400">
+          {borehole.total_depth_m != null && <span>{borehole.total_depth_m.toFixed(1)} m</span>}
+          {borehole.drill_method && (
+            <span className="truncate" title={borehole.drill_method}>
+              · {borehole.drill_method}
+            </span>
+          )}
+        </div>
       </button>
     </div>
   )
