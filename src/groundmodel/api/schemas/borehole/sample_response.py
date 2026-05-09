@@ -1,7 +1,5 @@
 """Pydantic schema for one sample taken from a borehole."""
 
-from __future__ import annotations
-
 from datetime import date
 from uuid import UUID
 
