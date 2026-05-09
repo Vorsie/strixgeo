@@ -120,6 +120,47 @@ DOV_INTERP_WFS_FICHE_PROP = "fiche"
 
 
 # ----------------------------------------------------------------------
+# Sample — WFS feature property names (Phase C3)
+# ----------------------------------------------------------------------
+# (The layer name itself, ``DOV_WFS_GRONDMONSTERS_LAYER``, is defined
+# above in the WFS-layers section.)
+
+# Parent-borehole linkage. Verified live 2026-05-08:
+#   gekoppeld_aan   = "https://www.dov.vlaanderen.be/data/boring/<permkey>"
+# We extract the permkey via last-path-segment and use it to resolve the
+# parent borehole UUID via the parent orchestrator's permkey→UUID map.
+DOV_GRONDMONSTER_WFS_PARENT_LINK_PROP = "gekoppeld_aan"
+
+# Sample's own permkey + the per-sample XML URL (mostly redundant with the
+# WFS row but kept for the cache short-circuit if we ever need to fetch
+# fields the WFS doesn't expose).
+DOV_GRONDMONSTER_WFS_PERMKEY_PROP = "permkey_monster"
+DOV_GRONDMONSTER_WFS_MONSTER_LINK_PROP = "monster_link"
+
+# Depth interval and observation count.
+DOV_GRONDMONSTER_WFS_DEPTH_TOP_PROP = "diepte_van_m"  # m below surface (top of sample)
+DOV_GRONDMONSTER_WFS_DEPTH_BASE_PROP = "diepte_tot_m"  # m below surface (base of sample)
+DOV_GRONDMONSTER_WFS_OBSERVATION_COUNT_PROP = "aantal_observaties"
+
+# Sample-side metadata. DOV sometimes omits these on older rows, so the
+# WFS-row builder treats every one as optional.
+DOV_GRONDMONSTER_WFS_SAMPLE_NUMBER_PROP = "monsternummer"
+DOV_GRONDMONSTER_WFS_SAMPLE_TYPE_PROP = "monstertype"  # "geroerd" / "ongeroerd"
+DOV_GRONDMONSTER_WFS_COMPOSITION_PROP = "monstersamenstelling"
+DOV_GRONDMONSTER_WFS_INSTRUMENT_PROP = "bemonsteringsinstrument"
+DOV_GRONDMONSTER_WFS_SAMPLING_DATE_PROP = "monstername_datum"
+
+
+# ----------------------------------------------------------------------
+# Sample — XML download URL prefixes (per-sample fetch, currently unused
+# in Phase C3 — the WFS row carries everything we need).
+# ----------------------------------------------------------------------
+
+DOV_MONSTER_URL_PREFIX = "/data/monster/"
+DOV_MONSTER_PROXY_URL_PREFIX = "/xdov/proxy/export/monster/"
+
+
+# ----------------------------------------------------------------------
 # Boring XML — element names and field-log discriminators
 # ----------------------------------------------------------------------
 
