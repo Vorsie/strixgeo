@@ -1,7 +1,5 @@
 """Pydantic schema for one drill-method interval in a borehole's depth log."""
 
-from __future__ import annotations
-
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
