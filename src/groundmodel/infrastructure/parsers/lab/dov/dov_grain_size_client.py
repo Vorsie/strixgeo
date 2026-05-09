@@ -33,16 +33,16 @@ import httpx
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_DOWNLOAD_PARALLELISM,
-    DOV_WFS_FEATURE_LIMIT,
-    DOV_WFS_NUMBER_MATCHED_RE,
-    DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
-    cql_bbox_predicate,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import last_path_segment
+from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
+    wfs_count,
+    wfs_features_json,
+)
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_OBSERVATIE_PROXY_URL_PREFIX,
     DOV_OBSERVATIE_URL_PREFIX,
@@ -58,6 +58,14 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
 ProcessFn = Callable[[GrainSizeWfsRow, bytes], _T]
+
+# Server-side CQL filter selecting only grain-size observations from the
+# unified ``monster:observaties`` WFS layer. The shared ``wfs_*`` helpers
+# fold the bbox into this filter via ``BBOX(geom, …)`` because DOV
+# rejects requests carrying both ``BBOX=`` and ``CQL_FILTER=``.
+_GRAIN_SIZE_PARAMETERGROEP_FILTER = (
+    f"{DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP}='{DOV_PARAMETERGROEP_GRAIN_SIZE}'"
+)
 
 
 class DovGrainSizeClient(GroundModelLogger):
@@ -229,61 +237,33 @@ class DovGrainSizeClient(GroundModelLogger):
 
     async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the parametergroep-filtered observation count for the bbox."""
-        params = self._common_params(x1, y1, x2, y2)
-        params["resultType"] = "hits"
-        # Bbox lives inside CQL_FILTER now (DOV rejects BBOX= + CQL= mixed),
-        # so log the L72 corners directly rather than indexing into params.
-        self.trace(f"DOV grain-size WFS count request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]")
-
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV grain-size WFS count request failed: {exc}")
-            raise
-
-        if not resp.is_success:
-            self.error(
-                f"DOV grain-size WFS count returned HTTP {resp.status_code}  "
-                f"body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-
-        match = DOV_WFS_NUMBER_MATCHED_RE.search(resp.text)
-        if match is None:
-            self.error(
-                f"DOV grain-size WFS count: 'numberMatched' not found in response head: "
-                f"{resp.text[:300]!r}"
-            )
-            return 0
-        return int(match.group(1))
+        return await wfs_count(
+            self._http,
+            self,
+            layer=DOV_WFS_OBSERVATIES_LAYER,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            cql_filter=_GRAIN_SIZE_PARAMETERGROEP_FILTER,
+            label="grain-size",
+        )
 
     async def _wfs_features(
         self, x1: float, y1: float, x2: float, y2: float
     ) -> list[GrainSizeWfsRow]:
         """Fetch up to DOV_WFS_FEATURE_LIMIT grain-size features for this bbox."""
-        params = self._common_params(x1, y1, x2, y2)
-        params["outputFormat"] = "application/json"
-        params["count"] = str(DOV_WFS_FEATURE_LIMIT)
-        self.trace(
-            f"DOV grain-size WFS features request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
+        features = await wfs_features_json(
+            self._http,
+            self,
+            layer=DOV_WFS_OBSERVATIES_LAYER,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            cql_filter=_GRAIN_SIZE_PARAMETERGROEP_FILTER,
+            label="grain-size",
         )
-
-        try:
-            resp = await self._http.get(DOV_WFS_URL, params=params)
-        except httpx.RequestError as exc:
-            self.error(f"DOV grain-size WFS features request failed: {exc}")
-            raise
-
-        if not resp.is_success:
-            self.error(
-                f"DOV grain-size WFS features returned HTTP {resp.status_code}  "
-                f"body: {resp.text[:500]!r}"
-            )
-            resp.raise_for_status()
-
-        data = resp.json()
-        features = data.get("features", [])
-        self.debug(f"DOV grain-size WFS: {len(features)} features in response")
         if features:
             first_props = list(features[0].get("properties", {}).keys())
             self.trace(f"DOV grain-size WFS feature properties: {first_props}")
@@ -310,27 +290,6 @@ class DovGrainSizeClient(GroundModelLogger):
                 f"Available properties: {available}"
             )
         return rows
-
-    @staticmethod
-    def _common_params(x1: float, y1: float, x2: float, y2: float) -> dict[str, str]:
-        """Build the WFS query-parameter dict shared by count + features queries.
-
-        DOV rejects requests that pass BOTH a ``BBOX=`` query param AND a
-        ``CQL_FILTER=`` (since 2026-05): "bbox and cql_filter both
-        specified but are mutually exclusive". So when we need attribute
-        filtering AND a bbox, the bbox lives INSIDE the CQL string via
-        the ``BBOX(geom, …)`` spatial predicate. The single-quoting on
-        the parametergroep value handles its trailing-space literal.
-        """
-        attr_filter = f"{DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP}='{DOV_PARAMETERGROEP_GRAIN_SIZE}'"
-        cql = f"{attr_filter} AND {cql_bbox_predicate(x1, y1, x2, y2)}"
-        return {
-            "service": "WFS",
-            "version": "2.0.0",
-            "request": "GetFeature",
-            "typeNames": DOV_WFS_OBSERVATIES_LAYER,
-            "CQL_FILTER": cql,
-        }
 
 
 # ---------------------------------------------------------------------------
