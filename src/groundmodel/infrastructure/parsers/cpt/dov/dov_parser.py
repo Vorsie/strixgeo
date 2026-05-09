@@ -68,25 +68,9 @@ from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParseResult
 from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import float_value, text
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-
-def _text(elem: ET.Element | None, tag: str) -> str:
-    """Return stripped text of *tag* child, or empty string."""
-    if elem is None:
-        return ""
-    child = elem.find(tag)
-    return (child.text or "").strip() if child is not None else ""
-
-
-def _float(elem: ET.Element | None, tag: str) -> float | None:
-    """Return float value of *tag* child, or None if missing/non-numeric."""
-    raw = _text(elem, tag)
-    try:
-        return float(raw) if raw else None
-    except ValueError:
-        return None
 
 
 class DovParser(GroundModelLogger):
@@ -169,13 +153,13 @@ class DovParser(GroundModelLogger):
 
     def _parse_header(self, cpt_elem: ET.Element, name: str) -> GEFHeader:
         # sondeernummer = test number; uitvoerder = company; datum_aanvang = start date
-        test_id = _text(cpt_elem, "sondeernummer")
-        file_date = _text(cpt_elem, "datum_aanvang")
+        test_id = text(cpt_elem, "sondeernummer")
+        file_date = text(cpt_elem, "datum_aanvang")
 
         company = ""
         company_elem = cpt_elem.find("uitvoerder")
         if company_elem is not None:
-            company = _text(company_elem, "naam")  # naam = name (nested)
+            company = text(company_elem, "naam")  # naam = name (nested)
 
         x, y, z = self._parse_location(cpt_elem, name)
         net_area_ratio, cone_type_code = self._parse_cone_metadata(cpt_elem, name)
@@ -271,8 +255,8 @@ class DovParser(GroundModelLogger):
         if cone_elem is None:
             return None, None
 
-        net_area_ratio = _float(cone_elem, "net_area_ratio")
-        cone_type_str = _text(cone_elem, "conustype")
+        net_area_ratio = float_value(cone_elem, "net_area_ratio")
+        cone_type_str = text(cone_elem, "conustype")
 
         cone_type_code: int | None
         if cone_type_str.startswith("M"):
@@ -404,18 +388,18 @@ class DovParser(GroundModelLogger):
         rows: list[dict[str, float | None]] = []
         skipped = 0
         for measurement in measurement_elements:
-            depth = _float(measurement, "diepte")  # already inclination-corrected by DOV
+            depth = float_value(measurement, "diepte")  # already inclination-corrected by DOV
             if depth is None:
-                depth = _float(measurement, "lengte")  # mechanical / no-i fallback
-            qc_mpa = _float(measurement, "qc")
+                depth = float_value(measurement, "lengte")  # mechanical / no-i fallback
+            qc_mpa = float_value(measurement, "qc")
 
             if depth is None or qc_mpa is None:
                 skipped += 1
                 continue
 
-            fs_kpa = _float(measurement, "fs")
-            u_kpa = _float(measurement, "u")
-            qt_value = _float(measurement, "Qt")  # capital Q, lowercase t
+            fs_kpa = float_value(measurement, "fs")
+            u_kpa = float_value(measurement, "u")
+            qt_value = float_value(measurement, "Qt")  # capital Q, lowercase t
 
             rows.append(
                 {
