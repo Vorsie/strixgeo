@@ -137,3 +137,50 @@ DOV_OBSERVATIE_WFS_FICHE_PROP = "fiche"
 # inside CQL_FILTER for server-side filtering (DOV has 7.5M observation
 # rows, so client-side filtering would download an unworkable amount).
 DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP = "parametergroep"
+
+# More WFS-row property names — the scalar lab tests (Phase C4) read every
+# value-bearing field straight off the WFS row, so we don't need an XML
+# fetch like the grain-size series case. Verified live 2026-05-09 against
+# real DOV observations (e.g. CaCO3 permkey 2019-790783).
+DOV_OBSERVATIE_WFS_PARAMETER_PROP = "parameter"
+DOV_OBSERVATIE_WFS_RESULTAAT_PROP = "resultaat"  # scalar value as a string
+DOV_OBSERVATIE_WFS_EENHEID_PROP = "eenheid"  # unit (% / g/100g / etc.)
+DOV_OBSERVATIE_WFS_METHODE_PROP = "methode"  # source-vocabulary method name
+DOV_OBSERVATIE_WFS_FENOMEENTIJD_PROP = "fenomeentijd"  # ISO date when test was run
+DOV_OBSERVATIE_WFS_DETECTIECONDITIE_PROP = "detectieconditie"
+# observation_link kept for diagnostics — the per-observation XML body is
+# only fetched for series tests (grain-size); scalar tests don't need it.
+DOV_OBSERVATIE_WFS_OBSERVATION_LINK_PROP = "observatie_link"
+
+
+# ----------------------------------------------------------------------
+# Phase C4 — scalar lab-test parameter strings
+# ----------------------------------------------------------------------
+# DOV duplicates the parameter token in parens at the end of every string
+# (verified live 2026-05-09). The codelist memory file's older entries that
+# omitted the doubled-token form returned 0 features; do NOT use a shorter
+# form when adding new parameters here.
+
+DOV_PARAMETER_ATTERBERG_LIQUID_LIMIT = (
+    "Consistentiegrenzen - Vloeigrens (Consistentiegrenzen - Vloeigrens)"
+)
+DOV_PARAMETER_ATTERBERG_PLASTIC_LIMIT = (
+    "Consistentiegrenzen - Uitrolgrens (Consistentiegrenzen - Uitrolgrens)"
+)
+DOV_PARAMETER_CACO3 = "Calciumcarbonaatgehalte (caco3_gehalte)"
+DOV_PARAMETER_ORGANIC_CARBON = "Organische C - percentage (organische_c_perc)"
+DOV_PARAMETER_WATER_CONTENT = "Vochtgehalte luchtdroge grond (vocht_luchtdroge_grond)"
+
+
+# ----------------------------------------------------------------------
+# Phase C4 — detectieconditie tokens
+# ----------------------------------------------------------------------
+# When DOV's ``detectieconditie`` is populated, ``resultaat`` is null and
+# the condition explains WHY. We map only "NM" (Niet Meetbaar = not
+# measurable) to ``AtterbergLimits.non_plastic = True`` because only the
+# plastic-limit test has a "soil cannot be rolled" non-plastic semantic;
+# other tests with NM stay as plain "value not measured".
+# Other observed tokens (e.g. ``"<"`` = below detection limit) are not
+# semantically meaningful for any of our ORMs yet — pass through and the
+# scalar mapper records value=None.
+DOV_DETECTIECONDITIE_NOT_MEASURABLE = "NM"
