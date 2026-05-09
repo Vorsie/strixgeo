@@ -117,3 +117,23 @@ DOV_BEHANDELING_ORGANICS_REMOVED = "Organisch materiaal verwijderd"
 # DOV ja/nee flag values, matched case-insensitively for resilience.
 DOV_BEHANDELING_YES_LOWER = "ja"
 DOV_BEHANDELING_NO_LOWER = "nee"
+
+
+# ----------------------------------------------------------------------
+# Observation — WFS feature property names (Phase C3)
+# ----------------------------------------------------------------------
+
+# Parent-sample linkage. Verified live 2026-05-08:
+#   gekoppeld_aan_link = "https://www.dov.vlaanderen.be/data/monster/<permkey>"
+# The orchestrator extracts the permkey via last-path-segment and resolves
+# it against the sample-permkey → sample-UUID map built during phase C3
+# sample persist.
+DOV_OBSERVATIE_WFS_PARENT_LINK_PROP = "gekoppeld_aan_link"
+
+# URL of the per-observation XML detail page (302-redirects to the proxy).
+DOV_OBSERVATIE_WFS_FICHE_PROP = "fiche"
+
+# Parametergroep filter property — the WFS column this maps to. We use it
+# inside CQL_FILTER for server-side filtering (DOV has 7.5M observation
+# rows, so client-side filtering would download an unworkable amount).
+DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP = "parametergroep"
