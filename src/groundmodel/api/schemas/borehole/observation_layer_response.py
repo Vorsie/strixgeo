@@ -1,7 +1,5 @@
 """Pydantic schema for one depth interval within an observation."""
 
-from __future__ import annotations
-
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
