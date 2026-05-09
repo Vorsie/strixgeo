@@ -30,4 +30,7 @@ def ms_since(start: float) -> int:
         precision is not useful for the orchestrator phases that span
         seconds-to-minutes.
     """
+    # ``perf_counter`` returns seconds as a float (e.g. 0.382 for 382 ms).
+    # Multiplying by 1000 converts seconds → milliseconds (1 s = 1000 ms),
+    # then ``int(...)`` truncates the fractional part for log readability.
     return int((time.perf_counter() - start) * 1000)
