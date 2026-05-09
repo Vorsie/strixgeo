@@ -95,12 +95,36 @@ export function SoilPatterns(): ReactElement {
         <circle cx="6" cy="2" r="0.5" fill="#3a2e1c" />
       </pattern>
 
-      {/* Stones / fragments: dense brick on dark slate */}
-      <pattern id="soil-XZ" width="10" height="8" patternUnits="userSpaceOnUse">
+      {/* Stones (DOV "stenen", code ST): dense brick on dark slate.
+          Originally registered under "XZ" — corrected after authoritative
+          DOV codetable showed XZ = "zand" (generic sand), not stones. */}
+      <pattern id="soil-ST" width="10" height="8" patternUnits="userSpaceOnUse">
         <rect width="10" height="8" fill="#5a5a5a" />
         <line x1="0" y1="4" x2="10" y2="4" stroke="#1a1a1a" strokeWidth="0.7" />
         <line x1="2" y1="0" x2="2" y2="4" stroke="#1a1a1a" strokeWidth="0.7" />
         <line x1="7" y1="4" x2="7" y2="8" stroke="#1a1a1a" strokeWidth="0.7" />
+      </pattern>
+
+      {/* Sand (no grain-size qualifier): same dot pattern as fine sand but
+          slightly larger spacing so it reads "generic sand" not "fine". */}
+      <pattern id="soil-XZ" width="7" height="7" patternUnits="userSpaceOnUse">
+        <rect width="7" height="7" fill="#f5e0a4" />
+        <circle cx="1.8" cy="1.8" r="0.6" fill="#7a6234" />
+        <circle cx="5.2" cy="5.2" r="0.6" fill="#7a6234" />
+      </pattern>
+
+      {/* Peat: dark brown with fibre dashes (organic matter) */}
+      <pattern id="soil-VE" width="10" height="6" patternUnits="userSpaceOnUse">
+        <rect width="10" height="6" fill="#3d2a18" />
+        <line x1="0" y1="2" x2="3" y2="2" stroke="#8b6743" strokeWidth="0.7" />
+        <line x1="5" y1="4" x2="8" y2="4" stroke="#8b6743" strokeWidth="0.7" />
+      </pattern>
+
+      {/* Stone fragments (SN): dark base with chunky scattered shapes */}
+      <pattern id="soil-SN" width="10" height="10" patternUnits="userSpaceOnUse">
+        <rect width="10" height="10" fill="#6e5a4a" />
+        <polygon points="2,2 4,1 5,3 3,4" fill="#3a2c1f" />
+        <polygon points="7,6 9,5 8,8 6,7" fill="#3a2c1f" />
       </pattern>
 
       {/* Shell fragments: small crescents on cream */}
@@ -141,4 +165,7 @@ export function getSoilFillUrl(code: string | null | undefined): string {
   return soilStyle(code).fill
 }
 
-const KNOWN_PATTERN_CODES = new Set(['FZ', 'ZG', 'KL', 'SI', 'LE', 'KA', 'GL', 'ZS', 'XZ', 'NN'])
+const KNOWN_PATTERN_CODES = new Set([
+  'FZ', 'ZG', 'KL', 'SI', 'LE', 'KA', 'GL', 'ZS', 'XZ', 'NN',
+  'ST', 'VE', 'SN',
+])
