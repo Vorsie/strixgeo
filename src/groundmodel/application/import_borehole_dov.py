@@ -174,29 +174,41 @@ class ImportBoreholeDov(GroundModelLogger):
                 f"{len(existing)} of {len(test_ids)} already in project"
             )
 
-            # Phase 4 — persist non-duplicates without committing per-row.
-            # Build TWO maps: test_id → UUID (used by the C2 interpretation
-            # phase, since interpretation WFS rows reference parent boreholes
-            # by Proefnummer = test_id) and borehole_permkey → UUID (used by
-            # the C3 sample phase, since the boringen:grondmonsters WFS rows
-            # reference parent boreholes by URL whose last segment is the
-            # permkey). Both maps grow together and stay in sync.
+            # Phase 4 — persist non-duplicates + build maps for ALL
+            # boreholes in scope (new + existing). Two keyings:
+            #   * test_id → UUID — used by interpretation WFS rows
+            #     (they reference Proefnummer = test_id).
+            #   * borehole_permkey → UUID — used by sample/lab-test WFS
+            #     rows (they reference the borehole by URL whose last
+            #     segment is the permkey).
+            #
+            # Refresh-on-duplicate: existing boreholes go into the same
+            # maps as new ones, so phases 4b/4c run for them too. Per-
+            # row dedup inside those phases (against ``dov_permkey``)
+            # ensures we don't re-add observations / samples / lab
+            # tests we already have. The result: a parser fix lands →
+            # the user re-imports → existing boreholes get the missing
+            # children that the upstream now provides. No TRUNCATE
+            # required to apply parser fixes.
             t_persist = time.perf_counter()
             imported = 0
             duplicates = 0
             failed = 0
             borehole_ids: list[UUID] = []
-            new_borehole_map: dict[str, UUID] = {}
-            new_permkey_map: dict[str, UUID] = {}
+            borehole_map: dict[str, UUID] = {}
+            permkey_map: dict[str, UUID] = {}
 
             for i, (wfs_row, result) in enumerate(parsed, 1):
                 existing_id = existing.get(wfs_row.test_id)
                 if existing_id is not None:
                     duplicates += 1
                     borehole_ids.append(existing_id)
+                    borehole_map[wfs_row.test_id] = existing_id
+                    permkey_map[wfs_row.permkey] = existing_id
                     self.debug(
-                        f"DOV import [{i}/{total}]: '{wfs_row.test_id}' "
-                        f"already exists ({existing_id})"
+                        f"DOV import [{i}/{total}]: '{wfs_row.test_id}' already "
+                        f"exists ({existing_id}) — refresh-on-duplicate will "
+                        f"fill in any missing children"
                     )
                     continue
 
@@ -205,8 +217,8 @@ class ImportBoreholeDov(GroundModelLogger):
                     await self._repo.save(borehole_orm, flush=False)
                     imported += 1
                     borehole_ids.append(borehole_orm.id)
-                    new_borehole_map[wfs_row.test_id] = borehole_orm.id
-                    new_permkey_map[wfs_row.permkey] = borehole_orm.id
+                    borehole_map[wfs_row.test_id] = borehole_orm.id
+                    permkey_map[wfs_row.permkey] = borehole_orm.id
                     self.debug(f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}")
                 except Exception as exc:
                     failed += 1
@@ -216,34 +228,51 @@ class ImportBoreholeDov(GroundModelLogger):
                     )
 
             self.info(
-                f"DOV phase 4 (persist {imported} boreholes, no commit): {ms_since(t_persist)} ms"
+                f"DOV phase 4 (persist {imported} boreholes, no commit): "
+                f"{ms_since(t_persist)} ms — phase 4b/4c will run for "
+                f"{len(borehole_map)} boreholes ({duplicates} via "
+                f"refresh-on-duplicate)"
             )
 
-            # Phase 4b — fetch + attach interpretations for newly-imported
-            # boreholes only. Duplicates keep whatever interpretations they
-            # already had (re-importing the same bbox stays idempotent).
+            # Phase 4b — fetch + attach interpretations for ALL in-scope
+            # boreholes (new + existing). Per-row dedup happens inside
+            # the persist function based on Observation.dov_permkey.
             interp_result = await self._fetch_and_attach_interpretations(
-                http, west, south, east, north, new_borehole_map
+                http, west, south, east, north, borehole_map
             )
 
-            # Phase 4c — fetch + attach samples + grain-size lab tests, same
-            # idempotency rule as interpretations. Uses the permkey map so a
-            # sample whose parent borehole was a duplicate is skipped.
+            # Phase 4c — fetch + attach samples + lab tests, same
+            # refresh-on-duplicate flow. Per-row dedup based on
+            # Sample.dov_permkey + each lab-test family's dov_permkey.
             samples_result = await self._fetch_and_attach_samples(
-                http, west, south, east, north, new_permkey_map
+                http, west, south, east, north, permkey_map
             )
 
             # Phase 5 — single commit flushes the whole batch (boreholes +
-            # observations + layers + admixtures + samples + grain-sizes,
-            # all in one transaction).
-            if imported > 0:
+            # observations + layers + admixtures + samples + grain-sizes
+            # + lab tests, all in one transaction). Refresh-on-duplicate
+            # means the commit is also worth doing when imported = 0:
+            # phases 4b/4c may have added children to existing boreholes.
+            has_new_rows = (
+                imported > 0
+                or interp_result.attached > 0
+                or samples_result.samples_attached > 0
+                or samples_result.grain_sizes_attached > 0
+                or samples_result.atterberg_attached > 0
+                or samples_result.caco3_attached > 0
+                or samples_result.organic_attached > 0
+                or samples_result.water_content_attached > 0
+                or samples_result.scalar_lab_tests_attached > 0
+            )
+            if has_new_rows:
                 t_commit = time.perf_counter()
                 await self._session.commit()
                 self.info(
-                    f"DOV phase 5 (commit batch of {imported} boreholes + "
+                    f"DOV phase 5 (commit batch of {imported} new boreholes + "
                     f"{interp_result.attached} observations + "
                     f"{samples_result.samples_attached} samples + "
-                    f"{samples_result.grain_sizes_attached} grain-sizes): "
+                    f"{samples_result.grain_sizes_attached} grain-sizes "
+                    f"into {len(borehole_map)} boreholes): "
                     f"{ms_since(t_commit)} ms"
                 )
 
@@ -322,17 +351,22 @@ class ImportBoreholeDov(GroundModelLogger):
         south: float,
         east: float,
         north: float,
-        new_borehole_map: dict[str, UUID],
+        borehole_map: dict[str, UUID],
     ) -> ImportInterpretationsDovResult:
         """Run Phase 4b — interpretation orchestrator over the same bbox.
 
-        Network errors here do NOT roll back the borehole-side persist queue;
-        we degrade gracefully so a transient interpretation outage still
-        leaves the user with the boreholes they imported. The exception is
-        logged and surfaced as ``failed=fetched`` in the result.
+        ``borehole_map`` covers BOTH newly-imported AND existing
+        boreholes in the bbox (refresh-on-duplicate). The downstream
+        orchestrator dedupes per row by ``Observation.dov_permkey`` so
+        existing boreholes only receive interpretations they don't
+        already have.
+
+        Network errors here do NOT roll back the borehole-side persist
+        queue; we degrade gracefully so a transient interpretation
+        outage still leaves the user with the boreholes they imported.
         """
-        if not new_borehole_map:
-            self.info("DOV phase 4b (interpretations): no new boreholes — skipping fetch")
+        if not borehole_map:
+            self.info("DOV phase 4b (interpretations): no boreholes in scope — skipping fetch")
             return ImportInterpretationsDovResult()
 
         try:
@@ -341,7 +375,7 @@ class ImportBoreholeDov(GroundModelLogger):
                 south,
                 east,
                 north,
-                new_borehole_map,
+                borehole_map,
                 self._interpretation_cache,
                 http,
             )
@@ -353,7 +387,7 @@ class ImportBoreholeDov(GroundModelLogger):
                 f"DOV phase 4b (interpretations): fetch failed, continuing "
                 f"with boreholes only: {type(exc).__name__}: {exc}"
             )
-            return ImportInterpretationsDovResult(failed=len(new_borehole_map))
+            return ImportInterpretationsDovResult(failed=len(borehole_map))
 
     async def _fetch_and_attach_samples(
         self,
@@ -362,17 +396,24 @@ class ImportBoreholeDov(GroundModelLogger):
         south: float,
         east: float,
         north: float,
-        new_permkey_map: dict[str, UUID],
+        permkey_map: dict[str, UUID],
     ) -> ImportSamplesDovResult:
         """Run Phase 4c — sample + grain-size orchestrator over the same bbox.
 
-        Same graceful-degradation contract as the interpretation phase: a
-        transient lab-side outage doesn't abort the parent borehole commit.
-        The result reports a fail-count so the API surfaces the partial
-        success instead of silently dropping the failure.
+        ``permkey_map`` covers BOTH newly-imported AND existing
+        boreholes in the bbox (refresh-on-duplicate). The downstream
+        orchestrator dedupes per row by ``Sample.dov_permkey`` and per
+        lab-test by ``<family>.dov_permkey``, so existing samples /
+        tests are not re-added.
+
+        Same graceful-degradation contract as the interpretation
+        phase: a transient lab-side outage doesn't abort the parent
+        borehole commit.
         """
-        if not new_permkey_map:
-            self.info("DOV phase 4c (samples + grain-sizes): no new boreholes — skipping fetch")
+        if not permkey_map:
+            self.info(
+                "DOV phase 4c (samples + grain-sizes): no boreholes in scope — skipping fetch"
+            )
             return ImportSamplesDovResult()
 
         try:
@@ -381,7 +422,7 @@ class ImportBoreholeDov(GroundModelLogger):
                 south,
                 east,
                 north,
-                new_permkey_map,
+                permkey_map,
                 self._monster_cache,
                 self._observatie_cache,
                 http,
@@ -393,7 +434,7 @@ class ImportBoreholeDov(GroundModelLogger):
                 f"{type(exc).__name__}: {exc}"
             )
             # Mark the whole sample-side batch as failed at the API surface.
-            return ImportSamplesDovResult(samples_failed=len(new_permkey_map))
+            return ImportSamplesDovResult(samples_failed=len(permkey_map))
 
     # ------------------------------------------------------------------
     # Domain → ORM mapping
