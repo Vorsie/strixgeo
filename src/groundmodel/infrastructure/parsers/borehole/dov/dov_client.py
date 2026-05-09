@@ -40,6 +40,7 @@ from typing import Any, TypeVar
 
 import httpx
 
+from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import BoreholeWfsRow
 from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_BORING_PROXY_URL_PREFIX,
     DOV_BORING_URL_PREFIX,
