@@ -14,6 +14,7 @@ from groundmodel.infrastructure.db.repositories.cpt_repository import CptReposit
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import DovClient
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
 from groundmodel.shared.config import settings
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.timing import ms_since
@@ -79,14 +80,10 @@ class ImportCptDov(GroundModelLogger):
         try:
             t_fetch = time.perf_counter()
             # HTTP/2 multiplexes all requests over a single TLS connection — avoids
-            # the per-connection TLS handshake cost when fanning out 50-100 concurrent
-            # downloads. Larger keepalive pool keeps connections warm across the batch.
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(60.0, connect=10.0),
-                follow_redirects=True,
-                http2=True,
-                limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
-            ) as http:
+            # Tuning lives in ``dov_http.make_dov_async_client`` — see that
+            # docstring for the rationale (HTTP/2 + 100-keepalive pool to
+            # eliminate per-request TLS handshake cost).
+            async with make_dov_async_client() as http:
                 parsed = await DovClient(http, cache=self._cache).fetch_bbox_processed(
                     west, south, east, north, parser.parse
                 )
