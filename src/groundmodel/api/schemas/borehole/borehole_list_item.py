@@ -1,7 +1,5 @@
 """Pydantic schema for a borehole summary item in list responses."""
 
-from __future__ import annotations
-
 from datetime import date
 from uuid import UUID
 
