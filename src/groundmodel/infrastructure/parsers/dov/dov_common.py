@@ -1,4 +1,4 @@
-"""Constants + tiny helpers shared by every DOV-derived parser/client.
+"""Constants shared by every DOV-derived parser/client.
 
 Per the project convention (see CLAUDE.md "Code Conventions" → "Constants in a
 dedicated file"), no constants live at the top of parser/client/cache modules —
@@ -12,11 +12,19 @@ Sections
 * CRS handling (Lambert 72 transformer)
 * DOV XML schema namespaces and tag prefix
 * Cache permkey validation regex
-* WFS row helpers (URL last-segment, optional-typed property parsers)
 
 Test-type-specific constants (the ``dov-pub:Sonderingen`` layer name,
 ``/data/sondering/`` URL prefix, etc.) live in the test-type-specific
 ``dov_constants.py`` modules and re-export from here as needed.
+
+Sibling DOV-shared modules — split by concern, imported directly by callers:
+
+* ``dov_wfs_helpers.py`` — WFS GeoJSON-property helpers
+  (``last_path_segment``, ``optional_float / int / date``)
+* ``dov_xml_helpers.py`` — XML element helpers (``text``, ``float_value``,
+  ``date_iso``)
+* ``dov_http.py`` — ``make_dov_async_client()`` factory
+* ``dov_wfs_bbox.py`` — recursive bbox-split + count + dedup helper
 """
 
 from __future__ import annotations
@@ -105,61 +113,3 @@ DOV_GML_TAG_PREFIX = f"{{{DOV_GML_NAMESPACE}}}"
 # Anything else is rejected so a malformed key can't escape the cache directory
 # via "../" path-traversal tricks.
 DOV_VALID_PERMKEY_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-
-
-# ----------------------------------------------------------------------
-# WFS row helpers — used by every DOV WFS client to scrub raw GeoJSON
-# property values into typed Python values.
-# ----------------------------------------------------------------------
-
-
-def last_path_segment(url: str) -> str:
-    """Return the last path segment of *url* (e.g. ``"2017-137886"``).
-
-    Used to extract a DOV permkey from a ``fiche`` / ``observatie_link`` /
-    ``gekoppeld_aan_link`` URL. Robust against trailing slashes, query
-    strings, fragments, and ``;params`` — ``urllib.parse.urlsplit``
-    handles those edge cases so a permkey extracted from any DOV URL
-    shape stays correct.
-    """
-    parsed = urllib.parse.urlsplit(url)
-    return parsed.path.rstrip("/").rsplit("/", 1)[-1]
-
-
-def optional_float(value: Any) -> float | None:
-    """Return ``float(value)`` or ``None`` when value is None / non-numeric.
-
-    Used to scrub WFS GeoJSON property values where DOV may emit ``null``,
-    a numeric, or a numeric-like string. ``TypeError`` and ``ValueError``
-    both fall through to ``None`` so callers don't have to discriminate.
-    """
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def optional_int(value: Any) -> int | None:
-    """Return ``int(value)`` or ``None`` when value is None / non-numeric."""
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def optional_date(value: Any) -> date | None:
-    """Return ``date.fromisoformat(value)`` or ``None`` when value is None / unparseable.
-
-    Empty strings count as "missing" — DOV occasionally emits ``""`` for
-    optional date fields, and we don't want to bubble that up as a value.
-    """
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(str(value))
-    except ValueError:
-        return None
