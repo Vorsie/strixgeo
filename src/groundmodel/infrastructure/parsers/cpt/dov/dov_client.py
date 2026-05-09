@@ -42,7 +42,6 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
     DOV_PROXY_URL_PREFIX,
     DOV_WFS_FEATURE_LIMIT,
     DOV_WFS_LAYER,
-    DOV_WFS_MAX_SPLIT_DEPTH,
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
@@ -102,7 +101,21 @@ class DovClient(GroundModelLogger):
         )
 
         # name_by_url maps the XML URL → sondeernummer (CPT name).
-        name_by_url = await self._collect_pkeys(x1, y1, x2, y2, depth=0)
+        # Recursive bbox-split + dedup handled by the shared helper, keyed on
+        # xml_url (first tuple element) so a CPT near a quadrant boundary
+        # appearing in multiple sub-bboxes only persists once.
+        pairs = await collect_wfs_features_recursive(
+            fetch_count=self._wfs_count,
+            fetch_features=self._wfs_features,
+            row_permkey=lambda r: r[0],
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="DOV WFS sonderingen",
+            logger=self,
+        )
+        name_by_url: dict[str, str] = dict(pairs)
         self.info(f"DOV WFS: {len(name_by_url)} unique CPTs found in bbox")
 
         if not name_by_url:
@@ -143,7 +156,20 @@ class DovClient(GroundModelLogger):
         x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
         self.debug(f"DOV bbox WGS84: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}")
 
-        name_by_url = await self._collect_pkeys(x1, y1, x2, y2, depth=0)
+        # Recursive bbox-split + dedup is delegated to the shared helper.
+        # Dedup by xml_url (first tuple element).
+        pairs = await collect_wfs_features_recursive(
+            fetch_count=self._wfs_count,
+            fetch_features=self._wfs_features,
+            row_permkey=lambda r: r[0],
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="DOV WFS sonderingen",
+            logger=self,
+        )
+        name_by_url: dict[str, str] = dict(pairs)
         self.info(f"DOV WFS: {len(name_by_url)} unique CPTs found in bbox")
         if not name_by_url:
             return []
@@ -241,57 +267,10 @@ class DovClient(GroundModelLogger):
         return result
 
     # ------------------------------------------------------------------
-    # WFS queries
+    # WFS request layer (count + features). Recursive bbox-split is
+    # delegated to ``dov_wfs_bbox.collect_wfs_features_recursive`` from
+    # ``fetch_bbox_processed``.
     # ------------------------------------------------------------------
-
-    async def _collect_pkeys(
-        self, x1: float, y1: float, x2: float, y2: float, depth: int
-    ) -> dict[str, str]:
-        """Return {xml_url: sondeernummer} for all CPTs in this Lambert72 bbox.
-
-        Recursively splits into four quadrants when the feature count exceeds
-        DOV_WFS_FEATURE_LIMIT, ensuring we never miss CPTs due to server-side caps.
-        """
-        count = await self._wfs_count(x1, y1, x2, y2)
-
-        if count == 0:
-            self.trace(
-                f"DOV WFS: 0 features at depth={depth} ({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f})"
-            )
-            return {}
-
-        if count <= DOV_WFS_FEATURE_LIMIT or depth >= DOV_WFS_MAX_SPLIT_DEPTH:
-            if count > DOV_WFS_FEATURE_LIMIT:
-                self.warning(
-                    f"DOV WFS: bbox at max recursion depth={depth} still has {count} features "
-                    f"(> {DOV_WFS_FEATURE_LIMIT} limit) — some CPTs may be missed"
-                )
-            self.debug(f"DOV WFS: fetching {count} features (depth={depth})")
-            return await self._wfs_features(x1, y1, x2, y2)
-
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        self.debug(
-            f"DOV WFS: {count} features > limit={DOV_WFS_FEATURE_LIMIT} at depth={depth}, "
-            f"splitting into 4 quadrants"
-        )
-        quadrants = [
-            (x1, y1, mx, my),
-            (mx, y1, x2, my),
-            (x1, my, mx, y2),
-            (mx, my, x2, y2),
-        ]
-        results = await asyncio.gather(
-            *[
-                self._collect_pkeys(qx1, qy1, qx2, qy2, depth + 1)
-                for qx1, qy1, qx2, qy2 in quadrants
-            ]
-        )
-
-        merged: dict[str, str] = {}
-        for chunk in results:
-            merged.update(chunk)
-        self.debug(f"DOV WFS: depth={depth} quadrants merged → {len(merged)} unique CPTs")
-        return merged
 
     async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the number of CPTs in the Lambert72 bbox without fetching features.
@@ -332,14 +311,19 @@ class DovClient(GroundModelLogger):
         self.trace(f"DOV WFS count: {count}  bbox={bbox}")
         return count
 
-    async def _wfs_features(self, x1: float, y1: float, x2: float, y2: float) -> dict[str, str]:
+    async def _wfs_features(
+        self, x1: float, y1: float, x2: float, y2: float
+    ) -> list[tuple[str, str]]:
         """Fetch up to DOV_WFS_FEATURE_LIMIT features from the WFS for this bbox.
 
         Returns
         -------
-        dict[str, str]
-            {xml_url: sondeernummer} — the XML URL is the proxy URL derived from
-            the `fiche` property (skipping the 302 redirect).
+        list[tuple[str, str]]
+            ``[(xml_url, sondeernummer), ...]`` — the XML URL is the proxy URL
+            derived from the ``fiche`` property (skipping the 302 redirect).
+            Returned as a list (not a dict) so the shared bbox-recursion
+            helper can dedup by ``xml_url`` at quadrant boundaries; the
+            calling ``fetch_bbox_processed`` builds the dict at the end.
         """
         bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
         params = {
@@ -374,7 +358,7 @@ class DovClient(GroundModelLogger):
             first_props = list(features[0].get("properties", {}).keys())
             self.trace(f"DOV WFS feature properties: {first_props}")
 
-        url_to_name: dict[str, str] = {}
+        pairs: list[tuple[str, str]] = []
         missing_url = 0
         for feat in features:
             props = feat.get("properties", {})
@@ -391,7 +375,7 @@ class DovClient(GroundModelLogger):
                     if DOV_FICHE_URL_PREFIX in fiche_url
                     else fiche_url.rstrip("/") + ".xml"
                 )
-                url_to_name[xml_url] = test_name
+                pairs.append((xml_url, test_name))
             else:
                 missing_url += 1
 
@@ -404,7 +388,7 @@ class DovClient(GroundModelLogger):
                 f"Available properties: {available_keys}"
             )
 
-        return url_to_name
+        return pairs
 
     # ------------------------------------------------------------------
     # XML downloads (legacy non-streaming path; kept for fetch_bbox)
