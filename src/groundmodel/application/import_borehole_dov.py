@@ -4,8 +4,11 @@ Phase C1 scope: borehole headers + drill segments + field log.
 Phase C2 extension: also fetch and attach all eight interpretation streams
 (``ObservationOrm`` rows with their layers and admixtures) for newly-
 imported boreholes — see ``ImportInterpretationsDov`` for the per-stream
-WFS pipeline. Lab-side samples land in Phase C3 and will plug into the
-same execute() flow with the same single-commit-at-the-end discipline.
+WFS pipeline.
+Phase C3 extension: also fetch and attach lab samples (``SampleOrm``)
+plus grain-size lab tests (``GrainSizeOrm``) — see ``ImportSamplesDov``.
+All four child collections (drill segments, field log, observations,
+samples + grain-sizes) land in one single transaction commit.
 """
 
 from __future__ import annotations
@@ -22,6 +25,8 @@ from groundmodel.application.import_interpretations_dov import ImportInterpretat
 from groundmodel.application.import_interpretations_dov_result import (
     ImportInterpretationsDovResult,
 )
+from groundmodel.application.import_samples_dov import ImportSamplesDov
+from groundmodel.application.import_samples_dov_result import ImportSamplesDovResult
 from groundmodel.domain.models.borehole.borehole import Borehole
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
@@ -90,6 +95,12 @@ class ImportBoreholeDov(GroundModelLogger):
         # resource types).
         self._boring_cache = DovXmlCache(settings.dov_cache_dir / "boring")
         self._interpretation_cache = DovXmlCache(settings.dov_cache_dir / "interpretatie")
+        # Phase C3 caches. The monster cache is plumbed in for symmetry —
+        # not currently hit because Phase C3 reads samples from the WFS
+        # row directly (see SampleWfsRow docstring). The observation
+        # cache backs grain-size XML downloads.
+        self._monster_cache = DovXmlCache(settings.dov_cache_dir / "monster")
+        self._observatie_cache = DovXmlCache(settings.dov_cache_dir / "observatie")
 
     async def execute(
         self,
@@ -162,14 +173,19 @@ class ImportBoreholeDov(GroundModelLogger):
             )
 
             # Phase 4 — persist non-duplicates without committing per-row.
-            # Build {test_id: borehole_id} for newly-imported rows so the
-            # interpretation phase can attach observations by FK.
+            # Build TWO maps: test_id → UUID (used by the C2 interpretation
+            # phase, since interpretation WFS rows reference parent boreholes
+            # by Proefnummer = test_id) and borehole_permkey → UUID (used by
+            # the C3 sample phase, since the boringen:grondmonsters WFS rows
+            # reference parent boreholes by URL whose last segment is the
+            # permkey). Both maps grow together and stay in sync.
             t_persist = time.perf_counter()
             imported = 0
             duplicates = 0
             failed = 0
             borehole_ids: list[UUID] = []
             new_borehole_map: dict[str, UUID] = {}
+            new_permkey_map: dict[str, UUID] = {}
 
             for i, (wfs_row, result) in enumerate(parsed, 1):
                 existing_id = existing.get(wfs_row.test_id)
@@ -188,6 +204,7 @@ class ImportBoreholeDov(GroundModelLogger):
                     imported += 1
                     borehole_ids.append(borehole_orm.id)
                     new_borehole_map[wfs_row.test_id] = borehole_orm.id
+                    new_permkey_map[wfs_row.permkey] = borehole_orm.id
                     self.debug(f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}")
                 except Exception as exc:
                     failed += 1
@@ -205,14 +222,25 @@ class ImportBoreholeDov(GroundModelLogger):
                 http, west, south, east, north, new_borehole_map
             )
 
+            # Phase 4c — fetch + attach samples + grain-size lab tests, same
+            # idempotency rule as interpretations. Uses the permkey map so a
+            # sample whose parent borehole was a duplicate is skipped.
+            samples_result = await self._fetch_and_attach_samples(
+                http, west, south, east, north, new_permkey_map
+            )
+
             # Phase 5 — single commit flushes the whole batch (boreholes +
-            # observations + layers + admixtures, all in one transaction).
+            # observations + layers + admixtures + samples + grain-sizes,
+            # all in one transaction).
             if imported > 0:
                 t_commit = time.perf_counter()
                 await self._session.commit()
                 self.info(
-                    f"DOV phase 5 (commit batch of {imported} boreholes "
-                    f"+ {interp_result.attached} observations): {_ms(t_commit)} ms"
+                    f"DOV phase 5 (commit batch of {imported} boreholes + "
+                    f"{interp_result.attached} observations + "
+                    f"{samples_result.samples_attached} samples + "
+                    f"{samples_result.grain_sizes_attached} grain-sizes): "
+                    f"{_ms(t_commit)} ms"
                 )
 
         self.success(
@@ -220,7 +248,11 @@ class ImportBoreholeDov(GroundModelLogger):
             f"{imported} imported, {duplicates} duplicates, {failed} failed  "
             f"(total={total}); "
             f"interpretations: {interp_result.attached} attached, "
-            f"{interp_result.failed} failed"
+            f"{interp_result.failed} failed; "
+            f"samples: {samples_result.samples_attached} attached, "
+            f"{samples_result.samples_failed} failed; "
+            f"grain-sizes: {samples_result.grain_sizes_attached} attached, "
+            f"{samples_result.grain_sizes_failed} failed"
         )
         return ImportBoreholeDovResult(
             imported=imported,
@@ -228,6 +260,10 @@ class ImportBoreholeDov(GroundModelLogger):
             failed=failed,
             interpretations_attached=interp_result.attached,
             interpretations_failed=interp_result.failed,
+            samples_attached=samples_result.samples_attached,
+            samples_failed=samples_result.samples_failed,
+            grain_sizes_attached=samples_result.grain_sizes_attached,
+            grain_sizes_failed=samples_result.grain_sizes_failed,
             borehole_ids=borehole_ids,
         )
 
@@ -301,6 +337,46 @@ class ImportBoreholeDov(GroundModelLogger):
                 f"with boreholes only: {type(exc).__name__}: {exc}"
             )
             return ImportInterpretationsDovResult(failed=len(new_borehole_map))
+
+    async def _fetch_and_attach_samples(
+        self,
+        http: httpx.AsyncClient,
+        west: float,
+        south: float,
+        east: float,
+        north: float,
+        new_permkey_map: dict[str, UUID],
+    ) -> ImportSamplesDovResult:
+        """Run Phase 4c — sample + grain-size orchestrator over the same bbox.
+
+        Same graceful-degradation contract as the interpretation phase: a
+        transient lab-side outage doesn't abort the parent borehole commit.
+        The result reports a fail-count so the API surfaces the partial
+        success instead of silently dropping the failure.
+        """
+        if not new_permkey_map:
+            self.info("DOV phase 4c (samples + grain-sizes): no new boreholes — skipping fetch")
+            return ImportSamplesDovResult()
+
+        try:
+            return await ImportSamplesDov(self._session).execute(
+                west,
+                south,
+                east,
+                north,
+                new_permkey_map,
+                self._monster_cache,
+                self._observatie_cache,
+                http,
+            )
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            self.error(
+                f"DOV phase 4c (samples + grain-sizes): fetch failed, continuing "
+                f"with boreholes + interpretations only: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            # Mark the whole sample-side batch as failed at the API surface.
+            return ImportSamplesDovResult(samples_failed=len(new_permkey_map))
 
     # ------------------------------------------------------------------
     # Domain → ORM mapping
