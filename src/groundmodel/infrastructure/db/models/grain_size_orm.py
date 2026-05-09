@@ -66,6 +66,10 @@ class GrainSizeOrm(Base):
         nullable=False,
     )
 
+    # DOV per-observation permkey — stable upstream identity for dedup
+    # on re-import. See "Refresh-on-duplicate" in CLAUDE.md.
+    dov_permkey: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Particle diameters in millimetres, strictly ascending. Sieve apertures
     # for sieve tests; instrument-reported diameters for hydrometer / laser.
     diameters_mm: Mapped[list[float]] = mapped_column(ARRAY(DOUBLE_PRECISION), nullable=False)

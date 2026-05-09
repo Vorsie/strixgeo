@@ -46,6 +46,13 @@ class ObservationOrm(Base):
         nullable=False,
     )
 
+    # DOV permkey of the source interpretatie — stable upstream identity
+    # used by ImportBoreholeDov to dedupe on re-import (refresh existing
+    # boreholes' interpretations without re-creating already-stored
+    # rows). Nullable so legacy rows pre-dating this column don't break.
+    # See "Refresh-on-duplicate" in CLAUDE.md.
+    dov_permkey: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # ObservationType enum string value — see class docstring for the allow-list.
     observation_type: Mapped[str] = mapped_column(String(50), nullable=False)
 

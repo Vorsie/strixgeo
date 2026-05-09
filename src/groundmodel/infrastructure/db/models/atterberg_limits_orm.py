@@ -36,6 +36,13 @@ class AtterbergLimitsOrm(Base):
         nullable=False,
     )
 
+    # DOV per-observation permkey of the LIQUID-LIMIT row (the canonical
+    # half of the LL+PL pair) — used as the stable identity for dedup
+    # on re-import. PL row's permkey isn't tracked because the Atterberg
+    # ORM aggregates both into one row. See "Refresh-on-duplicate" in
+    # CLAUDE.md.
+    dov_permkey: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Liquid limit (LL / w_L) and plastic limit (PL / w_P) in % water content
     # of dry mass. Range generously 0–1000 (extreme bentonites / quick clays
     # exceed 100). Both nullable: a sample may have only LL or only PL.

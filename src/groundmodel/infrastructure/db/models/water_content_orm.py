@@ -37,6 +37,10 @@ class WaterContentOrm(Base):
         nullable=False,
     )
 
+    # DOV per-observation permkey — stable upstream identity for dedup
+    # on re-import. See "Refresh-on-duplicate" in CLAUDE.md.
+    dov_permkey: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     content_pct: Mapped[float | None] = mapped_column(Double, nullable=True)
     method: Mapped[str | None] = mapped_column(String(100), nullable=True)
     test_date: Mapped[date | None] = mapped_column(Date, nullable=True)

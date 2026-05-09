@@ -38,6 +38,10 @@ class ScalarLabTestOrm(Base):
         nullable=False,
     )
 
+    # DOV per-observation permkey — stable upstream identity for dedup
+    # on re-import. See "Refresh-on-duplicate" in CLAUDE.md.
+    dov_permkey: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Source vocabulary — pass-through, never translated at ingest. ALL
     # free-text columns on the catch-all are TEXT (uncapped): the
     # family is meant to swallow whatever DOV ships, and capping had

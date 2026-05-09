@@ -33,6 +33,10 @@ class CaCO3ContentOrm(Base):
         nullable=False,
     )
 
+    # DOV per-observation permkey — stable upstream identity for dedup
+    # on re-import. See "Refresh-on-duplicate" in CLAUDE.md.
+    dov_permkey: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # CaCO3 content in % of dry mass; 0–100 range. Nullable so a row can be
     # created with method/test_date metadata even when the value itself is
     # pending or below detection.
