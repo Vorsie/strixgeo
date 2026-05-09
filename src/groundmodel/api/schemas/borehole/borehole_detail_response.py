@@ -52,3 +52,4 @@ class BoreholeDetailResponse(BaseModel):
     drill_segments: list[DrillSegmentResponse]
     field_log_intervals: list[FieldLogIntervalResponse]
     observations: list[ObservationResponse]
+    samples: list[SampleResponse]
