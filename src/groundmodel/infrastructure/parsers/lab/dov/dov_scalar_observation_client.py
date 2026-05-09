@@ -33,7 +33,6 @@ focused on the new functionality.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
 from typing import Any
 
 import httpx
@@ -44,6 +43,8 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
+    last_path_segment,
+    optional_date,
 )
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_OBSERVATIE_WFS_DETECTIECONDITIE_PROP,
@@ -274,11 +275,11 @@ def _build_row(props: dict[str, Any]) -> ScalarObservationWfsRow | None:
     parent_link: str = props.get(DOV_OBSERVATIE_WFS_PARENT_LINK_PROP) or ""
     if not parent_link:
         return None
-    parent_permkey = _last_path_segment(parent_link)
+    parent_permkey = last_path_segment(parent_link)
     if not parent_permkey:
         return None
 
-    permkey = _last_path_segment(obs_url)
+    permkey = last_path_segment(obs_url)
     return ScalarObservationWfsRow(
         permkey=permkey,
         parent_sample_permkey=parent_permkey,
@@ -286,21 +287,6 @@ def _build_row(props: dict[str, Any]) -> ScalarObservationWfsRow | None:
         resultaat=props.get(DOV_OBSERVATIE_WFS_RESULTAAT_PROP) or None,
         eenheid=props.get(DOV_OBSERVATIE_WFS_EENHEID_PROP) or None,
         methode=props.get(DOV_OBSERVATIE_WFS_METHODE_PROP) or None,
-        fenomeentijd=_optional_date(props.get(DOV_OBSERVATIE_WFS_FENOMEENTIJD_PROP)),
+        fenomeentijd=optional_date(props.get(DOV_OBSERVATIE_WFS_FENOMEENTIJD_PROP)),
         detectieconditie=props.get(DOV_OBSERVATIE_WFS_DETECTIECONDITIE_PROP) or None,
     )
-
-
-def _last_path_segment(url: str) -> str:
-    """Return the last path segment of *url*, ignoring any trailing slash."""
-    return url.rstrip("/").rsplit("/", 1)[-1]
-
-
-def _optional_date(value: Any) -> date | None:
-    """Return ``date.fromisoformat(value)`` or None when value is None / unparseable."""
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(str(value))
-    except ValueError:
-        return None
