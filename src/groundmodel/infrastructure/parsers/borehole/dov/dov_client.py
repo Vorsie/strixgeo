@@ -48,12 +48,14 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_VERTICAL_EPSG,
     DOV_WFS_BORINGEN_LAYER,
     DOV_WFS_FEATURE_LIMIT,
-    DOV_WFS_MAX_SPLIT_DEPTH,
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
+    collect_wfs_features_recursive,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _T = TypeVar("_T")
@@ -121,7 +123,17 @@ class DovBoreholeClient(GroundModelLogger):
             f"(valid range: x≈20k–290k, y≈150k–245k)"
         )
 
-        rows = await self._collect_rows(x1, y1, x2, y2, depth=0)
+        rows = await collect_wfs_features_recursive(
+            fetch_count=self._wfs_count,
+            fetch_features=self._wfs_features,
+            row_permkey=lambda r: r.permkey,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="DOV WFS boreholes",
+            logger=self,
+        )
         self.info(f"DOV WFS: {len(rows)} unique boreholes found in bbox")
         if not rows:
             return []
@@ -213,61 +225,10 @@ class DovBoreholeClient(GroundModelLogger):
         return result
 
     # ------------------------------------------------------------------
-    # WFS bbox queries (with auto-split)
+    # WFS request layer (count + features). The recursive bbox-split lives
+    # in ``dov_wfs_bbox.collect_wfs_features_recursive`` and reaches these
+    # via direct method references from ``fetch_bbox_processed``.
     # ------------------------------------------------------------------
-
-    async def _collect_rows(
-        self, x1: float, y1: float, x2: float, y2: float, depth: int
-    ) -> list[BoreholeWfsRow]:
-        """Return BoreholeWfsRow per borehole in this Lambert72 bbox.
-
-        Recursively splits into four quadrants when the feature count
-        exceeds DOV_WFS_FEATURE_LIMIT, ensuring we never miss boreholes
-        due to server-side caps.
-        """
-        count = await self._wfs_count(x1, y1, x2, y2)
-
-        if count == 0:
-            self.trace(
-                f"DOV WFS: 0 features at depth={depth} ({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f})"
-            )
-            return []
-
-        if count <= DOV_WFS_FEATURE_LIMIT or depth >= DOV_WFS_MAX_SPLIT_DEPTH:
-            if count > DOV_WFS_FEATURE_LIMIT:
-                self.warning(
-                    f"DOV WFS: bbox at max recursion depth={depth} still has "
-                    f"{count} features (> {DOV_WFS_FEATURE_LIMIT}) — "
-                    f"some boreholes may be missed"
-                )
-            self.debug(f"DOV WFS: fetching {count} features (depth={depth})")
-            return await self._wfs_features(x1, y1, x2, y2)
-
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        self.debug(
-            f"DOV WFS: {count} features > limit at depth={depth}, splitting into 4 quadrants"
-        )
-        quadrants = [
-            (x1, y1, mx, my),
-            (mx, y1, x2, my),
-            (x1, my, mx, y2),
-            (mx, my, x2, y2),
-        ]
-        results = await asyncio.gather(
-            *[self._collect_rows(qx1, qy1, qx2, qy2, depth + 1) for qx1, qy1, qx2, qy2 in quadrants]
-        )
-
-        # Merge child results, dedup by permkey (a borehole near a quadrant
-        # boundary can appear in multiple sub-bboxes).
-        seen: set[str] = set()
-        merged: list[BoreholeWfsRow] = []
-        for chunk in results:
-            for row in chunk:
-                if row.permkey not in seen:
-                    seen.add(row.permkey)
-                    merged.append(row)
-        self.debug(f"DOV WFS: depth={depth} quadrants merged → {len(merged)} unique boreholes")
-        return merged
 
     async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
         """Return the number of boreholes in the Lambert72 bbox without fetching features."""
