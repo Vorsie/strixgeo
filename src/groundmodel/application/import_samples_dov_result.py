@@ -57,3 +57,8 @@ class ImportSamplesDovResult:
     organic_failed: int = 0
     water_content_attached: int = 0
     water_content_failed: int = 0
+    # Phase C5 — generic scalar-lab-test catch-all (grain density, ASTM
+    # classification, descriptive calcareous content, plus any future
+    # parameters added to ``DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS``).
+    scalar_lab_tests_attached: int = 0
+    scalar_lab_tests_failed: int = 0

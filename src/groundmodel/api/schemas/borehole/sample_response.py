@@ -13,6 +13,9 @@ from groundmodel.api.schemas.borehole.grain_size_response import GrainSizeRespon
 from groundmodel.api.schemas.borehole.organic_content_response import (
     OrganicContentResponse,
 )
+from groundmodel.api.schemas.borehole.scalar_lab_test_response import (
+    ScalarLabTestResponse,
+)
 from groundmodel.api.schemas.borehole.water_content_response import WaterContentResponse
 
 
@@ -51,3 +54,4 @@ class SampleResponse(BaseModel):
     caco3_content_tests: list[CaCO3ContentResponse]
     organic_content_tests: list[OrganicContentResponse]
     water_content_tests: list[WaterContentResponse]
+    scalar_lab_tests: list[ScalarLabTestResponse]

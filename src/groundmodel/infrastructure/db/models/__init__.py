@@ -13,6 +13,7 @@ from groundmodel.infrastructure.db.models.observation_layer_orm import Observati
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.infrastructure.db.models.scalar_lab_test_orm import ScalarLabTestOrm
 from groundmodel.infrastructure.db.models.water_content_orm import WaterContentOrm
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "ObservationOrm",
     "OrganicContentOrm",
     "SampleOrm",
+    "ScalarLabTestOrm",
     "WaterContentOrm",
 ]

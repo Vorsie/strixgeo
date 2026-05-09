@@ -63,12 +63,14 @@ from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentO
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.infrastructure.db.models.scalar_lab_test_orm import ScalarLabTestOrm
 from groundmodel.infrastructure.db.models.water_content_orm import WaterContentOrm
 from groundmodel.infrastructure.parsers.borehole.dov.dov_sample_client import DovSampleClient
 from groundmodel.infrastructure.parsers.borehole.dov.sample_wfs_row import SampleWfsRow
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_DETECTIECONDITIE_NOT_MEASURABLE,
+    DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS,
     DOV_PARAMETER_ATTERBERG_LIQUID_LIMIT,
     DOV_PARAMETER_ATTERBERG_PLASTIC_LIMIT,
     DOV_PARAMETER_CACO3,
@@ -238,7 +240,8 @@ class ImportSamplesDov(GroundModelLogger):
             ``parent_permkeys`` filter should guarantee a match.
             """
             sample_id = permkey_to_sample_id[row.parent_sample_permkey]
-            return parser.parse(xml_bytes, sample_id=sample_id, name=row.permkey)
+            parsed = parser.parse(xml_bytes, sample_id=sample_id, name=row.permkey)
+            return _apply_grain_size_method_fallback(parsed, row)
 
         try:
             t_gs = time.perf_counter()
@@ -355,9 +358,20 @@ class ImportSamplesDov(GroundModelLogger):
         client = DovScalarObservationClient(http)
         sample_permkeys = set(permkey_to_sample_id)
 
+        # Phase C5 extras: the catch-all parameters land in one parallel query
+        # each, identical shape to the four typed phases above. Each row gets
+        # persisted into ``scalar_lab_test`` (no per-parameter ORM).
+        other_parameters = [p for _group, p in DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS]
+
         t_scalar = time.perf_counter()
         try:
-            atterberg_rows, caco3_rows, organic_rows, water_rows = await asyncio.gather(
+            (
+                atterberg_rows,
+                caco3_rows,
+                organic_rows,
+                water_rows,
+                other_rows,
+            ) = await asyncio.gather(
                 client.fetch_bbox(
                     west,
                     south,
@@ -388,36 +402,48 @@ class ImportSamplesDov(GroundModelLogger):
                     DOV_PARAMETER_WATER_CONTENT,
                     parent_permkeys=sample_permkeys,
                 ),
+                client.fetch_bbox(
+                    west,
+                    south,
+                    east,
+                    north,
+                    other_parameters,
+                    parent_permkeys=sample_permkeys,
+                ),
             )
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-            # Network failure on any of the four parallel queries — log and
-            # mark all four as fully failed at the API surface so the result
+            # Network failure on any of the parallel queries — log and mark
+            # all streams as fully failed at the API surface so the result
             # carries an honest signal. Boreholes / samples / grain-sizes
             # already in the session aren't affected.
             n = len(permkey_to_sample_id)
             self.error(
-                f"DOV scalar-observation phase: WFS error, all four streams "
+                f"DOV scalar-observation phase: WFS error, all streams "
                 f"unavailable: {type(exc).__name__}: {exc}"
             )
             result.atterberg_failed = n
             result.caco3_failed = n
             result.organic_failed = n
             result.water_content_failed = n
+            result.scalar_lab_tests_failed = n
             return
 
         self.info(
             f"DOV scalar-observation WFS done in {ms_since(t_scalar)} ms — "
             f"atterberg={len(atterberg_rows)}, caco3={len(caco3_rows)}, "
-            f"organic={len(organic_rows)}, water={len(water_rows)} rows"
+            f"organic={len(organic_rows)}, water={len(water_rows)}, "
+            f"other={len(other_rows)} rows"
         )
 
-        # Persist Atterberg (with LL+PL aggregation), then the three single-
-        # parameter scalar tests. Each helper updates the result counters in
-        # place and isolates per-row failures.
+        # Persist Atterberg (with LL+PL aggregation), the three typed single-
+        # parameter scalar tests, and finally the catch-all ``ScalarLabTest``
+        # rows. Each helper updates the result counters in place and isolates
+        # per-row failures.
         self._persist_atterberg(atterberg_rows, permkey_to_sample_id, result)
         self._persist_caco3(caco3_rows, permkey_to_sample_id, result)
         self._persist_organic(organic_rows, permkey_to_sample_id, result)
         self._persist_water_content(water_rows, permkey_to_sample_id, result)
+        self._persist_scalar_lab_tests(other_rows, permkey_to_sample_id, result)
 
     def _persist_atterberg(
         self,
@@ -526,6 +552,62 @@ class ImportSamplesDov(GroundModelLogger):
                 attached_attr="water_content_attached",
                 failed_attr="water_content_failed",
                 test_label="water",
+            )
+
+    def _persist_scalar_lab_tests(
+        self,
+        rows: list[ScalarObservationWfsRow],
+        permkey_to_sample_id: dict[str, UUID],
+        result: ImportSamplesDovResult,
+    ) -> None:
+        """Persist one ``ScalarLabTestOrm`` per row into the catch-all table.
+
+        Unlike the typed families, no value-range validation runs here —
+        the catch-all is intentionally permissive about what it stores
+        (numeric, text, null-with-condition all valid). Per-row failures
+        only happen when the parent sample isn't in our just-imported set
+        or the SQL insert raises.
+        """
+        attached_before = result.scalar_lab_tests_attached
+        failed_before = result.scalar_lab_tests_failed
+        total = len(rows)
+        for index, row in enumerate(rows, start=1):
+            # CLAUDE.md DoD: bulk loops carry an [i/total] prefix so an
+            # operator scanning a long log can spot stalls / progress.
+            prefix = f"[{index}/{total}]"
+            sample_id = permkey_to_sample_id.get(row.parent_sample_permkey)
+            if sample_id is None:
+                # Sample wasn't in the just-imported set — observation
+                # belongs to a duplicate / pre-existing sample, skip.
+                result.scalar_lab_tests_failed += 1
+                self.debug(
+                    f"DOV scalar-lab-test {prefix}: '{row.permkey}' has no parent in "
+                    f"this import (sample '{row.parent_sample_permkey}'), skipping"
+                )
+                continue
+            try:
+                orm = _scalar_lab_test_to_orm(row, sample_id)
+                self._session.add(orm)
+                result.scalar_lab_tests_attached += 1
+                self.debug(
+                    f"DOV scalar-lab-test {prefix}: '{row.permkey}' [{row.parameter}] "
+                    f"→ {orm.id} (sample {sample_id})"
+                )
+            except Exception as exc:
+                result.scalar_lab_tests_failed += 1
+                self.error(
+                    f"DOV scalar-lab-test {prefix}: persist failed for '{row.permkey}' "
+                    f"[{row.parameter}]: {type(exc).__name__}: {exc}"
+                )
+        # Phase-summary log so the operator can see catch-all activity at INFO
+        # without enabling per-row DEBUG. Suppressed when nothing happened
+        # so empty bboxes don't add noise.
+        attached = result.scalar_lab_tests_attached - attached_before
+        failed = result.scalar_lab_tests_failed - failed_before
+        if attached or failed:
+            self.info(
+                f"DOV scalar-lab-test catch-all: {attached} attached, "
+                f"{failed} failed (input: {len(rows)} rows)"
             )
 
     def _persist_single_value(
@@ -748,6 +830,60 @@ def _water_content_to_orm(row: ScalarObservationWfsRow, sample_id: UUID) -> Wate
         method=row.methode,
         test_date=row.fenomeentijd,
     )
+
+
+def _scalar_lab_test_to_orm(row: ScalarObservationWfsRow, sample_id: UUID) -> ScalarLabTestOrm:
+    """Map a generic scalar observation row into a ``ScalarLabTestOrm`` row.
+
+    Numeric source values land in ``value_numeric``; non-numeric (e.g.
+    the ASTM classification codes ``"CL"`` / ``"SP"`` / ``"GW"``) land
+    in ``value_text``. Both ``None`` only when the source ``resultaat``
+    is null or empty (typically because ``detectieconditie`` is set).
+
+    Unlike the typed family mappers, this never returns ``None`` — the
+    catch-all stores the row even with a null value as long as it
+    arrived from DOV; the metadata (parameter, method, date,
+    detection_condition) is itself useful diagnostic information.
+    """
+    numeric = _optional_pct(row.resultaat)
+    text = None
+    if numeric is None and row.resultaat is not None:
+        stripped = row.resultaat.strip()
+        if stripped:
+            text = stripped
+    return ScalarLabTestOrm(
+        id=uuid7(),
+        sample_id=sample_id,
+        parameter_group=row.parametergroep,
+        parameter=row.parameter,
+        value_numeric=numeric,
+        value_text=text,
+        unit=row.eenheid,
+        method=row.methode,
+        test_date=row.fenomeentijd,
+        detection_condition=row.detectieconditie,
+    )
+
+
+def _apply_grain_size_method_fallback(
+    parsed: GrainSizeParseResult,
+    row: GrainSizeWfsRow,
+) -> GrainSizeParseResult:
+    """If the parsed grain-size has no method, fall back to the WFS row's methode.
+
+    DOV's per-observation XML for grain size is sometimes missing the
+    ``<methode>`` element, leaving ``GrainSize.method = None`` after
+    parsing. The WFS row itself carries the same info reliably (e.g.
+    ``"Zeving op massa met grootte <= 2mm (fijnkorrelig)"``) — fall
+    back to it so the chart legend always reads "sieving" /
+    "hydrometer" / etc. instead of the placeholder "Method 1".
+
+    Mutates the GrainSize in place (it's a regular ``@dataclass``, not
+    frozen) and returns the same parse result for ergonomic chaining.
+    """
+    if parsed.grain_size is not None and parsed.grain_size.method is None and row.methode:
+        parsed.grain_size.method = row.methode
+    return parsed
 
 
 def _optional_pct(raw: str | None) -> float | None:

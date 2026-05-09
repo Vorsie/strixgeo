@@ -80,6 +80,12 @@ class BoreholeRepository(GroundModelLogger):
                 selectinload(BoreholeOrm.samples).selectinload(SampleOrm.caco3_content_tests),
                 selectinload(BoreholeOrm.samples).selectinload(SampleOrm.organic_content_tests),
                 selectinload(BoreholeOrm.samples).selectinload(SampleOrm.water_content_tests),
+                # Phase C5 catch-all family. MUST be eager-loaded — Pydantic's
+                # ``model_validate(borehole)`` walks every collection on every
+                # SampleResponse, and a lazy load from inside Pydantic's
+                # attribute extractor fails with ``MissingGreenlet`` under
+                # async SQLAlchemy (no async context active there).
+                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.scalar_lab_tests),
             )
         )
         result = await self._session.execute(stmt)

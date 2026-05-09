@@ -59,6 +59,7 @@ def _gs_row(
     *,
     permkey: str = "2022-2618228",
     parent_sample_permkey: str = "2017-137886",
+    methode: str | None = None,
 ) -> GrainSizeWfsRow:
     """Build a GrainSizeWfsRow with sensible test defaults."""
     return GrainSizeWfsRow(
@@ -66,6 +67,7 @@ def _gs_row(
         parent_sample_permkey=parent_sample_permkey,
         fiche_url=f"https://www.dov.vlaanderen.be/data/observatie/{permkey}",
         xml_url=f"https://www.dov.vlaanderen.be/xdov/proxy/export/observatie/{permkey}",
+        methode=methode,
     )
 
 
@@ -359,9 +361,13 @@ async def test_per_sample_persist_failure_does_not_abort_batch(
 
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (  # noqa: E402
     DOV_DETECTIECONDITIE_NOT_MEASURABLE,
+    DOV_PARAMETER_ASTM_CODE,
     DOV_PARAMETER_ATTERBERG_LIQUID_LIMIT,
     DOV_PARAMETER_ATTERBERG_PLASTIC_LIMIT,
     DOV_PARAMETER_CACO3,
+    DOV_PARAMETER_GRAIN_DENSITY,
+    DOV_PARAMETER_GROUP_ASTM_CLASSIFICATION,
+    DOV_PARAMETER_GROUP_VOLUMEMASSA,
     DOV_PARAMETER_ORGANIC_CARBON,
     DOV_PARAMETER_WATER_CONTENT,
 )
@@ -378,11 +384,13 @@ def _scalar_row(
     resultaat: str | None = "1.5",
     methode: str | None = "Calcimetrie",
     detectieconditie: str | None = None,
+    parametergroep: str = "Bodem_chemisch",
 ) -> ScalarObservationWfsRow:
     """Build a ScalarObservationWfsRow with sensible test defaults."""
     return ScalarObservationWfsRow(
         permkey=permkey,
         parent_sample_permkey=parent,
+        parametergroep=parametergroep,
         parameter=parameter,
         resultaat=resultaat,
         eenheid="%",
@@ -401,15 +409,17 @@ async def _run_with_scalar_returns(
     caco3: list,
     organic: list,
     water: list,
+    other: list | None = None,
 ):
     """Drive the orchestrator with empty grain-size + custom scalar returns.
 
-    The scalar client's ``fetch_bbox`` is called four times inside
-    ``asyncio.gather`` (Atterberg, CaCO3, organic, water) — order matches
-    the call order in ``_fetch_and_attach_scalar_lab_tests``. We dispense
-    different lists per invocation via ``side_effect`` queue.
+    The scalar client's ``fetch_bbox`` is called five times inside
+    ``asyncio.gather`` (Atterberg, CaCO3, organic, water, then the
+    catch-all "other" list). Order matches the call order in
+    ``_fetch_and_attach_scalar_lab_tests``. We dispense different lists
+    per invocation via a ``side_effect`` queue.
     """
-    scalar_calls: list[list] = [atterberg, caco3, organic, water]
+    scalar_calls: list[list] = [atterberg, caco3, organic, water, other or []]
 
     async def _scalar_side(*args, **kwargs):
         return scalar_calls.pop(0)
@@ -664,11 +674,231 @@ async def test_scalar_phase_network_error_marks_all_failed(
             http=MagicMock(),
         )
 
-    # One sample in the map → all four scalar streams marked failed=1.
+    # One sample in the map → all five scalar streams marked failed=1.
     assert result.atterberg_failed == 1
     assert result.caco3_failed == 1
     assert result.organic_failed == 1
     assert result.water_content_failed == 1
+    assert result.scalar_lab_tests_failed == 1
     assert result.atterberg_attached == 0
     # Sample itself still attached.
     assert result.samples_attached == 1
+
+
+@pytest.mark.asyncio
+async def test_scalar_lab_test_numeric_and_text_routed_to_catch_all(
+    use_case: ImportSamplesDov,
+) -> None:
+    """Catch-all path: a numeric grain-density row + a text ASTM code row.
+
+    Both should land in the ``ScalarLabTestOrm`` table; the numeric one
+    populates ``value_numeric``, the text one populates ``value_text``.
+    Each carries the source parametergroep + parameter verbatim.
+    """
+    bh = uuid4()
+    sample_rows = [_sample_row(permkey="S1", parent_permkey="BH-PK")]
+
+    added: list = []
+    use_case._session.add = MagicMock(  # type: ignore[method-assign]
+        side_effect=lambda orm: added.append(orm)
+    )
+
+    other = [
+        _scalar_row(
+            permkey="O1",
+            parent="S1",
+            parameter=DOV_PARAMETER_GRAIN_DENSITY,
+            resultaat="2.65",
+            parametergroep=DOV_PARAMETER_GROUP_VOLUMEMASSA,
+        ),
+        _scalar_row(
+            permkey="O2",
+            parent="S1",
+            parameter=DOV_PARAMETER_ASTM_CODE,
+            resultaat="CL",
+            parametergroep=DOV_PARAMETER_GROUP_ASTM_CLASSIFICATION,
+        ),
+    ]
+    result = await _run_with_scalar_returns(
+        use_case,
+        permkey_map={"BH-PK": bh},
+        sample_rows=sample_rows,
+        atterberg=[],
+        caco3=[],
+        organic=[],
+        water=[],
+        other=other,
+    )
+
+    assert result.scalar_lab_tests_attached == 2
+    assert result.scalar_lab_tests_failed == 0
+
+    scalar_orms = [o for o in added if type(o).__name__ == "ScalarLabTestOrm"]
+    assert len(scalar_orms) == 2
+
+    by_param = {o.parameter: o for o in scalar_orms}
+    grain_density = by_param[DOV_PARAMETER_GRAIN_DENSITY]
+    assert grain_density.value_numeric == pytest.approx(2.65)
+    assert grain_density.value_text is None
+    assert grain_density.parameter_group == DOV_PARAMETER_GROUP_VOLUMEMASSA
+
+    astm = by_param[DOV_PARAMETER_ASTM_CODE]
+    assert astm.value_numeric is None
+    assert astm.value_text == "CL"
+    assert astm.parameter_group == DOV_PARAMETER_GROUP_ASTM_CLASSIFICATION
+
+    # FK to the SampleOrm we just added.
+    assert grain_density.sample_id == added[0].id
+    assert astm.sample_id == added[0].id
+
+
+@pytest.mark.asyncio
+async def test_scalar_lab_test_orphan_parent_marked_failed(
+    use_case: ImportSamplesDov,
+) -> None:
+    """A catch-all row whose parent sample isn't in our import map → failed.
+
+    The DovScalarObservationClient already filters by ``parent_permkeys``
+    server-side, so this is a defensive path — but if a contract slip
+    leaks an orphan row through, it must NOT silently land with an
+    invalid FK. We bump the failed counter and never call session.add.
+    """
+    bh = uuid4()
+    sample_rows = [_sample_row(permkey="S1", parent_permkey="BH-PK")]
+
+    added: list = []
+    use_case._session.add = MagicMock(  # type: ignore[method-assign]
+        side_effect=lambda orm: added.append(orm)
+    )
+
+    other = [
+        _scalar_row(
+            permkey="O1",
+            parent="UNKNOWN-SAMPLE",  # not in permkey_to_sample_id
+            parameter=DOV_PARAMETER_GRAIN_DENSITY,
+            resultaat="2.65",
+            parametergroep=DOV_PARAMETER_GROUP_VOLUMEMASSA,
+        ),
+    ]
+    result = await _run_with_scalar_returns(
+        use_case,
+        permkey_map={"BH-PK": bh},
+        sample_rows=sample_rows,
+        atterberg=[],
+        caco3=[],
+        organic=[],
+        water=[],
+        other=other,
+    )
+
+    assert result.scalar_lab_tests_attached == 0
+    assert result.scalar_lab_tests_failed == 1
+    # No ScalarLabTestOrm should have been added.
+    assert not any(type(o).__name__ == "ScalarLabTestOrm" for o in added)
+
+
+@pytest.mark.asyncio
+async def test_scalar_lab_test_whitespace_resultaat_lands_as_null(
+    use_case: ImportSamplesDov,
+) -> None:
+    """A row whose resultaat is empty / whitespace-only persists with null values.
+
+    The mapper attempts a numeric parse first, then falls through to
+    text storage. Empty / whitespace strings shouldn't end up as
+    ``value_text=""`` (which would round-trip a misleading empty string
+    to the API consumer); they should land as both columns null with no
+    detection condition. Catch-all is permissive — the metadata still
+    has value even when the value column is empty.
+    """
+    bh = uuid4()
+    sample_rows = [_sample_row(permkey="S1", parent_permkey="BH-PK")]
+
+    added: list = []
+    use_case._session.add = MagicMock(  # type: ignore[method-assign]
+        side_effect=lambda orm: added.append(orm)
+    )
+
+    other = [
+        _scalar_row(
+            permkey="O1",
+            parent="S1",
+            parameter=DOV_PARAMETER_GRAIN_DENSITY,
+            resultaat="   ",  # whitespace only
+            detectieconditie=None,
+            parametergroep=DOV_PARAMETER_GROUP_VOLUMEMASSA,
+        ),
+    ]
+    result = await _run_with_scalar_returns(
+        use_case,
+        permkey_map={"BH-PK": bh},
+        sample_rows=sample_rows,
+        atterberg=[],
+        caco3=[],
+        organic=[],
+        water=[],
+        other=other,
+    )
+
+    assert result.scalar_lab_tests_attached == 1
+    assert result.scalar_lab_tests_failed == 0
+
+    scalar_orms = [o for o in added if type(o).__name__ == "ScalarLabTestOrm"]
+    assert len(scalar_orms) == 1
+    orm = scalar_orms[0]
+    assert orm.value_numeric is None
+    assert orm.value_text is None
+    assert orm.detection_condition is None
+    # Parameter metadata still preserved — that's the point of the
+    # permissive-storage contract.
+    assert orm.parameter == DOV_PARAMETER_GRAIN_DENSITY
+
+
+@pytest.mark.asyncio
+async def test_scalar_lab_test_nm_detection_condition_preserved(
+    use_case: ImportSamplesDov,
+) -> None:
+    """A row with detectieconditie=NM and null resultaat is still stored.
+
+    Catch-all is intentionally permissive: the metadata (parameter,
+    method, date, condition) is itself useful even without a value.
+    Both ``value_numeric`` and ``value_text`` end up null;
+    ``detection_condition`` carries the condition through verbatim.
+    """
+    bh = uuid4()
+    sample_rows = [_sample_row(permkey="S1", parent_permkey="BH-PK")]
+
+    added: list = []
+    use_case._session.add = MagicMock(  # type: ignore[method-assign]
+        side_effect=lambda orm: added.append(orm)
+    )
+
+    other = [
+        _scalar_row(
+            permkey="O1",
+            parent="S1",
+            parameter=DOV_PARAMETER_GRAIN_DENSITY,
+            resultaat=None,
+            detectieconditie="NM",
+            parametergroep=DOV_PARAMETER_GROUP_VOLUMEMASSA,
+        ),
+    ]
+    result = await _run_with_scalar_returns(
+        use_case,
+        permkey_map={"BH-PK": bh},
+        sample_rows=sample_rows,
+        atterberg=[],
+        caco3=[],
+        organic=[],
+        water=[],
+        other=other,
+    )
+
+    assert result.scalar_lab_tests_attached == 1
+    assert result.scalar_lab_tests_failed == 0
+
+    scalar_orms = [o for o in added if type(o).__name__ == "ScalarLabTestOrm"]
+    assert len(scalar_orms) == 1
+    orm = scalar_orms[0]
+    assert orm.value_numeric is None
+    assert orm.value_text is None
+    assert orm.detection_condition == "NM"

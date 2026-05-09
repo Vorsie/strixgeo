@@ -184,3 +184,70 @@ DOV_PARAMETER_WATER_CONTENT = "Vochtgehalte luchtdroge grond (vocht_luchtdroge_g
 # semantically meaningful for any of our ORMs yet — pass through and the
 # scalar mapper records value=None.
 DOV_DETECTIECONDITIE_NOT_MEASURABLE = "NM"
+
+
+# ----------------------------------------------------------------------
+# Phase C5 — generic scalar lab-test parameters (ScalarLabTest catch-all)
+# ----------------------------------------------------------------------
+# Parameters that don't fit one of the 5 typed families above. Each entry
+# is (parametergroep, parameter) pair — the orchestrator queries the
+# observation WFS once per pair and persists matching rows into the
+# ``scalar_lab_test`` table. Add new entries here without a migration.
+#
+# Strings copied verbatim from live DOV WFS — including the trailing
+# space on parametergroep where DOV ships one (CQL is strict about
+# exact match).
+
+DOV_PARAMETER_GROUP_VOLUMEMASSA = "Volumemassa-watergehalte "  # trailing space intentional
+DOV_PARAMETER_GROUP_ASTM_CLASSIFICATION = "Onderkenning-grondsoort"
+DOV_PARAMETER_GROUP_ONDERKENNING_PROEVEN = "Onderkenning - proeven"
+
+DOV_PARAMETER_GRAIN_DENSITY = "Korrelvolumemassa (korrelvolumemassa)"
+DOV_PARAMETER_ASTM_CODE = "Grondsoort volgens ASTM, de code (ASTM_code)"
+DOV_PARAMETER_CALCAREOUS_CONTENT = "Gehalte Kalkachtige stoffen (Gehalte Kalkachtige stoffen)"
+# Additional parameters added 2026-05-09 after probing real samples
+# (e.g. monster 2024-401424) showed that DOV publishes several scalar
+# tests we weren't catching. ``Watergehalte`` is DISTINCT from our
+# typed-family ``Vochtgehalte luchtdroge grond`` — both are water-
+# content measurements but DOV treats them as different parameters,
+# and our typed filter only matches the latter. Same story for
+# organic-matter (``Gehalte Organische stoffen``) vs. our typed
+# organic-carbon (``Organische C - percentage``).
+# Strings copied verbatim from a live WFS probe of monster 2024-401424.
+# DOV's doubled-tail format is INCONSISTENT — sometimes lowercase,
+# sometimes a slug, sometimes identical, sometimes a different name
+# entirely. We can't guess; every parameter has to be probed. The
+# clay-content row is even nastier: the parameter name itself contains
+# a "(MB)" suffix (methylene blue method indicator) so the full string
+# has TWO sets of parens.
+DOV_PARAMETER_WATER_CONTENT_ALT = "Watergehalte (watergehalte)"
+DOV_PARAMETER_WET_DENSITY = "Volumemassa nat (volumemassa nat)"
+DOV_PARAMETER_ORGANIC_MATTER = "Gehalte Organische stoffen (Gehalte Organische stoffen)"
+DOV_PARAMETER_CLAY_CONTENT_MB = (
+    "Bepaling kleihoudendheid in fractie 0-2 mm (MB) (Bepaling kleihoudendheid in fractie 0-2 mm)"
+)
+DOV_PARAMETER_ASTM_DESCRIPTION = "Grondsoort volgens ASTM, de beschrijving (ASTM_naam)"
+DOV_PARAMETER_BGGG_NORM = "Grondsoort volgens BGGG norm (Grondsoort BGGG)"
+
+# Registry: each (parameter_group, parameter) the orchestrator will fetch
+# and persist into ``scalar_lab_test``. Append-only — adding a new tuple
+# captures a new test type without code changes anywhere else.
+#
+# ⚠️  Don't add parameters that overlap with the 5 typed families
+# (``DOV_PARAMETER_ATTERBERG_LIQUID_LIMIT`` /
+# ``DOV_PARAMETER_ATTERBERG_PLASTIC_LIMIT`` / ``DOV_PARAMETER_CACO3`` /
+# ``DOV_PARAMETER_ORGANIC_CARBON`` / ``DOV_PARAMETER_WATER_CONTENT`` and
+# the grain-size parametergroep). The orchestrator runs both queries in
+# parallel and persists each separately — overlap = double storage.
+# The entries below are disjoint by construction.
+DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS: tuple[tuple[str, str], ...] = (
+    (DOV_PARAMETER_GROUP_VOLUMEMASSA, DOV_PARAMETER_GRAIN_DENSITY),
+    (DOV_PARAMETER_GROUP_VOLUMEMASSA, DOV_PARAMETER_WET_DENSITY),
+    (DOV_PARAMETER_GROUP_VOLUMEMASSA, DOV_PARAMETER_WATER_CONTENT_ALT),
+    (DOV_PARAMETER_GROUP_ASTM_CLASSIFICATION, DOV_PARAMETER_ASTM_CODE),
+    (DOV_PARAMETER_GROUP_ASTM_CLASSIFICATION, DOV_PARAMETER_ASTM_DESCRIPTION),
+    (DOV_PARAMETER_GROUP_ASTM_CLASSIFICATION, DOV_PARAMETER_BGGG_NORM),
+    (DOV_PARAMETER_GROUP_ONDERKENNING_PROEVEN, DOV_PARAMETER_CALCAREOUS_CONTENT),
+    (DOV_PARAMETER_GROUP_ONDERKENNING_PROEVEN, DOV_PARAMETER_ORGANIC_MATTER),
+    (DOV_PARAMETER_GROUP_ONDERKENNING_PROEVEN, DOV_PARAMETER_CLAY_CONTENT_MB),
+)
