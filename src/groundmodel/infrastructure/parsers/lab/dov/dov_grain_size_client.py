@@ -25,7 +25,6 @@ Pipeline (mirrors DovInterpretationClient — count + recursive bbox split
 from __future__ import annotations
 
 import asyncio
-import urllib.parse
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -39,6 +38,7 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
+    last_path_segment,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
@@ -350,11 +350,11 @@ def _build_row(props: dict[str, Any]) -> GrainSizeWfsRow | None:
     parent_link: str = props.get(DOV_OBSERVATIE_WFS_PARENT_LINK_PROP) or ""
     if not parent_link:
         return None
-    parent_permkey = _last_path_segment(parent_link)
+    parent_permkey = last_path_segment(parent_link)
     if not parent_permkey:
         return None
 
-    permkey = _last_path_segment(fiche_url)
+    permkey = last_path_segment(fiche_url)
     xml_url = (
         fiche_url.replace(DOV_OBSERVATIE_URL_PREFIX, DOV_OBSERVATIE_PROXY_URL_PREFIX, 1)
         if DOV_OBSERVATIE_URL_PREFIX in fiche_url
@@ -366,11 +366,3 @@ def _build_row(props: dict[str, Any]) -> GrainSizeWfsRow | None:
         fiche_url=fiche_url,
         xml_url=xml_url,
     )
-
-
-def _last_path_segment(url: str) -> str:
-    """Return the last path segment of *url* (e.g. ``"2017-137886"``)."""
-    # Strip query string + fragment defensively in case DOV ever appends them.
-    # urllib.parse handles the edge cases (escaped slashes, ;params, etc.).
-    parsed = urllib.parse.urlsplit(url)
-    return parsed.path.rstrip("/").rsplit("/", 1)[-1]
