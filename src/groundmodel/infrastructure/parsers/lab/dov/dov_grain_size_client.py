@@ -1,0 +1,417 @@
+"""Async DOV WFS client — fetches grain-size observation rows + XMLs.
+
+Phase C3 companion to ``DovBoreholeClient`` (boreholes),
+``DovInterpretationClient`` (interpretations), and ``DovSampleClient``
+(samples). This client queries the unified ``monster:observaties`` WFS
+layer with a ``CQL_FILTER`` on ``parametergroep`` so only grain-size
+observations come back, then downloads each per-observation XML in
+parallel for the parser.
+
+Pipeline (mirrors DovInterpretationClient — count + recursive bbox split
++ shared download semaphore + cache)
+--------------------------------------------------------------------------
+1. WFS bbox query with ``CQL_FILTER='parametergroep=...'`` (server-side
+   filter; see ``GrainSizeWfsRow`` docstring for why).
+2. Recursive bbox split on > ``DOV_WFS_FEATURE_LIMIT`` features.
+3. Optional ``parent_permkeys`` filter — drop observations whose parent
+   sample isn't in the set the orchestrator just persisted.
+4. Parallel XML download bounded by a semaphore of
+   ``DOV_DOWNLOAD_PARALLELISM`` slots, with persistent on-disk cache
+   (``DovXmlCache`` rooted at ``observatie/``).
+5. Inline ``process(row, xml_bytes)`` callback so the parser runs while
+   the freed slot starts the next download.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import urllib.parse
+from collections.abc import Callable
+from typing import Any, TypeVar
+
+import httpx
+
+from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import (
+    DOV_DOWNLOAD_PARALLELISM,
+    DOV_HORIZONTAL_EPSG,
+    DOV_WFS_FEATURE_LIMIT,
+    DOV_WFS_MAX_SPLIT_DEPTH,
+    DOV_WFS_NUMBER_MATCHED_RE,
+    DOV_WFS_URL,
+    DOV_WGS84_TO_LAMBERT72,
+)
+from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
+    DOV_OBSERVATIE_PROXY_URL_PREFIX,
+    DOV_OBSERVATIE_URL_PREFIX,
+    DOV_OBSERVATIE_WFS_FICHE_PROP,
+    DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP,
+    DOV_OBSERVATIE_WFS_PARENT_LINK_PROP,
+    DOV_PARAMETERGROEP_GRAIN_SIZE,
+    DOV_WFS_OBSERVATIES_LAYER,
+)
+from groundmodel.infrastructure.parsers.lab.dov.grain_size_wfs_row import GrainSizeWfsRow
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+_T = TypeVar("_T")
+ProcessFn = Callable[[GrainSizeWfsRow, bytes], _T]
+
+
+class DovGrainSizeClient(GroundModelLogger):
+    """Fetch DOV grain-size observation rows + XMLs across a bbox.
+
+    Parameters
+    ----------
+    http : httpx.AsyncClient
+        Shared async HTTP client. Caller must set ``follow_redirects=True``
+        so the rare proxy-prefix-mismatch case still works.
+    cache : DovXmlCache | None
+        Optional persistent cache for observation XMLs. Pass a cache
+        rooted under ``observatie/`` so permkeys never collide with
+        sondering / boring / interpretation permkeys (DOV's
+        ``YYYY-NNNNNN`` permkey format isn't unique across resource types).
+    """
+
+    def __init__(self, http: httpx.AsyncClient, cache: DovXmlCache | None = None) -> None:
+        """Initialise with the shared HTTP client and optional cache."""
+        super().__init__(__name__)
+        self._http = http
+        self._cache = cache
+
+    async def fetch_bbox_processed(
+        self,
+        west: float,
+        south: float,
+        east: float,
+        north: float,
+        process: ProcessFn[_T],
+        parent_permkeys: set[str] | None = None,
+    ) -> list[tuple[GrainSizeWfsRow, _T]]:
+        """Stream-parse all grain-size observations in *bbox*.
+
+        Parameters
+        ----------
+        west, south, east, north : float
+            Bounding box corners in WGS84 decimal degrees.
+        process : ProcessFn[_T]
+            Callable invoked as ``process(row, xml_bytes)``. The
+            orchestrator wires ``DovGrainSizeParser.parse`` through a
+            closure that resolves the parent sample UUID from the row's
+            ``parent_sample_permkey``.
+        parent_permkeys : set[str] | None
+            When provided, observations whose ``parent_sample_permkey``
+            isn't in the set are dropped before download. The orchestrator
+            uses this to skip observations belonging to samples it didn't
+            just persist.
+
+        Returns
+        -------
+        list[tuple[GrainSizeWfsRow, _T]]
+            One ``(row, process_result)`` pair per observation that
+            downloaded successfully and survived ``process()``.
+        """
+        x1, y1 = DOV_WGS84_TO_LAMBERT72.transform(west, south)
+        x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
+        self.debug(
+            f"DOV grain-size bbox WGS84: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}"
+        )
+        self.debug(f"DOV grain-size bbox Lambert72: x=[{x1:.0f},{x2:.0f}] y=[{y1:.0f},{y2:.0f}]")
+
+        rows = await self._collect_rows(x1, y1, x2, y2, depth=0)
+        self.info(f"DOV grain-size WFS: {len(rows)} grain-size observations in bbox")
+
+        if parent_permkeys is not None:
+            before = len(rows)
+            rows = [r for r in rows if r.parent_sample_permkey in parent_permkeys]
+            self.debug(
+                f"DOV grain-size WFS: filtered {before} → {len(rows)} rows by parent sample "
+                f"(limit set: {len(parent_permkeys)} samples)"
+            )
+        if not rows:
+            return []
+
+        total = len(rows)
+        cache_state = "with cache" if self._cache is not None else "no cache"
+        self.info(
+            f"DOV grain-size: streaming download+process of {total} observation XMLs "
+            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel, {cache_state})"
+        )
+        sem = asyncio.Semaphore(DOV_DOWNLOAD_PARALLELISM)
+        progress = {"done": 0, "hits": 0}
+        progress_step = max(50, total // 5)
+        tasks = [
+            self._download_and_process(row, process, sem, progress, total, progress_step)
+            for row in rows
+        ]
+        raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+        out: list[tuple[GrainSizeWfsRow, _T]] = []
+        for row, result in zip(rows, raw, strict=True):
+            if isinstance(result, BaseException):
+                self.error(
+                    f"DOV grain-size: download/process failed for "
+                    f"'{row.permkey}' (sample '{row.parent_sample_permkey}')  "
+                    f"url={row.xml_url}  error={type(result).__name__}: {result}"
+                )
+            else:
+                out.append((row, result))
+
+        if self._cache is not None and progress["done"]:
+            hits = progress["hits"]
+            misses = progress["done"] - hits
+            pct = hits * 100 // progress["done"]
+            self.info(f"DOV grain-size cache: {hits} hits, {misses} misses ({pct}% hit rate)")
+        return out
+
+    async def _download_and_process(
+        self,
+        row: GrainSizeWfsRow,
+        process: ProcessFn[_T],
+        sem: asyncio.Semaphore,
+        progress: dict[str, int],
+        total: int,
+        progress_step: int,
+    ) -> _T:
+        """Download (or read from cache), then run process synchronously."""
+        xml_bytes: bytes | None = None
+        from_cache = False
+
+        if self._cache is not None:
+            xml_bytes = self._cache.get(row.permkey)
+            from_cache = xml_bytes is not None
+
+        if xml_bytes is None:
+            async with sem:
+                try:
+                    resp = await self._http.get(row.xml_url)
+                except httpx.RequestError as exc:
+                    self.error(
+                        f"DOV grain-size: network error fetching "
+                        f"'{row.permkey}' ({row.xml_url}): {exc}"
+                    )
+                    raise
+                if not resp.is_success:
+                    self.error(
+                        f"DOV grain-size: HTTP {resp.status_code} for "
+                        f"'{row.permkey}'  url={row.xml_url}  body={resp.text[:200]!r}"
+                    )
+                    resp.raise_for_status()
+                xml_bytes = resp.content
+            if self._cache is not None:
+                self._cache.put(row.permkey, xml_bytes)
+
+        result = process(row, xml_bytes)
+        progress["done"] += 1
+        if from_cache:
+            progress["hits"] += 1
+        if progress["done"] % progress_step == 0 or progress["done"] == total:
+            self.info(f"DOV grain-size progress: {progress['done']}/{total} downloaded+parsed")
+        return result
+
+    # ------------------------------------------------------------------
+    # Recursive WFS bbox query with parametergroep CQL filter
+    # ------------------------------------------------------------------
+
+    async def _collect_rows(
+        self, x1: float, y1: float, x2: float, y2: float, depth: int
+    ) -> list[GrainSizeWfsRow]:
+        """Return GrainSizeWfsRow per observation in this Lambert72 bbox.
+
+        Recursively splits when the parametergroep-filtered count exceeds
+        ``DOV_WFS_FEATURE_LIMIT`` (rare for grain-size since it's already
+        a sparse subset of the 7.5M observation total).
+        """
+        count = await self._wfs_count(x1, y1, x2, y2)
+
+        if count == 0:
+            self.trace(
+                f"DOV grain-size WFS: 0 features at depth={depth} "
+                f"({x1:.0f},{y1:.0f})→({x2:.0f},{y2:.0f})"
+            )
+            return []
+
+        if count <= DOV_WFS_FEATURE_LIMIT or depth >= DOV_WFS_MAX_SPLIT_DEPTH:
+            if count > DOV_WFS_FEATURE_LIMIT:
+                self.warning(
+                    f"DOV grain-size WFS: bbox at max recursion depth={depth} still has "
+                    f"{count} features — some observations may be missed"
+                )
+            self.debug(f"DOV grain-size WFS: fetching {count} features (depth={depth})")
+            return await self._wfs_features(x1, y1, x2, y2)
+
+        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+        self.debug(
+            f"DOV grain-size WFS: {count} features > limit at depth={depth}, "
+            f"splitting into 4 quadrants"
+        )
+        quadrants = [
+            (x1, y1, mx, my),
+            (mx, y1, x2, my),
+            (x1, my, mx, y2),
+            (mx, my, x2, y2),
+        ]
+        results = await asyncio.gather(
+            *[self._collect_rows(qx1, qy1, qx2, qy2, depth + 1) for qx1, qy1, qx2, qy2 in quadrants]
+        )
+
+        seen: set[str] = set()
+        merged: list[GrainSizeWfsRow] = []
+        for chunk in results:
+            for row in chunk:
+                if row.permkey not in seen:
+                    seen.add(row.permkey)
+                    merged.append(row)
+        self.debug(
+            f"DOV grain-size WFS: depth={depth} quadrants merged → "
+            f"{len(merged)} unique observations"
+        )
+        return merged
+
+    async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
+        """Return the parametergroep-filtered observation count for the bbox."""
+        params = self._common_params(x1, y1, x2, y2)
+        params["resultType"] = "hits"
+        self.trace(f"DOV grain-size WFS count request: {params['BBOX']}")
+
+        try:
+            resp = await self._http.get(DOV_WFS_URL, params=params)
+        except httpx.RequestError as exc:
+            self.error(f"DOV grain-size WFS count request failed: {exc}")
+            raise
+
+        if not resp.is_success:
+            self.error(
+                f"DOV grain-size WFS count returned HTTP {resp.status_code}  "
+                f"body: {resp.text[:500]!r}"
+            )
+            resp.raise_for_status()
+
+        match = DOV_WFS_NUMBER_MATCHED_RE.search(resp.text)
+        if match is None:
+            self.error(
+                f"DOV grain-size WFS count: 'numberMatched' not found in response head: "
+                f"{resp.text[:300]!r}"
+            )
+            return 0
+        return int(match.group(1))
+
+    async def _wfs_features(
+        self, x1: float, y1: float, x2: float, y2: float
+    ) -> list[GrainSizeWfsRow]:
+        """Fetch up to DOV_WFS_FEATURE_LIMIT grain-size features for this bbox."""
+        params = self._common_params(x1, y1, x2, y2)
+        params["outputFormat"] = "application/json"
+        params["count"] = str(DOV_WFS_FEATURE_LIMIT)
+        self.trace(f"DOV grain-size WFS features request: {params['BBOX']}")
+
+        try:
+            resp = await self._http.get(DOV_WFS_URL, params=params)
+        except httpx.RequestError as exc:
+            self.error(f"DOV grain-size WFS features request failed: {exc}")
+            raise
+
+        if not resp.is_success:
+            self.error(
+                f"DOV grain-size WFS features returned HTTP {resp.status_code}  "
+                f"body: {resp.text[:500]!r}"
+            )
+            resp.raise_for_status()
+
+        data = resp.json()
+        features = data.get("features", [])
+        self.debug(f"DOV grain-size WFS: {len(features)} features in response")
+        if features:
+            first_props = list(features[0].get("properties", {}).keys())
+            self.trace(f"DOV grain-size WFS feature properties: {first_props}")
+
+        rows: list[GrainSizeWfsRow] = []
+        skipped_no_url = 0
+        skipped_no_parent = 0
+        for feat in features:
+            props: dict[str, Any] = feat.get("properties", {})
+            row = _build_row(props)
+            if row is None:
+                if not props.get(DOV_OBSERVATIE_WFS_FICHE_PROP):
+                    skipped_no_url += 1
+                else:
+                    skipped_no_parent += 1
+                continue
+            rows.append(row)
+
+        if skipped_no_url or skipped_no_parent:
+            available = list(features[0].get("properties", {}).keys()) if features else "(none)"
+            self.warning(
+                f"DOV grain-size WFS: skipped {skipped_no_url} rows without fiche URL and "
+                f"{skipped_no_parent} rows without parent sample link. "
+                f"Available properties: {available}"
+            )
+        return rows
+
+    @staticmethod
+    def _common_params(x1: float, y1: float, x2: float, y2: float) -> dict[str, str]:
+        """Build the WFS query-parameter dict shared by count + features queries.
+
+        The CQL_FILTER is scoped server-side to grain-size only — see
+        ``GrainSizeWfsRow`` docstring for the bandwidth rationale. The
+        filter value is single-quoted; DOV expects single quotes around
+        string literals in CQL_FILTER (the ``'parametergroep'`` source
+        token contains a trailing space, which CQL handles literally
+        when single-quoted).
+        """
+        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
+        cql = f"{DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP}='{DOV_PARAMETERGROEP_GRAIN_SIZE}'"
+        return {
+            "service": "WFS",
+            "version": "2.0.0",
+            "request": "GetFeature",
+            "typeNames": DOV_WFS_OBSERVATIES_LAYER,
+            "BBOX": bbox,
+            # urllib doesn't pre-encode dict values for httpx; we hand the
+            # raw CQL through and httpx URL-encodes the entire dict.
+            "CQL_FILTER": cql,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Module helpers — pure, no logging, easy to unit-test
+# ---------------------------------------------------------------------------
+
+
+def _build_row(props: dict[str, Any]) -> GrainSizeWfsRow | None:
+    """Build a ``GrainSizeWfsRow`` from a WFS feature ``properties`` dict.
+
+    Returns ``None`` when the feature lacks either the per-observation
+    ``fiche`` URL (no XML to fetch) or the ``gekoppeld_aan_link``
+    (can't attach to any sample).
+    """
+    fiche_url: str = props.get(DOV_OBSERVATIE_WFS_FICHE_PROP) or ""
+    if not fiche_url:
+        return None
+
+    parent_link: str = props.get(DOV_OBSERVATIE_WFS_PARENT_LINK_PROP) or ""
+    if not parent_link:
+        return None
+    parent_permkey = _last_path_segment(parent_link)
+    if not parent_permkey:
+        return None
+
+    permkey = _last_path_segment(fiche_url)
+    xml_url = (
+        fiche_url.replace(DOV_OBSERVATIE_URL_PREFIX, DOV_OBSERVATIE_PROXY_URL_PREFIX, 1)
+        if DOV_OBSERVATIE_URL_PREFIX in fiche_url
+        else fiche_url.rstrip("/") + ".xml"
+    )
+    return GrainSizeWfsRow(
+        permkey=permkey,
+        parent_sample_permkey=parent_permkey,
+        fiche_url=fiche_url,
+        xml_url=xml_url,
+    )
+
+
+def _last_path_segment(url: str) -> str:
+    """Return the last path segment of *url* (e.g. ``"2017-137886"``)."""
+    # Strip query string + fragment defensively in case DOV ever appends them.
+    # urllib.parse handles the edge cases (escaped slashes, ;params, etc.).
+    parsed = urllib.parse.urlsplit(url)
+    return parsed.path.rstrip("/").rsplit("/", 1)[-1]
