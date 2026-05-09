@@ -83,7 +83,6 @@ What the parser does NOT extract
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from datetime import date
 
 from groundmodel.domain.models.borehole.borehole import Borehole
 from groundmodel.domain.models.borehole.drill_segment import DrillSegment
@@ -116,36 +115,13 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
 )
 from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import (
+    date_iso,
+    float_value,
+    text,
+)
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-
-def _text(elem: ET.Element | None, tag: str) -> str:
-    """Return stripped text of *tag* child of *elem*, or empty string when absent."""
-    if elem is None:
-        return ""
-    child = elem.find(tag)
-    return (child.text or "").strip() if child is not None else ""
-
-
-def _float(elem: ET.Element | None, tag: str) -> float | None:
-    """Return float value of *tag* child of *elem*, or None when missing/non-numeric."""
-    raw = _text(elem, tag)
-    try:
-        return float(raw) if raw else None
-    except ValueError:
-        return None
-
-
-def _date(elem: ET.Element | None, tag: str) -> date | None:
-    """Parse an ISO-format ``<tag>YYYY-MM-DD</tag>`` child, or None on failure."""
-    raw = _text(elem, tag)
-    if not raw:
-        return None
-    try:
-        return date.fromisoformat(raw)
-    except ValueError:
-        return None
 
 
 class DovBoringParser(GroundModelLogger):
@@ -234,7 +210,7 @@ class DovBoringParser(GroundModelLogger):
         # Pull water-table depth from inside <details><grondwaterstand>.
         if details_elem is not None:
             gw_elem = details_elem.find(DOV_BORING_GROUNDWATER_TAG)
-            water_depth = _float(gw_elem, DOV_BORING_GROUNDWATER_DEPTH_TAG)
+            water_depth = float_value(gw_elem, DOV_BORING_GROUNDWATER_DEPTH_TAG)
             if water_depth is not None:
                 borehole.water_table_depth_m = water_depth
 
@@ -265,12 +241,12 @@ class DovBoringParser(GroundModelLogger):
         — the orchestrator will refuse to persist a row whose coordinates are
         invalid, mirroring the CPT NO_COORDINATES rejection path.
         """
-        bore_name = _text(boring_elem, DOV_BORING_NAME_TAG) or name
+        bore_name = text(boring_elem, DOV_BORING_NAME_TAG) or name
 
         x, y, z = self._parse_location(boring_elem, name, issues)
 
-        municipality = _text(boring_elem, DOV_BORING_MUNICIPALITY_TAG) or None
-        total_depth = _float(boring_elem, DOV_BORING_TOTAL_DEPTH_TAG)
+        municipality = text(boring_elem, DOV_BORING_MUNICIPALITY_TAG) or None
+        total_depth = float_value(boring_elem, DOV_BORING_TOTAL_DEPTH_TAG)
         if total_depth is None:
             issues.append(
                 _issue(
@@ -280,16 +256,16 @@ class DovBoringParser(GroundModelLogger):
                 )
             )
 
-        start_date = _date(boring_elem, DOV_BORING_START_DATE_TAG)
+        start_date = date_iso(boring_elem, DOV_BORING_START_DATE_TAG)
         # `doel` = drilling purpose. Free-text source-vocabulary string passed
         # through unchanged. DOV examples: "Geotechnisch onderzoek" =
         # geotechnical investigation, "Geologisch onderzoek" = geological,
         # "Hydrogeologisch onderzoek" = hydrogeological. Translation to
         # English happens at the API/UI boundary, never at ingest
         # (CLAUDE.md "Data Integrity Rules" + reference_dov_codelists memory).
-        purpose = _text(boring_elem, DOV_BORING_PURPOSE_TAG) or None
-        borehole_type = _text(boring_elem, DOV_BORING_TYPE_TAG) or None
-        executor = _text(boring_elem.find(DOV_BORING_EXECUTOR_PARENT_TAG), "naam") or None
+        purpose = text(boring_elem, DOV_BORING_PURPOSE_TAG) or None
+        borehole_type = text(boring_elem, DOV_BORING_TYPE_TAG) or None
+        executor = text(boring_elem.find(DOV_BORING_EXECUTOR_PARENT_TAG), "naam") or None
 
         # x and y are always non-None when we reach this line — _parse_location
         # substitutes zeros and issues NO_COORDINATES when the source omits
@@ -471,9 +447,9 @@ class DovBoringParser(GroundModelLogger):
 
         segments: list[DrillSegment] = []
         for elem in details_elem.findall(DOV_BORING_DRILL_SEGMENT_TAG):
-            top = _float(elem, DOV_BORING_VAN_TAG)
-            base = _float(elem, DOV_BORING_TOT_TAG)
-            method = _text(elem, DOV_BORING_DRILL_METHOD_TAG)
+            top = float_value(elem, DOV_BORING_VAN_TAG)
+            base = float_value(elem, DOV_BORING_TOT_TAG)
+            method = text(elem, DOV_BORING_DRILL_METHOD_TAG)
             if top is None or base is None or not method:
                 self.warning(
                     f"DOV boring '{name}': skipping incomplete <{DOV_BORING_DRILL_SEGMENT_TAG}> "
@@ -531,10 +507,10 @@ class DovBoringParser(GroundModelLogger):
         intervals: list[FieldLogInterval] = []
         for tag, kind in DOV_BORING_FIELD_LOG_TAGS.items():
             for elem in details_elem.findall(tag):
-                top = _float(elem, DOV_BORING_VAN_TAG)
-                base = _float(elem, DOV_BORING_TOT_TAG)
+                top = float_value(elem, DOV_BORING_VAN_TAG)
+                base = float_value(elem, DOV_BORING_TOT_TAG)
                 # The value child shares the wrapper's name (DOV schema quirk).
-                value = _text(elem, tag)
+                value = text(elem, tag)
                 if top is None or base is None or not value:
                     self.warning(
                         f"DOV boring '{name}': skipping incomplete <{tag}> "
