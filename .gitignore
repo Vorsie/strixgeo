@@ -130,6 +130,9 @@ CLAUDE.local.md
 *.lprof
 prof/
 
+# pytest-benchmark snapshots — local hardware baselines, don't share across machines
+.benchmarks/
+
 # Geotechnical data files — use tests/fixtures/ for small synthetic test files
 data/
 
