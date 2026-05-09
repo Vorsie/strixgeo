@@ -38,11 +38,11 @@ from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
-    last_path_segment,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
+from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import last_path_segment
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_OBSERVATIE_PROXY_URL_PREFIX,
     DOV_OBSERVATIE_URL_PREFIX,
