@@ -46,3 +46,14 @@ class ImportSamplesDovResult:
     grain_sizes_attached: int = 0
     grain_sizes_skipped_no_sample: int = 0
     grain_sizes_failed: int = 0
+    # Phase C4 — scalar lab tests. ``_attached`` counts ORM rows queued for
+    # commit, ``_failed`` counts per-row mapping failures (null/non-numeric
+    # value, range violation, orphan parent sample, etc.).
+    atterberg_attached: int = 0
+    atterberg_failed: int = 0
+    caco3_attached: int = 0
+    caco3_failed: int = 0
+    organic_attached: int = 0
+    organic_failed: int = 0
+    water_content_attached: int = 0
+    water_content_failed: int = 0
