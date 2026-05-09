@@ -252,7 +252,12 @@ class ImportBoreholeDov(GroundModelLogger):
             f"samples: {samples_result.samples_attached} attached, "
             f"{samples_result.samples_failed} failed; "
             f"grain-sizes: {samples_result.grain_sizes_attached} attached, "
-            f"{samples_result.grain_sizes_failed} failed"
+            f"{samples_result.grain_sizes_failed} failed; "
+            f"atterberg: {samples_result.atterberg_attached}/{samples_result.atterberg_failed}; "
+            f"caco3: {samples_result.caco3_attached}/{samples_result.caco3_failed}; "
+            f"organic: {samples_result.organic_attached}/{samples_result.organic_failed}; "
+            f"water: {samples_result.water_content_attached}/"
+            f"{samples_result.water_content_failed}"
         )
         return ImportBoreholeDovResult(
             imported=imported,
@@ -264,6 +269,14 @@ class ImportBoreholeDov(GroundModelLogger):
             samples_failed=samples_result.samples_failed,
             grain_sizes_attached=samples_result.grain_sizes_attached,
             grain_sizes_failed=samples_result.grain_sizes_failed,
+            atterberg_attached=samples_result.atterberg_attached,
+            atterberg_failed=samples_result.atterberg_failed,
+            caco3_attached=samples_result.caco3_attached,
+            caco3_failed=samples_result.caco3_failed,
+            organic_attached=samples_result.organic_attached,
+            organic_failed=samples_result.organic_failed,
+            water_content_attached=samples_result.water_content_attached,
+            water_content_failed=samples_result.water_content_failed,
             borehole_ids=borehole_ids,
         )
 
