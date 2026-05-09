@@ -33,11 +33,11 @@ import httpx
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_common import (
     DOV_DOWNLOAD_PARALLELISM,
-    DOV_HORIZONTAL_EPSG,
     DOV_WFS_FEATURE_LIMIT,
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
+    cql_bbox_predicate,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
@@ -46,7 +46,8 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import last_path_seg
 from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_OBSERVATIE_PROXY_URL_PREFIX,
     DOV_OBSERVATIE_URL_PREFIX,
-    DOV_OBSERVATIE_WFS_FICHE_PROP,
+    DOV_OBSERVATIE_WFS_METHODE_PROP,
+    DOV_OBSERVATIE_WFS_OBSERVATION_LINK_PROP,
     DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP,
     DOV_OBSERVATIE_WFS_PARENT_LINK_PROP,
     DOV_PARAMETERGROEP_GRAIN_SIZE,
@@ -230,7 +231,9 @@ class DovGrainSizeClient(GroundModelLogger):
         """Return the parametergroep-filtered observation count for the bbox."""
         params = self._common_params(x1, y1, x2, y2)
         params["resultType"] = "hits"
-        self.trace(f"DOV grain-size WFS count request: {params['BBOX']}")
+        # Bbox lives inside CQL_FILTER now (DOV rejects BBOX= + CQL= mixed),
+        # so log the L72 corners directly rather than indexing into params.
+        self.trace(f"DOV grain-size WFS count request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]")
 
         try:
             resp = await self._http.get(DOV_WFS_URL, params=params)
@@ -261,7 +264,9 @@ class DovGrainSizeClient(GroundModelLogger):
         params = self._common_params(x1, y1, x2, y2)
         params["outputFormat"] = "application/json"
         params["count"] = str(DOV_WFS_FEATURE_LIMIT)
-        self.trace(f"DOV grain-size WFS features request: {params['BBOX']}")
+        self.trace(
+            f"DOV grain-size WFS features request: bbox=[{x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f}]"
+        )
 
         try:
             resp = await self._http.get(DOV_WFS_URL, params=params)
@@ -290,7 +295,7 @@ class DovGrainSizeClient(GroundModelLogger):
             props: dict[str, Any] = feat.get("properties", {})
             row = _build_row(props)
             if row is None:
-                if not props.get(DOV_OBSERVATIE_WFS_FICHE_PROP):
+                if not props.get(DOV_OBSERVATIE_WFS_OBSERVATION_LINK_PROP):
                     skipped_no_url += 1
                 else:
                     skipped_no_parent += 1
@@ -310,23 +315,20 @@ class DovGrainSizeClient(GroundModelLogger):
     def _common_params(x1: float, y1: float, x2: float, y2: float) -> dict[str, str]:
         """Build the WFS query-parameter dict shared by count + features queries.
 
-        The CQL_FILTER is scoped server-side to grain-size only — see
-        ``GrainSizeWfsRow`` docstring for the bandwidth rationale. The
-        filter value is single-quoted; DOV expects single quotes around
-        string literals in CQL_FILTER (the ``'parametergroep'`` source
-        token contains a trailing space, which CQL handles literally
-        when single-quoted).
+        DOV rejects requests that pass BOTH a ``BBOX=`` query param AND a
+        ``CQL_FILTER=`` (since 2026-05): "bbox and cql_filter both
+        specified but are mutually exclusive". So when we need attribute
+        filtering AND a bbox, the bbox lives INSIDE the CQL string via
+        the ``BBOX(geom, …)`` spatial predicate. The single-quoting on
+        the parametergroep value handles its trailing-space literal.
         """
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
-        cql = f"{DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP}='{DOV_PARAMETERGROEP_GRAIN_SIZE}'"
+        attr_filter = f"{DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP}='{DOV_PARAMETERGROEP_GRAIN_SIZE}'"
+        cql = f"{attr_filter} AND {cql_bbox_predicate(x1, y1, x2, y2)}"
         return {
             "service": "WFS",
             "version": "2.0.0",
             "request": "GetFeature",
             "typeNames": DOV_WFS_OBSERVATIES_LAYER,
-            "BBOX": bbox,
-            # urllib doesn't pre-encode dict values for httpx; we hand the
-            # raw CQL through and httpx URL-encodes the entire dict.
             "CQL_FILTER": cql,
         }
 
@@ -340,10 +342,15 @@ def _build_row(props: dict[str, Any]) -> GrainSizeWfsRow | None:
     """Build a ``GrainSizeWfsRow`` from a WFS feature ``properties`` dict.
 
     Returns ``None`` when the feature lacks either the per-observation
-    ``fiche`` URL (no XML to fetch) or the ``gekoppeld_aan_link``
-    (can't attach to any sample).
+    URL (no XML to fetch) or the ``gekoppeld_aan_link`` (can't attach
+    to any sample).
+
+    The per-observation URL lives in the ``observatie_link`` property
+    (NOT ``fiche`` — that's the ``Boringen`` layer's convention; the
+    ``monster:observaties`` layer uses ``observatie_link``). Verified
+    live via DescribeFeatureType.
     """
-    fiche_url: str = props.get(DOV_OBSERVATIE_WFS_FICHE_PROP) or ""
+    fiche_url: str = props.get(DOV_OBSERVATIE_WFS_OBSERVATION_LINK_PROP) or ""
     if not fiche_url:
         return None
 
@@ -365,4 +372,5 @@ def _build_row(props: dict[str, Any]) -> GrainSizeWfsRow | None:
         parent_sample_permkey=parent_permkey,
         fiche_url=fiche_url,
         xml_url=xml_url,
+        methode=props.get(DOV_OBSERVATIE_WFS_METHODE_PROP) or None,
     )

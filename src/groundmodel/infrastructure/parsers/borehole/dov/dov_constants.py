@@ -151,11 +151,15 @@ DOV_GRONDMONSTER_WFS_OBSERVATION_COUNT_PROP = "aantal_observaties"
 
 # Sample-side metadata. DOV sometimes omits these on older rows, so the
 # WFS-row builder treats every one as optional.
-DOV_GRONDMONSTER_WFS_SAMPLE_NUMBER_PROP = "monsternummer"
+# NB: DOV ships the sample number under the `monster` field (e.g. "N001A"),
+# NOT `monsternummer` — verified live 2026-05-09 against the real WFS. The
+# `monsternummer` name was incorrect documentation.
+DOV_GRONDMONSTER_WFS_SAMPLE_NUMBER_PROP = "monster"
 DOV_GRONDMONSTER_WFS_SAMPLE_TYPE_PROP = "monstertype"  # "geroerd" / "ongeroerd"
 DOV_GRONDMONSTER_WFS_COMPOSITION_PROP = "monstersamenstelling"
 DOV_GRONDMONSTER_WFS_INSTRUMENT_PROP = "bemonsteringsinstrument"
-DOV_GRONDMONSTER_WFS_SAMPLING_DATE_PROP = "monstername_datum"
+# Same correction: live WFS uses `bemonsteringsdatum`, not `monstername_datum`.
+DOV_GRONDMONSTER_WFS_SAMPLING_DATE_PROP = "bemonsteringsdatum"
 
 
 # ----------------------------------------------------------------------

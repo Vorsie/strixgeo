@@ -59,3 +59,11 @@ class GrainSizeWfsRow:
     parent_sample_permkey: str
     fiche_url: str
     xml_url: str
+    # Source-vocabulary method string from the WFS row (e.g. "Zeving op
+    # massa met grootte <= 2mm (fijnkorrelig)" or "Hydrometer met
+    # referentiecilinder"). The per-observation XML body's ``<methode>``
+    # element carries the same info but is sometimes absent on
+    # grain-size rows (verified live 2026-05-09); the orchestrator uses
+    # this WFS-row value as a fallback so ``GrainSize.method`` is never
+    # None just because the XML omitted the tag.
+    methode: str | None

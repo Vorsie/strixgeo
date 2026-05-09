@@ -81,11 +81,30 @@ DOV_DOWNLOAD_PARALLELISM = 50
 DOV_HORIZONTAL_EPSG = 31370  # Belgian Lambert 72
 DOV_VERTICAL_EPSG = 5710  # Belgian mTAW (TAW/NGF)
 
+# Geometry column on `monster:observaties` (and most other DOV WFS layers).
+# Used inside CQL_FILTER's BBOX() spatial predicate when we need to combine
+# bbox + attribute filtering — DOV rejects requests that pass BOTH a `BBOX=`
+# query parameter AND a `CQL_FILTER=` (since 2026-05): "bbox and cql_filter
+# both specified but are mutually exclusive". Verified via DescribeFeatureType.
+DOV_OBSERVATIE_GEOM_COLUMN = "geom"
+
 # Singleton transformer (always_xy=True forces lon,lat input order regardless of
 # CRS authority axis order). pyproj.Transformer is thread-safe and stateless after init.
 DOV_WGS84_TO_LAMBERT72: Transformer = Transformer.from_crs(
     "EPSG:4326", f"EPSG:{DOV_HORIZONTAL_EPSG}", always_xy=True
 )
+
+
+def cql_bbox_predicate(x1: float, y1: float, x2: float, y2: float) -> str:
+    """Return a CQL ``BBOX(geom, ...)`` spatial predicate for a Lambert-72 bbox.
+
+    Combine with attribute predicates via ``AND`` to build a single
+    ``CQL_FILTER=`` value. DOV rejects requests that mix the WFS ``BBOX=``
+    query parameter with a ``CQL_FILTER=`` — they're mutually exclusive
+    on the server side, so the bbox MUST live inside the CQL string when
+    we also need attribute filtering (parametergroep / parameter / …).
+    """
+    return f"BBOX({DOV_OBSERVATIE_GEOM_COLUMN},{x1},{y1},{x2},{y2},'EPSG:{DOV_HORIZONTAL_EPSG}')"
 
 
 # ----------------------------------------------------------------------

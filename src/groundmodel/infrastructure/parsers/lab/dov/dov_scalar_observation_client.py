@@ -39,11 +39,11 @@ from typing import Any
 import httpx
 
 from groundmodel.infrastructure.parsers.dov.dov_common import (
-    DOV_HORIZONTAL_EPSG,
     DOV_WFS_FEATURE_LIMIT,
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
+    cql_bbox_predicate,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
@@ -59,6 +59,7 @@ from groundmodel.infrastructure.parsers.lab.dov.dov_constants import (
     DOV_OBSERVATIE_WFS_METHODE_PROP,
     DOV_OBSERVATIE_WFS_OBSERVATION_LINK_PROP,
     DOV_OBSERVATIE_WFS_PARAMETER_PROP,
+    DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP,
     DOV_OBSERVATIE_WFS_PARENT_LINK_PROP,
     DOV_OBSERVATIE_WFS_RESULTAAT_PROP,
     DOV_WFS_OBSERVATIES_LAYER,
@@ -249,15 +250,19 @@ class DovScalarObservationClient(GroundModelLogger):
     def _common_params(
         cql_filter: str, x1: float, y1: float, x2: float, y2: float
     ) -> dict[str, str]:
-        """Build the WFS query-parameter dict shared by count + features queries."""
-        bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
+        """Build the WFS query-parameter dict shared by count + features queries.
+
+        DOV rejects requests that pass BOTH a ``BBOX=`` query param AND a
+        ``CQL_FILTER=`` (since 2026-05). The bbox is folded into the CQL
+        string via the ``BBOX(geom, …)`` spatial predicate.
+        """
+        cql = f"({cql_filter}) AND {cql_bbox_predicate(x1, y1, x2, y2)}"
         return {
             "service": "WFS",
             "version": "2.0.0",
             "request": "GetFeature",
             "typeNames": DOV_WFS_OBSERVATIES_LAYER,
-            "BBOX": bbox,
-            "CQL_FILTER": cql_filter,
+            "CQL_FILTER": cql,
         }
 
 
@@ -289,6 +294,7 @@ def _build_row(props: dict[str, Any]) -> ScalarObservationWfsRow | None:
     return ScalarObservationWfsRow(
         permkey=permkey,
         parent_sample_permkey=parent_permkey,
+        parametergroep=props.get(DOV_OBSERVATIE_WFS_PARAMETERGROEP_PROP) or "",
         parameter=props.get(DOV_OBSERVATIE_WFS_PARAMETER_PROP) or "",
         resultaat=props.get(DOV_OBSERVATIE_WFS_RESULTAAT_PROP) or None,
         eenheid=props.get(DOV_OBSERVATIE_WFS_EENHEID_PROP) or None,

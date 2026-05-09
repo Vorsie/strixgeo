@@ -33,6 +33,11 @@ class ScalarObservationWfsRow:
         the permkey of the parent ``Sample``. Resolved by the
         orchestrator to a sample UUID via the ``permkey_to_sample_id`` map
         built during the C3 sample-persist phase.
+    parametergroep : str
+        Source-vocabulary parameter-group string (e.g. ``"Bodem_chemisch"``).
+        Persisted alongside ``parameter`` on the generic
+        ``scalar_lab_test`` rows so consumers can filter / group by the
+        DOV taxonomy without re-deriving it.
     parameter : str
         Source-vocabulary parameter string (e.g.
         ``"Calciumcarbonaatgehalte (caco3_gehalte)"``). Used for routing
@@ -63,6 +68,7 @@ class ScalarObservationWfsRow:
 
     permkey: str
     parent_sample_permkey: str
+    parametergroep: str
     parameter: str
     resultaat: str | None
     eenheid: str | None
