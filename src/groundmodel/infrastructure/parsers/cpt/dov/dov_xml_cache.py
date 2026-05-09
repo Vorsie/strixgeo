@@ -16,6 +16,17 @@ warning on failure and falls through to the network path.
 
 The permkey-validation regex lives in ``dov_constants.py`` per the project's
 "constants in a dedicated file" convention.
+
+Eviction
+--------
+A cache that grows forever fills the user's disk on a heavy install. We
+sweep lazily: every ``_EVICT_CHECK_INTERVAL`` ``put()`` calls the cache
+totals its directory size and, if over ``max_bytes``, deletes oldest-by-
+mtime files until under ``EVICT_HEADROOM_RATIO * max_bytes`` (10 %
+headroom so the next sweep isn't immediate). The sweep runs inline on
+the writing task — DOV imports already serialise on the network, and
+the sweep itself only touches files we own. ``max_bytes=None`` disables
+eviction (legacy behaviour, useful for tests).
 """
 
 from __future__ import annotations
@@ -26,6 +37,15 @@ from pathlib import Path
 from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import DOV_VALID_PERMKEY_RE
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
+# Run an eviction sweep every N writes — high enough that a typical
+# import doesn't pay sweep cost on every file, low enough that we don't
+# overshoot ``max_bytes`` by an order of magnitude.
+_EVICT_CHECK_INTERVAL = 64
+# Sweep down to this fraction of ``max_bytes`` so the next eviction
+# doesn't fire on the very next write. Two-finger margin against
+# thrashing.
+_EVICT_HEADROOM_RATIO = 0.9
+
 
 class DovXmlCache(GroundModelLogger):
     """Persistent on-disk cache for DOV XML payloads, keyed by permkey.
@@ -33,12 +53,22 @@ class DovXmlCache(GroundModelLogger):
     Parameters
     ----------
     cache_dir : Path
-        Directory to store cached XMLs in. Created on first use if it doesn't exist.
+        Directory to store cached XMLs in. Created on first use if it
+        doesn't exist.
+    max_bytes : int | None, optional
+        Soft cap on the total size of files inside ``cache_dir``. When
+        the cache exceeds it after a write, oldest-mtime files are
+        deleted until size is under ``_EVICT_HEADROOM_RATIO *
+        max_bytes``. Pass ``None`` to disable eviction (default).
+        Settings translate ``DOV_CACHE_MAX_BYTES=0`` to ``None`` so
+        users can disable eviction via the env var.
     """
 
-    def __init__(self, cache_dir: Path) -> None:
+    def __init__(self, cache_dir: Path, max_bytes: int | None = None) -> None:
         super().__init__(__name__)
         self._dir = cache_dir
+        self._max_bytes = max_bytes
+        self._writes_since_check = 0
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -81,6 +111,12 @@ class DovXmlCache(GroundModelLogger):
                 tmp.unlink(missing_ok=True)
             except OSError:
                 pass
+            return
+
+        self._writes_since_check += 1
+        if self._max_bytes is not None and self._writes_since_check >= _EVICT_CHECK_INTERVAL:
+            self._writes_since_check = 0
+            self._maybe_evict()
 
     def _path_for(self, permkey: str) -> Path | None:
         """Return the cache file path for *permkey*, or None if the key is unsafe."""
@@ -88,3 +124,52 @@ class DovXmlCache(GroundModelLogger):
             self.warning(f"DOV cache: rejecting unsafe permkey {permkey!r}")
             return None
         return self._dir / f"{permkey}.xml"
+
+    def _maybe_evict(self) -> None:
+        """Sweep oldest-by-mtime files when total cache size exceeds ``max_bytes``.
+
+        Best-effort: every OS error is caught and logged so a failed
+        sweep can never break an in-flight import. Hidden tempfiles
+        (``.<name>.<pid>.tmp``) and non-XML files are ignored — we only
+        own the ``*.xml`` extension.
+        """
+        if self._max_bytes is None:
+            return
+        try:
+            entries = [
+                (entry, entry.stat())
+                for entry in self._dir.iterdir()
+                if entry.is_file() and entry.suffix == ".xml"
+            ]
+        except OSError as exc:
+            self.warning(f"DOV cache: eviction scan failed at {self._dir}: {exc}")
+            return
+
+        total = sum(stat.st_size for _, stat in entries)
+        if total <= self._max_bytes:
+            return
+
+        # Sort oldest-mtime first; delete until under the headroom target.
+        entries.sort(key=lambda pair: pair[1].st_mtime)
+        target = int(self._max_bytes * _EVICT_HEADROOM_RATIO)
+        deleted = 0
+        freed = 0
+        for path, stat in entries:
+            if total <= target:
+                break
+            try:
+                path.unlink()
+            except OSError as exc:
+                # A concurrent reader may already have the file open; skip it
+                # rather than abort the sweep. Next sweep tries again.
+                self.warning(f"DOV cache: eviction unlink failed for {path.name}: {exc}")
+                continue
+            total -= stat.st_size
+            freed += stat.st_size
+            deleted += 1
+
+        if deleted:
+            self.info(
+                f"DOV cache evicted {deleted} files ({freed / 1_048_576:.1f} MiB) "
+                f"from {self._dir.name}; new size ≈{total / 1_048_576:.1f} MiB"
+            )

@@ -90,14 +90,23 @@ class ImportBoreholeDov(GroundModelLogger):
         # boring / interpretation / sondering / observation permkeys never
         # collide (DOV's YYYY-NNNNNN permkey format isn't unique across
         # resource types).
-        self._boring_cache = DovXmlCache(settings.dov_cache_dir / "boring")
-        self._interpretation_cache = DovXmlCache(settings.dov_cache_dir / "interpretatie")
+        cache_max_bytes = settings.dov_cache_max_bytes or None
+        self._boring_cache = DovXmlCache(
+            settings.dov_cache_dir / "boring", max_bytes=cache_max_bytes
+        )
+        self._interpretation_cache = DovXmlCache(
+            settings.dov_cache_dir / "interpretatie", max_bytes=cache_max_bytes
+        )
         # Phase C3 caches. The monster cache is plumbed in for symmetry —
         # not currently hit because Phase C3 reads samples from the WFS
         # row directly (see SampleWfsRow docstring). The observation
         # cache backs grain-size XML downloads.
-        self._monster_cache = DovXmlCache(settings.dov_cache_dir / "monster")
-        self._observatie_cache = DovXmlCache(settings.dov_cache_dir / "observatie")
+        self._monster_cache = DovXmlCache(
+            settings.dov_cache_dir / "monster", max_bytes=cache_max_bytes
+        )
+        self._observatie_cache = DovXmlCache(
+            settings.dov_cache_dir / "observatie", max_bytes=cache_max_bytes
+        )
 
     async def execute(
         self,

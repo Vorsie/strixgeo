@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # CPT is never downloaded twice. DOV measurement data is historical, so cached
     # entries are valid indefinitely. Override with DOV_CACHE_DIR env var.
     dov_cache_dir: Path = _default_dov_cache_dir()
+    # Per-cache-subdir size cap (bytes). Each DovXmlCache instance — the
+    # CPT cache plus four borehole subdirs (boring, interpretatie,
+    # monster, observatie) — sweeps oldest-by-mtime until under this
+    # cap. Default 256 MiB × 5 instances ≈ 1.25 GiB total ceiling on
+    # disk. Overridable via DOV_CACHE_MAX_BYTES (0 disables eviction).
+    dov_cache_max_bytes: int = 256 * 1024 * 1024
 
     model_config = {"env_file": ".env"}
 
