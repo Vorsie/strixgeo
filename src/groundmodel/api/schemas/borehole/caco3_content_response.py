@@ -1,7 +1,5 @@
 """Pydantic schema for one calcium-carbonate-content lab test on a sample."""
 
-from __future__ import annotations
-
 from datetime import date
 from uuid import UUID
 
