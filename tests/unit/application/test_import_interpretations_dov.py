@@ -77,9 +77,19 @@ def _parse_result(
 
 @pytest.fixture
 def use_case() -> ImportInterpretationsDov:
-    """ImportInterpretationsDov with a fully mocked AsyncSession."""
+    """ImportInterpretationsDov with a fully mocked AsyncSession.
+
+    ``session.execute`` returns an empty result by default so the
+    refresh-on-duplicate dedup helper finds "no existing observations"
+    and lets the test assert on persist behaviour without separately
+    stubbing the dedup query.
+    """
     session = MagicMock()
     session.add = MagicMock()
+    empty_result = MagicMock()
+    empty_result.scalars.return_value = iter([])
+    empty_result.all.return_value = []
+    session.execute = AsyncMock(return_value=empty_result)
     return ImportInterpretationsDov(session)
 
 

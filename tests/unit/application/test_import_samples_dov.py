@@ -108,9 +108,20 @@ def _gs_empty_curve(*, sample_id: UUID) -> GrainSizeParseResult:
 
 @pytest.fixture
 def use_case() -> ImportSamplesDov:
-    """ImportSamplesDov with a fully mocked AsyncSession."""
+    """ImportSamplesDov with a fully mocked AsyncSession.
+
+    ``session.execute`` is an AsyncMock returning an empty result so the
+    refresh-on-duplicate dedup helpers (``existing_dov_permkeys`` /
+    ``existing_dov_permkey_to_id``) get "no existing rows" by default.
+    Tests that need to assert on the skip-set behaviour override
+    ``session.execute`` themselves.
+    """
     session = MagicMock()
     session.add = MagicMock()
+    empty_result = MagicMock()
+    empty_result.scalars.return_value = iter([])
+    empty_result.all.return_value = []
+    session.execute = AsyncMock(return_value=empty_result)
     return ImportSamplesDov(session)
 
 
