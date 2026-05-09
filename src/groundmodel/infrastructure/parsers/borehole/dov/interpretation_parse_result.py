@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from groundmodel.domain.models.borehole.observation import Observation
 from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
     ValidationIssue,
+    issue_warnings,
+    issues_have_errors,
 )
 
 
