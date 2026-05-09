@@ -50,6 +50,12 @@ class GrainSizeWfsRow:
     """
 
     permkey: str
+    # The parent-borehole permkey isn't carried on the grain-size row by
+    # design: the Sample row's borehole_id FK is set during the Phase C3
+    # sample-persist phase (resolved via the orchestrator's
+    # permkey_to_borehole_id map), and GrainSize.sample_id FKs to that.
+    # So the chain GrainSize → Sample → Borehole is intact at the DB
+    # layer, no extra permkey tracking needed here.
     parent_sample_permkey: str
     fiche_url: str
     xml_url: str
