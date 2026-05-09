@@ -69,6 +69,7 @@ from groundmodel.infrastructure.parsers.borehole.dov.interpretation_wfs_row impo
     InterpretationWfsRow,
 )
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.infrastructure.parsers.dov.dov_common import last_path_segment
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
@@ -398,7 +399,7 @@ class DovInterpretationClient(GroundModelLogger):
         if not proefnummer:
             return None
 
-        permkey = _last_path_segment(fiche_url)
+        permkey = last_path_segment(fiche_url)
         # Hit the proxy directly to skip the 302; same trick as boring/sondering.
         xml_url = (
             fiche_url.replace(DOV_INTERPRETATION_URL_PREFIX, DOV_INTERPRETATION_PROXY_URL_PREFIX, 1)
@@ -412,8 +413,3 @@ class DovInterpretationClient(GroundModelLogger):
             fiche_url=fiche_url,
             xml_url=xml_url,
         )
-
-
-def _last_path_segment(url: str) -> str:
-    """Return the last path segment of *url* (e.g. '2025-200001' from a fiche URL)."""
-    return url.rstrip("/").rsplit("/", 1)[-1]
