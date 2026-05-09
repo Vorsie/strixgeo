@@ -372,14 +372,15 @@ async def test_xml_elevation_wins_over_wfs_z(
 
 
 @pytest.mark.asyncio
-async def test_interpretation_orchestrator_invoked_with_new_borehole_map(
+async def test_interpretation_orchestrator_invoked_with_full_borehole_map(
     use_case: ImportBoreholeDov,
 ) -> None:
-    """New boreholes → interpretation orchestrator gets a populated test_id map.
+    """All in-scope boreholes (new + duplicate) feed the interpretation map.
 
-    Verifies the orchestrator builds the correct ``{test_id: borehole_id}``
-    map from newly imported (not duplicate) boreholes, and the resulting
-    interpretation counts roll into the response.
+    Refresh-on-duplicate: the test_id map covers both newly-imported AND
+    existing boreholes so phase 4b can refresh interpretations on
+    existing rows. Per-row dedup happens inside the interpretation
+    orchestrator via Observation.dov_permkey.
     """
     from groundmodel.application.import_interpretations_dov_result import (
         ImportInterpretationsDovResult,
@@ -423,10 +424,10 @@ async def test_interpretation_orchestrator_invoked_with_new_borehole_map(
     assert interp_mock.await_count == 1
     # Inspect the test_id_to_borehole_id map (5th positional arg).
     test_id_map = interp_mock.call_args.args[4]
-    assert set(test_id_map.keys()) == {"BH-NEW-1", "BH-NEW-2"}
-    # Duplicates DO NOT appear in the map — they're skipped on the borehole
-    # side and we don't re-fetch their interpretations.
-    assert "BH-DUP" not in test_id_map
+    # Refresh-on-duplicate: ALL three boreholes participate (new + dup).
+    assert set(test_id_map.keys()) == {"BH-DUP", "BH-NEW-1", "BH-NEW-2"}
+    # The duplicate maps to the existing-row UUID, not a freshly minted one.
+    assert test_id_map["BH-DUP"] == existing_id
 
     # Interpretation counts roll into the result.
     assert result.imported == 2
@@ -436,19 +437,32 @@ async def test_interpretation_orchestrator_invoked_with_new_borehole_map(
 
 
 @pytest.mark.asyncio
-async def test_interpretation_phase_skipped_when_no_new_boreholes(
+async def test_interpretation_phase_runs_for_all_duplicates(
     use_case: ImportBoreholeDov,
 ) -> None:
-    """All-duplicates → interpretation orchestrator NOT invoked at all."""
+    """All-duplicates → interpretation orchestrator IS invoked (refresh).
+
+    Refresh-on-duplicate: duplicate boreholes still participate in
+    phase 4b because a parser fix landed since the original import may
+    mean the existing borehole is missing children that the upstream
+    now provides. Per-row dedup inside the orchestrator (against
+    Observation.dov_permkey) prevents re-adding existing rows.
+    """
+    from groundmodel.application.import_interpretations_dov_result import (
+        ImportInterpretationsDovResult,
+    )
+
+    bh_1_id = uuid4()
+    bh_2_id = uuid4()
     use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]
-        return_value={"BH-1": uuid4(), "BH-2": uuid4()}
+        return_value={"BH-1": bh_1_id, "BH-2": bh_2_id}
     )
     parsed = [
         (_wfs_row(test_id="BH-1", permkey="2025-200001"), _parse_result(test_id="BH-1")),
         (_wfs_row(test_id="BH-2", permkey="2025-200002"), _parse_result(test_id="BH-2")),
     ]
 
-    interp_mock = AsyncMock()  # would fail loudly if invoked
+    interp_mock = AsyncMock(return_value=ImportInterpretationsDovResult())
 
     with (
         patch(
@@ -462,8 +476,10 @@ async def test_interpretation_phase_skipped_when_no_new_boreholes(
     ):
         result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
-    # Phase 4b skipped because new_borehole_map is empty.
-    interp_mock.assert_not_called()
+    # Phase 4b ran with both duplicates in the map.
+    assert interp_mock.await_count == 1
+    test_id_map = interp_mock.call_args.args[4]
+    assert test_id_map == {"BH-1": bh_1_id, "BH-2": bh_2_id}
     assert result.imported == 0
     assert result.duplicates == 2
     assert result.interpretations_attached == 0
@@ -511,14 +527,15 @@ async def test_interpretation_network_error_does_not_abort_borehole_commit(
 
 
 @pytest.mark.asyncio
-async def test_sample_orchestrator_invoked_with_new_permkey_map(
+async def test_sample_orchestrator_invoked_with_full_permkey_map(
     use_case: ImportBoreholeDov,
 ) -> None:
-    """New boreholes → sample orchestrator gets a populated permkey map.
+    """All in-scope boreholes (new + duplicate) feed the sample permkey map.
 
-    Verifies execute() builds the correct ``{permkey: borehole_id}`` map
-    from newly-imported boreholes (excluding duplicates), and the
-    resulting sample/grain-size counts roll into the response.
+    Refresh-on-duplicate: the permkey map covers duplicates too so phase
+    4c can refresh samples + lab tests on existing boreholes. Per-row
+    dedup happens inside via Sample.dov_permkey + family-specific
+    permkeys.
     """
     from groundmodel.application.import_samples_dov_result import (
         ImportSamplesDovResult,
@@ -572,9 +589,10 @@ async def test_sample_orchestrator_invoked_with_new_permkey_map(
     assert samples_mock.await_count == 1
     # Inspect the permkey_to_borehole_id map (5th positional arg).
     permkey_map = samples_mock.call_args.args[4]
-    assert set(permkey_map.keys()) == {"2025-200001", "2025-200002"}
-    # Duplicates DO NOT appear — same idempotency rule as interpretations.
-    assert "2025-200000" not in permkey_map
+    # Refresh-on-duplicate: ALL three permkeys participate (new + dup).
+    assert set(permkey_map.keys()) == {"2025-200000", "2025-200001", "2025-200002"}
+    # The duplicate's permkey maps to the existing-row UUID.
+    assert permkey_map["2025-200000"] == existing_id
 
     # Sample + grain-size counts roll into the result.
     assert result.imported == 2
@@ -586,19 +604,31 @@ async def test_sample_orchestrator_invoked_with_new_permkey_map(
 
 
 @pytest.mark.asyncio
-async def test_sample_phase_skipped_when_no_new_boreholes(
+async def test_sample_phase_runs_for_all_duplicates(
     use_case: ImportBoreholeDov,
 ) -> None:
-    """All-duplicates → sample orchestrator NOT invoked at all."""
+    """All-duplicates → sample orchestrator IS invoked (refresh).
+
+    Per-row dedup against Sample.dov_permkey + family-specific permkeys
+    inside the orchestrator means existing rows aren't re-added; only
+    children that the upstream now provides but the local DB lacks
+    flow through.
+    """
+    from groundmodel.application.import_samples_dov_result import (
+        ImportSamplesDovResult,
+    )
+
+    bh_1_id = uuid4()
+    bh_2_id = uuid4()
     use_case._repo.find_existing_test_ids = AsyncMock(  # type: ignore[method-assign]
-        return_value={"BH-1": uuid4(), "BH-2": uuid4()}
+        return_value={"BH-1": bh_1_id, "BH-2": bh_2_id}
     )
     parsed = [
         (_wfs_row(test_id="BH-1", permkey="2025-200001"), _parse_result(test_id="BH-1")),
         (_wfs_row(test_id="BH-2", permkey="2025-200002"), _parse_result(test_id="BH-2")),
     ]
 
-    samples_mock = AsyncMock()  # would fail loudly if invoked
+    samples_mock = AsyncMock(return_value=ImportSamplesDovResult())
 
     with (
         patch(
@@ -612,8 +642,10 @@ async def test_sample_phase_skipped_when_no_new_boreholes(
     ):
         result = await use_case.execute(west=3.0, south=51.0, east=3.1, north=51.1)
 
-    # Phase 4c skipped because new_permkey_map is empty.
-    samples_mock.assert_not_called()
+    # Phase 4c ran with both duplicates in the map.
+    assert samples_mock.await_count == 1
+    permkey_map = samples_mock.call_args.args[4]
+    assert permkey_map == {"2025-200001": bh_1_id, "2025-200002": bh_2_id}
     assert result.imported == 0
     assert result.duplicates == 2
     assert result.samples_attached == 0
