@@ -1,7 +1,5 @@
 """Pydantic schema for one admixture inside an observation layer."""
 
-from __future__ import annotations
-
 from pydantic import BaseModel, ConfigDict
 
 
