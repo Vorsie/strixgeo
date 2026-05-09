@@ -9,8 +9,11 @@ import polars as pl
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
-from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
-from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
+    ValidationIssue,
+    issue_warnings,
+    issues_have_errors,
+)
 
 
 @dataclass
@@ -51,9 +54,9 @@ class GEFParseResult:
     @property
     def has_errors(self) -> bool:
         """Return True if any issue has ERROR severity."""
-        return any(i.level == ValidationLevel.ERROR for i in self.issues)
+        return issues_have_errors(self.issues)
 
     @property
     def warnings(self) -> list[ValidationIssue]:
         """Return all WARNING-level issues."""
-        return [i for i in self.issues if i.level == ValidationLevel.WARNING]
+        return issue_warnings(self.issues)
