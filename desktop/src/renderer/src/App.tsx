@@ -1,12 +1,19 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import { api, setBaseUrl, DuplicateCptError } from './api/client'
-import type { CptListItem, CptResponse, CptPlotResponse } from './api/client'
+import type {
+  BoreholeDetailResponse,
+  BoreholeListItem,
+  CptListItem,
+  CptPlotResponse,
+  CptResponse,
+} from './api/client'
 import { useProject } from './hooks/useProject'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
 import CptChart from './components/CptChart'
+import BoreholeLog from './components/BoreholeLog'
 import WelcomeScreen from './components/WelcomeScreen'
 
 declare global {
@@ -25,6 +32,11 @@ declare global {
 
 type View = 'map' | 'chart'
 
+// The bbox-draw flow can be triggered for either CPT or borehole imports.
+// `null` means the user isn't in draw mode; the value tells `handleBboxDrawn`
+// which API to call when the rectangle is committed.
+type BboxImportType = 'cpt' | 'borehole' | null
+
 interface Toast {
   id: number
   type: 'success' | 'error'
@@ -40,9 +52,17 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detailMap, setDetailMap] = useState<Map<string, CptResponse>>(new Map())
   const [plotMap, setPlotMap] = useState<Map<string, CptPlotResponse>>(new Map())
+  // Borehole-side state: list (for sidebar + map) + selected id + lazy detail
+  // cache. Mutually exclusive with `selectedId` — selecting one clears the
+  // other so only one detail panel is shown at a time.
+  const [boreholes, setBoreholes] = useState<BoreholeListItem[]>([])
+  const [selectedBoreholeId, setSelectedBoreholeId] = useState<string | null>(null)
+  const [boreholeDetailMap, setBoreholeDetailMap] = useState<
+    Map<string, BoreholeDetailResponse>
+  >(new Map())
   const [view, setView] = useState<View>('map')
   const [importing, setImporting] = useState(false)
-  const [drawingBbox, setDrawingBbox] = useState(false)
+  const [bboxImportType, setBboxImportType] = useState<BboxImportType>(null)
   const [dovImporting, setDovImporting] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
@@ -62,9 +82,12 @@ export default function App() {
     boot()
   }, [])
 
-  // Load CPTs whenever the API is ready and a project is selected
+  // Load CPTs + boreholes whenever the API is ready and a project is selected
   useEffect(() => {
-    if (ready && project) refreshList()
+    if (ready && project) {
+      refreshList()
+      refreshBoreholeList()
+    }
   }, [ready, project?.id])
 
   // Wire Electron menu → import
@@ -99,12 +122,38 @@ export default function App() {
     }
   }, [plotMap])
 
+  const refreshBoreholeList = useCallback(async () => {
+    if (!project) return
+    try {
+      const list = await api.borehole.list(project.id)
+      setBoreholes(list)
+    } catch {
+      toast('error', 'Failed to load borehole list')
+    }
+  }, [project])
+
+  const loadBoreholeDetail = useCallback(
+    async (id: string) => {
+      if (boreholeDetailMap.has(id)) return
+      try {
+        const detail = await api.borehole.get(id)
+        setBoreholeDetailMap(prev => new Map(prev).set(id, detail))
+      } catch {
+        toast('error', 'Failed to load borehole detail')
+      }
+    },
+    [boreholeDetailMap],
+  )
+
   // ---------------------------------------------------------------------------
   // Selection
   // ---------------------------------------------------------------------------
 
   const handleSelect = useCallback(async (id: string) => {
     setSelectedId(id)
+    // Switching to a CPT clears any borehole selection so only one detail
+    // panel is rendered at a time.
+    setSelectedBoreholeId(null)
     // Lazy-load full detail for the chart panel (mTAW elevation, cone props, etc).
     if (!detailMap.has(id)) {
       api.cpt.get(id).then(detail => {
@@ -114,6 +163,17 @@ export default function App() {
     await loadChart(id)
     setView('chart')
   }, [loadChart, detailMap])
+
+  const handleSelectBorehole = useCallback(
+    async (id: string) => {
+      setSelectedBoreholeId(id)
+      // Mutually exclusive with CPT selection.
+      setSelectedId(null)
+      await loadBoreholeDetail(id)
+      setView('chart')
+    },
+    [loadBoreholeDetail],
+  )
 
   // ---------------------------------------------------------------------------
   // Import
@@ -173,30 +233,72 @@ export default function App() {
 
   const handleImportDov = useCallback(() => {
     setView('map')
-    setDrawingBbox(true)
+    setBboxImportType('cpt')
+  }, [])
+
+  const handleImportBoreholeDov = useCallback(() => {
+    setView('map')
+    setBboxImportType('borehole')
   }, [])
 
   const handleBboxDrawn = useCallback(
     async (west: number, south: number, east: number, north: number) => {
       if (!project) return
-      setDrawingBbox(false)
+      const importType = bboxImportType
+      setBboxImportType(null)
+      if (!importType) return // defensive — shouldn't happen
       setDovImporting(true)
       try {
-        const result = await api.cpt.importDov({ west, south, east, north }, project.id)
-        const parts: string[] = []
-        if (result.imported > 0) parts.push(`${result.imported} imported`)
-        if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
-        if (result.failed > 0) parts.push(`${result.failed} failed`)
-        toast(
-          result.failed > 0 && result.imported === 0 ? 'error' : 'success',
-          parts.join(', ') || 'No CPTs found in this area',
-        )
-        await refreshList()
-        if (result.imported === 1 && result.cpt_ids.length > 0) {
-          const id = result.cpt_ids[0]
-          setSelectedId(id)
-          await loadChart(id)
-          setView('chart')
+        if (importType === 'cpt') {
+          const result = await api.cpt.importDov({ west, south, east, north }, project.id)
+          const parts: string[] = []
+          if (result.imported > 0) parts.push(`${result.imported} imported`)
+          if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
+          if (result.failed > 0) parts.push(`${result.failed} failed`)
+          toast(
+            result.failed > 0 && result.imported === 0 ? 'error' : 'success',
+            parts.join(', ') || 'No CPTs found in this area',
+          )
+          await refreshList()
+          if (result.imported === 1 && result.cpt_ids.length > 0) {
+            const id = result.cpt_ids[0]
+            setSelectedId(id)
+            setSelectedBoreholeId(null)
+            await loadChart(id)
+            setView('chart')
+          }
+        } else {
+          const result = await api.borehole.importDov(
+            { west, south, east, north },
+            project.id,
+          )
+          const parts: string[] = []
+          if (result.imported > 0) parts.push(`${result.imported} imported`)
+          if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
+          if (result.failed > 0) parts.push(`${result.failed} failed`)
+          // Roll the per-stream summary into the toast so the user can see at
+          // a glance how much extra data came along with the boreholes
+          // (interpretations + samples + lab tests).
+          const extras: string[] = []
+          if (result.interpretations_attached)
+            extras.push(`${result.interpretations_attached} obs`)
+          if (result.samples_attached) extras.push(`${result.samples_attached} samples`)
+          if (result.grain_sizes_attached)
+            extras.push(`${result.grain_sizes_attached} grain-size`)
+          const summary = parts.join(', ') || 'No boreholes found in this area'
+          const detail = extras.length > 0 ? ` (+ ${extras.join(', ')})` : ''
+          toast(
+            result.failed > 0 && result.imported === 0 ? 'error' : 'success',
+            summary + detail,
+          )
+          await refreshBoreholeList()
+          if (result.imported === 1 && result.borehole_ids.length > 0) {
+            const id = result.borehole_ids[0]
+            setSelectedBoreholeId(id)
+            setSelectedId(null)
+            await loadBoreholeDetail(id)
+            setView('chart')
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'DOV import failed'
@@ -205,7 +307,7 @@ export default function App() {
         setDovImporting(false)
       }
     },
-    [project, refreshList, loadChart],
+    [project, bboxImportType, refreshList, refreshBoreholeList, loadChart, loadBoreholeDetail],
   )
 
   // ---------------------------------------------------------------------------
@@ -265,12 +367,15 @@ export default function App() {
   }
 
   const selectedCpt = cpts.find(c => c.id === selectedId)
+  const drawingBbox = bboxImportType !== null
+  const hasSelection = selectedId !== null || selectedBoreholeId !== null
 
   return (
     <div className="flex flex-col h-screen bg-white overflow-hidden">
       <Toolbar
             onImportCpt={handleImportCpt}
             onImportDov={handleImportDov}
+            onImportBoreholeDov={handleImportBoreholeDov}
             importing={importing || dovImporting}
             drawingBbox={drawingBbox}
           />
@@ -278,14 +383,17 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           cpts={cpts}
-          selectedId={selectedId}
-          onSelect={handleSelect}
-          onDelete={handleDelete}
+          boreholes={boreholes}
+          selectedCptId={selectedId}
+          selectedBoreholeId={selectedBoreholeId}
+          onSelectCpt={handleSelect}
+          onSelectBorehole={handleSelectBorehole}
+          onDeleteCpt={handleDelete}
           projectName={project.name}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
-          {selectedId && (
+          {hasSelection && (
             <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-200 bg-gray-50">
               <ViewTab icon={<MapIcon size={13} />} label="Map" active={view === 'map'} onClick={() => setView('map')} />
               <ViewTab icon={<BarChart2 size={13} />} label="Chart" active={view === 'chart'} onClick={() => setView('chart')} />
@@ -293,21 +401,29 @@ export default function App() {
           )}
 
           <div className="flex-1 overflow-hidden">
-            {view === 'map' || !selectedId ? (
+            {view === 'map' || !hasSelection ? (
               <MapView
                     cpts={cpts}
                     selectedId={selectedId}
                     onSelect={handleSelect}
                     drawMode={drawingBbox}
                     onBboxDrawn={handleBboxDrawn}
-                    onCancelDraw={() => setDrawingBbox(false)}
+                    onCancelDraw={() => setBboxImportType(null)}
                   />
+            ) : selectedBoreholeId ? (
+              boreholeDetailMap.has(selectedBoreholeId) ? (
+                <BoreholeLog borehole={boreholeDetailMap.get(selectedBoreholeId)!} />
+              ) : (
+                <div className="flex items-center justify-center h-full text-sm text-gray-400">
+                  Loading borehole…
+                </div>
+              )
             ) : (
-              selectedCpt && plotMap.has(selectedId)
+              selectedCpt && plotMap.has(selectedId!)
                 ? <CptChart
-                    plot={plotMap.get(selectedId)!}
+                    plot={plotMap.get(selectedId!)!}
                     name={selectedCpt.name}
-                    detail={detailMap.get(selectedId)}
+                    detail={detailMap.get(selectedId!)}
                   />
                 : <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading chart…</div>
             )}
