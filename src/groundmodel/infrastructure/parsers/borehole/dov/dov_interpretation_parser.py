@@ -87,7 +87,6 @@ we don't reject the parse.
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from datetime import date
 from uuid import UUID
 
 from groundmodel.domain.models.borehole.observation import Observation
@@ -122,36 +121,13 @@ from groundmodel.infrastructure.parsers.borehole.dov.interpretation_parse_result
 )
 from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
+from groundmodel.infrastructure.parsers.dov.dov_xml_helpers import (
+    date_iso,
+    float_value,
+    text,
+)
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-
-def _text(elem: ET.Element | None, tag: str) -> str:
-    """Return stripped text of *tag* child of *elem*, or empty string when absent."""
-    if elem is None:
-        return ""
-    child = elem.find(tag)
-    return (child.text or "").strip() if child is not None else ""
-
-
-def _date(elem: ET.Element | None, tag: str) -> date | None:
-    """Parse an ISO-format ``<tag>YYYY-MM-DD</tag>`` child, or None on failure."""
-    raw = _text(elem, tag)
-    if not raw:
-        return None
-    try:
-        return date.fromisoformat(raw)
-    except ValueError:
-        return None
-
-
-def _float(elem: ET.Element | None, tag: str) -> float | None:
-    """Return float value of *tag* child of *elem*, or None when missing/non-numeric."""
-    raw = _text(elem, tag)
-    try:
-        return float(raw) if raw else None
-    except ValueError:
-        return None
 
 
 class DovInterpretationParser(GroundModelLogger):
@@ -255,12 +231,12 @@ class DovInterpretationParser(GroundModelLogger):
         issues: list[ValidationIssue] = []
 
         author = self._parse_author(stream_elem)
-        observation_date = _date(stream_elem, DOV_INTERP_DATE_TAG)
-        reliability = _text(stream_elem, DOV_INTERP_RELIABILITY_TAG) or None
+        observation_date = date_iso(stream_elem, DOV_INTERP_DATE_TAG)
+        reliability = text(stream_elem, DOV_INTERP_RELIABILITY_TAG) or None
 
         quality_elem = stream_elem.find(DOV_INTERP_QUALITY_PARENT_TAG)
-        score_category = _text(quality_elem, DOV_INTERP_QUALITY_CATEGORY_TAG) or None
-        drill_method_score = _text(quality_elem, DOV_INTERP_QUALITY_DRILL_METHOD_TAG) or None
+        score_category = text(quality_elem, DOV_INTERP_QUALITY_CATEGORY_TAG) or None
+        drill_method_score = text(quality_elem, DOV_INTERP_QUALITY_DRILL_METHOD_TAG) or None
 
         observation = Observation(
             borehole_id=borehole_id,
@@ -309,10 +285,10 @@ class DovInterpretationParser(GroundModelLogger):
             return None
 
         person_elem = author_elem.find("persoon")
-        surname = _text(person_elem, "naam")
-        first_name = _text(person_elem, "voornaam")
+        surname = text(person_elem, "naam")
+        first_name = text(person_elem, "voornaam")
 
-        organisation = _text(author_elem.find("bedrijf-dienst"), "naam")
+        organisation = text(author_elem.find("bedrijf-dienst"), "naam")
 
         person_part = ""
         if surname and first_name:
@@ -351,8 +327,8 @@ class DovInterpretationParser(GroundModelLogger):
         """
         layers: list[ObservationLayer] = []
         for layer_index, laag_elem in enumerate(stream_elem.findall(DOV_INTERP_LAYER_TAG)):
-            top = _float(laag_elem, DOV_BORING_VAN_TAG)
-            base = _float(laag_elem, DOV_BORING_TOT_TAG)
+            top = float_value(laag_elem, DOV_BORING_VAN_TAG)
+            base = float_value(laag_elem, DOV_BORING_TOT_TAG)
             if top is None or base is None:
                 self.warning(
                     f"DOV interpretation '{name}' layer {layer_index}: "
@@ -368,7 +344,7 @@ class DovInterpretationParser(GroundModelLogger):
                 )
                 continue
 
-            color = _text(laag_elem, DOV_INTERP_LAYER_COLOR_TAG) or None
+            color = text(laag_elem, DOV_INTERP_LAYER_COLOR_TAG) or None
             # main_soil_codes carries SOIL-type codes only (FZ, KL, GL, ...).
             # Stratigraphy formation codes (Q, HyEg, Eg, ...) are a different
             # codelist namespace and a different consumer concept; they live
@@ -417,7 +393,7 @@ class DovInterpretationParser(GroundModelLogger):
         """Extract ``<hoofdnaam>/<grondsoort>`` codes — repeats for equally-dominant soils."""
         codes: list[str] = []
         for hoofdnaam_elem in laag_elem.findall(DOV_INTERP_LAYER_MAIN_SOIL_PARENT_TAG):
-            code = _text(hoofdnaam_elem, DOV_INTERP_LAYER_MAIN_SOIL_CODE_TAG)
+            code = text(hoofdnaam_elem, DOV_INTERP_LAYER_MAIN_SOIL_CODE_TAG)
             if code:
                 codes.append(code)
         return codes
@@ -432,11 +408,11 @@ class DovInterpretationParser(GroundModelLogger):
         """
         admixtures: list[Admixture] = []
         for adm_elem in laag_elem.findall(DOV_INTERP_LAYER_ADMIXTURE_TAG):
-            soil_code = _text(adm_elem, DOV_INTERP_ADMIXTURE_SOIL_CODE_TAG)
+            soil_code = text(adm_elem, DOV_INTERP_ADMIXTURE_SOIL_CODE_TAG)
             if not soil_code:
                 continue
-            amount = _text(adm_elem, DOV_INTERP_ADMIXTURE_AMOUNT_TAG)
-            locally_raw = _text(adm_elem, DOV_INTERP_ADMIXTURE_LOCALLY_TAG)
+            amount = text(adm_elem, DOV_INTERP_ADMIXTURE_AMOUNT_TAG)
+            locally_raw = text(adm_elem, DOV_INTERP_ADMIXTURE_LOCALLY_TAG)
             # DOV ships locally as the literal "true"/"false" — case-insensitive
             # in case some sources differ. Default to False (the more common
             # case in DOV: most admixtures occur throughout the layer).
@@ -455,13 +431,13 @@ class DovInterpretationParser(GroundModelLogger):
            when lid2 absent / equal to lid1).
         3. Neither present (lithology shape) — return None.
         """
-        free_text = _text(laag_elem, DOV_INTERP_LAYER_DESCRIPTION_TAG)
+        free_text = text(laag_elem, DOV_INTERP_LAYER_DESCRIPTION_TAG)
         if free_text:
             return free_text
 
-        lid1 = _text(laag_elem, DOV_INTERP_LAYER_LID1_TAG)
-        lid2 = _text(laag_elem, DOV_INTERP_LAYER_LID2_TAG)
-        relation = _text(laag_elem, DOV_INTERP_LAYER_LID_RELATION_TAG)
+        lid1 = text(laag_elem, DOV_INTERP_LAYER_LID1_TAG)
+        lid2 = text(laag_elem, DOV_INTERP_LAYER_LID2_TAG)
+        relation = text(laag_elem, DOV_INTERP_LAYER_LID_RELATION_TAG)
 
         if lid1 and lid2 and lid2 != lid1:
             if relation:
