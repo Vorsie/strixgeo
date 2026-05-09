@@ -77,7 +77,12 @@ Borehole                     ← a physical hole, not a test
 └── Observations[]           ← visual log, soil description
 
 LabTest                      ← performed on a Sample, NOT on a Borehole
-├── GrainSize / Atterberg / Triaxial / ...
+├── GrainSize          (typed: cumulative size-distribution curve)
+├── AtterbergLimits    (typed: liquid-limit + plastic-limit)
+├── CaCO3Content       (typed: % calcium carbonate by mass)
+├── OrganicContent     (typed: organic carbon %)
+├── WaterContent       (typed: w%)
+└── ScalarLabTest      (catch-all: any (parameter, value, unit) tuple)
 
 Monitoring: Piezometer, Inclinometer
 Geophysical: MASW, Seismic CPT
@@ -87,6 +92,13 @@ Geophysical: MASW, Seismic CPT
 - `LabTest` is associated with a `Sample`, not a `Borehole`
 - `DMT` is a pushed test; `Pressuremeter` is a borehole test
 - Shared location ≠ inheritance — use composition
+- **Catch-all vs typed family rule:** ScalarLabTest is the default home for new
+  scalar test parameters. Promote to a typed family ONLY when (a) the test
+  needs structural columns the catch-all can't express (e.g. Atterberg's
+  LL+PL aggregation, GrainSize's curve), or (b) the parameter is
+  validated against a domain rule that needs first-class type safety.
+  Adding a new test to the catch-all is one tuple in
+  `DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS` — no migration, no schema change.
 
 ---
 
@@ -105,7 +117,8 @@ Strix/
 │   │   │   │                  observation.py, observation_layer.py,
 │   │   │   │                  drill_segment.py, field_log_interval.py
 │   │   │   ├── lab/           lab_test.py, grain_size.py, atterberg_limits.py,
-│   │   │   │                  caco3_content.py, organic_content.py, water_content.py
+│   │   │   │                  caco3_content.py, organic_content.py, water_content.py,
+│   │   │   │                  scalar_lab_test.py    ← catch-all family
 │   │   │   ├── monitoring/    piezometer.py, inclinometer.py
 │   │   │   └── job.py         Job + JobStatus
 │   │   ├── services/          cpt_interpretation.py, cpt_corrections.py, ec7/
@@ -123,7 +136,7 @@ Strix/
 │   │   │                                      admixture_orm.py, sample_orm.py,
 │   │   │                                      grain_size_orm.py, atterberg_limits_orm.py,
 │   │   │                                      caco3_content_orm.py, organic_content_orm.py,
-│   │   │                                      water_content_orm.py
+│   │   │                                      water_content_orm.py, scalar_lab_test_orm.py
 │   │   │                      repositories/   cpt_repository.py, borehole_repository.py
 │   │   │                      migrations/
 │   │   ├── parsers/
@@ -137,6 +150,8 @@ Strix/
 │   │   │                          grain_size_parse_result.py
 │   │   ├── exporters/         base_exporter.py, plaxis_exporter.py, ...
 │   │   ├── gis/               postgis_service.py
+│   │   ├── codelists/         data/ — authoritative DOV CSVs (hoofdnaam,
+│   │   │                              kleur, consistentie) + working-group XLSX
 │   │   └── rust/              groundmodel_core/ (Phase 4)
 │   ├── api/
 │   │   ├── routers/           cpt.py, borehole.py, jobs.py
@@ -552,17 +567,23 @@ POST   /cpt/import-dov          Import CPTs from DOV bbox (JSON body: west,south
 GET    /cpt/                    List CPTs (optional ?project_id=UUID filters by project)
 GET    /cpt/{id}                CPT metadata (location, elevation, cone props, summary)
 GET    /cpt/{id}/plot           Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt)
-DELETE /cpt/{id}                Delete CPT and its series (cascade)
+DELETE /cpt/{id}                Delete CPT and its series (cascade). NOTE: the
+                                desktop frontend no longer calls this — sidebar
+                                "remove from project" is project-local
+                                (localStorage), preserving the DB cache so a
+                                re-import doesn't refetch.
 
 POST   /borehole/import-dov     Import boreholes + 8 interpretation streams + samples
                                 + grain-size + Atterberg + CaCO3 + organic-C + water-content
-                                lab tests from DOV bbox (Phase C1+C2+C3+C4). Response
-                                carries per-test attached/failed counters in addition to
-                                the borehole counts.
+                                + the ScalarLabTest catch-all from DOV bbox
+                                (Phase C1+C2+C3+C4+C5). Response carries per-test
+                                attached/failed counters in addition to the borehole
+                                counts; the catch-all reports under
+                                ``scalar_lab_tests_attached / _failed``.
 GET    /borehole/{id}           Full borehole tree (header + drill segments + field log
                                 + observations with layers + admixtures + samples with
                                 grain-size + Atterberg + CaCO3 + organic + water-content
-                                tests). 404 when missing.
+                                + the ``scalar_lab_tests`` catch-all list). 404 when missing.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
@@ -586,14 +607,43 @@ desktop/src/
     │   ├── ui/        Button.tsx — shared variant (primary/secondary/danger/ghost) + size (sm/md)
     │   ├── BboxDrawer.tsx     Inside MapContainer; crosshair draw mode for DOV bbox selection
     │   ├── CptChart.tsx   DOV-standard chart: type-aware panels, ghost axis alignment
-    │   ├── MapView.tsx    Leaflet map with CPT markers; accepts drawMode + onBboxDrawn props
-    │   ├── Sidebar.tsx    CPT list with delete; project name header
+    │   ├── MapView.tsx    Leaflet map: CPT + borehole markers, layer-control dropdown
+    │   │                  (Option B per-category expand), bottom-right legend.
+    │   │                  Visibility state lives in App so Sidebar can read it too.
+    │   ├── Sidebar.tsx    CPT + borehole list; sort dropdown (Default / Name / Depth);
+    │   │                  multi-select checkboxes + bulk "Remove from project"
+    │   │                  action bar; hover-trash for single-row remove. Removes are
+    │   │                  project-local (localStorage), never DB delete.
+    │   ├── BoreholeLog.tsx    Borelog SVG: lithology with patterns + admixture chips
+    │   │                       (color swatch + qualifier code), drill method, field log,
+    │   │                       sample track with lab-test family icons (★ for catch-all).
+    │   ├── LabTestPanel.tsx   Slide-in detail panel; ScalarTestsSection groups catch-all
+    │   │                       tests by parametergroep, ASTM rows show D2487 description.
     │   ├── Toolbar.tsx    Import button (GEF + DOV)
     │   └── WelcomeScreen.tsx  Shown until a project is created
+    ├── utils/
+    │   ├── soilColors.ts      108-code DOV hoofdnaam lookup → English label + color
+    │   ├── soilPatterns.tsx   SVG <pattern> defs (FZ/KL/SI/LE/KA/GL/ZS/XZ/NN/ST/VE/SN…)
+    │   ├── labTestLabels.ts   Translations for DOV parameter / parametergroep + USCS
+    │   │                      D2487 ASTM code descriptions (CL → "Clay (lean)", …)
+    │   └── useWgs84.ts        Lambert72 → WGS84 projection cache
     ├── hooks/
     │   └── useProject.ts  localStorage project persistence (id, name, createdAt)
-    └── App.tsx            Project gate, data loading, import/delete handlers, toasts
+    └── App.tsx            Project gate, data loading, import handlers, toasts.
+                           Owns layer-visibility state (hidden CPT types, hidden
+                           borehole values per axis, current axis) AND project-local
+                           "removed" sets persisted to localStorage per project id.
+                           Filters cpts/boreholes via removed sets before passing
+                           anywhere user-visible.
 ```
+
+### Sidebar conventions
+- Sort persists per session: `localStorage["groundmodel.sidebar.sort"]`
+- Removed-from-project set persists per project: `localStorage["groundmodel.removed.{projectId}.{cpt|borehole}"]`
+- Multi-select checkbox ALWAYS visible (left of row icon); row body click opens detail
+- Bulk action bar appears only when ≥1 selected; "Remove" + "Clear"; tab switch resets selection
+- Hidden-by-map-filter rows go to the bottom of the list at `opacity-40`, still clickable
+- Footer "N removed · restore all" link undoes everything in the active tab
 
 ### CptChart conventions
 - `Y_W = 52` — width constant used for ALL Y-axes (real and ghost) to align plot areas across side-by-side `ComposedChart` panels
@@ -605,3 +655,317 @@ desktop/src/
 - Colors: `QC_CLR=#111827`, `FS_CLR=#16a34a`, `RF_CLR=#b45309`, `U2_CLR=#7c3aed`, `QT_CLR=#1d4ed8`, `PD_CLR=#dc2626`
 - `surfaceElevationRef` — ReferenceLine at depth=0 labelled with mTAW elevation when known
 - `IcZoneLabelsOverlay` — absolute overlay at `bottom: 46` inside the Ic panel; each label is pinned at its zone's x-centre and rotated -55° (`transformOrigin: bottom center`) so they read diagonally upward; uses `IC_ZONE_SHORT` for abbreviated names in narrow zones
+
+---
+
+## UX Conventions
+
+The desktop UI is built against a **layered stack of style guides**, in
+order of precedence when they disagree:
+
+1. **WCAG 2.2 — level AA**, the non-negotiable accessibility floor.
+   4.5 : 1 contrast for body text, 3 : 1 for large text and UI
+   components, visible focus rings on every keyboard-reachable
+   element, 44 × 44 px minimum hit-target on touchable surfaces, full
+   keyboard reachability, no information conveyed by colour alone.
+2. **Apple HIG** for desktop interaction conventions. The most useful
+   chapters for this app: Modality / Sheets / Popovers / Sidebars /
+   Inspectors / Keyboard Shortcuts. Treats Esc as the universal
+   dismiss key, ⌘0 / Ctrl+0 as zoom-reset, ⌘W / Ctrl+W as close pane.
+3. **GitHub Primer** for visual tokens + dark-mode strategy. Two
+   surface levels (page, card), accent (blue) reserved for primary
+   action / selection, danger (red) reserved for destructive intent,
+   muted greys for secondary chrome. We map these onto Tailwind
+   utility classes (mostly `slate-*` / `gray-*` / `blue-*` /
+   `red-*`); when Primer says "use accent.primary" we read that as
+   `blue-600` light / `blue-400` dark.
+4. **Tailwind UI / Catalyst** for code-level pattern lifts when a
+   component shape exists there.
+5. **Domain conventions** (ISO 14688-1 soil patterns, DOV PDF report
+   layout) override every general guide above for the borelog and
+   anything geotechnical-domain-specific. Generic UI (sidebars,
+   dialogs, panels) follows the layered defaults strictly.
+
+### Override rule
+
+When a guide actively hurts UX or conflicts with domain need:
+
+* Override at the smallest scope possible (one component, never the
+  whole app theme).
+* Document **why** in a header comment near the override, citing the
+  guide rule it bypasses.
+* Domain convention beats general convention; general convention beats
+  personal taste. "I think it looks better" is not a documented
+  reason — find which higher principle the guide rule is failing in
+  this case (e.g. "ISO 14688-1 mandates dotted fill for sand, which
+  Primer's solid-fill cards fight against — overriding").
+
+### Selection
+
+* **Click row body** — select / open detail (single-select).
+* **Hover-X icon** — single-row remove (project-local; never DB delete).
+* **Checkbox** — multi-select, always visible left of the row icon
+  (NOT hover-only — discoverability beats clean-row aesthetics for
+  power users curating large lists).
+* **Bulk action bar** — appears at the top of the list when ≥ 1 row
+  is checked; format: `N selected · [Action] · Clear`.
+* **Tab switch resets selection** — checkboxes in a different tab
+  refer to different items; carrying selection across is misleading.
+
+### Keyboard shortcuts
+
+| Shortcut | Action | Scope |
+|---|---|---|
+| `Esc` | Close detail panel / cancel bbox draw / cancel modal | Global, when applicable |
+| `← / →` | Prev / next item in detail panel (samples, future CPTs) | When detail panel open |
+| `Ctrl + wheel` | Zoom (vertical scale on borelog, depth axis on map) | Map + borelog |
+| `Ctrl + 0` | Reset zoom to 100 % | Borelog |
+| `Delete` / `Backspace` | Remove selection (project-local) | When ≥ 1 row checked |
+| `Ctrl/Cmd + A` | Select all | Future — list views |
+| `Ctrl/Cmd + F` | Filter / find | Future — list views |
+
+All shortcuts skip when an `<input>` / `<textarea>` / `<select>` /
+`contentEditable` element owns focus — a centralised `isTypingTarget`
+helper checks this before firing. The same helper is duplicated across
+the three components that listen today (Sidebar / BoreholeLog /
+LabTestPanel); collapsing into a shared `hooks/useGlobalShortcut.ts`
+when a fourth use lands per the project's "extract on the third
+copy" rule.
+
+### Detail panels
+
+* **Push-mode**, NOT overlay. The panel is a flex sibling that pushes
+  the main view to a narrower width, so the user can interact with
+  both. Apple HIG calls this an Inspector.
+* **420 px fixed width** — wide enough for tables and small charts,
+  narrow enough not to dominate.
+* **Header** = title + nav (prev / next / close). **Body** = scrolls
+  independently. **No sticky footer** — actions live in-place.
+* **Close**: X button OR `Esc` key. Both must be wired.
+* **Open via single-click** of the source item. No double-click.
+* **Don't trap focus** — the panel coexists with the main view, so
+  unlike a modal it must NOT trap keyboard focus. (HIG: Inspectors
+  are non-modal.)
+
+### Map
+
+* **Shape encodes source kind, colour encodes property within kind.**
+  ● Circle = CPT, ■ Square = Borehole. Within each kind, colour comes
+  from the active filter axis (CPT type / drill method / borehole
+  type). This satisfies WCAG "no info by colour alone".
+* **Layout** (Leaflet defaults): zoom controls top-left, fit-to-data
+  below them. Layer-control dropdown top-right (Option B — only one
+  category expanded at a time). Legend bottom-right, mirrors marker
+  shapes (circle vs. square).
+* **Bbox draw**: drag a rectangle in crosshair mode; `Esc` cancels.
+* **Tooltip on hover** = name + key fact; click = select + fly-to at
+  zoom 17.
+* **Hidden vs. removed**: layer-control hides per type (visual filter
+  only); sidebar removes per ID (project-local persisted).
+
+### Borelog
+
+* **Vertical depth axis, top → down.** Domain convention; ISO 14688-1
+  / DOV PDF style.
+* **Lithology patterns** from ``soilPatterns.tsx`` — fine sand =
+  small dots, clay = 45° hatching, glauconite = green V-chevrons,
+  etc. Override of Primer because Primer doesn't ship soil patterns.
+* **Zoom**: `Ctrl + wheel` adjusts vertical scale. `Ctrl + 0` resets.
+  Wheel without `Ctrl` scrolls vertically as expected.
+* **Selecting a sample auto-centers** its depth in the visible
+  viewport (smooth scroll). Re-zooming keeps the sample centered.
+* **Hidden / type-filtered rows** in the sidebar are still visible at
+  `opacity-40`, partitioned to the bottom of the list — they're
+  demoted, not removed. `Hidden (N)` separator with `EyeOff` icon.
+
+### Destructive actions
+
+The desktop UI distinguishes **reversible** from **irreversible**
+actions:
+
+* **Reversible** (project-local hide, sort change, theme switch) —
+  fire immediately, no confirmation. Provide an undo path: the
+  sidebar's `N removed · restore all` link is the canonical example.
+* **Irreversible** (DB delete, file delete, project delete, sending
+  external requests) — require an explicit confirmation dialog.
+  Default-focus on Cancel, not the destructive action. Match the
+  destructive button copy to the action ("Delete" / "Discard" /
+  "Remove permanently") — never just "OK".
+
+The desktop frontend currently has **no irreversible actions** — the
+old `DELETE /cpt/{id}` flow was removed in favour of project-local
+hide. If you add one, the convention says: confirmation dialog
+required.
+
+### Dark mode
+
+* **Strategy**: `darkMode: 'class'` in Tailwind. The `useTheme` hook
+  toggles a `dark` class on `<html>`. Three modes:
+    1. `system` (default) — follows `prefers-color-scheme` and
+       responds live when the OS preference changes.
+    2. `light` — explicit override, persisted to
+       `localStorage["groundmodel.theme"]`.
+    3. `dark`  — same.
+* **Token mapping**: every component MUST author colours as `dark:`
+  variants when introduced. Migrating existing components to dark is
+  a separate pass; new components write light + dark from day one.
+* **Test contrast** in both modes — Primer's dark palette already
+  hits WCAG AA against the recommended dark-surface backgrounds, but
+  custom hues (soil patterns, marker fill colours derived from
+  `hashColor`) need to be re-checked when displayed on a dark
+  background.
+
+### Translation & persistence
+
+* **Translate at the presentation boundary, never at ingest** —
+  domain stores raw DOV tokens; `desktop/src/renderer/src/utils/`
+  hosts lookup tables (e.g. `soilColors.ts`, `labTestLabels.ts`).
+* **Show the source token as a `title` tooltip** on every translated
+  label so domain experts can verify the mapping without leaving the
+  UI.
+* **Persist user preferences in localStorage** with project-scoped
+  keys: `groundmodel.<area>.<projectId>.<kind>`. The `usePersistedSet`
+  hook is the canonical pattern for project-scoped sets.
+
+### Loading + error feedback
+
+* **Async actions** — disable the trigger button while pending,
+  show a spinner inside it; do NOT show a full-screen loader unless
+  the action blocks all interaction (rare).
+* **Toast notifications** for completion (success / error) of
+  user-initiated bulk actions. Keep concise: 1 line, dismiss on
+  click + auto-dismiss after 4 s.
+* **Inline validation** for forms; never use a toast or alert box
+  for "field X is invalid".
+* **Empty states** — text + icon (Lucide), never just blank.
+
+---
+
+## Known Architectural Debt
+
+Items that need a focused session — bigger than a quick fix, smaller
+than a phase. Tracked here so each one is visible in PR / commit
+context without rediscovering it from grep. Order is loose priority.
+
+### 1. Refresh-on-duplicate (high)
+
+**What.** ``ImportBoreholeDov`` phases 4b/4c (interpretations + samples
++ lab tests) only run for *newly imported* boreholes. Re-importing the
+same bbox marks them as duplicates and skips those phases entirely —
+so a parser fix that lands AFTER the user already imported requires
+``TRUNCATE borehole CASCADE`` to take effect. We've done this 4× in 2
+days.
+
+**Why deferred.** Needs schema changes (a stable per-record DOV
+permkey on every child of Borehole — sample, observation, observation
+layer, every lab-test family — plus per-row dedup logic in the
+orchestrator). Big migration; high regression risk; needs careful
+test coverage.
+
+**When.** Before next user-facing release, or earlier if it bites a
+fifth time.
+
+### 2. WFS client base class (medium)
+
+**What.** The bbox-split + count + features pattern is duplicated
+across 5 DOV WFS clients (boring, interpretation, sample, grain-size,
+scalar). Every time DOV changes their query rules (the BBOX+CQL
+mutual-exclusion was the latest one) we patch in 5 places.
+``collect_wfs_features_recursive`` already extracts the bbox
+recursion; the remaining duplication is the HTTP request shape and
+common params.
+
+**Why deferred.** The 5 clients differ in subtle ways
+(``DovBoreholeClient`` has a download phase; ``DovSampleClient`` is
+WFS-only; ``DovGrainSizeClient`` takes a process callback). A clean
+abstraction needs all 5 cases tested; the refactor is high-touch
+across files I'd rather not regress on the same day.
+
+**When.** Pair this with the DMT / pressuremeter / monitoring
+clients in Phase 3 — the 6th and 7th instance will make the
+abstraction obvious, and we'll have fresh test coverage.
+
+### 3. Frontend test infrastructure (medium)
+
+**What.** Zero frontend tests today. The 4 admixture-rendering
+iterations relied entirely on visual playtest. A snapshot test on
+``BoreholeLog`` against a fixture borehole would have caught the
+layer-overflow regressions instantly. Our backend has 313 unit
+tests; the frontend has 0.
+
+**Why deferred.** Vitest + jsdom + react-testing-library setup is
+non-trivial in Electron + Vite, and snapshot tests for SVG-heavy
+components have notorious churn. Worth doing right rather than
+hastily.
+
+**When.** When the frontend grows past current ~5000 lines, OR after
+the next visual regression that should have been caught
+automatically.
+
+### 4. Single-project model (Phase 4)
+
+**What.** ``useProject.ts`` holds one project at a time in
+``localStorage["groundmodel.project"]``. Switching projects means
+clearing localStorage. Multi-project + project-list UI is implied by
+the Phase 4 roadmap but not delivered.
+
+**When.** Phase 4 — multi-project / accounts / SaaS prep.
+
+### 5. DOV cache eviction (low)
+
+**What.** ``~/.groundmodel/dov_cache/`` grows forever — one file per
+permkey, never evicted. DOV measurements are historical so cache hits
+are valid forever, but a long-running install will fill the disk on a
+heavy user.
+
+**When.** When real users report a disk-space issue, OR when total
+cache size in a typical project exceeds 1 GB.
+
+### 6. ``API include=`` parameter for SampleResponse (low)
+
+**What.** ``GET /borehole/{id}`` always selectinloads all 6 lab-test
+relationships per sample. Fine at our 232-sample scale; at 5000
+samples per borehole this becomes a measurable bottleneck. An
+``?include=grain_size,atterberg_limits`` style scope on the endpoint
+would let the caller request only what it'll render.
+
+**When.** When a single borehole-detail call exceeds ~500 ms in
+production.
+
+### 7. Translate ``ScalarLabTest.parameter`` storage (low)
+
+**What.** 671 rows already store the verbatim DOV string
+``"Korrelvolumemassa (korrelvolumemassa)"`` etc. If DOV changes their
+inconsistent doubled-tail convention again, we'd need to migrate all
+rows. A separate ``parameter_slug`` column with a canonical short
+name (derived at ingest from a curated map) would help reporting and
+make the storage column independent of upstream tweaks.
+
+**When.** When a query against ``scalar_lab_test`` is added that
+filters by parameter — at that point the slug becomes load-bearing.
+
+### 8. ``BoreholeLog.tsx`` size (low)
+
+**What.** ~1850 lines. Cohesive (everything is borelog rendering)
+but big. If we add another track type (e.g. CPT-overlay-on-borelog
+in Phase 5) it'll cross the "split this file" threshold.
+
+**When.** Before adding the next track type. Natural splits:
+``borelog/utils.ts`` for pure helpers, ``borelog/tracks/`` for the
+per-track components.
+
+### 9. Telemetry / crash reporting (low)
+
+**What.** No Sentry-equivalent. Frontend ``log.*`` calls go to the
+devtools console; user-side crashes are invisible to us.
+
+**When.** Before any non-solo user.
+
+### 10. Pre-commit / CI test runner (low)
+
+**What.** ``.claude/hooks/ruff_format.py`` formats Python on save but
+no hook runs ``pytest`` before commit. Frontend ``tsc`` is manual.
+Easy to push a green-locally / red-on-pull-request commit.
+
+**When.** Before opening the repo to collaborators (private
+solo-dev is forgiving).
