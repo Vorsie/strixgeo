@@ -54,6 +54,176 @@ export interface ImportDovResponse {
   cpt_ids: string[]
 }
 
+// ---------------------------------------------------------------------------
+// Borehole / sample / lab-test types — mirrors the FastAPI schemas in
+// ``api/schemas/borehole/``.
+// ---------------------------------------------------------------------------
+
+export interface BoreholeListItem {
+  id: string
+  name: string
+  test_id: string
+  location_x: number
+  location_y: number
+  epsg: number | null
+  elevation_m: number | null
+  z_epsg: number | null
+  drill_method: string | null
+  borehole_type: string | null
+  total_depth_m: number | null
+  start_date: string | null
+  n_drill_segments: number | null
+  n_field_log_intervals: number | null
+}
+
+export interface AdmixtureResponse {
+  soil_code: string
+  amount: string
+  locally: boolean
+}
+
+export interface ObservationLayerResponse {
+  id: string
+  top_m: number
+  base_m: number
+  color: string | null
+  main_soil_codes: string[]
+  description: string | null
+  layer_index: number
+  admixtures: AdmixtureResponse[]
+}
+
+export interface ObservationResponse {
+  id: string
+  observation_type: string
+  author: string | null
+  observation_date: string | null
+  reliability: string | null
+  score_category: string | null
+  drill_method_score: string | null
+  layers: ObservationLayerResponse[]
+}
+
+export interface DrillSegmentResponse {
+  id: string
+  top_m: number
+  base_m: number
+  method: string | null
+}
+
+export interface FieldLogIntervalResponse {
+  id: string
+  top_m: number
+  base_m: number
+  kind: string
+  value: string | null
+}
+
+export interface GrainSizeResponse {
+  id: string
+  diameters_mm: number[]
+  pct_larger: number[]
+  method: string | null
+  test_date: string | null
+  lime_removed: boolean | null
+  organics_removed: boolean | null
+}
+
+export interface AtterbergLimitsResponse {
+  id: string
+  liquid_limit_pct: number | null
+  plastic_limit_pct: number | null
+  non_plastic: boolean | null
+  method: string | null
+  test_date: string | null
+}
+
+export interface CaCO3ContentResponse {
+  id: string
+  content_pct: number | null
+  method: string | null
+  test_date: string | null
+}
+
+export interface OrganicContentResponse {
+  id: string
+  carbon_pct: number | null
+  matter_pct: number | null
+  method: string | null
+  test_date: string | null
+}
+
+export interface WaterContentResponse {
+  id: string
+  content_pct: number | null
+  method: string | null
+  test_date: string | null
+}
+
+export interface SampleResponse {
+  id: string
+  depth_top_m: number
+  depth_base_m: number
+  description: string
+  sample_number: string | null
+  sample_type: string | null
+  composition: string | null
+  instrument: string | null
+  sampling_date: string | null
+  grain_sizes: GrainSizeResponse[]
+  atterberg_limits_tests: AtterbergLimitsResponse[]
+  caco3_content_tests: CaCO3ContentResponse[]
+  organic_content_tests: OrganicContentResponse[]
+  water_content_tests: WaterContentResponse[]
+}
+
+export interface BoreholeDetailResponse {
+  id: string
+  name: string
+  test_id: string
+  project_id: string
+  location_x: number
+  location_y: number
+  epsg: number | null
+  elevation_m: number | null
+  z_epsg: number | null
+  start_date: string | null
+  drill_method: string | null
+  borehole_type: string | null
+  purpose: string | null
+  municipality: string | null
+  executor: string | null
+  total_depth_m: number | null
+  water_table_depth_m: number | null
+  n_drill_segments: number | null
+  n_field_log_intervals: number | null
+  drill_segments: DrillSegmentResponse[]
+  field_log_intervals: FieldLogIntervalResponse[]
+  observations: ObservationResponse[]
+  samples: SampleResponse[]
+}
+
+export interface ImportBoreholeDovResponse {
+  imported: number
+  duplicates: number
+  failed: number
+  interpretations_attached: number
+  interpretations_failed: number
+  samples_attached: number
+  samples_failed: number
+  grain_sizes_attached: number
+  grain_sizes_failed: number
+  atterberg_attached: number
+  atterberg_failed: number
+  caco3_attached: number
+  caco3_failed: number
+  organic_attached: number
+  organic_failed: number
+  water_content_attached: number
+  water_content_failed: number
+  borehole_ids: string[]
+}
+
 export class DuplicateCptError extends Error {
   cptId: string
   constructor(cptId: string) {
@@ -124,6 +294,31 @@ export const api = {
           throw new DuplicateCptError(body.detail.cpt_id)
         }
         throw new Error(body.detail?.message ?? body.detail ?? `Import failed: ${res.status}`)
+      }
+      return res.json()
+    },
+  },
+
+  borehole: {
+    list: (projectId?: string): Promise<BoreholeListItem[]> =>
+      get(`/borehole/${projectId ? `?project_id=${projectId}` : ''}`),
+
+    get: (id: string): Promise<BoreholeDetailResponse> => get(`/borehole/${id}`),
+
+    importDov: async (
+      bbox: { west: number; south: number; east: number; north: number },
+      projectId?: string,
+    ): Promise<ImportBoreholeDovResponse> => {
+      const res = await fetch(`${_base}/borehole/import-dov`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...bbox, project_id: projectId ?? null }),
+      })
+      if (!res.ok) {
+        // Same upstream-error → message mapping as the CPT side
+        // (502/503/504 surfaced by the FastAPI router).
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail ?? `DOV borehole import failed (HTTP ${res.status})`)
       }
       return res.json()
     },
