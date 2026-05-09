@@ -47,6 +47,7 @@ from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.repositories.dov_dedup import existing_dov_permkeys
 from groundmodel.infrastructure.parsers.borehole.dov.dov_interpretation_client import (
     DovInterpretationClient,
 )
@@ -192,13 +193,25 @@ class ImportInterpretationsDov(GroundModelLogger):
                     + ", ".join(f"{iss.code}: {iss.message}" for iss in parse_result.issues)
                 )
 
-        # Phase 3 — persist. No dedup query: this orchestrator is only invoked
-        # for newly-imported boreholes, so no observations exist for them yet
-        # in the DB. (Re-importing into an app project is idempotent at the
-        # borehole layer; we ride that idempotency here.)
+        # Phase 3 — per-row dedup against ``Observation.dov_permkey`` for
+        # refresh-on-duplicate: when an existing borehole is in scope,
+        # its already-stored interpretations skip; only NEW
+        # interpretations on it persist.
+        existing_permkeys = await existing_dov_permkeys(
+            self._session,
+            ObservationOrm,
+            "borehole_id",
+            test_id_to_borehole_id.values(),
+        )
+
         t_persist = time.perf_counter()
         total = len(parsed)
         for i, (row, parse_result) in enumerate(parsed, 1):
+            if row.permkey in existing_permkeys:
+                # Already stored under this borehole — skip silently. The
+                # parent debug log already reports the in-scope set.
+                result.skipped_already_present += 1
+                continue
             try:
                 orm = self._build_orm(row, parse_result)
                 if orm is None:
@@ -227,8 +240,9 @@ class ImportInterpretationsDov(GroundModelLogger):
         self.success(
             f"DOV interpretation import done in {ms_since(t_total)} ms: "
             f"fetched={result.fetched} attached={result.attached} "
-            f"skipped={result.skipped_no_borehole} failed={result.failed}  "
-            f"per-stream={result.per_stream}"
+            f"skipped_already_present={result.skipped_already_present} "
+            f"skipped_no_borehole={result.skipped_no_borehole} "
+            f"failed={result.failed}  per-stream={result.per_stream}"
         )
         return result
 
@@ -253,6 +267,9 @@ class ImportInterpretationsDov(GroundModelLogger):
         return ObservationOrm(
             id=observation.id,
             borehole_id=observation.borehole_id,
+            # WFS row's permkey for the interpretatie; stable upstream
+            # identity used by re-import dedup (refresh-on-duplicate).
+            dov_permkey=row.permkey,
             observation_type=_observation_type_value(observation.observation_type),
             author=observation.author,
             observation_date=observation.observation_date,

@@ -41,24 +41,35 @@ class ImportSamplesDovResult:
 
     samples_attached: int = 0
     samples_skipped_no_borehole: int = 0
+    # Refresh-on-duplicate: samples / observations whose dov_permkey
+    # was already stored under the matched parent. We see them in the
+    # WFS response but skip the persist step.
+    samples_skipped_already_present: int = 0
     samples_failed: int = 0
     grain_sizes_fetched: int = 0
     grain_sizes_attached: int = 0
     grain_sizes_skipped_no_sample: int = 0
+    grain_sizes_skipped_already_present: int = 0
     grain_sizes_failed: int = 0
     # Phase C4 — scalar lab tests. ``_attached`` counts ORM rows queued for
     # commit, ``_failed`` counts per-row mapping failures (null/non-numeric
     # value, range violation, orphan parent sample, etc.).
+    # ``_skipped_already_present`` is the refresh-on-duplicate counter.
     atterberg_attached: int = 0
+    atterberg_skipped_already_present: int = 0
     atterberg_failed: int = 0
     caco3_attached: int = 0
+    caco3_skipped_already_present: int = 0
     caco3_failed: int = 0
     organic_attached: int = 0
+    organic_skipped_already_present: int = 0
     organic_failed: int = 0
     water_content_attached: int = 0
+    water_content_skipped_already_present: int = 0
     water_content_failed: int = 0
     # Phase C5 — generic scalar-lab-test catch-all (grain density, ASTM
     # classification, descriptive calcareous content, plus any future
     # parameters added to ``DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS``).
     scalar_lab_tests_attached: int = 0
+    scalar_lab_tests_skipped_already_present: int = 0
     scalar_lab_tests_failed: int = 0

@@ -65,6 +65,10 @@ from groundmodel.infrastructure.db.models.organic_content_orm import OrganicCont
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.infrastructure.db.models.scalar_lab_test_orm import ScalarLabTestOrm
 from groundmodel.infrastructure.db.models.water_content_orm import WaterContentOrm
+from groundmodel.infrastructure.db.repositories.dov_dedup import (
+    existing_dov_permkey_to_id,
+    existing_dov_permkeys,
+)
 from groundmodel.infrastructure.parsers.borehole.dov.dov_sample_client import DovSampleClient
 from groundmodel.infrastructure.parsers.borehole.dov.sample_wfs_row import SampleWfsRow
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
@@ -188,14 +192,41 @@ class ImportSamplesDov(GroundModelLogger):
             self.error(f"DOV sample WFS network error: {type(exc).__name__}: {exc}")
             raise
 
-        if not sample_rows:
-            self.info("DOV sample import: 0 matching samples in bbox — nothing to attach")
+        # Refresh-on-duplicate: pre-load existing samples for the
+        # in-scope boreholes BEFORE the empty-sample-rows early-exit
+        # guard. Even when DOV has no new samples in this bbox, lab
+        # tests on already-stored samples can still arrive and need
+        # attaching. Keys go straight into ``permkey_to_sample_id`` so
+        # downstream lab-test phases can attach NEW lab tests to
+        # already-stored samples.
+        existing_samples = await existing_dov_permkey_to_id(
+            self._session,
+            SampleOrm,
+            "borehole_id",
+            permkey_to_borehole_id.values(),
+        )
+        permkey_to_sample_id.update(existing_samples)
+        if existing_samples:
+            self.info(
+                f"DOV sample dedup: {len(existing_samples)} samples already "
+                f"present for these boreholes — skipping their re-persist"
+            )
+
+        if not sample_rows and not existing_samples:
+            self.info(
+                "DOV sample import: 0 matching samples in bbox AND no existing "
+                "samples — nothing to attach"
+            )
             return result
 
-        # Persist samples (no commit). Build the permkey→sample-UUID map
-        # for the grain-size phase as we go.
+        # Persist NEW samples (no commit). Build the permkey→sample-UUID
+        # map for the grain-size phase as we go.
         t_persist_samples = time.perf_counter()
         for i, row in enumerate(sample_rows, 1):
+            if row.permkey in existing_samples:
+                # Already stored under this borehole — skip silently.
+                result.samples_skipped_already_present += 1
+                continue
             borehole_id = permkey_to_borehole_id.get(row.parent_borehole_permkey)
             if borehole_id is None:
                 # Should be unreachable because of the WFS client's
@@ -225,7 +256,7 @@ class ImportSamplesDov(GroundModelLogger):
         )
 
         if not permkey_to_sample_id:
-            self.info("DOV sample import: no samples persisted — skipping grain-size fetch")
+            self.info("DOV sample import: no samples in scope — skipping grain-size fetch")
             return result
 
         # ------------------------------------------------------------------
@@ -276,11 +307,25 @@ class ImportSamplesDov(GroundModelLogger):
                     + ", ".join(f"{iss.code}: {iss.message}" for iss in parse_result.issues)
                 )
 
+        # Refresh-on-duplicate dedup: existing grain-size permkeys for
+        # any sample in scope. Skip the persist for already-stored
+        # observations; only NEW grain-size analyses on existing
+        # samples flow through.
+        existing_gs_permkeys = await existing_dov_permkeys(
+            self._session,
+            GrainSizeOrm,
+            "sample_id",
+            permkey_to_sample_id.values(),
+        )
+
         # Persist grain-sizes (no commit). Drop those with empty curves —
         # the parser already flagged INVALID_CURVE; persisting an empty
         # array would mislead the consumer.
         t_persist_gs = time.perf_counter()
         for i, (row, parse_result) in enumerate(parsed, 1):
+            if row.permkey in existing_gs_permkeys:
+                result.grain_sizes_skipped_already_present += 1
+                continue
             if not parse_result.grain_size.diameters_mm:
                 result.grain_sizes_skipped_no_sample += 0  # not this counter
                 # Empty curves were a parse-level error; record as failed
@@ -294,7 +339,7 @@ class ImportSamplesDov(GroundModelLogger):
                 continue
 
             try:
-                orm = _grain_size_to_orm(parse_result, sample_id)
+                orm = _grain_size_to_orm(parse_result, sample_id, row.permkey)
                 self._session.add(orm)
                 result.grain_sizes_attached += 1
                 self.debug(
@@ -435,21 +480,42 @@ class ImportSamplesDov(GroundModelLogger):
             f"other={len(other_rows)} rows"
         )
 
+        # Refresh-on-duplicate: pre-fetch the set of already-stored
+        # permkeys per lab-test family for any in-scope sample. Each
+        # ``_persist_*`` method takes the corresponding skip-set so
+        # already-stored rows are silently ignored. Parallel via
+        # asyncio.gather since these are independent SELECTs.
+        sample_ids = list(permkey_to_sample_id.values())
+        (
+            existing_atterberg,
+            existing_caco3,
+            existing_organic,
+            existing_water,
+            existing_scalar,
+        ) = await asyncio.gather(
+            existing_dov_permkeys(self._session, AtterbergLimitsOrm, "sample_id", sample_ids),
+            existing_dov_permkeys(self._session, CaCO3ContentOrm, "sample_id", sample_ids),
+            existing_dov_permkeys(self._session, OrganicContentOrm, "sample_id", sample_ids),
+            existing_dov_permkeys(self._session, WaterContentOrm, "sample_id", sample_ids),
+            existing_dov_permkeys(self._session, ScalarLabTestOrm, "sample_id", sample_ids),
+        )
+
         # Persist Atterberg (with LL+PL aggregation), the three typed single-
         # parameter scalar tests, and finally the catch-all ``ScalarLabTest``
         # rows. Each helper updates the result counters in place and isolates
         # per-row failures.
-        self._persist_atterberg(atterberg_rows, permkey_to_sample_id, result)
-        self._persist_caco3(caco3_rows, permkey_to_sample_id, result)
-        self._persist_organic(organic_rows, permkey_to_sample_id, result)
-        self._persist_water_content(water_rows, permkey_to_sample_id, result)
-        self._persist_scalar_lab_tests(other_rows, permkey_to_sample_id, result)
+        self._persist_atterberg(atterberg_rows, permkey_to_sample_id, result, existing_atterberg)
+        self._persist_caco3(caco3_rows, permkey_to_sample_id, result, existing_caco3)
+        self._persist_organic(organic_rows, permkey_to_sample_id, result, existing_organic)
+        self._persist_water_content(water_rows, permkey_to_sample_id, result, existing_water)
+        self._persist_scalar_lab_tests(other_rows, permkey_to_sample_id, result, existing_scalar)
 
     def _persist_atterberg(
         self,
         rows: list[ScalarObservationWfsRow],
         permkey_to_sample_id: dict[str, UUID],
         result: ImportSamplesDovResult,
+        existing_permkeys: set[str],
     ) -> None:
         """Aggregate LL + PL rows by sample, persist one AtterbergLimitsOrm per sample.
 
@@ -458,6 +524,10 @@ class ImportSamplesDov(GroundModelLogger):
         by parent sample permkey, then collapse each bucket into one
         ``AtterbergLimitsOrm``. Samples with only one of the two are still
         persisted with the other column NULL — partial measurements are real.
+
+        Refresh-on-duplicate: skip aggregates whose canonical permkey
+        (the LL row's, or the PL row's when only PL is present) is
+        already stored under the sample.
         """
         by_sample: dict[str, dict[str, ScalarObservationWfsRow]] = {}
         for row in rows:
@@ -479,6 +549,14 @@ class ImportSamplesDov(GroundModelLogger):
                 # Unreachable in practice — the WFS client filters to known
                 # parents — but defensive logging if the contract slips.
                 result.atterberg_failed += len(kind_to_row)
+                continue
+
+            # Canonical permkey matches what _atterberg_to_orm assigns.
+            ll = kind_to_row.get("LL")
+            pl = kind_to_row.get("PL")
+            canonical_permkey = (ll.permkey if ll else None) or (pl.permkey if pl else None)
+            if canonical_permkey and canonical_permkey in existing_permkeys:
+                result.atterberg_skipped_already_present += 1
                 continue
 
             try:
@@ -505,6 +583,7 @@ class ImportSamplesDov(GroundModelLogger):
         rows: list[ScalarObservationWfsRow],
         permkey_to_sample_id: dict[str, UUID],
         result: ImportSamplesDovResult,
+        existing_permkeys: set[str],
     ) -> None:
         """Persist one CaCO3ContentOrm per row whose value is in [0, 100]."""
         for row in rows:
@@ -515,6 +594,8 @@ class ImportSamplesDov(GroundModelLogger):
                 builder=_caco3_to_orm,
                 attached_attr="caco3_attached",
                 failed_attr="caco3_failed",
+                skipped_attr="caco3_skipped_already_present",
+                existing_permkeys=existing_permkeys,
                 test_label="caco3",
             )
 
@@ -523,6 +604,7 @@ class ImportSamplesDov(GroundModelLogger):
         rows: list[ScalarObservationWfsRow],
         permkey_to_sample_id: dict[str, UUID],
         result: ImportSamplesDovResult,
+        existing_permkeys: set[str],
     ) -> None:
         """Persist one OrganicContentOrm per organic-C row whose value is in [0, 100]."""
         for row in rows:
@@ -533,6 +615,8 @@ class ImportSamplesDov(GroundModelLogger):
                 builder=_organic_carbon_to_orm,
                 attached_attr="organic_attached",
                 failed_attr="organic_failed",
+                skipped_attr="organic_skipped_already_present",
+                existing_permkeys=existing_permkeys,
                 test_label="organic",
             )
 
@@ -541,6 +625,7 @@ class ImportSamplesDov(GroundModelLogger):
         rows: list[ScalarObservationWfsRow],
         permkey_to_sample_id: dict[str, UUID],
         result: ImportSamplesDovResult,
+        existing_permkeys: set[str],
     ) -> None:
         """Persist one WaterContentOrm per row whose value is in [0, 1000]."""
         for row in rows:
@@ -551,6 +636,8 @@ class ImportSamplesDov(GroundModelLogger):
                 builder=_water_content_to_orm,
                 attached_attr="water_content_attached",
                 failed_attr="water_content_failed",
+                skipped_attr="water_content_skipped_already_present",
+                existing_permkeys=existing_permkeys,
                 test_label="water",
             )
 
@@ -559,6 +646,7 @@ class ImportSamplesDov(GroundModelLogger):
         rows: list[ScalarObservationWfsRow],
         permkey_to_sample_id: dict[str, UUID],
         result: ImportSamplesDovResult,
+        existing_permkeys: set[str],
     ) -> None:
         """Persist one ``ScalarLabTestOrm`` per row into the catch-all table.
 
@@ -567,14 +655,22 @@ class ImportSamplesDov(GroundModelLogger):
         (numeric, text, null-with-condition all valid). Per-row failures
         only happen when the parent sample isn't in our just-imported set
         or the SQL insert raises.
+
+        Refresh-on-duplicate: ``existing_permkeys`` are scalar-lab-test
+        permkeys already stored under any sample in scope; rows whose
+        ``permkey`` is in the set skip the persist step.
         """
         attached_before = result.scalar_lab_tests_attached
         failed_before = result.scalar_lab_tests_failed
+        skipped_before = result.scalar_lab_tests_skipped_already_present
         total = len(rows)
         for index, row in enumerate(rows, start=1):
             # CLAUDE.md DoD: bulk loops carry an [i/total] prefix so an
             # operator scanning a long log can spot stalls / progress.
             prefix = f"[{index}/{total}]"
+            if row.permkey in existing_permkeys:
+                result.scalar_lab_tests_skipped_already_present += 1
+                continue
             sample_id = permkey_to_sample_id.get(row.parent_sample_permkey)
             if sample_id is None:
                 # Sample wasn't in the just-imported set — observation
@@ -604,9 +700,11 @@ class ImportSamplesDov(GroundModelLogger):
         # so empty bboxes don't add noise.
         attached = result.scalar_lab_tests_attached - attached_before
         failed = result.scalar_lab_tests_failed - failed_before
-        if attached or failed:
+        skipped = result.scalar_lab_tests_skipped_already_present - skipped_before
+        if attached or failed or skipped:
             self.info(
                 f"DOV scalar-lab-test catch-all: {attached} attached, "
+                f"{skipped} skipped (already present), "
                 f"{failed} failed (input: {len(rows)} rows)"
             )
 
@@ -618,15 +716,22 @@ class ImportSamplesDov(GroundModelLogger):
         builder,
         attached_attr: str,
         failed_attr: str,
+        skipped_attr: str,
+        existing_permkeys: set[str],
         test_label: str,
     ) -> None:
         """Shared per-row persist for the three single-parameter scalar tests.
 
         ``builder(row, sample_id)`` returns the ORM row or None when the
         value can't be mapped (null resultaat, range violation, etc.).
-        ``attached_attr`` / ``failed_attr`` name the counter fields on the
-        result so we can re-use this for caco3 / organic / water_content.
+        ``attached_attr`` / ``failed_attr`` / ``skipped_attr`` name the
+        counter fields on the result so we re-use this for caco3 /
+        organic / water_content. ``existing_permkeys`` is the
+        family-specific skip-set for refresh-on-duplicate.
         """
+        if row.permkey in existing_permkeys:
+            setattr(result, skipped_attr, getattr(result, skipped_attr) + 1)
+            return
         sample_id = permkey_to_sample_id.get(row.parent_sample_permkey)
         if sample_id is None:
             setattr(result, failed_attr, getattr(result, failed_attr) + 1)
@@ -664,6 +769,9 @@ def _sample_to_orm(row: SampleWfsRow, borehole_id: UUID) -> SampleOrm:
     return SampleOrm(
         id=uuid7(),
         borehole_id=borehole_id,
+        # ``permkey_monster`` from the WFS row; stable upstream identity
+        # used by re-import dedup.
+        dov_permkey=row.permkey,
         depth_top_m=row.depth_top_m if row.depth_top_m is not None else 0.0,
         depth_base_m=row.depth_base_m if row.depth_base_m is not None else 0.0,
         description="",
@@ -675,12 +783,17 @@ def _sample_to_orm(row: SampleWfsRow, borehole_id: UUID) -> SampleOrm:
     )
 
 
-def _grain_size_to_orm(parse_result: GrainSizeParseResult, sample_id: UUID) -> GrainSizeOrm:
+def _grain_size_to_orm(
+    parse_result: GrainSizeParseResult,
+    sample_id: UUID,
+    dov_permkey: str | None,
+) -> GrainSizeOrm:
     """Map a GrainSizeParseResult + sample UUID into a GrainSizeOrm row."""
     gs = parse_result.grain_size
     return GrainSizeOrm(
         id=gs.id,
         sample_id=sample_id,
+        dov_permkey=dov_permkey,
         diameters_mm=list(gs.diameters_mm),
         pct_larger=list(gs.pct_larger),
         method=gs.method,
@@ -755,9 +868,16 @@ def _atterberg_to_orm(
         pl_row.fenomeentijd if pl_row else None
     )
 
+    # Use the LL row's permkey as the canonical Atterberg identity. PL's
+    # permkey is not separately tracked because the orchestrator collapses
+    # both into one ORM row. Falls back to PL's permkey when only PL is
+    # present.
+    canonical_permkey = (ll_row.permkey if ll_row else None) or (pl_row.permkey if pl_row else None)
+
     return AtterbergLimitsOrm(
         id=uuid7(),
         sample_id=sample_id,
+        dov_permkey=canonical_permkey,
         liquid_limit_pct=ll_value,
         plastic_limit_pct=pl_value,
         non_plastic=non_plastic,
@@ -781,6 +901,7 @@ def _caco3_to_orm(row: ScalarObservationWfsRow, sample_id: UUID) -> CaCO3Content
     return CaCO3ContentOrm(
         id=uuid7(),
         sample_id=sample_id,
+        dov_permkey=row.permkey,
         content_pct=value,
         method=row.methode,
         test_date=row.fenomeentijd,
@@ -805,6 +926,7 @@ def _organic_carbon_to_orm(
     return OrganicContentOrm(
         id=uuid7(),
         sample_id=sample_id,
+        dov_permkey=row.permkey,
         carbon_pct=value,
         matter_pct=None,
         method=row.methode,
@@ -826,6 +948,7 @@ def _water_content_to_orm(row: ScalarObservationWfsRow, sample_id: UUID) -> Wate
     return WaterContentOrm(
         id=uuid7(),
         sample_id=sample_id,
+        dov_permkey=row.permkey,
         content_pct=value,
         method=row.methode,
         test_date=row.fenomeentijd,
@@ -854,6 +977,7 @@ def _scalar_lab_test_to_orm(row: ScalarObservationWfsRow, sample_id: UUID) -> Sc
     return ScalarLabTestOrm(
         id=uuid7(),
         sample_id=sample_id,
+        dov_permkey=row.permkey,
         parameter_group=row.parametergroep,
         parameter=row.parameter,
         value_numeric=numeric,

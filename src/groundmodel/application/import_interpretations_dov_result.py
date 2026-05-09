@@ -22,7 +22,11 @@ class ImportInterpretationsDovResult:
     skipped_no_borehole : int
         Number of interpretations whose ``test_id`` did not match any
         known borehole — typically interpretations published for boreholes
-        that were duplicates (and therefore not in the caller's map).
+        outside the caller's map.
+    skipped_already_present : int
+        Refresh-on-duplicate counter: interpretations whose
+        ``dov_permkey`` was already stored under the matched borehole.
+        We see them in the WFS response but skip the persist step.
     failed : int
         Number of interpretations that could not be downloaded, parsed,
         or persisted. Per-row failures are isolated.
@@ -34,5 +38,6 @@ class ImportInterpretationsDovResult:
     fetched: int = 0
     attached: int = 0
     skipped_no_borehole: int = 0
+    skipped_already_present: int = 0
     failed: int = 0
     per_stream: dict[str, int] = field(default_factory=dict)
