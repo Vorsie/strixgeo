@@ -88,6 +88,7 @@ export default function App() {
     pickAndOpenProject,
     applyMetadataDraft,
     saveProject: saveMetadata,
+    saveAsProject,
     closeProject,
   } = useProject()
   // Controls the NewProjectDialog modal visibility. Triggered by the File
@@ -605,12 +606,23 @@ export default function App() {
     await saveProject()
   }, [saveProject])
 
+  // File menu Save As / Ctrl+Shift+S — duplicates the project (DB rows
+  // + new .gmproj at a user-chosen path) and switches the live view to
+  // the new copy. The source stays intact. No-ops when no project is
+  // loaded (the menu item is enabled regardless but a single guard
+  // here covers the keyboard-shortcut path too).
+  const handleMenuProjectSaveAs = useCallback(async () => {
+    if (project === null) return
+    await saveAsProject()
+  }, [project, saveAsProject])
+
   useEffect(() => {
     const offs = [
       window.electron.onMenuProjectNew(handleMenuProjectNew),
       window.electron.onMenuProjectOpen(() => void handleMenuProjectOpen()),
       window.electron.onMenuProjectOpenRecent(path => void handleMenuProjectOpenRecent(path)),
       window.electron.onMenuProjectSave(() => void handleMenuProjectSave()),
+      window.electron.onMenuProjectSaveAs(() => void handleMenuProjectSaveAs()),
       window.electron.onMenuProjectClose(handleMenuProjectClose),
     ]
     return () => offs.forEach(off => off())
@@ -619,6 +631,7 @@ export default function App() {
     handleMenuProjectOpen,
     handleMenuProjectOpenRecent,
     handleMenuProjectSave,
+    handleMenuProjectSaveAs,
     handleMenuProjectClose,
   ])
 
