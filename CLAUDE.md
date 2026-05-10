@@ -38,6 +38,52 @@ This platform's job is to deliver a clean, validated **ground model + derived pa
 - **No premature optimisation** — Python + Polars first; Rust only where profiling proves it is needed
 - **Never design a layer you haven't needed yet** — build, feel the pain, then abstract
 - **Engineering interpretation last** — soil behaviour type, layer detection, derived parameters all happen after data plumbing is solid
+- **Backwards compatibility, always** — see the dedicated section below; the short version is: a .gmproj file written by yesterday's build must open in tomorrow's build, forever.
+
+---
+
+## Backwards Compatibility — non-negotiable from now on
+
+User-owned artefacts have to keep working across upgrades. "Forever"
+isn't rhetorical — the user paid the cost of saving the file once and
+should never lose access to that data because we changed our minds.
+
+### Scope
+
+The rule applies to anything the user persists or relies on outside
+the running app:
+
+| Artefact | Rule |
+|---|---|
+| ``.gmproj`` file format | Old versions must always parse. Bump ``format_version`` for breaking changes and add an explicit upgrade path; never silently drop fields. The v1→v2 upgrade in ``desktop/src/renderer/src/utils/projectFile.ts`` is the template. |
+| Bundle wire format (``ProjectBundleRequest`` / ``Response``) | Same as .gmproj — the file embeds this verbatim. Adding fields is fine; removing or repurposing a field name requires a version bump + parse-path branching. |
+| REST API contracts | Additive changes only. New fields default to optional / null. Removing or repurposing existing fields needs a deprecation cycle (ship the new one alongside, migrate clients, drop the old after one or two releases). |
+| Recent-projects list (``userData/recent-projects.json``) | Tolerate unknown fields on read, version it if the shape changes. |
+| URL / query / config conventions documented in CLAUDE.md | Don't yank without a deprecation note. |
+
+### Doesn't apply to
+
+* Internal Python / TypeScript types — they're internal, refactor freely.
+* DB schema (we own Alembic; ``alembic upgrade head`` is the contract,
+  not the column list).
+* Test fixtures, fixtures-on-disk, dev seeds.
+* DOV cache file layout (we control it end-to-end; cache wipe is fine).
+
+### How to bump a versioned format
+
+1. Bump the integer ``format_version`` field.
+2. Keep the old version's reader / parser intact; never delete it.
+3. Add an explicit ``upgrade_vN_to_vN+1`` function that mirrors the
+   shape. The parser tries the newest version first, falls back to
+   older versions, and runs the upgrade chain to materialise into the
+   current in-memory shape.
+4. Write a test that opens a fixture from the previous version and
+   asserts it still reaches today's runtime shape.
+5. New saves always emit the latest version.
+
+If you find yourself wanting to "just break it, no one's using the old
+format yet" — that's the moment the rule matters most. Today's "no
+one" is tomorrow's "every user who downloaded the v0.3 build."
 
 ---
 
