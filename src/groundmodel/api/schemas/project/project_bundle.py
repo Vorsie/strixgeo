@@ -39,15 +39,24 @@ from pydantic import BaseModel, Field
 class ProjectBundleRequest(BaseModel):
     """Body of ``POST /projects/{id}/restore``.
 
-    All three child fields default to empty so a caller that only knows
-    metadata (e.g. an older v1 file) can still trigger the project
-    shell restore without bundling CPTs / boreholes.
+    Child fields default to empty so a caller that only knows metadata
+    (e.g. an older v1 file, or a partial bundle) can still trigger the
+    project shell restore without bundling everything. ``geological_*``
+    were added in a later additive bundle revision — older .gmproj v2
+    files won't have them and that's fine.
     """
 
     format_version: int = Field(default=2, ge=1)
     project: dict[str, Any]
     cpts: list[dict[str, Any]] = Field(default_factory=list)
     boreholes: list[dict[str, Any]] = Field(default_factory=list)
+    # Per-project formation vocabulary — substrate entities the
+    # geological model references.
+    geological_formations: list[dict[str, Any]] = Field(default_factory=list)
+    # Interpretation containers. Each carries its own ``contacts`` list
+    # nested (formation top per investigation), mirroring how CPT
+    # carries series and borehole carries observations / samples.
+    geological_models: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ProjectBundleResponse(BaseModel):
@@ -61,3 +70,5 @@ class ProjectBundleResponse(BaseModel):
     project: dict[str, Any]
     cpts: list[dict[str, Any]]
     boreholes: list[dict[str, Any]]
+    geological_formations: list[dict[str, Any]] = Field(default_factory=list)
+    geological_models: list[dict[str, Any]] = Field(default_factory=list)
