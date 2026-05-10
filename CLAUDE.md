@@ -62,6 +62,10 @@ The domain layer has zero knowledge of FastAPI, PostgreSQL, or Polars.
 ## Domain Model
 
 ```
+Project                      ← app-level container; everything else
+                               carries app_project_id pointing at this
+                               row. Soft-deleted via archived_at.
+
 InSituTest (abstract base)
 ├── PushedInTest
 │   ├── CPT   ← GEF / AGS / LAS
@@ -614,11 +618,85 @@ PATCH  /borehole/{id}/elevation Mirror of ``PATCH /cpt/{id}/elevation`` — same
                                 ``BoreholeListItem`` shape so the frontend can
                                 refresh the sidebar badge without re-fetching
                                 the heavy detail tree.
+
+GET    /projects/               List active projects, most-recent first.
+                                Optional ``?include_archived=true`` returns
+                                both active and archived in one query.
+GET    /projects/archived       List only archived projects (the
+                                "Archived projects" view).
+POST   /projects/               Create a new project. Body matches
+                                ``ProjectCreateRequest`` — ``name`` is
+                                required; everything else (project_number,
+                                client, site_label, description, tags,
+                                default CRSes, phase, status) optional.
+                                Returns the full ``ProjectResponse``.
+GET    /projects/{id}           Project detail (returns archived rows too).
+PATCH  /projects/{id}           Partial update. Only fields present in the
+                                JSON body are written; null clears optional
+                                fields. ``name`` and ``status`` are NOT NULL
+                                in the DB — sending null for either returns
+                                400.
+POST   /projects/{id}/archive   Soft-delete (stamps ``archived_at``).
+                                Project + all its data preserved in the DB.
+POST   /projects/{id}/unarchive Restore (clears ``archived_at``).
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
 
 The frontend always goes through the API — never directly to domain or DB.
+
+---
+
+## Project files (`.gmproj`)
+
+Engineering-app convention: each project is a file the user opens / saves.
+The desktop client uses the extension ``.gmproj`` and JSON-on-disk content
+versioned by ``format_version``. The DB is the live source of truth for
+metadata; the file is a pointer + last-saved snapshot, mirrored via the
+metadata editor.
+
+```json
+{
+  "format_version": 1,
+  "id": "<uuid>",
+  "name": "Antwerp port — quay 7",
+  "project_number": "GEO-2026-042",
+  "client": "Port of Antwerp",
+  "site_label": "Quay 7",
+  "description": "Foundation investigation",
+  "tags": ["foundation", "marine"],
+  "default_horizontal_epsg": 31370,
+  "default_vertical_epsg": 5710,
+  "phase": "design",
+  "status": "active"
+}
+```
+
+* Pretty-printed (2-space indent, trailing newline) — git-diff-friendly.
+* Timestamps (``created_at`` / ``updated_at`` / ``archived_at``) live in the
+  DB only and are not persisted to the file, so re-saving without a DB
+  change leaves the file byte-identical.
+* Opening a file: read JSON → ``GET /projects/{id}`` → adopt the live
+  metadata. If the DB row no longer exists (fresh install with stale file,
+  or project archived elsewhere), ``openProjectFile`` returns ``null`` and
+  the welcome screen stays visible.
+* Recent-projects list lives at
+  ``app.getPath('userData')/recent-projects.json`` (max 10 entries, MRU
+  order). Both the File menu's "Open Recent" submenu and the Welcome
+  screen's "Recent projects" column read from this single source.
+* No auto-reopen on launch. The welcome screen is the always-on entry
+  point — closer to Plaxis / AutoCAD / Photoshop than to Word's "reopen
+  last document" behaviour. Users who want the previous project re-open
+  it from the Recent column with a single click.
+* Sharing a .gmproj file alone won't transfer data (the data lives in
+  the recipient's DB). A self-contained "Export project bundle" feature
+  is future work; today's flow is for solo work + same-machine project
+  organisation.
+
+The on-disk schema lives in ``desktop/src/renderer/src/utils/projectFile.ts``
+(``ProjectFileV1`` type + ``buildProjectFile`` / ``serialiseProjectFile`` /
+``parseProjectFile``). Bumping ``format_version`` requires adding a backwards-
+compatible parse path; today only v1 exists.
 
 ---
 
@@ -661,16 +739,34 @@ desktop/src/
     │   │                       ``onElevationChange`` handler is wired (Phase 3a).
     │   ├── LabTestPanel.tsx   Slide-in detail panel; ScalarTestsSection groups catch-all
     │   │                       tests by parametergroep, ASTM rows show D2487 description.
+    │   ├── NewProjectDialog.tsx Modal for File → New Project. Replaces the
+    │   │                        Electron-disabled ``window.prompt``. Name-only
+    │   │                        MVP today; richer metadata editor extends this
+    │   │                        component when task #16 ships.
     │   ├── Toolbar.tsx    Import button (GEF + DOV)
-    │   └── WelcomeScreen.tsx  Shown until a project is created
+    │   └── WelcomeScreen.tsx  Shown when no project is loaded. Two-column
+    │                          layout: Create / Open card on the left, Recent
+    │                          Projects column on the right (hidden when empty).
+    │                          Engineering-app convention — no auto-reopen on
+    │                          launch (Plaxis / AutoCAD / Photoshop pattern).
     ├── utils/
     │   ├── soilColors.ts      108-code DOV hoofdnaam lookup → English label + color
     │   ├── soilPatterns.tsx   SVG <pattern> defs (FZ/KL/SI/LE/KA/GL/ZS/XZ/NN/ST/VE/SN…)
     │   ├── labTestLabels.ts   Translations for DOV parameter / parametergroep + USCS
     │   │                      D2487 ASTM code descriptions (CL → "Clay (lean)", …)
+    │   ├── projectFile.ts     .gmproj file format helpers (build/serialise/parse).
+    │   │                      Format version 1 — JSON pointer to a DB row. See
+    │   │                      "Project files" below for the schema.
+    │   ├── verticalDatum.ts   EPSG → datum-label lookup (5710→mTAW, 5709→NAP)
     │   └── useWgs84.ts        Lambert72 → WGS84 projection cache
     ├── hooks/
-    │   └── useProject.ts  localStorage project persistence (id, name, createdAt)
+    │   └── useProject.ts  File-aware project hook. State: project (live
+    │                      ProjectResponse from API) + filePath (.gmproj path).
+    │                      Actions: newProject (POST + save dialog + write file,
+    │                      with archive-rollback on cancel/error), openProjectFile,
+    │                      pickAndOpenProject, updateMetadata, archiveCurrent,
+    │                      closeProject. No auto-reopen — welcome screen is the
+    │                      always-on launch surface.
     └── App.tsx            Project gate, data loading, import handlers, toasts.
                            Owns layer-visibility state (hidden CPT types, hidden
                            borehole values per axis, current axis) AND project-local
@@ -931,31 +1027,26 @@ across files I'd rather not regress on the same day.
 clients in Phase 3 — the 6th and 7th instance will make the
 abstraction obvious, and we'll have fresh test coverage.
 
-### 3. Frontend test infrastructure (medium)
+### 3. Frontend test infrastructure — DONE
 
-**What.** Zero frontend tests today. The 4 admixture-rendering
-iterations relied entirely on visual playtest. A snapshot test on
-``BoreholeLog`` against a fixture borehole would have caught the
-layer-overflow regressions instantly. Our backend has 313 unit
-tests; the frontend has 0.
+Vitest + jsdom + ``@testing-library/react`` is set up and in use.
+70 frontend tests across 7 files cover ``BoreholeLog``,
+``ElevationEditor``, ``NewProjectDialog``, ``WelcomeScreen``,
+``useProject``, ``viewportFilter``, and a regression check. The
+admixture-rendering churn that motivated this debt would now be
+caught by the BoreholeLog smoke test. The git pre-commit hook runs
+``npm test`` whenever ``desktop/*.{ts,tsx}`` is staged.
 
-**Why deferred.** Vitest + jsdom + react-testing-library setup is
-non-trivial in Electron + Vite, and snapshot tests for SVG-heavy
-components have notorious churn. Worth doing right rather than
-hastily.
+### 4. Single-project model — DONE (multi-project shipped)
 
-**When.** When the frontend grows past current ~5000 lines, OR after
-the next visual regression that should have been caught
-automatically.
+Multi-project landed 2026-05-10:
 
-### 4. Single-project model (Phase 4)
-
-**What.** ``useProject.ts`` holds one project at a time in
-``localStorage["groundmodel.project"]``. Switching projects means
-clearing localStorage. Multi-project + project-list UI is implied by
-the Phase 4 roadmap but not delivered.
-
-**When.** Phase 4 — multi-project / accounts / SaaS prep.
+* ``project`` table with full metadata + soft archive.
+* /projects API: list / create / get / update / archive / unarchive.
+* ``.gmproj`` file format (pointer + metadata, format_version=1).
+* Electron file menu: New / Open / Open Recent / Close (Ctrl+W).
+* WelcomeScreen with two columns (create-or-open + recent list).
+* Save-As (deep duplicate) deferred to debt #20.
 
 ### 5. DOV cache eviction — DONE
 
