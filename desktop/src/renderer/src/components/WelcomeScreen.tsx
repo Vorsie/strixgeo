@@ -86,9 +86,15 @@ export default function WelcomeScreen({
             and analysing data.
           </p>
 
-          <label className="block text-xs font-medium text-gray-600 mb-1">Project name</label>
+          <label
+            htmlFor="welcome-project-name"
+            className="block text-xs font-medium text-gray-600 mb-1"
+          >
+            Project name
+          </label>
           <input
             autoFocus
+            id="welcome-project-name"
             type="text"
             value={name}
             onChange={e => setName(e.target.value)}
