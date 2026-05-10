@@ -1,0 +1,350 @@
+"""Integration tests for the project bundle round-trip.
+
+Exercise ``build_project_bundle`` and ``restore_project_bundle`` end-to-
+end against a real PostgreSQL session. The bundle is the on-disk shape
+of the .gmproj v2 file format — a full project + every CPT (with
+series) + every borehole (with its complete child tree) serialised to
+a JSON-friendly dict.
+
+Why these tests live here (integration, not unit): the serialiser uses
+``__mapper__.column_attrs`` to enumerate columns dynamically, and the
+restore path needs the SQLAlchemy session to materialise relationships
+through cascade. A mocked session wouldn't catch column-type drift
+between serialise and restore.
+
+Requires the Docker DB on localhost:5433.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from uuid6 import uuid7
+
+from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
+from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
+from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
+from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
+from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.infrastructure.db.repositories.project_bundle import (
+    build_project_bundle,
+    restore_project_bundle,
+)
+from groundmodel.infrastructure.db.repositories.project_repository import (
+    ProjectRepository,
+)
+
+
+async def _make_source_project(db_session: AsyncSession) -> ProjectOrm:
+    """Build a project with one CPT (with series) and one rich borehole tree."""
+    repo = ProjectRepository(db_session)
+    project = ProjectOrm(
+        id=uuid7(),
+        name="Bundle source",
+        client="ACME",
+        site_label="Antwerp port",
+        description="Foundation study",
+        tags=["foundation", "marine"],
+        default_horizontal_epsg=31370,
+        default_vertical_epsg=5710,
+        phase="design",
+        status="active",
+    )
+    await repo.save(project)
+
+    cpt = CptOrm(
+        id=uuid7(),
+        name="CPT-1",
+        cpt_type="CPTU",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="GEO-001",
+        location_x=150000.0,
+        location_y=200000.0,
+        elevation_m=12.34,
+        epsg=31370,
+        z_epsg=5710,
+        cone_area_ratio=0.8,
+    )
+    cpt.series = CptSeriesOrm(
+        depths_m=[0.0, 0.5, 1.0],
+        qc_mpa=[1.2, 2.4, 3.6],
+        fs_mpa=[0.01, 0.02, 0.03],
+        u2_mpa=[0.05, 0.10, 0.15],
+        rf_pct=[0.8, 0.8, 0.8],
+        rf_source="measured",
+    )
+    db_session.add(cpt)
+
+    bh = BoreholeOrm(
+        id=uuid7(),
+        name="BH-1",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="BH-001",
+        location_x=160000.0,
+        location_y=210000.0,
+        epsg=31370,
+        total_depth_m=5.0,
+        drill_method="rotary",
+    )
+    bh.drill_segments = [
+        DrillSegmentOrm(id=uuid7(), top_m=0.0, base_m=2.0, method="spade"),
+        DrillSegmentOrm(id=uuid7(), top_m=2.0, base_m=5.0, method="auger"),
+    ]
+    obs = ObservationOrm(
+        id=uuid7(),
+        observation_type="lithologie",
+        author="J. Driller",
+    )
+    layer = ObservationLayerOrm(
+        id=uuid7(),
+        top_m=0.0,
+        base_m=2.0,
+        layer_index=0,
+        main_soil_codes=["KL"],
+    )
+    layer.admixtures = [AdmixtureOrm(id=uuid7(), soil_code="ZS", amount="weinig", locally=False)]
+    obs.layers = [layer]
+    bh.observations = [obs]
+
+    sample = SampleOrm(
+        id=uuid7(),
+        depth_top_m=1.0,
+        depth_base_m=2.0,
+        description="Sample from upper layer",
+    )
+    sample.grain_sizes = [
+        GrainSizeOrm(
+            id=uuid7(),
+            diameters_mm=[0.063, 0.125],
+            pct_larger=[95.0, 70.0],
+            method="Zeving",
+        )
+    ]
+    sample.atterberg_limits_tests = [
+        AtterbergLimitsOrm(id=uuid7(), liquid_limit_pct=42.0, plastic_limit_pct=22.0)
+    ]
+    bh.samples = [sample]
+
+    db_session.add(bh)
+    await db_session.commit()
+    return project
+
+
+async def test_build_bundle_captures_full_tree(db_session: AsyncSession) -> None:
+    """Bundle response carries the project + 1 CPT (with series) + 1 borehole tree."""
+    project = await _make_source_project(db_session)
+
+    bundle = await build_project_bundle(db_session, project)
+
+    assert bundle["format_version"] == 2
+    assert bundle["project"]["name"] == "Bundle source"
+    assert bundle["project"]["client"] == "ACME"
+    assert bundle["project"]["tags"] == ["foundation", "marine"]
+    # ``archived_at`` is intentionally excluded from the bundle.
+    assert "archived_at" not in bundle["project"]
+    # Server-managed timestamps are also excluded.
+    assert "created_at" not in bundle["project"]
+
+    assert len(bundle["cpts"]) == 1
+    cpt_bundle = bundle["cpts"][0]
+    assert cpt_bundle["name"] == "CPT-1"
+    assert cpt_bundle["cpt_type"] == "CPTU"
+    # UUID stringified.
+    assert isinstance(cpt_bundle["id"], str)
+    # Series nested under "series" with arrays preserved verbatim.
+    assert cpt_bundle["series"]["depths_m"] == [0.0, 0.5, 1.0]
+    assert cpt_bundle["series"]["qc_mpa"] == [1.2, 2.4, 3.6]
+    assert cpt_bundle["series"]["rf_source"] == "measured"
+    # Geometry is dropped — reconstructed on restore.
+    assert "location" not in cpt_bundle
+
+    assert len(bundle["boreholes"]) == 1
+    bh_bundle = bundle["boreholes"][0]
+    assert bh_bundle["name"] == "BH-1"
+    assert len(bh_bundle["drill_segments"]) == 2
+    assert bh_bundle["drill_segments"][0]["method"] == "spade"
+    assert len(bh_bundle["observations"]) == 1
+    assert len(bh_bundle["observations"][0]["layers"]) == 1
+    layer_bundle = bh_bundle["observations"][0]["layers"][0]
+    assert layer_bundle["main_soil_codes"] == ["KL"]
+    assert len(layer_bundle["admixtures"]) == 1
+    assert layer_bundle["admixtures"][0]["soil_code"] == "ZS"
+    assert len(bh_bundle["samples"]) == 1
+    sample_bundle = bh_bundle["samples"][0]
+    assert sample_bundle["depth_top_m"] == 1.0
+    assert len(sample_bundle["grain_sizes"]) == 1
+    assert sample_bundle["grain_sizes"][0]["pct_larger"] == [95.0, 70.0]
+    assert len(sample_bundle["atterberg_limits_tests"]) == 1
+
+
+async def test_restore_bundle_recreates_full_project_with_original_ids(
+    db_session: AsyncSession,
+) -> None:
+    """Bundle → restore round-trip preserves ids and every column value."""
+    source = await _make_source_project(db_session)
+    bundle = await build_project_bundle(db_session, source)
+
+    # Capture original ids so we can assert preservation.
+    original_project_id = source.id
+    cpts_stmt = (
+        select(CptOrm)
+        .where(CptOrm.app_project_id == original_project_id)
+        .options(selectinload(CptOrm.series))
+    )
+    original_cpts = list((await db_session.execute(cpts_stmt)).scalars().all())
+    original_cpt_id = original_cpts[0].id
+    bhs_stmt = select(BoreholeOrm).where(BoreholeOrm.app_project_id == original_project_id)
+    original_bh_id = (await db_session.execute(bhs_stmt)).scalar_one().id
+
+    # Simulate a DB wipe. ``app_project_id`` is a plain UUID column (no
+    # ForeignKey by design — projects are an app-level scope), so
+    # deleting the project row does NOT cascade to CPTs / boreholes. We
+    # have to drop them explicitly.
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == original_project_id))
+    await db_session.execute(
+        delete(BoreholeOrm).where(BoreholeOrm.app_project_id == original_project_id)
+    )
+    await db_session.delete(source)
+    await db_session.commit()
+    # Clear the identity map — the DELETEd rows are still cached because
+    # ``expire_on_commit=False`` and bulk ``delete()`` skips per-instance
+    # eviction. Without this, the next INSERT under the same ids would
+    # trigger SAWarning about replacing identity-map entries.
+    db_session.expunge_all()
+
+    restored = await restore_project_bundle(
+        db_session,
+        original_project_id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+    )
+    await db_session.commit()
+
+    # Project shell restored under the SAME id.
+    assert restored.id == original_project_id
+    assert restored.name == "Bundle source"
+    assert restored.client == "ACME"
+    assert restored.tags == ["foundation", "marine"]
+    # Restored projects come back active even if archived before wipe.
+    assert restored.archived_at is None
+
+    # CPT restored with original id + series + geometry rebuilt.
+    cpts_after = list((await db_session.execute(cpts_stmt)).scalars().all())
+    assert len(cpts_after) == 1
+    new_cpt = cpts_after[0]
+    assert new_cpt.id == original_cpt_id
+    assert new_cpt.name == "CPT-1"
+    assert new_cpt.cone_area_ratio == 0.8
+    assert new_cpt.location is not None, "geometry should be reconstructed from x/y/epsg"
+    assert new_cpt.series is not None
+    assert new_cpt.series.depths_m == [0.0, 0.5, 1.0]
+    assert new_cpt.series.qc_mpa == [1.2, 2.4, 3.6]
+    assert new_cpt.series.rf_source == "measured"
+
+    # Borehole + full tree restored.
+    bh_after_stmt = (
+        select(BoreholeOrm)
+        .where(BoreholeOrm.app_project_id == original_project_id)
+        .options(
+            selectinload(BoreholeOrm.drill_segments),
+            selectinload(BoreholeOrm.observations)
+            .selectinload(ObservationOrm.layers)
+            .selectinload(ObservationLayerOrm.admixtures),
+            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.grain_sizes),
+            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.atterberg_limits_tests),
+        )
+    )
+    bh_after = (await db_session.execute(bh_after_stmt)).scalar_one()
+    assert bh_after.id == original_bh_id
+    assert bh_after.name == "BH-1"
+    assert len(bh_after.drill_segments) == 2
+    assert {seg.method for seg in bh_after.drill_segments} == {"spade", "auger"}
+    assert len(bh_after.observations) == 1
+    assert len(bh_after.observations[0].layers) == 1
+    assert bh_after.observations[0].layers[0].main_soil_codes == ["KL"]
+    assert len(bh_after.observations[0].layers[0].admixtures) == 1
+    assert bh_after.observations[0].layers[0].admixtures[0].soil_code == "ZS"
+    assert len(bh_after.samples) == 1
+    assert len(bh_after.samples[0].grain_sizes) == 1
+    assert bh_after.samples[0].grain_sizes[0].pct_larger == [95.0, 70.0]
+    assert len(bh_after.samples[0].atterberg_limits_tests) == 1
+    assert bh_after.samples[0].atterberg_limits_tests[0].liquid_limit_pct == 42.0
+
+
+async def test_restore_is_idempotent_no_duplicates(db_session: AsyncSession) -> None:
+    """Calling restore twice with the same bundle doesn't duplicate rows."""
+    source = await _make_source_project(db_session)
+    bundle = await build_project_bundle(db_session, source)
+    project_id = source.id
+
+    # Wipe — see note in the round-trip test about no FK cascade from
+    # project_id to CPTs / boreholes.
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == project_id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == project_id))
+    await db_session.delete(source)
+    await db_session.commit()
+    # Clear the identity map — the DELETEd rows are still cached because
+    # ``expire_on_commit=False`` and bulk ``delete()`` skips per-instance
+    # eviction. Without this, the next INSERT under the same ids would
+    # trigger SAWarning about replacing identity-map entries.
+    db_session.expunge_all()
+
+    await restore_project_bundle(
+        db_session, project_id, bundle["project"], bundle["cpts"], bundle["boreholes"]
+    )
+    await db_session.commit()
+
+    # Second restore — same bundle. Should be a no-op (existing rows kept).
+    await restore_project_bundle(
+        db_session, project_id, bundle["project"], bundle["cpts"], bundle["boreholes"]
+    )
+    await db_session.commit()
+
+    cpts_count = len(
+        (await db_session.execute(select(CptOrm).where(CptOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    bhs_count = len(
+        (
+            await db_session.execute(
+                select(BoreholeOrm).where(BoreholeOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert cpts_count == 1
+    assert bhs_count == 1
+
+
+async def test_restore_into_existing_project_does_not_mutate_metadata(
+    db_session: AsyncSession,
+) -> None:
+    """If the project row already exists, restore returns it without rewriting metadata."""
+    source = await _make_source_project(db_session)
+    bundle = await build_project_bundle(db_session, source)
+    project_id = source.id
+
+    # Mutate the live project so we can prove restore left it alone.
+    source.name = "Live edit — should win"
+    await db_session.commit()
+
+    # Re-restore: the bundle's "Bundle source" name must NOT overwrite.
+    restored = await restore_project_bundle(
+        db_session, project_id, bundle["project"], bundle["cpts"], bundle["boreholes"]
+    )
+    await db_session.commit()
+    await db_session.refresh(restored)
+
+    assert restored.name == "Live edit — should win"
