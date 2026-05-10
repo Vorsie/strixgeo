@@ -201,6 +201,62 @@ export default function App() {
   const handleRestoreAllCpts = useCallback(() => setRemovedCptIds(new Set()), [])
   const handleRestoreAllBoreholes = useCallback(() => setRemovedBoreholeIds(new Set()), [])
 
+  // Phase 3a — manual surface-elevation edit handlers. Both update three
+  // pieces of state in one go: the list (so the sidebar badge clears),
+  // the detail-cache entry (so the chart/borelog header reflects the new
+  // value without a re-fetch), and any selection-derived view. The PATCH
+  // endpoint returns the updated row, so we patch in place rather than
+  // re-fetching.
+  const handlePatchCptElevation = useCallback(
+    async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
+      const updated = await api.cpt.patchElevation(id, {
+        elevation_m: elevationM,
+        z_epsg: zEpsg,
+      })
+      setDetailMap(prev => new Map(prev).set(id, updated))
+      setCpts(prev =>
+        prev.map(c =>
+          c.id === id
+            ? { ...c, elevation_m: updated.elevation_m, z_epsg: updated.z_epsg }
+            : c,
+        ),
+      )
+      log.info('cpt', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
+    },
+    [],
+  )
+
+  const handlePatchBoreholeElevation = useCallback(
+    async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
+      const updated = await api.borehole.patchElevation(id, {
+        elevation_m: elevationM,
+        z_epsg: zEpsg,
+      })
+      setBoreholes(prev =>
+        prev.map(b =>
+          b.id === id
+            ? { ...b, elevation_m: updated.elevation_m, z_epsg: updated.z_epsg }
+            : b,
+        ),
+      )
+      // Patch the detail cache in place — the lab-test children, drill
+      // segments, etc. are unchanged so a full re-fetch is wasteful.
+      setBoreholeDetailMap(prev => {
+        const existing = prev.get(id)
+        if (!existing) return prev
+        const next = new Map(prev)
+        next.set(id, {
+          ...existing,
+          elevation_m: updated.elevation_m,
+          z_epsg: updated.z_epsg,
+        })
+        return next
+      })
+      log.info('borehole', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
+    },
+    [],
+  )
+
   // Re-importing or re-fetching a record is an explicit "make this visible
   // again" signal, so clear any of the supplied ids from the project-local
   // removed-set. Without this, a 409-duplicate import returns the existing
@@ -614,7 +670,12 @@ export default function App() {
                   />
             ) : selectedBoreholeId ? (
               boreholeDetailMap.has(selectedBoreholeId) ? (
-                <BoreholeLog borehole={boreholeDetailMap.get(selectedBoreholeId)!} />
+                <BoreholeLog
+                  borehole={boreholeDetailMap.get(selectedBoreholeId)!}
+                  onElevationChange={(elevationM, zEpsg) =>
+                    handlePatchBoreholeElevation(selectedBoreholeId, elevationM, zEpsg)
+                  }
+                />
               ) : (
                 <div className="flex items-center justify-center h-full text-sm text-gray-400">
                   Loading borehole…
@@ -626,6 +687,9 @@ export default function App() {
                     plot={plotMap.get(selectedId!)!}
                     name={selectedCpt.name}
                     detail={detailMap.get(selectedId!)}
+                    onElevationChange={(elevationM, zEpsg) =>
+                      handlePatchCptElevation(selectedId!, elevationM, zEpsg)
+                    }
                   />
                 : <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading chart…</div>
             )}
