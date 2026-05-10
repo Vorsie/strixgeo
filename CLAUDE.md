@@ -860,23 +860,27 @@ Items that need a focused session — bigger than a quick fix, smaller
 than a phase. Tracked here so each one is visible in PR / commit
 context without rediscovering it from grep. Order is loose priority.
 
-### 1. Refresh-on-duplicate (high)
+### 1. Refresh-on-duplicate — DONE
 
-**What.** ``ImportBoreholeDov`` phases 4b/4c (interpretations + samples
-+ lab tests) only run for *newly imported* boreholes. Re-importing the
-same bbox marks them as duplicates and skips those phases entirely —
-so a parser fix that lands AFTER the user already imported requires
-``TRUNCATE borehole CASCADE`` to take effect. We've done this 4× in 2
-days.
+Resolved by ``dov_permkey`` columns on every Borehole/Sample child +
+partial unique indexes scoped per parent. ``ImportBoreholeDov`` phases
+4b/4c now run for ALL in-scope boreholes (new + duplicates); per-row
+dedup against ``dov_permkey`` keeps existing children intact while
+attaching anything the upstream now provides. Eliminates the
+``TRUNCATE borehole CASCADE`` loop after a parser fix.
 
-**Why deferred.** Needs schema changes (a stable per-record DOV
-permkey on every child of Borehole — sample, observation, observation
-layer, every lab-test family — plus per-row dedup logic in the
-orchestrator). Big migration; high regression risk; needs careful
-test coverage.
+Two follow-ups split out into their own debt items:
 
-**When.** Before next user-facing release, or earlier if it bites a
-fifth time.
+* **#12 Legacy NULL-permkey rows.** Pre-PR rows have ``dov_permkey =
+  NULL`` and don't participate in dedup, so the first re-import after
+  this lands creates duplicate children for those legacy boreholes.
+  Documented trade-off; fine for solo dev (we wiped the DB on
+  2026-05-10), bites the moment a second user with pre-existing data
+  shows up.
+* **#13 Integration test for refresh.** Five unit tests cover the
+  helpers and per-row skip path; no test asserts the full end-to-end
+  ``import → re-import → no DB duplicates``. Manual smoke test
+  validates it for now.
 
 ### 2. WFS client base class (medium)
 
@@ -1003,3 +1007,37 @@ detour.
 
 **When.** Before any non-solo user / any internet exposure of the
 dev server. Practically: same trigger as item #9 (telemetry).
+
+### 12. Backfill `dov_permkey` for legacy rows (low)
+
+**What.** Refresh-on-duplicate (debt #1, resolved) keys per-row dedup
+on `dov_permkey`. Children stored before that PR landed have
+`dov_permkey = NULL` and don't participate in dedup, so the first
+re-import of a previously-imported bbox creates duplicate observation
+/ sample / lab-test rows for those legacy boreholes.
+
+**Why deferred.** Solo-dev wiped the DB on 2026-05-10, so all
+locally-stored data is post-PR and has permkeys. The trade-off only
+bites when a non-solo user receives the migration on top of an
+existing dataset.
+
+**When.** Before any non-solo user inherits an existing DB. The fix
+shape is well-defined: a one-off backfill that walks
+`observation` / `sample` / 6 lab-test families, derives the
+`dov_permkey` from a re-fetch of the parent's source XML or WFS row,
+and stamps the column. ~Half a day of work plus a careful run.
+
+### 13. Integration test for refresh-on-duplicate (low)
+
+**What.** Five unit tests cover the dedup helpers and per-row skip
+path; no test exercises the full `import → re-import → assert no
+DB duplicates` flow. Manual smoke testing carries the load right now.
+
+**Why deferred.** Integration tests need Docker Compose + a real
+PostgreSQL session, and the existing integration suite already covers
+the single-import path. The refresh path is short enough that one
+focused test (`test_refresh_attaches_no_duplicates`) would cover it
+end-to-end.
+
+**When.** Before another orchestrator change touches the dedup code,
+OR if a manual smoke test ever surfaces a duplicate-row regression.
