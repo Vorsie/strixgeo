@@ -90,18 +90,18 @@ export default function App() {
     Record<BoreholeAxis, Set<string>>
   >({ drill_method: new Set(), borehole_type: new Set() })
 
-  // Viewport-filter state — when enabled, the sidebar partitions records
-  // whose marker is currently outside the map's visible bounds into the
-  // greyed-out "hidden" section at the bottom of each tab. Bounds are
-  // tracked even when the toggle is off so flipping it on doesn't
-  // require waiting for the next pan.
+  // Viewport-coupled sidebar — records whose marker is currently
+  // outside the map's visible bounds get demoted to the greyed-out
+  // hidden-bottom section of each tab. Always-on: items aren't hard-
+  // hidden (still visible at opacity-40, still clickable, still counted
+  // in the footer), so coupling the sidebar to the map's spatial scope
+  // never surprises the user by removing things. ``viewportBounds ===
+  // null`` (before the map has reported its initial bounds) treats
+  // everything as in-viewport so the first render doesn't flash an
+  // empty visible section.
   const [viewportBounds, setViewportBounds] = useState<L.LatLngBounds | null>(null)
-  const [viewportFilterEnabled, setViewportFilterEnabled] = useState(false)
   const handleViewportChange = useCallback((bounds: L.LatLngBounds) => {
     setViewportBounds(bounds)
-  }, [])
-  const handleToggleViewportFilter = useCallback(() => {
-    setViewportFilterEnabled(prev => !prev)
   }, [])
 
   const handleToggleCptType = useCallback((type: string, visible: boolean) => {
@@ -155,24 +155,24 @@ export default function App() {
   // memoised in ``lambertToWgs84`` so the per-record cost is just a
   // dictionary lookup after the first render.
   const outOfViewportCptIds = useMemo(() => {
-    if (!viewportFilterEnabled || !viewportBounds) return new Set<string>()
+    if (!viewportBounds) return new Set<string>()
     const out = new Set<string>()
     for (const c of visibleCpts) {
       const [lat, lng] = lambertToWgs84(c.location_x, c.location_y)
       if (!viewportBounds.contains([lat, lng])) out.add(c.id)
     }
     return out
-  }, [visibleCpts, viewportBounds, viewportFilterEnabled])
+  }, [visibleCpts, viewportBounds])
 
   const outOfViewportBoreholeIds = useMemo(() => {
-    if (!viewportFilterEnabled || !viewportBounds) return new Set<string>()
+    if (!viewportBounds) return new Set<string>()
     const out = new Set<string>()
     for (const b of visibleBoreholes) {
       const [lat, lng] = lambertToWgs84(b.location_x, b.location_y)
       if (!viewportBounds.contains([lat, lng])) out.add(b.id)
     }
     return out
-  }, [visibleBoreholes, viewportBounds, viewportFilterEnabled])
+  }, [visibleBoreholes, viewportBounds])
 
   const handleRemoveCpts = useCallback(
     (ids: string[]) => {
@@ -592,8 +592,6 @@ export default function App() {
           boreholeAxis={boreholeAxis}
           outOfViewportCptIds={outOfViewportCptIds}
           outOfViewportBoreholeIds={outOfViewportBoreholeIds}
-          viewportFilterEnabled={viewportFilterEnabled}
-          onToggleViewportFilter={handleToggleViewportFilter}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">

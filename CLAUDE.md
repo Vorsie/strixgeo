@@ -1021,13 +1021,12 @@ Resolved by `tests/integration/db/test_refresh_on_duplicate.py` —
 (set + permkey-to-id), the partial UNIQUE index as defence-in-depth,
 per-parent scoping, and the documented NULL-permkey carve-out.
 
-### 14. Viewport-filtered sidebar — DONE
+### 14. Viewport-coupled sidebar — DONE
 
 `MapView` emits `onViewportChange(LatLngBounds)` from a `moveend`
 listener. App tracks the bounds, computes per-record "is the marker
 outside the viewport?" sets via the cached `lambertToWgs84`
 projection, and the Sidebar unions those into its existing visible /
-hidden-bottom partition. Toggle lives next to the project name in
-the sidebar header (`Crop` icon, blue when active). Bounds are
-tracked even when the toggle is off so flipping it on doesn't
-require waiting for the next pan.
+hidden-bottom partition. Always-on — coupling is soft (out-of-
+viewport rows are demoted to opacity-40, still clickable, still
+counted in the footer), so no toggle is needed.

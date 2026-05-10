@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
-  Crop,
   Drill,
   EyeOff,
   Gauge,
@@ -45,16 +44,16 @@ interface Props {
   hiddenCptTypes: Set<string>
   hiddenBoreholeValues: Set<string>
   boreholeAxis: BoreholeAxis
-  // Viewport-filter (debt #14): when ``viewportFilterEnabled`` is true,
-  // records whose marker is currently outside the map's visible bounds
-  // get demoted to the same hidden-bottom section as the layer-control
-  // filter. The two sets are computed in App from a Leaflet ``moveend``
+  // Viewport coupling (debt #14): records whose marker is currently
+  // outside the map's visible bounds get demoted to the same hidden-
+  // bottom section as the layer-control filter. Always-on — the
+  // demotion is soft (opacity-40, still clickable, still counted in
+  // the footer), so coupling never surprises the user by removing
+  // things. The sets are computed in App from a Leaflet ``moveend``
   // listener; the Sidebar just unions them with ``hidden*`` for the
   // partition.
   outOfViewportCptIds: Set<string>
   outOfViewportBoreholeIds: Set<string>
-  viewportFilterEnabled: boolean
-  onToggleViewportFilter: () => void
 }
 
 const TABS: { id: DataType; label: string; icon: React.ReactNode; available: boolean }[] = [
@@ -118,8 +117,6 @@ export default function Sidebar({
   boreholeAxis,
   outOfViewportCptIds,
   outOfViewportBoreholeIds,
-  viewportFilterEnabled,
-  onToggleViewportFilter,
 }: Props) {
   const [activeTab, setActiveTab] = useState<DataType>('cpt')
 
@@ -231,29 +228,10 @@ export default function Sidebar({
 
   return (
     <aside className="flex flex-col w-56 shrink-0 border-r border-gray-200 bg-white overflow-hidden">
-      {/* Project name + viewport-filter toggle */}
-      <div className="flex items-start gap-2 px-3 py-2 border-b border-gray-200 bg-gray-50">
-        <div className="flex-1 min-w-0">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
-          <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
-        </div>
-        <button
-          onClick={onToggleViewportFilter}
-          title={
-            viewportFilterEnabled
-              ? 'Showing only records inside the map viewport — click to show all'
-              : 'Filter the list to records inside the map viewport'
-          }
-          className={[
-            'p-1 rounded transition-colors',
-            viewportFilterEnabled
-              ? 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200',
-          ].join(' ')}
-          aria-pressed={viewportFilterEnabled}
-        >
-          <Crop size={14} />
-        </button>
+      {/* Project name */}
+      <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
+        <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
+        <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
       </div>
 
       {/* Tab bar */}
