@@ -100,27 +100,15 @@ function createWindow(): void {
   win.setMenuBarVisibility(true)
   buildMenu(win)
 
-  // Confirm exit on every close attempt (window X, Alt+F4, app menu).
-  // We preventDefault first to keep the window alive, ask the user, and
-  // only re-issue the close after they confirm. ``confirmedQuit`` makes
-  // the second close pass straight through without re-asking.
+  // Window-close handler — runs on Windows X, Alt+F4, and any other
+  // OS-level close. We preventDefault, hand control to the renderer
+  // (which knows about the project's dirty state and runs the same
+  // save-or-discard prompt the in-app close paths use), and wait for
+  // the renderer to either approve or veto via ``app:quit-decision``.
   win.on('close', (event) => {
     if (confirmedQuit) return
     event.preventDefault()
-    const choice = dialog.showMessageBoxSync(win, {
-      type: 'question',
-      buttons: ['Cancel', 'Exit'],
-      defaultId: 0,
-      cancelId: 0,
-      title: 'Exit Ground Model',
-      message: 'Are you sure you want to exit?',
-      detail: 'Any in-progress imports will be cancelled.',
-      noLink: true,
-    })
-    if (choice === 1) {
-      confirmedQuit = true
-      win.close()
-    }
+    win.webContents.send('app:before-quit')
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -371,6 +359,17 @@ ipcMain.handle('project:get-recent', (): RecentProject[] => readRecentProjects()
 ipcMain.handle('window:set-title', (_event, title: string | null) => {
   if (mainWindow === null) return
   mainWindow.setTitle(title && title !== '' ? title : 'Ground Model')
+})
+
+// Renderer's response to ``app:before-quit``. ``allowed=true`` means the
+// renderer has either saved or discarded any unsaved state and we can
+// finish the close; ``allowed=false`` means the user hit Cancel and we
+// abort the quit. ``confirmedQuit`` short-circuits the next ``close``
+// event so the renderer doesn't get re-asked.
+ipcMain.handle('app:quit-decision', (_event, allowed: boolean) => {
+  if (!allowed || mainWindow === null) return
+  confirmedQuit = true
+  mainWindow.close()
 })
 
 ipcMain.handle('api:ready', async () => {
