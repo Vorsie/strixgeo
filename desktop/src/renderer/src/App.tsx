@@ -50,6 +50,8 @@ declare global {
       addRecentProject: (filePath: string, name: string) => Promise<RecentProject[]>
       getRecentProjects: () => Promise<RecentProject[]>
       setWindowTitle: (title: string | null) => Promise<void>
+      onAppBeforeQuit: (cb: () => void) => () => void
+      notifyQuitDecision: (allowed: boolean) => Promise<void>
       onMenuImportCpt: (cb: () => void) => () => void
       onMenuImportBorehole: (cb: () => void) => () => void
       onMenuProjectNew: (cb: () => void) => () => void
@@ -101,9 +103,16 @@ export default function App() {
   // Close-flow state. Two dialogs guard the close action; only one is
   // ever visible at a time. ``unsavedSaving`` debounces the save-and-
   // close path so we can disable buttons while the API call is in flight.
+  // ``unsavedDialogMode`` distinguishes "close just this project" from
+  // "the OS window is being closed and the app needs to exit after we
+  // settle the dirty state" — the latter funnels back through
+  // ``window.electron.notifyQuitDecision`` after each branch resolves.
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
   const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false)
   const [unsavedSaving, setUnsavedSaving] = useState(false)
+  const [unsavedDialogMode, setUnsavedDialogMode] = useState<'close-project' | 'quit-app'>(
+    'close-project',
+  )
   // Initialise the theme system. The hook itself owns the class on
   // <html>; we don't need to consume ``resolved``/``setChoice`` until a
   // theme-toggle UI lands (UX Conventions in CLAUDE.md flagged that as
@@ -499,6 +508,10 @@ export default function App() {
   const attemptClose = useCallback(
     (source: 'sidebar' | 'menu') => {
       if (projectDirty) {
+        // In-app close paths use the close-project mode; the OS-X close
+        // path overrides this back to 'quit-app' before opening the
+        // dialog (see the ``onAppBeforeQuit`` effect below).
+        setUnsavedDialogMode('close-project')
         setUnsavedDialogOpen(true)
         return
       }
@@ -525,20 +538,24 @@ export default function App() {
   // "Save and close" from the unsaved-drafts dialog: commit the live
   // project to the DB + .gmproj file, then close on success. On failure
   // we keep the prompt open so the user can retry (the live state stays
-  // intact regardless).
+  // intact regardless). When the dialog was opened in ``quit-app`` mode
+  // (OS-X close), notify the main process so it can finish exiting.
   const handleUnsavedSave = useCallback(async () => {
     setUnsavedSaving(true)
     try {
       const ok = await saveProject()
-      if (ok) {
-        setUnsavedDialogOpen(false)
-        setMetadataEditorOpen(false)
+      if (!ok) return
+      setUnsavedDialogOpen(false)
+      setMetadataEditorOpen(false)
+      if (unsavedDialogMode === 'quit-app') {
+        void window.electron.notifyQuitDecision(true)
+      } else {
         closeProject()
       }
     } finally {
       setUnsavedSaving(false)
     }
-  }, [saveProject, closeProject])
+  }, [saveProject, closeProject, unsavedDialogMode])
 
   // Discard: drop in-memory metadata edits + roll back session imports
   // (move them into the project-local removed set so DB rows stay put
@@ -548,8 +565,37 @@ export default function App() {
     setUnsavedDialogOpen(false)
     setMetadataEditorOpen(false)
     discardSessionImports()
-    closeProject()
-  }, [discardSessionImports, closeProject])
+    if (unsavedDialogMode === 'quit-app') {
+      void window.electron.notifyQuitDecision(true)
+    } else {
+      closeProject()
+    }
+  }, [discardSessionImports, closeProject, unsavedDialogMode])
+
+  // Cancel from the unsaved-drafts dialog. In quit-app mode that means
+  // 'don't exit the app'; we tell main to abort the close.
+  const handleUnsavedCancel = useCallback(() => {
+    setUnsavedDialogOpen(false)
+    if (unsavedDialogMode === 'quit-app') {
+      void window.electron.notifyQuitDecision(false)
+    }
+  }, [unsavedDialogMode])
+
+  // OS window-close handshake. Main fires ``app:before-quit`` when the
+  // user clicks the OS X (or Alt+F4). We consult the project state:
+  // clean → tell main it's OK to quit; dirty → show the save-or-discard
+  // prompt in quit-app mode and let the handlers above signal back.
+  useEffect(() => {
+    const off = window.electron.onAppBeforeQuit(() => {
+      if (project === null || !projectDirty) {
+        void window.electron.notifyQuitDecision(true)
+        return
+      }
+      setUnsavedDialogMode('quit-app')
+      setUnsavedDialogOpen(true)
+    })
+    return off
+  }, [project, projectDirty])
 
   // File menu Save / Ctrl+S — soft no-op when clean, commit when dirty.
   // Failure is logged but doesn't surface here (the unsaved-changes
@@ -1049,7 +1095,7 @@ export default function App() {
         busy={unsavedSaving}
         onSave={() => void handleUnsavedSave()}
         onDiscard={handleUnsavedDiscard}
-        onCancel={() => setUnsavedDialogOpen(false)}
+        onCancel={handleUnsavedCancel}
       />
       <Modal
         open={closeConfirmOpen}
