@@ -472,5 +472,13 @@ export const api = {
 
     duplicate: (id: string, name?: string): Promise<ProjectResponse> =>
       post(`/projects/${id}/duplicate`, { name: name ?? null }),
+
+    // Idempotently materialise a project row from .gmproj contents when
+    // the DB no longer has it (typically because the local DB was wiped
+    // while the file still lives on disk). ``id`` is in the URL; the
+    // body is everything else from ProjectFileV1. Always 200 — existing
+    // rows return as-is, missing rows get inserted.
+    restore: (id: string, body: ProjectCreatePayload): Promise<ProjectResponse> =>
+      post(`/projects/${id}/restore`, body),
   },
 }
