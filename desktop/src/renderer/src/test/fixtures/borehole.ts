@@ -151,11 +151,15 @@ export function makeFixtureBorehole(): BoreholeDetailResponse {
       { id: 'ds-1', top_m: 2.0, base_m: 4.0, method: 'pulsboring' },
       { id: 'ds-2', top_m: 4.0, base_m: 5.0, method: 'spoelboring' },
     ],
+    // ``kind`` must match the English-translated keys in
+    // ``FieldLogTrack`` (``"color"``, ``"moisture"``, ``"consistency"``).
+    // The Dutch source tokens ``"kleur"`` / ``"vochtgehalte"`` /
+    // ``"consistentie"`` are translated upstream of the API response.
     field_log_intervals: [
-      { id: 'fl-0', top_m: 0, base_m: 1.5, kind: 'kleur', value: 'bruin' },
-      { id: 'fl-1', top_m: 1.5, base_m: 3.2, kind: 'kleur', value: 'grijs' },
-      { id: 'fl-2', top_m: 0, base_m: 1.5, kind: 'vochtgehalte', value: 'droog' },
-      { id: 'fl-3', top_m: 1.5, base_m: 5.0, kind: 'vochtgehalte', value: 'vochtig' },
+      { id: 'fl-0', top_m: 0, base_m: 1.5, kind: 'color', value: 'bruin' },
+      { id: 'fl-1', top_m: 1.5, base_m: 3.2, kind: 'color', value: 'grijs' },
+      { id: 'fl-2', top_m: 0, base_m: 1.5, kind: 'moisture', value: 'droog' },
+      { id: 'fl-3', top_m: 1.5, base_m: 5.0, kind: 'moisture', value: 'vochtig' },
     ],
     observations: [lithology],
     samples: [sampleA, sampleB],

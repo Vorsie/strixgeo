@@ -162,4 +162,56 @@ describe('BoreholeLog', () => {
     expect(screen.getByText('Sample')).toBeInTheDocument()
     expect(screen.getByText(/\(1 \/ 2\)/)).toBeInTheDocument()
   })
+
+  // ------------------------------------------------------------------
+  // Drill-method track — one rect + label per ``DrillSegment``.
+  // ------------------------------------------------------------------
+
+  it('renders a label for each drill segment with method copy', () => {
+    // Fixture has 3 drill segments: spoelboring (twice) and pulsboring.
+    // The track centers ``truncate(method, 12)`` text inside each rect.
+    // ``getAllByText`` because spoelboring appears twice (segments 0 and 2)
+    // and the column header "Drill method" is also in the page.
+    const borehole = makeFixtureBorehole()
+    render(<BoreholeLog borehole={borehole} />)
+
+    expect(screen.getAllByText(/^spoelboring$/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText(/^pulsboring$/).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders the drill-method track header', () => {
+    // Track headers help the user know what each column means; locking
+    // the literal copy in catches accidental relabels. ``getAllByText``
+    // because the same label appears in the legend at the bottom of
+    // the borelog, so two matches are expected.
+    const borehole = makeFixtureBorehole()
+    render(<BoreholeLog borehole={borehole} />)
+
+    expect(screen.getAllByText('Drill method').length).toBeGreaterThanOrEqual(1)
+  })
+
+  // ------------------------------------------------------------------
+  // Field-log track — three sub-stripes (color / moisture / consistency)
+  // each with one rect + label per ``FieldLogIntervalResponse``.
+  // ------------------------------------------------------------------
+
+  it('renders the literal value of each field-log interval', () => {
+    // Fixture has 2 color rows (bruin, grijs) and 2 moisture rows
+    // (droog, vochtig). Each interval renders ``truncate(value, 8)``
+    // centered in its stripe rect.
+    const borehole = makeFixtureBorehole()
+    render(<BoreholeLog borehole={borehole} />)
+
+    expect(screen.getByText('bruin')).toBeInTheDocument()
+    expect(screen.getByText('grijs')).toBeInTheDocument()
+    expect(screen.getByText('droog')).toBeInTheDocument()
+    expect(screen.getByText('vochtig')).toBeInTheDocument()
+  })
+
+  it('renders the field-log track header', () => {
+    const borehole = makeFixtureBorehole()
+    render(<BoreholeLog borehole={borehole} />)
+
+    expect(screen.getByText('Field log')).toBeInTheDocument()
+  })
 })
