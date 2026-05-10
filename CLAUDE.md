@@ -639,16 +639,18 @@ PATCH  /projects/{id}           Partial update. Only fields present in the
 POST   /projects/{id}/archive   Soft-delete (stamps ``archived_at``).
                                 Project + all its data preserved in the DB.
 POST   /projects/{id}/unarchive Restore (clears ``archived_at``).
-POST   /projects/{id}/restore   Idempotently materialise a project row
-                                from .gmproj contents when the DB has
-                                lost it (wiped local DB, fresh install).
-                                Body matches ``ProjectCreateRequest``;
-                                id is in the URL. Returns the existing
-                                row unchanged if it's already there, or
-                                INSERTs a new row with the supplied id.
-                                CPTs / boreholes are NOT restored — they
-                                live in the DB only and were never in the
-                                file. Always 200.
+GET    /projects/{id}/bundle    Full project snapshot — metadata + every
+                                CPT (with series) + every borehole (with
+                                full child tree). Embedded verbatim in
+                                .gmproj v2 files on save.
+POST   /projects/{id}/restore   Idempotently materialise a project + its
+                                CPTs + boreholes from a bundle when the
+                                DB has lost the rows (wiped local DB,
+                                fresh install). Body matches the bundle
+                                shape; id is in the URL. Existing rows
+                                are returned / skipped (no mutation);
+                                missing rows are inserted with the
+                                supplied ids. Always 200.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
@@ -686,17 +688,30 @@ metadata editor.
 * Timestamps (``created_at`` / ``updated_at`` / ``archived_at``) live in the
   DB only and are not persisted to the file, so re-saving without a DB
   change leaves the file byte-identical.
+* **File format v2** (current) bundles the full project state — header
+  metadata under ``project``, every CPT (with series) under ``cpts``,
+  every borehole (with its full child tree: drill segments, field log
+  intervals, observations + layers + admixtures, samples + 6 lab-test
+  families) under ``boreholes``. This is what the user expects: open
+  the file, get your data back. The file weighs whatever the data
+  weighs (JSON arrays of long depth-series add up — a few MB for
+  typical projects, tens of MB for a 500-CPT DOV import).
+* **v1 (legacy metadata-only) files** still parse: the loader upgrades
+  them to a v2 shape with empty data arrays. Re-opening a v1 file on
+  a wiped DB brings the project shell back but the user has to
+  re-import CPTs / boreholes (they weren't in the file). New saves
+  always emit v2.
 * Opening a file: read JSON → ``GET /projects/{id}`` → adopt the live
-  metadata. If the DB row is missing (fresh install with stale file,
-  user wiped their local DB, etc.), the frontend automatically calls
-  ``POST /projects/{id}/restore`` with the file's metadata. The
-  endpoint is idempotent — it inserts the row when missing or returns
-  the existing row, so two concurrent restores of the same file don't
-  race to duplicate. CPTs / boreholes are NOT restored (the file
-  doesn't carry them); the user re-imports their data. The principle
-  is: **the .gmproj file is the user's anchor; the DB is just a cache
-  of the metadata + the storage for the imported data**. Opening a
-  valid .gmproj always succeeds when the API is reachable.
+  metadata. If the DB row is missing (wiped DB, fresh install,
+  archived elsewhere), the frontend automatically calls
+  ``POST /projects/{id}/restore`` with the file's full bundle —
+  metadata + CPTs + boreholes. The endpoint is idempotent: existing
+  rows are returned / skipped, missing rows are inserted with their
+  original ids. CPTs and boreholes round-trip with their PostGIS
+  geometry rebuilt from x/y/epsg on restore. The principle is:
+  **the .gmproj file is the user's anchor; the DB is just a cache
+  of the data**. Opening a valid v2 .gmproj always brings everything
+  back when the API is reachable.
 * Recent-projects list lives at
   ``app.getPath('userData')/recent-projects.json`` (max 10 entries, MRU
   order). Both the File menu's "Open Recent" submenu and the Welcome
