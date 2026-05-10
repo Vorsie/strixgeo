@@ -26,6 +26,20 @@ export const VCRS_LABEL_FALLBACK = 'm'
 // override to it. Today every supported datum is pickable.
 export const PICKABLE_VERTICAL_EPSGS: ReadonlyArray<number> = [5710, 5709]
 
+// Horizontal CRSes the project metadata editor offers as the "default
+// horizontal CRS" for manual entries. Same two countries the vertical
+// list covers (BE / NL); adding a third country is a one-line entry
+// here + in DEFAULT_VERTICAL_EPSG. Co-located here so any future
+// horizontal-CRS picker (e.g. an ElevationEditor extension — debt #16)
+// reuses the same source list.
+export const PICKABLE_HORIZONTAL_EPSGS: ReadonlyArray<{
+  epsg: number
+  label: string
+}> = [
+  { epsg: 31370, label: 'BE — Lambert 72 (EPSG:31370)' },
+  { epsg: 28992, label: 'NL — Amersfoort / RD New (EPSG:28992)' },
+]
+
 // Default datum the editor picker opens with when the row has no z_epsg yet
 // (e.g. a fresh manual entry). mTAW is the right default while the platform
 // is Belgium-first; future: derive from horizontal EPSG instead.
