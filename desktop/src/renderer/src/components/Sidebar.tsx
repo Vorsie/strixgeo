@@ -702,8 +702,20 @@ function CptRow({
   return (
     <div
       className={[
-        'group relative flex items-center border-b border-gray-100 transition-colors',
-        selected ? 'bg-blue-50' : checked ? 'bg-blue-50/40' : 'hover:bg-gray-50',
+        // Always-on transparent left border so flipping to amber when
+        // ``unsaved`` doesn't shift the row's content rightward.
+        'group relative flex items-center border-b border-l-2 border-l-transparent border-gray-100 transition-colors',
+        unsaved ? 'border-l-amber-400' : '',
+        // Selection / checked state wins over the unsaved tint, but the
+        // left-border amber stays visible regardless so the user can
+        // still spot a session-import even when it's the active row.
+        selected
+          ? 'bg-blue-50'
+          : checked
+            ? 'bg-blue-50/40'
+            : unsaved
+              ? 'bg-amber-50/40 hover:bg-amber-50/60'
+              : 'hover:bg-gray-50',
         hidden ? 'opacity-40' : '',
       ].join(' ')}
     >
@@ -782,8 +794,20 @@ function BoreholeRow({
   return (
     <div
       className={[
-        'group relative flex items-center border-b border-gray-100 transition-colors',
-        selected ? 'bg-blue-50' : checked ? 'bg-blue-50/40' : 'hover:bg-gray-50',
+        // Always-on transparent left border so flipping to amber when
+        // ``unsaved`` doesn't shift the row's content rightward.
+        'group relative flex items-center border-b border-l-2 border-l-transparent border-gray-100 transition-colors',
+        unsaved ? 'border-l-amber-400' : '',
+        // Selection / checked state wins over the unsaved tint, but the
+        // left-border amber stays visible regardless so the user can
+        // still spot a session-import even when it's the active row.
+        selected
+          ? 'bg-blue-50'
+          : checked
+            ? 'bg-blue-50/40'
+            : unsaved
+              ? 'bg-amber-50/40 hover:bg-amber-50/60'
+              : 'hover:bg-gray-50',
         hidden ? 'opacity-40' : '',
       ].join(' ')}
     >
