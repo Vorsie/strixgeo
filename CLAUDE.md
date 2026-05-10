@@ -983,3 +983,25 @@ the desktop side. Both become important the moment a second
 contributor lands.
 
 **When.** Before opening the repo to collaborators.
+
+### 11. Bump Electron + vitest majors (medium)
+
+**What.** `npm audit` reports 6 vulnerabilities — 1 high in Electron
+36 (17 CVEs, mostly sandbox / IPC injection variants), 5 moderate in
+esbuild (dev-server-only, surfaces via vitest's transitive deps).
+Fixes are both major version jumps:
+
+* Electron 36 → 42 — breaking-change review needed (main-process API
+  shifts, deprecated webPreferences, native module rebuild).
+* vitest 2 → 4 — config / API breakage possible, re-run the test
+  suite + check for moved exports.
+
+**Why deferred.** Practical risk is low for a solo-dev internal tool:
+the Electron CVEs need a local malicious actor or untrusted content;
+the esbuild CVE only affects whoever can reach your dev port. None
+applies to the shipped artifact in current solo use. The combined
+upgrade wants a focused empty afternoon, not a mid-review-queue
+detour.
+
+**When.** Before any non-solo user / any internet exposure of the
+dev server. Practically: same trigger as item #9 (telemetry).
