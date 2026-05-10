@@ -26,6 +26,9 @@ class CptResponse(BaseModel):
         Surface elevation in the vertical datum reported by the file (mTAW for
         Belgian files).  Used to convert depth to absolute level (m TAW) on the chart.
         None when absent from the file.
+    z_epsg:
+        Vertical CRS code for ``elevation_m`` (5710 = mTAW). None when
+        ``elevation_m`` is also None.
     pre_drill_m:
         Pre-drill depth in metres.  The CPT measurement starts below this.
     cone_area_ratio:
@@ -43,6 +46,7 @@ class CptResponse(BaseModel):
     location_y: float
     epsg: int | None
     elevation_m: float | None
+    z_epsg: int | None
     pre_drill_m: float
     cone_area_ratio: float | None
     max_depth_m: float | None
