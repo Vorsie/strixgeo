@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from groundmodel.api.routers import borehole, cpt, jobs
+from groundmodel.api.routers import borehole, cpt, jobs, project
 
 app = FastAPI(title="Ground Model Platform", version="0.1.0")
 
@@ -21,3 +21,4 @@ app.add_middleware(
 app.include_router(cpt.router)
 app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
 app.include_router(jobs.router)
+app.include_router(project.router)
