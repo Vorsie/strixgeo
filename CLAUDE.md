@@ -639,6 +639,16 @@ PATCH  /projects/{id}           Partial update. Only fields present in the
 POST   /projects/{id}/archive   Soft-delete (stamps ``archived_at``).
                                 Project + all its data preserved in the DB.
 POST   /projects/{id}/unarchive Restore (clears ``archived_at``).
+POST   /projects/{id}/restore   Idempotently materialise a project row
+                                from .gmproj contents when the DB has
+                                lost it (wiped local DB, fresh install).
+                                Body matches ``ProjectCreateRequest``;
+                                id is in the URL. Returns the existing
+                                row unchanged if it's already there, or
+                                INSERTs a new row with the supplied id.
+                                CPTs / boreholes are NOT restored — they
+                                live in the DB only and were never in the
+                                file. Always 200.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
@@ -677,9 +687,16 @@ metadata editor.
   DB only and are not persisted to the file, so re-saving without a DB
   change leaves the file byte-identical.
 * Opening a file: read JSON → ``GET /projects/{id}`` → adopt the live
-  metadata. If the DB row no longer exists (fresh install with stale file,
-  or project archived elsewhere), ``openProjectFile`` returns ``null`` and
-  the welcome screen stays visible.
+  metadata. If the DB row is missing (fresh install with stale file,
+  user wiped their local DB, etc.), the frontend automatically calls
+  ``POST /projects/{id}/restore`` with the file's metadata. The
+  endpoint is idempotent — it inserts the row when missing or returns
+  the existing row, so two concurrent restores of the same file don't
+  race to duplicate. CPTs / boreholes are NOT restored (the file
+  doesn't carry them); the user re-imports their data. The principle
+  is: **the .gmproj file is the user's anchor; the DB is just a cache
+  of the metadata + the storage for the imported data**. Opening a
+  valid .gmproj always succeeds when the API is reachable.
 * Recent-projects list lives at
   ``app.getPath('userData')/recent-projects.json`` (max 10 entries, MRU
   order). Both the File menu's "Open Recent" submenu and the Welcome
