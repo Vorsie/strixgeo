@@ -184,6 +184,11 @@ function buildMenu(win: BrowserWindow): void {
           // "looks like Save As but only copies metadata" surprise.
           enabled: false,
         },
+        {
+          label: 'Close Project',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => win.webContents.send('menu:project-close'),
+        },
         { type: 'separator' },
         {
           label: 'Import CPT…',
