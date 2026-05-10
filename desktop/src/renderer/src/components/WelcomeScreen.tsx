@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Clock } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, Clock } from 'lucide-react'
 import Button from './ui/Button'
 
 interface RecentEntry {
@@ -14,11 +14,12 @@ interface Props {
   // editor that opens after creation.
   onCreateProject: (name: string) => Promise<void> | void
   onOpenProject: () => Promise<void> | void
-  // Click handler for a recent-projects entry. Receives the file path —
-  // the welcome screen doesn't try to open it directly because the
-  // failure path (file moved, project archived) is best handled by the
-  // shared ``openProjectFile`` flow in useProject.
-  onOpenRecent: (path: string) => Promise<void> | void
+  // Click handler for a recent-projects entry. Receives the file path
+  // and returns whether the open succeeded — when it didn't (most
+  // commonly because the DB row is gone) the welcome screen surfaces
+  // an inline banner and refreshes the recent list so the stale entry
+  // disappears.
+  onOpenRecent: (path: string) => Promise<boolean>
 }
 
 export default function WelcomeScreen({
@@ -29,16 +30,21 @@ export default function WelcomeScreen({
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [recent, setRecent] = useState<RecentEntry[]>([])
+  const [openError, setOpenError] = useState<string | null>(null)
 
-  // Load the recent list on mount. Fire-and-forget; an empty list just
-  // hides the section. Errors here aren't worth surfacing to the user —
-  // the New + Open buttons are always available.
-  useEffect(() => {
+  const refreshRecent = useCallback(() => {
     window.electron
       .getRecentProjects()
       .then(setRecent)
       .catch(() => setRecent([]))
   }, [])
+
+  // Load the recent list on mount. Fire-and-forget; an empty list just
+  // hides the section. Errors here aren't worth surfacing to the user —
+  // the New + Open buttons are always available.
+  useEffect(() => {
+    refreshRecent()
+  }, [refreshRecent])
 
   async function handleCreate(): Promise<void> {
     const trimmed = name.trim()
@@ -64,8 +70,18 @@ export default function WelcomeScreen({
   async function handleRecent(path: string): Promise<void> {
     if (busy) return
     setBusy(true)
+    setOpenError(null)
     try {
-      await onOpenRecent(path)
+      const ok = await onOpenRecent(path)
+      if (!ok) {
+        const entry = recent.find(r => r.path === path)
+        setOpenError(
+          entry
+            ? `Couldn't open "${entry.name}". The project may have been removed from the database.`
+            : `Couldn't open the project file. It may have been removed from the database.`,
+        )
+        refreshRecent()
+      }
     } finally {
       setBusy(false)
     }
@@ -77,7 +93,24 @@ export default function WelcomeScreen({
 
   return (
     <div className="flex items-center justify-center h-screen bg-gray-50">
-      <div className="flex gap-6 max-w-[800px]">
+      <div className="flex flex-col gap-3 max-w-[800px]">
+        {openError !== null && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900"
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-600" />
+            <div className="flex-1">{openError}</div>
+            <button
+              onClick={() => setOpenError(null)}
+              className="text-amber-700 hover:text-amber-900 text-xs"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        <div className="flex gap-6">
         {/* Create / Open column */}
         <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-8 w-96">
           <h1 className="text-lg font-semibold text-gray-800 mb-1">Ground Model</h1>
@@ -162,6 +195,7 @@ export default function WelcomeScreen({
             </ul>
           </div>
         )}
+        </div>
       </div>
     </div>
   )
