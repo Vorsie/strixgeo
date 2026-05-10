@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('electron', {
   onMenuProjectOpen: (cb: () => void) => onMenuEvent('menu:project-open', cb),
   onMenuProjectSave: (cb: () => void) => onMenuEvent('menu:project-save', cb),
   onMenuProjectSaveAs: (cb: () => void) => onMenuEvent('menu:project-save-as', cb),
+  onMenuProjectClose: (cb: () => void) => onMenuEvent('menu:project-close', cb),
   onMenuProjectOpenRecent: (cb: (path: string) => void) =>
     onMenuEvent('menu:project-open-recent', cb as (...a: unknown[]) => void),
 })
