@@ -795,6 +795,51 @@ POST   /projects/{id}/restore   Idempotently materialise a project + its
                                 are returned / skipped (no mutation);
                                 missing rows are inserted with the
                                 supplied ids. Always 200.
+
+POST   /projects/{pid}/geology/formations           Create a formation.
+GET    /projects/{pid}/geology/formations           List project formations
+                                                    (display order, then name).
+PATCH  /projects/{pid}/geology/formations/{fid}     Partial update.
+DELETE /projects/{pid}/geology/formations/{fid}     Cascade-removes every
+                                                    contact pointing at it.
+
+POST   /projects/{pid}/geology/models               Create a model.
+GET    /projects/{pid}/geology/models               List models (active first).
+PATCH  /projects/{pid}/geology/models/{mid}         Partial update.
+                                                    is_active NOT updatable
+                                                    here — use /activate.
+POST   /projects/{pid}/geology/models/{mid}/activate
+                                                    Mark active; clear flag on
+                                                    every sibling.
+DELETE /projects/{pid}/geology/models/{mid}         Cascade-removes contacts.
+
+POST   /projects/{pid}/geology/models/{mid}/contacts
+                                                    Add a formation top at an
+                                                    investigation. Exactly one
+                                                    of borehole_id / cpt_id
+                                                    must be set (XOR enforced
+                                                    at API + DB layers).
+GET    /projects/{pid}/geology/models/{mid}/contacts
+                                                    List contacts. Optional
+                                                    ?borehole_id and
+                                                    ?formation_id filters.
+                                                    Sorted shallowest-first.
+PATCH  /projects/{pid}/geology/models/{mid}/contacts/{cid}
+                                                    Update depth / formation /
+                                                    notes. Anchor (borehole_id
+                                                    / cpt_id) NOT updatable —
+                                                    delete + recreate.
+DELETE /projects/{pid}/geology/models/{mid}/contacts/{cid}
+
+GET    /projects/{pid}/geology/models/{mid}/boreholes/{bid}/validate
+                                                    No-gaps validator. Returns
+                                                    a list of GapIssue. Empty
+                                                    list = clean stratigraphy.
+                                                    Issue kinds:
+                                                    missing_surface_contact,
+                                                    duplicate_depth,
+                                                    contact_below_test,
+                                                    no_contacts.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
