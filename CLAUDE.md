@@ -42,6 +42,80 @@ This platform's job is to deliver a clean, validated **ground model + derived pa
 
 ---
 
+## Commercial Direction
+
+This is a **commercial product**, not just an internal tool. Engineering
+decisions in this repo are calibrated for a paid release to BE/NL
+geotechnical consultancies — initially 5–50 person firms who already
+feel the pain of legacy tools (gINT, D-Series, GeoStudio).
+
+### Distribution model
+
+* **Local-first desktop app.** Each user runs their own copy with
+  their own local Postgres + PostGIS. **No central cloud service.**
+  Reasoning: offline-capable on site, data-privacy-friendly (geotech
+  projects are frequently NDA / defense-adjacent), zero ongoing infra
+  cost, sub-ms query latency.
+* **`.gmproj` v2 = the portable artefact.** Sharing a project means
+  emailing the file. The bundle format already supports this — open
+  on a wiped DB and the data rehydrates.
+* **One DB per user.** Today: developer Docker Compose on
+  ``localhost:5433``. v1.0 distribution likely bundles
+  Postgres + PostGIS inside the installer so end users don't install
+  anything themselves (Plaxis pattern). SQLite + SpatiaLite is a
+  fall-back if the bundled-Postgres path proves too fragile, but it's
+  a non-trivial refactor (PostgreSQL ``ARRAY`` columns, PostGIS-
+  specific geometry features) so we don't pre-optimise for it.
+* **SaaS is a Phase 5+ direction**, not a v1.0 concern. If/when it
+  ships, the .gmproj file becomes the bridge format between the
+  desktop client and any future cloud sync.
+
+### v1.0 commercial MVP gate
+
+The product is "sellable" the moment a geotech engineer can do this
+end-to-end on a real project:
+
+1. Import CPTs + boreholes (DOV bbox + GEF files — done).
+2. Define **cross-sections** between investigation points (new).
+3. Draw a **layer / ground model** on those cross-sections (new).
+4. Export the layer geometry to **DXF** and/or **Plaxis** (new).
+
+Per-layer parameters, soil classification, statistics — all Phase 5
+(post-v1.0). Engineers prefer to control those values manually
+anyway; the layer geometry is the integration unit downstream design
+tools actually consume.
+
+### Open commercial concerns (tracked as debt, not blocking the MVP)
+
+* **License key / activation system** — none today; needed before any
+  paid distribution. Likely shape: signed offline license tokens
+  (machine-bound or floating per-user), no phone-home dependency for
+  daily use. See debt section.
+* **Code-signing the installer** — Windows SmartScreen will reject
+  unsigned installers and signal "untrusted" to users. EV
+  certificate required (~€200–400/year).
+* **Hardening against tampering / reverse engineering** — modest
+  posture, not paranoid. Geotech isn't a target-rich threat
+  environment; goals are mostly to prevent casual license-key
+  bypass and keep our user data import paths safe from malformed
+  files. NOT trying to defeat dedicated reverse engineers — that's a
+  losing arms race for a solo dev.
+* **Auto-update channel** — Squirrel.Windows / electron-updater
+  pattern. Needed because v1.0 saves write today's bundle format;
+  future format upgrades depend on every user reaching at least the
+  build that introduced the upgrade path.
+* **Marketing site + demo video + market-facing name** — codename
+  here stays "Strix" / "groundmodel" but the public name + domain +
+  trademark search is a separate deliverable. The 90-second demo
+  video showing DOV bbox → borelog → save/open round-trip is the
+  primary marketing artefact; everything else is supporting copy.
+
+These don't shape the v1.0 MVP feature gate, but every one has to
+land before a paid public release. They're listed individually in
+"Known Architectural Debt" so each gets a trigger condition.
+
+---
+
 ## Backwards Compatibility — non-negotiable from now on
 
 User-owned artefacts have to keep working across upgrades. "Forever"
@@ -597,9 +671,9 @@ Engineering interpretation (Robertson Ic, soil profiling, derived per-layer para
 | 0 | Parse real GEF files; data reality doc; first-draft schema ✓ |
 | 1 | Thin slice: import GEF → parse → store → FastAPI CPT routes ✓ |
 | 2 | Electron + React desktop; project system; map; DOV chart; multi-file GEF + DOV bbox import + persistent XML cache ✓ |
-| 3 | Data sources expansion: borehole + samples + lab; monitoring (piezometer, inclinometer); DMT; pressuremeter |
-| 4 | Exports (Plaxis, D-Sheet, GeoStudio); PDF reports; multi-project; accounts; map / 3D model viz enhancements |
-| 5 (final / engineering layer) | Robertson Ic (production), auto soil profiling, per-layer unit weights, derived parameters across the model, statistics, Rust hotspots for batch compute |
+| 3 | Data sources expansion: borehole + samples + lab ✓ (monitoring / DMT / pressuremeter deferred to post-v1.0) |
+| **4 (v1.0 commercial MVP gate)** | **Cross-sections** between investigation points; **layer / ground model builder** on those sections; **DXF + Plaxis exports** of the layer geometry. The product is sellable here. Commercial-readiness work (license keys, signed installer, auto-update, marketing site) lives as separate debt items; it ships alongside the MVP feature gate, not before. |
+| 5 (post-v1.0) | Engineering interpretation: Robertson Ic (production), auto soil profiling, per-layer unit weights, derived parameters, statistics, Rust hotspots for batch compute. Additional data sources: monitoring (piezometer / inclinometer), DMT, pressuremeter. Additional exports: D-Sheet, GeoStudio, IFC. PDF reports. Optional SaaS layer with cloud sync over the .gmproj bundle. |
 
 **Out of scope at every phase:** Eurocode (EC7) design calculations, bearing capacity, settlement, slope stability, pile/wall design. Those belong in the downstream tools we export to.
 
@@ -1281,3 +1355,86 @@ when a non-Belgium-non-Netherlands source lands and forces multiple
 plausible defaults per horizontal CRS. The component contract already
 accepts ``zEpsg`` as a prop, so the picker is purely additive — drop a
 ``<select>`` next to the input and pass the chosen value through.
+
+### 17. License key + activation system (medium → blocking before paid release)
+
+**What.** No licensing today; anyone with the binary can run it.
+For a paid release we need a license token system. Suggested shape:
+
+* Signed offline tokens (Ed25519). Token carries: license_id, user
+  email, tier, issued_at, expires_at (or "perpetual"), optional
+  machine fingerprint.
+* App verifies the signature at launch against an embedded public
+  key. No phone-home required for daily use — important for the
+  offline-on-site use case.
+* Online activation only once per machine (claim the token to the
+  user's email), to prevent infinite resharing.
+* A small backend (single endpoint, single signing key) issues
+  tokens after Stripe webhook.
+
+**Why deferred.** Pre-revenue. Building this before paying customers
+exist is the wrong order of operations.
+
+**When.** Before opening any paid checkout. Plan ~1 week of solo
+work: token format + signing CLI + verifier in the Electron main
+process + a thin "Activate license" UI.
+
+### 18. Installer + code signing + auto-update (medium → blocking before paid release)
+
+**What.** electron-builder produces .exe / .dmg / .deb / .AppImage,
+electron-updater handles deltas. Windows requires EV code signing
+(~€200–400/year for a hardware-token cert) to avoid SmartScreen
+"untrusted publisher" warnings that scare off enterprise IT.
+macOS notarization is similar (~€100/year Apple Developer
+membership + signing + Apple notary upload). Linux can ship
+unsigned today.
+
+**Why deferred.** Same as #17 — pre-revenue, premature.
+
+**When.** In parallel with #17, before the first paid release.
+Auto-update is especially important because future .gmproj format
+upgrades depend on every user reaching the build that introduced
+the upgrade path.
+
+### 19. Tamper / reverse-engineering hardening (low — pragmatic posture)
+
+**What.** A determined reverse engineer will defeat any client-side
+license check. The goals here are modest:
+
+* Defeat casual bypass (renamed exe, deleted license file).
+* Make file parsers safe against malformed input that could crash
+  the app or worse (path traversal, zip-slip if we ever bundle
+  archives, JSON parser DoS).
+* No anti-debug, no obfuscation, no DRM theatre — these annoy
+  paying users more than they slow attackers down.
+
+**Why low priority.** Geotech engineers don't pirate software at
+scale. The .gmproj format is also not inherently sensitive — losing
+the geometry of someone's site investigation isn't catastrophic the
+way leaking a movie pre-release is.
+
+**When.** Audit pass before v1.0 release: review all file-read
+paths (DOV XML, GEF, .gmproj, future imports) for malformed-input
+robustness. License check itself stays simple.
+
+### 20. Marketing site + market-facing name (medium → blocking before paid release)
+
+**What.**
+
+* Trademark search for the market-facing name. "Strix" is a
+  codename only; check both word marks and design marks before
+  committing.
+* Domain (.com + .eu likely both needed for BE/NL audience).
+* Landing page: hero with the 90-second demo video, three
+  "what does it do" bullets, founding-member email signup, FAQ,
+  privacy / terms. Tailwind on Astro or similar — keep it boring.
+* Demo video: DOV bbox import → borelog → save → wipe DB → reopen.
+  Under 90 seconds.
+
+**Why deferred.** Useless without the v1.0 MVP gate behind it. A
+landing page that promises features the app doesn't have is worse
+than no landing page.
+
+**When.** As soon as the v1.0 MVP gate is real (layer model +
+exports). Start collecting emails before announcing pricing — the
+list calibrates demand and the launch send is the conversion event.
