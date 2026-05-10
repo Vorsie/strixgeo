@@ -12,3 +12,11 @@ html, body, #root {
 /* Leaflet z-index fix inside flex containers */
 .leaflet-pane { z-index: 10; }
 .leaflet-top, .leaflet-bottom { z-index: 20; }
+
+/* Leaflet's zoom + layer controls have selectable text glyphs (+, −, etc.).
+ * When the user click-and-drags across them — most commonly while drawing
+ * a bbox import rectangle — the browser's text-selection algorithm
+ * highlights the glyphs, which reads as the buttons being clicked or
+ * "selected". Disable text selection on the entire control layer; nothing
+ * inside is meant to be selectable text anyway. */
+.leaflet-control { user-select: none; -webkit-user-select: none; }
