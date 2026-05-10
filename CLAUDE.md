@@ -196,6 +196,19 @@ uv run mypy src                  # type check
 
 A PostToolUse hook auto-runs steps 1–2 after every file write. Step 3 is enforced by code review.
 
+**Git pre-commit hook:** the repo ships a pre-commit hook in
+`.githooks/pre-commit` that runs `uv run pytest tests/unit -q` whenever
+any `.py` file is staged, plus the desktop `npm test` (Vitest) suite
+when any `desktop/*.{ts,tsx}` is staged. Doc-only / config-only commits
+skip the test layer. Enable it once per clone:
+
+```
+git config core.hooksPath .githooks
+```
+
+Skip in emergencies with `git commit --no-verify` — but treat that as
+a flag that something needs a follow-up commit.
+
 ---
 
 ## Tech Stack
@@ -961,11 +974,12 @@ devtools console; user-side crashes are invisible to us.
 
 **When.** Before any non-solo user.
 
-### 10. Pre-commit / CI test runner (low)
+### 10. CI runner / `tsc` enforcement (low — partial)
 
-**What.** ``.claude/hooks/ruff_format.py`` formats Python on save but
-no hook runs ``pytest`` before commit. Frontend ``tsc`` is manual.
-Easy to push a green-locally / red-on-pull-request commit.
+**What.** Local `pytest tests/unit` + desktop `npm test` now gate the
+git pre-commit hook (see Development Workflow). Still missing: a CI
+workflow that runs the same gate on push, and a `tsc --noEmit` step on
+the desktop side. Both become important the moment a second
+contributor lands.
 
-**When.** Before opening the repo to collaborators (private
-solo-dev is forgiving).
+**When.** Before opening the repo to collaborators.

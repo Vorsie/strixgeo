@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Pre-commit guard — runs the fast unit-test layer on every commit so a
+# regression can't slip through to push / PR.
+#
+# Strategy
+# --------
+# * Skip entirely when no Python or TypeScript files are staged — the
+#   doc-only / config-only commits don't need a test run.
+# * Run ``uv run pytest tests/unit -q`` when ANY ``.py`` file is staged.
+# * Run ``npm test`` (Vitest) when ANY ``.ts`` / ``.tsx`` file under
+#   ``desktop/`` is staged.
+#
+# Skip in dire emergencies with ``git commit --no-verify``. The
+# project's CLAUDE.md says don't reach for that without a reason.
+#
+# Install (one-time): ``git config core.hooksPath .githooks``
+
+set -e
+
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+py_changed="$(echo "$staged" | grep -E '\.py$' || true)"
+ts_changed="$(echo "$staged" | grep -E '^desktop/.*\.(ts|tsx)$' || true)"
+
+if [ -n "$py_changed" ]; then
+  echo "[pre-commit] Running Python unit tests…"
+  uv run pytest tests/unit -q --tb=no
+fi
+
+if [ -n "$ts_changed" ]; then
+  echo "[pre-commit] Running desktop Vitest…"
+  (cd desktop && npm test --silent)
+fi
+
+exit 0
