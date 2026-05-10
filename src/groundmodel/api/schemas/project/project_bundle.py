@@ -57,6 +57,9 @@ class ProjectBundleRequest(BaseModel):
     # nested (formation top per investigation), mirroring how CPT
     # carries series and borehole carries observations / samples.
     geological_models: list[dict[str, Any]] = Field(default_factory=list)
+    # Project-scoped cross-section definitions (the slice lines + view
+    # preferences; polylines drawn on them land later with the editor).
+    cross_sections: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ProjectBundleResponse(BaseModel):
@@ -72,3 +75,4 @@ class ProjectBundleResponse(BaseModel):
     boreholes: list[dict[str, Any]]
     geological_formations: list[dict[str, Any]] = Field(default_factory=list)
     geological_models: list[dict[str, Any]] = Field(default_factory=list)
+    cross_sections: list[dict[str, Any]] = Field(default_factory=list)
