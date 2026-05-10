@@ -4,9 +4,12 @@ import { describe, expect, it, vi } from 'vitest'
 import ProjectMetadataDialog from './ProjectMetadataDialog'
 import type { ProjectResponse } from '../api/client'
 
-// Behaviour-oriented tests for the full project metadata editor. The
-// dialog is mostly a controlled form; we cover the load → edit → save
-// path, the tag-input chip semantics, and the required-name validation.
+// Behaviour-oriented tests for the metadata editor in placeholder mode.
+// Form opens empty; current values appear as ghost placeholder text;
+// only fields the user actually typed into are written on save.
+//
+// Dirty tracking and the imperative submit() handle drive the App's
+// save-on-close flow — covered separately in App-level tests.
 
 const PROJECT: ProjectResponse = {
   id: '01k-FIXTURE',
@@ -38,7 +41,7 @@ describe('ProjectMetadataDialog', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('pre-populates every field from the project on open', () => {
+  it('opens with empty text fields and current values as placeholders', () => {
     render(
       <ProjectMetadataDialog
         open
@@ -47,77 +50,56 @@ describe('ProjectMetadataDialog', () => {
         onSubmit={vi.fn()}
       />,
     )
+    const name = screen.getByLabelText(/^Name/) as HTMLInputElement
+    expect(name.value).toBe('')
+    expect(name.placeholder).toBe('Antwerp port')
 
-    expect((screen.getByLabelText(/^Name/) as HTMLInputElement).value).toBe(
-      'Antwerp port',
-    )
-    expect(
-      (screen.getByLabelText(/Project number/) as HTMLInputElement).value,
-    ).toBe('GEO-2026-042')
-    expect((screen.getByLabelText(/Client/) as HTMLInputElement).value).toBe(
-      'Port of Antwerp',
-    )
-    expect(
-      (screen.getByLabelText(/Site \/ location label/) as HTMLInputElement)
-        .value,
-    ).toBe('Quay 7')
-    expect(
-      (screen.getByLabelText(/Description/) as HTMLTextAreaElement).value,
-    ).toBe('Foundation investigation')
-    // Tags render as chips.
+    const client = screen.getByLabelText(/^Client/) as HTMLInputElement
+    expect(client.value).toBe('')
+    expect(client.placeholder).toBe('Port of Antwerp')
+
+    // Tags still render their chips (they don't follow the placeholder model).
     expect(screen.getByText('foundation')).toBeInTheDocument()
     expect(screen.getByText('marine')).toBeInTheDocument()
+
+    // Dropdowns reflect the current value (no placeholder model for selects).
     expect(
       (screen.getByLabelText(/Default horizontal CRS/) as HTMLSelectElement)
         .value,
     ).toBe('31370')
     expect(
-      (screen.getByLabelText(/Default vertical CRS/) as HTMLSelectElement).value,
-    ).toBe('5710')
-    expect((screen.getByLabelText(/^Phase/) as HTMLSelectElement).value).toBe(
-      'design',
-    )
-    expect((screen.getByLabelText(/^Status/) as HTMLSelectElement).value).toBe(
-      'active',
-    )
+      (screen.getByLabelText(/^Phase/) as HTMLSelectElement).value,
+    ).toBe('design')
   })
 
-  it('Save fires onSubmit with the full PATCH payload', async () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined)
+  it('Save is disabled when the form is untouched', () => {
     render(
       <ProjectMetadataDialog
         open
         project={PROJECT}
         onCancel={vi.fn()}
-        onSubmit={onSubmit}
+        onSubmit={vi.fn()}
       />,
     )
+    expect(screen.getByRole('button', { name: /^Save$/ })).toBeDisabled()
+  })
 
-    // Tweak the description; everything else stays identical.
+  it('Save enables once any text field gets a value', () => {
+    render(
+      <ProjectMetadataDialog
+        open
+        project={PROJECT}
+        onCancel={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    )
     fireEvent.change(screen.getByLabelText(/Description/), {
       target: { value: 'updated' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
-
-    await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'Antwerp port',
-          project_number: 'GEO-2026-042',
-          client: 'Port of Antwerp',
-          site_label: 'Quay 7',
-          description: 'updated',
-          tags: ['foundation', 'marine'],
-          default_horizontal_epsg: 31370,
-          default_vertical_epsg: 5710,
-          phase: 'design',
-          status: 'active',
-        }),
-      ),
-    )
+    expect(screen.getByRole('button', { name: /^Save$/ })).not.toBeDisabled()
   })
 
-  it('empty optional fields are sent as null on save', async () => {
+  it('PATCH payload contains only the fields the user actually edited', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     render(
       <ProjectMetadataDialog
@@ -127,19 +109,38 @@ describe('ProjectMetadataDialog', () => {
         onSubmit={onSubmit}
       />,
     )
-    fireEvent.change(screen.getByLabelText(/Client/), { target: { value: '' } })
+    // Touch only the description.
     fireEvent.change(screen.getByLabelText(/Description/), {
-      target: { value: '   ' },
+      target: { value: 'updated text' },
     })
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     const patch = onSubmit.mock.calls[0][0]
-    expect(patch.client).toBeNull()
-    expect(patch.description).toBeNull()
+    // Only ``description`` is on the patch — every other field is absent.
+    expect(patch).toEqual({ description: 'updated text' })
   })
 
-  it('appends a tag on Enter, dropping duplicates case-insensitively', () => {
+  it('changing a dropdown alone produces a single-key patch', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(
+      <ProjectMetadataDialog
+        open
+        project={PROJECT}
+        onCancel={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText(/^Status/), {
+      target: { value: 'completed' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toEqual({ status: 'completed' })
+  })
+
+  it('appends a tag on Enter, dropping case-insensitive duplicates', () => {
     render(
       <ProjectMetadataDialog
         open
@@ -149,19 +150,14 @@ describe('ProjectMetadataDialog', () => {
       />,
     )
     const tagInput = screen.getByLabelText(/^Tags/) as HTMLInputElement
-
     fireEvent.change(tagInput, { target: { value: 'phase-2' } })
     fireEvent.keyDown(tagInput, { key: 'Enter' })
     expect(screen.getByText('phase-2')).toBeInTheDocument()
     expect(tagInput.value).toBe('')
 
-    // Duplicate (case-insensitive) is dropped — count chip-remove
-    // buttons rather than text-content (the description fixture also
-    // contains the word "Foundation" so a regex text match would
-    // false-positive there).
     fireEvent.change(tagInput, { target: { value: 'FOUNDATION' } })
     fireEvent.keyDown(tagInput, { key: 'Enter' })
-    // Original two chips (foundation + marine) plus the new phase-2 = 3.
+    // Original two chips + the new phase-2 = 3 (no duplicate FOUNDATION).
     expect(screen.getAllByTitle(/^Remove /).length).toBe(3)
   })
 
@@ -192,36 +188,25 @@ describe('ProjectMetadataDialog', () => {
     )
     const tagInput = screen.getByLabelText(/^Tags/) as HTMLInputElement
     fireEvent.keyDown(tagInput, { key: 'Backspace' })
-    // 'marine' was the last in the fixture; gone now.
     expect(screen.queryByText('marine')).not.toBeInTheDocument()
     expect(screen.getByText('foundation')).toBeInTheDocument()
   })
 
-  it('clicking a chip X removes that tag', () => {
+  it('clicking a chip X removes that tag and PATCHes only tags', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
     render(
       <ProjectMetadataDialog
         open
         project={PROJECT}
         onCancel={vi.fn()}
-        onSubmit={vi.fn()}
+        onSubmit={onSubmit}
       />,
     )
     fireEvent.click(screen.getByTitle('Remove foundation'))
-    expect(screen.queryByText('foundation')).not.toBeInTheDocument()
-    expect(screen.getByText('marine')).toBeInTheDocument()
-  })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
 
-  it('Save disabled when name is empty after trim', () => {
-    render(
-      <ProjectMetadataDialog
-        open
-        project={PROJECT}
-        onCancel={vi.fn()}
-        onSubmit={vi.fn()}
-      />,
-    )
-    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: '   ' } })
-    expect(screen.getByRole('button', { name: /^Save$/ })).toBeDisabled()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toEqual({ tags: ['marine'] })
   })
 
   it('Cancel button invokes onCancel', () => {
@@ -248,10 +233,31 @@ describe('ProjectMetadataDialog', () => {
         onSubmit={onSubmit}
       />,
     )
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'New name' } })
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     expect(await screen.findByText(/upstream 503/)).toBeInTheDocument()
-    // Form is still rendered (dialog didn't close).
+    // Dialog stays mounted with the form still rendered.
     expect(screen.getByLabelText(/^Name/)).toBeInTheDocument()
+  })
+
+  it('reports dirty state via onDirtyChange', () => {
+    const onDirtyChange = vi.fn()
+    render(
+      <ProjectMetadataDialog
+        open
+        project={PROJECT}
+        onCancel={vi.fn()}
+        onSubmit={vi.fn()}
+        onDirtyChange={onDirtyChange}
+      />,
+    )
+    // Initial mount: clean.
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'X' } })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true)
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: '' } })
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false)
   })
 })
