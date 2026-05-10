@@ -18,6 +18,7 @@ from groundmodel.api.schemas.borehole.import_borehole_dov_request import (
 from groundmodel.api.schemas.borehole.import_borehole_dov_response import (
     ImportBoreholeDovResponse,
 )
+from groundmodel.api.schemas.elevation_patch_request import ElevationPatchRequest
 from groundmodel.application.import_borehole_dov import ImportBoreholeDov
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
@@ -192,3 +193,41 @@ async def get_borehole(
             detail=f"Borehole {borehole_id} not found",
         )
     return BoreholeDetailResponse.model_validate(borehole)
+
+
+@router.patch("/{borehole_id}/elevation", response_model=BoreholeListItem)
+async def patch_borehole_elevation(
+    borehole_id: UUID,
+    request: ElevationPatchRequest,
+    session: AsyncSession = Depends(get_session),
+) -> BoreholeListItem:
+    """Update the manually-entered surface elevation for a borehole.
+
+    Mirrors ``PATCH /cpt/{id}/elevation``. The desktop frontend's Phase 3a
+    ``ElevationEditor`` calls this when the user fills in the missing Z for
+    a DOV row that came in without one. Setting ``elevation_m`` to ``null``
+    clears the value so the user can undo a typo.
+
+    Returns the lightweight ``BoreholeListItem`` shape (rather than the full
+    detail tree) since the frontend only needs the header columns to refresh
+    its sidebar list and badge state. The detail-cache entry can be patched
+    in place client-side without re-fetching the heavy children.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no borehole with the given id exists.
+    """
+    repo = BoreholeRepository(session)
+    # The repository derives the canonical vertical CRS from the row's
+    # horizontal EPSG when ``z_epsg`` is None — see ``vertical_crs.py``
+    # for the table. Belgian DOV imports map to mTAW; future Dutch BRO
+    # imports map to NAP without further router changes.
+    borehole = await repo.set_elevation(borehole_id, request.elevation_m, request.z_epsg)
+    if borehole is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Borehole {borehole_id} not found",
+        )
+    await session.commit()
+    return BoreholeListItem.model_validate(borehole)
