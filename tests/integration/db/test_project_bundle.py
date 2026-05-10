@@ -348,3 +348,232 @@ async def test_restore_into_existing_project_does_not_mutate_metadata(
     await db_session.refresh(restored)
 
     assert restored.name == "Live edit — should win"
+
+
+# ---------------------------------------------------------------------------
+# Geological-model round-trip — the user's interpretation work survives a
+# save → DB-wipe → restore cycle. This is the load-bearing test for the
+# "open a .gmproj on a different device and keep working" promise.
+# ---------------------------------------------------------------------------
+
+
+async def test_bundle_carries_geological_formations_models_contacts(
+    db_session: AsyncSession,
+) -> None:
+    """Build + restore round-trips geological vocabulary + models + contacts."""
+    from groundmodel.infrastructure.db.models.formation_contact_orm import (
+        FormationContactOrm,
+    )
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.geological_model_orm import (
+        GeologicalModelOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    # The borehole was already created by _make_source_project — grab it
+    # so the contact has an investigation anchor.
+    bh = (
+        await db_session.execute(select(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    ).scalar_one()
+
+    # Set up a small geological model. Two formations, one model, three
+    # contacts at the existing borehole — covers depth 0 → 5 m without
+    # gaps (Quaternary 0-2, Boom Klei 2-5; the third contact is the
+    # "below test depth" sentinel we'd add in the editor as a confidence
+    # check).
+    quaternary = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Quaternary",
+        code="Q",
+        color="#d4b896",
+        display_order=0,
+    )
+    boom_klei = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Boom Klei",
+        code="Bm",
+        color="#5a4a3a",
+        display_order=1,
+    )
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Main interpretation",
+        is_active=True,
+        excluded_borehole_ids=[],
+    )
+    db_session.add_all([quaternary, boom_klei, model])
+    await db_session.flush()
+
+    contact_quaternary_top = FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=quaternary.id,
+        borehole_id=bh.id,
+        depth_top_m=0.0,
+        source="manual_pick",
+        confidence="high",
+    )
+    contact_boom_top = FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=boom_klei.id,
+        borehole_id=bh.id,
+        depth_top_m=2.0,
+        source="manual_pick",
+        confidence="medium",
+        notes="Picked from observation layer 0-2 m KL",
+    )
+    db_session.add_all([contact_quaternary_top, contact_boom_top])
+    await db_session.commit()
+
+    original_formation_ids = {quaternary.id, boom_klei.id}
+    original_model_id = model.id
+    original_contact_ids = {contact_quaternary_top.id, contact_boom_top.id}
+
+    # ---- Build the bundle, assert the geology is in it -----------------
+    bundle = await build_project_bundle(db_session, source)
+
+    assert "geological_formations" in bundle
+    assert "geological_models" in bundle
+    formations_in_bundle = {f["name"] for f in bundle["geological_formations"]}
+    assert formations_in_bundle == {"Quaternary", "Boom Klei"}
+
+    assert len(bundle["geological_models"]) == 1
+    model_in_bundle = bundle["geological_models"][0]
+    assert model_in_bundle["name"] == "Main interpretation"
+    assert model_in_bundle["is_active"] is True
+    # Contacts nested under the model — same convention as series under
+    # CPT and layers under observation.
+    assert len(model_in_bundle["contacts"]) == 2
+    bundled_depths = sorted(c["depth_top_m"] for c in model_in_bundle["contacts"])
+    assert bundled_depths == [0.0, 2.0]
+    # Notes survive the JSON round-trip.
+    notes = [c.get("notes") for c in model_in_bundle["contacts"] if c.get("notes")]
+    assert notes == ["Picked from observation layer 0-2 m KL"]
+
+    # ---- Wipe the project end-to-end (simulate "fresh DB on a new
+    # device") ----------------------------------------------------------
+    await db_session.execute(
+        delete(FormationContactOrm).where(FormationContactOrm.model_id == model.id)
+    )
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore from the bundle ---------------------------------------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+    )
+    await db_session.commit()
+
+    # ---- Verify every id round-tripped --------------------------------
+    formations_after = list(
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm).where(
+                    GeologicalFormationOrm.app_project_id == source.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {f.id for f in formations_after} == original_formation_ids
+    # Colors / display_order survived.
+    by_name = {f.name: f for f in formations_after}
+    assert by_name["Quaternary"].color == "#d4b896"
+    assert by_name["Boom Klei"].display_order == 1
+
+    models_after = list(
+        (
+            await db_session.execute(
+                select(GeologicalModelOrm)
+                .where(GeologicalModelOrm.app_project_id == source.id)
+                .options(selectinload(GeologicalModelOrm.contacts))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(models_after) == 1
+    restored_model = models_after[0]
+    assert restored_model.id == original_model_id
+    assert restored_model.is_active is True
+    assert {c.id for c in restored_model.contacts} == original_contact_ids
+    # FK rewrites — contacts point at the restored model + the original
+    # formation ids (preserved) + the original borehole id.
+    for c in restored_model.contacts:
+        assert c.model_id == original_model_id
+        assert c.borehole_id == bh.id
+        assert c.formation_id in original_formation_ids
+    # Notes round-tripped through JSON.
+    notes_after = [c.notes for c in restored_model.contacts if c.notes]
+    assert notes_after == ["Picked from observation layer 0-2 m KL"]
+
+
+async def test_restore_skips_geology_when_payload_omits_it(
+    db_session: AsyncSession,
+) -> None:
+    """Old clients without geology in their bundle still restore the rest cleanly."""
+    source = await _make_source_project(db_session)
+    project_id = source.id
+
+    # Build a bundle and strip the geology fields to simulate an older
+    # client that doesn't know about them.
+    bundle = await build_project_bundle(db_session, source)
+    bundle.pop("geological_formations", None)
+    bundle.pop("geological_models", None)
+
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == project_id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == project_id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # Restore via the older-shape call (geology kwargs default to None).
+    await restore_project_bundle(
+        db_session,
+        project_id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+    )
+    await db_session.commit()
+
+    # Project + CPT + borehole came back. No geology rows for this
+    # project (none were in the payload).
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+
+    formations_after = (
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm.id).where(
+                    GeologicalFormationOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert list(formations_after) == []
