@@ -6,6 +6,7 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
 from groundmodel.infrastructure.db.models.field_log_interval_orm import FieldLogIntervalOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
@@ -28,6 +29,7 @@ __all__ = [
     "CaCO3ContentOrm",
     "CptOrm",
     "CptSeriesOrm",
+    "CrossSectionOrm",
     "DrillSegmentOrm",
     "FieldLogIntervalOrm",
     "FormationContactOrm",
