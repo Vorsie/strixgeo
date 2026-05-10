@@ -60,6 +60,13 @@ interface Props {
   // snapshot. Renders an asterisk after the project name as a glance-
   // able dirty indicator (Word / Plaxis convention).
   projectDirty?: boolean
+  // CPT and borehole IDs added since the last File → Save. Each row
+  // whose id is in the relevant set shows an amber asterisk in the
+  // sidebar — same visual language as the project-name marker, scaled
+  // down to the row level so the user can spot which records are not
+  // yet committed at a glance.
+  sessionImportCptIds?: ReadonlySet<string>
+  sessionImportBoreholeIds?: ReadonlySet<string>
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -137,6 +144,8 @@ export default function Sidebar({
   onCloseProject,
   onEditMetadata,
   projectDirty,
+  sessionImportCptIds,
+  sessionImportBoreholeIds,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -441,6 +450,7 @@ export default function Sidebar({
                   cpt={c}
                   selected={c.id === selectedCptId}
                   hidden={false}
+                  unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={() => toggleSelection(c.id)}
                   onClick={() => onSelectCpt(c.id)}
@@ -454,6 +464,7 @@ export default function Sidebar({
                   cpt={c}
                   selected={c.id === selectedCptId}
                   hidden
+                  unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={() => toggleSelection(c.id)}
                   onClick={() => onSelectCpt(c.id)}
@@ -479,6 +490,7 @@ export default function Sidebar({
                   borehole={b}
                   selected={b.id === selectedBoreholeId}
                   hidden={false}
+                  unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={() => toggleSelection(b.id)}
                   onClick={() => onSelectBorehole(b.id)}
@@ -492,6 +504,7 @@ export default function Sidebar({
                   borehole={b}
                   selected={b.id === selectedBoreholeId}
                   hidden
+                  unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={() => toggleSelection(b.id)}
                   onClick={() => onSelectBorehole(b.id)}
@@ -614,6 +627,7 @@ function CptRow({
   cpt,
   selected,
   hidden,
+  unsaved,
   checked,
   onToggleCheck,
   onClick,
@@ -622,6 +636,7 @@ function CptRow({
   cpt: CptListItem
   selected: boolean
   hidden: boolean
+  unsaved: boolean
   checked: boolean
   onToggleCheck: () => void
   onClick: () => void
@@ -651,6 +666,14 @@ function CptRow({
         <div className="flex items-center gap-1.5 mb-0.5">
           <MapPin size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
           <span className="text-xs font-medium text-gray-800 truncate">{cpt.name}</span>
+          {unsaved && (
+            <span
+              className="text-amber-600 shrink-0"
+              title="Imported since last save — File → Save to commit"
+            >
+              *
+            </span>
+          )}
           {cpt.elevation_m == null && (
             <span title="No surface elevation — needs manual Z entry">
               <AlertTriangle size={10} className="text-amber-500 shrink-0" />
@@ -685,6 +708,7 @@ function BoreholeRow({
   borehole,
   selected,
   hidden,
+  unsaved,
   checked,
   onToggleCheck,
   onClick,
@@ -693,6 +717,7 @@ function BoreholeRow({
   borehole: BoreholeListItem
   selected: boolean
   hidden: boolean
+  unsaved: boolean
   checked: boolean
   onToggleCheck: () => void
   onClick: () => void
@@ -704,8 +729,7 @@ function BoreholeRow({
   }
 
   // Phase 3a UX requirement: surface NO_ELEVATION boreholes distinctly so
-  // the user knows they need to add a Z manually (the inline editor lands
-  // in a later PR; this row just flags the state).
+  // the user knows they need to add a Z manually.
   const noZ = borehole.elevation_m == null
 
   return (
@@ -727,6 +751,14 @@ function BoreholeRow({
         <div className="flex items-center gap-1.5 mb-0.5">
           <Drill size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
           <span className="text-xs font-medium text-gray-800 truncate">{borehole.name}</span>
+          {unsaved && (
+            <span
+              className="text-amber-600 shrink-0"
+              title="Imported since last save — File → Save to commit"
+            >
+              *
+            </span>
+          )}
           {noZ && (
             <span title="No surface elevation — needs manual Z entry">
               <AlertTriangle size={10} className="text-amber-500 shrink-0" />
