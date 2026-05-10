@@ -8,6 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.api.schemas.project.project_bundle import (
+    ProjectBundleRequest,
+    ProjectBundleResponse,
+)
 from groundmodel.api.schemas.project.project_create_request import (
     ProjectCreateRequest,
 )
@@ -19,6 +23,10 @@ from groundmodel.api.schemas.project.project_update_request import (
     ProjectUpdateRequest,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.infrastructure.db.repositories.project_bundle import (
+    build_project_bundle,
+    restore_project_bundle,
+)
 from groundmodel.infrastructure.db.repositories.project_repository import (
     ProjectRepository,
 )
@@ -171,53 +179,66 @@ async def unarchive_project(
     return project
 
 
+@router.get("/{project_id}/bundle", response_model=ProjectBundleResponse)
+async def get_project_bundle(
+    project_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, object]:
+    """Return a complete snapshot of a project + every CPT and borehole.
+
+    Backs the desktop client's File → Save: the response is embedded
+    verbatim in the .gmproj file and POSTed back to ``/restore`` if
+    the DB ever loses the rows. UUIDs and dates serialise to strings;
+    geometry is dropped (rebuilt from x/y/epsg on restore).
+    """
+    repo = ProjectRepository(session)
+    project = await repo.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return await build_project_bundle(session, project)
+
+
 @router.post("/{project_id}/restore", response_model=ProjectResponse)
 async def restore_project(
     project_id: UUID,
-    request: ProjectCreateRequest,
+    request: ProjectBundleRequest,
     session: AsyncSession = Depends(get_session),
 ) -> ProjectOrm:
-    """Idempotently materialise a project row from its ``.gmproj`` contents.
+    """Idempotently materialise a project row + its CPTs + boreholes from a bundle.
 
     Backs the desktop client's "open from file" path when the DB no
-    longer has the row the file points at — typically because the user
-    wiped the local DB while a ``.gmproj`` still lives on disk. The
-    file is the user's anchor; the DB is just a cache of the metadata
-    + the storage for the imported data. Calling this with the file's
-    payload rehydrates the project shell. CPTs / boreholes are NOT
-    restored (the file doesn't carry them) — the user re-imports.
+    longer has the rows the file points at — typically because the user
+    wiped the local DB while a .gmproj still lives on disk. The file is
+    the user's anchor; the DB is just a cache.
 
     Behaviour:
 
-    * Row missing → INSERT with the supplied id + metadata, return 200
-      with the new row.
-    * Row already exists → return the existing row unchanged. Two
-      concurrent restores of the same id therefore both succeed
-      without duplication.
+    * Project missing → INSERT shell with the URL-provided id + the
+      bundle's project metadata. Existing project rows are NOT
+      mutated (the DB version is authoritative when it exists).
+    * CPTs / boreholes in the payload are inserted if their id is not
+      already in the DB for this project. Existing rows are skipped.
+      Two concurrent restores of the same bundle therefore both
+      succeed without duplication.
 
-    The endpoint is 200 across both paths (vs. 200/201 split) because
-    the desktop client treats "ensure exists" as a single semantic; the
-    distinction between insert and pre-existing is a server-side
-    implementation detail it doesn't act on.
+    Always 200 (vs. 200/201 split) because the caller treats this as a
+    single "ensure exists" semantic regardless of how many rows we
+    actually inserted.
     """
-    repo = ProjectRepository(session)
-    existing = await repo.get_by_id(project_id)
-    if existing is not None:
-        return existing
-    project = ProjectOrm(
-        id=project_id,
-        name=request.name,
-        project_number=request.project_number,
-        client=request.client,
-        site_label=request.site_label,
-        description=request.description,
-        tags=request.tags,
-        default_horizontal_epsg=request.default_horizontal_epsg,
-        default_vertical_epsg=request.default_vertical_epsg,
-        phase=request.phase,
-        status=request.status,
-    )
-    await repo.save(project)
+    try:
+        project = await restore_project_bundle(
+            session,
+            project_id,
+            request.project,
+            request.cpts,
+            request.boreholes,
+        )
+    except (ValueError, KeyError, TypeError) as err:
+        # Surface bad bundle shape as 400 instead of letting it 500.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid bundle payload: {err}",
+        ) from err
     await session.commit()
     await session.refresh(project)
     return project
