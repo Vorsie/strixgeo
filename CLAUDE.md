@@ -585,6 +585,18 @@ DELETE /cpt/{id}                Delete CPT and its series (cascade). NOTE: the
                                 "remove from project" is project-local
                                 (localStorage), preserving the DB cache so a
                                 re-import doesn't refetch.
+PATCH  /cpt/{id}/elevation      Phase 3a manual surface-elevation editor.
+                                JSON body: ``{elevation_m: float | null,
+                                z_epsg?: int | null}``. ``elevation_m: null``
+                                clears a previously-entered value. When
+                                ``z_epsg`` is omitted, the canonical vertical
+                                datum for the row's horizontal CRS is used
+                                (31370 → 5710 mTAW for BE; 28992 → 5709 NAP
+                                for NL — see ``infrastructure/codelists/
+                                vertical_crs.py``). Returns the full
+                                ``CptResponse`` so the frontend can patch its
+                                detail cache without a second GET. 404 when
+                                the id is unknown.
 
 POST   /borehole/import-dov     Import boreholes + 8 interpretation streams + samples
                                 + grain-size + Atterberg + CaCO3 + organic-C + water-content
@@ -597,6 +609,11 @@ GET    /borehole/{id}           Full borehole tree (header + drill segments + fi
                                 + observations with layers + admixtures + samples with
                                 grain-size + Atterberg + CaCO3 + organic + water-content
                                 + the ``scalar_lab_tests`` catch-all list). 404 when missing.
+PATCH  /borehole/{id}/elevation Mirror of ``PATCH /cpt/{id}/elevation`` — same
+                                request body. Returns the lightweight
+                                ``BoreholeListItem`` shape so the frontend can
+                                refresh the sidebar badge without re-fetching
+                                the heavy detail tree.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
@@ -619,7 +636,17 @@ desktop/src/
     ├── components/
     │   ├── ui/        Button.tsx — shared variant (primary/secondary/danger/ghost) + size (sm/md)
     │   ├── BboxDrawer.tsx     Inside MapContainer; crosshair draw mode for DOV bbox selection
-    │   ├── CptChart.tsx   DOV-standard chart: type-aware panels, ghost axis alignment
+    │   ├── CptChart.tsx   DOV-standard chart: type-aware panels, ghost axis alignment.
+    │   │                  Header carries the inline ``ElevationEditor`` when an
+    │   │                  ``onElevationChange`` handler is wired (Phase 3a).
+    │   ├── ElevationEditor.tsx Inline manual-Z editor shared by CptChart and
+    │   │                       BoreholeLog headers. Idle: amber "Set elevation"
+    │   │                       link when null, "Z = X.XX m TAW" + pencil hover
+    │   │                       when present. Editing: text+inputMode=decimal,
+    │   │                       Enter saves, Esc cancels, "Clear" returns the
+    │   │                       row to the "needs Z" state. Range-clamps to
+    │   │                       [-500, 9000] m client-side mirroring the
+    │   │                       ElevationPatchRequest server validator.
     │   ├── MapView.tsx    Leaflet map: CPT + borehole markers, layer-control dropdown
     │   │                  (Option B per-category expand), bottom-right legend.
     │   │                  Visibility state lives in App so Sidebar can read it too.
@@ -630,6 +657,8 @@ desktop/src/
     │   ├── BoreholeLog.tsx    Borelog SVG: lithology with patterns + admixture chips
     │   │                       (color swatch + qualifier code), drill method, field log,
     │   │                       sample track with lab-test family icons (★ for catch-all).
+    │   │                       Header carries the inline ``ElevationEditor`` when an
+    │   │                       ``onElevationChange`` handler is wired (Phase 3a).
     │   ├── LabTestPanel.tsx   Slide-in detail panel; ScalarTestsSection groups catch-all
     │   │                       tests by parametergroep, ASTM rows show D2487 description.
     │   ├── Toolbar.tsx    Import button (GEF + DOV)
@@ -1030,3 +1059,52 @@ projection, and the Sidebar unions those into its existing visible /
 hidden-bottom partition. Always-on — coupling is soft (out-of-
 viewport rows are demoted to opacity-40, still clickable, still
 counted in the footer), so no toggle is needed.
+
+### 15. Elevation provenance + audit (medium)
+
+**What.** ``PATCH /{cpt,borehole}/{id}/elevation`` blindly overwrites
+``elevation_m`` and ``z_epsg`` with no source-tag and no history. Today's
+re-import path skips parent-column refresh on duplicates (see
+``import_borehole_dov.py:201-213`` and ``import_cpt_dov.py:144-149``),
+so manual edits are accidentally protected — but the same logic also
+prevents a corrected upstream Z from ever landing. Two known gaps:
+
+1. **No rollback.** A typo overwrites the upstream Z; the user has to
+   remember the original to re-enter it. The "Clear" path returns the
+   row to ``NULL`` rather than restoring the imported value.
+2. **No source tag.** A reader of the DB can't tell whether
+   ``elevation_m`` came from DOV's ``Z_mTAW``, the GEF header, or a
+   manual edit — they all collapse into the same column.
+
+**Fix shape.** Add ``elevation_source: enum {DOV, GEF, MANUAL, NONE}``
+on both ``cpt`` and ``borehole`` (Alembic migration). ``set_elevation``
+stamps ``MANUAL``. ``ImportBoreholeDov`` / ``ImportCptDov`` stamp
+``DOV`` / ``GEF`` on initial insert. The refresh path can then safely
+overwrite ``elevation_m`` only when ``elevation_source != MANUAL`` —
+unlocking proper refresh-on-duplicate for parent columns without
+clobbering user edits. Optional second column ``elevation_m_source``
+holds the original upstream value so "Clear" can restore it instead of
+nulling the row.
+
+**When to revisit.** Before the platform accepts non-DOV inputs at
+scale (manual GEF imports become the dominant flow, or BRO integration
+lands), AND/OR when refresh-on-duplicate needs to update parent header
+fields (currently it only refreshes child collections). For solo dev
+on DOV-Belgium data, the current "manual edits survive re-imports
+because re-imports are no-ops on the parent" behaviour is acceptable.
+
+### 16. Vertical-CRS picker in elevation editor (low)
+
+**What.** The desktop ``ElevationEditor`` has no CRS picker — it sends
+``z_epsg = null`` and lets the backend default from the row's
+horizontal EPSG (``vertical_crs.default_vertical_epsg``). That's
+correct for DOV-Belgium and BRO-NL but not for cases where a user
+imports a Belgian-coordinate borehole but knows the elevation is in,
+say, ETRS89 (5730), or for a row whose horizontal EPSG is unmapped
+and the fallback (mTAW) would mis-label.
+
+**When.** The first time a user reports a wrong-datum mTAW label, OR
+when a non-Belgium-non-Netherlands source lands and forces multiple
+plausible defaults per horizontal CRS. The component contract already
+accepts ``zEpsg`` as a prop, so the picker is purely additive — drop a
+``<select>`` next to the input and pass the chosen value through.
