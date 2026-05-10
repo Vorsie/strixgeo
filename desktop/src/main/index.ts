@@ -365,6 +365,14 @@ ipcMain.handle(
 
 ipcMain.handle('project:get-recent', (): RecentProject[] => readRecentProjects())
 
+// Window title — driven by the renderer so the title stays in sync with
+// the live project state (name + dirty marker). Empty / undefined falls
+// back to the default app title.
+ipcMain.handle('window:set-title', (_event, title: string | null) => {
+  if (mainWindow === null) return
+  mainWindow.setTitle(title && title !== '' ? title : 'Ground Model')
+})
+
 ipcMain.handle('api:ready', async () => {
   // Poll /openapi.json — FastAPI serves it without a DB connection, so it
   // passes as soon as uvicorn is listening regardless of PostgreSQL state.
