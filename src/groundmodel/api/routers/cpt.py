@@ -16,6 +16,7 @@ from groundmodel.api.schemas.cpt.cpt_response import CptResponse
 from groundmodel.api.schemas.cpt.import_cpt_response import ImportCptResponse
 from groundmodel.api.schemas.cpt.import_dov_request import ImportDovRequest
 from groundmodel.api.schemas.cpt.import_dov_response import ImportDovResponse
+from groundmodel.api.schemas.elevation_patch_request import ElevationPatchRequest
 from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_dov import ImportCptDov
@@ -210,6 +211,8 @@ async def list_cpts(
             location_x=c.location_x,
             location_y=c.location_y,
             epsg=c.epsg,
+            elevation_m=c.elevation_m,
+            z_epsg=c.z_epsg,
         )
         for c in cpts
     ]
@@ -234,6 +237,54 @@ async def get_cpt(
         location_y=cpt.location_y,
         epsg=cpt.epsg,
         elevation_m=cpt.elevation_m,
+        z_epsg=cpt.z_epsg,
+        pre_drill_m=cpt.pre_drill_m,
+        cone_area_ratio=cpt.cone_area_ratio,
+        max_depth_m=cpt.max_depth_m,
+        n_rows=cpt.n_rows,
+    )
+
+
+@router.patch("/{cpt_id}/elevation", response_model=CptResponse)
+async def patch_cpt_elevation(
+    cpt_id: UUID,
+    request: ElevationPatchRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CptResponse:
+    """Update the manually-entered surface elevation for a CPT.
+
+    The desktop frontend's Phase 3a ``ElevationEditor`` calls this when the
+    user fills in the missing Z for a DOV/GEF row that came in without one.
+    Setting ``elevation_m`` to ``null`` clears the value (returns the row to
+    the "needs Z" state) so the user can undo a typo.
+
+    Returns the full ``CptResponse`` so the frontend can update its detail
+    cache without firing a second ``GET`` after save.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no CPT with the given id exists.
+    """
+    repo = CptRepository(session)
+    # The repository derives the canonical vertical CRS from the row's
+    # horizontal EPSG when ``z_epsg`` is None (e.g. 31370 → 5710 mTAW for
+    # Belgium, 28992 → 5709 NAP for the Netherlands). The desktop UI
+    # doesn't expose a CRS picker today, so this is the path taken in
+    # practice; multi-country imports just work.
+    cpt = await repo.set_elevation(cpt_id, request.elevation_m, request.z_epsg)
+    if cpt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+    await session.commit()
+    return CptResponse(
+        id=cpt.id,
+        name=cpt.name,
+        cpt_type=cpt.cpt_type,
+        location_x=cpt.location_x,
+        location_y=cpt.location_y,
+        epsg=cpt.epsg,
+        elevation_m=cpt.elevation_m,
+        z_epsg=cpt.z_epsg,
         pre_drill_m=cpt.pre_drill_m,
         cone_area_ratio=cpt.cone_area_ratio,
         max_depth_m=cpt.max_depth_m,
