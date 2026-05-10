@@ -1021,19 +1021,13 @@ Resolved by `tests/integration/db/test_refresh_on_duplicate.py` —
 (set + permkey-to-id), the partial UNIQUE index as defence-in-depth,
 per-parent scoping, and the documented NULL-permkey carve-out.
 
-### 14. Viewport-filtered sidebar (medium)
+### 14. Viewport-filtered sidebar — DONE
 
-**What.** When the user pans or zooms the map, filter the sidebar
-list to only the records whose marker is currently inside the
-visible viewport. As-is, the sidebar always shows every CPT and
-borehole in the project — at scale (hundreds of records), the
-sidebar is decoupled from where the user is actually looking.
-
-**Why deferred.** Needs a Leaflet `moveend` listener wired through
-to the App-level filter state, plus a debounce (don't recompute on
-every pixel of pan), plus a UI cue when filtering is active so the
-user understands why some records vanished from the list.
-
-**When.** When the user explicitly pulls it forward, OR when a
-single project hits enough records (~200+) that the sidebar becomes
-unwieldy.
+`MapView` emits `onViewportChange(LatLngBounds)` from a `moveend`
+listener. App tracks the bounds, computes per-record "is the marker
+outside the viewport?" sets via the cached `lambertToWgs84`
+projection, and the Sidebar unions those into its existing visible /
+hidden-bottom partition. Toggle lives next to the project name in
+the sidebar header (`Crop` icon, blue when active). Bounds are
+tracked even when the toggle is off so flipping it on doesn't
+require waiting for the next pan.

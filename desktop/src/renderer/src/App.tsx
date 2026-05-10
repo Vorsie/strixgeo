@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
+import L from 'leaflet'
 import { api, setBaseUrl, DuplicateCptError } from './api/client'
 import type {
   BoreholeAxis,
@@ -12,6 +13,7 @@ import type {
 import { useProject } from './hooks/useProject'
 import { usePersistedSet } from './hooks/usePersistedSet'
 import { useTheme } from './hooks/useTheme'
+import { lambertToWgs84 } from './hooks/useWgs84'
 import { log } from './utils/log'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
@@ -88,6 +90,20 @@ export default function App() {
     Record<BoreholeAxis, Set<string>>
   >({ drill_method: new Set(), borehole_type: new Set() })
 
+  // Viewport-filter state — when enabled, the sidebar partitions records
+  // whose marker is currently outside the map's visible bounds into the
+  // greyed-out "hidden" section at the bottom of each tab. Bounds are
+  // tracked even when the toggle is off so flipping it on doesn't
+  // require waiting for the next pan.
+  const [viewportBounds, setViewportBounds] = useState<L.LatLngBounds | null>(null)
+  const [viewportFilterEnabled, setViewportFilterEnabled] = useState(false)
+  const handleViewportChange = useCallback((bounds: L.LatLngBounds) => {
+    setViewportBounds(bounds)
+  }, [])
+  const handleToggleViewportFilter = useCallback(() => {
+    setViewportFilterEnabled(prev => !prev)
+  }, [])
+
   const handleToggleCptType = useCallback((type: string, visible: boolean) => {
     setHiddenCptTypes(prev => {
       const next = new Set(prev)
@@ -133,6 +149,30 @@ export default function App() {
     () => boreholes.filter(b => !removedBoreholeIds.has(b.id)),
     [boreholes, removedBoreholeIds],
   )
+
+  // Out-of-viewport sets — empty when the toggle is off, or when the
+  // map hasn't reported bounds yet. Lambert72→WGS84 projection is
+  // memoised in ``lambertToWgs84`` so the per-record cost is just a
+  // dictionary lookup after the first render.
+  const outOfViewportCptIds = useMemo(() => {
+    if (!viewportFilterEnabled || !viewportBounds) return new Set<string>()
+    const out = new Set<string>()
+    for (const c of visibleCpts) {
+      const [lat, lng] = lambertToWgs84(c.location_x, c.location_y)
+      if (!viewportBounds.contains([lat, lng])) out.add(c.id)
+    }
+    return out
+  }, [visibleCpts, viewportBounds, viewportFilterEnabled])
+
+  const outOfViewportBoreholeIds = useMemo(() => {
+    if (!viewportFilterEnabled || !viewportBounds) return new Set<string>()
+    const out = new Set<string>()
+    for (const b of visibleBoreholes) {
+      const [lat, lng] = lambertToWgs84(b.location_x, b.location_y)
+      if (!viewportBounds.contains([lat, lng])) out.add(b.id)
+    }
+    return out
+  }, [visibleBoreholes, viewportBounds, viewportFilterEnabled])
 
   const handleRemoveCpts = useCallback(
     (ids: string[]) => {
@@ -550,6 +590,10 @@ export default function App() {
           hiddenCptTypes={hiddenCptTypes}
           hiddenBoreholeValues={hiddenBoreholeValues[boreholeAxis]}
           boreholeAxis={boreholeAxis}
+          outOfViewportCptIds={outOfViewportCptIds}
+          outOfViewportBoreholeIds={outOfViewportBoreholeIds}
+          viewportFilterEnabled={viewportFilterEnabled}
+          onToggleViewportFilter={handleToggleViewportFilter}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
@@ -578,6 +622,7 @@ export default function App() {
                     drawMode={drawingBbox}
                     onBboxDrawn={handleBboxDrawn}
                     onCancelDraw={() => setBboxImportType(null)}
+                    onViewportChange={handleViewportChange}
                   />
             ) : selectedBoreholeId ? (
               boreholeDetailMap.has(selectedBoreholeId) ? (

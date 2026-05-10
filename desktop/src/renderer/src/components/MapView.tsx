@@ -68,9 +68,38 @@ interface Props {
   drawMode?: boolean
   onBboxDrawn?: (west: number, south: number, east: number, north: number) => void
   onCancelDraw?: () => void
+  // Fires after every map pan/zoom with the current visible bounds in
+  // WGS84 (Leaflet's default CRS). Drives the sidebar's "filter to
+  // viewport" feature. Receives ``null`` if the map isn't ready yet
+  // (early renders before Leaflet has mounted).
+  onViewportChange?: (bounds: L.LatLngBounds) => void
 }
 
 type OpenCategory = 'cpt' | 'borehole' | null
+
+// Reports the map's current visible bounds to the parent on mount and
+// after every ``moveend`` (pan / zoom). Leaflet only fires ``moveend``
+// after the user releases the mouse, so the cost stays tied to user
+// motion — no need for a debounce. Mounted as a child of ``MapContainer``
+// so ``useMap()`` resolves to the actual Leaflet instance.
+function ViewportTracker({
+  onViewportChange,
+}: {
+  onViewportChange: (bounds: L.LatLngBounds) => void
+}) {
+  const map = useMap()
+  useEffect(() => {
+    onViewportChange(map.getBounds())
+    function handler() {
+      onViewportChange(map.getBounds())
+    }
+    map.on('moveend', handler)
+    return () => {
+      map.off('moveend', handler)
+    }
+  }, [map, onViewportChange])
+  return null
+}
 
 function FlyToSelected({
   cpts,
@@ -125,6 +154,7 @@ export default function MapView({
   drawMode = false,
   onBboxDrawn,
   onCancelDraw,
+  onViewportChange,
 }: Props) {
   const defaultCenter: [number, number] = [50.85, 4.35] // Belgium
 
@@ -237,6 +267,8 @@ export default function MapView({
           selectedCptId={selectedCptId}
           selectedBoreholeId={selectedBoreholeId}
         />
+
+        {onViewportChange && <ViewportTracker onViewportChange={onViewportChange} />}
 
         <BboxDrawer
           active={drawMode}

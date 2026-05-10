@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Crop,
   Drill,
   EyeOff,
   Gauge,
@@ -44,6 +45,16 @@ interface Props {
   hiddenCptTypes: Set<string>
   hiddenBoreholeValues: Set<string>
   boreholeAxis: BoreholeAxis
+  // Viewport-filter (debt #14): when ``viewportFilterEnabled`` is true,
+  // records whose marker is currently outside the map's visible bounds
+  // get demoted to the same hidden-bottom section as the layer-control
+  // filter. The two sets are computed in App from a Leaflet ``moveend``
+  // listener; the Sidebar just unions them with ``hidden*`` for the
+  // partition.
+  outOfViewportCptIds: Set<string>
+  outOfViewportBoreholeIds: Set<string>
+  viewportFilterEnabled: boolean
+  onToggleViewportFilter: () => void
 }
 
 const TABS: { id: DataType; label: string; icon: React.ReactNode; available: boolean }[] = [
@@ -105,6 +116,10 @@ export default function Sidebar({
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
+  outOfViewportCptIds,
+  outOfViewportBoreholeIds,
+  viewportFilterEnabled,
+  onToggleViewportFilter,
 }: Props) {
   const [activeTab, setActiveTab] = useState<DataType>('cpt')
 
@@ -135,18 +150,24 @@ export default function Sidebar({
     [sort, boreholeAxis],
   )
 
-  // Partition each list into visible-first / hidden-bottom (driven by the
-  // map's per-type filter), then sort each partition independently.
-  const cptVisible = cpts.filter(c => !hiddenCptTypes.has(c.cpt_type)).sort(cptSorter)
-  const cptHidden = cpts.filter(c => hiddenCptTypes.has(c.cpt_type)).sort(cptSorter)
+  // Partition each list into visible-first / hidden-bottom (driven by
+  // the map's per-type filter AND the viewport filter when enabled),
+  // then sort each partition independently. A row is "hidden" when its
+  // type is filtered OR its marker is currently outside the map
+  // viewport — both demote to the same greyed-out bottom section.
+  const isCptHidden = (c: CptListItem): boolean =>
+    hiddenCptTypes.has(c.cpt_type) || outOfViewportCptIds.has(c.id)
+  const cptVisible = cpts.filter(c => !isCptHidden(c)).sort(cptSorter)
+  const cptHidden = cpts.filter(isCptHidden).sort(cptSorter)
 
   const boreholeFilterValue = (b: BoreholeListItem): string =>
     (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
-  const bhVisible = boreholes
-    .filter(b => !hiddenBoreholeValues.has(boreholeFilterValue(b)))
-    .sort(boreholeSorter)
+  const isBoreholeHidden = (b: BoreholeListItem): boolean =>
+    hiddenBoreholeValues.has(boreholeFilterValue(b)) ||
+    outOfViewportBoreholeIds.has(b.id)
+  const bhVisible = boreholes.filter(b => !isBoreholeHidden(b)).sort(boreholeSorter)
   const bhHidden = boreholes
-    .filter(b => hiddenBoreholeValues.has(boreholeFilterValue(b)))
+    .filter(isBoreholeHidden)
     .sort(boreholeSorter)
 
   function toggleSelection(id: string): void {
@@ -210,10 +231,29 @@ export default function Sidebar({
 
   return (
     <aside className="flex flex-col w-56 shrink-0 border-r border-gray-200 bg-white overflow-hidden">
-      {/* Project name */}
-      <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
-        <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
-        <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
+      {/* Project name + viewport-filter toggle */}
+      <div className="flex items-start gap-2 px-3 py-2 border-b border-gray-200 bg-gray-50">
+        <div className="flex-1 min-w-0">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
+          <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
+        </div>
+        <button
+          onClick={onToggleViewportFilter}
+          title={
+            viewportFilterEnabled
+              ? 'Showing only records inside the map viewport — click to show all'
+              : 'Filter the list to records inside the map viewport'
+          }
+          className={[
+            'p-1 rounded transition-colors',
+            viewportFilterEnabled
+              ? 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200',
+          ].join(' ')}
+          aria-pressed={viewportFilterEnabled}
+        >
+          <Crop size={14} />
+        </button>
       </div>
 
       {/* Tab bar */}
