@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld('electron', {
   getRecentProjects: (): Promise<RecentProject[]> =>
     ipcRenderer.invoke('project:get-recent'),
 
+  removeRecentProject: (filePath: string): Promise<RecentProject[]> =>
+    ipcRenderer.invoke('project:remove-recent', filePath),
+
   // Set the OS window title. Used by the App to mirror the project
   // state (name + dirty asterisk) into the title bar.
   setWindowTitle: (title: string | null): Promise<void> =>
