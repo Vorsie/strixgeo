@@ -39,6 +39,7 @@ import {
   buildProjectFile,
   defaultProjectFileName,
   parseProjectFile,
+  projectIdFromFile,
   serialiseProjectFile,
 } from '../utils/projectFile'
 
@@ -160,6 +161,7 @@ export function useProject(): UseProject {
   const openProjectFile = useCallback(
     async (path: string): Promise<ProjectResponse | null> => {
       let parsed: ReturnType<typeof parseProjectFile> = null
+      let parsedId: string | null = null
       try {
         const raw = await window.electron.readProjectFile(path)
         parsed = parseProjectFile(raw)
@@ -167,37 +169,40 @@ export function useProject(): UseProject {
           log.error('project', `unrecognisable .gmproj at ${path}`)
           return null
         }
+        parsedId = projectIdFromFile(parsed)
         // The DB row is the live source of truth when it exists. We
         // always GET first so any metadata edits made elsewhere (the
         // file is a stale snapshot) win over the file's copy.
-        const fresh = await api.project.get(parsed.id)
+        const fresh = await api.project.get(parsedId)
         await adopt(fresh, path)
         log.info('project', `opened ${fresh.name} from ${path}`)
         return fresh
       } catch (err) {
         // 404 ⇒ DB has lost the row (wiped DB / fresh install / row
-        // pruned elsewhere). The file IS the user's anchor; restore
-        // the project shell from its contents so opening a .gmproj
-        // always succeeds. CPTs / boreholes don't come back — they
-        // were never in the file — and the user re-imports.
-        if (parsed !== null && err instanceof Error && err.message.includes('→ 404')) {
+        // pruned elsewhere). The file IS the user's anchor; rehydrate
+        // the project + every CPT (with series) + every borehole
+        // (with its full tree) from the bundle embedded in the file
+        // so opening a .gmproj always brings the data back. Idempotent
+        // server-side — existing rows are skipped, missing ones get
+        // inserted with their original ids.
+        if (
+          parsed !== null &&
+          parsedId !== null &&
+          err instanceof Error &&
+          err.message.includes('→ 404')
+        ) {
           try {
-            const restored = await api.project.restore(parsed.id, {
-              name: parsed.name,
-              project_number: parsed.project_number,
-              client: parsed.client,
-              site_label: parsed.site_label,
-              description: parsed.description,
-              tags: parsed.tags,
-              default_horizontal_epsg: parsed.default_horizontal_epsg,
-              default_vertical_epsg: parsed.default_vertical_epsg,
-              phase: parsed.phase as ProjectCreatePayload['phase'],
-              status: parsed.status as ProjectCreatePayload['status'],
+            const restored = await api.project.restore(parsedId, {
+              format_version: parsed.format_version,
+              project: parsed.project,
+              cpts: parsed.cpts,
+              boreholes: parsed.boreholes,
             })
             await adopt(restored, path)
             log.info(
               'project',
-              `restored ${restored.name} from ${path} (DB row was missing)`,
+              `restored ${restored.name} from ${path} ` +
+                `(+${parsed.cpts.length} CPTs, +${parsed.boreholes.length} boreholes)`,
             )
             return restored
           } catch (restoreErr) {
@@ -235,8 +240,16 @@ export function useProject(): UseProject {
         return null
       }
       try {
-        const payload = buildProjectFile(created)
-        await window.electron.writeProjectFile(path, serialiseProjectFile(payload))
+        // Fresh project has no data yet — the bundle is the metadata
+        // plus empty cpts / boreholes arrays. One bundle GET is cheap
+        // here even though we know it'll be empty: it keeps the file's
+        // ``project`` dict shape identical to what the bundle endpoint
+        // returns, so the round-trip stays symmetric.
+        const bundle = await api.project.bundle(created.id)
+        await window.electron.writeProjectFile(
+          path,
+          serialiseProjectFile(buildProjectFile(bundle)),
+        )
       } catch (err) {
         log.error('project', `writeProjectFile failed, rolling back`, err)
         try {
@@ -280,9 +293,16 @@ export function useProject(): UseProject {
       const patch = fullPatchFrom(project)
       const updated = await api.project.update(project.id, patch)
       try {
+        // Fetch the full bundle (metadata + every CPT/series + every
+        // borehole tree) and write it to disk. The file is the user's
+        // anchor — re-opening it after a DB wipe must bring data back.
+        // Save is a relatively rare, user-initiated action so the extra
+        // round-trip and JSON-encoding cost (potentially MB for big
+        // projects) is acceptable.
+        const bundle = await api.project.bundle(project.id)
         await window.electron.writeProjectFile(
           filePath,
-          serialiseProjectFile(buildProjectFile(updated)),
+          serialiseProjectFile(buildProjectFile(bundle)),
         )
       } catch (err) {
         // File write failure leaves the DB ahead of the file. Log loudly
@@ -339,9 +359,14 @@ export function useProject(): UseProject {
     }
 
     try {
+      // Save As writes a full bundle for the duplicate too — the
+      // duplicated DB row already has its own CPTs / boreholes
+      // (deep-cloned by ``POST /projects/{id}/duplicate``), so the
+      // bundle endpoint returns everything we need.
+      const bundle = await api.project.bundle(duplicated.id)
       await window.electron.writeProjectFile(
         path,
-        serialiseProjectFile(buildProjectFile(duplicated)),
+        serialiseProjectFile(buildProjectFile(bundle)),
       )
     } catch (err) {
       log.error('project', 'saveAsProject: writeProjectFile failed, rolling back', err)
