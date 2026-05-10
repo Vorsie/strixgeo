@@ -1046,7 +1046,11 @@ Multi-project landed 2026-05-10:
 * ``.gmproj`` file format (pointer + metadata, format_version=1).
 * Electron file menu: New / Open / Open Recent / Close (Ctrl+W).
 * WelcomeScreen with two columns (create-or-open + recent list).
-* Save-As (deep duplicate) deferred to debt #20.
+* Save-As deep duplicate: POST /projects/{id}/duplicate clones the
+  project row + every CPT (with series) + every borehole subtree
+  (drill segments, field log, observations + layers + admixtures,
+  samples + 5 typed lab families + the catch-all). Wired through
+  the File menu and useProject.saveAsProject.
 
 ### 5. DOV cache eviction — DONE
 
