@@ -21,6 +21,7 @@ import MapView from './components/MapView'
 import CptChart from './components/CptChart'
 import BoreholeLog from './components/BoreholeLog'
 import WelcomeScreen from './components/WelcomeScreen'
+import NewProjectDialog from './components/NewProjectDialog'
 
 interface RecentProject {
   path: string
@@ -49,6 +50,7 @@ declare global {
       onMenuProjectOpen: (cb: () => void) => () => void
       onMenuProjectSave: (cb: () => void) => () => void
       onMenuProjectSaveAs: (cb: () => void) => () => void
+      onMenuProjectClose: (cb: () => void) => () => void
       onMenuProjectOpenRecent: (cb: (path: string) => void) => () => void
     }
   }
@@ -75,7 +77,11 @@ export default function App() {
     newProject,
     openProjectFile,
     pickAndOpenProject,
+    closeProject,
   } = useProject()
+  // Controls the NewProjectDialog modal visibility. Triggered by the File
+  // menu's New Project item or the Welcome screen's Create button.
+  const [newProjectOpen, setNewProjectOpen] = useState(false)
   // Initialise the theme system. The hook itself owns the class on
   // <html>; we don't need to consume ``resolved``/``setChoice`` until a
   // theme-toggle UI lands (UX Conventions in CLAUDE.md flagged that as
@@ -351,11 +357,13 @@ export default function App() {
   // Project menu signals — wire each into a handler. Each subscription
   // returns its own unsubscribe; we register all on mount and tear down
   // on unmount.
-  const handleMenuProjectNew = useCallback(async () => {
-    const trimmed = window.prompt('New project name:')?.trim()
-    if (!trimmed) return
-    await newProject({ name: trimmed })
-  }, [newProject])
+  //
+  // Note: New Project just opens the dialog; the actual create call fires
+  // from the dialog's submit. ``window.prompt`` is unavailable in
+  // Electron's renderer, so we never go through that path.
+  const handleMenuProjectNew = useCallback(() => {
+    setNewProjectOpen(true)
+  }, [])
 
   const handleMenuProjectOpen = useCallback(async () => {
     await pickAndOpenProject()
@@ -368,14 +376,29 @@ export default function App() {
     [openProjectFile],
   )
 
+  // Close-project menu item: discards the local pointer (DB rows
+  // untouched) and returns to the welcome screen so the user can pick a
+  // different project. Without this, auto-reopen on next launch would
+  // also re-open the same project — there'd be no way back to the
+  // welcome screen short of editing localStorage by hand.
+  const handleMenuProjectClose = useCallback(() => {
+    closeProject()
+  }, [closeProject])
+
   useEffect(() => {
     const offs = [
-      window.electron.onMenuProjectNew(() => void handleMenuProjectNew()),
+      window.electron.onMenuProjectNew(handleMenuProjectNew),
       window.electron.onMenuProjectOpen(() => void handleMenuProjectOpen()),
       window.electron.onMenuProjectOpenRecent(path => void handleMenuProjectOpenRecent(path)),
+      window.electron.onMenuProjectClose(handleMenuProjectClose),
     ]
     return () => offs.forEach(off => off())
-  }, [handleMenuProjectNew, handleMenuProjectOpen, handleMenuProjectOpenRecent])
+  }, [
+    handleMenuProjectNew,
+    handleMenuProjectOpen,
+    handleMenuProjectOpenRecent,
+    handleMenuProjectClose,
+  ])
 
   // ---------------------------------------------------------------------------
   // Data loading
@@ -668,14 +691,28 @@ export default function App() {
 
   if (!project) {
     return (
-      <WelcomeScreen
-        onCreateProject={async name => {
-          await newProject({ name })
-        }}
-        onOpenProject={async () => {
-          await pickAndOpenProject()
-        }}
-      />
+      <>
+        <WelcomeScreen
+          onCreateProject={async name => {
+            await newProject({ name })
+          }}
+          onOpenProject={async () => {
+            await pickAndOpenProject()
+          }}
+        />
+        {/* The File-menu's New Project item also opens the dialog from
+            the welcome screen (where the inline name input would normally
+            be enough). Keeping a single dialog instance means the two
+            entry points produce identical UX. */}
+        <NewProjectDialog
+          open={newProjectOpen}
+          onCancel={() => setNewProjectOpen(false)}
+          onSubmit={async name => {
+            const created = await newProject({ name })
+            if (created !== null) setNewProjectOpen(false)
+          }}
+        />
+      </>
     )
   }
 
@@ -787,6 +824,17 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      {/* New-project dialog. Sits at the App-shell level so the File-menu
+          signal can open it whether the user has a project loaded or not. */}
+      <NewProjectDialog
+        open={newProjectOpen}
+        onCancel={() => setNewProjectOpen(false)}
+        onSubmit={async name => {
+          const created = await newProject({ name })
+          if (created !== null) setNewProjectOpen(false)
+        }}
+      />
     </div>
   )
 }
