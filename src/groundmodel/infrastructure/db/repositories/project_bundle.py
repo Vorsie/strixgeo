@@ -49,6 +49,7 @@ from sqlalchemy.orm import selectinload
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
@@ -266,26 +267,29 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
         .where(GeologicalModelOrm.app_project_id == project.id)
         .options(selectinload(GeologicalModelOrm.contacts))
     )
+    sections_stmt = select(CrossSectionOrm).where(CrossSectionOrm.app_project_id == project.id)
 
     cpts = (await session.execute(cpts_stmt)).scalars().all()
     boreholes = (await session.execute(boreholes_stmt)).scalars().all()
     formations = (await session.execute(formations_stmt)).scalars().all()
     models = (await session.execute(models_stmt)).scalars().all()
+    sections = (await session.execute(sections_stmt)).scalars().all()
 
     bundle = {
         "format_version": 2,
         "project": _column_to_json(project, _SKIP_COLUMNS),
         "cpts": [_cpt_to_dict(c) for c in cpts],
         "boreholes": [_borehole_to_dict(b) for b in boreholes],
-        # Additive fields. Older readers without geology support will
-        # ignore these; older bundles missing them parse as empty lists
-        # (see restore_project_bundle).
+        # Additive fields. Older readers without geology / section
+        # support will ignore these; older bundles missing them parse
+        # as empty lists (see restore_project_bundle).
         "geological_formations": [_column_to_json(f, _SKIP_COLUMNS) for f in formations],
         "geological_models": [_geological_model_to_dict(m) for m in models],
+        "cross_sections": [_column_to_json(s, _SKIP_COLUMNS) for s in sections],
     }
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
-        f"+ {len(formations)} formations + {len(models)} models"
+        f"+ {len(formations)} formations + {len(models)} models + {len(sections)} sections"
     )
     return bundle
 
@@ -443,23 +447,24 @@ async def restore_project_bundle(
     boreholes_payload: list[dict[str, Any]],
     geological_formations_payload: list[dict[str, Any]] | None = None,
     geological_models_payload: list[dict[str, Any]] | None = None,
+    cross_sections_payload: list[dict[str, Any]] | None = None,
 ) -> ProjectOrm:
-    """Idempotently materialise a project + its CPTs / boreholes / geology from a bundle.
+    """Idempotently materialise a project + every child collection from a bundle.
 
     Behaviour:
 
     * Project row missing → INSERT with the supplied id + metadata.
     * Project row present → return it as-is (don't mutate metadata; the
       DB version is authoritative when it exists).
-    * Each CPT / borehole / formation / model in the payload is inserted
-      if its id is not already in the DB. Existing ids are skipped (no
-      mutation). Idempotent across re-restores.
+    * Each CPT / borehole / formation / model / cross-section in the
+      payload is inserted if its id is not already in the DB. Existing
+      ids are skipped (no mutation). Idempotent across re-restores.
     * Formation contacts ride along with their parent model (nested
       under ``contacts`` in the payload).
 
-    Backwards compatibility: the two geology kwargs default to ``None``
-    so callers from older clients (no geology in their bundle) keep
-    working — they just produce no geology rows.
+    Backwards compatibility: every extra-tree kwarg defaults to ``None``
+    so callers from older clients keep working — they just produce no
+    rows for the missing sections.
 
     The ``project_id`` from the URL takes precedence over any id in the
     payload — that's what makes the endpoint URL-driven and prevents a
@@ -467,6 +472,7 @@ async def restore_project_bundle(
     """
     geological_formations_payload = geological_formations_payload or []
     geological_models_payload = geological_models_payload or []
+    cross_sections_payload = cross_sections_payload or []
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -582,11 +588,34 @@ async def restore_project_bundle(
         new_models += 1
         new_contacts += len(contacts_payload)
 
+    # ---- Cross-sections --------------------------------------------------
+    existing_section_ids = set(
+        (
+            await session.execute(
+                select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_sections = 0
+    for s_payload in cross_sections_payload:
+        s_id_raw = s_payload.get("id")
+        if s_id_raw is None:
+            continue
+        s_id = UUID(s_id_raw) if isinstance(s_id_raw, str) else s_id_raw
+        if s_id in existing_section_ids:
+            continue
+        kwargs = _apply_json_to_kwargs(CrossSectionOrm, s_payload)
+        kwargs["app_project_id"] = project_id
+        session.add(CrossSectionOrm(**kwargs))
+        new_sections += 1
+
     await session.flush()
     logger.info(
         f"restore_project_bundle({project_id}): "
         f"+{new_cpts} CPTs, +{new_boreholes} boreholes, "
         f"+{new_formations} formations, +{new_models} models "
-        f"(+{new_contacts} contacts)"
+        f"(+{new_contacts} contacts), +{new_sections} sections"
     )
     return project
