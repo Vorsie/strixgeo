@@ -986,27 +986,14 @@ contributor lands.
 
 **When.** Before opening the repo to collaborators.
 
-### 11. Bump Electron + vitest majors (medium)
+### 11. Bump Electron + vitest majors — DONE
 
-**What.** `npm audit` reports 6 vulnerabilities — 1 high in Electron
-36 (17 CVEs, mostly sandbox / IPC injection variants), 5 moderate in
-esbuild (dev-server-only, surfaces via vitest's transitive deps).
-Fixes are both major version jumps:
-
-* Electron 36 → 42 — breaking-change review needed (main-process API
-  shifts, deprecated webPreferences, native module rebuild).
-* vitest 2 → 4 — config / API breakage possible, re-run the test
-  suite + check for moved exports.
-
-**Why deferred.** Practical risk is low for a solo-dev internal tool:
-the Electron CVEs need a local malicious actor or untrusted content;
-the esbuild CVE only affects whoever can reach your dev port. None
-applies to the shipped artifact in current solo use. The combined
-upgrade wants a focused empty afternoon, not a mid-review-queue
-detour.
-
-**When.** Before any non-solo user / any internet exposure of the
-dev server. Practically: same trigger as item #9 (telemetry).
+Electron 36.3.1 → 42.0.1 and vitest 2.1.8 → 4.1.5. Both upgrades
+landed without code changes — our main-process patterns
+(`contextIsolation: true`, `ipcMain.handle`, `contextBridge`) are
+stable across the version range. `npm audit` now reports **0
+vulnerabilities** (was 1 high + 5 moderate). The deprecated CJS Vite
+Node API warning that vitest 2 emitted is gone with vitest 4.
 
 ### 12. Backfill `dov_permkey` for legacy rows (low)
 
