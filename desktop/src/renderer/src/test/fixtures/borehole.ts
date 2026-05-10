@@ -47,7 +47,10 @@ export function makeFixtureBorehole(): BoreholeDetailResponse {
 
   const lithology: ObservationResponse = {
     id: 'obs-litho',
-    observation_type: 'gecodeerde_lithologie',
+    // Must match `LITHOLOGY_TYPES` in BoreholeLog so the layer block
+    // renders soil-code badges + admixture chips (not the text-card
+    // fallback used for `lithological_description` etc.).
+    observation_type: 'coded_lithology',
     author: 'TEST',
     observation_date: '2024-01-15',
     reliability: 'A',
@@ -156,5 +159,24 @@ export function makeFixtureBorehole(): BoreholeDetailResponse {
     ],
     observations: [lithology],
     samples: [sampleA, sampleB],
+  }
+}
+
+/**
+ * Build a fixture with the FIRST layer's ``admixtures`` replaced by the
+ * supplied list. Lets tests target the admixture-rendering surface
+ * without touching the rest of the borehole.
+ */
+export function makeFixtureBoreholeWithAdmixtures(
+  admixtures: { soil_code: string; amount: string; locally: boolean }[],
+): BoreholeDetailResponse {
+  const base = makeFixtureBorehole()
+  const lithology = base.observations[0]
+  const updatedLayers = lithology.layers.map((layer, i) =>
+    i === 0 ? { ...layer, admixtures } : layer,
+  )
+  return {
+    ...base,
+    observations: [{ ...lithology, layers: updatedLayers }],
   }
 }
