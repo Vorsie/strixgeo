@@ -13,7 +13,11 @@ interface Props {
   // collects only the name; richer fields live in the project-metadata
   // editor that opens after creation.
   onCreateProject: (name: string) => Promise<void> | void
-  onOpenProject: () => Promise<void> | void
+  // File-picker driven open. Returns a tri-state outcome so the
+  // welcome screen can show its "couldn't open" banner only when the
+  // open actually failed (not when the user simply cancelled the
+  // dialog).
+  onOpenProject: () => Promise<'opened' | 'cancelled' | 'failed'>
   // Click handler for a recent-projects entry. Receives the file path
   // and returns whether the open succeeded — when it didn't (most
   // commonly because the DB row is gone) the welcome screen surfaces
@@ -60,8 +64,15 @@ export default function WelcomeScreen({
   async function handleOpen(): Promise<void> {
     if (busy) return
     setBusy(true)
+    setOpenError(null)
     try {
-      await onOpenProject()
+      const outcome = await onOpenProject()
+      if (outcome === 'failed') {
+        setOpenError(
+          "Couldn't open the selected project file. It points at a project that's no longer in the database.",
+        )
+        refreshRecent()
+      }
     } finally {
       setBusy(false)
     }
