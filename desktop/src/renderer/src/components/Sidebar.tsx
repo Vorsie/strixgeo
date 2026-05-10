@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Modal from './ui/Modal'
 import { usePersistedJSON } from '../hooks/usePersistedJSON'
 import {
   Activity,
@@ -51,6 +52,10 @@ interface Props {
   // navigate by mouse. Optional so test harnesses can mount the
   // sidebar without wiring close.
   onCloseProject?: () => void
+  // Click handler for the project name itself. Opens the metadata
+  // editor in the App shell. Optional for the same reason as the
+  // others — test fixtures can omit it.
+  onEditMetadata?: () => void
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -126,6 +131,7 @@ export default function Sidebar({
   projectName,
   projectFilePath,
   onCloseProject,
+  onEditMetadata,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -247,18 +253,34 @@ export default function Sidebar({
 
   return (
     <aside className="flex flex-col w-56 shrink-0 border-r border-gray-200 bg-white overflow-hidden">
-      {/* Project name + Close button. The file path is rendered as a
-          ``title`` tooltip on the name row so the user can confirm
-          which .gmproj is loaded without leaving the sidebar. The
-          Close button mirrors the File-menu Ctrl+W for mouse users. */}
+      {/* Project name + Close button. The name row is now clickable —
+          opens the metadata editor in the App shell. The file path is
+          a ``title`` tooltip so the user can confirm which .gmproj is
+          loaded without leaving the sidebar. The Close button mirrors
+          File-menu Ctrl+W for mouse users. */}
       <div className="group flex items-start gap-1 px-3 py-2 border-b border-gray-200 bg-gray-50">
-        <div
-          className="flex-1 min-w-0"
-          title={projectFilePath ?? undefined}
-        >
-          <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
-          <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
-        </div>
+        {onEditMetadata ? (
+          <button
+            onClick={onEditMetadata}
+            title={
+              projectFilePath
+                ? `${projectFilePath} — click to edit project metadata`
+                : 'Click to edit project metadata'
+            }
+            className="flex-1 min-w-0 text-left rounded -mx-1 px-1 py-0.5 hover:bg-gray-200 transition-colors"
+          >
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
+            <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
+          </button>
+        ) : (
+          <div
+            className="flex-1 min-w-0"
+            title={projectFilePath ?? undefined}
+          >
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
+            <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
+          </div>
+        )}
         {onCloseProject && (
           <button
             // Click-protection: the X is small and lives in the row a user
@@ -684,10 +706,9 @@ function EmptyState({ label }: { label: string }) {
   )
 }
 
-// Lightweight inline confirmation for the sidebar's Close button. Kept
-// local because it's a one-off — promote to a shared ConfirmDialog
-// component when a third destructive-or-impactful path needs the same
-// shape (per the codebase's "extract on third copy" rule).
+// Lightweight inline confirmation for the sidebar's Close button.
+// Built on the shared Modal shell so backdrop / Esc / aria wiring
+// match every other dialog in the app.
 function CloseProjectConfirm({
   projectName,
   onConfirm,
@@ -705,30 +726,14 @@ function CloseProjectConfirm({
     cancelRef.current?.focus()
   }, [])
 
-  // Esc cancels (matching every other dialog in the app).
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onCancel()
-      }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onCancel])
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onClick={onCancel}
+    <Modal
+      open
+      onCancel={onCancel}
+      labelledBy="close-project-title"
+      cardClassName="w-80"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="close-project-title"
-        className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 w-80"
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="p-5">
         <h2
           id="close-project-title"
           className="text-sm font-semibold text-gray-800 mb-1"
@@ -756,7 +761,7 @@ function CloseProjectConfirm({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
