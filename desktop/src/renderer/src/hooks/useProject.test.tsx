@@ -34,6 +34,8 @@ vi.mock('../api/client', () => ({
       update: vi.fn(),
       archive: vi.fn(),
       unarchive: vi.fn(),
+      duplicate: vi.fn(),
+      restore: vi.fn(),
     },
   },
 }))
@@ -190,7 +192,58 @@ describe('useProject', () => {
     expect(result.current.project).toBeNull()
   })
 
-  it('openProjectFile: returns null when the DB row no longer exists', async () => {
+  it('openProjectFile: restores the project shell when the DB row is missing', async () => {
+    const { api } = await import('../api/client')
+    const ghostFile = {
+      format_version: 1,
+      id: '01k-MISSING',
+      name: 'Ghost',
+      project_number: 'GEO-001',
+      client: 'ACME',
+      site_label: 'Port',
+      description: 'restored shell',
+      tags: ['foundation'],
+      default_horizontal_epsg: 31370,
+      default_vertical_epsg: 5710,
+      phase: 'design',
+      status: 'active',
+    }
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify(ghostFile),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('GET /projects/01k-MISSING → 404'),
+    )
+    const restored = { ...created, id: '01k-MISSING', name: 'Ghost' }
+    ;(api.project.restore as ReturnType<typeof vi.fn>).mockResolvedValue(restored)
+
+    const { result } = renderHook(() => useProject())
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.openProjectFile('C:/path/ghost.gmproj')
+    })
+
+    expect(returned).toEqual(restored)
+    expect(result.current.project).toEqual(restored)
+    // The restore call carries the file's full metadata (id is in the
+    // URL; everything else in the body).
+    expect(api.project.restore).toHaveBeenCalledWith(
+      '01k-MISSING',
+      expect.objectContaining({
+        name: 'Ghost',
+        project_number: 'GEO-001',
+        client: 'ACME',
+        tags: ['foundation'],
+        default_horizontal_epsg: 31370,
+        phase: 'design',
+        status: 'active',
+      }),
+    )
+    // Recent entry is preserved — restore makes the open succeed.
+    expect(window.electron.removeRecentProject).not.toHaveBeenCalled()
+  })
+
+  it('openProjectFile: returns null when restore itself fails (network down)', async () => {
     const { api } = await import('../api/client')
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({
@@ -211,6 +264,9 @@ describe('useProject', () => {
     ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('GET /projects/01k-MISSING → 404'),
     )
+    ;(api.project.restore as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('network unreachable'),
+    )
 
     const { result } = renderHook(() => useProject())
     let returned: unknown
@@ -220,14 +276,9 @@ describe('useProject', () => {
 
     expect(returned).toBeNull()
     expect(result.current.project).toBeNull()
-    // 404 ⇒ drop the stale Recent entry so the welcome screen stops
-    // surfacing it.
-    expect(window.electron.removeRecentProject).toHaveBeenCalledWith(
-      'C:/path/ghost.gmproj',
-    )
   })
 
-  it('openProjectFile: leaves Recent alone when the failure is not a 404', async () => {
+  it('openProjectFile: returns null on non-404 GET failures, no restore attempted', async () => {
     const { api } = await import('../api/client')
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({
@@ -256,7 +307,8 @@ describe('useProject', () => {
     })
 
     expect(returned).toBeNull()
-    expect(window.electron.removeRecentProject).not.toHaveBeenCalled()
+    // Restore only fires on a clean 404, not arbitrary errors.
+    expect(api.project.restore).not.toHaveBeenCalled()
   })
 
   it('closeProject clears in-memory state', async () => {
