@@ -1,0 +1,476 @@
+"""Project bundle serialiser — full round-trip between ORM tree and JSON.
+
+Backs the .gmproj v2 file format: a project's complete state (header
+metadata + every CPT with its series + every borehole with its full
+tree) serialises to one JSON-friendly dict, restores from one back to
+the DB. Used by:
+
+* ``GET /projects/{id}/bundle`` — the desktop client calls this on
+  File → Save and embeds the result in the .gmproj file.
+* ``POST /projects/{id}/restore`` — the desktop client calls this on
+  open when the DB doesn't have the row the file points at, passing
+  the embedded bundle so CPTs and boreholes come back along with the
+  project shell.
+
+The round-trip is idempotent: re-restoring a bundle whose rows already
+exist (by id) returns them as-is rather than failing or duplicating.
+
+Design choices:
+
+* **Column-attr enumeration** (``__mapper__.column_attrs``) instead of
+  per-table schemas. Adding a new column to any ORM model rides along
+  automatically. The trade-off is weaker static typing; we make up for
+  it with the type-conversion hooks (``_TO_JSON`` / ``_FROM_JSON``)
+  which are central, audited, and tested.
+* **Geometry is dropped, not serialised.** Both CPT and Borehole carry
+  a PostGIS ``location`` column that's purely derived from the raw
+  ``location_x`` / ``location_y`` / ``epsg`` triple. We rebuild it on
+  restore via WKTElement so we never round-trip the WKB blob through
+  JSON.
+* **Server-managed columns are dropped** (``created_at``,
+  ``updated_at``, ``archived_at``). The first two are
+  ``server_default=now()``; ``archived_at`` is excluded by intent —
+  restoring brings a project back as active even if it was archived
+  before the DB was wiped (the user opened the file, they want it
+  available).
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Any
+from uuid import UUID
+
+from geoalchemy2 import WKTElement
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
+from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
+from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Columns dropped on serialise + restore. Timestamps are server-defaults;
+# geometry is rebuilt from x/y/epsg. ``archived_at`` is by-design active
+# on restore — see module docstring.
+_SKIP_COLUMNS = frozenset({"created_at", "updated_at", "archived_at", "location"})
+
+logger = LoggerFactory.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Value-level JSON encoding / decoding
+# ---------------------------------------------------------------------------
+
+
+def _to_json(value: Any) -> Any:
+    """Convert a DB-side value to a JSON-friendly form.
+
+    UUIDs / dates / datetimes become ISO strings; arrays of those convert
+    element-wise. Floats / ints / strings / None / lists-of-those pass
+    through unchanged.
+    """
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_to_json(v) for v in value]
+    return value
+
+
+def _from_json(value: Any, python_type: type[Any] | None) -> Any:
+    """Reverse of ``_to_json`` — parse JSON back to the DB-side Python type.
+
+    The ``python_type`` hint comes from the column's ``type.python_type``
+    (e.g. ``UUID`` for ``PG_UUID``, ``date`` for ``Date``). When the
+    value is ``None`` or the type doesn't need parsing (str / int /
+    float / list of those) we return it unchanged.
+    """
+    if value is None:
+        return None
+    if python_type is UUID and isinstance(value, str):
+        return UUID(value)
+    if python_type is datetime and isinstance(value, str):
+        return datetime.fromisoformat(value)
+    if python_type is date and isinstance(value, str):
+        return date.fromisoformat(value)
+    return value
+
+
+def _column_to_json(orm: Any, exclude: frozenset[str]) -> dict[str, Any]:
+    """Snapshot every mapped column on ``orm`` as a JSON-friendly dict.
+
+    Mirrors ``project_repository._column_dict`` but applies ``_to_json``
+    per value so the result is safe to dump straight to JSON.
+    """
+    return {
+        col.key: _to_json(getattr(orm, col.key))
+        for col in orm.__class__.__mapper__.column_attrs
+        if col.key not in exclude
+    }
+
+
+def _apply_json_to_kwargs(cls: type[Any], data: dict[str, Any]) -> dict[str, Any]:
+    """Parse a JSON dict into ORM-constructor kwargs.
+
+    For each column known to ``cls`` that appears in ``data``, look up
+    the column's Python type and run ``_from_json``. Unknown keys are
+    silently dropped — older bundle versions that included a now-removed
+    column shouldn't blow up the restore.
+    """
+    known: dict[str, type[Any] | None] = {}
+    for col in cls.__mapper__.column_attrs:
+        try:
+            python_type = col.columns[0].type.python_type
+        except (AttributeError, NotImplementedError):
+            python_type = None
+        known[col.key] = python_type
+
+    return {
+        key: _from_json(data[key], known[key])
+        for key in data
+        if key in known and key not in _SKIP_COLUMNS
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-table serialise helpers — small, focused, mirror the clone helpers in
+# project_repository.py.
+# ---------------------------------------------------------------------------
+
+
+def _cpt_to_dict(cpt: CptOrm) -> dict[str, Any]:
+    payload = _column_to_json(cpt, _SKIP_COLUMNS | {"app_project_id"})
+    if cpt.series is not None:
+        payload["series"] = _column_to_json(cpt.series, _SKIP_COLUMNS | {"cpt_id"})
+    else:
+        payload["series"] = None
+    return payload
+
+
+def _borehole_to_dict(bh: BoreholeOrm) -> dict[str, Any]:
+    payload = _column_to_json(bh, _SKIP_COLUMNS | {"app_project_id"})
+    payload["drill_segments"] = [
+        _column_to_json(seg, _SKIP_COLUMNS | {"borehole_id"}) for seg in bh.drill_segments
+    ]
+    payload["field_log_intervals"] = [
+        _column_to_json(fl, _SKIP_COLUMNS | {"borehole_id"}) for fl in bh.field_log_intervals
+    ]
+    payload["observations"] = [_observation_to_dict(obs) for obs in bh.observations]
+    payload["samples"] = [_sample_to_dict(s) for s in bh.samples]
+    return payload
+
+
+def _observation_to_dict(obs: ObservationOrm) -> dict[str, Any]:
+    payload = _column_to_json(obs, _SKIP_COLUMNS | {"borehole_id"})
+    payload["layers"] = [_layer_to_dict(layer) for layer in obs.layers]
+    return payload
+
+
+def _layer_to_dict(layer: ObservationLayerOrm) -> dict[str, Any]:
+    payload = _column_to_json(layer, _SKIP_COLUMNS | {"observation_id"})
+    payload["admixtures"] = [
+        _column_to_json(admix, _SKIP_COLUMNS | {"observation_layer_id"})
+        for admix in layer.admixtures
+    ]
+    return payload
+
+
+def _sample_to_dict(sample: SampleOrm) -> dict[str, Any]:
+    payload = _column_to_json(sample, _SKIP_COLUMNS | {"borehole_id"})
+    # Every lab-test family shares the same leaf shape — flat columns,
+    # FK back to sample.id. ``rotation`` here lists each family alongside
+    # its bundle-key name.
+    payload["grain_sizes"] = [
+        _column_to_json(g, _SKIP_COLUMNS | {"sample_id"}) for g in sample.grain_sizes
+    ]
+    payload["atterberg_limits_tests"] = [
+        _column_to_json(a, _SKIP_COLUMNS | {"sample_id"}) for a in sample.atterberg_limits_tests
+    ]
+    payload["caco3_content_tests"] = [
+        _column_to_json(c, _SKIP_COLUMNS | {"sample_id"}) for c in sample.caco3_content_tests
+    ]
+    payload["organic_content_tests"] = [
+        _column_to_json(o, _SKIP_COLUMNS | {"sample_id"}) for o in sample.organic_content_tests
+    ]
+    payload["water_content_tests"] = [
+        _column_to_json(w, _SKIP_COLUMNS | {"sample_id"}) for w in sample.water_content_tests
+    ]
+    payload["scalar_lab_tests"] = [
+        _column_to_json(s, _SKIP_COLUMNS | {"sample_id"}) for s in sample.scalar_lab_tests
+    ]
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# Bundle-build entrypoint — used by the GET /projects/{id}/bundle endpoint.
+# ---------------------------------------------------------------------------
+
+
+async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> dict[str, Any]:
+    """Return a fully serialised snapshot of a project + every child.
+
+    The project row is passed in (already loaded by the caller).
+    Children are eager-loaded here in one batch each — same pattern as
+    ``ProjectRepository.duplicate``.
+
+    The output is a plain ``dict`` (no Pydantic) — FastAPI serialises it
+    to JSON via the default encoder. Floats / ints / strings / lists /
+    nested dicts all pass through; UUIDs and dates were already
+    flattened to strings inside the per-table helpers.
+    """
+    cpts_stmt = (
+        select(CptOrm)
+        .where(CptOrm.app_project_id == project.id)
+        .options(selectinload(CptOrm.series))
+    )
+    boreholes_stmt = (
+        select(BoreholeOrm)
+        .where(BoreholeOrm.app_project_id == project.id)
+        .options(
+            selectinload(BoreholeOrm.drill_segments),
+            selectinload(BoreholeOrm.field_log_intervals),
+            selectinload(BoreholeOrm.observations)
+            .selectinload(ObservationOrm.layers)
+            .selectinload(ObservationLayerOrm.admixtures),
+            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.grain_sizes),
+            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.atterberg_limits_tests),
+            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.caco3_content_tests),
+            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.organic_content_tests),
+            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.water_content_tests),
+            selectinload(BoreholeOrm.samples).selectinload(SampleOrm.scalar_lab_tests),
+        )
+    )
+    cpts = (await session.execute(cpts_stmt)).scalars().all()
+    boreholes = (await session.execute(boreholes_stmt)).scalars().all()
+
+    bundle = {
+        "format_version": 2,
+        "project": _column_to_json(project, _SKIP_COLUMNS),
+        "cpts": [_cpt_to_dict(c) for c in cpts],
+        "boreholes": [_borehole_to_dict(b) for b in boreholes],
+    }
+    logger.info(f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes")
+    return bundle
+
+
+# ---------------------------------------------------------------------------
+# Restore-from-bundle entrypoint — used by POST /projects/{id}/restore.
+# ---------------------------------------------------------------------------
+
+
+def _make_location(
+    location_x: float | None, location_y: float | None, epsg: int | None
+) -> WKTElement | None:
+    """Rebuild the PostGIS geometry from raw x/y/epsg.
+
+    Returns ``None`` when any of the three is missing — matches the
+    behaviour of the import pipeline (CPT / borehole rows can lack a
+    usable EPSG and still be stored).
+    """
+    if location_x is None or location_y is None or epsg is None:
+        return None
+    return WKTElement(f"SRID={epsg};POINT({location_x} {location_y})")
+
+
+def _build_cpt(data: dict[str, Any], app_project_id: UUID) -> CptOrm:
+    series_payload = data.get("series")
+    cpt_kwargs = _apply_json_to_kwargs(CptOrm, data)
+    cpt = CptOrm(app_project_id=app_project_id, **cpt_kwargs)
+    # WKTElement is accepted at column-set time by GeoAlchemy2 and rewritten
+    # to a WKBElement during INSERT — mypy sees only the column's declared
+    # WKBElement type so the assignment is cast through ``Any`` here.
+    cpt.location = _make_location(cpt.location_x, cpt.location_y, cpt.epsg)  # type: ignore[assignment]
+    if series_payload is not None:
+        cpt.series = CptSeriesOrm(**_apply_json_to_kwargs(CptSeriesOrm, series_payload))
+    return cpt
+
+
+def _build_borehole(data: dict[str, Any], app_project_id: UUID) -> BoreholeOrm:
+    drill_segments = data.get("drill_segments") or []
+    field_log_intervals = data.get("field_log_intervals") or []
+    observations = data.get("observations") or []
+    samples = data.get("samples") or []
+
+    bh_kwargs = _apply_json_to_kwargs(BoreholeOrm, data)
+    bh = BoreholeOrm(app_project_id=app_project_id, **bh_kwargs)
+    bh.location = _make_location(bh.location_x, bh.location_y, bh.epsg)  # type: ignore[assignment]
+
+    # Local import to dodge circular references — each leaf class lives
+    # alongside its own ORM module, and importing them at module top
+    # would balloon the import graph for callers that never restore.
+    from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
+    from groundmodel.infrastructure.db.models.atterberg_limits_orm import AtterbergLimitsOrm
+    from groundmodel.infrastructure.db.models.caco3_content_orm import CaCO3ContentOrm
+    from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
+    from groundmodel.infrastructure.db.models.field_log_interval_orm import (
+        FieldLogIntervalOrm,
+    )
+    from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
+    from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
+    from groundmodel.infrastructure.db.models.scalar_lab_test_orm import ScalarLabTestOrm
+    from groundmodel.infrastructure.db.models.water_content_orm import WaterContentOrm
+
+    bh.drill_segments = [
+        DrillSegmentOrm(**_apply_json_to_kwargs(DrillSegmentOrm, d)) for d in drill_segments
+    ]
+    bh.field_log_intervals = [
+        FieldLogIntervalOrm(**_apply_json_to_kwargs(FieldLogIntervalOrm, d))
+        for d in field_log_intervals
+    ]
+    bh.observations = [_build_observation(obs_data, AdmixtureOrm) for obs_data in observations]
+    bh.samples = [
+        _build_sample(
+            sample_data,
+            GrainSizeOrm,
+            AtterbergLimitsOrm,
+            CaCO3ContentOrm,
+            OrganicContentOrm,
+            WaterContentOrm,
+            ScalarLabTestOrm,
+        )
+        for sample_data in samples
+    ]
+    return bh
+
+
+def _build_observation(data: dict[str, Any], admixture_cls: type[Any]) -> ObservationOrm:
+    layers_payload = data.get("layers") or []
+    obs = ObservationOrm(**_apply_json_to_kwargs(ObservationOrm, data))
+    obs.layers = [_build_layer(layer_data, admixture_cls) for layer_data in layers_payload]
+    return obs
+
+
+def _build_layer(data: dict[str, Any], admixture_cls: type[Any]) -> ObservationLayerOrm:
+    admixtures_payload = data.get("admixtures") or []
+    layer = ObservationLayerOrm(**_apply_json_to_kwargs(ObservationLayerOrm, data))
+    layer.admixtures = [
+        admixture_cls(**_apply_json_to_kwargs(admixture_cls, a)) for a in admixtures_payload
+    ]
+    return layer
+
+
+def _build_sample(
+    data: dict[str, Any],
+    grain_size_cls: type[Any],
+    atterberg_cls: type[Any],
+    caco3_cls: type[Any],
+    organic_cls: type[Any],
+    water_cls: type[Any],
+    scalar_cls: type[Any],
+) -> SampleOrm:
+    sample = SampleOrm(**_apply_json_to_kwargs(SampleOrm, data))
+    sample.grain_sizes = [
+        grain_size_cls(**_apply_json_to_kwargs(grain_size_cls, d))
+        for d in data.get("grain_sizes") or []
+    ]
+    sample.atterberg_limits_tests = [
+        atterberg_cls(**_apply_json_to_kwargs(atterberg_cls, d))
+        for d in data.get("atterberg_limits_tests") or []
+    ]
+    sample.caco3_content_tests = [
+        caco3_cls(**_apply_json_to_kwargs(caco3_cls, d))
+        for d in data.get("caco3_content_tests") or []
+    ]
+    sample.organic_content_tests = [
+        organic_cls(**_apply_json_to_kwargs(organic_cls, d))
+        for d in data.get("organic_content_tests") or []
+    ]
+    sample.water_content_tests = [
+        water_cls(**_apply_json_to_kwargs(water_cls, d))
+        for d in data.get("water_content_tests") or []
+    ]
+    sample.scalar_lab_tests = [
+        scalar_cls(**_apply_json_to_kwargs(scalar_cls, d))
+        for d in data.get("scalar_lab_tests") or []
+    ]
+    return sample
+
+
+async def restore_project_bundle(
+    session: AsyncSession,
+    project_id: UUID,
+    project_payload: dict[str, Any],
+    cpts_payload: list[dict[str, Any]],
+    boreholes_payload: list[dict[str, Any]],
+) -> ProjectOrm:
+    """Idempotently materialise a project + its CPTs / boreholes from a bundle.
+
+    Behaviour:
+
+    * Project row missing → INSERT with the supplied id + metadata.
+    * Project row present → return it as-is (don't mutate metadata; the
+      DB version is authoritative when it exists).
+    * Each CPT in ``cpts_payload`` is inserted if its id is not already
+      in the DB. Existing ids are skipped (no mutation). Idempotent.
+    * Same for each borehole.
+
+    The ``project_id`` from the URL takes precedence over any id in the
+    payload — that's what makes the endpoint URL-driven and prevents a
+    crafted body from sneaking the wrong id past the router.
+    """
+    # ---- Project shell ---------------------------------------------------
+    result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
+    project = result.scalar_one_or_none()
+    if project is None:
+        kwargs = _apply_json_to_kwargs(ProjectOrm, project_payload)
+        kwargs["id"] = project_id
+        kwargs.pop("archived_at", None)  # restore brings the project back active
+        project = ProjectOrm(**kwargs)
+        session.add(project)
+        await session.flush()
+        logger.info(f"restored project shell {project_id}")
+    else:
+        logger.info(f"project {project_id} already exists — leaving metadata untouched")
+
+    # ---- CPTs ------------------------------------------------------------
+    existing_cpt_ids = set(
+        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    new_cpts = 0
+    for cpt_payload in cpts_payload:
+        cpt_id_raw = cpt_payload.get("id")
+        if cpt_id_raw is None:
+            continue
+        cpt_id = UUID(cpt_id_raw) if isinstance(cpt_id_raw, str) else cpt_id_raw
+        if cpt_id in existing_cpt_ids:
+            continue
+        session.add(_build_cpt(cpt_payload, project_id))
+        new_cpts += 1
+
+    # ---- Boreholes -------------------------------------------------------
+    existing_bh_ids = set(
+        (
+            await session.execute(
+                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_boreholes = 0
+    for bh_payload in boreholes_payload:
+        bh_id_raw = bh_payload.get("id")
+        if bh_id_raw is None:
+            continue
+        bh_id = UUID(bh_id_raw) if isinstance(bh_id_raw, str) else bh_id_raw
+        if bh_id in existing_bh_ids:
+            continue
+        session.add(_build_borehole(bh_payload, project_id))
+        new_boreholes += 1
+
+    await session.flush()
+    logger.info(
+        f"restore_project_bundle({project_id}): +{new_cpts} CPTs, +{new_boreholes} boreholes"
+    )
+    return project
