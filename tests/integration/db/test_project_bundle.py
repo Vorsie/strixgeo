@@ -577,3 +577,159 @@ async def test_restore_skips_geology_when_payload_omits_it(
         .all()
     )
     assert list(formations_after) == []
+
+
+# ---------------------------------------------------------------------------
+# Cross-section round-trip — sections defined by the user survive a save →
+# DB-wipe → restore cycle. Same load-bearing promise as the geology round-
+# trip: open the .gmproj on a different machine and the section definitions
+# come back with the line endpoints, buffer, exaggeration, exclusion arrays,
+# and view-window depths intact.
+# ---------------------------------------------------------------------------
+
+
+async def test_bundle_carries_cross_sections(db_session: AsyncSession) -> None:
+    """Build + restore round-trips cross-section definitions verbatim."""
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+
+    source = await _make_source_project(db_session)
+
+    # One realistic section + one minimal section so the test exercises
+    # both populated optional fields and the defaults.
+    excluded_bh = uuid7()
+    section_a = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="A - East/West",
+        description="Profile through the port area",
+        start_x=150000.0,
+        start_y=200000.0,
+        end_x=151000.0,
+        end_y=200000.0,
+        epsg=31370,
+        projection_buffer_m=75.0,
+        vertical_exaggeration=2.5,
+        excluded_borehole_ids=[excluded_bh],
+        excluded_cpt_ids=[],
+        min_depth_m=-5.0,
+        max_depth_m=40.0,
+        display_order=0,
+    )
+    section_b = CrossSectionOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="B - cross-cut",
+        start_x=150500.0,
+        start_y=199500.0,
+        end_x=150500.0,
+        end_y=200500.0,
+        epsg=31370,
+        projection_buffer_m=50.0,
+        excluded_borehole_ids=[],
+        excluded_cpt_ids=[],
+        display_order=1,
+    )
+    db_session.add_all([section_a, section_b])
+    await db_session.commit()
+    original_ids = {section_a.id, section_b.id}
+
+    bundle = await build_project_bundle(db_session, source)
+    assert "cross_sections" in bundle
+    assert len(bundle["cross_sections"]) == 2
+    by_name = {s["name"]: s for s in bundle["cross_sections"]}
+    assert by_name["A - East/West"]["projection_buffer_m"] == 75.0
+    assert by_name["A - East/West"]["vertical_exaggeration"] == 2.5
+    assert by_name["A - East/West"]["min_depth_m"] == -5.0
+    assert by_name["A - East/West"]["max_depth_m"] == 40.0
+    # UUID arrays serialise as string lists.
+    assert by_name["A - East/West"]["excluded_borehole_ids"] == [str(excluded_bh)]
+
+    # Wipe everything to simulate a fresh DB on another machine.
+    await db_session.execute(
+        delete(CrossSectionOrm).where(CrossSectionOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # Restore from the bundle.
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        bundle["cross_sections"],
+    )
+    await db_session.commit()
+
+    sections_after = list(
+        (
+            await db_session.execute(
+                select(CrossSectionOrm).where(CrossSectionOrm.app_project_id == source.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {s.id for s in sections_after} == original_ids
+    restored_a = next(s for s in sections_after if s.name == "A - East/West")
+    # Every column value survived the JSON round-trip with no precision
+    # loss for the floats.
+    assert restored_a.start_x == 150000.0
+    assert restored_a.end_x == 151000.0
+    assert restored_a.projection_buffer_m == 75.0
+    assert restored_a.vertical_exaggeration == 2.5
+    assert restored_a.excluded_borehole_ids == [excluded_bh]
+    assert restored_a.min_depth_m == -5.0
+    assert restored_a.max_depth_m == 40.0
+    assert restored_a.description == "Profile through the port area"
+
+
+async def test_restore_skips_sections_when_payload_omits_them(
+    db_session: AsyncSession,
+) -> None:
+    """Older bundles without a ``cross_sections`` array still restore cleanly."""
+    from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+
+    source = await _make_source_project(db_session)
+    project_id = source.id
+
+    # Build a bundle without ever creating any cross-sections.
+    bundle = await build_project_bundle(db_session, source)
+
+    # Wipe and restore via the older-shape call (cross_sections kwarg
+    # defaults to None).
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == project_id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == project_id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    await restore_project_bundle(
+        db_session,
+        project_id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        # Geology kwargs given, sections omitted — exercises the
+        # default-to-empty path in restore_project_bundle.
+        bundle["geological_formations"],
+        bundle["geological_models"],
+    )
+    await db_session.commit()
+
+    sections_after = (
+        (
+            await db_session.execute(
+                select(CrossSectionOrm.id).where(CrossSectionOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert list(sections_after) == []
