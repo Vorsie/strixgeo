@@ -702,19 +702,23 @@ function CptRow({
   return (
     <div
       className={[
-        // Always-on transparent left border so flipping to amber when
-        // ``unsaved`` doesn't shift the row's content rightward.
-        'group relative flex items-center border-b border-l-2 border-l-transparent border-gray-100 transition-colors',
-        unsaved ? 'border-l-amber-400' : '',
-        // Selection / checked state wins over the unsaved tint, but the
-        // left-border amber stays visible regardless so the user can
-        // still spot a session-import even when it's the active row.
+        // Dirty rows get a thicker amber accent (4 px left stripe) and
+        // a clearly tinted background; clean rows keep a 2 px
+        // transparent left border so the layout shift between the two
+        // states is small and readable as 'this one stands out'.
+        'group relative flex items-center border-b border-gray-100 transition-colors',
+        unsaved
+          ? 'border-l-4 border-l-amber-500'
+          : 'border-l-2 border-l-transparent',
+        // Selection / bulk-check state still wins on the body
+        // background so the active row is unambiguous, but the amber
+        // left-stripe stays visible regardless.
         selected
           ? 'bg-blue-50'
           : checked
             ? 'bg-blue-50/40'
             : unsaved
-              ? 'bg-amber-50/40 hover:bg-amber-50/60'
+              ? 'bg-amber-100/70 hover:bg-amber-100/90'
               : 'hover:bg-gray-50',
         hidden ? 'opacity-40' : '',
       ].join(' ')}
@@ -794,19 +798,23 @@ function BoreholeRow({
   return (
     <div
       className={[
-        // Always-on transparent left border so flipping to amber when
-        // ``unsaved`` doesn't shift the row's content rightward.
-        'group relative flex items-center border-b border-l-2 border-l-transparent border-gray-100 transition-colors',
-        unsaved ? 'border-l-amber-400' : '',
-        // Selection / checked state wins over the unsaved tint, but the
-        // left-border amber stays visible regardless so the user can
-        // still spot a session-import even when it's the active row.
+        // Dirty rows get a thicker amber accent (4 px left stripe) and
+        // a clearly tinted background; clean rows keep a 2 px
+        // transparent left border so the layout shift between the two
+        // states is small and readable as 'this one stands out'.
+        'group relative flex items-center border-b border-gray-100 transition-colors',
+        unsaved
+          ? 'border-l-4 border-l-amber-500'
+          : 'border-l-2 border-l-transparent',
+        // Selection / bulk-check state still wins on the body
+        // background so the active row is unambiguous, but the amber
+        // left-stripe stays visible regardless.
         selected
           ? 'bg-blue-50'
           : checked
             ? 'bg-blue-50/40'
             : unsaved
-              ? 'bg-amber-50/40 hover:bg-amber-50/60'
+              ? 'bg-amber-100/70 hover:bg-amber-100/90'
               : 'hover:bg-gray-50',
         hidden ? 'opacity-40' : '',
       ].join(' ')}
