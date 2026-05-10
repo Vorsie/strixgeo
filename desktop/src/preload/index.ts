@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld('electron', {
   getRecentProjects: (): Promise<RecentProject[]> =>
     ipcRenderer.invoke('project:get-recent'),
 
+  // Set the OS window title. Used by the App to mirror the project
+  // state (name + dirty asterisk) into the title bar.
+  setWindowTitle: (title: string | null): Promise<void> =>
+    ipcRenderer.invoke('window:set-title', title),
+
   // Menu signals — same shape as the existing onMenuImport* helpers but
   // routed through the shared ``onMenuEvent`` factory above.
   onMenuImportCpt: (cb: () => void) => onMenuEvent('menu:import-cpt', cb),
