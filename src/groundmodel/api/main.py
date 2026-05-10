@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from groundmodel.api.routers import borehole, cpt, geology, jobs, project
+from groundmodel.api.routers import borehole, cpt, cross_section, geology, jobs, project
 from groundmodel.infrastructure.db.session import engine
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -71,3 +71,4 @@ app.include_router(borehole.router, prefix="/borehole", tags=["borehole"])
 app.include_router(jobs.router)
 app.include_router(project.router)
 app.include_router(geology.router)
+app.include_router(cross_section.router)
