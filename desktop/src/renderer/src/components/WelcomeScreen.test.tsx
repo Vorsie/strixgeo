@@ -121,7 +121,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('invokes onOpenRecent with the entry path when a row is clicked', async () => {
-    const onOpenRecent = vi.fn().mockResolvedValue(undefined)
+    const onOpenRecent = vi.fn().mockResolvedValue(true)
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -134,6 +134,34 @@ describe('WelcomeScreen', () => {
     await waitFor(() =>
       expect(onOpenRecent).toHaveBeenCalledWith('C:/projects/site-A.gmproj'),
     )
+  })
+
+  it('shows a banner + refreshes recent when onOpenRecent reports failure', async () => {
+    const onOpenRecent = vi.fn().mockResolvedValue(false)
+    // First load returns both entries; the refresh that fires after a
+    // failed open returns only the remaining one (Site A removed in main).
+    const getRecent = vi
+      .fn<() => Promise<typeof RECENT_FIXTURE>>()
+      .mockResolvedValueOnce(RECENT_FIXTURE)
+      .mockResolvedValueOnce(RECENT_FIXTURE.slice(1))
+    ;(window.electron as unknown as { getRecentProjects: typeof getRecent }).getRecentProjects =
+      getRecent
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={onOpenRecent}
+      />,
+    )
+    const row = await screen.findByText('Site A')
+    fireEvent.click(row)
+    await waitFor(() => expect(getRecent).toHaveBeenCalledTimes(2))
+    expect(
+      screen.getByRole('alert').textContent,
+    ).toMatch(/Couldn't open "Site A"/)
+    // Stale entry removed after the refresh.
+    expect(screen.queryByText('Site A')).not.toBeInTheDocument()
+    expect(screen.getByText('Site B')).toBeInTheDocument()
   })
 
   it('falls back to an empty list when getRecentProjects rejects', async () => {
