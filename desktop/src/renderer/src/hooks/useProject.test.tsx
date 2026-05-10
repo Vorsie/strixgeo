@@ -52,6 +52,7 @@ beforeEach(async () => {
     writeProjectFile: vi.fn(),
     addRecentProject: vi.fn().mockResolvedValue([]),
     getRecentProjects: vi.fn().mockResolvedValue([]),
+    removeRecentProject: vi.fn().mockResolvedValue([]),
   }
 })
 
@@ -219,6 +220,43 @@ describe('useProject', () => {
 
     expect(returned).toBeNull()
     expect(result.current.project).toBeNull()
+    // 404 ⇒ drop the stale Recent entry so the welcome screen stops
+    // surfacing it.
+    expect(window.electron.removeRecentProject).toHaveBeenCalledWith(
+      'C:/path/ghost.gmproj',
+    )
+  })
+
+  it('openProjectFile: leaves Recent alone when the failure is not a 404', async () => {
+    const { api } = await import('../api/client')
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 1,
+        id: '01k-NET',
+        name: 'Net Down',
+        project_number: null,
+        client: null,
+        site_label: null,
+        description: null,
+        tags: [],
+        default_horizontal_epsg: null,
+        default_vertical_epsg: null,
+        phase: null,
+        status: 'active',
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('network unreachable'),
+    )
+
+    const { result } = renderHook(() => useProject())
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.openProjectFile('C:/path/net.gmproj')
+    })
+
+    expect(returned).toBeNull()
+    expect(window.electron.removeRecentProject).not.toHaveBeenCalled()
   })
 
   it('closeProject clears in-memory state', async () => {
