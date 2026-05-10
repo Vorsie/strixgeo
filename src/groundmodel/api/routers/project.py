@@ -171,6 +171,58 @@ async def unarchive_project(
     return project
 
 
+@router.post("/{project_id}/restore", response_model=ProjectResponse)
+async def restore_project(
+    project_id: UUID,
+    request: ProjectCreateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ProjectOrm:
+    """Idempotently materialise a project row from its ``.gmproj`` contents.
+
+    Backs the desktop client's "open from file" path when the DB no
+    longer has the row the file points at — typically because the user
+    wiped the local DB while a ``.gmproj`` still lives on disk. The
+    file is the user's anchor; the DB is just a cache of the metadata
+    + the storage for the imported data. Calling this with the file's
+    payload rehydrates the project shell. CPTs / boreholes are NOT
+    restored (the file doesn't carry them) — the user re-imports.
+
+    Behaviour:
+
+    * Row missing → INSERT with the supplied id + metadata, return 200
+      with the new row.
+    * Row already exists → return the existing row unchanged. Two
+      concurrent restores of the same id therefore both succeed
+      without duplication.
+
+    The endpoint is 200 across both paths (vs. 200/201 split) because
+    the desktop client treats "ensure exists" as a single semantic; the
+    distinction between insert and pre-existing is a server-side
+    implementation detail it doesn't act on.
+    """
+    repo = ProjectRepository(session)
+    existing = await repo.get_by_id(project_id)
+    if existing is not None:
+        return existing
+    project = ProjectOrm(
+        id=project_id,
+        name=request.name,
+        project_number=request.project_number,
+        client=request.client,
+        site_label=request.site_label,
+        description=request.description,
+        tags=request.tags,
+        default_horizontal_epsg=request.default_horizontal_epsg,
+        default_vertical_epsg=request.default_vertical_epsg,
+        phase=request.phase,
+        status=request.status,
+    )
+    await repo.save(project)
+    await session.commit()
+    await session.refresh(project)
+    return project
+
+
 @router.post(
     "/{project_id}/duplicate",
     response_model=ProjectResponse,
