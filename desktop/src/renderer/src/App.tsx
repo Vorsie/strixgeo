@@ -934,7 +934,8 @@ export default function App() {
             await newProject({ name })
           }}
           onOpenProject={async () => {
-            await pickAndOpenProject()
+            const result = await pickAndOpenProject()
+            return result.outcome
           }}
           onOpenRecent={async path => {
             const result = await openProjectFile(path)
