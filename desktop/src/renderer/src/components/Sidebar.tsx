@@ -10,6 +10,7 @@ import {
   Gauge,
   MapPin,
   Trash2,
+  X,
 } from 'lucide-react'
 import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../api/client'
 import { isTypingTarget } from '../utils/keyboard'
@@ -39,6 +40,17 @@ interface Props {
   onRestoreAllCpts: () => void
   onRestoreAllBoreholes: () => void
   projectName: string
+  // Path to the .gmproj file on disk; rendered as a tooltip on the
+  // project name so the user can confirm which file is loaded without
+  // leaving the sidebar. ``null`` when no project is open (currently
+  // unreachable — Sidebar only mounts inside the loaded-project shell —
+  // but kept optional so future surfaces can mount without a path).
+  projectFilePath?: string | null
+  // Click handler for the Close button next to the project name.
+  // Mirrors the File-menu ``Close Project`` (Ctrl+W) for users who
+  // navigate by mouse. Optional so test harnesses can mount the
+  // sidebar without wiring close.
+  onCloseProject?: () => void
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -112,6 +124,8 @@ export default function Sidebar({
   onRestoreAllCpts,
   onRestoreAllBoreholes,
   projectName,
+  projectFilePath,
+  onCloseProject,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -228,10 +242,27 @@ export default function Sidebar({
 
   return (
     <aside className="flex flex-col w-56 shrink-0 border-r border-gray-200 bg-white overflow-hidden">
-      {/* Project name */}
-      <div className="px-3 py-2 border-b border-gray-200 bg-gray-50">
-        <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
-        <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
+      {/* Project name + Close button. The file path is rendered as a
+          ``title`` tooltip on the name row so the user can confirm
+          which .gmproj is loaded without leaving the sidebar. The
+          Close button mirrors the File-menu Ctrl+W for mouse users. */}
+      <div className="group flex items-start gap-1 px-3 py-2 border-b border-gray-200 bg-gray-50">
+        <div
+          className="flex-1 min-w-0"
+          title={projectFilePath ?? undefined}
+        >
+          <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
+          <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
+        </div>
+        {onCloseProject && (
+          <button
+            onClick={onCloseProject}
+            title="Close project (Ctrl+W) — returns to the welcome screen. The .gmproj file and DB data are kept."
+            className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X size={12} />
+          </button>
+        )}
       </div>
 
       {/* Tab bar */}
