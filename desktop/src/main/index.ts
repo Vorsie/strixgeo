@@ -167,10 +167,6 @@ function buildMenu(win: BrowserWindow): void {
           label: 'Save As…',
           accelerator: 'CmdOrCtrl+Shift+S',
           click: () => win.webContents.send('menu:project-save-as'),
-          // Save-As needs the deep duplicate operation which is a follow-up
-          // task (#20). Disabled until that lands so users don't get a
-          // "looks like Save As but only copies metadata" surprise.
-          enabled: false,
         },
         {
           label: 'Close Project',
