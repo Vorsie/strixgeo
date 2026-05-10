@@ -23,7 +23,6 @@ import BoreholeLog from './components/BoreholeLog'
 import WelcomeScreen from './components/WelcomeScreen'
 import NewProjectDialog from './components/NewProjectDialog'
 import ProjectMetadataDialog from './components/ProjectMetadataDialog'
-import type { ProjectMetadataDialogHandle } from './components/ProjectMetadataDialog'
 import UnsavedChangesDialog from './components/UnsavedChangesDialog'
 import Modal from './components/ui/Modal'
 import Button from './components/ui/Button'
@@ -49,6 +48,7 @@ declare global {
       writeProjectFile: (filePath: string, contents: string) => Promise<void>
       addRecentProject: (filePath: string, name: string) => Promise<RecentProject[]>
       getRecentProjects: () => Promise<RecentProject[]>
+      setWindowTitle: (title: string | null) => Promise<void>
       onMenuImportCpt: (cb: () => void) => () => void
       onMenuImportBorehole: (cb: () => void) => () => void
       onMenuProjectNew: (cb: () => void) => () => void
@@ -77,21 +77,24 @@ interface Toast {
 export default function App() {
   const {
     project,
+    dirty: projectDirty,
     filePath: projectFilePath,
     newProject,
     openProjectFile,
     pickAndOpenProject,
-    updateMetadata,
+    applyMetadataDraft,
+    saveProject,
     closeProject,
   } = useProject()
   // Controls the NewProjectDialog modal visibility. Triggered by the File
   // menu's New Project item or the Welcome screen's Create button.
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   // Controls the ProjectMetadataDialog modal — opens from the sidebar's
-  // project-name button. Open only when a project is loaded.
+  // project-name button. Open only when a project is loaded. The editor
+  // commits its drafts to the live project state via applyMetadataDraft;
+  // the project-level ``projectDirty`` (live vs saved) is what gates
+  // close-without-save prompts and the File menu's Save state.
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(false)
-  const [metadataEditorDirty, setMetadataEditorDirty] = useState(false)
-  const metadataEditorRef = useRef<ProjectMetadataDialogHandle>(null)
 
   // Close-flow state. Two dialogs guard the close action; only one is
   // ever visible at a time. ``unsavedSaving`` debounces the save-and-
@@ -371,6 +374,18 @@ export default function App() {
     return off
   }, [])
 
+  // Mirror the live project state into the OS window title. Title shows
+  // 'Ground Model — Site A *' when dirty (Word / Plaxis convention).
+  // Falls back to the bare app title when no project is loaded.
+  useEffect(() => {
+    if (project === null) {
+      void window.electron.setWindowTitle(null)
+      return
+    }
+    const dirtyMark = projectDirty ? ' *' : ''
+    void window.electron.setWindowTitle(`Ground Model — ${project.name}${dirtyMark}`)
+  }, [project, projectDirty])
+
   // Project menu signals — wire each into a handler. Each subscription
   // returns its own unsubscribe; we register all on mount and tear down
   // on unmount.
@@ -394,15 +409,15 @@ export default function App() {
   )
 
   // Single entry point for every "close this project" trigger. Branches
-  // on (a) whether the metadata editor has unsaved drafts that would be
-  // lost, and (b) which surface fired the request:
+  // on (a) whether the live project differs from the last-saved snapshot,
+  // and (b) which surface fired the request:
   //
-  //   * Unsaved drafts → save-or-discard prompt (Save / Discard / Cancel)
+  //   * Dirty (unsaved live edits) → save-or-discard prompt
   //   * Clean + Sidebar X → click-protection confirm (mis-click guard)
   //   * Clean + File menu / Ctrl+W → close immediately (explicit intent)
   const attemptClose = useCallback(
     (source: 'sidebar' | 'menu') => {
-      if (metadataEditorOpen && metadataEditorDirty) {
+      if (projectDirty) {
         setUnsavedDialogOpen(true)
         return
       }
@@ -412,7 +427,7 @@ export default function App() {
       }
       closeProject()
     },
-    [metadataEditorOpen, metadataEditorDirty, closeProject],
+    [projectDirty, closeProject],
   )
 
   // File menu / Ctrl+W shortcut path — explicit intent, so skip the
@@ -426,32 +441,47 @@ export default function App() {
     attemptClose('sidebar')
   }, [attemptClose])
 
-  // "Save and close" from the unsaved-drafts dialog: trigger the editor's
-  // imperative submit() then close the project on success. On failure
-  // (validation / API error), the editor stays open with the inline
-  // error and we leave the project as-is so the user can retry.
+  // "Save and close" from the unsaved-drafts dialog: commit the live
+  // project to the DB + .gmproj file, then close on success. On failure
+  // we keep the prompt open so the user can retry (the live state stays
+  // intact regardless).
   const handleUnsavedSave = useCallback(async () => {
     setUnsavedSaving(true)
     try {
-      const ok = (await metadataEditorRef.current?.submit()) ?? false
-      setUnsavedDialogOpen(false)
-      if (ok) closeProject()
+      const ok = await saveProject()
+      if (ok) {
+        setUnsavedDialogOpen(false)
+        setMetadataEditorOpen(false)
+        closeProject()
+      }
     } finally {
       setUnsavedSaving(false)
     }
-  }, [closeProject])
+  }, [saveProject, closeProject])
 
+  // Discard: drop in-memory edits + close. The .gmproj file and DB
+  // rows stay as they were at the last save. Reopening the file
+  // restores that state.
   const handleUnsavedDiscard = useCallback(() => {
     setUnsavedDialogOpen(false)
     setMetadataEditorOpen(false)
     closeProject()
   }, [closeProject])
 
+  // File menu Save / Ctrl+S — soft no-op when clean, commit when dirty.
+  // Failure is logged but doesn't surface here (the unsaved-changes
+  // dialog has its own retry path; for direct-Save we trust the user
+  // sees the toast / retries).
+  const handleMenuProjectSave = useCallback(async () => {
+    await saveProject()
+  }, [saveProject])
+
   useEffect(() => {
     const offs = [
       window.electron.onMenuProjectNew(handleMenuProjectNew),
       window.electron.onMenuProjectOpen(() => void handleMenuProjectOpen()),
       window.electron.onMenuProjectOpenRecent(path => void handleMenuProjectOpenRecent(path)),
+      window.electron.onMenuProjectSave(() => void handleMenuProjectSave()),
       window.electron.onMenuProjectClose(handleMenuProjectClose),
     ]
     return () => offs.forEach(off => off())
@@ -459,6 +489,7 @@ export default function App() {
     handleMenuProjectNew,
     handleMenuProjectOpen,
     handleMenuProjectOpenRecent,
+    handleMenuProjectSave,
     handleMenuProjectClose,
   ])
 
@@ -799,6 +830,7 @@ export default function App() {
           onRestoreAllBoreholes={handleRestoreAllBoreholes}
           projectName={project.name}
           projectFilePath={projectFilePath}
+          projectDirty={projectDirty}
           onCloseProject={handleSidebarCloseRequest}
           onEditMetadata={() => setMetadataEditorOpen(true)}
           hiddenCptTypes={hiddenCptTypes}
@@ -895,17 +927,18 @@ export default function App() {
       />
 
       {/* Project metadata editor. Triggered by clicking the project name
-          in the sidebar header. Only mounted when a project is loaded
-          since the editor needs a project to populate from. */}
+          in the sidebar header. The editor's Save button no longer
+          touches the API — it commits to the live project state via
+          ``applyMetadataDraft``. The actual DB + file write happens
+          when the user invokes File → Save / Ctrl+S, or via "Save and
+          close" on the unsaved-changes prompt. */}
       <ProjectMetadataDialog
-        ref={metadataEditorRef}
         open={metadataEditorOpen}
         project={project}
         onCancel={() => setMetadataEditorOpen(false)}
-        onDirtyChange={setMetadataEditorDirty}
-        onSubmit={async patch => {
-          const updated = await updateMetadata(patch)
-          if (updated !== null) setMetadataEditorOpen(false)
+        onSubmit={patch => {
+          applyMetadataDraft(patch)
+          setMetadataEditorOpen(false)
         }}
       />
 
