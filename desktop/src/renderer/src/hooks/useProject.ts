@@ -61,6 +61,10 @@ interface UseProjectActions {
   applyMetadataDraft: (patch: ProjectUpdatePayload) => void
   /** Commit ``project`` to the DB + .gmproj file. No-op silently when clean. */
   saveProject: () => Promise<boolean>
+  /** Deep-duplicate the current project (DB + all CPTs/boreholes), write a
+   * new .gmproj at a user-chosen path, and switch the hook to point at the
+   * new project. Returns the duplicate on success, null on cancel/error. */
+  saveAsProject: () => Promise<ProjectResponse | null>
   /** Revert ``project`` to ``saved`` (drop in-memory edits). */
   discardEdits: () => void
   archiveCurrent: () => Promise<void>
@@ -261,6 +265,61 @@ export function useProject(): UseProject {
     setProject(saved)
   }, [saved])
 
+  // File → Save As. Asks the user for a new .gmproj path, derives the
+  // project name from the chosen basename, POSTs to /projects/{id}/duplicate
+  // (which deep-clones the project + every CPT/borehole tree under it),
+  // writes a fresh .gmproj at the chosen path, and adopts the new
+  // project as the live one. The source project stays untouched on
+  // disk and in DB — only the live UI switches.
+  //
+  // Failure paths archive the freshly-duplicated DB row so we never
+  // leave an orphan project pointing at no file (same convention as
+  // the newProject rollback).
+  const saveAsProject = useCallback(async (): Promise<ProjectResponse | null> => {
+    if (project === null) return null
+
+    const suggested = defaultProjectFileName(`Copy of ${project.name}`)
+    const path = await window.electron.showProjectSaveDialog(suggested)
+    if (path === null) return null
+
+    // Derive the new project name from the chosen file's basename
+    // (sans extension). Matches Word / Plaxis behaviour where Save As
+    // implicitly names the artefact after the file the user typed.
+    const basename = path.split(/[\\/]/).pop() ?? path
+    const newName = basename.replace(/\.gmproj$/i, '') || 'Untitled'
+
+    let duplicated: ProjectResponse
+    try {
+      duplicated = await api.project.duplicate(project.id, newName)
+    } catch (err) {
+      log.error('project', 'saveAsProject: duplicate failed', err)
+      return null
+    }
+
+    try {
+      await window.electron.writeProjectFile(
+        path,
+        serialiseProjectFile(buildProjectFile(duplicated)),
+      )
+    } catch (err) {
+      log.error('project', 'saveAsProject: writeProjectFile failed, rolling back', err)
+      try {
+        await api.project.archive(duplicated.id)
+      } catch (rollbackErr) {
+        log.warn(
+          'project',
+          'saveAsProject: rollback-archive after write failure failed',
+          rollbackErr,
+        )
+      }
+      return null
+    }
+
+    await adopt(duplicated, path)
+    log.info('project', `saved-as ${duplicated.name} → ${path}`)
+    return duplicated
+  }, [project, adopt])
+
   const archiveCurrent = useCallback(async (): Promise<void> => {
     if (project === null) return
     try {
@@ -290,6 +349,7 @@ export function useProject(): UseProject {
     pickAndOpenProject,
     applyMetadataDraft,
     saveProject,
+    saveAsProject,
     discardEdits,
     archiveCurrent,
     closeProject,
