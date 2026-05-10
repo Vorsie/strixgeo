@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
@@ -148,3 +149,35 @@ class BoreholeRepository(GroundModelLogger):
             await self._session.delete(borehole)
             await self._session.flush()
             self.info(f"Borehole deleted: {borehole_id}")
+
+    async def set_elevation(
+        self, borehole_id: UUID, elevation_m: float | None, z_epsg: int | None
+    ) -> BoreholeOrm | None:
+        """Update the manually-entered surface elevation for a borehole.
+
+        When ``z_epsg`` is ``None`` and an elevation is being set, the canonical
+        vertical CRS for the row's horizontal EPSG is used (e.g. 31370 → 5710
+        mTAW for Belgium, 28992 → 5709 NAP for the Netherlands).
+
+        Loads the row WITHOUT the heavy child collections — the patch handler
+        only needs the header columns to return a list-item-compatible
+        response. Returns ``None`` when the id does not exist.
+        """
+        stmt = select(BoreholeOrm).where(BoreholeOrm.id == borehole_id)
+        result = await self._session.execute(stmt)
+        borehole = result.scalar_one_or_none()
+        if borehole is None:
+            return None
+        borehole.elevation_m = elevation_m
+        # Keep z_epsg paired with the elevation column. Clearing the value
+        # clears the CRS too. Setting a value without an explicit CRS picks
+        # the canonical pair for the row's horizontal EPSG.
+        if elevation_m is None:
+            borehole.z_epsg = None
+        else:
+            borehole.z_epsg = z_epsg if z_epsg is not None else default_vertical_epsg(borehole.epsg)
+        await self._session.flush()
+        self.success(
+            f"Borehole {borehole_id} elevation updated to {elevation_m} ({borehole.z_epsg})"
+        )
+        return borehole
