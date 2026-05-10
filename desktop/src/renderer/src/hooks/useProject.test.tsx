@@ -54,7 +54,6 @@ beforeEach(async () => {
     writeProjectFile: vi.fn(),
     addRecentProject: vi.fn().mockResolvedValue([]),
     getRecentProjects: vi.fn().mockResolvedValue([]),
-    removeRecentProject: vi.fn().mockResolvedValue([]),
   }
 })
 
@@ -239,8 +238,6 @@ describe('useProject', () => {
         status: 'active',
       }),
     )
-    // Recent entry is preserved — restore makes the open succeed.
-    expect(window.electron.removeRecentProject).not.toHaveBeenCalled()
   })
 
   it('openProjectFile: returns null when restore itself fails (network down)', async () => {
