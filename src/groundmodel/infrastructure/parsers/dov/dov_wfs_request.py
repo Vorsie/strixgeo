@@ -166,7 +166,20 @@ def _build_params(
     param entirely. When no attribute filter is needed the standalone
     ``BBOX=`` form is the right shape (smaller URL, marginally faster
     server-side).
+
+    Bbox corners are normalised so ``minX <= maxX`` and ``minY <= maxY``
+    after the WGS84→Lambert-72 projection. Lambert Conformal Conic is
+    not axis-aligned with latitude; for very thin rectangles where the
+    WGS84 input has near-zero height, the projected south corner can
+    land a few centimetres NORTH of the projected north corner, and
+    DOV's WFS validator rejects the resulting bbox with HTTP 400
+    (``illegal bbox, minY: ... is greater than maxY: ...``). Sorting
+    once here covers both the ``BBOX=`` query param path and the
+    ``BBOX(geom, ...)`` CQL spatial predicate path.
     """
+    min_x, max_x = (x1, x2) if x1 <= x2 else (x2, x1)
+    min_y, max_y = (y1, y2) if y1 <= y2 else (y2, y1)
+
     params: dict[str, str] = {
         "service": "WFS",
         "version": "2.0.0",
@@ -174,7 +187,9 @@ def _build_params(
         "typeNames": layer,
     }
     if cql_filter is None:
-        params["BBOX"] = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
+        params["BBOX"] = f"{min_x},{min_y},{max_x},{max_y},EPSG:{DOV_HORIZONTAL_EPSG}"
     else:
-        params["CQL_FILTER"] = f"({cql_filter}) AND {cql_bbox_predicate(x1, y1, x2, y2)}"
+        params["CQL_FILTER"] = (
+            f"({cql_filter}) AND {cql_bbox_predicate(min_x, min_y, max_x, max_y)}"
+        )
     return params
