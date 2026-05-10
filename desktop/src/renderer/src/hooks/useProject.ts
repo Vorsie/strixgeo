@@ -166,6 +166,19 @@ export function useProject(): UseProject {
         return fresh
       } catch (err) {
         log.error('project', `openProjectFile(${path}) failed`, err)
+        // 404 means the .gmproj points at a project the DB no longer
+        // knows about (wiped DB, archived elsewhere). Drop the stale
+        // entry from the Recent list so the user doesn't keep clicking
+        // a dead shortcut. Other failures (network, parse) leave the
+        // entry alone — they're likely transient.
+        if (err instanceof Error && err.message.includes('→ 404')) {
+          try {
+            await window.electron.removeRecentProject(path)
+            log.info('project', `removed stale recent entry: ${path}`)
+          } catch (removeErr) {
+            log.warn('project', 'removeRecentProject failed', removeErr)
+          }
+        }
         return null
       }
     },
