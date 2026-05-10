@@ -69,7 +69,7 @@ export default function WelcomeScreen({
       const outcome = await onOpenProject()
       if (outcome === 'failed') {
         setOpenError(
-          "Couldn't open the selected project file. It points at a project that's no longer in the database.",
+          "Couldn't open the selected project file. The file may be corrupt, or the API isn't reachable.",
         )
         refreshRecent()
       }
@@ -88,8 +88,8 @@ export default function WelcomeScreen({
         const entry = recent.find(r => r.path === path)
         setOpenError(
           entry
-            ? `Couldn't open "${entry.name}". The project may have been removed from the database.`
-            : `Couldn't open the project file. It may have been removed from the database.`,
+            ? `Couldn't open "${entry.name}". The file may be corrupt, or the API isn't reachable.`
+            : `Couldn't open the project file. The file may be corrupt, or the API isn't reachable.`,
         )
         refreshRecent()
       }
