@@ -24,20 +24,11 @@ import type {
   ProjectUpdatePayload,
 } from '../api/client'
 import {
+  PICKABLE_HORIZONTAL_EPSGS,
   PICKABLE_VERTICAL_EPSGS,
   VCRS_LABEL_BY_EPSG,
 } from '../utils/verticalDatum'
-
-// Horizontal CRSes available in the default-CRS dropdown. Same two
-// countries the vertical-datum picker covers; adding a third country
-// is a one-line entry here + in ``utils/verticalDatum``.
-const PICKABLE_HORIZONTAL_EPSGS: ReadonlyArray<{
-  epsg: number
-  label: string
-}> = [
-  { epsg: 31370, label: 'BE — Lambert 72 (EPSG:31370)' },
-  { epsg: 28992, label: 'NL — Amersfoort / RD New (EPSG:28992)' },
-]
+import { arraysEqual } from '../utils/arrays'
 
 const PHASES: ReadonlyArray<{ value: ProjectPhase; label: string }> = [
   { value: 'feasibility', label: 'Feasibility' },
@@ -120,9 +111,7 @@ function computeFieldDirty(
     client: normaliseText(state.client) !== saved.client,
     site_label: normaliseText(state.site_label) !== saved.site_label,
     description: normaliseText(state.description) !== saved.description,
-    tags:
-      state.tags.length !== saved.tags.length ||
-      state.tags.some((t, i) => t !== saved.tags[i]),
+    tags: !arraysEqual(state.tags, saved.tags),
     default_horizontal_epsg:
       state.default_horizontal_epsg !== saved.default_horizontal_epsg,
     default_vertical_epsg:
@@ -205,10 +194,7 @@ function toPatch(state: FormState, project: ProjectResponse): ProjectUpdatePaylo
 
   // Tags: full replacement. Diff against project.tags; only included
   // when the chip list actually changed.
-  const tagsChanged =
-    state.tags.length !== project.tags.length ||
-    state.tags.some((t, i) => t !== project.tags[i])
-  if (tagsChanged) patch.tags = state.tags
+  if (!arraysEqual(state.tags, project.tags)) patch.tags = state.tags
 
   // Dropdowns: include only when changed.
   if (state.default_horizontal_epsg !== project.default_horizontal_epsg) {
@@ -234,8 +220,7 @@ function isDirty(state: FormState, project: ProjectResponse): boolean {
   if (normaliseText(state.site_label) !== project.site_label) return true
   if (normaliseText(state.description) !== project.description) return true
   if (state.tagDraft.trim() !== '') return true
-  if (state.tags.length !== project.tags.length) return true
-  if (state.tags.some((t, i) => t !== project.tags[i])) return true
+  if (!arraysEqual(state.tags, project.tags)) return true
   if (state.default_horizontal_epsg !== project.default_horizontal_epsg) return true
   if (state.default_vertical_epsg !== project.default_vertical_epsg) return true
   if ((state.phase ?? null) !== (project.phase ?? null)) return true
@@ -291,32 +276,16 @@ export default function ProjectMetadataDialog({
     }
   }
 
-  const dirty = state !== null && project !== null ? isDirty(state, project) : false
+  if (!open || state === null || project === null) return null
+
   // Per-field dirty highlights: amber border on any input whose value
   // differs from the LAST-SAVED snapshot (not the live project). When
   // the editor opens with an already-dirty project, fields that the
   // user changed in a previous editor session immediately show amber.
-  const fieldDirty: FieldDirty =
-    state !== null
-      ? computeFieldDirty(state, saved)
-      : computeFieldDirty(
-          {
-            name: '',
-            project_number: '',
-            client: '',
-            site_label: '',
-            description: '',
-            tags: [],
-            tagDraft: '',
-            default_horizontal_epsg: null,
-            default_vertical_epsg: null,
-            phase: null,
-            status: 'active',
-          },
-          null,
-        )
-
-  if (!open || state === null) return null
+  // Computed after the early return so the unreachable ``state === null``
+  // branch doesn't need a placeholder fallback.
+  const dirty = isDirty(state, project)
+  const fieldDirty: FieldDirty = computeFieldDirty(state, saved)
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]): void {
     setState(prev => (prev === null ? prev : { ...prev, [key]: value }))
