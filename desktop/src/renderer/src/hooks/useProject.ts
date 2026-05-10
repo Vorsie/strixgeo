@@ -13,10 +13,14 @@
 //   archiveCurrent()            POST /projects/{id}/archive (closes locally)
 //   closeProject()              forget current selection (file untouched)
 //
-// localStorage keeps the last-opened path so the app re-opens the most
-// recent project on startup.
+// On launch the hook starts with no project loaded — the welcome screen
+// drives the first interaction. This matches the engineering-app
+// convention (Plaxis / AutoCAD / Photoshop all show a welcome / recent
+// screen on launch rather than auto-opening the last file). Recent
+// projects are surfaced from the main-process userData store; users
+// click one to re-open.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { api } from '../api/client'
 import type { ProjectCreatePayload, ProjectResponse, ProjectUpdatePayload } from '../api/client'
@@ -28,14 +32,9 @@ import {
   serialiseProjectFile,
 } from '../utils/projectFile'
 
-const LAST_PATH_KEY = 'groundmodel.project.lastPath'
-
 interface UseProjectState {
   project: ProjectResponse | null
   filePath: string | null
-  // True until the auto-reopen attempt completes — guards against the
-  // welcome screen flashing in front of an in-flight reopen on app start.
-  loading: boolean
 }
 
 interface UseProjectActions {
@@ -52,7 +51,6 @@ export type UseProject = UseProjectState & UseProjectActions
 export function useProject(): UseProject {
   const [project, setProject] = useState<ProjectResponse | null>(null)
   const [filePath, setFilePath] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
 
   // Adopt a project + path pair into both state and the recent-projects
   // list. Single helper so every entry point (new / open / open-recent)
@@ -61,7 +59,6 @@ export function useProject(): UseProject {
     async (next: ProjectResponse, path: string): Promise<void> => {
       setProject(next)
       setFilePath(path)
-      localStorage.setItem(LAST_PATH_KEY, path)
       try {
         await window.electron.addRecentProject(path, next.name)
       } catch (err) {
@@ -182,36 +179,16 @@ export function useProject(): UseProject {
     }
     setProject(null)
     setFilePath(null)
-    localStorage.removeItem(LAST_PATH_KEY)
   }, [project])
 
   const closeProject = useCallback((): void => {
     setProject(null)
     setFilePath(null)
-    localStorage.removeItem(LAST_PATH_KEY)
-  }, [])
-
-  // Auto-reopen the most recently used project on startup. Failure here
-  // (file moved, project archived, etc.) just clears the pointer and
-  // shows the welcome screen — never blocks app launch.
-  useEffect(() => {
-    const lastPath = localStorage.getItem(LAST_PATH_KEY)
-    if (lastPath === null) {
-      setLoading(false)
-      return
-    }
-    openProjectFile(lastPath)
-      .catch(() => {})
-      .finally(() => setLoading(false))
-    // Mount-only — re-running on path change would loop the open->setState
-    // cycle. Subsequent opens go through the explicit user actions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return {
     project,
     filePath,
-    loading,
     newProject,
     openProjectFile,
     pickAndOpenProject,
