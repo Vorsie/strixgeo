@@ -9,6 +9,7 @@ import {
   EyeOff,
   Gauge,
   MapPin,
+  Search,
   Trash2,
   X,
 } from 'lucide-react'
@@ -162,6 +163,14 @@ export default function Sidebar({
   const [selectedForRemoval, setSelectedForRemoval] = useState<Set<string>>(new Set())
   useEffect(() => setSelectedForRemoval(new Set()), [activeTab])
 
+  // Substring search on row names. Ephemeral — resets when the user
+  // switches tabs (CPT search and Borehole search are independent
+  // contexts; carrying the query across is misleading). Lower-cased
+  // once here so the per-row filter is just an ``includes`` check.
+  const [searchQuery, setSearchQuery] = useState('')
+  useEffect(() => setSearchQuery(''), [activeTab])
+  const searchLower = searchQuery.trim().toLowerCase()
+
   // Sorted views — applied AFTER the visible/hidden partition computed
   // below so the partition is preserved (visible items still sort
   // ahead of hidden, and within each section the sort applies).
@@ -171,6 +180,15 @@ export default function Sidebar({
     [sort, boreholeAxis],
   )
 
+  // Search drops rows whose name doesn't contain the query (case-
+  // insensitive substring). Empty query = pass everything through.
+  // Applied BEFORE the visible/hidden partition so search results
+  // still respect the map-filter / viewport partitioning.
+  const matchesSearch = (name: string): boolean =>
+    searchLower === '' || name.toLowerCase().includes(searchLower)
+  const cptsAfterSearch = cpts.filter(c => matchesSearch(c.name))
+  const boreholesAfterSearch = boreholes.filter(b => matchesSearch(b.name))
+
   // Partition each list into visible-first / hidden-bottom (driven by
   // the map's per-type filter AND the viewport filter when enabled),
   // then sort each partition independently. A row is "hidden" when its
@@ -178,16 +196,18 @@ export default function Sidebar({
   // viewport — both demote to the same greyed-out bottom section.
   const isCptHidden = (c: CptListItem): boolean =>
     hiddenCptTypes.has(c.cpt_type) || outOfViewportCptIds.has(c.id)
-  const cptVisible = cpts.filter(c => !isCptHidden(c)).sort(cptSorter)
-  const cptHidden = cpts.filter(isCptHidden).sort(cptSorter)
+  const cptVisible = cptsAfterSearch.filter(c => !isCptHidden(c)).sort(cptSorter)
+  const cptHidden = cptsAfterSearch.filter(isCptHidden).sort(cptSorter)
 
   const boreholeFilterValue = (b: BoreholeListItem): string =>
     (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
   const isBoreholeHidden = (b: BoreholeListItem): boolean =>
     hiddenBoreholeValues.has(boreholeFilterValue(b)) ||
     outOfViewportBoreholeIds.has(b.id)
-  const bhVisible = boreholes.filter(b => !isBoreholeHidden(b)).sort(boreholeSorter)
-  const bhHidden = boreholes
+  const bhVisible = boreholesAfterSearch
+    .filter(b => !isBoreholeHidden(b))
+    .sort(boreholeSorter)
+  const bhHidden = boreholesAfterSearch
     .filter(isBoreholeHidden)
     .sort(boreholeSorter)
 
@@ -337,6 +357,33 @@ export default function Sidebar({
         ))}
       </div>
 
+      {/* Search box. Substring filter on row name. Sits above the
+          bulk-action / sort rows so the user can narrow the list
+          first and the action bars stay attached to the (filtered)
+          selection. Hidden on the DMT tab since there's nothing to
+          search there yet. */}
+      {activeTab !== 'dmt' && (cpts.length > 0 || boreholes.length > 0) && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-gray-100">
+          <Search size={11} className="text-gray-400 shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder={activeTab === 'cpt' ? 'Search CPTs…' : 'Search boreholes…'}
+            className="w-full bg-transparent text-xs text-gray-700 placeholder-gray-400 focus:outline-none"
+          />
+          {searchQuery !== '' && (
+            <button
+              onClick={() => setSearchQuery('')}
+              title="Clear search"
+              className="text-gray-400 hover:text-gray-700 shrink-0"
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Bulk-action bar — only visible when ≥1 row is checked. Sits
           ABOVE the sort row so the "Remove N" action stays prominent
           regardless of how the list is ordered. */}
@@ -384,6 +431,8 @@ export default function Sidebar({
         {activeTab === 'cpt' &&
           (cpts.length === 0 ? (
             <EmptyState label={removedCptCount > 0 ? 'All CPTs removed' : 'No CPTs imported yet'} />
+          ) : cptVisible.length === 0 && cptHidden.length === 0 ? (
+            <EmptyState label={searchLower !== '' ? 'No matches for this search' : 'No CPTs visible'} />
           ) : (
             <>
               {cptVisible.map(c => (
@@ -417,6 +466,10 @@ export default function Sidebar({
           (boreholes.length === 0 ? (
             <EmptyState
               label={removedBoreholeCount > 0 ? 'All boreholes removed' : 'No boreholes imported yet'}
+            />
+          ) : bhVisible.length === 0 && bhHidden.length === 0 ? (
+            <EmptyState
+              label={searchLower !== '' ? 'No matches for this search' : 'No boreholes visible'}
             />
           ) : (
             <>
