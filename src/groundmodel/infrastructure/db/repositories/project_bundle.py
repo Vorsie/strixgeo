@@ -49,6 +49,11 @@ from sqlalchemy.orm import selectinload
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
@@ -249,17 +254,52 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
             selectinload(BoreholeOrm.samples).selectinload(SampleOrm.scalar_lab_tests),
         )
     )
+    # Geological-model tree. The bundle carries the user's interpretation
+    # work (formations + models + every contact) so re-opening the file
+    # on a wiped DB — or on a different device — brings the model back
+    # alongside the raw investigations.
+    formations_stmt = select(GeologicalFormationOrm).where(
+        GeologicalFormationOrm.app_project_id == project.id
+    )
+    models_stmt = (
+        select(GeologicalModelOrm)
+        .where(GeologicalModelOrm.app_project_id == project.id)
+        .options(selectinload(GeologicalModelOrm.contacts))
+    )
+
     cpts = (await session.execute(cpts_stmt)).scalars().all()
     boreholes = (await session.execute(boreholes_stmt)).scalars().all()
+    formations = (await session.execute(formations_stmt)).scalars().all()
+    models = (await session.execute(models_stmt)).scalars().all()
 
     bundle = {
         "format_version": 2,
         "project": _column_to_json(project, _SKIP_COLUMNS),
         "cpts": [_cpt_to_dict(c) for c in cpts],
         "boreholes": [_borehole_to_dict(b) for b in boreholes],
+        # Additive fields. Older readers without geology support will
+        # ignore these; older bundles missing them parse as empty lists
+        # (see restore_project_bundle).
+        "geological_formations": [_column_to_json(f, _SKIP_COLUMNS) for f in formations],
+        "geological_models": [_geological_model_to_dict(m) for m in models],
     }
-    logger.info(f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes")
+    logger.info(
+        f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
+        f"+ {len(formations)} formations + {len(models)} models"
+    )
     return bundle
+
+
+def _geological_model_to_dict(model: GeologicalModelOrm) -> dict[str, Any]:
+    """Serialise a geological model with its formation contacts nested.
+
+    Mirrors the rest of the bundle's nesting convention — child rows
+    live under their parent (CPT.series, borehole.observations[]) — so
+    restore is a single-level walk per top-level array.
+    """
+    payload = _column_to_json(model, _SKIP_COLUMNS)
+    payload["contacts"] = [_column_to_json(c, _SKIP_COLUMNS | {"model_id"}) for c in model.contacts]
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -401,22 +441,32 @@ async def restore_project_bundle(
     project_payload: dict[str, Any],
     cpts_payload: list[dict[str, Any]],
     boreholes_payload: list[dict[str, Any]],
+    geological_formations_payload: list[dict[str, Any]] | None = None,
+    geological_models_payload: list[dict[str, Any]] | None = None,
 ) -> ProjectOrm:
-    """Idempotently materialise a project + its CPTs / boreholes from a bundle.
+    """Idempotently materialise a project + its CPTs / boreholes / geology from a bundle.
 
     Behaviour:
 
     * Project row missing → INSERT with the supplied id + metadata.
     * Project row present → return it as-is (don't mutate metadata; the
       DB version is authoritative when it exists).
-    * Each CPT in ``cpts_payload`` is inserted if its id is not already
-      in the DB. Existing ids are skipped (no mutation). Idempotent.
-    * Same for each borehole.
+    * Each CPT / borehole / formation / model in the payload is inserted
+      if its id is not already in the DB. Existing ids are skipped (no
+      mutation). Idempotent across re-restores.
+    * Formation contacts ride along with their parent model (nested
+      under ``contacts`` in the payload).
+
+    Backwards compatibility: the two geology kwargs default to ``None``
+    so callers from older clients (no geology in their bundle) keep
+    working — they just produce no geology rows.
 
     The ``project_id`` from the URL takes precedence over any id in the
     payload — that's what makes the endpoint URL-driven and prevents a
     crafted body from sneaking the wrong id past the router.
     """
+    geological_formations_payload = geological_formations_payload or []
+    geological_models_payload = geological_models_payload or []
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -469,8 +519,74 @@ async def restore_project_bundle(
         session.add(_build_borehole(bh_payload, project_id))
         new_boreholes += 1
 
+    # ---- Geological formations -------------------------------------------
+    # Formations are project-scoped (not nested under a model), so each
+    # row carries its own id and is deduped against what the DB already
+    # has for this project.
+    existing_formation_ids = set(
+        (
+            await session.execute(
+                select(GeologicalFormationOrm.id).where(
+                    GeologicalFormationOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_formations = 0
+    for f_payload in geological_formations_payload:
+        f_id_raw = f_payload.get("id")
+        if f_id_raw is None:
+            continue
+        f_id = UUID(f_id_raw) if isinstance(f_id_raw, str) else f_id_raw
+        if f_id in existing_formation_ids:
+            continue
+        kwargs = _apply_json_to_kwargs(GeologicalFormationOrm, f_payload)
+        kwargs["app_project_id"] = project_id
+        session.add(GeologicalFormationOrm(**kwargs))
+        new_formations += 1
+
+    # ---- Geological models + their formation contacts --------------------
+    existing_model_ids = set(
+        (
+            await session.execute(
+                select(GeologicalModelOrm.id).where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_models = 0
+    new_contacts = 0
+    for m_payload in geological_models_payload:
+        m_id_raw = m_payload.get("id")
+        if m_id_raw is None:
+            continue
+        m_id = UUID(m_id_raw) if isinstance(m_id_raw, str) else m_id_raw
+        if m_id in existing_model_ids:
+            # Existing model wins (DB-authoritative when present). The
+            # nested contacts are skipped wholesale rather than per-id —
+            # mixing a live model with bundled contacts would silently
+            # merge two interpretations.
+            continue
+        contacts_payload = m_payload.get("contacts") or []
+        model_kwargs = _apply_json_to_kwargs(GeologicalModelOrm, m_payload)
+        model_kwargs["app_project_id"] = project_id
+        model = GeologicalModelOrm(**model_kwargs)
+        model.contacts = [
+            FormationContactOrm(**_apply_json_to_kwargs(FormationContactOrm, c))
+            for c in contacts_payload
+        ]
+        session.add(model)
+        new_models += 1
+        new_contacts += len(contacts_payload)
+
     await session.flush()
     logger.info(
-        f"restore_project_bundle({project_id}): +{new_cpts} CPTs, +{new_boreholes} boreholes"
+        f"restore_project_bundle({project_id}): "
+        f"+{new_cpts} CPTs, +{new_boreholes} boreholes, "
+        f"+{new_formations} formations, +{new_models} models "
+        f"(+{new_contacts} contacts)"
     )
     return project
