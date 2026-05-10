@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePersistedJSON } from '../hooks/usePersistedJSON'
 import {
   Activity,
@@ -152,6 +152,11 @@ export default function Sidebar({
   const [selectedForRemoval, setSelectedForRemoval] = useState<Set<string>>(new Set())
   useEffect(() => setSelectedForRemoval(new Set()), [activeTab])
 
+  // Click-protection on the project-header X. See the button's onClick
+  // for the rationale; sidebar-local state since the dialog is single-
+  // purpose and one-of in the App.
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
+
   // Sorted views — applied AFTER the visible/hidden partition computed
   // below so the partition is preserved (visible items still sort
   // ahead of hidden, and within each section the sort applies).
@@ -256,14 +261,34 @@ export default function Sidebar({
         </div>
         {onCloseProject && (
           <button
-            onClick={onCloseProject}
-            title="Close project (Ctrl+W) — returns to the welcome screen. The .gmproj file and DB data are kept."
+            // Click-protection: the X is small and lives in the row a user
+            // hovers most often. A mis-click would dump them back to the
+            // welcome screen mid-task. Open a confirm dialog instead of
+            // closing immediately. Path is still reversible (data + file
+            // are kept; reopen from Recent), so we don't add the typed-
+            // confirmation friction reserved for irreversible actions.
+            // File-menu Close / Ctrl+W stay direct because those paths
+            // require explicit user intent (typing a shortcut or
+            // navigating a menu) — no mis-click protection needed there.
+            onClick={() => setCloseConfirmOpen(true)}
+            title="Close project — returns to the welcome screen. The .gmproj file and DB data are kept."
             className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <X size={12} />
           </button>
         )}
       </div>
+
+      {closeConfirmOpen && onCloseProject && (
+        <CloseProjectConfirm
+          projectName={projectName}
+          onConfirm={() => {
+            setCloseConfirmOpen(false)
+            onCloseProject()
+          }}
+          onCancel={() => setCloseConfirmOpen(false)}
+        />
+      )}
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200">
@@ -655,6 +680,82 @@ function EmptyState({ label }: { label: string }) {
   return (
     <div className="flex items-center justify-center h-24 text-xs text-gray-400 px-4 text-center">
       {label}
+    </div>
+  )
+}
+
+// Lightweight inline confirmation for the sidebar's Close button. Kept
+// local because it's a one-off — promote to a shared ConfirmDialog
+// component when a third destructive-or-impactful path needs the same
+// shape (per the codebase's "extract on third copy" rule).
+function CloseProjectConfirm({
+  projectName,
+  onConfirm,
+  onCancel,
+}: {
+  projectName: string
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null)
+
+  // HIG convention: default-focus on Cancel for any confirmation dialog —
+  // the Enter key shouldn't fire the side-effecting action by accident.
+  useEffect(() => {
+    cancelRef.current?.focus()
+  }, [])
+
+  // Esc cancels (matching every other dialog in the app).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onCancel()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onCancel])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-project-title"
+        className="bg-white border border-gray-200 rounded-lg shadow-lg p-5 w-80"
+        onClick={e => e.stopPropagation()}
+      >
+        <h2
+          id="close-project-title"
+          className="text-sm font-semibold text-gray-800 mb-1"
+        >
+          Close this project?
+        </h2>
+        <p className="text-xs text-gray-500 mb-4">
+          <span className="font-medium text-gray-700">{projectName}</span> will
+          close and you'll be returned to the welcome screen. The .gmproj file
+          and your data are kept — you can reopen from the Recent list.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            ref={cancelRef}
+            onClick={onCancel}
+            className="px-3 py-1 text-xs font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Close project
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
