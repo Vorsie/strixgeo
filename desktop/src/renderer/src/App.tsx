@@ -78,13 +78,13 @@ export default function App() {
   const {
     project,
     saved: savedProject,
-    dirty: projectDirty,
+    dirty: metadataDirty,
     filePath: projectFilePath,
     newProject,
     openProjectFile,
     pickAndOpenProject,
     applyMetadataDraft,
-    saveProject,
+    saveProject: saveMetadata,
     closeProject,
   } = useProject()
   // Controls the NewProjectDialog modal visibility. Triggered by the File
@@ -96,6 +96,53 @@ export default function App() {
   // the project-level ``projectDirty`` (live vs saved) is what gates
   // close-without-save prompts and the File menu's Save state.
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(false)
+
+  // Combined "is anything unsaved?" flag. Drives the sidebar / window-
+  // title asterisks, the close-attempt branching, and the File → Save
+  // no-op-when-clean check.
+  const projectDirty =
+    metadataDirty ||
+    sessionImportCptIds.size > 0 ||
+    sessionImportBoreholeIds.size > 0
+
+  // saveProject orchestration — commits metadata then clears session
+  // imports. Failure of either step leaves the dirty flag intact so the
+  // user can retry. Returns true on full success.
+  const saveProject = useCallback(async (): Promise<boolean> => {
+    const ok = await saveMetadata()
+    if (!ok) return false
+    setSessionImportCptIds(new Set())
+    setSessionImportBoreholeIds(new Set())
+    return true
+  }, [saveMetadata, setSessionImportCptIds, setSessionImportBoreholeIds])
+
+  // Discard rollback — moves session imports into the project-local
+  // removed set so the rows stay in the DB (fast re-import via dedup
+  // cache) but hide from view. Then clears session imports.
+  // ``useProject.discardEdits`` would also revert metadata but we don't
+  // wire it here because the unsaved-changes dialog already orchestrates
+  // metadata via closeProject (which drops live state implicitly).
+  const discardSessionImports = useCallback(() => {
+    setRemovedCptIds(prev => {
+      const next = new Set(prev)
+      sessionImportCptIds.forEach(id => next.add(id))
+      return next
+    })
+    setRemovedBoreholeIds(prev => {
+      const next = new Set(prev)
+      sessionImportBoreholeIds.forEach(id => next.add(id))
+      return next
+    })
+    setSessionImportCptIds(new Set())
+    setSessionImportBoreholeIds(new Set())
+  }, [
+    sessionImportCptIds,
+    sessionImportBoreholeIds,
+    setRemovedCptIds,
+    setRemovedBoreholeIds,
+    setSessionImportCptIds,
+    setSessionImportBoreholeIds,
+  ])
 
   // Close-flow state. Two dialogs guard the close action; only one is
   // ever visible at a time. ``unsavedSaving`` debounces the save-and-
@@ -187,6 +234,25 @@ export default function App() {
   )
   const [removedBoreholeIds, setRemovedBoreholeIds] = usePersistedSet(
     project ? `groundmodel.removed.${project.id}.borehole` : undefined,
+  )
+
+  // Session imports — records added since the last File → Save. Drives
+  // the per-row amber asterisks in the sidebar AND the project-level
+  // dirty signal (combined with metadata-dirty). Persists per project
+  // across launches so closing the app without saving doesn't silently
+  // drop the "these are unsaved" state.
+  //
+  // Discard semantics: rather than DELETE the rows from DB (which would
+  // throw away the import-cache benefit on re-import), we move the IDs
+  // into the project-local "removed" set. The rows stay in the DB,
+  // hidden locally; re-importing the same DOV bbox dedups, hits the
+  // existing rows, and the dedup branch already calls unhideCpts /
+  // unhideBoreholes to restore visibility.
+  const [sessionImportCptIds, setSessionImportCptIds] = usePersistedSet(
+    project ? `groundmodel.session_imports.${project.id}.cpt` : undefined,
+  )
+  const [sessionImportBoreholeIds, setSessionImportBoreholeIds] = usePersistedSet(
+    project ? `groundmodel.session_imports.${project.id}.borehole` : undefined,
   )
 
   // Apply the project-local filter before anything user-visible reads
@@ -460,14 +526,16 @@ export default function App() {
     }
   }, [saveProject, closeProject])
 
-  // Discard: drop in-memory edits + close. The .gmproj file and DB
-  // rows stay as they were at the last save. Reopening the file
-  // restores that state.
+  // Discard: drop in-memory metadata edits + roll back session imports
+  // (move them into the project-local removed set so DB rows stay put
+  // for fast re-import) + close. The .gmproj file is untouched on disk;
+  // reopening the file restores the saved state.
   const handleUnsavedDiscard = useCallback(() => {
     setUnsavedDialogOpen(false)
     setMetadataEditorOpen(false)
+    discardSessionImports()
     closeProject()
-  }, [closeProject])
+  }, [discardSessionImports, closeProject])
 
   // File menu Save / Ctrl+S — soft no-op when clean, commit when dirty.
   // Failure is logged but doesn't surface here (the unsaved-changes
@@ -600,6 +668,11 @@ export default function App() {
       let imported = 0, warnings = 0, duplicates = 0, errors = 0
       let firstId: string | null = null
       const touchedIds: string[] = []
+      // IDs that were CREATED in this import (not duplicates of existing
+      // rows). These get tagged as session-imports so the sidebar paints
+      // the amber asterisk and the project becomes dirty until File →
+      // Save commits the new state.
+      const newIds: string[] = []
 
       for (const r of results) {
         if (r.status === 'fulfilled') {
@@ -607,6 +680,7 @@ export default function App() {
           else imported++
           firstId ??= r.value.cpt_id
           touchedIds.push(r.value.cpt_id)
+          newIds.push(r.value.cpt_id)
         } else if (r.reason instanceof DuplicateCptError) {
           duplicates++
           firstId ??= r.reason.cptId
@@ -624,6 +698,13 @@ export default function App() {
       toast(errors > 0 && ok === 0 ? 'error' : 'success', parts.join(', '))
 
       unhideCpts(touchedIds)
+      if (newIds.length > 0) {
+        setSessionImportCptIds(prev => {
+          const next = new Set(prev)
+          newIds.forEach(id => next.add(id))
+          return next
+        })
+      }
       await refreshList()
       if (firstId) {
         setSelectedId(firstId)
@@ -633,7 +714,7 @@ export default function App() {
     } finally {
       setImporting(false)
     }
-  }, [project, refreshList, loadChart, unhideCpts])
+  }, [project, refreshList, loadChart, unhideCpts, setSessionImportCptIds])
 
   // ---------------------------------------------------------------------------
   // DOV import
@@ -658,6 +739,10 @@ export default function App() {
       setDovImporting(true)
       try {
         if (importType === 'cpt') {
+          // Snapshot ids BEFORE the API call so we can diff for the
+          // session-imports tagging. ``result.cpt_ids`` includes both
+          // newly-imported and pre-existing rows; we only want the new.
+          const beforeIds = new Set(cpts.map(c => c.id))
           const result = await api.cpt.importDov({ west, south, east, north }, project.id)
           const parts: string[] = []
           if (result.imported > 0) parts.push(`${result.imported} imported`)
@@ -668,6 +753,14 @@ export default function App() {
             parts.join(', ') || 'No CPTs found in this area',
           )
           unhideCpts(result.cpt_ids)
+          const newIds = result.cpt_ids.filter(id => !beforeIds.has(id))
+          if (newIds.length > 0) {
+            setSessionImportCptIds(prev => {
+              const next = new Set(prev)
+              newIds.forEach(id => next.add(id))
+              return next
+            })
+          }
           await refreshList()
           if (result.imported === 1 && result.cpt_ids.length > 0) {
             const id = result.cpt_ids[0]
@@ -677,6 +770,7 @@ export default function App() {
             setView('chart')
           }
         } else {
+          const beforeIds = new Set(boreholes.map(b => b.id))
           const result = await api.borehole.importDov(
             { west, south, east, north },
             project.id,
@@ -685,9 +779,6 @@ export default function App() {
           if (result.imported > 0) parts.push(`${result.imported} imported`)
           if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
           if (result.failed > 0) parts.push(`${result.failed} failed`)
-          // Roll the per-stream summary into the toast so the user can see at
-          // a glance how much extra data came along with the boreholes
-          // (interpretations + samples + lab tests).
           const extras: string[] = []
           if (result.interpretations_attached)
             extras.push(`${result.interpretations_attached} obs`)
@@ -701,6 +792,14 @@ export default function App() {
             summary + detail,
           )
           unhideBoreholes(result.borehole_ids)
+          const newBhIds = result.borehole_ids.filter(id => !beforeIds.has(id))
+          if (newBhIds.length > 0) {
+            setSessionImportBoreholeIds(prev => {
+              const next = new Set(prev)
+              newBhIds.forEach(id => next.add(id))
+              return next
+            })
+          }
           await refreshBoreholeList()
           if (result.imported === 1 && result.borehole_ids.length > 0) {
             const id = result.borehole_ids[0]
@@ -721,12 +820,16 @@ export default function App() {
     [
       project,
       bboxImportType,
+      cpts,
+      boreholes,
       refreshList,
       refreshBoreholeList,
       loadChart,
       loadBoreholeDetail,
       unhideCpts,
       unhideBoreholes,
+      setSessionImportCptIds,
+      setSessionImportBoreholeIds,
     ],
   )
 
@@ -832,6 +935,8 @@ export default function App() {
           projectName={project.name}
           projectFilePath={projectFilePath}
           projectDirty={projectDirty}
+          sessionImportCptIds={sessionImportCptIds}
+          sessionImportBoreholeIds={sessionImportBoreholeIds}
           onCloseProject={handleSidebarCloseRequest}
           onEditMetadata={() => setMetadataEditorOpen(true)}
           hiddenCptTypes={hiddenCptTypes}
