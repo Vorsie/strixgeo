@@ -22,6 +22,12 @@ import CptChart from './components/CptChart'
 import BoreholeLog from './components/BoreholeLog'
 import WelcomeScreen from './components/WelcomeScreen'
 
+interface RecentProject {
+  path: string
+  name: string
+  lastOpened: string
+}
+
 declare global {
   interface Window {
     electron: {
@@ -30,8 +36,20 @@ declare global {
       openFile: (filters: Electron.FileFilter[]) => Promise<string | null>
       openFiles: (filters: Electron.FileFilter[]) => Promise<string[]>
       readFile: (filePath: string) => Promise<Buffer>
+      // Project file lifecycle (Phase 4 multi-project)
+      showProjectOpenDialog: () => Promise<string | null>
+      showProjectSaveDialog: (defaultName?: string) => Promise<string | null>
+      readProjectFile: (filePath: string) => Promise<string>
+      writeProjectFile: (filePath: string, contents: string) => Promise<void>
+      addRecentProject: (filePath: string, name: string) => Promise<RecentProject[]>
+      getRecentProjects: () => Promise<RecentProject[]>
       onMenuImportCpt: (cb: () => void) => () => void
       onMenuImportBorehole: (cb: () => void) => () => void
+      onMenuProjectNew: (cb: () => void) => () => void
+      onMenuProjectOpen: (cb: () => void) => () => void
+      onMenuProjectSave: (cb: () => void) => () => void
+      onMenuProjectSaveAs: (cb: () => void) => () => void
+      onMenuProjectOpenRecent: (cb: (path: string) => void) => () => void
     }
   }
 }
