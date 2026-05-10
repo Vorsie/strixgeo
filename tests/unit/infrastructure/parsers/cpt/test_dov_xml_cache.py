@@ -167,3 +167,30 @@ def test_eviction_skips_non_xml_files(tmp_path: Path, monkeypatch):
     cache = DovXmlCache(tmp_path, max_bytes=512)
     cache.put(_permkey(0), b"x" * 4096)  # one big file → over cap
     assert foreign.exists()
+
+
+def test_startup_sweep_trims_pre_existing_cache(tmp_path: Path):
+    """A new cache instance over an oversized directory evicts at construction.
+
+    Guards the "long-lived cache, fresh process" case: across short app
+    sessions of < ``_EVICT_CHECK_INTERVAL`` writes each, the in-memory
+    counter resets every restart, so without a startup sweep the cache
+    could drift indefinitely past ``max_bytes``.
+    """
+    # Pre-populate the cache directory directly with 10 over-sized files,
+    # then construct a cache with a tight cap. The constructor should sweep.
+    for i in range(10):
+        (tmp_path / f"{_permkey(i)}.xml").write_bytes(b"x" * 1024)
+
+    DovXmlCache(tmp_path, max_bytes=4096)
+    survivors = list(tmp_path.glob("*.xml"))
+    assert len(survivors) <= 4  # 4 KiB cap, 0.9 headroom → ~3.6 KiB target
+
+
+def test_startup_sweep_skipped_when_eviction_disabled(tmp_path: Path):
+    """``max_bytes=None`` means the constructor never touches existing files."""
+    for i in range(10):
+        (tmp_path / f"{_permkey(i)}.xml").write_bytes(b"x" * 1024)
+
+    DovXmlCache(tmp_path)  # default max_bytes=None
+    assert len(list(tmp_path.glob("*.xml"))) == 10
