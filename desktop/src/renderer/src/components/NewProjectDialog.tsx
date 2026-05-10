@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import Button from './ui/Button'
-import { isTypingTarget } from '../utils/keyboard'
+import Modal from './ui/Modal'
 
 interface Props {
   open: boolean
@@ -26,7 +26,9 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Reset + auto-focus on open. Without the reset the dialog would
-  // remember the last typed name across cancels — surprising.
+  // remember the last typed name across cancels — surprising. The shared
+  // Modal handles Esc + backdrop close; we just own the form state +
+  // the focus call.
   useEffect(() => {
     if (!open) return
     setName('')
@@ -35,34 +37,6 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
     const timer = setTimeout(() => inputRef.current?.focus(), 0)
     return () => clearTimeout(timer)
   }, [open])
-
-  // Esc closes the dialog from anywhere except inside an input where
-  // Esc has its own meaning (cancelling autocomplete, etc.). Since the
-  // input here doesn't have autocomplete, treating Esc as "cancel"
-  // throughout is fine.
-  useEffect(() => {
-    if (!open) return
-    function onKeyDown(e: KeyboardEvent): void {
-      if (e.key !== 'Escape') return
-      if (busy) return
-      // Don't intercept when typing in OTHER inputs (none today, but
-      // future-proof). The dialog's input itself wants Esc, so we let
-      // it through.
-      const target = e.target
-      if (
-        target !== inputRef.current &&
-        isTypingTarget(target as EventTarget | null)
-      ) {
-        return
-      }
-      e.preventDefault()
-      onCancel()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [open, busy, onCancel])
-
-  if (!open) return null
 
   async function handleSubmit(): Promise<void> {
     const trimmed = name.trim()
@@ -83,19 +57,13 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
   }
 
   return (
-    // Backdrop swallows clicks outside the dialog. ``role="dialog"`` +
-    // ``aria-modal`` keep screen readers + assistive tech informed.
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onClick={() => !busy && onCancel()}
+    <Modal
+      open={open}
+      onCancel={onCancel}
+      labelledBy="new-project-title"
+      busy={busy}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-project-title"
-        className="bg-white border border-gray-200 rounded-lg shadow-lg p-6 w-96"
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="p-6">
         <h2
           id="new-project-title"
           className="text-base font-semibold text-gray-800 mb-1"
@@ -144,6 +112,6 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
           </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
