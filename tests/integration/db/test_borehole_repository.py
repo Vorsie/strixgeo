@@ -596,3 +596,52 @@ async def test_delete_cascades_through_sample_to_lab_tests(
     ):
         rows = (await db_session.execute(select(cls).where(cls.id == row_id))).all()
         assert rows == [], f"{cls.__name__} row {row_id} should be cascaded out"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3a — manual surface-elevation editor (set_elevation)
+# ---------------------------------------------------------------------------
+
+
+async def test_set_elevation_writes_value_and_z_epsg(db_session: AsyncSession) -> None:
+    """Setting elevation persists both the value and the supplied vertical CRS."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="set-elev")
+    bh.elevation_m = None
+    bh.z_epsg = None
+    await repo.save(bh)
+    await db_session.commit()
+
+    updated = await repo.set_elevation(bh.id, 12.34, 5710)
+    await db_session.commit()
+    assert updated is not None
+    assert updated.elevation_m == 12.34
+    assert updated.z_epsg == 5710
+
+
+async def test_set_elevation_clears_zepsg_when_value_cleared(
+    db_session: AsyncSession,
+) -> None:
+    """Clearing elevation must drop z_epsg too — keeps the column pair consistent."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="clear-elev")
+    bh.elevation_m = 10.0
+    bh.z_epsg = 5710
+    await repo.save(bh)
+    await db_session.commit()
+
+    updated = await repo.set_elevation(bh.id, None, 5710)
+    await db_session.commit()
+    assert updated is not None
+    assert updated.elevation_m is None
+    # Repository drops z_epsg when elevation is cleared regardless of the
+    # supplied z_epsg value, so the UI never sees a CRS without a value.
+    assert updated.z_epsg is None
+
+
+async def test_set_elevation_returns_none_for_missing_id(
+    db_session: AsyncSession,
+) -> None:
+    """Patching a non-existent borehole returns None — handler maps to 404."""
+    repo = BoreholeRepository(db_session)
+    assert await repo.set_elevation(uuid7(), 5.0, 5710) is None
