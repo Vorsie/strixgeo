@@ -69,6 +69,7 @@ class DovXmlCache(GroundModelLogger):
         self._dir = cache_dir
         self._max_bytes = max_bytes
         self._writes_since_check = 0
+        dir_ok = True
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -78,6 +79,15 @@ class DovXmlCache(GroundModelLogger):
                 f"DOV cache: could not create directory {self._dir}: {exc}. "
                 "Cache will be disabled this session."
             )
+            dir_ok = False
+
+        # Run one eviction sweep at startup so a long-lived cache survives
+        # process restarts under the cap. The in-memory ``_writes_since_check``
+        # counter resets every restart, so without this hook a series of short
+        # app sessions (each writing < ``_EVICT_CHECK_INTERVAL`` files) could
+        # let the cache drift indefinitely past the configured ceiling.
+        if dir_ok and self._max_bytes is not None:
+            self._maybe_evict()
 
     def get(self, permkey: str) -> bytes | None:
         """Return cached XML for *permkey*, or None on cache miss / read error."""
