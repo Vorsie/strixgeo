@@ -483,21 +483,29 @@ class ImportSamplesDov(GroundModelLogger):
         # Refresh-on-duplicate: pre-fetch the set of already-stored
         # permkeys per lab-test family for any in-scope sample. Each
         # ``_persist_*`` method takes the corresponding skip-set so
-        # already-stored rows are silently ignored. Parallel via
-        # asyncio.gather since these are independent SELECTs.
+        # already-stored rows are silently ignored.
+        #
+        # Sequential, NOT asyncio.gather: AsyncSession only handles one
+        # task at a time, so concurrent execute() on the same session
+        # raises ``InvalidRequestError: This session is provisioning a
+        # new connection; concurrent operations are not permitted``.
+        # Five fast IN-queries serialised cost ~25 ms vs. the multi-
+        # second WFS phase that just preceded — invisible.
         sample_ids = list(permkey_to_sample_id.values())
-        (
-            existing_atterberg,
-            existing_caco3,
-            existing_organic,
-            existing_water,
-            existing_scalar,
-        ) = await asyncio.gather(
-            existing_dov_permkeys(self._session, AtterbergLimitsOrm, "sample_id", sample_ids),
-            existing_dov_permkeys(self._session, CaCO3ContentOrm, "sample_id", sample_ids),
-            existing_dov_permkeys(self._session, OrganicContentOrm, "sample_id", sample_ids),
-            existing_dov_permkeys(self._session, WaterContentOrm, "sample_id", sample_ids),
-            existing_dov_permkeys(self._session, ScalarLabTestOrm, "sample_id", sample_ids),
+        existing_atterberg = await existing_dov_permkeys(
+            self._session, AtterbergLimitsOrm, "sample_id", sample_ids
+        )
+        existing_caco3 = await existing_dov_permkeys(
+            self._session, CaCO3ContentOrm, "sample_id", sample_ids
+        )
+        existing_organic = await existing_dov_permkeys(
+            self._session, OrganicContentOrm, "sample_id", sample_ids
+        )
+        existing_water = await existing_dov_permkeys(
+            self._session, WaterContentOrm, "sample_id", sample_ids
+        )
+        existing_scalar = await existing_dov_permkeys(
+            self._session, ScalarLabTestOrm, "sample_id", sample_ids
         )
 
         # Persist Atterberg (with LL+PL aggregation), the three typed single-
