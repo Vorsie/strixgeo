@@ -14,6 +14,10 @@ export interface CptListItem {
   location_x: number
   location_y: number
   epsg: number | null
+  // Surface elevation lives on the list item so the sidebar can render the
+  // "needs Z" badge without a per-row detail fetch.
+  elevation_m: number | null
+  z_epsg: number | null
 }
 
 export interface CptResponse {
@@ -24,6 +28,7 @@ export interface CptResponse {
   location_y: number
   epsg: number | null
   elevation_m: number | null
+  z_epsg: number | null
   pre_drill_m: number
   cone_area_ratio: number | null
   max_depth_m: number | null
@@ -273,6 +278,29 @@ async function del(path: string): Promise<void> {
   if (!res.ok) throw new Error(`DELETE ${path} → ${res.status}`)
 }
 
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${_base}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}))
+    throw new Error(detail.detail ?? `PATCH ${path} → ${res.status}`)
+  }
+  return res.json()
+}
+
+// Shared elevation-patch payload — the backend accepts the same shape for
+// CPT and borehole, so the API surface mirrors that. ``elevation_m: null``
+// clears a previously-entered value (returns the row to the "needs Z"
+// state). ``z_epsg`` is omitted today because the desktop UI doesn't expose
+// a CRS picker — the backend defaults to mTAW (5710) for DOV-Belgium data.
+export interface ElevationPatchBody {
+  elevation_m: number | null
+  z_epsg?: number | null
+}
+
 export const api = {
   cpt: {
     list: (projectId?: string): Promise<CptListItem[]> =>
@@ -283,6 +311,9 @@ export const api = {
     plot: (id: string): Promise<CptPlotResponse> => get(`/cpt/${id}/plot`),
 
     delete: (id: string): Promise<void> => del(`/cpt/${id}`),
+
+    patchElevation: (id: string, body: ElevationPatchBody): Promise<CptResponse> =>
+      patch(`/cpt/${id}/elevation`, body),
 
     importDov: async (
       bbox: { west: number; south: number; east: number; north: number },
@@ -327,6 +358,9 @@ export const api = {
       get(`/borehole/${projectId ? `?project_id=${projectId}` : ''}`),
 
     get: (id: string): Promise<BoreholeDetailResponse> => get(`/borehole/${id}`),
+
+    patchElevation: (id: string, body: ElevationPatchBody): Promise<BoreholeListItem> =>
+      patch(`/borehole/${id}/elevation`, body),
 
     importDov: async (
       bbox: { west: number; south: number; east: number; north: number },
