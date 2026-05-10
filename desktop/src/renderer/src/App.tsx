@@ -171,6 +171,37 @@ export default function App() {
   const handleRestoreAllCpts = useCallback(() => setRemovedCptIds(new Set()), [])
   const handleRestoreAllBoreholes = useCallback(() => setRemovedBoreholeIds(new Set()), [])
 
+  // Re-importing or re-fetching a record is an explicit "make this visible
+  // again" signal, so clear any of the supplied ids from the project-local
+  // removed-set. Without this, a 409-duplicate import returns the existing
+  // id, the sidebar's removed-filter hides it, and the user sees no change.
+  const unhideCpts = useCallback(
+    (ids: Iterable<string>) => {
+      setRemovedCptIds(prev => {
+        const next = new Set(prev)
+        let changed = false
+        for (const id of ids) {
+          if (next.delete(id)) changed = true
+        }
+        return changed ? next : prev
+      })
+    },
+    [setRemovedCptIds],
+  )
+  const unhideBoreholes = useCallback(
+    (ids: Iterable<string>) => {
+      setRemovedBoreholeIds(prev => {
+        const next = new Set(prev)
+        let changed = false
+        for (const id of ids) {
+          if (next.delete(id)) changed = true
+        }
+        return changed ? next : prev
+      })
+    },
+    [setRemovedBoreholeIds],
+  )
+
   // ---------------------------------------------------------------------------
   // Boot — wait for API regardless of project state
   // ---------------------------------------------------------------------------
@@ -311,15 +342,18 @@ export default function App() {
 
       let imported = 0, warnings = 0, duplicates = 0, errors = 0
       let firstId: string | null = null
+      const touchedIds: string[] = []
 
       for (const r of results) {
         if (r.status === 'fulfilled') {
           if (r.value.has_errors) warnings++
           else imported++
           firstId ??= r.value.cpt_id
+          touchedIds.push(r.value.cpt_id)
         } else if (r.reason instanceof DuplicateCptError) {
           duplicates++
           firstId ??= r.reason.cptId
+          touchedIds.push(r.reason.cptId)
         } else {
           errors++
         }
@@ -332,6 +366,7 @@ export default function App() {
       if (errors > 0) parts.push(`${errors} failed`)
       toast(errors > 0 && ok === 0 ? 'error' : 'success', parts.join(', '))
 
+      unhideCpts(touchedIds)
       await refreshList()
       if (firstId) {
         setSelectedId(firstId)
@@ -341,7 +376,7 @@ export default function App() {
     } finally {
       setImporting(false)
     }
-  }, [project, refreshList, loadChart])
+  }, [project, refreshList, loadChart, unhideCpts])
 
   // ---------------------------------------------------------------------------
   // DOV import
@@ -375,6 +410,7 @@ export default function App() {
             result.failed > 0 && result.imported === 0 ? 'error' : 'success',
             parts.join(', ') || 'No CPTs found in this area',
           )
+          unhideCpts(result.cpt_ids)
           await refreshList()
           if (result.imported === 1 && result.cpt_ids.length > 0) {
             const id = result.cpt_ids[0]
@@ -407,6 +443,7 @@ export default function App() {
             result.failed > 0 && result.imported === 0 ? 'error' : 'success',
             summary + detail,
           )
+          unhideBoreholes(result.borehole_ids)
           await refreshBoreholeList()
           if (result.imported === 1 && result.borehole_ids.length > 0) {
             const id = result.borehole_ids[0]
@@ -424,7 +461,16 @@ export default function App() {
         setDovImporting(false)
       }
     },
-    [project, bboxImportType, refreshList, refreshBoreholeList, loadChart, loadBoreholeDetail],
+    [
+      project,
+      bboxImportType,
+      refreshList,
+      refreshBoreholeList,
+      loadChart,
+      loadBoreholeDetail,
+      unhideCpts,
+      unhideBoreholes,
+    ],
   )
 
   // ---------------------------------------------------------------------------
