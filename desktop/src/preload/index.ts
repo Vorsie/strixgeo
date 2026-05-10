@@ -60,6 +60,14 @@ contextBridge.exposeInMainWorld('electron', {
   setWindowTitle: (title: string | null): Promise<void> =>
     ipcRenderer.invoke('window:set-title', title),
 
+  // App-quit handshake. Main fires ``app:before-quit`` when the user
+  // closes the OS window (X / Alt+F4); renderer responds with
+  // ``app:quit-decision`` after consulting its dirty state and the
+  // user's choice on the unsaved-changes prompt.
+  onAppBeforeQuit: (cb: () => void) => onMenuEvent('app:before-quit', cb),
+  notifyQuitDecision: (allowed: boolean): Promise<void> =>
+    ipcRenderer.invoke('app:quit-decision', allowed),
+
   // Menu signals — same shape as the existing onMenuImport* helpers but
   // routed through the shared ``onMenuEvent`` factory above.
   onMenuImportCpt: (cb: () => void) => onMenuEvent('menu:import-cpt', cb),
