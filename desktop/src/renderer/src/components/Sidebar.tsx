@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../api/client'
+import DirtyAsterisk from './ui/DirtyAsterisk'
 import { isTypingTarget } from '../utils/keyboard'
 
 type DataType = 'cpt' | 'borehole' | 'dmt'
@@ -189,36 +190,91 @@ export default function Sidebar({
     [sort, boreholeAxis],
   )
 
+  // Derived lists are memoised — at 500+ rows the filter+sort chains
+  // ran on every parent re-render (every map-pan endpoint and every
+  // keystroke), and the sidebar receives ~6 props that change on the
+  // outer flow. useMemo keys on the actual inputs so the work only
+  // re-runs when something it depends on changes.
+  //
   // Search drops rows whose name doesn't contain the query (case-
   // insensitive substring). Empty query = pass everything through.
   // Applied BEFORE the visible/hidden partition so search results
   // still respect the map-filter / viewport partitioning.
-  const matchesSearch = (name: string): boolean =>
-    searchLower === '' || name.toLowerCase().includes(searchLower)
-  const cptsAfterSearch = cpts.filter(c => matchesSearch(c.name))
-  const boreholesAfterSearch = boreholes.filter(b => matchesSearch(b.name))
+  const cptsAfterSearch = useMemo(
+    () =>
+      searchLower === ''
+        ? cpts
+        : cpts.filter(c => c.name.toLowerCase().includes(searchLower)),
+    [cpts, searchLower],
+  )
+  const boreholesAfterSearch = useMemo(
+    () =>
+      searchLower === ''
+        ? boreholes
+        : boreholes.filter(b => b.name.toLowerCase().includes(searchLower)),
+    [boreholes, searchLower],
+  )
 
   // Partition each list into visible-first / hidden-bottom (driven by
   // the map's per-type filter AND the viewport filter when enabled),
   // then sort each partition independently. A row is "hidden" when its
   // type is filtered OR its marker is currently outside the map
   // viewport — both demote to the same greyed-out bottom section.
-  const isCptHidden = (c: CptListItem): boolean =>
-    hiddenCptTypes.has(c.cpt_type) || outOfViewportCptIds.has(c.id)
-  const cptVisible = cptsAfterSearch.filter(c => !isCptHidden(c)).sort(cptSorter)
-  const cptHidden = cptsAfterSearch.filter(isCptHidden).sort(cptSorter)
+  const cptVisible = useMemo(
+    () =>
+      cptsAfterSearch
+        .filter(c => !hiddenCptTypes.has(c.cpt_type) && !outOfViewportCptIds.has(c.id))
+        .sort(cptSorter),
+    [cptsAfterSearch, hiddenCptTypes, outOfViewportCptIds, cptSorter],
+  )
+  const cptHidden = useMemo(
+    () =>
+      cptsAfterSearch
+        .filter(c => hiddenCptTypes.has(c.cpt_type) || outOfViewportCptIds.has(c.id))
+        .sort(cptSorter),
+    [cptsAfterSearch, hiddenCptTypes, outOfViewportCptIds, cptSorter],
+  )
 
-  const boreholeFilterValue = (b: BoreholeListItem): string =>
-    (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
-  const isBoreholeHidden = (b: BoreholeListItem): boolean =>
-    hiddenBoreholeValues.has(boreholeFilterValue(b)) ||
-    outOfViewportBoreholeIds.has(b.id)
-  const bhVisible = boreholesAfterSearch
-    .filter(b => !isBoreholeHidden(b))
-    .sort(boreholeSorter)
-  const bhHidden = boreholesAfterSearch
-    .filter(isBoreholeHidden)
-    .sort(boreholeSorter)
+  const bhVisible = useMemo(
+    () =>
+      boreholesAfterSearch
+        .filter(b => {
+          const filterValue =
+            (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
+          return (
+            !hiddenBoreholeValues.has(filterValue) &&
+            !outOfViewportBoreholeIds.has(b.id)
+          )
+        })
+        .sort(boreholeSorter),
+    [
+      boreholesAfterSearch,
+      hiddenBoreholeValues,
+      outOfViewportBoreholeIds,
+      boreholeAxis,
+      boreholeSorter,
+    ],
+  )
+  const bhHidden = useMemo(
+    () =>
+      boreholesAfterSearch
+        .filter(b => {
+          const filterValue =
+            (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
+          return (
+            hiddenBoreholeValues.has(filterValue) ||
+            outOfViewportBoreholeIds.has(b.id)
+          )
+        })
+        .sort(boreholeSorter),
+    [
+      boreholesAfterSearch,
+      hiddenBoreholeValues,
+      outOfViewportBoreholeIds,
+      boreholeAxis,
+      boreholeSorter,
+    ],
+  )
 
   function toggleSelection(id: string): void {
     setSelectedForRemoval(prev => {
@@ -301,12 +357,10 @@ export default function Sidebar({
             <div className="text-xs font-medium text-gray-700 truncate">
               {projectName}
               {projectDirty && (
-                <span
-                  className="text-amber-600 ml-1"
+                <DirtyAsterisk
+                  className="ml-1"
                   title="Unsaved changes — File → Save (Ctrl+S) to commit"
-                >
-                  *
-                </span>
+                />
               )}
             </div>
           </button>
@@ -319,12 +373,10 @@ export default function Sidebar({
             <div className="text-xs font-medium text-gray-700 truncate">
               {projectName}
               {projectDirty && (
-                <span
-                  className="text-amber-600 ml-1"
+                <DirtyAsterisk
+                  className="ml-1"
                   title="Unsaved changes — File → Save (Ctrl+S) to commit"
-                >
-                  *
-                </span>
+                />
               )}
             </div>
           </div>
@@ -667,12 +719,7 @@ function CptRow({
           <MapPin size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
           <span className="text-xs font-medium text-gray-800 truncate">{cpt.name}</span>
           {unsaved && (
-            <span
-              className="text-amber-600 shrink-0"
-              title="Imported since last save — File → Save to commit"
-            >
-              *
-            </span>
+            <DirtyAsterisk title="Imported since last save — File → Save to commit" />
           )}
           {cpt.elevation_m == null && (
             <span title="No surface elevation — needs manual Z entry">
@@ -752,12 +799,7 @@ function BoreholeRow({
           <Drill size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
           <span className="text-xs font-medium text-gray-800 truncate">{borehole.name}</span>
           {unsaved && (
-            <span
-              className="text-amber-600 shrink-0"
-              title="Imported since last save — File → Save to commit"
-            >
-              *
-            </span>
+            <DirtyAsterisk title="Imported since last save — File → Save to commit" />
           )}
           {noZ && (
             <span title="No surface elevation — needs manual Z entry">
