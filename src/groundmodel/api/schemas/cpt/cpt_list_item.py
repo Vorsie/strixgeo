@@ -35,3 +35,8 @@ class CptListItem(BaseModel):
     location_x: float
     location_y: float
     epsg: int | None
+    # Surface elevation is in the list payload so the sidebar can render the
+    # Phase 3a "needs Z" badge without firing GET /cpt/{id} per row. ``None``
+    # means the source omitted Z and the user has not entered one yet.
+    elevation_m: float | None
+    z_epsg: int | None
