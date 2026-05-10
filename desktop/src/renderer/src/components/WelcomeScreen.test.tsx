@@ -76,7 +76,7 @@ describe('WelcomeScreen', () => {
   })
 
   it('invokes onOpenProject when Open from file is clicked', async () => {
-    const onOpen = vi.fn().mockResolvedValue(undefined)
+    const onOpen = vi.fn().mockResolvedValue('opened' as const)
     render(
       <WelcomeScreen
         onCreateProject={vi.fn()}
@@ -86,6 +86,35 @@ describe('WelcomeScreen', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /Open project from file/i }))
     await waitFor(() => expect(onOpen).toHaveBeenCalled())
+  })
+
+  it('shows a banner when onOpenProject returns "failed"', async () => {
+    const onOpen = vi.fn().mockResolvedValue('failed' as const)
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={onOpen}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Open project from file/i }))
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toMatch(/Couldn't open the selected/),
+    )
+  })
+
+  it('does not show a banner when the user cancels the dialog', async () => {
+    const onOpen = vi.fn().mockResolvedValue('cancelled' as const)
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={onOpen}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Open project from file/i }))
+    await waitFor(() => expect(onOpen).toHaveBeenCalled())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('renders the recent projects column when entries are present', async () => {
