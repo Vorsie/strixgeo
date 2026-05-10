@@ -4,11 +4,19 @@ import {
   Tooltip, ReferenceLine, ReferenceArea, ResponsiveContainer,
 } from 'recharts'
 import type { CptPlotResponse, CptResponse } from '../api/client'
+import ElevationEditor from './ElevationEditor'
+import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
 
 interface Props {
   plot:   CptPlotResponse
   name:   string
   detail?: CptResponse
+  // Save handler for the inline elevation editor in the chart header.
+  // Optional so existing call sites that render the chart without a
+  // mutation path keep working (read-only dashboards, snapshot tests).
+  // ``zEpsg`` carries the user's pick from the editor's datum dropdown
+  // (mTAW / NAP), or ``null`` when the value is being cleared.
+  onElevationChange?: (elevationM: number | null, zEpsg: number | null) => Promise<void>
 }
 
 // ── DOV standard axis ranges ────────────────────────────────────────────────
@@ -85,8 +93,9 @@ function yGhostRight(domain: [number, number]) {
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-export default function CptChart({ plot, name, detail }: Props) {
+export default function CptChart({ plot, name, detail, onElevationChange }: Props) {
   const elevationM = detail?.elevation_m ?? null
+  const zEpsg = detail?.z_epsg ?? null
   const preDrillM  = detail?.pre_drill_m ?? 0
   const cptType    = detail?.cpt_type ?? ''
 
@@ -193,7 +202,11 @@ export default function CptChart({ plot, name, detail }: Props) {
   const showU2 = hasU2 && (cptType === 'CPTU' || hasU2)
 
   const fmtLevel   = makeLevelFmt(elevationM)
-  const levelLabel = elevationM !== null ? 'Level (m TAW)' : 'Depth (m)'
+  // Y-axis label switches to absolute level when we have a Z; the datum
+  // suffix tracks the row's z_epsg so a NAP-tagged CPT shows "Level (m NAP)".
+  const datumLabel = verticalDatumLabel(zEpsg)
+  const levelLabel = elevationM !== null ? `Level (${datumLabel})` : 'Depth (m)'
+  const datumShort = verticalDatumShort(zEpsg)
 
   const topM = 16
   const botM = 16
@@ -271,7 +284,9 @@ export default function CptChart({ plot, name, detail }: Props) {
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(4)}`, key]}
           labelFormatter={d =>
             `Depth: ${Number(d).toFixed(2)} m` +
-            (elevationM !== null ? `  |  Level: ${fmtLevel(Number(d))} m TAW` : '')
+            (elevationM !== null
+              ? `  |  Level: ${fmtLevel(Number(d))}${datumShort ? ` ${datumShort}` : ''}`
+              : '')
           }
         />
         <Line yAxisId="y" xAxisId="qc" dataKey="qc" name="qc (MPa)"
@@ -354,9 +369,24 @@ export default function CptChart({ plot, name, detail }: Props) {
       {/* Header */}
       <div className="px-4 pt-3 pb-1 shrink-0">
         <div className="text-sm font-semibold text-gray-700">{name}</div>
-        <div className="text-xs text-gray-400 mt-0.5">
-          {cptType} · {data.length} rows · {maxDepth.toFixed(2)} m
-          {elevationM !== null ? ` · Z = ${elevationM.toFixed(2)} m TAW` : ''}
+        <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+          <span>{cptType} · {data.length} rows · {maxDepth.toFixed(2)} m</span>
+          {/* Inline elevation editor sits on the same line as the run
+              summary so the user can fix a missing Z without leaving the
+              chart. Falls back to the static "Z = …" readout when no
+              save handler is wired (read-only contexts). */}
+          <span className="text-gray-300">·</span>
+          {onElevationChange ? (
+            <ElevationEditor
+              elevationM={elevationM}
+              zEpsg={zEpsg}
+              onSave={onElevationChange}
+            />
+          ) : elevationM !== null ? (
+            <span>Z = {elevationM.toFixed(2)} {datumLabel}</span>
+          ) : (
+            <span className="text-amber-600">Z missing</span>
+          )}
         </div>
       </div>
 
