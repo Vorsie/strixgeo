@@ -36,9 +36,22 @@ vi.mock('../api/client', () => ({
       unarchive: vi.fn(),
       duplicate: vi.fn(),
       restore: vi.fn(),
+      bundle: vi.fn(),
     },
   },
 }))
+
+// Empty bundle (no CPTs / boreholes) — used as the default for any flow
+// that writes a file for a freshly-created project. ``api.project.bundle``
+// returns this so the save path doesn't need a real DB.
+function emptyBundle(project: typeof created): {
+  format_version: number
+  project: typeof created
+  cpts: Record<string, unknown>[]
+  boreholes: Record<string, unknown>[]
+} {
+  return { format_version: 2, project, cpts: [], boreholes: [] }
+}
 
 beforeEach(async () => {
   // Reset all api.project.* mocks between tests.
@@ -46,6 +59,10 @@ beforeEach(async () => {
   for (const fn of Object.values(api.project)) {
     ;(fn as ReturnType<typeof vi.fn>).mockReset()
   }
+  // ``bundle`` is called by every save / new-project flow. Default to
+  // an empty bundle so tests that don't care about file contents still
+  // succeed. Individual tests override when they need a populated one.
+  ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
 
   ;(globalThis as unknown as { window: { electron: unknown } }).window.electron = {
     showProjectOpenDialog: vi.fn(),
@@ -83,6 +100,13 @@ describe('useProject', () => {
 
     expect(api.project.create).toHaveBeenCalledWith({ name: 'Site A' })
     expect(window.electron.showProjectSaveDialog).toHaveBeenCalled()
+    expect(window.electron.writeProjectFile).toHaveBeenCalledWith(
+      'C:/Users/robin/site-a.gmproj',
+      // v2 format embeds the project metadata under ``project`` and
+      // carries empty cpts / boreholes arrays for a freshly-created
+      // project. Both substrings have to appear.
+      expect.stringMatching(/"format_version": 2/),
+    )
     expect(window.electron.writeProjectFile).toHaveBeenCalledWith(
       'C:/Users/robin/site-a.gmproj',
       expect.stringContaining('"id": "01k-NEW"'),
@@ -191,21 +215,21 @@ describe('useProject', () => {
     expect(result.current.project).toBeNull()
   })
 
-  it('openProjectFile: restores the project shell when the DB row is missing', async () => {
+  it('openProjectFile: restores the full bundle when the DB row is missing', async () => {
     const { api } = await import('../api/client')
+    // v2 file shape: ``project`` block + cpts + boreholes arrays.
     const ghostFile = {
-      format_version: 1,
-      id: '01k-MISSING',
-      name: 'Ghost',
-      project_number: 'GEO-001',
-      client: 'ACME',
-      site_label: 'Port',
-      description: 'restored shell',
-      tags: ['foundation'],
-      default_horizontal_epsg: 31370,
-      default_vertical_epsg: 5710,
-      phase: 'design',
-      status: 'active',
+      format_version: 2,
+      project: {
+        id: '01k-MISSING',
+        name: 'Ghost',
+        project_number: 'GEO-001',
+        client: 'ACME',
+        tags: ['foundation'],
+        status: 'active',
+      },
+      cpts: [{ id: 'cpt-1', name: 'CPT-1', series: { depths_m: [0, 1] } }],
+      boreholes: [{ id: 'bh-1', name: 'BH-1' }],
     }
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify(ghostFile),
@@ -224,18 +248,59 @@ describe('useProject', () => {
 
     expect(returned).toEqual(restored)
     expect(result.current.project).toEqual(restored)
-    // The restore call carries the file's full metadata (id is in the
-    // URL; everything else in the body).
+    // Restore is called with the full v2 bundle — metadata, CPTs, and
+    // boreholes all round-trip through the file so the data comes back
+    // along with the project shell.
     expect(api.project.restore).toHaveBeenCalledWith(
       '01k-MISSING',
       expect.objectContaining({
-        name: 'Ghost',
-        project_number: 'GEO-001',
-        client: 'ACME',
-        tags: ['foundation'],
-        default_horizontal_epsg: 31370,
-        phase: 'design',
-        status: 'active',
+        format_version: 2,
+        project: expect.objectContaining({ id: '01k-MISSING', name: 'Ghost' }),
+        cpts: ghostFile.cpts,
+        boreholes: ghostFile.boreholes,
+      }),
+    )
+  })
+
+  it('openProjectFile: legacy v1 file still restores (no CPTs / boreholes)', async () => {
+    const { api } = await import('../api/client')
+    const ghostFile = {
+      format_version: 1,
+      id: '01k-LEGACY',
+      name: 'Legacy ghost',
+      project_number: null,
+      client: null,
+      site_label: null,
+      description: null,
+      tags: [],
+      default_horizontal_epsg: null,
+      default_vertical_epsg: null,
+      phase: null,
+      status: 'active',
+    }
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify(ghostFile),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('GET /projects/01k-LEGACY → 404'),
+    )
+    const restored = { ...created, id: '01k-LEGACY', name: 'Legacy ghost' }
+    ;(api.project.restore as ReturnType<typeof vi.fn>).mockResolvedValue(restored)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/legacy.gmproj')
+    })
+
+    // v1 upgrades to a v2 bundle with empty data arrays. Restore still
+    // succeeds — the user just won't see CPTs / boreholes come back
+    // (they weren't in the legacy file).
+    expect(api.project.restore).toHaveBeenCalledWith(
+      '01k-LEGACY',
+      expect.objectContaining({
+        format_version: 2,
+        cpts: [],
+        boreholes: [],
       }),
     )
   })
