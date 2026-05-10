@@ -1,12 +1,37 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import { readFileSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+
+// File extension for project files. Kept here (not imported from the
+// renderer) so the main process is build-self-contained — Electron's
+// ``out/main`` doesn't include the renderer source tree.
+const PROJECT_FILE_EXTENSION = 'gmproj'
+
+// Recent-projects list — capped so the menu doesn't explode and we don't
+// accidentally accumulate decade-old paths. List is ordered most-recent
+// first; reopening a path moves it back to the head.
+const RECENT_PROJECTS_MAX = 10
+const RECENT_PROJECTS_FILENAME = 'recent-projects.json'
+
+// Wraps a single recent-list entry. ``name`` is a snapshot for the menu —
+// the actual project name might have drifted in the DB since the file was
+// last opened, but the menu shows what we recorded at last-save time.
+interface RecentProject {
+  path: string
+  name: string
+  lastOpened: string  // ISO timestamp
+}
 
 const API_PORT = 8765
 const API_BASE = `http://127.0.0.1:${API_PORT}`
 
 let apiProcess: ChildProcess | null = null
+
+// Single-window app today; we cache the main window so menu rebuilds (after
+// the recent-projects list changes) can target the right one without
+// walking ``BrowserWindow.getAllWindows()``.
+let mainWindow: BrowserWindow | null = null
 
 // True once the user has confirmed they want to exit. Without this flag,
 // programmatic ``app.quit()`` would re-trigger the close handler in a
@@ -67,6 +92,10 @@ function createWindow(): void {
       nodeIntegration: false,
     }
   })
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
 
   win.setMenuBarVisibility(true)
   buildMenu(win)
@@ -107,14 +136,59 @@ function createWindow(): void {
 // ---------------------------------------------------------------------------
 
 function buildMenu(win: BrowserWindow): void {
+  // Recent submenu is rebuilt every time the menu is constructed. After a
+  // file is opened or saved the renderer asks main to refresh the menu so
+  // the new entry appears without an app restart.
+  const recent = readRecentProjects()
+  const recentSubmenu: Electron.MenuItemConstructorOptions[] = recent.length
+    ? recent.map(r => ({
+        label: r.name,
+        // Path is the source of truth — name might have drifted in the DB.
+        // The renderer receives the path and re-fetches metadata before
+        // rendering anything to the user.
+        sublabel: r.path,
+        click: () => win.webContents.send('menu:project-open-recent', r.path),
+      }))
+    : [{ label: '(no recent projects)', enabled: false }]
+
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: 'File',
       submenu: [
         {
+          label: 'New Project…',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => win.webContents.send('menu:project-new'),
+        },
+        {
+          label: 'Open Project…',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => win.webContents.send('menu:project-open'),
+        },
+        {
+          label: 'Open Recent',
+          submenu: recentSubmenu,
+        },
+        { type: 'separator' },
+        {
+          label: 'Save',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => win.webContents.send('menu:project-save'),
+        },
+        {
+          label: 'Save As…',
+          accelerator: 'CmdOrCtrl+Shift+S',
+          click: () => win.webContents.send('menu:project-save-as'),
+          // Save-As needs the deep duplicate operation which is a follow-up
+          // task (#20). Disabled until that lands so users don't get a
+          // "looks like Save As but only copies metadata" surprise.
+          enabled: false,
+        },
+        { type: 'separator' },
+        {
           label: 'Import CPT…',
           accelerator: 'CmdOrCtrl+Shift+C',
-          click: () => win.webContents.send('menu:import-cpt')
+          click: () => win.webContents.send('menu:import-cpt'),
         },
         {
           label: 'Import Borehole…',
@@ -159,6 +233,55 @@ function buildMenu(win: BrowserWindow): void {
 }
 
 // ---------------------------------------------------------------------------
+// Recent-projects helpers — JSON file in the OS-standard userData dir.
+// ---------------------------------------------------------------------------
+
+function recentProjectsFile(): string {
+  return join(app.getPath('userData'), RECENT_PROJECTS_FILENAME)
+}
+
+function readRecentProjects(): RecentProject[] {
+  const path = recentProjectsFile()
+  if (!existsSync(path)) return []
+  try {
+    const raw = readFileSync(path, 'utf-8')
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter(isRecentProject) : []
+  } catch {
+    // Corrupt / unreadable file shouldn't block startup — start fresh.
+    return []
+  }
+}
+
+function isRecentProject(value: unknown): value is RecentProject {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.path === 'string' &&
+    typeof v.name === 'string' &&
+    typeof v.lastOpened === 'string'
+  )
+}
+
+function writeRecentProjects(entries: RecentProject[]): void {
+  const dir = app.getPath('userData')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  writeFileSync(recentProjectsFile(), JSON.stringify(entries, null, 2), 'utf-8')
+}
+
+function addRecentProject(path: string, name: string): RecentProject[] {
+  // Move-to-front: drop existing entry for the same path so we don't
+  // accumulate duplicates when a user opens the same project repeatedly.
+  const existing = readRecentProjects().filter(r => r.path !== path)
+  const updated: RecentProject[] = [
+    { path, name, lastOpened: new Date().toISOString() },
+    ...existing,
+  ].slice(0, RECENT_PROJECTS_MAX)
+  writeRecentProjects(updated)
+  return updated
+}
+
+// ---------------------------------------------------------------------------
 // IPC handlers
 // ---------------------------------------------------------------------------
 
@@ -183,6 +306,59 @@ ipcMain.handle('dialog:open-files', async (_event, filters: Electron.FileFilter[
 ipcMain.handle('fs:read-file', (_event, filePath: string): Buffer => {
   return readFileSync(filePath)
 })
+
+// Project file IPC. The renderer drives the file lifecycle:
+//   1. New: dialog → write JSON → addRecent
+//   2. Open: dialog → read JSON → addRecent
+//   3. Save: write JSON to current path
+// Recent-projects list is stored in userData/recent-projects.json.
+
+ipcMain.handle('project:open-dialog', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Ground Model Project', extensions: [PROJECT_FILE_EXTENSION] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  })
+  return result.canceled ? null : result.filePaths[0]
+})
+
+ipcMain.handle(
+  'project:save-dialog',
+  async (_event, defaultName: string | undefined) => {
+    const result = await dialog.showSaveDialog({
+      filters: [{ name: 'Ground Model Project', extensions: [PROJECT_FILE_EXTENSION] }],
+      defaultPath: defaultName,
+    })
+    return result.canceled ? null : result.filePath ?? null
+  },
+)
+
+ipcMain.handle('project:read-file', (_event, filePath: string): string => {
+  return readFileSync(filePath, 'utf-8')
+})
+
+ipcMain.handle(
+  'project:write-file',
+  (_event, filePath: string, contents: string): void => {
+    writeFileSync(filePath, contents, 'utf-8')
+  },
+)
+
+ipcMain.handle(
+  'project:add-recent',
+  (_event, filePath: string, name: string): RecentProject[] => {
+    const updated = addRecentProject(filePath, name)
+    // Rebuild the native menu so the new entry appears under "Open Recent"
+    // without an app restart. Single-window today; if the user closed the
+    // window we just skip the rebuild (no menu to refresh).
+    if (mainWindow !== null) buildMenu(mainWindow)
+    return updated
+  },
+)
+
+ipcMain.handle('project:get-recent', (): RecentProject[] => readRecentProjects())
 
 ipcMain.handle('api:ready', async () => {
   // Poll /openapi.json — FastAPI serves it without a DB connection, so it
