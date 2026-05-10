@@ -1,0 +1,72 @@
+"""ORM model for GeologicalModel — one interpretation of a project's geology."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from uuid import UUID
+
+from sqlalchemy import Boolean, DateTime, Index, String, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from groundmodel.infrastructure.db.base import Base
+
+
+class GeologicalModelOrm(Base):
+    """Persisted GeologicalModel — an interpretation container.
+
+    A project can carry multiple alternative interpretations (e.g.
+    "Main" vs "Alternative — Boom Klei dips north"); one is flagged
+    active and is the one the cross-section view renders by default.
+    Formations are shared across models at the project level (the same
+    Boom Klei row is referenced from any number of models via
+    FormationContact); the model owns only the *assignment* of
+    formation tops at investigations.
+
+    ``excluded_borehole_ids`` is the inverted-scope column: empty
+    means every project borehole contributes to this model; explicit
+    ids carve out exclusions. The default ("include everything") plays
+    well with mid-project workflows where new boreholes get imported
+    after the model already exists.
+    """
+
+    __tablename__ = "geological_model"
+    __table_args__ = (Index("idx_geological_model_app_project_id", "app_project_id"),)
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    app_project_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Active flag is a UI-visibility hint, not a DB-enforced uniqueness.
+    # The desktop client guards "only one active per project" but legacy
+    # / transitional states are tolerated by the schema.
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # ARRAY of borehole ids excluded from this model's scope. Empty =
+    # all project boreholes contribute. Stored as a Postgres ARRAY for
+    # cheap membership lookup; a junction table would be more normal
+    # but adds joins for negligible value at v1's scale.
+    excluded_borehole_ids: Mapped[list[UUID]] = mapped_column(
+        ARRAY(PG_UUID(as_uuid=True)), nullable=False, default=list
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    # Reverse relationship — used by the bundle serialiser (every
+    # contact in the model rides along with the .gmproj save) and by
+    # the model editor when loading the full interpretation.
+    contacts: Mapped[list[FormationContactOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "FormationContactOrm",
+        back_populates="model",
+        cascade="all, delete-orphan",
+    )
