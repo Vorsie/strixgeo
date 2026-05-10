@@ -517,6 +517,11 @@ function CptRow({
         <div className="flex items-center gap-1.5 mb-0.5">
           <MapPin size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
           <span className="text-xs font-medium text-gray-800 truncate">{cpt.name}</span>
+          {cpt.elevation_m == null && (
+            <span title="No surface elevation — needs manual Z entry">
+              <AlertTriangle size={10} className="text-amber-500 shrink-0" />
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 pl-4">
           <span className={`text-[10px] px-1 rounded font-mono ${cptBadgeColor(cpt.cpt_type)}`}>
