@@ -1020,3 +1020,20 @@ Resolved by `tests/integration/db/test_refresh_on_duplicate.py` —
 5 cases against a real PostgreSQL session covering the dedup helpers
 (set + permkey-to-id), the partial UNIQUE index as defence-in-depth,
 per-parent scoping, and the documented NULL-permkey carve-out.
+
+### 14. Viewport-filtered sidebar (medium)
+
+**What.** When the user pans or zooms the map, filter the sidebar
+list to only the records whose marker is currently inside the
+visible viewport. As-is, the sidebar always shows every CPT and
+borehole in the project — at scale (hundreds of records), the
+sidebar is decoupled from where the user is actually looking.
+
+**Why deferred.** Needs a Leaflet `moveend` listener wired through
+to the App-level filter state, plus a debounce (don't recompute on
+every pixel of pan), plus a UI cue when filtering is active so the
+user understands why some records vanished from the list.
+
+**When.** When the user explicitly pulls it forward, OR when a
+single project hits enough records (~200+) that the sidebar becomes
+unwieldy.
