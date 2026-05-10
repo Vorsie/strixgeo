@@ -19,6 +19,8 @@ import {
   moistureFill,
 } from '../utils/fieldLogColors'
 import LabTestPanel from './LabTestPanel'
+import ElevationEditor from './ElevationEditor'
+import { verticalDatumShort } from '../utils/verticalDatum'
 
 // PR 4b–4d — full-feature borelog modelled on DOV's Rapport BoorProfiel:
 //
@@ -108,9 +110,19 @@ const OBSERVATION_TYPE_ORDER = [
 
 interface Props {
   borehole: BoreholeDetailResponse
+  // Called when the user saves a new elevation in the header editor.
+  // Optional so existing call sites (tests, future read-only views) can
+  // mount the borelog without wiring an API path. The editor hides the
+  // pencil/clear affordances when this is omitted. ``zEpsg`` carries the
+  // user's pick from the editor's datum dropdown (mTAW / NAP); it's
+  // ``null`` when the value is being cleared.
+  onElevationChange?: (elevationM: number | null, zEpsg: number | null) => Promise<void>
 }
 
-export default function BoreholeLog({ borehole }: Props): React.ReactElement {
+export default function BoreholeLog({
+  borehole,
+  onElevationChange,
+}: Props): React.ReactElement {
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
 
   // Vertical zoom — broadcast via PxPerMContext so deeply nested track
@@ -197,7 +209,7 @@ export default function BoreholeLog({ borehole }: Props): React.ReactElement {
   return (
     <PxPerMContext.Provider value={pxPerM}>
     <div className="flex flex-col h-full overflow-hidden bg-white">
-      <BoreholeHeader borehole={borehole} />
+      <BoreholeHeader borehole={borehole} onElevationChange={onElevationChange} />
 
       {/* Toolbar above the canvas — currently zoom controls only. */}
       <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-100 bg-gray-50 text-[11px]">
@@ -248,16 +260,24 @@ export default function BoreholeLog({ borehole }: Props): React.ReactElement {
             <SoilPatterns />
           </defs>
 
-          {borehole.elevation_m != null ? (
+          {/* mTAW axis only renders when surface elevation is known.
+              The "needs Z" affordances live elsewhere now: the amber
+              "Set elevation" link in the header is the action; the
+              footer legend explains the consequence ("borelog renders
+              without absolute level axis"). The earlier in-canvas
+              ``no Z (manual entry needed)`` SVG label was clipped by
+              the first track header at default zoom, so it's been
+              removed — three flagging surfaces was already one too
+              many. */}
+          {borehole.elevation_m != null && (
             <MTawAxis
               x={SVG_X_PAD}
               y={SVG_Y_PAD + HEADER_HEIGHT}
               height={layout.canvasHeight}
               surfaceElevation={borehole.elevation_m}
               totalDepth={layout.totalDepth}
+              zEpsg={borehole.z_epsg}
             />
-          ) : (
-            <NoElevationLabel x={SVG_X_PAD} y={SVG_Y_PAD + HEADER_HEIGHT - 14} />
           )}
 
           {/* Observation tracks */}
@@ -496,7 +516,18 @@ function computeLayout(borehole: BoreholeDetailResponse, pxPerM: number): Layout
 // Header strip (HTML)
 // ---------------------------------------------------------------------------
 
-function BoreholeHeader({ borehole }: { borehole: BoreholeDetailResponse }): React.ReactElement {
+function BoreholeHeader({
+  borehole,
+  onElevationChange,
+}: {
+  borehole: BoreholeDetailResponse
+  onElevationChange?: (elevationM: number | null, zEpsg: number | null) => Promise<void>
+}): React.ReactElement {
+  // Z-field label tracks the row's stored vertical CRS — defaults to
+  // plain "Z" when no datum is set yet so we never claim a datum the row
+  // doesn't actually have.
+  const zDatumShort = verticalDatumShort(borehole.z_epsg)
+  const zLabel = zDatumShort ? `Z (${zDatumShort})` : 'Z'
   return (
     <div className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-2 border-b border-gray-200 bg-gray-50 text-[11px] shrink-0">
       <Field label="Boring" value={borehole.name} bold />
@@ -508,11 +539,26 @@ function BoreholeHeader({ borehole }: { borehole: BoreholeDetailResponse }): Rea
             : `${borehole.location_x.toFixed(1)} / ${borehole.location_y.toFixed(1)}`
         }
       />
-      <Field
-        label="Z (mTAW)"
-        value={borehole.elevation_m != null ? borehole.elevation_m.toFixed(2) : '— missing —'}
-        warn={borehole.elevation_m == null}
-      />
+      {/* Z field: when an onElevationChange handler is wired we render the
+          inline editor instead of the static readout, so users can fix
+          missing elevations in place. The static fallback keeps the
+          read-only path (test fixtures, future shared views) working. */}
+      {onElevationChange ? (
+        <div className="flex flex-col leading-tight">
+          <span className="text-[9px] uppercase tracking-wide text-gray-400">{zLabel}</span>
+          <ElevationEditor
+            elevationM={borehole.elevation_m}
+            zEpsg={borehole.z_epsg}
+            onSave={onElevationChange}
+          />
+        </div>
+      ) : (
+        <Field
+          label={zLabel}
+          value={borehole.elevation_m != null ? borehole.elevation_m.toFixed(2) : '— missing —'}
+          warn={borehole.elevation_m == null}
+        />
+      )}
       <Field
         label="Depth"
         value={borehole.total_depth_m != null ? `0 – ${borehole.total_depth_m.toFixed(2)} m` : '—'}
@@ -555,7 +601,11 @@ function Field({
 }
 
 // ---------------------------------------------------------------------------
-// mTAW axis (SVG)
+// Absolute-level (Z) axis (SVG)
+//
+// Renders a vertical axis whose tick labels are absolute level values in
+// the row's vertical datum. The axis-header label switches based on the
+// stored ``z_epsg`` ("mTAW" for BE, "NAP" for NL, plain "m" for unknown).
 // ---------------------------------------------------------------------------
 
 function MTawAxis({
@@ -564,12 +614,14 @@ function MTawAxis({
   height,
   surfaceElevation,
   totalDepth,
+  zEpsg,
 }: {
   x: number
   y: number
   height: number
   surfaceElevation: number
   totalDepth: number
+  zEpsg: number | null
 }): React.ReactElement {
   const PX_PER_M = usePxPerM()
   // Surface + every whole-metre level + bottom. Dedup so we don't double the
@@ -595,7 +647,9 @@ function MTawAxis({
         stroke="#d4d4d8"
         strokeWidth={1}
       />
-      {/* "mTAW" header label */}
+      {/* Datum header — "mTAW" / "NAP" / "m" depending on the row's z_epsg.
+          Pure presentation; the stored ticks are always absolute-level
+          numbers in the row's datum. */}
       <text
         x={axisRight - 4}
         y={y - 6}
@@ -604,7 +658,7 @@ function MTawAxis({
         fill="#9ca3af"
         style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}
       >
-        mTAW
+        {verticalDatumShort(zEpsg) || 'm'}
       </text>
       {[...ticks]
         .sort((a, b) => b - a)
@@ -634,14 +688,6 @@ function MTawAxis({
 function formatMtaw(lvl: number): string {
   const sign = lvl >= 0 ? '+' : ''
   return `${sign}${lvl.toFixed(2)}`
-}
-
-function NoElevationLabel({ x, y }: { x: number; y: number }): React.ReactElement {
-  return (
-    <text x={x} y={y} fontSize={10} fill="#d97706" fontStyle="italic">
-      no Z (manual entry needed)
-    </text>
-  )
 }
 
 // ---------------------------------------------------------------------------
