@@ -55,6 +55,10 @@ interface Props {
   // editor in the App shell. Optional for the same reason as the
   // others — test fixtures can omit it.
   onEditMetadata?: () => void
+  // ``true`` when the live project state differs from the last-saved
+  // snapshot. Renders an asterisk after the project name as a glance-
+  // able dirty indicator (Word / Plaxis convention).
+  projectDirty?: boolean
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -131,6 +135,7 @@ export default function Sidebar({
   projectFilePath,
   onCloseProject,
   onEditMetadata,
+  projectDirty,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -264,7 +269,17 @@ export default function Sidebar({
             className="flex-1 min-w-0 text-left rounded -mx-1 px-1 py-0.5 hover:bg-gray-200 transition-colors"
           >
             <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
-            <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
+            <div className="text-xs font-medium text-gray-700 truncate">
+              {projectName}
+              {projectDirty && (
+                <span
+                  className="text-amber-600 ml-1"
+                  title="Unsaved changes — File → Save (Ctrl+S) to commit"
+                >
+                  *
+                </span>
+              )}
+            </div>
           </button>
         ) : (
           <div
@@ -272,7 +287,17 @@ export default function Sidebar({
             title={projectFilePath ?? undefined}
           >
             <div className="text-[10px] text-gray-400 uppercase tracking-wide">Project</div>
-            <div className="text-xs font-medium text-gray-700 truncate">{projectName}</div>
+            <div className="text-xs font-medium text-gray-700 truncate">
+              {projectName}
+              {projectDirty && (
+                <span
+                  className="text-amber-600 ml-1"
+                  title="Unsaved changes — File → Save (Ctrl+S) to commit"
+                >
+                  *
+                </span>
+              )}
+            </div>
           </div>
         )}
         {onCloseProject && (
