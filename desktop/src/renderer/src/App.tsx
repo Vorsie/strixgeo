@@ -49,7 +49,6 @@ declare global {
       writeProjectFile: (filePath: string, contents: string) => Promise<void>
       addRecentProject: (filePath: string, name: string) => Promise<RecentProject[]>
       getRecentProjects: () => Promise<RecentProject[]>
-      removeRecentProject: (filePath: string) => Promise<RecentProject[]>
       setWindowTitle: (title: string | null) => Promise<void>
       onAppBeforeQuit: (cb: () => void) => () => void
       notifyQuitDecision: (allowed: boolean) => Promise<void>
