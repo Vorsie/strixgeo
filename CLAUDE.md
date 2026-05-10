@@ -70,20 +70,44 @@ feel the pain of legacy tools (gINT, D-Series, GeoStudio).
   ships, the .gmproj file becomes the bridge format between the
   desktop client and any future cloud sync.
 
+### Modelling hierarchy (load-bearing for the v1.0 design)
+
+The data model has two distinct levels, not one:
+
+1. **Geological model** — formations are the substrate entities
+   (Boom Klei, Diest Zand, Quaternary deposits, ...). Each carries a
+   surface defined at known points (borehole/CPT contacts) and
+   interpolated between them. Initially manual; in Flanders the
+   public G3Dv3 model can seed the default formation set + baseline
+   surfaces (post-v1.0 import, big differentiator at launch).
+2. **Geotechnical model** — derived from the geological. A single
+   geological unit often contains multiple geotechnical units with
+   different parameter sets (e.g. weathered crust of Boom Klei vs
+   undisturbed clay below). Subdivision lives here, parameters land
+   in Phase 5.
+
+**Cross-sections are the editing surface, not the data primitive.**
+Pick a slice through the project, see the investigations projected
+on it, draw/edit formation tops between them — the edits commit to
+the geological model, not to the section. The section is a view.
+
 ### v1.0 commercial MVP gate
 
 The product is "sellable" the moment a geotech engineer can do this
 end-to-end on a real project:
 
 1. Import CPTs + boreholes (DOV bbox + GEF files — done).
-2. Define **cross-sections** between investigation points (new).
-3. Draw a **layer / ground model** on those cross-sections (new).
-4. Export the layer geometry to **DXF** and/or **Plaxis** (new).
+2. Define a **geological model** (formations + surfaces) for the project.
+3. **Subdivide** geological formations into geotechnical units (structure only; parameter values stay blank in v1).
+4. View / edit the model on **cross-sections** between investigation points.
+5. **Export** the layer geometry to DXF and/or Plaxis.
 
 Per-layer parameters, soil classification, statistics — all Phase 5
 (post-v1.0). Engineers prefer to control those values manually
 anyway; the layer geometry is the integration unit downstream design
-tools actually consume.
+tools actually consume. G3Dv3 import lands alongside or just after
+v1.0 — it's high-impact for the Flanders launch demo but not a
+gate (manual formation creation works elsewhere too).
 
 ### Open commercial concerns (tracked as debt, not blocking the MVP)
 
@@ -672,7 +696,7 @@ Engineering interpretation (Robertson Ic, soil profiling, derived per-layer para
 | 1 | Thin slice: import GEF → parse → store → FastAPI CPT routes ✓ |
 | 2 | Electron + React desktop; project system; map; DOV chart; multi-file GEF + DOV bbox import + persistent XML cache ✓ |
 | 3 | Data sources expansion: borehole + samples + lab ✓ (monitoring / DMT / pressuremeter deferred to post-v1.0) |
-| **4 (v1.0 commercial MVP gate)** | **Cross-sections** between investigation points; **layer / ground model builder** on those sections; **DXF + Plaxis exports** of the layer geometry. The product is sellable here. Commercial-readiness work (license keys, signed installer, auto-update, marketing site) lives as separate debt items; it ships alongside the MVP feature gate, not before. |
+| **4 (v1.0 commercial MVP gate)** | **Geological model** (formations + surfaces); **geotechnical subdivision** (formations → units, structure only); **cross-sections** as the edit/view surface; **DXF + Plaxis exports** of the layer geometry. **G3Dv3 Flanders import** lands alongside or just after launch. The product is sellable here. Commercial-readiness work (license keys, signed installer, auto-update, marketing site) lives as separate debt items; it ships alongside the MVP feature gate, not before. |
 | 5 (post-v1.0) | Engineering interpretation: Robertson Ic (production), auto soil profiling, per-layer unit weights, derived parameters, statistics, Rust hotspots for batch compute. Additional data sources: monitoring (piezometer / inclinometer), DMT, pressuremeter. Additional exports: D-Sheet, GeoStudio, IFC. PDF reports. Optional SaaS layer with cloud sync over the .gmproj bundle. |
 
 **Out of scope at every phase:** Eurocode (EC7) design calculations, bearing capacity, settlement, slope stability, pile/wall design. Those belong in the downstream tools we export to.
