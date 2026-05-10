@@ -1027,17 +1027,9 @@ shape is well-defined: a one-off backfill that walks
 `dov_permkey` from a re-fetch of the parent's source XML or WFS row,
 and stamps the column. ~Half a day of work plus a careful run.
 
-### 13. Integration test for refresh-on-duplicate (low)
+### 13. Integration test for refresh-on-duplicate — DONE
 
-**What.** Five unit tests cover the dedup helpers and per-row skip
-path; no test exercises the full `import → re-import → assert no
-DB duplicates` flow. Manual smoke testing carries the load right now.
-
-**Why deferred.** Integration tests need Docker Compose + a real
-PostgreSQL session, and the existing integration suite already covers
-the single-import path. The refresh path is short enough that one
-focused test (`test_refresh_attaches_no_duplicates`) would cover it
-end-to-end.
-
-**When.** Before another orchestrator change touches the dedup code,
-OR if a manual smoke test ever surfaces a duplicate-row regression.
+Resolved by `tests/integration/db/test_refresh_on_duplicate.py` —
+5 cases against a real PostgreSQL session covering the dedup helpers
+(set + permkey-to-id), the partial UNIQUE index as defence-in-depth,
+per-parent scoping, and the documented NULL-permkey carve-out.
