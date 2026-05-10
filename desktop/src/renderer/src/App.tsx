@@ -22,6 +22,7 @@ import CptChart from './components/CptChart'
 import BoreholeLog from './components/BoreholeLog'
 import WelcomeScreen from './components/WelcomeScreen'
 import NewProjectDialog from './components/NewProjectDialog'
+import ProjectMetadataDialog from './components/ProjectMetadataDialog'
 
 interface RecentProject {
   path: string
@@ -76,11 +77,15 @@ export default function App() {
     newProject,
     openProjectFile,
     pickAndOpenProject,
+    updateMetadata,
     closeProject,
   } = useProject()
   // Controls the NewProjectDialog modal visibility. Triggered by the File
   // menu's New Project item or the Welcome screen's Create button.
   const [newProjectOpen, setNewProjectOpen] = useState(false)
+  // Controls the ProjectMetadataDialog modal — opens from the sidebar's
+  // project-name button. Open only when a project is loaded.
+  const [metadataEditorOpen, setMetadataEditorOpen] = useState(false)
   // Initialise the theme system. The hook itself owns the class on
   // <html>; we don't need to consume ``resolved``/``setChoice`` until a
   // theme-toggle UI lands (UX Conventions in CLAUDE.md flagged that as
@@ -737,6 +742,7 @@ export default function App() {
           projectName={project.name}
           projectFilePath={projectFilePath}
           onCloseProject={closeProject}
+          onEditMetadata={() => setMetadataEditorOpen(true)}
           hiddenCptTypes={hiddenCptTypes}
           hiddenBoreholeValues={hiddenBoreholeValues[boreholeAxis]}
           boreholeAxis={boreholeAxis}
@@ -825,6 +831,19 @@ export default function App() {
         onSubmit={async name => {
           const created = await newProject({ name })
           if (created !== null) setNewProjectOpen(false)
+        }}
+      />
+
+      {/* Project metadata editor. Triggered by clicking the project name
+          in the sidebar header. Only mounted when a project is loaded
+          since the editor needs a project to populate from. */}
+      <ProjectMetadataDialog
+        open={metadataEditorOpen}
+        project={project}
+        onCancel={() => setMetadataEditorOpen(false)}
+        onSubmit={async patch => {
+          const updated = await updateMetadata(patch)
+          if (updated !== null) setMetadataEditorOpen(false)
         }}
       />
     </div>
