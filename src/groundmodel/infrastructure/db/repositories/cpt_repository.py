@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -112,3 +113,33 @@ class CptRepository(GroundModelLogger):
             await self._session.delete(cpt)
             await self._session.flush()
             self.info(f"CPT deleted: {cpt_id}")
+
+    async def set_elevation(
+        self, cpt_id: UUID, elevation_m: float | None, z_epsg: int | None
+    ) -> CptOrm | None:
+        """Update the manually-entered surface elevation for a CPT.
+
+        When ``z_epsg`` is ``None`` and an elevation is being set, the canonical
+        vertical CRS for the row's horizontal EPSG is used (e.g. 31370 → 5710
+        mTAW for Belgium, 28992 → 5709 NAP for the Netherlands). Pass an
+        explicit ``z_epsg`` to override.
+
+        Returns the updated row (with ``series`` selectinload so callers can
+        return a CptResponse without a second query), or ``None`` when the
+        id does not exist.
+        """
+        cpt = await self.get_by_id(cpt_id)
+        if cpt is None:
+            return None
+        cpt.elevation_m = elevation_m
+        # Keep z_epsg consistent with the elevation column: clear it whenever
+        # elevation is cleared so the UI never sees a "vertical CRS without a
+        # value" pair. When setting a value with no z_epsg picked, derive the
+        # default from the row's horizontal CRS.
+        if elevation_m is None:
+            cpt.z_epsg = None
+        else:
+            cpt.z_epsg = z_epsg if z_epsg is not None else default_vertical_epsg(cpt.epsg)
+        await self._session.flush()
+        self.success(f"CPT {cpt_id} elevation updated to {elevation_m} ({cpt.z_epsg})")
+        return cpt
