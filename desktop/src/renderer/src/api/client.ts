@@ -66,6 +66,61 @@ export interface ImportDovResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Project — mirrors api/schemas/project/. Field names match the backend
+// 1:1 so the desktop's .gmproj file can be a near-direct serialisation
+// of the API response.
+// ---------------------------------------------------------------------------
+
+export type ProjectPhase = 'feasibility' | 'design' | 'construction' | 'monitoring'
+export type ProjectStatus = 'active' | 'on_hold' | 'completed'
+
+export interface ProjectResponse {
+  id: string
+  name: string
+  project_number: string | null
+  client: string | null
+  site_label: string | null
+  description: string | null
+  tags: string[]
+  default_horizontal_epsg: number | null
+  default_vertical_epsg: number | null
+  phase: string | null  // ProjectPhase value, kept as string for forward-compat
+  status: string         // ProjectStatus value, same reason
+  archived_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// POST /projects body. Optional fields default to null/[] server-side.
+export interface ProjectCreatePayload {
+  name: string
+  project_number?: string | null
+  client?: string | null
+  site_label?: string | null
+  description?: string | null
+  tags?: string[]
+  default_horizontal_epsg?: number | null
+  default_vertical_epsg?: number | null
+  phase?: ProjectPhase | null
+  status?: ProjectStatus
+}
+
+// PATCH /projects/{id} body. Every field optional — only fields actually
+// included in the JSON object are written by the server.
+export interface ProjectUpdatePayload {
+  name?: string
+  project_number?: string | null
+  client?: string | null
+  site_label?: string | null
+  description?: string | null
+  tags?: string[]
+  default_horizontal_epsg?: number | null
+  default_vertical_epsg?: number | null
+  phase?: ProjectPhase | null
+  status?: ProjectStatus
+}
+
+// ---------------------------------------------------------------------------
 // Borehole / sample / lab-test types — mirrors the FastAPI schemas in
 // ``api/schemas/borehole/``.
 // ---------------------------------------------------------------------------
@@ -291,6 +346,20 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
   return res.json()
 }
 
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const init: RequestInit = { method: 'POST' }
+  if (body !== undefined) {
+    init.headers = { 'Content-Type': 'application/json' }
+    init.body = JSON.stringify(body)
+  }
+  const res = await fetch(`${_base}${path}`, init)
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}))
+    throw new Error(detail.detail ?? `POST ${path} → ${res.status}`)
+  }
+  return res.json()
+}
+
 // Shared elevation-patch payload — the backend accepts the same shape for
 // CPT and borehole, so the API surface mirrors that. ``elevation_m: null``
 // clears a previously-entered value (returns the row to the "needs Z"
@@ -379,5 +448,26 @@ export const api = {
       }
       return res.json()
     },
+  },
+
+  project: {
+    list: (includeArchived = false): Promise<ProjectResponse[]> =>
+      get(`/projects/${includeArchived ? '?include_archived=true' : ''}`),
+
+    listArchived: (): Promise<ProjectResponse[]> => get('/projects/archived'),
+
+    get: (id: string): Promise<ProjectResponse> => get(`/projects/${id}`),
+
+    create: (body: ProjectCreatePayload): Promise<ProjectResponse> =>
+      post('/projects/', body),
+
+    update: (id: string, body: ProjectUpdatePayload): Promise<ProjectResponse> =>
+      patch(`/projects/${id}`, body),
+
+    archive: (id: string): Promise<ProjectResponse> =>
+      post(`/projects/${id}/archive`),
+
+    unarchive: (id: string): Promise<ProjectResponse> =>
+      post(`/projects/${id}/unarchive`),
   },
 }
