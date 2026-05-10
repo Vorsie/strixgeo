@@ -33,6 +33,7 @@ import type {
   ProjectResponse,
   ProjectUpdatePayload,
 } from '../api/client'
+import { arraysEqual } from '../utils/arrays'
 import { log } from '../utils/log'
 import {
   buildProjectFile,
@@ -71,6 +72,14 @@ export type UseProject = UseProjectState & UseProjectActions
 // Field-by-field equality for the metadata fields we treat as part of
 // the dirty check. ``created_at`` / ``updated_at`` / ``archived_at`` are
 // DB-side timestamps and not user-editable, so they don't participate.
+//
+// DRIFT WARNING: this function and ``fullPatchFrom`` below enumerate
+// the same field list as ``ProjectMetadataDialog``'s ``toPatch`` /
+// ``isDirty`` and ``utils/projectFile.ts``'s ``buildProjectFile``.
+// Adding a field to ``ProjectResponse`` means: (1) include it here,
+// (2) include it in fullPatchFrom, (3) include it in the editor's diff
+// helpers, (4) include it in buildProjectFile. The compiler can't catch
+// missing entries — silent dirty-tracking failures will result.
 function projectsEqual(
   a: ProjectResponse | null,
   b: ProjectResponse | null,
@@ -87,15 +96,16 @@ function projectsEqual(
   if (a.default_vertical_epsg !== b.default_vertical_epsg) return false
   if (a.phase !== b.phase) return false
   if (a.status !== b.status) return false
-  if (a.tags.length !== b.tags.length) return false
-  if (a.tags.some((t, i) => t !== b.tags[i])) return false
+  if (!arraysEqual(a.tags, b.tags)) return false
   return true
 }
 
-// Build a complete-ish patch from a live project. Used when the user
-// hits Save and the API expects a body — easiest to re-send everything
-// the editor can change. The backend's PATCH semantics ignore identical
+// Build a complete patch from a live project. Used when the user hits
+// Save and the API expects a body — easiest to re-send everything the
+// editor can change. The backend's PATCH semantics ignore identical
 // values, so this is safe even if a field hasn't changed.
+//
+// See the DRIFT WARNING on ``projectsEqual`` above.
 function fullPatchFrom(project: ProjectResponse): ProjectUpdatePayload {
   return {
     name: project.name,
