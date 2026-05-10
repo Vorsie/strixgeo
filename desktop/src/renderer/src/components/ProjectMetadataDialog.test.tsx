@@ -34,6 +34,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open={false}
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -46,6 +47,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -87,6 +89,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={blankProject}
+        saved={blankProject}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -102,6 +105,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -114,6 +118,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -130,6 +135,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={onSubmit}
       />,
@@ -152,6 +158,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={onSubmit}
       />,
@@ -170,6 +177,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -191,6 +199,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -207,6 +216,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -223,6 +233,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={vi.fn()}
         onSubmit={onSubmit}
       />,
@@ -240,6 +251,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={onCancel}
         onSubmit={vi.fn()}
       />,
@@ -255,6 +267,7 @@ describe('ProjectMetadataDialog', () => {
       <ProjectMetadataDialog
         open
         project={PROJECT}
+        saved={PROJECT}
         onCancel={onCancel}
         onSubmit={onSubmit}
       />,
@@ -266,5 +279,46 @@ describe('ProjectMetadataDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: /Cancel/ }))
     expect(onCancel).toHaveBeenCalled()
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('paints an amber border on a field whose value differs from saved', () => {
+    // ``project`` is the live state (already has the unsaved edit);
+    // ``saved`` is the last-committed snapshot. The editor shows amber
+    // on every field where live != saved on mount.
+    const liveWithDraft = { ...PROJECT, description: 'edited but not saved' }
+    render(
+      <ProjectMetadataDialog
+        open
+        project={liveWithDraft}
+        saved={PROJECT}
+        onCancel={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    )
+    const desc = screen.getByLabelText(/Description/) as HTMLTextAreaElement
+    expect(desc.className).toMatch(/border-amber-400/)
+
+    // Other fields (unchanged) keep the default gray border.
+    const name = screen.getByLabelText(/^Name/) as HTMLInputElement
+    expect(name.className).not.toMatch(/border-amber-400/)
+  })
+
+  it('typing a change paints the field amber; reverting it removes amber', () => {
+    render(
+      <ProjectMetadataDialog
+        open
+        project={PROJECT}
+        saved={PROJECT}
+        onCancel={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    )
+    const client = screen.getByLabelText(/^Client/) as HTMLInputElement
+    expect(client.className).not.toMatch(/border-amber-400/)
+    fireEvent.change(client, { target: { value: 'New client' } })
+    expect(client.className).toMatch(/border-amber-400/)
+    // Typing the original value back removes the amber.
+    fireEvent.change(client, { target: { value: 'Port of Antwerp' } })
+    expect(client.className).not.toMatch(/border-amber-400/)
   })
 })

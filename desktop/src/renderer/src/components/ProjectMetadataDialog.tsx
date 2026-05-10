@@ -54,7 +54,18 @@ const STATUSES: ReadonlyArray<{ value: ProjectStatus; label: string }> = [
 
 interface Props {
   open: boolean
+  // Live project state — what the form pre-fills from. Updated by the
+  // editor's Save (which applies the diff via the App's
+  // applyMetadataDraft). May already differ from ``saved`` when the
+  // editor opens (user has unsaved live edits from a previous session
+  // of the dialog).
   project: ProjectResponse | null
+  // Last-saved snapshot. Per-field dirty highlighting compares the
+  // form to THIS, not to ``project``, so a field shows amber when it
+  // differs from what's persisted to disk + DB — not just from what
+  // the user typed in this dialog session. Drives the at-a-glance
+  // "what's not yet saved to file" view.
+  saved: ProjectResponse | null
   // Called with the diff patch when the user clicks Save in the editor.
   // The caller (App's ``applyMetadataDraft``) merges the patch into the
   // live project state — no API call happens here. The actual commit
@@ -62,6 +73,63 @@ interface Props {
   // of the "Save and close" path on the unsaved-changes prompt.
   onSubmit: (patch: ProjectUpdatePayload) => void
   onCancel: () => void
+}
+
+// Per-field dirty flags driven by the form-vs-saved comparison. Used
+// to paint amber borders on unsaved fields. Mirrors the same field
+// list and equality rules as ``toPatch`` / ``isDirty``, just exposed
+// per-field for the renderer.
+interface FieldDirty {
+  name: boolean
+  project_number: boolean
+  client: boolean
+  site_label: boolean
+  description: boolean
+  tags: boolean
+  default_horizontal_epsg: boolean
+  default_vertical_epsg: boolean
+  phase: boolean
+  status: boolean
+}
+
+function computeFieldDirty(
+  state: FormState,
+  saved: ProjectResponse | null,
+): FieldDirty {
+  if (saved === null) {
+    return {
+      name: false,
+      project_number: false,
+      client: false,
+      site_label: false,
+      description: false,
+      tags: false,
+      default_horizontal_epsg: false,
+      default_vertical_epsg: false,
+      phase: false,
+      status: false,
+    }
+  }
+  const newName = state.name.trim()
+  return {
+    // Name: blank is treated as "no change" (it would preserve the
+    // saved value), so don't flag it as dirty even though state.name
+    // empty technically differs from saved.name.
+    name: newName !== '' && newName !== saved.name,
+    project_number: normaliseText(state.project_number) !== saved.project_number,
+    client: normaliseText(state.client) !== saved.client,
+    site_label: normaliseText(state.site_label) !== saved.site_label,
+    description: normaliseText(state.description) !== saved.description,
+    tags:
+      state.tags.length !== saved.tags.length ||
+      state.tags.some((t, i) => t !== saved.tags[i]),
+    default_horizontal_epsg:
+      state.default_horizontal_epsg !== saved.default_horizontal_epsg,
+    default_vertical_epsg:
+      state.default_vertical_epsg !== saved.default_vertical_epsg,
+    phase: (state.phase ?? null) !== (saved.phase ?? null),
+    status: state.status !== saved.status,
+  }
 }
 
 // FormState mirrors the project's current values on open; the user's
@@ -178,6 +246,7 @@ function isDirty(state: FormState, project: ProjectResponse): boolean {
 export default function ProjectMetadataDialog({
   open,
   project,
+  saved,
   onSubmit,
   onCancel,
 }: Props) {
@@ -223,6 +292,29 @@ export default function ProjectMetadataDialog({
   }
 
   const dirty = state !== null && project !== null ? isDirty(state, project) : false
+  // Per-field dirty highlights: amber border on any input whose value
+  // differs from the LAST-SAVED snapshot (not the live project). When
+  // the editor opens with an already-dirty project, fields that the
+  // user changed in a previous editor session immediately show amber.
+  const fieldDirty: FieldDirty =
+    state !== null
+      ? computeFieldDirty(state, saved)
+      : computeFieldDirty(
+          {
+            name: '',
+            project_number: '',
+            client: '',
+            site_label: '',
+            description: '',
+            tags: [],
+            tagDraft: '',
+            default_horizontal_epsg: null,
+            default_vertical_epsg: null,
+            phase: null,
+            status: 'active',
+          },
+          null,
+        )
 
   if (!open || state === null) return null
 
@@ -300,7 +392,7 @@ export default function ProjectMetadataDialog({
               type="text"
               value={state.name}
               onChange={e => update('name', e.target.value)}
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.name)}
             />
           </div>
 
@@ -312,7 +404,7 @@ export default function ProjectMetadataDialog({
               value={state.project_number}
               onChange={e => update('project_number', e.target.value)}
               placeholder="e.g. GEO-2026-042"
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.project_number)}
             />
           </div>
 
@@ -324,7 +416,7 @@ export default function ProjectMetadataDialog({
               value={state.client}
               onChange={e => update('client', e.target.value)}
               placeholder="e.g. Port of Antwerp"
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.client)}
             />
           </div>
 
@@ -336,7 +428,7 @@ export default function ProjectMetadataDialog({
               value={state.site_label}
               onChange={e => update('site_label', e.target.value)}
               placeholder="e.g. Antwerp port — quay 7"
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.site_label)}
             />
           </div>
 
@@ -348,7 +440,7 @@ export default function ProjectMetadataDialog({
               value={state.description}
               onChange={e => update('description', e.target.value)}
               placeholder="Free-text scope notes"
-              className={`${fieldClass} resize-y`}
+              className={`${fieldClassFor(fieldDirty.description)} resize-y`}
             />
           </div>
 
@@ -383,7 +475,7 @@ export default function ProjectMetadataDialog({
               onKeyDown={onTagKeyDown}
               onBlur={commitTagDraft}
               placeholder="Type a tag and press Enter or comma"
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.tags)}
             />
           </div>
 
@@ -398,7 +490,7 @@ export default function ProjectMetadataDialog({
                   e.target.value === '' ? null : Number(e.target.value),
                 )
               }
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.default_horizontal_epsg)}
             >
               <option value="">— none —</option>
               {PICKABLE_HORIZONTAL_EPSGS.map(c => (
@@ -420,7 +512,7 @@ export default function ProjectMetadataDialog({
                   e.target.value === '' ? null : Number(e.target.value),
                 )
               }
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.default_vertical_epsg)}
             >
               <option value="">— none —</option>
               {PICKABLE_VERTICAL_EPSGS.map(epsg => (
@@ -439,7 +531,7 @@ export default function ProjectMetadataDialog({
               onChange={e =>
                 update('phase', (e.target.value || null) as ProjectPhase | null)
               }
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.phase)}
             >
               <option value="">— none —</option>
               {PHASES.map(p => (
@@ -456,7 +548,7 @@ export default function ProjectMetadataDialog({
               id="pm-status"
               value={state.status}
               onChange={e => update('status', e.target.value as ProjectStatus)}
-              className={fieldClass}
+              className={fieldClassFor(fieldDirty.status)}
             >
               {STATUSES.map(s => (
                 <option key={s.value} value={s.value}>
@@ -491,6 +583,17 @@ export default function ProjectMetadataDialog({
 // element. Single source of truth makes a future re-skin one edit.
 const fieldClass =
   'w-full border border-gray-300 rounded px-2 py-1 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50'
+
+// Amber border + subtle background tint on fields whose value differs
+// from the last-saved snapshot. Overrides ``border-gray-300`` from
+// ``fieldClass`` (Tailwind takes the later class). Amber over red on
+// purpose — red signals validation errors in form contexts; amber
+// signals "unsaved" without overloading semantics.
+const dirtyFieldClass = 'border-amber-400 bg-amber-50/60'
+
+function fieldClassFor(isDirty: boolean): string {
+  return isDirty ? `${fieldClass} ${dirtyFieldClass}` : fieldClass
+}
 
 function Label({
   htmlFor,

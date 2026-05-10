@@ -77,6 +77,7 @@ interface Toast {
 export default function App() {
   const {
     project,
+    saved: savedProject,
     dirty: projectDirty,
     filePath: projectFilePath,
     newProject,
@@ -935,6 +936,7 @@ export default function App() {
       <ProjectMetadataDialog
         open={metadataEditorOpen}
         project={project}
+        saved={savedProject}
         onCancel={() => setMetadataEditorOpen(false)}
         onSubmit={patch => {
           applyMetadataDraft(patch)
