@@ -53,10 +53,18 @@ interface UseProjectState {
   filePath: string | null
 }
 
+/** Tri-state outcome for picker-driven opens — lets the caller show
+ * an error banner only when the failure is real (not just a cancelled
+ * file dialog). */
+export type PickAndOpenResult =
+  | { outcome: 'opened'; project: ProjectResponse; path: string }
+  | { outcome: 'cancelled' }
+  | { outcome: 'failed'; path: string }
+
 interface UseProjectActions {
   newProject: (metadata: ProjectCreatePayload) => Promise<ProjectResponse | null>
   openProjectFile: (filePath: string) => Promise<ProjectResponse | null>
-  pickAndOpenProject: () => Promise<ProjectResponse | null>
+  pickAndOpenProject: () => Promise<PickAndOpenResult>
   /** Apply an in-memory patch to ``project`` (no API call, no file write). */
   applyMetadataDraft: (patch: ProjectUpdatePayload) => void
   /** Commit ``project`` to the DB + .gmproj file. No-op silently when clean. */
@@ -185,10 +193,12 @@ export function useProject(): UseProject {
     [adopt],
   )
 
-  const pickAndOpenProject = useCallback(async (): Promise<ProjectResponse | null> => {
+  const pickAndOpenProject = useCallback(async (): Promise<PickAndOpenResult> => {
     const path = await window.electron.showProjectOpenDialog()
-    if (path === null) return null
-    return openProjectFile(path)
+    if (path === null) return { outcome: 'cancelled' }
+    const project = await openProjectFile(path)
+    if (project === null) return { outcome: 'failed', path }
+    return { outcome: 'opened', project, path }
   }, [openProjectFile])
 
   const newProject = useCallback(
