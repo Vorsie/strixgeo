@@ -270,6 +270,15 @@ function addRecentProject(path: string, name: string): RecentProject[] {
   return updated
 }
 
+function removeRecentProject(path: string): RecentProject[] {
+  // Used when a .gmproj file points at a project the DB no longer
+  // knows about — silently drop the stale entry so the recent list
+  // stops surfacing it.
+  const updated = readRecentProjects().filter(r => r.path !== path)
+  writeRecentProjects(updated)
+  return updated
+}
+
 // ---------------------------------------------------------------------------
 // IPC handlers
 // ---------------------------------------------------------------------------
@@ -348,6 +357,15 @@ ipcMain.handle(
 )
 
 ipcMain.handle('project:get-recent', (): RecentProject[] => readRecentProjects())
+
+ipcMain.handle(
+  'project:remove-recent',
+  (_event, filePath: string): RecentProject[] => {
+    const updated = removeRecentProject(filePath)
+    if (mainWindow !== null) buildMenu(mainWindow)
+    return updated
+  },
+)
 
 // Window title — driven by the renderer so the title stays in sync with
 // the live project state (name + dirty marker). Empty / undefined falls
