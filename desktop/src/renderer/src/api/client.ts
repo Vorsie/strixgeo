@@ -469,5 +469,8 @@ export const api = {
 
     unarchive: (id: string): Promise<ProjectResponse> =>
       post(`/projects/${id}/unarchive`),
+
+    duplicate: (id: string, name?: string): Promise<ProjectResponse> =>
+      post(`/projects/${id}/duplicate`, { name: name ?? null }),
   },
 }
