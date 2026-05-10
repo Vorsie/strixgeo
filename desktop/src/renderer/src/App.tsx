@@ -73,7 +73,6 @@ export default function App() {
   const {
     project,
     filePath: projectFilePath,
-    loading: projectLoading,
     newProject,
     openProjectFile,
     pickAndOpenProject,
@@ -677,18 +676,6 @@ export default function App() {
     )
   }
 
-  // While useProject is auto-reopening the last-used project, show a
-  // brief loader. Without this, the welcome screen flashes for ~50 ms
-  // before the reopen resolves — surprising and ugly.
-  if (projectLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-500 text-sm gap-2">
-        <div className="animate-spin rounded-full border-2 border-gray-300 border-t-blue-500 w-5 h-5" />
-        Restoring project…
-      </div>
-    )
-  }
-
   if (!project) {
     return (
       <>
@@ -698,6 +685,9 @@ export default function App() {
           }}
           onOpenProject={async () => {
             await pickAndOpenProject()
+          }}
+          onOpenRecent={async path => {
+            await openProjectFile(path)
           }}
         />
         {/* The File-menu's New Project item also opens the dialog from
