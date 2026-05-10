@@ -241,4 +241,113 @@ describe('useProject', () => {
     expect(result.current.project).toBeNull()
     expect(result.current.filePath).toBeNull()
   })
+
+  // ---------------------------------------------------------------------
+  // Two-stage save: applyMetadataDraft + saveProject + dirty
+  // ---------------------------------------------------------------------
+
+  it('applyMetadataDraft updates project (live) and flips dirty=true; saved stays put', async () => {
+    const { api } = await import('../api/client')
+    ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'C:/path/site-a.gmproj',
+    )
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.newProject({ name: 'Site A' })
+    })
+    expect(result.current.dirty).toBe(false)
+
+    act(() => {
+      result.current.applyMetadataDraft({ description: 'a draft' })
+    })
+    expect(result.current.dirty).toBe(true)
+    expect(result.current.project?.description).toBe('a draft')
+    // Saved snapshot unchanged.
+    expect(result.current.saved?.description).toBeNull()
+  })
+
+  it('saveProject when clean is a silent no-op — no API call, returns true', async () => {
+    const { api } = await import('../api/client')
+    ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'C:/path/site-a.gmproj',
+    )
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+    const updateMock = api.project.update as ReturnType<typeof vi.fn>
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.newProject({ name: 'Site A' })
+    })
+    updateMock.mockClear()
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
+
+    let ok = false
+    await act(async () => {
+      ok = await result.current.saveProject()
+    })
+    expect(ok).toBe(true)
+    expect(updateMock).not.toHaveBeenCalled()
+    expect(window.electron.writeProjectFile).not.toHaveBeenCalled()
+  })
+
+  it('saveProject when dirty PATCHes + writes file + clears dirty', async () => {
+    const { api } = await import('../api/client')
+    ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'C:/path/site-a.gmproj',
+    )
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+    ;(api.project.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...created,
+      description: 'a draft',
+    })
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.newProject({ name: 'Site A' })
+    })
+    act(() => {
+      result.current.applyMetadataDraft({ description: 'a draft' })
+    })
+    expect(result.current.dirty).toBe(true)
+
+    await act(async () => {
+      await result.current.saveProject()
+    })
+    expect(api.project.update).toHaveBeenCalledWith(
+      '01k-NEW',
+      expect.objectContaining({ description: 'a draft' }),
+    )
+    expect(window.electron.writeProjectFile).toHaveBeenCalled()
+    expect(result.current.dirty).toBe(false)
+    expect(result.current.saved?.description).toBe('a draft')
+  })
+
+  it('discardEdits reverts project back to saved (drops in-memory edits)', async () => {
+    const { api } = await import('../api/client')
+    ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'C:/path/site-a.gmproj',
+    )
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.newProject({ name: 'Site A' })
+    })
+    act(() => {
+      result.current.applyMetadataDraft({ description: 'will be discarded' })
+    })
+    expect(result.current.project?.description).toBe('will be discarded')
+
+    act(() => {
+      result.current.discardEdits()
+    })
+    expect(result.current.project?.description).toBeNull()
+    expect(result.current.dirty).toBe(false)
+  })
 })
