@@ -23,6 +23,10 @@ import BoreholeLog from './components/BoreholeLog'
 import WelcomeScreen from './components/WelcomeScreen'
 import NewProjectDialog from './components/NewProjectDialog'
 import ProjectMetadataDialog from './components/ProjectMetadataDialog'
+import type { ProjectMetadataDialogHandle } from './components/ProjectMetadataDialog'
+import UnsavedChangesDialog from './components/UnsavedChangesDialog'
+import Modal from './components/ui/Modal'
+import Button from './components/ui/Button'
 
 interface RecentProject {
   path: string
@@ -86,6 +90,15 @@ export default function App() {
   // Controls the ProjectMetadataDialog modal — opens from the sidebar's
   // project-name button. Open only when a project is loaded.
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(false)
+  const [metadataEditorDirty, setMetadataEditorDirty] = useState(false)
+  const metadataEditorRef = useRef<ProjectMetadataDialogHandle>(null)
+
+  // Close-flow state. Two dialogs guard the close action; only one is
+  // ever visible at a time. ``unsavedSaving`` debounces the save-and-
+  // close path so we can disable buttons while the API call is in flight.
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false)
+  const [unsavedSaving, setUnsavedSaving] = useState(false)
   // Initialise the theme system. The hook itself owns the class on
   // <html>; we don't need to consume ``resolved``/``setChoice`` until a
   // theme-toggle UI lands (UX Conventions in CLAUDE.md flagged that as
@@ -380,12 +393,57 @@ export default function App() {
     [openProjectFile],
   )
 
-  // Close-project menu item: discards the local pointer (DB rows
-  // untouched) and returns to the welcome screen so the user can pick a
-  // different project. Without this, auto-reopen on next launch would
-  // also re-open the same project — there'd be no way back to the
-  // welcome screen short of editing localStorage by hand.
+  // Single entry point for every "close this project" trigger. Branches
+  // on (a) whether the metadata editor has unsaved drafts that would be
+  // lost, and (b) which surface fired the request:
+  //
+  //   * Unsaved drafts → save-or-discard prompt (Save / Discard / Cancel)
+  //   * Clean + Sidebar X → click-protection confirm (mis-click guard)
+  //   * Clean + File menu / Ctrl+W → close immediately (explicit intent)
+  const attemptClose = useCallback(
+    (source: 'sidebar' | 'menu') => {
+      if (metadataEditorOpen && metadataEditorDirty) {
+        setUnsavedDialogOpen(true)
+        return
+      }
+      if (source === 'sidebar') {
+        setCloseConfirmOpen(true)
+        return
+      }
+      closeProject()
+    },
+    [metadataEditorOpen, metadataEditorDirty, closeProject],
+  )
+
+  // File menu / Ctrl+W shortcut path — explicit intent, so skip the
+  // click-protection confirm. The dirty check still runs.
   const handleMenuProjectClose = useCallback(() => {
+    attemptClose('menu')
+  }, [attemptClose])
+
+  // Sidebar X path — mis-click protection in addition to the dirty check.
+  const handleSidebarCloseRequest = useCallback(() => {
+    attemptClose('sidebar')
+  }, [attemptClose])
+
+  // "Save and close" from the unsaved-drafts dialog: trigger the editor's
+  // imperative submit() then close the project on success. On failure
+  // (validation / API error), the editor stays open with the inline
+  // error and we leave the project as-is so the user can retry.
+  const handleUnsavedSave = useCallback(async () => {
+    setUnsavedSaving(true)
+    try {
+      const ok = (await metadataEditorRef.current?.submit()) ?? false
+      setUnsavedDialogOpen(false)
+      if (ok) closeProject()
+    } finally {
+      setUnsavedSaving(false)
+    }
+  }, [closeProject])
+
+  const handleUnsavedDiscard = useCallback(() => {
+    setUnsavedDialogOpen(false)
+    setMetadataEditorOpen(false)
     closeProject()
   }, [closeProject])
 
@@ -741,7 +799,7 @@ export default function App() {
           onRestoreAllBoreholes={handleRestoreAllBoreholes}
           projectName={project.name}
           projectFilePath={projectFilePath}
-          onCloseProject={closeProject}
+          onCloseProject={handleSidebarCloseRequest}
           onEditMetadata={() => setMetadataEditorOpen(true)}
           hiddenCptTypes={hiddenCptTypes}
           hiddenBoreholeValues={hiddenBoreholeValues[boreholeAxis]}
@@ -807,8 +865,10 @@ export default function App() {
         </main>
       </div>
 
-      {/* Toast stack */}
-      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
+      {/* Toast stack — z-[1100] keeps it above Leaflet's stacked
+          controls (z-1000) so success / error notifications aren't
+          obscured by the legend / layer toggle. */}
+      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-[1100]">
         {toasts.map(t => (
           <div
             key={t.id}
@@ -838,14 +898,67 @@ export default function App() {
           in the sidebar header. Only mounted when a project is loaded
           since the editor needs a project to populate from. */}
       <ProjectMetadataDialog
+        ref={metadataEditorRef}
         open={metadataEditorOpen}
         project={project}
         onCancel={() => setMetadataEditorOpen(false)}
+        onDirtyChange={setMetadataEditorDirty}
         onSubmit={async patch => {
           const updated = await updateMetadata(patch)
           if (updated !== null) setMetadataEditorOpen(false)
         }}
       />
+
+      {/* Close-flow dialogs. Only one is visible at a time; ``attemptClose``
+          decides which based on dirty state + trigger source. */}
+      <UnsavedChangesDialog
+        open={unsavedDialogOpen}
+        projectName={project.name}
+        busy={unsavedSaving}
+        onSave={() => void handleUnsavedSave()}
+        onDiscard={handleUnsavedDiscard}
+        onCancel={() => setUnsavedDialogOpen(false)}
+      />
+      <Modal
+        open={closeConfirmOpen}
+        onCancel={() => setCloseConfirmOpen(false)}
+        labelledBy="close-project-title"
+        cardClassName="w-80"
+      >
+        <div className="p-5">
+          <h2
+            id="close-project-title"
+            className="text-sm font-semibold text-gray-800 mb-1"
+          >
+            Close this project?
+          </h2>
+          <p className="text-xs text-gray-500 mb-4">
+            <span className="font-medium text-gray-700">{project.name}</span>{' '}
+            will close and you'll be returned to the welcome screen. The
+            .gmproj file and your saved data are kept — you can reopen from
+            the Recent list.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => setCloseConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => {
+                setCloseConfirmOpen(false)
+                closeProject()
+              }}
+            >
+              Close project
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
