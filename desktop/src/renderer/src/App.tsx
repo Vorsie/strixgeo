@@ -68,7 +68,14 @@ interface Toast {
 }
 
 export default function App() {
-  const { project, createProject } = useProject()
+  const {
+    project,
+    filePath: projectFilePath,
+    loading: projectLoading,
+    newProject,
+    openProjectFile,
+    pickAndOpenProject,
+  } = useProject()
   // Initialise the theme system. The hook itself owns the class on
   // <html>; we don't need to consume ``resolved``/``setChoice`` until a
   // theme-toggle UI lands (UX Conventions in CLAUDE.md flagged that as
@@ -340,6 +347,35 @@ export default function App() {
     const off = window.electron.onMenuImportCpt(handleImportCpt)
     return off
   }, [])
+
+  // Project menu signals — wire each into a handler. Each subscription
+  // returns its own unsubscribe; we register all on mount and tear down
+  // on unmount.
+  const handleMenuProjectNew = useCallback(async () => {
+    const trimmed = window.prompt('New project name:')?.trim()
+    if (!trimmed) return
+    await newProject({ name: trimmed })
+  }, [newProject])
+
+  const handleMenuProjectOpen = useCallback(async () => {
+    await pickAndOpenProject()
+  }, [pickAndOpenProject])
+
+  const handleMenuProjectOpenRecent = useCallback(
+    async (path: string) => {
+      await openProjectFile(path)
+    },
+    [openProjectFile],
+  )
+
+  useEffect(() => {
+    const offs = [
+      window.electron.onMenuProjectNew(() => void handleMenuProjectNew()),
+      window.electron.onMenuProjectOpen(() => void handleMenuProjectOpen()),
+      window.electron.onMenuProjectOpenRecent(path => void handleMenuProjectOpenRecent(path)),
+    ]
+    return () => offs.forEach(off => off())
+  }, [handleMenuProjectNew, handleMenuProjectOpen, handleMenuProjectOpenRecent])
 
   // ---------------------------------------------------------------------------
   // Data loading
@@ -618,8 +654,29 @@ export default function App() {
     )
   }
 
+  // While useProject is auto-reopening the last-used project, show a
+  // brief loader. Without this, the welcome screen flashes for ~50 ms
+  // before the reopen resolves — surprising and ugly.
+  if (projectLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-500 text-sm gap-2">
+        <div className="animate-spin rounded-full border-2 border-gray-300 border-t-blue-500 w-5 h-5" />
+        Restoring project…
+      </div>
+    )
+  }
+
   if (!project) {
-    return <WelcomeScreen onCreateProject={name => createProject(name)} />
+    return (
+      <WelcomeScreen
+        onCreateProject={async name => {
+          await newProject({ name })
+        }}
+        onOpenProject={async () => {
+          await pickAndOpenProject()
+        }}
+      />
+    )
   }
 
   const selectedCpt = cpts.find(c => c.id === selectedId)
