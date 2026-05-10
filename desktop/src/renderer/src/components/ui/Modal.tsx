@@ -57,8 +57,13 @@ export default function Modal({
   if (!open) return null
 
   return (
+    // ``z-[1100]`` puts the modal above Leaflet's stacked controls
+    // (Leaflet sets z-index 1000 on its zoom + layer controls and ~700
+    // on popups). Without this, opening the metadata editor in windowed
+    // mode shows the legend / layer-toggle bleeding through the modal —
+    // disorienting and easy to mis-click.
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/30"
       onClick={() => !busy && onCancel()}
     >
       <div
