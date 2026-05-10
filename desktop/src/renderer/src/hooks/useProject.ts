@@ -159,34 +159,53 @@ export function useProject(): UseProject {
 
   const openProjectFile = useCallback(
     async (path: string): Promise<ProjectResponse | null> => {
+      let parsed: ReturnType<typeof parseProjectFile> = null
       try {
         const raw = await window.electron.readProjectFile(path)
-        const parsed = parseProjectFile(raw)
+        parsed = parseProjectFile(raw)
         if (parsed === null) {
           log.error('project', `unrecognisable .gmproj at ${path}`)
           return null
         }
-        // The DB row is the live source of truth; the file's metadata
-        // is just a snapshot from the last write. Always re-fetch.
+        // The DB row is the live source of truth when it exists. We
+        // always GET first so any metadata edits made elsewhere (the
+        // file is a stale snapshot) win over the file's copy.
         const fresh = await api.project.get(parsed.id)
         await adopt(fresh, path)
         log.info('project', `opened ${fresh.name} from ${path}`)
         return fresh
       } catch (err) {
-        log.error('project', `openProjectFile(${path}) failed`, err)
-        // 404 means the .gmproj points at a project the DB no longer
-        // knows about (wiped DB, archived elsewhere). Drop the stale
-        // entry from the Recent list so the user doesn't keep clicking
-        // a dead shortcut. Other failures (network, parse) leave the
-        // entry alone — they're likely transient.
-        if (err instanceof Error && err.message.includes('→ 404')) {
+        // 404 ⇒ DB has lost the row (wiped DB / fresh install / row
+        // pruned elsewhere). The file IS the user's anchor; restore
+        // the project shell from its contents so opening a .gmproj
+        // always succeeds. CPTs / boreholes don't come back — they
+        // were never in the file — and the user re-imports.
+        if (parsed !== null && err instanceof Error && err.message.includes('→ 404')) {
           try {
-            await window.electron.removeRecentProject(path)
-            log.info('project', `removed stale recent entry: ${path}`)
-          } catch (removeErr) {
-            log.warn('project', 'removeRecentProject failed', removeErr)
+            const restored = await api.project.restore(parsed.id, {
+              name: parsed.name,
+              project_number: parsed.project_number,
+              client: parsed.client,
+              site_label: parsed.site_label,
+              description: parsed.description,
+              tags: parsed.tags,
+              default_horizontal_epsg: parsed.default_horizontal_epsg,
+              default_vertical_epsg: parsed.default_vertical_epsg,
+              phase: parsed.phase as ProjectCreatePayload['phase'],
+              status: parsed.status as ProjectCreatePayload['status'],
+            })
+            await adopt(restored, path)
+            log.info(
+              'project',
+              `restored ${restored.name} from ${path} (DB row was missing)`,
+            )
+            return restored
+          } catch (restoreErr) {
+            log.error('project', `restore failed for ${path}`, restoreErr)
+            return null
           }
         }
+        log.error('project', `openProjectFile(${path}) failed`, err)
         return null
       }
     },
