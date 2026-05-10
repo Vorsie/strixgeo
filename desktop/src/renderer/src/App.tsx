@@ -13,8 +13,8 @@ import type {
 import { useProject } from './hooks/useProject'
 import { usePersistedSet } from './hooks/usePersistedSet'
 import { useTheme } from './hooks/useTheme'
-import { lambertToWgs84 } from './hooks/useWgs84'
 import { log } from './utils/log'
+import { idsOutsideBounds } from './utils/viewportFilter'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
@@ -150,29 +150,19 @@ export default function App() {
     [boreholes, removedBoreholeIds],
   )
 
-  // Out-of-viewport sets — empty when the toggle is off, or when the
-  // map hasn't reported bounds yet. Lambert72→WGS84 projection is
-  // memoised in ``lambertToWgs84`` so the per-record cost is just a
-  // dictionary lookup after the first render.
-  const outOfViewportCptIds = useMemo(() => {
-    if (!viewportBounds) return new Set<string>()
-    const out = new Set<string>()
-    for (const c of visibleCpts) {
-      const [lat, lng] = lambertToWgs84(c.location_x, c.location_y)
-      if (!viewportBounds.contains([lat, lng])) out.add(c.id)
-    }
-    return out
-  }, [visibleCpts, viewportBounds])
+  // Out-of-viewport sets — empty when the map hasn't reported bounds
+  // yet. The Lambert72→WGS84 projection inside ``idsOutsideBounds``
+  // is memoised so the per-record cost is just a dictionary lookup
+  // after the first render.
+  const outOfViewportCptIds = useMemo(
+    () => idsOutsideBounds(visibleCpts, viewportBounds),
+    [visibleCpts, viewportBounds],
+  )
 
-  const outOfViewportBoreholeIds = useMemo(() => {
-    if (!viewportBounds) return new Set<string>()
-    const out = new Set<string>()
-    for (const b of visibleBoreholes) {
-      const [lat, lng] = lambertToWgs84(b.location_x, b.location_y)
-      if (!viewportBounds.contains([lat, lng])) out.add(b.id)
-    }
-    return out
-  }, [visibleBoreholes, viewportBounds])
+  const outOfViewportBoreholeIds = useMemo(
+    () => idsOutsideBounds(visibleBoreholes, viewportBounds),
+    [visibleBoreholes, viewportBounds],
+  )
 
   const handleRemoveCpts = useCallback(
     (ids: string[]) => {
