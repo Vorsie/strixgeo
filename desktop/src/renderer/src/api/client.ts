@@ -91,6 +91,18 @@ export interface ProjectResponse {
   updated_at: string
 }
 
+// Full project bundle — metadata + every CPT (with series) + every
+// borehole (with its child tree). Returned by GET /projects/{id}/bundle
+// and accepted by POST /projects/{id}/restore. The renderer never
+// inspects the row shapes; the data dicts are opaque and round-trip
+// unchanged.
+export interface ProjectBundleResponse {
+  format_version: number
+  project: Record<string, unknown>
+  cpts: Record<string, unknown>[]
+  boreholes: Record<string, unknown>[]
+}
+
 // POST /projects body. Optional fields default to null/[] server-side.
 export interface ProjectCreatePayload {
   name: string
@@ -473,12 +485,18 @@ export const api = {
     duplicate: (id: string, name?: string): Promise<ProjectResponse> =>
       post(`/projects/${id}/duplicate`, { name: name ?? null }),
 
-    // Idempotently materialise a project row from .gmproj contents when
-    // the DB no longer has it (typically because the local DB was wiped
-    // while the file still lives on disk). ``id`` is in the URL; the
-    // body is everything else from ProjectFileV1. Always 200 — existing
-    // rows return as-is, missing rows get inserted.
-    restore: (id: string, body: ProjectCreatePayload): Promise<ProjectResponse> =>
+    // Full project snapshot — metadata + every CPT (with series) +
+    // every borehole (with its child tree). Embedded verbatim in the
+    // .gmproj v2 file on save and round-tripped to /restore on open.
+    bundle: (id: string): Promise<ProjectBundleResponse> =>
+      get(`/projects/${id}/bundle`),
+
+    // Idempotently materialise a project + its CPTs + boreholes from a
+    // bundle when the DB has lost the rows (wiped DB / fresh install).
+    // ``id`` is in the URL; the body is the same shape ``bundle()``
+    // returned. Always 200 — existing rows return as-is, missing rows
+    // are inserted. The .gmproj file is the user's anchor.
+    restore: (id: string, body: ProjectBundleResponse): Promise<ProjectResponse> =>
       post(`/projects/${id}/restore`, body),
   },
 }
