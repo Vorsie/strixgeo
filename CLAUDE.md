@@ -840,6 +840,18 @@ GET    /projects/{pid}/geology/models/{mid}/boreholes/{bid}/validate
                                                     duplicate_depth,
                                                     contact_below_test,
                                                     no_contacts.
+
+POST   /projects/{pid}/sections             Create a cross-section (line
+                                            endpoints + projection buffer
+                                            + view prefs). 422 when the
+                                            endpoints coincide.
+GET    /projects/{pid}/sections             List sections, display_order
+                                            then name.
+GET    /projects/{pid}/sections/{sid}       Fetch one.
+PATCH  /projects/{pid}/sections/{sid}       Partial update. Post-update
+                                            distinct-endpoints invariant
+                                            re-checked at the API layer.
+DELETE /projects/{pid}/sections/{sid}       Delete a section.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
