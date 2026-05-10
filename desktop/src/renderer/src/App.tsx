@@ -735,6 +735,8 @@ export default function App() {
           onRestoreAllCpts={handleRestoreAllCpts}
           onRestoreAllBoreholes={handleRestoreAllBoreholes}
           projectName={project.name}
+          projectFilePath={projectFilePath}
+          onCloseProject={closeProject}
           hiddenCptTypes={hiddenCptTypes}
           hiddenBoreholeValues={hiddenBoreholeValues[boreholeAxis]}
           boreholeAxis={boreholeAxis}
