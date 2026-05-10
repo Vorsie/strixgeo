@@ -11,6 +11,9 @@ from uuid6 import uuid7
 from groundmodel.api.schemas.project.project_create_request import (
     ProjectCreateRequest,
 )
+from groundmodel.api.schemas.project.project_duplicate_request import (
+    ProjectDuplicateRequest,
+)
 from groundmodel.api.schemas.project.project_response import ProjectResponse
 from groundmodel.api.schemas.project.project_update_request import (
     ProjectUpdateRequest,
@@ -166,3 +169,30 @@ async def unarchive_project(
     await session.commit()
     await session.refresh(project)
     return project
+
+
+@router.post(
+    "/{project_id}/duplicate",
+    response_model=ProjectResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def duplicate_project(
+    project_id: UUID,
+    request: ProjectDuplicateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ProjectOrm:
+    """Deep-clone a project + every CPT and Borehole tree under it.
+
+    Backs the desktop client's File → Save As. ``name`` defaults to
+    ``"Copy of <source name>"`` when omitted. The new project starts in
+    ``active`` status regardless of the source's lifecycle.
+
+    Returns 404 when the source id is unknown.
+    """
+    repo = ProjectRepository(session)
+    duplicate = await repo.duplicate(project_id, new_name=request.name)
+    if duplicate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    await session.commit()
+    await session.refresh(duplicate)
+    return duplicate
