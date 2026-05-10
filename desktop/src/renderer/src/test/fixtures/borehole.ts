@@ -180,3 +180,25 @@ export function makeFixtureBoreholeWithAdmixtures(
     observations: [{ ...lithology, layers: updatedLayers }],
   }
 }
+
+/**
+ * Build a fixture where the FIRST sample has no lab tests of any kind.
+ * Lets tests target the SamplesTrack's "no tests" fallback rendering.
+ */
+export function makeFixtureBoreholeWithEmptySample(): BoreholeDetailResponse {
+  const base = makeFixtureBorehole()
+  const stripped = base.samples.map((s, i) =>
+    i === 0
+      ? {
+          ...s,
+          grain_sizes: [],
+          atterberg_limits_tests: [],
+          caco3_content_tests: [],
+          organic_content_tests: [],
+          water_content_tests: [],
+          scalar_lab_tests: [],
+        }
+      : s,
+  )
+  return { ...base, samples: stripped }
+}

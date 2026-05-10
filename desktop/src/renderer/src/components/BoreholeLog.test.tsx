@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import {
   makeFixtureBorehole,
   makeFixtureBoreholeWithAdmixtures,
+  makeFixtureBoreholeWithEmptySample,
 } from '../test/fixtures/borehole'
 import BoreholeLog from './BoreholeLog'
 
@@ -106,5 +107,59 @@ describe('BoreholeLog', () => {
     expect(screen.getAllByText(/^ZF\b/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/^KL\b/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/^ZG\b/).length).toBeGreaterThanOrEqual(1)
+  })
+
+  // ------------------------------------------------------------------
+  // Samples track — sample number labels + the lab-test family icons
+  // and the click → LabTestPanel flow.
+  // ------------------------------------------------------------------
+
+  it('renders the sample number for each sample on the track', () => {
+    const borehole = makeFixtureBorehole()
+    render(<BoreholeLog borehole={borehole} />)
+
+    expect(screen.getByText('M1')).toBeInTheDocument()
+    expect(screen.getByText('M2')).toBeInTheDocument()
+  })
+
+  it('renders the lab-test family icons for each sample', () => {
+    // Fixture: sampleA (M1) has grain-size + Atterberg → ``▣ ▲``.
+    // Fixture: sampleB (M2) has only the catch-all scalar test → ``★``.
+    // ``getByText`` would conflict — both icon strings appear once
+    // as a `<text>` per sample plus possibly in a legend, so use
+    // the looser ``getAllByText``.
+    const borehole = makeFixtureBorehole()
+    render(<BoreholeLog borehole={borehole} />)
+
+    expect(screen.getAllByText('▣ ▲').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('★').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders "no tests" placeholder for samples with no lab tests', () => {
+    // Strip every lab-test family from the first sample. The sample-
+    // track row shows ``no tests`` instead of the icon string.
+    const borehole = makeFixtureBoreholeWithEmptySample()
+    render(<BoreholeLog borehole={borehole} />)
+
+    expect(screen.getByText('no tests')).toBeInTheDocument()
+  })
+
+  it('opens the LabTestPanel when a sample is clicked', () => {
+    const borehole = makeFixtureBorehole()
+    render(<BoreholeLog borehole={borehole} />)
+
+    // Panel header label "Sample" only appears once the panel mounts.
+    // Confirm pre-click state — no panel.
+    expect(screen.queryByText('Sample')).not.toBeInTheDocument()
+
+    // Click the M1 row. The click handler is on the parent ``<g>``
+    // wrapping the row; React events bubble up from the text node.
+    fireEvent.click(screen.getByText('M1'))
+
+    // Panel "Sample" header label confirms it mounted. Also expect
+    // the ``(1 / 2)`` navigation indicator showing the panel knows
+    // it's looking at the first of two samples.
+    expect(screen.getByText('Sample')).toBeInTheDocument()
+    expect(screen.getByText(/\(1 \/ 2\)/)).toBeInTheDocument()
   })
 })
