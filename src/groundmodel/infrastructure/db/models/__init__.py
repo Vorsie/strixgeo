@@ -8,6 +8,11 @@ from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
 from groundmodel.infrastructure.db.models.field_log_interval_orm import FieldLogIntervalOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
@@ -25,6 +30,9 @@ __all__ = [
     "CptSeriesOrm",
     "DrillSegmentOrm",
     "FieldLogIntervalOrm",
+    "FormationContactOrm",
+    "GeologicalFormationOrm",
+    "GeologicalModelOrm",
     "GrainSizeOrm",
     "ObservationLayerOrm",
     "ObservationOrm",
