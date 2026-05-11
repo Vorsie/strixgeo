@@ -9,15 +9,22 @@ import {
   EyeOff,
   Gauge,
   MapPin,
+  Plus,
   Search,
+  Slash,
   Trash2,
   X,
 } from 'lucide-react'
-import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../api/client'
+import type {
+  BoreholeAxis,
+  BoreholeListItem,
+  CptListItem,
+  CrossSectionResponse,
+} from '../api/client'
 import DirtyAsterisk from './ui/DirtyAsterisk'
 import { isTypingTarget } from '../utils/keyboard'
 
-type DataType = 'cpt' | 'borehole' | 'dmt'
+type DataType = 'cpt' | 'borehole' | 'section' | 'dmt'
 type SortKey = 'default' | 'name' | 'depth'
 type SortDirection = 'asc' | 'desc'
 
@@ -83,11 +90,31 @@ interface Props {
   // partition.
   outOfViewportCptIds: Set<string>
   outOfViewportBoreholeIds: Set<string>
+  // Cross-sections (Phase 4 v1.0 MVP). The list comes from the
+  // /projects/{pid}/sections endpoint; the selected id (if any) is
+  // surfaced in the main view as the section panel (S2+).
+  // ``onCreateSection`` and ``onDeleteSection`` are optional so the
+  // existing sidebar tests can mount without wiring them.
+  sections?: CrossSectionResponse[]
+  selectedSectionId?: string | null
+  onSelectSection?: (id: string) => void
+  // Returns the freshly-created section so the caller can immediately
+  // select it; ``null`` when creation isn't possible (e.g. project has
+  // no horizontal CRS).
+  onCreateSection?: () => Promise<CrossSectionResponse | null>
+  onDeleteSection?: (id: string) => Promise<void>
+  // ``true`` when the project has a ``default_horizontal_epsg`` that
+  // gives the placeholder section a valid CRS. Disables the "+ New
+  // section" button when false with a tooltip pointing to metadata.
+  canCreateSection?: boolean
 }
 
 const TABS: { id: DataType; label: string; icon: React.ReactNode; available: boolean }[] = [
   { id: 'cpt',      label: 'CPT',      icon: <Activity size={14} />,  available: true  },
   { id: 'borehole', label: 'Borehole', icon: <Drill size={14} />,     available: true  },
+  // ``Slash`` reads as a straight diagonal line — closest stock-icon
+  // metaphor for a cross-section slice through the project.
+  { id: 'section',  label: 'Sections', icon: <Slash size={14} />,     available: true  },
   { id: 'dmt',      label: 'DMT',      icon: <Gauge size={14} />,     available: false },
 ]
 
@@ -152,6 +179,12 @@ export default function Sidebar({
   boreholeAxis,
   outOfViewportCptIds,
   outOfViewportBoreholeIds,
+  sections = [],
+  selectedSectionId = null,
+  onSelectSection,
+  onCreateSection,
+  onDeleteSection,
+  canCreateSection = false,
 }: Props) {
   const [activeTab, setActiveTab] = useState<DataType>('cpt')
 
@@ -421,9 +454,10 @@ export default function Sidebar({
       {/* Search box. Substring filter on row name. Sits above the
           bulk-action / sort rows so the user can narrow the list
           first and the action bars stay attached to the (filtered)
-          selection. Hidden on the DMT tab since there's nothing to
-          search there yet. */}
-      {activeTab !== 'dmt' && (cpts.length > 0 || boreholes.length > 0) && (
+          selection. Only renders on the CPT / Borehole tabs — sections
+          have their own simpler list path and DMT is empty. */}
+      {(activeTab === 'cpt' || activeTab === 'borehole') &&
+        (cpts.length > 0 || boreholes.length > 0) && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-gray-100">
           <Search size={11} className="text-gray-400 shrink-0" />
           <input
@@ -447,8 +481,10 @@ export default function Sidebar({
 
       {/* Bulk-action bar — only visible when ≥1 row is checked. Sits
           ABOVE the sort row so the "Remove N" action stays prominent
-          regardless of how the list is ordered. */}
-      {selectedCount > 0 && activeTab !== 'dmt' && (
+          regardless of how the list is ordered. Section tab has its
+          own single-row delete affordance; bulk-remove isn't wired
+          there yet. */}
+      {selectedCount > 0 && (activeTab === 'cpt' || activeTab === 'borehole') && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border-b border-blue-100 text-[11px]">
           <span className="text-blue-700 font-medium">{selectedCount} selected</span>
           <button
@@ -467,7 +503,8 @@ export default function Sidebar({
       )}
 
       {/* Sort + select-all row */}
-      {activeTab !== 'dmt' && (cpts.length > 0 || boreholes.length > 0) && (
+      {(activeTab === 'cpt' || activeTab === 'borehole') &&
+        (cpts.length > 0 || boreholes.length > 0) && (
         <div className="flex items-center gap-2 px-3 py-1 border-b border-gray-100 text-[10px]">
           <SortControl sort={sort} onChange={setSort} />
           <button
@@ -565,6 +602,16 @@ export default function Sidebar({
               ))}
             </>
           ))}
+        {activeTab === 'section' && (
+          <SectionList
+            sections={sections}
+            selectedId={selectedSectionId}
+            onSelect={onSelectSection}
+            onCreate={onCreateSection}
+            onDelete={onDeleteSection}
+            canCreate={canCreateSection}
+          />
+        )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
       </div>
 
@@ -578,8 +625,13 @@ export default function Sidebar({
             {boreholes.length} borehole{boreholes.length !== 1 ? 's' : ''}
           </span>
         )}
+        {activeTab === 'section' && (
+          <span>
+            {sections.length} section{sections.length !== 1 ? 's' : ''}
+          </span>
+        )}
         {activeTab === 'dmt' && <span>—</span>}
-        {removedCount > 0 && activeTab !== 'dmt' && (
+        {removedCount > 0 && (activeTab === 'cpt' || activeTab === 'borehole') && (
           <button
             onClick={restoreAll}
             className="ml-auto text-blue-600 hover:text-blue-800 hover:underline"
@@ -864,6 +916,179 @@ function EmptyState({ label }: { label: string }) {
   return (
     <div className="flex items-center justify-center h-24 text-xs text-gray-400 px-4 text-center">
       {label}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Section tab — list + create / delete
+// ---------------------------------------------------------------------------
+//
+// Sections are project-scoped slices through the data; rendering the
+// section's projected investigations lands in S2+. This block gives
+// the user the discovery surface: see sections, pick one, create a
+// placeholder, delete. Selection drives the future section panel
+// view in the main area.
+
+function SectionList({
+  sections,
+  selectedId,
+  onSelect,
+  onCreate,
+  onDelete,
+  canCreate,
+}: {
+  sections: CrossSectionResponse[]
+  selectedId: string | null
+  onSelect: ((id: string) => void) | undefined
+  onCreate: (() => Promise<CrossSectionResponse | null>) | undefined
+  onDelete: ((id: string) => Promise<void>) | undefined
+  canCreate: boolean
+}) {
+  // Local flag so the "+ New" button can disable itself while a POST
+  // is in flight; otherwise rapid double-clicks would race and create
+  // two sections (the server enforces no uniqueness on name, so both
+  // would land).
+  const [creating, setCreating] = useState(false)
+
+  async function handleCreate(): Promise<void> {
+    if (!onCreate || !canCreate || creating) return
+    setCreating(true)
+    try {
+      await onCreate()
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  // Sort matches the backend: display_order asc, then name asc.
+  const ordered = useMemo(
+    () =>
+      [...sections].sort((a, b) => {
+        const order = a.display_order - b.display_order
+        if (order !== 0) return order
+        return NATURAL.compare(a.name, b.name)
+      }),
+    [sections],
+  )
+
+  return (
+    <>
+      {/* "+ New section" affordance. Disabled with a tooltip when the
+          project has no horizontal CRS — sections need an EPSG to
+          locate their endpoints, and the metadata editor is the place
+          to set it (mirrors the Terrain-overlay hint). */}
+      <div className="border-b border-gray-100 px-3 py-1.5">
+        <button
+          onClick={handleCreate}
+          disabled={!canCreate || creating || !onCreate}
+          title={
+            !canCreate
+              ? 'Set a Default horizontal CRS in Project metadata to create sections'
+              : creating
+                ? 'Creating…'
+                : 'Create a new cross-section (placeholder endpoints)'
+          }
+          className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] rounded border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-800 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
+        >
+          <Plus size={12} />
+          {creating ? 'Creating…' : 'New section'}
+        </button>
+      </div>
+
+      {ordered.length === 0 ? (
+        <EmptyState
+          label={
+            canCreate
+              ? 'No sections yet'
+              : 'No sections — set Default horizontal CRS in metadata first'
+          }
+        />
+      ) : (
+        ordered.map(s => (
+          <SectionRow
+            key={s.id}
+            section={s}
+            selected={s.id === selectedId}
+            onClick={() => onSelect?.(s.id)}
+            onDelete={onDelete ? () => onDelete(s.id) : undefined}
+          />
+        ))
+      )}
+    </>
+  )
+}
+
+function SectionRow({
+  section,
+  selected,
+  onClick,
+  onDelete,
+}: {
+  section: CrossSectionResponse
+  selected: boolean
+  onClick: () => void
+  // Optional so a test can mount the row without wiring delete.
+  onDelete: (() => Promise<void>) | undefined
+}) {
+  // Hover-X confirms via the browser's ``window.confirm`` since the
+  // delete is irreversible (a section's geometry + view prefs are
+  // gone) and the in-app confirmation dialog component is wired for
+  // larger flows. Cheap, native, defensible per the UX rule
+  // "irreversible actions require explicit confirmation".
+  function handleDelete(e: React.MouseEvent): void {
+    e.stopPropagation()
+    if (!onDelete) return
+    const ok = window.confirm(
+      `Delete section "${section.name}"? This can't be undone.`,
+    )
+    if (!ok) return
+    void onDelete()
+  }
+
+  // Endpoint summary: distance the section spans (Euclidean in the
+  // section's CRS) + buffer. Engineers reading the list want to know
+  // "is this the 200m profile or the 5km one?" at a glance.
+  const dx = section.end_x - section.start_x
+  const dy = section.end_y - section.start_y
+  const lengthM = Math.sqrt(dx * dx + dy * dy)
+
+  return (
+    <div
+      className={[
+        'group relative flex items-center border-b border-gray-100 transition-colors',
+        'border-l-2 border-l-transparent',
+        selected ? 'bg-blue-50' : 'hover:bg-gray-50',
+      ].join(' ')}
+    >
+      <button
+        onClick={onClick}
+        className="flex-1 text-left px-3 py-2 pr-7 min-w-0"
+      >
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <Slash size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
+          <span className="text-xs font-medium text-gray-800 truncate">
+            {section.name}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 pl-4 text-[10px] text-gray-400">
+          <span>{lengthM.toFixed(0)} m</span>
+          <span>·</span>
+          <span title="Lateral projection buffer">
+            ±{section.projection_buffer_m.toFixed(0)} m
+          </span>
+        </div>
+      </button>
+
+      {onDelete && (
+        <button
+          onClick={handleDelete}
+          title="Delete section"
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <Trash2 size={12} />
+        </button>
+      )}
     </div>
   )
 }
