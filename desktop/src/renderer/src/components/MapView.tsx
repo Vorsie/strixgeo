@@ -83,6 +83,15 @@ interface Props {
   // viewport" feature. Receives ``null`` if the map isn't ready yet
   // (early renders before Leaflet has mounted).
   onViewportChange?: (bounds: L.LatLngBounds) => void
+  // Initial Leaflet camera. Set by the App on remount from a stored
+  // ref so navigating from section panel back to map restores the
+  // user's last frame instead of resetting to the project default.
+  // Falls back to Belgium-centred on first mount.
+  initialCenter?: [number, number]
+  initialZoom?: number
+  // Fires on every moveend with the new center + zoom. Used by the
+  // App to keep the persistence ref current.
+  onCameraChange?: (center: [number, number], zoom: number) => void
   // DEM hillshade overlay. ``demSource`` is the resolved provider for
   // the current project (or ``null`` if the project's horizontal EPSG
   // has no DEM source mapped — the Terrain section then hides). The
@@ -112,27 +121,32 @@ interface Props {
 
 type OpenCategory = 'cpt' | 'borehole' | 'terrain' | null
 
-// Reports the map's current visible bounds to the parent on mount and
-// after every ``moveend`` (pan / zoom). Leaflet only fires ``moveend``
-// after the user releases the mouse, so the cost stays tied to user
-// motion — no need for a debounce. Mounted as a child of ``MapContainer``
-// so ``useMap()`` resolves to the actual Leaflet instance.
+// Reports the map's current visible bounds + camera (center + zoom)
+// to the parent on mount and after every ``moveend`` (pan / zoom).
+// Leaflet only fires ``moveend`` after the user releases the mouse,
+// so the cost stays tied to user motion — no need for a debounce.
+// Mounted as a child of ``MapContainer`` so ``useMap()`` resolves to
+// the actual Leaflet instance.
 function ViewportTracker({
   onViewportChange,
+  onCameraChange,
 }: {
-  onViewportChange: (bounds: L.LatLngBounds) => void
+  onViewportChange?: (bounds: L.LatLngBounds) => void
+  onCameraChange?: (center: [number, number], zoom: number) => void
 }) {
   const map = useMap()
   useEffect(() => {
-    onViewportChange(map.getBounds())
+    onViewportChange?.(map.getBounds())
     function handler() {
-      onViewportChange(map.getBounds())
+      onViewportChange?.(map.getBounds())
+      const c = map.getCenter()
+      onCameraChange?.([c.lat, c.lng], map.getZoom())
     }
     map.on('moveend', handler)
     return () => {
       map.off('moveend', handler)
     }
-  }, [map, onViewportChange])
+  }, [map, onViewportChange, onCameraChange])
   return null
 }
 
@@ -199,8 +213,15 @@ export default function MapView({
   sections = [],
   selectedSectionId = null,
   onSelectSection,
+  initialCenter,
+  initialZoom,
+  onCameraChange,
 }: Props) {
-  const defaultCenter: [number, number] = [50.85, 4.35] // Belgium
+  // Initial Leaflet camera — restored from the App's ref on remount
+  // so navigating from section panel back to map preserves the user's
+  // last view. Belgium-centred at zoom 9 is the cold-boot fallback.
+  const startCenter: [number, number] = initialCenter ?? [50.85, 4.35]
+  const startZoom: number = initialZoom ?? 9
 
   // Which dropdown section is expanded — Option B (mutually exclusive).
   // Kept as local UI state since it doesn't affect anything outside MapView.
@@ -298,8 +319,8 @@ export default function MapView({
       )}
       <MapContainer
         ref={mapRef}
-        center={defaultCenter}
-        zoom={9}
+        center={startCenter}
+        zoom={startZoom}
         className="h-full w-full"
         style={{ background: '#f0f0f0' }}
       >
@@ -336,7 +357,12 @@ export default function MapView({
           selectedBoreholeId={selectedBoreholeId}
         />
 
-        {onViewportChange && <ViewportTracker onViewportChange={onViewportChange} />}
+        {(onViewportChange || onCameraChange) && (
+          <ViewportTracker
+            onViewportChange={onViewportChange}
+            onCameraChange={onCameraChange}
+          />
+        )}
 
         <BboxDrawer
           active={drawMode}
