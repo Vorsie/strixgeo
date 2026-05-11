@@ -21,7 +21,12 @@
  *   log.error('api', err)
  */
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+// ``success`` mirrors the backend GroundModelLogger's SUCCESS level
+// so an end-to-end flow logs identically on both sides. Browsers don't
+// surface a dedicated success colour the way the Python logger does,
+// so it routes through console.info — readers tell it apart by the
+// ``SUCCESS`` prefix in the log line, not by colour.
+type LogLevel = 'debug' | 'info' | 'success' | 'warn' | 'error'
 
 // Vite injects ``import.meta.env.DEV`` as a boolean. ``true`` for
 // ``npm run dev``, ``false`` for ``npm run build``.
@@ -37,6 +42,7 @@ function emit(level: LogLevel, scope: string, ...args: unknown[]): void {
       console.debug(prefix, ...args)
       break
     case 'info':
+    case 'success':
       console.info(prefix, ...args)
       break
     case 'warn':
@@ -51,6 +57,7 @@ function emit(level: LogLevel, scope: string, ...args: unknown[]): void {
 export const log = {
   debug: (scope: string, ...args: unknown[]): void => emit('debug', scope, ...args),
   info: (scope: string, ...args: unknown[]): void => emit('info', scope, ...args),
+  success: (scope: string, ...args: unknown[]): void => emit('success', scope, ...args),
   warn: (scope: string, ...args: unknown[]): void => emit('warn', scope, ...args),
   error: (scope: string, ...args: unknown[]): void => emit('error', scope, ...args),
 }
