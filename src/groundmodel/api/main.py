@@ -12,6 +12,7 @@ from groundmodel.api.routers import (
     borehole,
     cpt,
     cross_section,
+    dem,
     geology,
     investigation_review,
     jobs,
@@ -81,3 +82,4 @@ app.include_router(project.router)
 app.include_router(geology.router)
 app.include_router(cross_section.router)
 app.include_router(investigation_review.router)
+app.include_router(dem.router)
