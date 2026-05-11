@@ -187,6 +187,20 @@ export default function App() {
     setViewportBounds(bounds)
   }, [])
 
+  // Persist the Leaflet camera (center + zoom) across MapView
+  // remounts. The map remounts whenever the user navigates
+  // map → section panel → back; without this ref the viewport resets
+  // to the Belgium-default frame, which is jarring after the user
+  // already zoomed into a specific site. Held in a ref instead of
+  // useState so updating it doesn't trigger a re-render of the App.
+  const mapCameraRef = useRef<{ center: [number, number]; zoom: number } | null>(null)
+  const handleMapCameraChange = useCallback(
+    (center: [number, number], zoom: number) => {
+      mapCameraRef.current = { center, zoom }
+    },
+    [],
+  )
+
   const handleToggleCptType = useCallback((type: string, visible: boolean) => {
     setHiddenCptTypes(prev => {
       const next = new Set(prev)
@@ -1280,6 +1294,9 @@ export default function App() {
                     sections={sections}
                     selectedSectionId={selectedSectionId}
                     onSelectSection={handleSelectSection}
+                    initialCenter={mapCameraRef.current?.center}
+                    initialZoom={mapCameraRef.current?.zoom}
+                    onCameraChange={handleMapCameraChange}
                   />
             ) : selectedBoreholeId ? (
               boreholeDetailMap.has(selectedBoreholeId) ? (
