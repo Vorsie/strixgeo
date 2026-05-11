@@ -41,3 +41,10 @@ class ImportInterpretationsDovResult:
     skipped_already_present: int = 0
     failed: int = 0
     per_stream: dict[str, int] = field(default_factory=dict)
+    # WFS gap counter. Increments once per ``(borehole, observation_type)``
+    # where the boring's ``has_<type>`` flag is True but the corresponding
+    # ``interpretaties:*`` WFS layer returned no row. DOV's WFS lags
+    # occasionally lose interpretations the main DB still has —
+    # documented in GitHub issue #6. Each gap emits a WARNING with the
+    # boring's DOV URL so the user can hand-verify what's missing.
+    wfs_gaps: int = 0
