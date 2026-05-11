@@ -115,6 +115,120 @@ async def test_status_transition_to_reviewed_stamps_timestamp(
     assert row is not None and row.reviewed_at is None
 
 
+async def test_repeated_reviewed_patch_preserves_original_timestamp(
+    db_session: AsyncSession,
+) -> None:
+    """Patching 'reviewed → reviewed' must NOT refresh ``reviewed_at``.
+
+    Engineers re-confirm decisions; the original review time is the
+    information that matters, not the most recent acknowledgement.
+    Regression: this used to re-stamp on every patch.
+    """
+    project = await _make_project(db_session)
+    repo = InvestigationReviewRepository(db_session)
+    target = uuid7()
+
+    # First mark reviewed — capture the timestamp.
+    await repo.set_for_target(project.id, "cpt", target, {"review_status": "reviewed"})
+    await db_session.commit()
+    first = await repo.get_for_target("cpt", target)
+    assert first is not None
+    original_ts = first.reviewed_at
+    assert original_ts is not None
+
+    # Second 'reviewed' patch — same state on both sides.
+    await repo.set_for_target(project.id, "cpt", target, {"review_status": "reviewed"})
+    await db_session.commit()
+    second = await repo.get_for_target("cpt", target)
+    assert second is not None
+    assert second.reviewed_at == original_ts
+
+    # Notes-only patch — reviewed_at unchanged.
+    await repo.set_for_target(project.id, "cpt", target, {"review_notes": "later annotation"})
+    await db_session.commit()
+    third = await repo.get_for_target("cpt", target)
+    assert third is not None
+    assert third.reviewed_at == original_ts
+
+
+async def test_null_is_hidden_in_patch_is_a_no_op(db_session: AsyncSession) -> None:
+    """An explicit ``null`` for ``is_hidden`` must NOT crash the NOT NULL column.
+
+    The Pydantic schema lets callers send ``{"is_hidden": null}`` (the
+    field is ``bool | None``). The repo treats None as "don't touch"
+    for NOT NULL columns; both on insert (defaults to False) and on
+    update (preserves the existing value).
+    """
+    project = await _make_project(db_session)
+    repo = InvestigationReviewRepository(db_session)
+    target = uuid7()
+
+    # Insert path with explicit null — defaults to False.
+    await repo.set_for_target(
+        project.id,
+        "cpt",
+        target,
+        {"review_status": "in_progress", "is_hidden": None},
+    )
+    await db_session.commit()
+    row = await repo.get_for_target("cpt", target)
+    assert row is not None
+    assert row.is_hidden is False
+
+    # Flip to True, then patch null again — value preserved.
+    await repo.set_for_target(project.id, "cpt", target, {"is_hidden": True})
+    await db_session.commit()
+    await repo.set_for_target(project.id, "cpt", target, {"is_hidden": None})
+    await db_session.commit()
+    row = await repo.get_for_target("cpt", target)
+    assert row is not None
+    assert row.is_hidden is True
+
+
+async def test_null_review_status_in_patch_is_a_no_op(db_session: AsyncSession) -> None:
+    """Explicit ``null`` for ``review_status`` must NOT crash the NOT NULL column."""
+    project = await _make_project(db_session)
+    repo = InvestigationReviewRepository(db_session)
+    target = uuid7()
+
+    await repo.set_for_target(project.id, "cpt", target, {"review_status": "reviewed"})
+    await db_session.commit()
+
+    # Null status + notes update — status preserved, notes applied.
+    await repo.set_for_target(
+        project.id,
+        "cpt",
+        target,
+        {"review_status": None, "review_notes": "appended"},
+    )
+    await db_session.commit()
+    row = await repo.get_for_target("cpt", target)
+    assert row is not None
+    assert row.review_status == "reviewed"
+    assert row.review_notes == "appended"
+
+
+async def test_null_review_notes_clears_the_field(db_session: AsyncSession) -> None:
+    """``review_notes`` is nullable — explicit ``null`` clears it."""
+    project = await _make_project(db_session)
+    repo = InvestigationReviewRepository(db_session)
+    target = uuid7()
+
+    await repo.set_for_target(
+        project.id,
+        "cpt",
+        target,
+        {"review_status": "reviewed", "review_notes": "to be cleared"},
+    )
+    await db_session.commit()
+
+    await repo.set_for_target(project.id, "cpt", target, {"review_notes": None})
+    await db_session.commit()
+    row = await repo.get_for_target("cpt", target)
+    assert row is not None
+    assert row.review_notes is None
+
+
 async def test_set_for_target_only_writes_keys_in_patch(
     db_session: AsyncSession,
 ) -> None:
