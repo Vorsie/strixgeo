@@ -627,6 +627,28 @@ async def restore_project_bundle(
     # target_kind/target_id pair is enforced unique at the DB level, so
     # two payloads for the same target would fail at commit — callers
     # shouldn't construct that case.
+    #
+    # Target-existence validation: the polymorphic anchor has no DB FK,
+    # so a malformed (or hand-edited) bundle could otherwise plant a
+    # review pointing at nothing. The PUT router does this check per
+    # write; we mirror it here per-restore to keep both write surfaces
+    # consistent. CPTs and boreholes were just inserted above (or
+    # already existed), so the validation set is complete by this point.
+    valid_cpt_ids = set(
+        (await session.execute(select(CptOrm.id).where(CptOrm.app_project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    valid_borehole_ids = set(
+        (
+            await session.execute(
+                select(BoreholeOrm.id).where(BoreholeOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
     existing_review_ids = set(
         (
             await session.execute(
@@ -639,12 +661,31 @@ async def restore_project_bundle(
         .all()
     )
     new_reviews = 0
+    dropped_reviews = 0
     for r_payload in investigation_reviews_payload:
         r_id_raw = r_payload.get("id")
         if r_id_raw is None:
             continue
         r_id = UUID(r_id_raw) if isinstance(r_id_raw, str) else r_id_raw
         if r_id in existing_review_ids:
+            continue
+        # Target validation. Skip-with-warning beats raise so a single
+        # bad row doesn't sabotage an otherwise valid bundle restore;
+        # the dropped count surfaces in the log for the user to chase.
+        target_kind = r_payload.get("target_kind")
+        target_id_raw = r_payload.get("target_id")
+        if target_kind is None or target_id_raw is None:
+            dropped_reviews += 1
+            continue
+        target_id = UUID(target_id_raw) if isinstance(target_id_raw, str) else target_id_raw
+        valid_targets = valid_cpt_ids if target_kind == "cpt" else valid_borehole_ids
+        if target_id not in valid_targets:
+            logger.warning(
+                f"restore_project_bundle({project_id}): dropping orphan "
+                f"review row {r_id} → {target_kind} {target_id} (target "
+                f"not present in this project)"
+            )
+            dropped_reviews += 1
             continue
         kwargs = _apply_json_to_kwargs(InvestigationReviewOrm, r_payload)
         kwargs["app_project_id"] = project_id
@@ -657,6 +698,6 @@ async def restore_project_bundle(
         f"+{new_cpts} CPTs, +{new_boreholes} boreholes, "
         f"+{new_formations} formations, +{new_models} models "
         f"(+{new_contacts} contacts), +{new_sections} sections, "
-        f"+{new_reviews} reviews"
+        f"+{new_reviews} reviews ({dropped_reviews} dropped as orphan)"
     )
     return project
