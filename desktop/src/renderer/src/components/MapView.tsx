@@ -17,6 +17,7 @@ import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../api/client'
 import { lambertToWgs84 } from '../hooks/useWgs84'
 import type { DemOverlayState, DemSource } from '../utils/demSources'
 import BboxDrawer from './BboxDrawer'
+import SectionLineDrawer from './SectionLineDrawer'
 
 // CircleMarkers are used instead of Leaflet's default pin icons because at
 // high density (200+ markers in a small bbox) pins overlap into an unreadable
@@ -84,6 +85,17 @@ interface Props {
   demSource?: DemSource | null
   demOverlay?: DemOverlayState
   onDemOverlayChange?: (next: DemOverlayState) => void
+  // Two-click cross-section drawer. When ``drawSectionMode`` is true,
+  // the map cursor switches to crosshair and clicks place endpoints.
+  // ``onSectionLineDrawn`` fires after the second click with WGS84
+  // coords; the caller is responsible for converting to the project's
+  // horizontal CRS and POSTing the section.
+  drawSectionMode?: boolean
+  onSectionLineDrawn?: (
+    start: { lat: number; lng: number },
+    end: { lat: number; lng: number },
+  ) => void
+  onCancelSectionDraw?: () => void
 }
 
 type OpenCategory = 'cpt' | 'borehole' | 'terrain' | null
@@ -169,6 +181,9 @@ export default function MapView({
   demSource = null,
   demOverlay,
   onDemOverlayChange,
+  drawSectionMode = false,
+  onSectionLineDrawn,
+  onCancelSectionDraw,
 }: Props) {
   const defaultCenter: [number, number] = [50.85, 4.35] // Belgium
 
@@ -263,6 +278,9 @@ export default function MapView({
 
   return (
     <div className="relative h-full w-full">
+      {drawSectionMode && (
+        <SectionDrawHint onCancel={onCancelSectionDraw ?? (() => {})} />
+      )}
       <MapContainer
         ref={mapRef}
         center={defaultCenter}
@@ -309,6 +327,12 @@ export default function MapView({
           active={drawMode}
           onBboxDrawn={onBboxDrawn ?? (() => {})}
           onCancel={onCancelDraw ?? (() => {})}
+        />
+
+        <SectionLineDrawer
+          active={drawSectionMode && onSectionLineDrawn !== undefined}
+          onLineDrawn={onSectionLineDrawn ?? (() => {})}
+          onCancel={onCancelSectionDraw ?? (() => {})}
         />
 
         {/* CPT markers — circle, colour by type */}
@@ -925,4 +949,27 @@ function buildLegend(
     })
   }
   return entries
+}
+
+// ---------------------------------------------------------------------------
+// Draw-section-line hint banner — top-center while in draw mode
+// ---------------------------------------------------------------------------
+//
+// Sits above the map (not inside MapContainer) so its z-index is
+// straightforward and a click on the cancel button doesn't fire a
+// map click. Cancel button mirrors the Escape key shortcut so users
+// who don't recall the key have a visible way out.
+
+function SectionDrawHint({ onCancel }: { onCancel: () => void }): JSX.Element {
+  return (
+    <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1100] flex items-center gap-3 px-3 py-1.5 bg-red-600 text-white text-xs rounded shadow-lg">
+      <span className="font-medium">Click two points on the map to draw the cross-section line</span>
+      <button
+        onClick={onCancel}
+        className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-[10px] uppercase tracking-wide"
+      >
+        Cancel (Esc)
+      </button>
+    </div>
+  )
 }
