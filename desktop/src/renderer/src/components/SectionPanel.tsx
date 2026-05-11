@@ -30,14 +30,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 
-import type { CrossSectionResponse } from '../api/client'
+import type { BoreholeListItem, CptListItem, CrossSectionResponse } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
+import {
+  investigationsOnSection,
+  type ProjectedInvestigation,
+} from '../utils/sectionProjection'
 
 interface Props {
   section: CrossSectionResponse
   /** Project-level vertical EPSG used for the y-axis label. ``null`` →
    * the axis renders without a datum suffix (just "Level (m)"). */
   zEpsg?: number | null
+  /** All CPTs in the project. The panel filters down to those that
+   * project within the section's buffer + endpoints. */
+  cpts?: readonly CptListItem[]
+  /** All boreholes in the project. Same filter as cpts. */
+  boreholes?: readonly BoreholeListItem[]
 }
 
 // World viewport in section-local coordinates: x = along-distance
@@ -148,7 +157,12 @@ function useElementSize(ref: React.RefObject<HTMLElement | null>): {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function SectionPanel({ section, zEpsg = null }: Props): JSX.Element {
+export default function SectionPanel({
+  section,
+  zEpsg = null,
+  cpts = [],
+  boreholes = [],
+}: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
   const lengthM = useMemo(() => sectionLengthM(section), [section])
@@ -321,6 +335,30 @@ export default function SectionPanel({ section, zEpsg = null }: Props): JSX.Elem
     [effLevelMin, effLevelMax],
   )
 
+  // ---- Projected investigations -----------------------------------------
+
+  // Filter + project the CPTs and boreholes onto the section line.
+  // ``excluded_*_ids`` on the section row let the user manually hide
+  // specific items; we honour them here. Built once per (section,
+  // data) change — pan / zoom / VEX never invalidate the projection,
+  // they just re-map the projected world coords to screen.
+  const excludedCptIds = useMemo(
+    () => new Set(section.excluded_cpt_ids),
+    [section.excluded_cpt_ids],
+  )
+  const excludedBhIds = useMemo(
+    () => new Set(section.excluded_borehole_ids),
+    [section.excluded_borehole_ids],
+  )
+  const projectedCpts = useMemo(
+    () => investigationsOnSection(section, cpts, excludedCptIds),
+    [section, cpts, excludedCptIds],
+  )
+  const projectedBoreholes = useMemo(
+    () => investigationsOnSection(section, boreholes, excludedBhIds),
+    [section, boreholes, excludedBhIds],
+  )
+
   // ---- Render --------------------------------------------------------
 
   const datumShort = verticalDatumShort(zEpsg)
@@ -417,6 +455,20 @@ export default function SectionPanel({ section, zEpsg = null }: Props): JSX.Elem
                 </g>
               )
             })}
+
+            {/* Investigation columns. CPTs first (thinner stroke,
+                circle marker) then boreholes (square marker) so the
+                square caps render above the round CPT tops if they
+                share a slot. Collision handling lives in S5 — for now
+                columns at the same projected x simply overlap. */}
+            <InvestigationColumns
+              projectedCpts={projectedCpts}
+              projectedBoreholes={projectedBoreholes}
+              xToScreen={xToScreen}
+              levelToScreen={levelToScreen}
+              plotTop={MARGIN.top}
+              plotBottom={MARGIN.top + plotHeight}
+            />
 
             {/* Axis labels. */}
             <text
@@ -537,5 +589,258 @@ function CanvasHints(): JSX.Element {
     <div className="absolute bottom-2 left-2 z-10 text-[10px] text-gray-400 bg-white/80 px-1.5 py-0.5 rounded pointer-events-none">
       Drag to pan · scroll to zoom · double-click to reset
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Investigation columns — projected CPTs + boreholes drawn at their
+// along-distance on the section canvas.
+// ---------------------------------------------------------------------------
+//
+// Rendering rules for S3:
+//
+//   * top at the investigation's elevation_m (faded "unknown elevation"
+//     marker at level=0 when null — engineers should know the row
+//     can't be placed vertically),
+//   * bottom at elevation - depth (or no body when depth is null),
+//   * CPT = thin vertical line + circle cap, borehole = thin line +
+//     square cap. Same shape vocabulary as the map markers so the
+//     identity reads consistently.
+//   * Name label above the cap (no rotation — collision handling is S5).
+//   * Native ``<title>`` tooltips on hover give the engineer the
+//     numeric depth + offset without clicking.
+
+const CPT_COLOR = '#1f2937' // slate-800; deliberate dark so it stays
+// readable over the future DEM hillshade
+const BH_COLOR = '#1f2937'
+const MISSING_ELEV_COLOR = '#9ca3af' // gray-400 — "we don't know where
+// this column belongs on Y" visual
+
+interface ProjectedColumnInput<T> {
+  proj: ProjectedInvestigation<T>
+}
+
+function InvestigationColumns({
+  projectedCpts,
+  projectedBoreholes,
+  xToScreen,
+  levelToScreen,
+  plotTop,
+  plotBottom,
+}: {
+  projectedCpts: ProjectedInvestigation<CptListItem>[]
+  projectedBoreholes: ProjectedInvestigation<BoreholeListItem>[]
+  xToScreen: (x: number) => number
+  levelToScreen: (level: number) => number
+  plotTop: number
+  plotBottom: number
+}): JSX.Element {
+  return (
+    <g>
+      {projectedCpts.map(proj => (
+        <CptColumn
+          key={`cpt-${proj.item.id}`}
+          proj={proj}
+          xToScreen={xToScreen}
+          levelToScreen={levelToScreen}
+          plotTop={plotTop}
+          plotBottom={plotBottom}
+        />
+      ))}
+      {projectedBoreholes.map(proj => (
+        <BoreholeColumn
+          key={`bh-${proj.item.id}`}
+          proj={proj}
+          xToScreen={xToScreen}
+          levelToScreen={levelToScreen}
+          plotTop={plotTop}
+          plotBottom={plotBottom}
+        />
+      ))}
+    </g>
+  )
+}
+
+/** Single CPT column — thin vertical line, circle marker at the top. */
+function CptColumn({
+  proj,
+  xToScreen,
+  levelToScreen,
+  plotTop,
+  plotBottom,
+}: ProjectedColumnInput<CptListItem> & {
+  xToScreen: (x: number) => number
+  levelToScreen: (level: number) => number
+  plotTop: number
+  plotBottom: number
+}): JSX.Element | null {
+  const { item, along, offset } = proj
+  return (
+    <ColumnGlyph
+      name={item.name}
+      kind="cpt"
+      along={along}
+      offset={offset}
+      elevation={item.elevation_m}
+      depth={item.max_depth_m}
+      xToScreen={xToScreen}
+      levelToScreen={levelToScreen}
+      plotTop={plotTop}
+      plotBottom={plotBottom}
+    />
+  )
+}
+
+/** Single borehole column — thin vertical line, square marker at the top. */
+function BoreholeColumn({
+  proj,
+  xToScreen,
+  levelToScreen,
+  plotTop,
+  plotBottom,
+}: ProjectedColumnInput<BoreholeListItem> & {
+  xToScreen: (x: number) => number
+  levelToScreen: (level: number) => number
+  plotTop: number
+  plotBottom: number
+}): JSX.Element | null {
+  const { item, along, offset } = proj
+  return (
+    <ColumnGlyph
+      name={item.name}
+      kind="borehole"
+      along={along}
+      offset={offset}
+      elevation={item.elevation_m}
+      depth={item.total_depth_m}
+      xToScreen={xToScreen}
+      levelToScreen={levelToScreen}
+      plotTop={plotTop}
+      plotBottom={plotBottom}
+    />
+  )
+}
+
+/**
+ * Shared column glyph for CPTs and boreholes. Shape encodes the
+ * kind (circle vs. square) — same vocabulary as the map markers so a
+ * user reading the section interprets the icons the same way they'd
+ * interpret the map dots.
+ *
+ * Clipping: the body line is clipped to the plot area (via SVG
+ * shape-from-attributes; we just clamp the y-coords to ``[plotTop,
+ * plotBottom]``). The top cap renders only when its level is inside
+ * the visible window; the name label renders alongside the cap so it
+ * disappears with the cap when the user scrolls the elevation off-
+ * screen.
+ */
+function ColumnGlyph({
+  name,
+  kind,
+  along,
+  offset,
+  elevation,
+  depth,
+  xToScreen,
+  levelToScreen,
+  plotTop,
+  plotBottom,
+}: {
+  name: string
+  kind: 'cpt' | 'borehole'
+  along: number
+  offset: number
+  elevation: number | null
+  depth: number | null
+  xToScreen: (x: number) => number
+  levelToScreen: (level: number) => number
+  plotTop: number
+  plotBottom: number
+}): JSX.Element | null {
+  const sx = xToScreen(along)
+  // ``null`` elevation gets the column floated at level=0 in a faded
+  // tone so the user sees "this exists but we can't position it" —
+  // dropping it entirely would silently hide rows that lack a Z.
+  const elevValue = elevation ?? 0
+  const elevKnown = elevation !== null
+  const sy = levelToScreen(elevValue)
+  const color = elevKnown ? (kind === 'cpt' ? CPT_COLOR : BH_COLOR) : MISSING_ELEV_COLOR
+
+  // Body line: top at elevation, bottom at elevation - depth. ``null``
+  // depth renders just the cap (no body) — same convention as the
+  // map's missing-depth case.
+  let bodyBottomY: number | null = null
+  if (depth !== null && depth > 0) {
+    bodyBottomY = levelToScreen(elevValue - depth)
+  }
+  // Clamp to the plot rect so columns extending below the viewport
+  // don't render outside the canvas.
+  const clampedTop = Math.max(plotTop, Math.min(plotBottom, sy))
+  const clampedBottom =
+    bodyBottomY !== null ? Math.max(plotTop, Math.min(plotBottom, bodyBottomY)) : null
+
+  // Offset hint: rendered as a small sup-script next to the name when
+  // |offset| > 1 m. The signed value tells the engineer which side
+  // of the line the investigation lives on (positive = left of the
+  // line direction).
+  const offsetLabel =
+    Math.abs(offset) >= 1
+      ? ` (${offset > 0 ? '←' : '→'}${Math.abs(offset).toFixed(0)} m)`
+      : ''
+
+  return (
+    <g>
+      {/* Native title is the cheapest, most accessible tooltip; we'll
+          swap to a tracked hover-popover when collision handling
+          adds offset indicators / leader lines in S5. */}
+      <title>
+        {`${name}`}
+        {elevation !== null ? ` · ${elevation.toFixed(2)} m` : ' · elevation unknown'}
+        {depth !== null ? ` · ${depth.toFixed(1)} m deep` : ''}
+        {` · ${Math.abs(offset).toFixed(1)} m off-line`}
+      </title>
+
+      {/* Body line — only rendered when both endpoints land inside
+          the plot area. */}
+      {clampedBottom !== null && clampedTop < clampedBottom && (
+        <line
+          x1={sx}
+          x2={sx}
+          y1={clampedTop}
+          y2={clampedBottom}
+          stroke={color}
+          strokeWidth={1.5}
+          strokeOpacity={elevKnown ? 0.9 : 0.4}
+        />
+      )}
+
+      {/* Top cap + label — only inside the plot area. */}
+      {sy >= plotTop && sy <= plotBottom && (
+        <>
+          {kind === 'cpt' ? (
+            <circle cx={sx} cy={sy} r={3.5} fill={color} fillOpacity={elevKnown ? 0.95 : 0.5} />
+          ) : (
+            <rect
+              x={sx - 3.5}
+              y={sy - 3.5}
+              width={7}
+              height={7}
+              fill={color}
+              fillOpacity={elevKnown ? 0.95 : 0.5}
+            />
+          )}
+          <text
+            x={sx}
+            y={sy - 6}
+            fontSize={9}
+            fill={elevKnown ? '#1f2937' : '#9ca3af'}
+            textAnchor="middle"
+          >
+            {name}
+            {offsetLabel}
+          </text>
+        </>
+      )}
+    </g>
   )
 }
