@@ -802,6 +802,38 @@ export default function App() {
     [project, selectedSectionId],
   )
 
+  // PATCH the currently-selected section. Used by the SectionPanel's
+  // buffer + VEX sliders (fires on release, not on every pixel of
+  // drag, to avoid hammering the backend). Updates local state with
+  // the row the server returns so subsequent renders use the
+  // server-truth value.
+  const handlePatchSelectedSection = useCallback(
+    async (patch: {
+      projection_buffer_m?: number
+      vertical_exaggeration?: number
+    }) => {
+      if (!project || !selectedSectionId) return
+      try {
+        const updated = await api.section.update(
+          project.id,
+          selectedSectionId,
+          patch,
+        )
+        setSections(prev =>
+          prev.map(s => (s.id === updated.id ? updated : s)),
+        )
+        log.debug(
+          'section',
+          `patched ${selectedSectionId} → ${JSON.stringify(patch)}`,
+        )
+      } catch (err) {
+        log.error('section', `patch ${selectedSectionId} failed`, err)
+        toast('error', 'Could not save the section change.')
+      }
+    },
+    [project, selectedSectionId],
+  )
+
   const loadBoreholeDetail = useCallback(
     async (id: string) => {
       if (boreholeDetailMap.has(id)) return
@@ -1218,6 +1250,7 @@ export default function App() {
                 zEpsg={project.default_vertical_epsg}
                 cpts={cpts}
                 boreholes={boreholes}
+                onPatch={handlePatchSelectedSection}
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
