@@ -39,6 +39,7 @@ import {
 } from '../api/client'
 import { log } from '../utils/log'
 import { verticalDatumShort } from '../utils/verticalDatum'
+import { nudgeColumns, type NudgeResult } from '../utils/columnLayout'
 import {
   investigationsOnSection,
   type ProjectedInvestigation,
@@ -101,6 +102,30 @@ const VEX_DEFAULT = 1
 // matches Leaflet's default and feels natural after the user's
 // already-trained map muscle memory.
 const WHEEL_ZOOM_FACTOR = 1.15
+
+// Minimum screen-pixel gap between adjacent column caps. Narrower
+// than the borelog conventions (~30 px) so dense profiles stay
+// compact; the tie-back diagonals keep the geometry honest.
+const MIN_COLUMN_GAP_PX = 14
+
+interface PlacedColumnInput {
+  kind: 'cpt' | 'borehole'
+  proj: ProjectedInvestigation<CptListItem | BoreholeListItem>
+  trueX: number
+}
+
+interface PlacedColumn {
+  kind: 'cpt' | 'borehole'
+  proj: ProjectedInvestigation<CptListItem | BoreholeListItem>
+  /** Screen X where the column would naturally land. */
+  trueX: number
+  /** Screen X where the column actually renders after collision
+   * nudging. Equal to ``trueX`` when no displacement was needed. */
+  nudgedX: number
+  /** ``true`` when the column had to be moved more than half a
+   * pixel. Drives whether the tie-back diagonal renders. */
+  displaced: boolean
+}
 
 // ---------------------------------------------------------------------------
 // Coordinate transforms
@@ -427,6 +452,35 @@ export default function SectionPanel({
     [section, boreholes, excludedBhIds],
   )
 
+  // Column collision handling — when multiple investigations project
+  // near the same along-distance their columns would overlap into an
+  // unreadable stack. Combine both kinds, nudge in a single sweep so
+  // crowded ones cascade rightward, and surface the displacement
+  // back to the column renderer so it can draw a tie-back diagonal.
+  // Recomputes on viewport pan / zoom because the available pixel
+  // space changes with scaleH.
+  const placedColumns = useMemo<PlacedColumn[]>(() => {
+    const items: PlacedColumnInput[] = [
+      ...projectedCpts.map(proj => ({
+        kind: 'cpt' as const,
+        proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
+        trueX: xToScreen(proj.along),
+      })),
+      ...projectedBoreholes.map(proj => ({
+        kind: 'borehole' as const,
+        proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
+        trueX: xToScreen(proj.along),
+      })),
+    ]
+    return nudgeColumns(items, MIN_COLUMN_GAP_PX).map(r => ({
+      kind: r.item.kind,
+      proj: r.item.proj,
+      trueX: r.trueX,
+      nudgedX: r.nudgedX,
+      displaced: r.displaced,
+    }))
+  }, [projectedCpts, projectedBoreholes, xToScreen])
+
   // ---- Render --------------------------------------------------------
 
   const datumShort = verticalDatumShort(zEpsg)
@@ -556,15 +610,13 @@ export default function SectionPanel({
               />
             )}
 
-            {/* Investigation columns. CPTs first (thinner stroke,
-                circle marker) then boreholes (square marker) so the
-                square caps render above the round CPT tops if they
-                share a slot. Collision handling lives in S5 — for now
-                columns at the same projected x simply overlap. */}
+            {/* Investigation columns. Both kinds rendered from a
+                single nudged list — the layout pass spaces crowded
+                projections rightward while drawing tie-back diagonals
+                so each column's true projected position stays
+                inspectable. */}
             <InvestigationColumns
-              projectedCpts={projectedCpts}
-              projectedBoreholes={projectedBoreholes}
-              xToScreen={xToScreen}
+              columns={placedColumns}
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
@@ -755,11 +807,14 @@ function CanvasHints(): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Investigation columns — projected CPTs + boreholes drawn at their
-// along-distance on the section canvas.
+// Investigation columns — placed (post-nudge) CPTs + boreholes drawn
+// on the section canvas. Each placed column carries both its true
+// projected X and the nudged X where it actually renders; when those
+// differ the renderer draws a tie-back diagonal to keep the
+// projection geometry honest.
 // ---------------------------------------------------------------------------
 //
-// Rendering rules for S3:
+// Rendering rules:
 //
 //   * top at the investigation's elevation_m (faded "unknown elevation"
 //     marker at level=0 when null — engineers should know the row
@@ -768,7 +823,12 @@ function CanvasHints(): JSX.Element {
 //   * CPT = thin vertical line + circle cap, borehole = thin line +
 //     square cap. Same shape vocabulary as the map markers so the
 //     identity reads consistently.
-//   * Name label above the cap (no rotation — collision handling is S5).
+//   * Name label above the cap (no rotation — symbol labels handle
+//     collision via the nudge pass, not in-place rotation).
+//   * Tie-back diagonal when displaced: a small tick at the top of
+//     the plot at the column's true X, connected by a thin grey line
+//     to the column cap at its nudged X. Reads as "this column is
+//     drawn here but belongs there."
 //   * Native ``<title>`` tooltips on hover give the engineer the
 //     numeric depth + offset without clicking.
 
@@ -778,108 +838,42 @@ const BH_COLOR = '#1f2937'
 const MISSING_ELEV_COLOR = '#9ca3af' // gray-400 — "we don't know where
 // this column belongs on Y" visual
 
-interface ProjectedColumnInput<T> {
-  proj: ProjectedInvestigation<T>
-}
-
 function InvestigationColumns({
-  projectedCpts,
-  projectedBoreholes,
-  xToScreen,
+  columns,
   levelToScreen,
   plotTop,
   plotBottom,
 }: {
-  projectedCpts: ProjectedInvestigation<CptListItem>[]
-  projectedBoreholes: ProjectedInvestigation<BoreholeListItem>[]
-  xToScreen: (x: number) => number
+  columns: PlacedColumn[]
   levelToScreen: (level: number) => number
   plotTop: number
   plotBottom: number
 }): JSX.Element {
   return (
     <g>
-      {projectedCpts.map(proj => (
-        <CptColumn
-          key={`cpt-${proj.item.id}`}
-          proj={proj}
-          xToScreen={xToScreen}
-          levelToScreen={levelToScreen}
-          plotTop={plotTop}
-          plotBottom={plotBottom}
-        />
-      ))}
-      {projectedBoreholes.map(proj => (
-        <BoreholeColumn
-          key={`bh-${proj.item.id}`}
-          proj={proj}
-          xToScreen={xToScreen}
-          levelToScreen={levelToScreen}
-          plotTop={plotTop}
-          plotBottom={plotBottom}
-        />
-      ))}
+      {columns.map(col => {
+        const item = col.proj.item
+        const depth =
+          col.kind === 'cpt'
+            ? (item as CptListItem).max_depth_m
+            : (item as BoreholeListItem).total_depth_m
+        return (
+          <ColumnGlyph
+            key={`${col.kind}-${item.id}`}
+            name={item.name}
+            kind={col.kind}
+            screenX={col.nudgedX}
+            tieBackTrueX={col.displaced ? col.trueX : null}
+            offset={col.proj.offset}
+            elevation={item.elevation_m}
+            depth={depth}
+            levelToScreen={levelToScreen}
+            plotTop={plotTop}
+            plotBottom={plotBottom}
+          />
+        )
+      })}
     </g>
-  )
-}
-
-/** Single CPT column — thin vertical line, circle marker at the top. */
-function CptColumn({
-  proj,
-  xToScreen,
-  levelToScreen,
-  plotTop,
-  plotBottom,
-}: ProjectedColumnInput<CptListItem> & {
-  xToScreen: (x: number) => number
-  levelToScreen: (level: number) => number
-  plotTop: number
-  plotBottom: number
-}): JSX.Element | null {
-  const { item, along, offset } = proj
-  return (
-    <ColumnGlyph
-      name={item.name}
-      kind="cpt"
-      along={along}
-      offset={offset}
-      elevation={item.elevation_m}
-      depth={item.max_depth_m}
-      xToScreen={xToScreen}
-      levelToScreen={levelToScreen}
-      plotTop={plotTop}
-      plotBottom={plotBottom}
-    />
-  )
-}
-
-/** Single borehole column — thin vertical line, square marker at the top. */
-function BoreholeColumn({
-  proj,
-  xToScreen,
-  levelToScreen,
-  plotTop,
-  plotBottom,
-}: ProjectedColumnInput<BoreholeListItem> & {
-  xToScreen: (x: number) => number
-  levelToScreen: (level: number) => number
-  plotTop: number
-  plotBottom: number
-}): JSX.Element | null {
-  const { item, along, offset } = proj
-  return (
-    <ColumnGlyph
-      name={item.name}
-      kind="borehole"
-      along={along}
-      offset={offset}
-      elevation={item.elevation_m}
-      depth={item.total_depth_m}
-      xToScreen={xToScreen}
-      levelToScreen={levelToScreen}
-      plotTop={plotTop}
-      plotBottom={plotBottom}
-    />
   )
 }
 
@@ -895,31 +889,36 @@ function BoreholeColumn({
  * the visible window; the name label renders alongside the cap so it
  * disappears with the cap when the user scrolls the elevation off-
  * screen.
+ *
+ * Tie-back: when ``tieBackTrueX`` is not null, the column was nudged
+ * from its true projected X to ``screenX`` to avoid overlap. We draw
+ * a tick at the true X on the top axis and a thin diagonal back to
+ * the cap so the geometry stays inspectable.
  */
 function ColumnGlyph({
   name,
   kind,
-  along,
+  screenX,
+  tieBackTrueX,
   offset,
   elevation,
   depth,
-  xToScreen,
   levelToScreen,
   plotTop,
   plotBottom,
 }: {
   name: string
   kind: 'cpt' | 'borehole'
-  along: number
+  screenX: number
+  tieBackTrueX: number | null
   offset: number
   elevation: number | null
   depth: number | null
-  xToScreen: (x: number) => number
   levelToScreen: (level: number) => number
   plotTop: number
   plotBottom: number
 }): JSX.Element | null {
-  const sx = xToScreen(along)
+  const sx = screenX
   // ``null`` elevation gets the column floated at level=0 in a faded
   // tone so the user sees "this exists but we can't position it" —
   // dropping it entirely would silently hide rows that lack a Z.
@@ -961,6 +960,33 @@ function ColumnGlyph({
         {depth !== null ? ` · ${depth.toFixed(1)} m deep` : ''}
         {` · ${Math.abs(offset).toFixed(1)} m off-line`}
       </title>
+
+      {/* Tie-back: short tick at the true X on the top axis +
+          diagonal up to the cap at the nudged screenX. Renders only
+          when the layout pass had to displace this column. */}
+      {tieBackTrueX !== null && (
+        <g pointerEvents="none">
+          <line
+            x1={tieBackTrueX}
+            x2={tieBackTrueX}
+            y1={plotTop}
+            y2={plotTop + 5}
+            stroke="#6b7280"
+            strokeWidth={1.25}
+            strokeOpacity={0.8}
+          />
+          <line
+            x1={tieBackTrueX}
+            x2={sx}
+            y1={plotTop + 5}
+            y2={clampedTop}
+            stroke="#6b7280"
+            strokeWidth={1}
+            strokeOpacity={0.55}
+            strokeDasharray="2 2"
+          />
+        </g>
+      )}
 
       {/* Body line — only rendered when both endpoints land inside
           the plot area. */}
