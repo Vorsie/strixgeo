@@ -852,6 +852,39 @@ PATCH  /projects/{pid}/sections/{sid}       Partial update. Post-update
                                             distinct-endpoints invariant
                                             re-checked at the API layer.
 DELETE /projects/{pid}/sections/{sid}       Delete a section.
+
+GET    /projects/{pid}/reviews              List every per-(project,
+                                            investigation) decision row
+                                            (review status / notes /
+                                            hidden flag). Empty when
+                                            nothing has been reviewed
+                                            yet — absence of a row =
+                                            the default unreviewed /
+                                            not-hidden state.
+GET    /projects/{pid}/reviews/{kind}/{tid} Look up the decision row
+                                            for one investigation.
+                                            ``kind`` ∈ {cpt, borehole}.
+                                            404 when no row exists.
+PUT    /projects/{pid}/reviews/{kind}/{tid} Upsert by target. Body keys
+                                            (all optional):
+                                            review_status,
+                                            review_notes, is_hidden.
+                                            reviewed_at is managed
+                                            server-side on transitions
+                                            into / out of 'reviewed'.
+                                            404 when the target row
+                                            isn't in this project.
+DELETE /projects/{pid}/reviews/{kind}/{tid} Drop the decision row.
+                                            Idempotent — no 404 when
+                                            already absent.
+
+PATCH  /projects/{pid}/view-state           Shallow-merge a patch dict
+                                            into ``project.view_state``
+                                            (project-level toggles:
+                                            DEM overlay, hidden-by-type
+                                            sets, …). ``null`` for a
+                                            key removes it. Returns
+                                            the full ProjectResponse.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
@@ -870,18 +903,27 @@ metadata editor.
 
 ```json
 {
-  "format_version": 1,
-  "id": "<uuid>",
-  "name": "Antwerp port — quay 7",
-  "project_number": "GEO-2026-042",
-  "client": "Port of Antwerp",
-  "site_label": "Quay 7",
-  "description": "Foundation investigation",
-  "tags": ["foundation", "marine"],
-  "default_horizontal_epsg": 31370,
-  "default_vertical_epsg": 5710,
-  "phase": "design",
-  "status": "active"
+  "format_version": 3,
+  "project": {
+    "id": "<uuid>",
+    "name": "Antwerp port — quay 7",
+    "project_number": "GEO-2026-042",
+    "client": "Port of Antwerp",
+    "site_label": "Quay 7",
+    "description": "Foundation investigation",
+    "tags": ["foundation", "marine"],
+    "default_horizontal_epsg": 31370,
+    "default_vertical_epsg": 5710,
+    "phase": "design",
+    "status": "active",
+    "view_state": { }
+  },
+  "cpts": [ ],
+  "boreholes": [ ],
+  "geological_formations": [ ],
+  "geological_models": [ ],
+  "cross_sections": [ ],
+  "investigation_reviews": [ ]
 }
 ```
 
@@ -889,30 +931,38 @@ metadata editor.
 * Timestamps (``created_at`` / ``updated_at`` / ``archived_at``) live in the
   DB only and are not persisted to the file, so re-saving without a DB
   change leaves the file byte-identical.
-* **File format v2** (current) bundles the full project state — header
-  metadata under ``project``, every CPT (with series) under ``cpts``,
-  every borehole (with its full child tree: drill segments, field log
-  intervals, observations + layers + admixtures, samples + 6 lab-test
-  families) under ``boreholes``. This is what the user expects: open
-  the file, get your data back. The file weighs whatever the data
-  weighs (JSON arrays of long depth-series add up — a few MB for
-  typical projects, tens of MB for a 500-CPT DOV import).
-* **v1 (legacy metadata-only) files** still parse: the loader upgrades
-  them to a v2 shape with empty data arrays. Re-opening a v1 file on
-  a wiped DB brings the project shell back but the user has to
-  re-import CPTs / boreholes (they weren't in the file). New saves
-  always emit v2.
+* **File format v3** (current) bundles the full project state. Header
+  metadata + ``view_state`` toggle bag under ``project``; every CPT
+  (with series) under ``cpts``; every borehole (with its full child
+  tree: drill segments, field log intervals, observations + layers +
+  admixtures, samples + 6 lab-test families) under ``boreholes``;
+  the geological-model interpretation arrays (``geological_formations``,
+  ``geological_models``); the project-scoped cross-section definitions
+  (``cross_sections``); and every per-(project, investigation)
+  decision (``investigation_reviews``: review status / notes / hidden
+  flag, polymorphic target). Every per-project engineering decision
+  lives here, never in localStorage — see
+  ``memory/project_decisions_in_bundle.md``. The file weighs whatever
+  the data weighs (JSON arrays of long depth-series add up — a few
+  MB for typical projects, tens of MB for a 500-CPT DOV import).
+* **v1 and v2 readers are gone.** Pre-shipping we cut the legacy
+  parse paths in favour of one clean v3 reader/writer. Opening a
+  pre-v3 .gmproj returns ``null`` from ``parseProjectFile`` and the
+  frontend surfaces "re-save from a build that emits v3" instead of
+  silently materialising partial state.
 * Opening a file: read JSON → ``GET /projects/{id}`` → adopt the live
   metadata. If the DB row is missing (wiped DB, fresh install,
   archived elsewhere), the frontend automatically calls
   ``POST /projects/{id}/restore`` with the file's full bundle —
-  metadata + CPTs + boreholes. The endpoint is idempotent: existing
-  rows are returned / skipped, missing rows are inserted with their
-  original ids. CPTs and boreholes round-trip with their PostGIS
-  geometry rebuilt from x/y/epsg on restore. The principle is:
-  **the .gmproj file is the user's anchor; the DB is just a cache
-  of the data**. Opening a valid v2 .gmproj always brings everything
-  back when the API is reachable.
+  metadata + CPTs + boreholes + geology + sections + reviews. The
+  endpoint rejects non-v3 payloads with a 400 + "re-save from a
+  current build" message; on a valid v3 payload it's idempotent
+  (existing rows by id are skipped, missing rows are inserted with
+  their original ids). CPTs and boreholes round-trip with their
+  PostGIS geometry rebuilt from x/y/epsg on restore. The principle
+  is: **the .gmproj file is the user's anchor; the DB is just a
+  cache of the data**. Opening a valid v3 .gmproj always brings
+  everything back when the API is reachable.
 * Recent-projects list lives at
   ``app.getPath('userData')/recent-projects.json`` (max 10 entries, MRU
   order). Both the File menu's "Open Recent" submenu and the Welcome
@@ -927,9 +977,11 @@ metadata editor.
   organisation.
 
 The on-disk schema lives in ``desktop/src/renderer/src/utils/projectFile.ts``
-(``ProjectFileV1`` type + ``buildProjectFile`` / ``serialiseProjectFile`` /
-``parseProjectFile``). Bumping ``format_version`` requires adding a backwards-
-compatible parse path; today only v1 exists.
+(``ProjectFileV3`` type + ``buildProjectFile`` / ``serialiseProjectFile`` /
+``parseProjectFile``). Once we ship, bumping ``format_version`` will
+require keeping the old reader alive and writing an explicit
+``upgrade_vN_to_vN+1`` function — see "Backwards Compatibility" at the
+top of CLAUDE.md.
 
 ---
 
