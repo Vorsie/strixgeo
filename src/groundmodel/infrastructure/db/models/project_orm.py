@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import ARRAY, DateTime, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -72,6 +74,15 @@ class ProjectOrm(Base):
     # project from default listings; the row + every child CPT/borehole is
     # preserved untouched.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # JSONB bag for project-level view toggles that aren't tied to a
+    # specific investigation: DEM overlay enabled/opacity, hidden-by-type
+    # sets in the map's layer-control, future project-level view prefs.
+    # Each new toggle is a key in the dict — no migrations per toggle.
+    # Schema discipline lives at the Pydantic layer; the column itself
+    # accepts any JSON object. Default ``{}`` so callers can read keys
+    # via .get(...) without null-checking the column.
+    view_state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
