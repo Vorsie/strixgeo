@@ -99,19 +99,31 @@ class InvestigationReviewRepository(GroundModelLogger):
                 f"review_status must be one of {sorted(ALLOWED_REVIEW_STATUSES)}; got {new_status!r}"
             )
 
+        # Per-column None policy:
+        # * ``review_status`` (NOT NULL) — None means "don't touch".
+        # * ``is_hidden``     (NOT NULL) — None means "don't touch".
+        # * ``review_notes``  (nullable) — None means "clear it".
+        # The router accepts ``null`` on any field (the Pydantic shape
+        # is bool | None / str | None), so explicit-null callers must
+        # not crash the NOT NULL columns at flush time.
+        status_in = patch.get("review_status")
+        hidden_in = patch.get("is_hidden")
+
         row = await self.get_for_target(target_kind, target_id)
         if row is None:
+            initial_status = status_in if status_in is not None else "unreviewed"
+            initial_hidden = hidden_in if hidden_in is not None else False
             row = InvestigationReviewOrm(
                 id=uuid7(),
                 app_project_id=app_project_id,
                 target_kind=target_kind,
                 target_id=target_id,
-                review_status=patch.get("review_status", "unreviewed"),
+                review_status=initial_status,
                 review_notes=patch.get("review_notes"),
-                is_hidden=patch.get("is_hidden", False),
-                reviewed_at=(
-                    datetime.now(UTC) if patch.get("review_status") == "reviewed" else None
-                ),
+                is_hidden=initial_hidden,
+                # Stamp on insert iff the row lands directly in
+                # 'reviewed' (one-click "mark reviewed" from the UI).
+                reviewed_at=(datetime.now(UTC) if initial_status == "reviewed" else None),
             )
             self._session.add(row)
             await self._session.flush()
@@ -121,18 +133,23 @@ class InvestigationReviewRepository(GroundModelLogger):
             )
             return row
 
-        # Update path — only write keys actually present in patch so
-        # callers can PATCH a single field without resetting siblings.
-        for key in ("review_status", "review_notes", "is_hidden"):
-            if key in patch:
-                setattr(row, key, patch[key])
+        # Update path — capture pre-patch status before any setattr so
+        # ``reviewed_at`` can detect a real transition (otherwise a
+        # repeated ``reviewed → reviewed`` patch would refresh the
+        # timestamp and lose the original review time).
+        old_status = row.review_status
+        if status_in is not None:
+            row.review_status = status_in
+        if hidden_in is not None:
+            row.is_hidden = hidden_in
+        if "review_notes" in patch:
+            # Nullable column — an explicit ``null`` clears notes.
+            row.review_notes = patch["review_notes"]
 
-        # ``reviewed_at`` is derived from review_status transitions. We
-        # only touch it when the caller is changing review_status this
-        # turn — explicit "set notes without bumping reviewed_at" keeps
-        # the original review timestamp intact.
-        if "review_status" in patch:
-            row.reviewed_at = datetime.now(UTC) if patch["review_status"] == "reviewed" else None
+        # ``reviewed_at`` follows status transitions only. Same-state
+        # patches preserve the existing timestamp.
+        if row.review_status != old_status:
+            row.reviewed_at = datetime.now(UTC) if row.review_status == "reviewed" else None
 
         await self._session.flush()
         self.info(
