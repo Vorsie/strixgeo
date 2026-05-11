@@ -113,8 +113,11 @@ const TABS: { id: DataType; label: string; icon: React.ReactNode; available: boo
   { id: 'cpt',      label: 'CPT',      icon: <Activity size={14} />,  available: true  },
   { id: 'borehole', label: 'Borehole', icon: <Drill size={14} />,     available: true  },
   // ``Slash`` reads as a straight diagonal line — closest stock-icon
-  // metaphor for a cross-section slice through the project.
-  { id: 'section',  label: 'Sections', icon: <Slash size={14} />,     available: true  },
+  // metaphor for a cross-section slice through the project. Tab label
+  // is the geotech-shorthand "X-sections" (10 chars) so it fits next
+  // to "Borehole" in the cramped tab bar; the formal term
+  // "Cross-section" is used in every body text, button, and tooltip.
+  { id: 'section',  label: 'X-sections', icon: <Slash size={14} />,   available: true  },
   { id: 'dmt',      label: 'DMT',      icon: <Gauge size={14} />,     available: false },
 ]
 
@@ -627,7 +630,7 @@ export default function Sidebar({
         )}
         {activeTab === 'section' && (
           <span>
-            {sections.length} section{sections.length !== 1 ? 's' : ''}
+            {sections.length} cross-section{sections.length !== 1 ? 's' : ''}
           </span>
         )}
         {activeTab === 'dmt' && <span>—</span>}
@@ -974,17 +977,17 @@ function SectionList({
 
   return (
     <>
-      {/* "+ New section" affordance. Disabled with a tooltip when the
-          project has no horizontal CRS — sections need an EPSG to
-          locate their endpoints, and the metadata editor is the place
-          to set it (mirrors the Terrain-overlay hint). */}
+      {/* "+ New cross-section" affordance. Disabled with a tooltip
+          when the project has no horizontal CRS — cross-sections need
+          an EPSG to locate their endpoints, and the metadata editor
+          is the place to set it (mirrors the Terrain-overlay hint). */}
       <div className="border-b border-gray-100 px-3 py-1.5">
         <button
           onClick={handleCreate}
           disabled={!canCreate || creating || !onCreate}
           title={
             !canCreate
-              ? 'Set a Default horizontal CRS in Project metadata to create sections'
+              ? 'Set a Default horizontal CRS in Project metadata to create cross-sections'
               : creating
                 ? 'Creating…'
                 : 'Create a new cross-section (placeholder endpoints)'
@@ -992,7 +995,7 @@ function SectionList({
           className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] rounded border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-800 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           <Plus size={12} />
-          {creating ? 'Creating…' : 'New section'}
+          {creating ? 'Creating…' : 'New cross-section'}
         </button>
       </div>
 
@@ -1000,8 +1003,8 @@ function SectionList({
         <EmptyState
           label={
             canCreate
-              ? 'No sections yet'
-              : 'No sections — set Default horizontal CRS in metadata first'
+              ? 'No cross-sections yet'
+              : 'No cross-sections — set Default horizontal CRS in metadata first'
           }
         />
       ) : (
@@ -1040,7 +1043,7 @@ function SectionRow({
     e.stopPropagation()
     if (!onDelete) return
     const ok = window.confirm(
-      `Delete section "${section.name}"? This can't be undone.`,
+      `Delete cross-section "${section.name}"? This can't be undone.`,
     )
     if (!ok) return
     void onDelete()
@@ -1083,7 +1086,7 @@ function SectionRow({
       {onDelete && (
         <button
           onClick={handleDelete}
-          title="Delete section"
+          title="Delete cross-section"
           className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
         >
           <Trash2 size={12} />
