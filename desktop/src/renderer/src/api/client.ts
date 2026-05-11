@@ -89,6 +89,11 @@ export interface ProjectResponse {
   archived_at: string | null
   created_at: string
   updated_at: string
+  // Project-level view toggles (DEM overlay, hidden-by-type sets,
+  // future preferences). Schema-less JSONB on the server — the keys
+  // each consumer cares about are documented in their respective
+  // utility module (e.g. ``demSources.readDemOverlay``).
+  view_state: Record<string, unknown>
 }
 
 // Full project bundle — metadata + every CPT (with series) + every
@@ -502,5 +507,20 @@ export const api = {
     // are inserted. The .gmproj file is the user's anchor.
     restore: (id: string, body: ProjectBundleResponse): Promise<ProjectResponse> =>
       post(`/projects/${id}/restore`, body),
+
+    // Shallow-merge a patch into ``project.view_state`` (project-level
+    // toggle bag: DEM overlay, hidden-by-type sets, …). Each TOP-LEVEL
+    // key in ``patch`` replaces the same key in the existing dict;
+    // siblings are untouched. ``null`` for a key removes it. Nested
+    // values are NOT deep-merged — to change one field inside a nested
+    // object, include the whole subtree.
+    //
+    // Returns the full ProjectResponse so callers can refresh their
+    // in-memory project handle without a second GET.
+    patchViewState: (
+      id: string,
+      patchBody: Record<string, unknown>,
+    ): Promise<ProjectResponse> =>
+      patch(`/projects/${id}/view-state`, { patch: patchBody }),
   },
 }
