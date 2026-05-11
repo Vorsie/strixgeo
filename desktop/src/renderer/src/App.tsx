@@ -1251,6 +1251,7 @@ export default function App() {
                 cpts={cpts}
                 boreholes={boreholes}
                 onPatch={handlePatchSelectedSection}
+                onClose={() => setSelectedSectionId(null)}
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
@@ -1276,6 +1277,9 @@ export default function App() {
                     drawSectionMode={drawingSection}
                     onSectionLineDrawn={handleSectionLineDrawn}
                     onCancelSectionDraw={cancelSectionDraw}
+                    sections={sections}
+                    selectedSectionId={selectedSectionId}
+                    onSelectSection={handleSelectSection}
                   />
             ) : selectedBoreholeId ? (
               boreholeDetailMap.has(selectedBoreholeId) ? (

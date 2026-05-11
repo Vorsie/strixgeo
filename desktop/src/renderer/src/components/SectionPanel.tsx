@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, X } from 'lucide-react'
 
 import {
   api,
@@ -63,6 +63,11 @@ interface Props {
     projection_buffer_m?: number
     vertical_exaggeration?: number
   }) => Promise<void>
+  /** Close the section view — typically clears the parent's
+   * selectedSectionId so the App's render branch flips back to the
+   * map. Optional so the test-render path can mount without a
+   * navigation seam. */
+  onClose?: () => void
 }
 
 // World viewport in section-local coordinates: x = along-distance
@@ -179,6 +184,7 @@ export default function SectionPanel({
   cpts = [],
   boreholes = [],
   onPatch,
+  onClose,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -431,6 +437,7 @@ export default function SectionPanel({
       <SectionHeader
         section={section}
         lengthM={lengthM}
+        onClose={onClose}
         vex={vex}
         onVexChange={setVex}
         onVexCommit={
@@ -609,6 +616,7 @@ const BUFFER_MAX = 500
 function SectionHeader({
   section,
   lengthM,
+  onClose,
   vex,
   onVexChange,
   onVexCommit,
@@ -619,6 +627,7 @@ function SectionHeader({
 }: {
   section: CrossSectionResponse
   lengthM: number
+  onClose: (() => void) | undefined
   vex: number
   onVexChange: (next: number) => void
   // Fires on slider release with the final value; ``undefined`` means
@@ -722,6 +731,17 @@ function SectionHeader({
         <RotateCcw size={11} />
         Reset
       </button>
+
+      {onClose && (
+        <button
+          onClick={onClose}
+          className="flex items-center justify-center w-7 h-7 rounded border border-gray-200 text-gray-500 hover:bg-white hover:text-gray-800 transition-colors"
+          title="Close section view (back to map)"
+          aria-label="Close section view"
+        >
+          <X size={13} />
+        </button>
+      )}
     </div>
   )
 }
