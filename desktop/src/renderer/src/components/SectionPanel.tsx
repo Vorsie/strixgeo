@@ -54,6 +54,15 @@ interface Props {
   cpts?: readonly CptListItem[]
   /** All boreholes in the project. Same filter as cpts. */
   boreholes?: readonly BoreholeListItem[]
+  /** Patch the section row server-side. Called on slider release for
+   * ``projection_buffer_m`` and ``vertical_exaggeration`` so the
+   * values persist across opens and ride the .gmproj bundle. The
+   * handler is optional so the test-render path can mount without
+   * a network seam. */
+  onPatch?: (patch: {
+    projection_buffer_m?: number
+    vertical_exaggeration?: number
+  }) => Promise<void>
 }
 
 // World viewport in section-local coordinates: x = along-distance
@@ -169,6 +178,7 @@ export default function SectionPanel({
   zEpsg = null,
   cpts = [],
   boreholes = [],
+  onPatch,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -423,6 +433,20 @@ export default function SectionPanel({
         lengthM={lengthM}
         vex={vex}
         onVexChange={setVex}
+        onVexCommit={
+          // Persist VEX on slider release so reopening the section
+          // keeps the user's last setting. Local ``vex`` already
+          // updated optimistically by ``setVex``; this just flushes
+          // the value to the server.
+          onPatch
+            ? next => void onPatch({ vertical_exaggeration: next })
+            : undefined
+        }
+        onBufferCommit={
+          onPatch
+            ? next => void onPatch({ projection_buffer_m: next })
+            : undefined
+        }
         scaleH={scaleH}
         scaleV={scaleV}
         onReset={resetView}
@@ -576,11 +600,19 @@ export default function SectionPanel({
 // Header strip — name, length, VEX slider, scale read-out, reset.
 // ---------------------------------------------------------------------------
 
+// Projection-buffer slider bounds. 5 m is the tightest engineers
+// typically use (closely-spaced corridor surveys); 500 m covers
+// regional / preliminary sections through sparse boreholes.
+const BUFFER_MIN = 5
+const BUFFER_MAX = 500
+
 function SectionHeader({
   section,
   lengthM,
   vex,
   onVexChange,
+  onVexCommit,
+  onBufferCommit,
   scaleH,
   scaleV,
   onReset,
@@ -589,6 +621,10 @@ function SectionHeader({
   lengthM: number
   vex: number
   onVexChange: (next: number) => void
+  // Fires on slider release with the final value; ``undefined`` means
+  // "don't persist" (test-render mode without a backend seam).
+  onVexCommit: ((next: number) => void) | undefined
+  onBufferCommit: ((next: number) => void) | undefined
   scaleH: number
   scaleV: number
   onReset: () => void
@@ -608,6 +644,16 @@ function SectionHeader({
     onVexChange(Math.pow(10, Math.log10(VEX_MIN) + v * logRange))
   }
 
+  // Local mirror of the buffer for smooth drag (same pattern the DEM
+  // overlay opacity slider uses). Commit on release; the section row
+  // is updated server-side then; until then the projected columns
+  // still use ``section.projection_buffer_m`` because that's what
+  // SectionPanel sees from the server-truth ``section`` prop.
+  const [localBuffer, setLocalBuffer] = useState(section.projection_buffer_m)
+  useEffect(() => {
+    setLocalBuffer(section.projection_buffer_m)
+  }, [section.id, section.projection_buffer_m])
+
   return (
     <div className="flex items-center gap-4 px-3 py-2 border-b border-gray-200 bg-gray-50 text-xs">
       <div className="flex flex-col min-w-0">
@@ -623,6 +669,30 @@ function SectionHeader({
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
+        <span
+          className="text-[10px] text-gray-500"
+          title="Lateral distance from the section line within which investigations are projected onto it"
+        >
+          Buffer
+        </span>
+        <input
+          type="range"
+          min={BUFFER_MIN}
+          max={BUFFER_MAX}
+          step={5}
+          value={Math.round(localBuffer)}
+          onChange={e => setLocalBuffer(Number(e.target.value))}
+          onMouseUp={() => onBufferCommit?.(localBuffer)}
+          onTouchEnd={() => onBufferCommit?.(localBuffer)}
+          onKeyUp={() => onBufferCommit?.(localBuffer)}
+          className="w-28 cursor-pointer"
+          aria-label="Projection buffer (m)"
+          disabled={onBufferCommit === undefined}
+        />
+        <span className="tabular-nums w-12 text-right">±{Math.round(localBuffer)} m</span>
+      </div>
+
+      <div className="flex items-center gap-2">
         <span className="text-[10px] text-gray-500">V exag</span>
         <input
           type="range"
@@ -630,6 +700,9 @@ function SectionHeader({
           max={100}
           value={sliderValue}
           onChange={handleSlider}
+          onMouseUp={() => onVexCommit?.(vex)}
+          onTouchEnd={() => onVexCommit?.(vex)}
+          onKeyUp={() => onVexCommit?.(vex)}
           className="w-32 cursor-pointer"
           aria-label="Vertical exaggeration"
         />
