@@ -55,6 +55,9 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.investigation_review_orm import (
+    InvestigationReviewOrm,
+)
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
@@ -268,28 +271,33 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
         .options(selectinload(GeologicalModelOrm.contacts))
     )
     sections_stmt = select(CrossSectionOrm).where(CrossSectionOrm.app_project_id == project.id)
+    reviews_stmt = select(InvestigationReviewOrm).where(
+        InvestigationReviewOrm.app_project_id == project.id
+    )
 
     cpts = (await session.execute(cpts_stmt)).scalars().all()
     boreholes = (await session.execute(boreholes_stmt)).scalars().all()
     formations = (await session.execute(formations_stmt)).scalars().all()
     models = (await session.execute(models_stmt)).scalars().all()
     sections = (await session.execute(sections_stmt)).scalars().all()
+    reviews = (await session.execute(reviews_stmt)).scalars().all()
 
+    # v3 bundle. Every per-project decision rides along — the .gmproj
+    # is the user's anchor, the DB is just a cache.
     bundle = {
-        "format_version": 2,
+        "format_version": 3,
         "project": _column_to_json(project, _SKIP_COLUMNS),
         "cpts": [_cpt_to_dict(c) for c in cpts],
         "boreholes": [_borehole_to_dict(b) for b in boreholes],
-        # Additive fields. Older readers without geology / section
-        # support will ignore these; older bundles missing them parse
-        # as empty lists (see restore_project_bundle).
         "geological_formations": [_column_to_json(f, _SKIP_COLUMNS) for f in formations],
         "geological_models": [_geological_model_to_dict(m) for m in models],
         "cross_sections": [_column_to_json(s, _SKIP_COLUMNS) for s in sections],
+        "investigation_reviews": [_column_to_json(r, _SKIP_COLUMNS) for r in reviews],
     }
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
-        f"+ {len(formations)} formations + {len(models)} models + {len(sections)} sections"
+        f"+ {len(formations)} formations + {len(models)} models + {len(sections)} sections "
+        f"+ {len(reviews)} reviews"
     )
     return bundle
 
@@ -448,6 +456,7 @@ async def restore_project_bundle(
     geological_formations_payload: list[dict[str, Any]] | None = None,
     geological_models_payload: list[dict[str, Any]] | None = None,
     cross_sections_payload: list[dict[str, Any]] | None = None,
+    investigation_reviews_payload: list[dict[str, Any]] | None = None,
 ) -> ProjectOrm:
     """Idempotently materialise a project + every child collection from a bundle.
 
@@ -473,6 +482,7 @@ async def restore_project_bundle(
     geological_formations_payload = geological_formations_payload or []
     geological_models_payload = geological_models_payload or []
     cross_sections_payload = cross_sections_payload or []
+    investigation_reviews_payload = investigation_reviews_payload or []
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -611,11 +621,42 @@ async def restore_project_bundle(
         session.add(CrossSectionOrm(**kwargs))
         new_sections += 1
 
+    # ---- Investigation reviews -------------------------------------------
+    # Per-(project, investigation) decisions. Dedup by id like the other
+    # arrays; an existing row wins (DB-authoritative when present). The
+    # target_kind/target_id pair is enforced unique at the DB level, so
+    # two payloads for the same target would fail at commit — callers
+    # shouldn't construct that case.
+    existing_review_ids = set(
+        (
+            await session.execute(
+                select(InvestigationReviewOrm.id).where(
+                    InvestigationReviewOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_reviews = 0
+    for r_payload in investigation_reviews_payload:
+        r_id_raw = r_payload.get("id")
+        if r_id_raw is None:
+            continue
+        r_id = UUID(r_id_raw) if isinstance(r_id_raw, str) else r_id_raw
+        if r_id in existing_review_ids:
+            continue
+        kwargs = _apply_json_to_kwargs(InvestigationReviewOrm, r_payload)
+        kwargs["app_project_id"] = project_id
+        session.add(InvestigationReviewOrm(**kwargs))
+        new_reviews += 1
+
     await session.flush()
     logger.info(
         f"restore_project_bundle({project_id}): "
         f"+{new_cpts} CPTs, +{new_boreholes} boreholes, "
         f"+{new_formations} formations, +{new_models} models "
-        f"(+{new_contacts} contacts), +{new_sections} sections"
+        f"(+{new_contacts} contacts), +{new_sections} sections, "
+        f"+{new_reviews} reviews"
     )
     return project
