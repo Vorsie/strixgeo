@@ -146,6 +146,16 @@ User-owned artefacts have to keep working across upgrades. "Forever"
 isn't rhetorical — the user paid the cost of saving the file once and
 should never lose access to that data because we changed our minds.
 
+### Floor: format_version = 3
+
+v1 (metadata-only) and v2 (CPTs + boreholes + geology + sections) were
+dev-only and have been removed pre-shipping (one-time amnesty). v3 is
+the first format we commit to: it carries every per-project decision
+(geology + cross-sections + investigation_reviews + view_state) so
+opening on a wiped DB rehydrates the user's complete state. The
+backend's ``SUPPORTED_BUNDLE_VERSIONS`` is the runtime contract;
+bumping it requires the upgrade-chain steps below.
+
 ### Scope
 
 The rule applies to anything the user persists or relies on outside
@@ -153,7 +163,7 @@ the running app:
 
 | Artefact | Rule |
 |---|---|
-| ``.gmproj`` file format | Old versions must always parse. Bump ``format_version`` for breaking changes and add an explicit upgrade path; never silently drop fields. The v1→v2 upgrade in ``desktop/src/renderer/src/utils/projectFile.ts`` is the template. |
+| ``.gmproj`` file format | v3+ must always parse. Bump ``format_version`` for breaking changes and add an explicit upgrade path; never silently drop fields. The upgrade-chain rules below are the template. |
 | Bundle wire format (``ProjectBundleRequest`` / ``Response``) | Same as .gmproj — the file embeds this verbatim. Adding fields is fine; removing or repurposing a field name requires a version bump + parse-path branching. |
 | REST API contracts | Additive changes only. New fields default to optional / null. Removing or repurposing existing fields needs a deprecation cycle (ship the new one alongside, migrate clients, drop the old after one or two releases). |
 | Recent-projects list (``userData/recent-projects.json``) | Tolerate unknown fields on read, version it if the shape changes. |
@@ -1571,3 +1581,29 @@ than no landing page.
 **When.** As soon as the v1.0 MVP gate is real (layer model +
 exports). Start collecting emails before announcing pricing — the
 list calibrates demand and the launch send is the conversion event.
+
+### 21. Investigation DELETE leaves orphan review rows (low)
+
+**What.** ``investigation_review`` carries a polymorphic
+(``target_kind``, ``target_id``) anchor with no DB-side FK to the
+target tables. ``DELETE /cpt/{id}`` (still wired even though the
+desktop frontend doesn't call it) hard-deletes the CPT row but
+leaves any review row for that target in place. The orphan blocks a
+future review for any row that re-uses the UUID (vanishingly
+unlikely under uuid7) and shows up in the bundle on Save as a
+dangling decision pointing at nothing.
+
+**Why deferred.** The desktop frontend never calls
+``DELETE /cpt/{id}`` today (the sidebar's "remove from project"
+flips ``is_hidden`` on the review row instead), so live data can't
+hit the bug. It surfaces only via direct API use, ``curl``-style
+scripts, or future bulk-clean workflows.
+
+**Fix shape.** Smallest change: a ``delete_for_target(kind, id)``
+call inside the existing ``DELETE /cpt/{id}`` and
+``DELETE /borehole/{id}`` handlers, plus a regression test
+asserting the review row vanishes alongside the investigation. A
+periodic GC pass would also work but feels heavier than the bug.
+
+**When to revisit.** Before exposing any bulk-delete endpoint, or
+before any external automation can call DELETE on investigations.
