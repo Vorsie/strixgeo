@@ -1216,6 +1216,8 @@ export default function App() {
               <SectionPanel
                 section={selectedSection}
                 zEpsg={project.default_vertical_epsg}
+                cpts={cpts}
+                boreholes={boreholes}
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
