@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectResponse(BaseModel):
@@ -37,3 +38,7 @@ class ProjectResponse(BaseModel):
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # Project-level view toggles (DEM overlay, hidden-by-type sets, …).
+    # Always a dict — the column default is ``{}`` so reads never see
+    # null. Schema discipline for keys lives at the PATCH endpoint.
+    view_state: dict[str, Any] = Field(default_factory=dict)
