@@ -14,6 +14,7 @@ import type {
 import { useProject } from './hooks/useProject'
 import { usePersistedSet } from './hooks/usePersistedSet'
 import { useTheme } from './hooks/useTheme'
+import { wgs84ToProjected } from './hooks/useWgs84'
 import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
 import { addAllToSet } from './utils/sets'
@@ -155,6 +156,11 @@ export default function App() {
   // map / chart / borelog — section view comes next.
   const [sections, setSections] = useState<CrossSectionResponse[]>([])
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
+  // ``true`` while the user is two-click-drawing a section line on
+  // the map. The Sidebar's "+ New cross-section" button enters this
+  // mode; the MapView mounts a SectionLineDrawer that completes via
+  // ``handleSectionLineDrawn`` below.
+  const [drawingSection, setDrawingSection] = useState(false)
 
   // Layer-visibility state — lifted from MapView so the Sidebar can also
   // grey out + reorder hidden items. We track HIDDEN values (not visible
@@ -707,84 +713,78 @@ export default function App() {
   }, [project])
 
   // Placeholder geometry generator. S1 ships the discovery surface
-  // (list / create / delete) but the section's endpoints are picked
-  // by the user on the map in S10. Until then a fresh section lands
-  // at a sensible default location based on the project's existing
-  // data: the diagonal of the CPT/borehole bounding box if any markers
-  // exist, otherwise a 1km E-W line at the project's typical CRS
-  // origin. User edits via the metadata editor (S2) or the live
-  // map-pick interaction (S10).
-  function placeholderEndpoints(epsg: number): {
-    start_x: number
-    start_y: number
-    end_x: number
-    end_y: number
-  } {
-    const xs = [
-      ...cpts.map(c => c.location_x),
-      ...boreholes.map(b => b.location_x),
-    ].filter(Number.isFinite)
-    const ys = [
-      ...cpts.map(c => c.location_y),
-      ...boreholes.map(b => b.location_y),
-    ].filter(Number.isFinite)
-    if (xs.length >= 2 && ys.length >= 2) {
-      // Diagonal across the bbox — guarantees distinct endpoints and
-      // sets the section to span the full data extent the user just
-      // imported. Often a poor default for engineering but a great
-      // visual anchor that's obviously a placeholder.
-      return {
-        start_x: Math.min(...xs),
-        start_y: Math.min(...ys),
-        end_x: Math.max(...xs),
-        end_y: Math.max(...ys),
-      }
-    }
-    // No data — pick a 1 km E-W line centred on a typical site for
-    // the CRS. 150000 / 200000 lands near central Belgium for L72;
-    // 155000 / 463000 lands near central NL for RD New. Either way
-    // the user will move the endpoints once map-pick lands.
-    if (epsg === 28992) {
-      // RD New (Netherlands)
-      return { start_x: 154500, start_y: 463000, end_x: 155500, end_y: 463000 }
-    }
-    // Default to Belgium Lambert72 centre.
-    return { start_x: 149500, start_y: 200000, end_x: 150500, end_y: 200000 }
-  }
-
+  // "+ New cross-section" enters a two-click draw mode on the map.
+  // The Sidebar fires this; the MapView mounts a SectionLineDrawer
+  // that ultimately calls ``handleSectionLineDrawn`` below with the
+  // captured endpoints. Returning ``null`` keeps the SectionList's
+  // contract (creation returns the row or null); the row materialises
+  // asynchronously via the draw flow instead of in this handler.
   const handleCreateSection = useCallback(async (): Promise<
     CrossSectionResponse | null
   > => {
     if (!project) return null
-    const epsg = project.default_horizontal_epsg
-    if (epsg == null) {
+    if (project.default_horizontal_epsg == null) {
       toast('error', 'Set a Default horizontal CRS in Project metadata first.')
       return null
     }
-    const endpoints = placeholderEndpoints(epsg)
-    // Unique-ish default name. The backend doesn't enforce uniqueness
-    // (engineers might name two cross-sections "AA'") so the counter
-    // is just a hint to the user; they can rename in S2's metadata
-    // editor.
-    const ordinal = sections.length + 1
-    try {
-      const created = await api.section.create(project.id, {
-        name: `Cross-section ${ordinal}`,
-        epsg,
-        ...endpoints,
-      })
-      setSections(prev => [...prev, created])
-      setSelectedSectionId(created.id)
-      log.success('section', `created ${created.name} (${created.id})`)
-      return created
-    } catch (err) {
-      log.error('section', 'create failed', err)
-      toast('error', 'Could not create the cross-section.')
-      return null
-    }
-    // ``cpts`` / ``boreholes`` feed placeholderEndpoints; sections drives
-    // the ordinal; project provides id + epsg.
-  }, [project, sections.length, cpts, boreholes])
+    // Drop any active section selection so the map is the visible
+    // surface for drawing. Also clear CPT/borehole selection for the
+    // same reason — the user shouldn't have a detail panel obscuring
+    // half the map mid-draw.
+    setSelectedSectionId(null)
+    setSelectedId(null)
+    setSelectedBoreholeId(null)
+    setDrawingSection(true)
+    return null
+  }, [project])
+
+  const cancelSectionDraw = useCallback(() => {
+    setDrawingSection(false)
+  }, [])
+
+  // Fires from the SectionLineDrawer once the user has placed both
+  // endpoints. Converts WGS84 (Leaflet's native CRS) → the project's
+  // horizontal EPSG and POSTs the section. On success the new row
+  // is added to local state and selected so the user immediately
+  // sees the section panel render.
+  const handleSectionLineDrawn = useCallback(
+    async (
+      start: { lat: number; lng: number },
+      end: { lat: number; lng: number },
+    ) => {
+      setDrawingSection(false)
+      if (!project) return
+      const epsg = project.default_horizontal_epsg
+      if (epsg == null) return // gated upstream, defensive only
+      const [sx, sy] = wgs84ToProjected(start.lat, start.lng, epsg)
+      const [ex, ey] = wgs84ToProjected(end.lat, end.lng, epsg)
+      // Defensive guard for the "double-click same spot" race —
+      // the backend rejects zero-length lines, but a clearer toast
+      // beats a backend 400.
+      if (sx === ex && sy === ey) {
+        toast('error', 'The two endpoints landed at the same point. Try again.')
+        return
+      }
+      const ordinal = sections.length + 1
+      try {
+        const created = await api.section.create(project.id, {
+          name: `Cross-section ${ordinal}`,
+          epsg,
+          start_x: sx,
+          start_y: sy,
+          end_x: ex,
+          end_y: ey,
+        })
+        setSections(prev => [...prev, created])
+        setSelectedSectionId(created.id)
+        log.success('section', `created ${created.name} from map draw`)
+      } catch (err) {
+        log.error('section', 'create-from-draw failed', err)
+        toast('error', 'Could not create the cross-section.')
+      }
+    },
+    [project, sections.length],
+  )
 
   const handleDeleteSection = useCallback(
     async (id: string) => {
@@ -1240,6 +1240,9 @@ export default function App() {
                     demSource={demSource}
                     demOverlay={demOverlay}
                     onDemOverlayChange={handleDemOverlayChange}
+                    drawSectionMode={drawingSection}
+                    onSectionLineDrawn={handleSectionLineDrawn}
+                    onCancelSectionDraw={cancelSectionDraw}
                   />
             ) : selectedBoreholeId ? (
               boreholeDetailMap.has(selectedBoreholeId) ? (
