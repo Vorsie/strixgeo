@@ -48,6 +48,7 @@ from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.repositories.dov_dedup import existing_dov_permkeys
+from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import BoreholeWfsRow
 from groundmodel.infrastructure.parsers.borehole.dov.dov_interpretation_client import (
     DovInterpretationClient,
 )
@@ -60,6 +61,25 @@ from groundmodel.infrastructure.parsers.borehole.dov.interpretation_parse_result
 from groundmodel.infrastructure.parsers.borehole.dov.interpretation_wfs_row import (
     InterpretationWfsRow,
 )
+
+# Map each Boringen-WFS availability flag to the ObservationType the
+# corresponding ``interpretaties:*`` WFS layer carries. Source of
+# truth for the gap-detection cross-check below. The Boringen WFS
+# row's ``has_<type>`` flags are authoritative (they come from DOV's
+# main DB); the per-stream interpretation WFS layers occasionally lag
+# behind — that's the GitHub issue #6 scenario.
+_FLAG_TO_TYPE: dict[str, ObservationType] = {
+    "has_coded_lithology": ObservationType.CODED_LITHOLOGY,
+    "has_geotechnical_coding": ObservationType.GEOTECHNICAL_CODING,
+    "has_lithological_description": ObservationType.LITHOLOGICAL_DESCRIPTION,
+    "has_informal_stratigraphy": ObservationType.INFORMAL_STRATIGRAPHY,
+    "has_formal_stratigraphy": ObservationType.FORMAL_STRATIGRAPHY,
+    "has_quaternary_stratigraphy": ObservationType.QUATERNARY_STRATIGRAPHY,
+    "has_hydrogeological_stratigraphy": ObservationType.HYDROGEOLOGICAL_STRATIGRAPHY,
+    "has_informal_hydrogeological_stratigraphy": (
+        ObservationType.INFORMAL_HYDROGEOLOGICAL_STRATIGRAPHY
+    ),
+}
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.timing import ms_since
@@ -95,6 +115,8 @@ class ImportInterpretationsDov(GroundModelLogger):
         test_id_to_borehole_id: dict[str, UUID],
         cache: DovXmlCache,
         http: httpx.AsyncClient,
+        *,
+        wfs_row_map: dict[str, BoreholeWfsRow] | None = None,
     ) -> ImportInterpretationsDovResult:
         """Fetch + persist all interpretations in *bbox* for known boreholes.
 
@@ -237,12 +259,48 @@ class ImportInterpretationsDov(GroundModelLogger):
             f"DOV interpretation phase 3 (persist {result.attached} observations, "
             f"no commit): {ms_since(t_persist)} ms"
         )
+
+        # Phase 4 — WFS gap cross-check. The Boringen WFS publishes a
+        # ``has_<type>`` flag per interpretation stream that is the
+        # authoritative signal (it comes from DOV's main DB). The
+        # per-stream ``interpretaties:*`` WFS layers occasionally lag
+        # behind — a borehole with ``has_formal_stratigraphy=True``
+        # might still have zero rows when we query
+        # ``interpretaties:formele_stratigrafie`` by Proefnummer
+        # (GitHub issue #6, confirmed live with permkey 2024-216503).
+        #
+        # We don't have a public DOV API to discover the missing
+        # interpretation permkey from the boring permkey alone, so the
+        # fallback is "log a WARNING with the boring's DOV URL and
+        # move on" — engineers can verify what's missing by hand.
+        # Re-rendering with whatever was fetched is unchanged; the
+        # cross-check is observational, not blocking.
+        if wfs_row_map:
+            fetched_per_test_id: dict[str, set[ObservationType]] = {}
+            for row, _ in parsed:
+                fetched_per_test_id.setdefault(row.test_id, set()).add(row.observation_type)
+            for test_id, wfs_row in wfs_row_map.items():
+                got = fetched_per_test_id.get(test_id, set())
+                for flag_name, obs_type in _FLAG_TO_TYPE.items():
+                    if getattr(wfs_row, flag_name) and obs_type not in got:
+                        result.wfs_gaps += 1
+                        self.warning(
+                            f"DOV WFS gap: borehole '{test_id}' "
+                            f"(permkey {wfs_row.permkey}) has "
+                            f"{flag_name}=True but no row in the "
+                            f"interpretaties WFS — see "
+                            f"https://www.dov.vlaanderen.be/data/boring/"
+                            f"{wfs_row.permkey}. Skipping; engineers can "
+                            f"verify by hand."
+                        )
+
         self.success(
             f"DOV interpretation import done in {ms_since(t_total)} ms: "
             f"fetched={result.fetched} attached={result.attached} "
             f"skipped_already_present={result.skipped_already_present} "
             f"skipped_no_borehole={result.skipped_no_borehole} "
-            f"failed={result.failed}  per-stream={result.per_stream}"
+            f"failed={result.failed} wfs_gaps={result.wfs_gaps}  "
+            f"per-stream={result.per_stream}"
         )
         return result
 
