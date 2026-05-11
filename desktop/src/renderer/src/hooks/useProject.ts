@@ -197,12 +197,18 @@ export function useProject(): UseProject {
               project: parsed.project,
               cpts: parsed.cpts,
               boreholes: parsed.boreholes,
+              geological_formations: parsed.geological_formations,
+              geological_models: parsed.geological_models,
+              cross_sections: parsed.cross_sections,
+              investigation_reviews: parsed.investigation_reviews,
             })
             await adopt(restored, path)
             log.info(
               'project',
               `restored ${restored.name} from ${path} ` +
-                `(+${parsed.cpts.length} CPTs, +${parsed.boreholes.length} boreholes)`,
+                `(+${parsed.cpts.length} CPTs, +${parsed.boreholes.length} boreholes, ` +
+                `+${parsed.cross_sections.length} sections, ` +
+                `+${parsed.investigation_reviews.length} reviews)`,
             )
             return restored
           } catch (restoreErr) {

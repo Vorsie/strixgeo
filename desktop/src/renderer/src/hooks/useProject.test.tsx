@@ -49,8 +49,21 @@ function emptyBundle(project: typeof created): {
   project: typeof created
   cpts: Record<string, unknown>[]
   boreholes: Record<string, unknown>[]
+  geological_formations: Record<string, unknown>[]
+  geological_models: Record<string, unknown>[]
+  cross_sections: Record<string, unknown>[]
+  investigation_reviews: Record<string, unknown>[]
 } {
-  return { format_version: 2, project, cpts: [], boreholes: [] }
+  return {
+    format_version: 3,
+    project,
+    cpts: [],
+    boreholes: [],
+    geological_formations: [],
+    geological_models: [],
+    cross_sections: [],
+    investigation_reviews: [],
+  }
 }
 
 beforeEach(async () => {
@@ -105,7 +118,7 @@ describe('useProject', () => {
       // v2 format embeds the project metadata under ``project`` and
       // carries empty cpts / boreholes arrays for a freshly-created
       // project. Both substrings have to appear.
-      expect.stringMatching(/"format_version": 2/),
+      expect.stringMatching(/"format_version": 3/),
     )
     expect(window.electron.writeProjectFile).toHaveBeenCalledWith(
       'C:/Users/robin/site-a.gmproj',
@@ -166,18 +179,26 @@ describe('useProject', () => {
     const { api } = await import('../api/client')
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({
-        format_version: 1,
-        id: '01k-NEW',
-        name: 'old snapshot name',
-        project_number: null,
-        client: null,
-        site_label: null,
-        description: null,
-        tags: [],
-        default_horizontal_epsg: null,
-        default_vertical_epsg: null,
-        phase: null,
-        status: 'active',
+        format_version: 3,
+        project: {
+          id: '01k-NEW',
+          name: 'old snapshot name',
+          project_number: null,
+          client: null,
+          site_label: null,
+          description: null,
+          tags: [],
+          default_horizontal_epsg: null,
+          default_vertical_epsg: null,
+          phase: null,
+          status: 'active',
+        },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
       }),
     )
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -217,9 +238,10 @@ describe('useProject', () => {
 
   it('openProjectFile: restores the full bundle when the DB row is missing', async () => {
     const { api } = await import('../api/client')
-    // v2 file shape: ``project`` block + cpts + boreholes arrays.
+    // v3 file shape: project + cpts + boreholes + geology + sections +
+    // reviews. Every per-project decision rides in the bundle.
     const ghostFile = {
-      format_version: 2,
+      format_version: 3,
       project: {
         id: '01k-MISSING',
         name: 'Ghost',
@@ -230,6 +252,10 @@ describe('useProject', () => {
       },
       cpts: [{ id: 'cpt-1', name: 'CPT-1', series: { depths_m: [0, 1] } }],
       boreholes: [{ id: 'bh-1', name: 'BH-1' }],
+      geological_formations: [],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [{ id: 'rv-1', target_kind: 'cpt', target_id: 'cpt-1' }],
     }
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify(ghostFile),
@@ -248,79 +274,49 @@ describe('useProject', () => {
 
     expect(returned).toEqual(restored)
     expect(result.current.project).toEqual(restored)
-    // Restore is called with the full v2 bundle — metadata, CPTs, and
-    // boreholes all round-trip through the file so the data comes back
-    // along with the project shell.
+    // Restore is called with the full v3 bundle — every per-project
+    // decision rides along so the data comes back with the project.
     expect(api.project.restore).toHaveBeenCalledWith(
       '01k-MISSING',
       expect.objectContaining({
-        format_version: 2,
+        format_version: 3,
         project: expect.objectContaining({ id: '01k-MISSING', name: 'Ghost' }),
         cpts: ghostFile.cpts,
         boreholes: ghostFile.boreholes,
+        investigation_reviews: ghostFile.investigation_reviews,
       }),
     )
   })
 
-  it('openProjectFile: legacy v1 file still restores (no CPTs / boreholes)', async () => {
-    const { api } = await import('../api/client')
-    const ghostFile = {
-      format_version: 1,
-      id: '01k-LEGACY',
-      name: 'Legacy ghost',
-      project_number: null,
-      client: null,
-      site_label: null,
-      description: null,
-      tags: [],
-      default_horizontal_epsg: null,
-      default_vertical_epsg: null,
-      phase: null,
-      status: 'active',
-    }
+  it('openProjectFile: returns null for pre-v3 files (legacy formats no longer accepted)', async () => {
+    // Pre-shipping, we explicitly dropped v1/v2 readers — anyone
+    // holding an old dev .gmproj has to re-save from a current build.
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
-      JSON.stringify(ghostFile),
+      JSON.stringify({ format_version: 2, project: { id: 'x' }, cpts: [], boreholes: [] }),
     )
-    ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('GET /projects/01k-LEGACY → 404'),
-    )
-    const restored = { ...created, id: '01k-LEGACY', name: 'Legacy ghost' }
-    ;(api.project.restore as ReturnType<typeof vi.fn>).mockResolvedValue(restored)
 
     const { result } = renderHook(() => useProject())
+    let returned: unknown
     await act(async () => {
-      await result.current.openProjectFile('C:/path/legacy.gmproj')
+      returned = await result.current.openProjectFile('C:/path/legacy.gmproj')
     })
 
-    // v1 upgrades to a v2 bundle with empty data arrays. Restore still
-    // succeeds — the user just won't see CPTs / boreholes come back
-    // (they weren't in the legacy file).
-    expect(api.project.restore).toHaveBeenCalledWith(
-      '01k-LEGACY',
-      expect.objectContaining({
-        format_version: 2,
-        cpts: [],
-        boreholes: [],
-      }),
-    )
+    expect(returned).toBeNull()
+    expect(result.current.project).toBeNull()
   })
 
   it('openProjectFile: returns null when restore itself fails (network down)', async () => {
     const { api } = await import('../api/client')
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({
-        format_version: 1,
-        id: '01k-MISSING',
-        name: 'Ghost',
-        project_number: null,
-        client: null,
-        site_label: null,
-        description: null,
-        tags: [],
-        default_horizontal_epsg: null,
-        default_vertical_epsg: null,
-        phase: null,
-        status: 'active',
+        format_version: 3,
+        project: { id: '01k-MISSING', name: 'Ghost', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
       }),
     )
     ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
@@ -344,18 +340,14 @@ describe('useProject', () => {
     const { api } = await import('../api/client')
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({
-        format_version: 1,
-        id: '01k-NET',
-        name: 'Net Down',
-        project_number: null,
-        client: null,
-        site_label: null,
-        description: null,
-        tags: [],
-        default_horizontal_epsg: null,
-        default_vertical_epsg: null,
-        phase: null,
-        status: 'active',
+        format_version: 3,
+        project: { id: '01k-NET', name: 'Net Down', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
       }),
     )
     ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
