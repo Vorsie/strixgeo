@@ -12,8 +12,18 @@
 //   * "this column is rendered HERE" (the displaced position),
 //   * "but it actually projects THERE" (the tie-back tick).
 //
+// Spacing rule: edge-to-edge. Each item carries its own ``width``;
+// adjacent items must keep at least ``edgeGap`` pixels of clear air
+// between their edges. This generalises the previous "center-to-
+// center" rule which assumed every column had the same width — the
+// moment qc curves / Rf strips / borehole interpretation tracks
+// land inside the columns, widths vary by toggle state and
+// kind, and a fixed center-gap either wastes space or under-spaces
+// wide columns.
+//
 // Algorithm: single left-to-right pass. Sort items by trueX, walk
-// in order, pushing each one to ``max(trueX, prev + minGap)``.
+// in order, pushing each one to keep ``halfWidth_prev + edgeGap +
+// halfWidth_curr`` of clear space from the previous nudged center.
 // Cascades — a tight cluster of 5 items propagates rightward, the
 // first stays at its true position. A future iteration could
 // centre clusters on their mean for symmetric distribution; the
@@ -21,8 +31,13 @@
 // the asymmetry already inspectable.
 
 export interface NudgeInput {
-  /** Pixel position where the column would naturally land. */
+  /** Pixel position where the column would naturally land
+   * (centerline). */
   trueX: number
+  /** Visible pixel width of the column at its widest point. The
+   * nudge enforces ``halfWidth_prev + edgeGap + halfWidth_curr``
+   * of clear space between adjacent centerlines. */
+  width: number
 }
 
 export interface NudgeResult<T extends NudgeInput> {
@@ -41,23 +56,31 @@ export interface NudgeResult<T extends NudgeInput> {
 }
 
 /**
- * Nudge a set of column screen X-positions so no two are closer
- * than ``minGap`` pixels. Output is in ascending-X order (i.e.
- * sorted by ``trueX``). The original array is not mutated.
+ * Nudge a set of column screen X-positions so adjacent columns
+ * keep at least ``edgeGap`` pixels of clear space between their
+ * edges. Each item declares its own ``width`` so mixed-width
+ * profiles (data-laden CPTs next to bare boreholes) space
+ * correctly. Output is in ascending-X order (i.e. sorted by
+ * ``trueX``). The original array is not mutated.
  */
 export function nudgeColumns<T extends NudgeInput>(
   items: readonly T[],
-  minGap: number,
+  edgeGap: number,
 ): NudgeResult<T>[] {
   if (items.length === 0) return []
   const sorted = [...items].sort((a, b) => a.trueX - b.trueX)
   const out: NudgeResult<T>[] = []
-  let prev = -Infinity
+  // Track the previous column's nudged-X-centerline + half-width
+  // separately so the next item's minimum position can be expressed
+  // cleanly: ``prevNudgedX + prevHalfWidth + edgeGap + currHalfWidth``.
+  let prevNudgedX = -Infinity
+  let prevHalfWidth = 0
   for (const item of sorted) {
-    // ``Math.max`` enforces the minimum gap from the previous
-    // nudged position. The first column in a sorted run keeps its
-    // true position (prev=-Infinity → nudged = trueX).
-    const nudged = Math.max(item.trueX, prev + minGap)
+    const halfWidth = item.width / 2
+    // First column in a sorted run lands at its true position
+    // (prev = -Infinity → the max() picks trueX).
+    const minCenter = prevNudgedX + prevHalfWidth + edgeGap + halfWidth
+    const nudged = Math.max(item.trueX, minCenter)
     out.push({
       item,
       trueX: item.trueX,
@@ -66,7 +89,8 @@ export function nudgeColumns<T extends NudgeInput>(
       // anything tinier is "effectively at the true position".
       displaced: Math.abs(nudged - item.trueX) > 0.5,
     })
-    prev = nudged
+    prevNudgedX = nudged
+    prevHalfWidth = halfWidth
   }
   return out
 }

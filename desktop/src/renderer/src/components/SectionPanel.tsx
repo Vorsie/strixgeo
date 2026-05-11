@@ -110,15 +110,22 @@ const VEX_DEFAULT = 1
 // already-trained map muscle memory.
 const WHEEL_ZOOM_FACTOR = 1.15
 
-// Minimum screen-pixel gap between adjacent column caps. Narrower
-// than the borelog conventions (~30 px) so dense profiles stay
-// compact; the tie-back diagonals keep the geometry honest.
-const MIN_COLUMN_GAP_PX = 14
+// Edge-to-edge gap between adjacent columns. 4 px of clear air
+// keeps tie-back diagonals readable even on tight profiles.
+const COLUMN_EDGE_GAP_PX = 4
+
+// Bare column width (S2/S3 layout — no data tracks). Used as the
+// floor for both kinds; data tracks grow the width additively as
+// the header toggles flip on.
+const BARE_COLUMN_WIDTH_PX = 14
 
 interface PlacedColumnInput {
   kind: 'cpt' | 'borehole'
   proj: ProjectedInvestigation<CptListItem | BoreholeListItem>
   trueX: number
+  /** Visible pixel width of this column at its widest point —
+   * feeds the nudge's edge-to-edge spacing. */
+  width: number
 }
 
 interface PlacedColumn {
@@ -129,6 +136,10 @@ interface PlacedColumn {
   /** Screen X where the column actually renders after collision
    * nudging. Equal to ``trueX`` when no displacement was needed. */
   nudgedX: number
+  /** Pixel width of this column's rendered glyph (cap + any data
+   * tracks). The renderer uses ``halfWidth`` to position the qc
+   * curve / interpretation tracks relative to the column centerline. */
+  width: number
   /** ``true`` when the column had to be moved more than half a
    * pixel. Drives whether the tie-back diagonal renders. */
   displaced: boolean
@@ -503,18 +514,25 @@ export default function SectionPanel({
         kind: 'cpt' as const,
         proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
         trueX: xToScreen(proj.along),
+        // S2/S3 layout: bare column. S7+ will compute this from the
+        // toggle set (qc + Rf + fs widths summed). For now every
+        // column is the same width so the nudge behaves identically
+        // to the pre-width-aware version.
+        width: BARE_COLUMN_WIDTH_PX,
       })),
       ...projectedBoreholes.map(proj => ({
         kind: 'borehole' as const,
         proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
         trueX: xToScreen(proj.along),
+        width: BARE_COLUMN_WIDTH_PX,
       })),
     ]
-    return nudgeColumns(items, MIN_COLUMN_GAP_PX).map(r => ({
+    return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r => ({
       kind: r.item.kind,
       proj: r.item.proj,
       trueX: r.trueX,
       nudgedX: r.nudgedX,
+      width: r.item.width,
       displaced: r.displaced,
     }))
   }, [projectedCpts, projectedBoreholes, xToScreen])
