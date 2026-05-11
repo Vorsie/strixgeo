@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.schemas.cpt.cpt_list_item import CptListItem
+from groundmodel.api.schemas.cpt.cpt_plot_batch_request import CptPlotBatchRequest
 from groundmodel.api.schemas.cpt.cpt_plot_response import CptPlotResponse
 from groundmodel.api.schemas.cpt.cpt_response import CptResponse
 from groundmodel.api.schemas.cpt.import_cpt_response import ImportCptResponse
@@ -319,23 +320,21 @@ async def delete_cpt(
     await session.commit()
 
 
-@router.get("/{cpt_id}/plot", response_model=CptPlotResponse)
-async def get_cpt_plot(
-    cpt_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> CptPlotResponse:
-    """Return raw depth-series arrays for plotting qc, fs, and u2 vs depth."""
-    repo = CptRepository(session)
-    cpt = await repo.get_by_id(cpt_id)
-    if cpt is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+def _plot_response_from_cpt(cpt: CptOrm) -> CptPlotResponse:
+    """Build a ``CptPlotResponse`` from a CPT row whose ``series`` is loaded.
 
+    Shared between ``GET /cpt/{id}/plot`` (single) and ``POST /cpt/plot-batch``
+    (many — used by the cross-section panel to fetch all in-buffer CPTs in
+    one round-trip). Both Ic and qt are derived on-read per the Data
+    Integrity Rules — never stored.
+
+    Raises ``ValueError`` when ``cpt.series`` is None so the caller can
+    decide how to surface it (404 for the single endpoint, skip-with-
+    flag in the batch path).
+    """
     s = cpt.series
     if s is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Series data not found for this CPT",
-        )
+        raise ValueError("Series data not found for this CPT")
 
     ic = (
         calculate_ic_series(
@@ -369,3 +368,51 @@ async def get_cpt_plot(
         ic=ic,
         rf_source=s.rf_source,
     )
+
+
+@router.get("/{cpt_id}/plot", response_model=CptPlotResponse)
+async def get_cpt_plot(
+    cpt_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> CptPlotResponse:
+    """Return raw depth-series arrays for plotting qc, fs, and u2 vs depth."""
+    repo = CptRepository(session)
+    cpt = await repo.get_by_id(cpt_id)
+    if cpt is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+    try:
+        return _plot_response_from_cpt(cpt)
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
+
+@router.post("/plot-batch", response_model=list[CptPlotResponse])
+async def post_cpt_plot_batch(
+    request: CptPlotBatchRequest,
+    session: AsyncSession = Depends(get_session),
+) -> list[CptPlotResponse]:
+    """Batch the per-CPT plot endpoint into one round-trip.
+
+    Used by the cross-section panel: a section with N in-buffer CPTs
+    folds N HTTP calls into one. Unknown ids and series-less CPTs are
+    silently skipped from the response — the caller's render path
+    already gates on "plot data exists for this CPT" before drawing
+    the qc / Rf channels, so a missing row is indistinguishable from
+    "not yet imported".
+
+    Body cap: 500 ids per request — guards against a runaway caller
+    DOS'ing the API with one giant batch. The cross-section view's
+    typical N is <30 today; 500 leaves headroom for very dense
+    project bboxes.
+    """
+    repo = CptRepository(session)
+    cpts = await repo.get_many_with_series(request.ids)
+    out: list[CptPlotResponse] = []
+    for cpt in cpts:
+        try:
+            out.append(_plot_response_from_cpt(cpt))
+        except ValueError:
+            # Series rowless — same drop-from-response policy as the
+            # single endpoint's 404, except batch can't 404 per item.
+            continue
+    return out
