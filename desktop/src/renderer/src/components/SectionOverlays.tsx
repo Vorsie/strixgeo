@@ -20,7 +20,7 @@
  */
 
 import { Fragment, useMemo } from 'react'
-import { Polygon, Polyline } from 'react-leaflet'
+import { Polygon, Polyline, Tooltip } from 'react-leaflet'
 
 import type { CrossSectionResponse } from '../api/client'
 import { projectedToWgs84 } from '../hooks/useWgs84'
@@ -59,13 +59,25 @@ export default function SectionOverlays({
             <Polygon
               positions={item.bufferLatLngs}
               pathOptions={{
-                color: 'transparent',
+                // Dashed green outline so the buffer reads on busy
+                // basemaps even when its fill blends with parks /
+                // vegetation. Selected section gets a continuous,
+                // heavier outline to stand out among siblings.
+                color: '#16a34a',
+                weight: selected ? 2 : 1.25,
+                opacity: selected ? 0.95 : 0.65,
+                dashArray: selected ? undefined : '6 4',
                 fillColor: selected ? '#22c55e' : '#86efac',
-                fillOpacity: selected ? 0.35 : 0.18,
-                weight: 0,
+                fillOpacity: selected ? 0.45 : 0.3,
               }}
               eventHandlers={{ click: () => onSelect(item.id) }}
-            />
+            >
+              <Tooltip sticky direction="top" opacity={0.95}>
+                <strong>{item.name}</strong>
+                <br />
+                {item.lengthM.toFixed(0)} m · ±{item.bufferM.toFixed(0)} m
+              </Tooltip>
+            </Polygon>
             <Polyline
               positions={item.lineLatLngs}
               pathOptions={{
@@ -84,6 +96,13 @@ export default function SectionOverlays({
 
 interface OverlayItem {
   id: string
+  /** Human name surfaced in the hover tooltip. */
+  name: string
+  /** Section length in metres — surfaced in the tooltip so the
+   * user knows at a glance which of several sections is which. */
+  lengthM: number
+  /** Buffer half-width in metres — surfaced in the tooltip. */
+  bufferM: number
   lineLatLngs: [number, number][]
   bufferLatLngs: [number, number][]
 }
@@ -125,6 +144,9 @@ function buildOverlay(section: CrossSectionResponse): OverlayItem | null {
     ]
     return {
       id: section.id,
+      name: section.name,
+      lengthM: length,
+      bufferM: b,
       lineLatLngs,
       bufferLatLngs,
     }
