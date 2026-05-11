@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { RotateCcw, X } from 'lucide-react'
+import { Minus, Plus, RotateCcw, X } from 'lucide-react'
 
 import {
   api,
@@ -69,6 +69,13 @@ interface Props {
    * map. Optional so the test-render path can mount without a
    * navigation seam. */
   onClose?: () => void
+  /** Click handlers for the projected columns. Selecting an
+   * investigation routes through the App's normal handleSelect /
+   * handleSelectBorehole — those already clear section selection
+   * so the App's render branch flips to the CPT / borehole detail
+   * panel cleanly. Optional for the test-render path. */
+  onSelectCpt?: (id: string) => void
+  onSelectBorehole?: (id: string) => void
 }
 
 // World viewport in section-local coordinates: x = along-distance
@@ -210,6 +217,8 @@ export default function SectionPanel({
   boreholes = [],
   onPatch,
   onClose,
+  onSelectCpt,
+  onSelectBorehole,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -372,6 +381,35 @@ export default function SectionPanel({
     setVex(section.vertical_exaggeration ?? VEX_DEFAULT)
   }
 
+  // Centred zoom — same factor as the wheel, but pivoting on the
+  // viewport's centre instead of the mouse position. Wired to the
+  // header's +/- buttons for users who'd rather click than scroll.
+  const zoomBy = useCallback((factor: number) => {
+    setViewport(prev => {
+      const cx = (prev.xMin + prev.xMax) / 2
+      const cl = (prev.levelMin + prev.levelMax) / 2
+      const xHalf = (prev.xMax - prev.xMin) * factor * 0.5
+      const lHalf = (prev.levelMax - prev.levelMin) * factor * 0.5
+      return {
+        xMin: cx - xHalf,
+        xMax: cx + xHalf,
+        levelMin: cl - lHalf,
+        levelMax: cl + lHalf,
+      }
+    })
+  }, [])
+  const zoomIn = useCallback(() => zoomBy(1 / WHEEL_ZOOM_FACTOR), [zoomBy])
+  const zoomOut = useCallback(() => zoomBy(WHEEL_ZOOM_FACTOR), [zoomBy])
+
+  // Horizontal pan for the scrub bar. Sets the viewport's xMin/xMax
+  // to a new window of the same width centred on ``centerX``.
+  const scrubTo = useCallback((centerX: number) => {
+    setViewport(prev => {
+      const half = (prev.xMax - prev.xMin) / 2
+      return { ...prev, xMin: centerX - half, xMax: centerX + half }
+    })
+  }, [])
+
   // ---- Tick generation -----------------------------------------------
 
   const xTicks = useMemo(
@@ -492,6 +530,8 @@ export default function SectionPanel({
         section={section}
         lengthM={lengthM}
         onClose={onClose}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
         vex={vex}
         onVexChange={setVex}
         onVexCommit={
@@ -620,6 +660,8 @@ export default function SectionPanel({
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
+              onSelectCpt={onSelectCpt}
+              onSelectBorehole={onSelectBorehole}
             />
 
             {/* Axis labels. */}
@@ -651,6 +693,13 @@ export default function SectionPanel({
         )}
         <CanvasHints />
       </div>
+
+      <SectionScrubBar
+        sectionLength={lengthM}
+        xMin={viewport.xMin}
+        xMax={viewport.xMax}
+        onScrubTo={scrubTo}
+      />
     </div>
   )
 }
@@ -669,6 +718,8 @@ function SectionHeader({
   section,
   lengthM,
   onClose,
+  onZoomIn,
+  onZoomOut,
   vex,
   onVexChange,
   onVexCommit,
@@ -680,6 +731,8 @@ function SectionHeader({
   section: CrossSectionResponse
   lengthM: number
   onClose: (() => void) | undefined
+  onZoomIn: () => void
+  onZoomOut: () => void
   vex: number
   onVexChange: (next: number) => void
   // Fires on slider release with the final value; ``undefined`` means
@@ -775,6 +828,25 @@ function SectionHeader({
         <span>V: {scaleV.toFixed(2)} px/m</span>
       </div>
 
+      <div className="flex items-center rounded border border-gray-200 overflow-hidden">
+        <button
+          onClick={onZoomOut}
+          className="flex items-center justify-center w-7 h-7 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors border-r border-gray-200"
+          title="Zoom out (or scroll the canvas)"
+          aria-label="Zoom out"
+        >
+          <Minus size={13} />
+        </button>
+        <button
+          onClick={onZoomIn}
+          className="flex items-center justify-center w-7 h-7 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors"
+          title="Zoom in (or scroll the canvas)"
+          aria-label="Zoom in"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
+
       <button
         onClick={onReset}
         className="flex items-center gap-1 px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors"
@@ -843,11 +915,15 @@ function InvestigationColumns({
   levelToScreen,
   plotTop,
   plotBottom,
+  onSelectCpt,
+  onSelectBorehole,
 }: {
   columns: PlacedColumn[]
   levelToScreen: (level: number) => number
   plotTop: number
   plotBottom: number
+  onSelectCpt: ((id: string) => void) | undefined
+  onSelectBorehole: ((id: string) => void) | undefined
 }): JSX.Element {
   return (
     <g>
@@ -857,6 +933,14 @@ function InvestigationColumns({
           col.kind === 'cpt'
             ? (item as CptListItem).max_depth_m
             : (item as BoreholeListItem).total_depth_m
+        const onClick =
+          col.kind === 'cpt'
+            ? onSelectCpt
+              ? () => onSelectCpt(item.id)
+              : undefined
+            : onSelectBorehole
+              ? () => onSelectBorehole(item.id)
+              : undefined
         return (
           <ColumnGlyph
             key={`${col.kind}-${item.id}`}
@@ -870,6 +954,7 @@ function InvestigationColumns({
             levelToScreen={levelToScreen}
             plotTop={plotTop}
             plotBottom={plotBottom}
+            onClick={onClick}
           />
         )
       })}
@@ -906,6 +991,7 @@ function ColumnGlyph({
   levelToScreen,
   plotTop,
   plotBottom,
+  onClick,
 }: {
   name: string
   kind: 'cpt' | 'borehole'
@@ -917,6 +1003,7 @@ function ColumnGlyph({
   levelToScreen: (level: number) => number
   plotTop: number
   plotBottom: number
+  onClick: (() => void) | undefined
 }): JSX.Element | null {
   const sx = screenX
   // ``null`` elevation gets the column floated at level=0 in a faded
@@ -950,7 +1037,26 @@ function ColumnGlyph({
       : ''
 
   return (
-    <g>
+    <g
+      onClick={onClick}
+      style={{ cursor: onClick ? 'pointer' : 'default' }}
+    >
+      {/* Transparent hit-box spanning the column's vertical strip.
+          The body line + cap are too thin to click reliably; the
+          invisible rect catches clicks anywhere within ±6 px of the
+          column's X across the full plot height. ``pointerEvents``
+          on the rect alone (not the wider <g>) keeps the tie-back
+          diagonals and other siblings non-clickable. */}
+      {onClick && (
+        <rect
+          x={sx - 7}
+          y={plotTop}
+          width={14}
+          height={plotBottom - plotTop}
+          fill="transparent"
+        />
+      )}
+
       {/* Native title is the cheapest, most accessible tooltip; we'll
           swap to a tracked hover-popover when collision handling
           adds offset indicators / leader lines in S5. */}
@@ -959,6 +1065,7 @@ function ColumnGlyph({
         {elevation !== null ? ` · ${elevation.toFixed(2)} m` : ' · elevation unknown'}
         {depth !== null ? ` · ${depth.toFixed(1)} m deep` : ''}
         {` · ${Math.abs(offset).toFixed(1)} m off-line`}
+        {onClick ? ' · click for detail' : ''}
       </title>
 
       {/* Tie-back: short tick at the true X on the top axis +
@@ -1116,5 +1223,112 @@ function DemSurfaceLine({
     >
       <title>Ground surface (DHMVII DTM)</title>
     </path>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Section scrub bar — fast horizontal navigation for long profiles
+// ---------------------------------------------------------------------------
+//
+// Track represents the full section (0 → sectionLength). A coloured
+// handle inside it shows the current viewport window. Drag the
+// handle to pan; click on the track outside the handle to recentre
+// the viewport at that x.
+//
+// Vertical zoom is unaffected — only the X bounds move. This keeps
+// the scrub interaction predictable: same Y window, different X
+// slice.
+
+function SectionScrubBar({
+  sectionLength,
+  xMin,
+  xMax,
+  onScrubTo,
+}: {
+  sectionLength: number
+  xMin: number
+  xMax: number
+  onScrubTo: (centerX: number) => void
+}): JSX.Element | null {
+  const trackRef = useRef<HTMLDivElement>(null)
+  // Pixel offset between the cursor and the handle's centre at
+  // drag-start. Lets the user grab anywhere on the handle without
+  // the handle jumping to the cursor's exact x.
+  const dragGrabRef = useRef<number | null>(null)
+
+  if (sectionLength <= 0) return null
+
+  // Viewport window as percentages of the full section. Clamped to
+  // [0, 100] so a window scrolled past either end of the section
+  // still renders as a flush-against-edge handle.
+  const startPct = Math.max(0, Math.min(100, (xMin / sectionLength) * 100))
+  const endPct = Math.max(0, Math.min(100, (xMax / sectionLength) * 100))
+  const widthPct = Math.max(2, endPct - startPct) // floor at 2% so the
+  // handle stays grab-able when fully zoomed in
+  const centerX = (xMin + xMax) / 2
+  const viewportSpan = xMax - xMin
+
+  function xFromMouse(e: MouseEvent | React.MouseEvent): number | null {
+    const track = trackRef.current
+    if (!track) return null
+    const rect = track.getBoundingClientRect()
+    const px = e.clientX - rect.left
+    const fraction = Math.max(0, Math.min(1, px / rect.width))
+    return fraction * sectionLength
+  }
+
+  function startDrag(e: React.MouseEvent): void {
+    const cursorX = xFromMouse(e)
+    if (cursorX === null) return
+    dragGrabRef.current = cursorX - centerX
+    e.stopPropagation()
+    e.preventDefault()
+    function onMove(ev: MouseEvent): void {
+      const x = xFromMouse(ev)
+      if (x === null || dragGrabRef.current === null) return
+      onScrubTo(x - dragGrabRef.current)
+    }
+    function onUp(): void {
+      dragGrabRef.current = null
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  function onTrackClick(e: React.MouseEvent): void {
+    // Click outside the handle = recentre on that x. The handle has
+    // its own onMouseDown that ``stopPropagation``s, so a handle
+    // grab won't accidentally recentre via this listener.
+    const x = xFromMouse(e)
+    if (x === null) return
+    onScrubTo(x)
+  }
+
+  return (
+    <div className="border-t border-gray-200 bg-gray-50 px-3 py-2 text-[10px] text-gray-500 flex items-center gap-2">
+      <span className="tabular-nums w-14 text-right shrink-0">
+        {Math.round(Math.max(0, xMin))} m
+      </span>
+      <div
+        ref={trackRef}
+        onMouseDown={onTrackClick}
+        className="relative flex-1 h-3 rounded bg-gray-200 cursor-pointer select-none"
+        title={`Showing ${viewportSpan.toFixed(0)} m of ${sectionLength.toFixed(0)} m`}
+      >
+        <div
+          onMouseDown={startDrag}
+          className="absolute top-0 bottom-0 rounded bg-blue-500/70 hover:bg-blue-500 transition-colors cursor-grab active:cursor-grabbing"
+          style={{
+            left: `${startPct}%`,
+            width: `${widthPct}%`,
+          }}
+        />
+      </div>
+      <span className="tabular-nums w-14 text-left shrink-0">
+        {Math.round(Math.min(sectionLength, xMax))} m
+      </span>
+    </div>
   )
 }

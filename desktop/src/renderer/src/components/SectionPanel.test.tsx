@@ -36,7 +36,10 @@ describe('SectionPanel — header readouts', () => {
     // length = sqrt(500² + 300²) ≈ 583 m
     render(<SectionPanel section={makeSection()} zEpsg={5710} />)
     expect(screen.getByTitle('Cross-section AA')).toBeInTheDocument()
-    expect(screen.getByText(/583 m/)).toBeInTheDocument()
+    // Both the header subtext and the scrub bar's right-edge label
+    // render the length. getAllByText accepts either as evidence the
+    // value is wired through.
+    expect(screen.getAllByText(/583 m/).length).toBeGreaterThan(0)
     expect(screen.getByText(/buffer ±50 m/)).toBeInTheDocument()
   })
 

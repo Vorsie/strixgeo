@@ -1266,6 +1266,8 @@ export default function App() {
                 boreholes={boreholes}
                 onPatch={handlePatchSelectedSection}
                 onClose={() => setSelectedSectionId(null)}
+                onSelectCpt={handleSelect}
+                onSelectBorehole={handleSelectBorehole}
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
