@@ -81,6 +81,31 @@ export function sectionLength(section: SectionEndpoints): number {
   return Math.sqrt(dx * dx + dy * dy)
 }
 
+/**
+ * World coordinates of the projection foot — the point on the
+ * section line at ``along`` metres from start. Used by the map
+ * leader-line renderer to draw a thin grey segment from each
+ * investigation's true XY to where it lands on the section.
+ *
+ * Returns ``null`` only when the section has zero length (defensive;
+ * the API rejects zero-length sections).
+ */
+export function projectionFoot(
+  section: SectionEndpoints,
+  along: number,
+): { x: number; y: number } | null {
+  const length = sectionLength(section)
+  if (length < 1e-9) return null
+  const dx = section.end_x - section.start_x
+  const dy = section.end_y - section.start_y
+  const ux = dx / length
+  const uy = dy / length
+  return {
+    x: section.start_x + along * ux,
+    y: section.start_y + along * uy,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Investigation filter — keep what falls within the buffer + the line span
 // ---------------------------------------------------------------------------

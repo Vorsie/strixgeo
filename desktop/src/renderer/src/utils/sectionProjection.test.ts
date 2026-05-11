@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   investigationsOnSection,
+  projectionFoot,
   projectPointOntoLine,
   sectionLength,
 } from './sectionProjection'
@@ -141,5 +142,32 @@ describe('investigationsOnSection', () => {
     const degenerate = { ...HORIZONTAL_1KM, end_x: 0, projection_buffer_m: 50 }
     const points = [{ id: 'a', location_x: 0, location_y: 0 }]
     expect(investigationsOnSection(degenerate, points)).toEqual([])
+  })
+})
+
+describe('projectionFoot', () => {
+  it('walks ``along`` metres from start along the line direction', () => {
+    const r = projectionFoot(HORIZONTAL_1KM, 250)
+    expect(r).not.toBeNull()
+    expect(r!.x).toBeCloseTo(250)
+    expect(r!.y).toBeCloseTo(0)
+  })
+
+  it('handles oblique lines — 3-4-5 triangle at along=2.5', () => {
+    // Line from (0,0) to (3,4): direction (0.6, 0.8). At along=2.5
+    // the foot is (1.5, 2.0).
+    const r = projectionFoot(
+      { start_x: 0, start_y: 0, end_x: 3, end_y: 4 },
+      2.5,
+    )
+    expect(r).not.toBeNull()
+    expect(r!.x).toBeCloseTo(1.5)
+    expect(r!.y).toBeCloseTo(2.0)
+  })
+
+  it('returns null for a zero-length section', () => {
+    expect(
+      projectionFoot({ start_x: 1, start_y: 1, end_x: 1, end_y: 1 }, 10),
+    ).toBeNull()
   })
 })
