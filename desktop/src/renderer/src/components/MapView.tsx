@@ -6,6 +6,7 @@ import {
   Marker,
   TileLayer,
   Tooltip,
+  WMSTileLayer,
   useMap,
 } from 'react-leaflet'
 import L from 'leaflet'
@@ -13,6 +14,7 @@ import 'leaflet/dist/leaflet.css'
 
 import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../api/client'
 import { lambertToWgs84 } from '../hooks/useWgs84'
+import type { DemOverlayState, DemSource } from '../utils/demSources'
 import BboxDrawer from './BboxDrawer'
 
 // CircleMarkers are used instead of Leaflet's default pin icons because at
@@ -73,9 +75,17 @@ interface Props {
   // viewport" feature. Receives ``null`` if the map isn't ready yet
   // (early renders before Leaflet has mounted).
   onViewportChange?: (bounds: L.LatLngBounds) => void
+  // DEM hillshade overlay. ``demSource`` is the resolved provider for
+  // the current project (or ``null`` if the project's horizontal EPSG
+  // has no DEM source mapped — the Terrain section then hides). The
+  // overlay state lives in ``project.view_state.dem_overlay`` and
+  // round-trips via the .gmproj bundle.
+  demSource?: DemSource | null
+  demOverlay?: DemOverlayState
+  onDemOverlayChange?: (next: DemOverlayState) => void
 }
 
-type OpenCategory = 'cpt' | 'borehole' | null
+type OpenCategory = 'cpt' | 'borehole' | 'terrain' | null
 
 // Reports the map's current visible bounds to the parent on mount and
 // after every ``moveend`` (pan / zoom). Leaflet only fires ``moveend``
@@ -155,6 +165,9 @@ export default function MapView({
   onBboxDrawn,
   onCancelDraw,
   onViewportChange,
+  demSource = null,
+  demOverlay,
+  onDemOverlayChange,
 }: Props) {
   const defaultCenter: [number, number] = [50.85, 4.35] // Belgium
 
@@ -220,7 +233,7 @@ export default function MapView({
     hiddenBhAxis,
   )
 
-  function toggleCategory(cat: 'cpt' | 'borehole'): void {
+  function toggleCategory(cat: 'cpt' | 'borehole' | 'terrain'): void {
     setOpenCategory(prev => (prev === cat ? null : cat))
   }
 
@@ -260,6 +273,23 @@ export default function MapView({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+
+        {/* DEM hillshade overlay. Z-order: above the OSM basemap,
+            below the markers (which render later inside the same
+            MapContainer). Opacity controls visual blend with the
+            basemap; default 50% keeps both street context AND
+            terrain shading readable. */}
+        {demSource && demOverlay?.enabled && (
+          <WMSTileLayer
+            url={demSource.url}
+            layers={demSource.layer}
+            format={demSource.format}
+            transparent
+            version="1.3.0"
+            opacity={demOverlay.opacity}
+            attribution={demSource.attribution}
+          />
+        )}
 
         <FlyToSelected
           cpts={cpts}
@@ -331,7 +361,7 @@ export default function MapView({
       </MapContainer>
 
       {/* Layer control — top-right, dropdown UX (Option B) */}
-      {(cptTypeCounts.size > 0 || boreholes.length > 0) && (
+      {(cptTypeCounts.size > 0 || boreholes.length > 0 || demSource !== null) && (
         <LayerControl
           cptTypeCounts={cptTypeCounts}
           hiddenCptTypes={hiddenCptTypes}
@@ -344,6 +374,9 @@ export default function MapView({
           onAxisChange={onChangeBoreholeAxis}
           openCategory={openCategory}
           onToggleCategory={toggleCategory}
+          demSource={demSource}
+          demOverlay={demOverlay}
+          onDemOverlayChange={onDemOverlayChange}
         />
       )}
 
@@ -385,6 +418,9 @@ function LayerControl({
   onAxisChange,
   openCategory,
   onToggleCategory,
+  demSource,
+  demOverlay,
+  onDemOverlayChange,
 }: {
   cptTypeCounts: Map<string, number>
   hiddenCptTypes: Set<string>
@@ -396,7 +432,10 @@ function LayerControl({
   onToggleBorehole: (value: string, visible: boolean) => void
   onAxisChange: (axis: BoreholeAxis) => void
   openCategory: OpenCategory
-  onToggleCategory: (cat: 'cpt' | 'borehole') => void
+  onToggleCategory: (cat: 'cpt' | 'borehole' | 'terrain') => void
+  demSource: DemSource | null
+  demOverlay: DemOverlayState | undefined
+  onDemOverlayChange: ((next: DemOverlayState) => void) | undefined
 }) {
   const cptTotal = sum(cptTypeCounts.values())
   const cptOrdered = orderedCptTypes(cptTypeCounts)
@@ -492,6 +531,86 @@ function LayerControl({
           )}
         </div>
       )}
+
+      {/* Terrain category — hillshade DEM overlay. Only renders when
+          the project's horizontal EPSG resolves to a known DEM source
+          (DHMVII for Belgium / AHN for NL). For other projects the
+          terrain context isn't reachable yet and the section hides. */}
+      {demSource && demOverlay && onDemOverlayChange && (
+        <div className={openCategory === 'cpt' || openCategory === 'borehole' ? 'border-t border-gray-100' : ''}>
+          <CategoryHeader
+            label="Terrain"
+            // Surface the active provider name in the badge slot so the
+            // user sees which source the toggle is wired to without
+            // expanding the section. Empty when off so the row reads as
+            // a normal toggle when nothing is active.
+            count={demOverlay.enabled ? demSource.provider : ''}
+            open={openCategory === 'terrain'}
+            onClick={() => onToggleCategory('terrain')}
+          />
+          {openCategory === 'terrain' && (
+            <TerrainSection
+              source={demSource}
+              overlay={demOverlay}
+              onChange={onDemOverlayChange}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TerrainSection({
+  source,
+  overlay,
+  onChange,
+}: {
+  source: DemSource
+  overlay: DemOverlayState
+  onChange: (next: DemOverlayState) => void
+}) {
+  // Local mirror of the slider so dragging stays smooth — committing
+  // every pixel of slider travel to the parent would round-trip
+  // through PATCH /view-state and lag. We commit on release
+  // (``onMouseUp`` / ``onTouchEnd``).
+  const [localOpacity, setLocalOpacity] = useState(overlay.opacity)
+  useEffect(() => {
+    setLocalOpacity(overlay.opacity)
+  }, [overlay.opacity])
+
+  return (
+    <div className="px-2 pb-2 text-[11px] text-gray-700">
+      <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5">
+        <input
+          type="checkbox"
+          className="cursor-pointer shrink-0"
+          checked={overlay.enabled}
+          onChange={e => onChange({ ...overlay, enabled: e.target.checked })}
+        />
+        <span className="flex-1 truncate" title={source.label}>
+          {source.label}
+        </span>
+      </label>
+      {overlay.enabled && (
+        <div className="mt-1.5 px-1">
+          <div className="flex items-center justify-between text-[10px] text-gray-500 mb-0.5">
+            <span>Opacity</span>
+            <span className="tabular-nums">{Math.round(localOpacity * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(localOpacity * 100)}
+            onChange={e => setLocalOpacity(Number(e.target.value) / 100)}
+            onMouseUp={() => onChange({ ...overlay, opacity: localOpacity })}
+            onTouchEnd={() => onChange({ ...overlay, opacity: localOpacity })}
+            onKeyUp={() => onChange({ ...overlay, opacity: localOpacity })}
+            className="w-full cursor-pointer"
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -503,7 +622,11 @@ function CategoryHeader({
   onClick,
 }: {
   label: string
-  count: number
+  // Right-aligned badge text. Numeric for CPT/Borehole categories
+  // (item count); string for Terrain (active provider name when on,
+  // empty when off). Same slot, different semantics — keeps the
+  // header layout consistent across all three categories.
+  count: number | string
   open: boolean
   onClick: () => void
 }) {
