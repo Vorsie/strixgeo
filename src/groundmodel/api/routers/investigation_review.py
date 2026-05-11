@@ -18,6 +18,7 @@ project A can't read or mutate project B's data.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -188,7 +189,7 @@ async def patch_project_view_state(
 
     # Shallow merge. Build a new dict so SQLAlchemy notices the change
     # — JSONB columns require a *new* object reference to flag dirty.
-    merged: dict[str, object] = dict(project.view_state or {})
+    merged: dict[str, Any] = dict(project.view_state or {})
     for key, value in request.patch.items():
         if value is None:
             merged.pop(key, None)

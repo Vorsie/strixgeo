@@ -15,7 +15,7 @@ loudly if they drift.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -73,4 +73,7 @@ class ProjectViewStatePatchRequest(BaseModel):
 
     # Project-level view toggles. Free-form keys; the dict is opaque at
     # the API layer. Pydantic enforces only that the body is a dict.
-    patch: dict[str, object] = Field(default_factory=dict)
+    # ``Any`` matches the typing used elsewhere in the bundle layer
+    # (project_bundle.py, project_response.view_state) — keeps the API
+    # surface consistent for tooling that reads the OpenAPI schema.
+    patch: dict[str, Any] = Field(default_factory=dict)
