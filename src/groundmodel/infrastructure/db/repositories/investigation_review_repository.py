@@ -13,7 +13,7 @@ and target-keyed APIs so callers can pick the natural one.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -132,9 +132,7 @@ class InvestigationReviewRepository(GroundModelLogger):
         # turn — explicit "set notes without bumping reviewed_at" keeps
         # the original review timestamp intact.
         if "review_status" in patch:
-            row.reviewed_at = (
-                datetime.now(UTC) if patch["review_status"] == "reviewed" else None
-            )
+            row.reviewed_at = datetime.now(UTC) if patch["review_status"] == "reviewed" else None
 
         await self._session.flush()
         self.info(
