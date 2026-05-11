@@ -10,6 +10,7 @@ from uuid6 import uuid7
 
 from groundmodel.api.schemas.project.project_bundle import (
     BUNDLE_FORMAT_VERSION,
+    SUPPORTED_BUNDLE_VERSIONS,
     ProjectBundleRequest,
     ProjectBundleResponse,
 )
@@ -226,15 +227,18 @@ async def restore_project(
     single "ensure exists" semantic regardless of how many rows we
     actually inserted.
     """
-    # Reject pre-v3 files loudly. v1/v2 were dev-only; opening one now
-    # means the file pre-dates the principle that decisions live in the
-    # bundle, and silently materialising the partial state would lose
-    # data the user assumes is intact.
-    if request.format_version != BUNDLE_FORMAT_VERSION:
+    # Reject unsupported versions loudly. v1/v2 were dev-only; opening
+    # one now means the file pre-dates the principle that decisions
+    # live in the bundle, and silently materialising the partial state
+    # would lose data the user assumes is intact. When v4 lands, v3
+    # will stay in SUPPORTED_BUNDLE_VERSIONS with an upgrade step
+    # before reaching restore_project_bundle.
+    if request.format_version not in SUPPORTED_BUNDLE_VERSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Bundle format_version={request.format_version} is not supported. "
+                f"Bundle format_version={request.format_version} is not supported "
+                f"(this build accepts {sorted(SUPPORTED_BUNDLE_VERSIONS)}). "
                 f"Re-save the project from a build that emits "
                 f"format_version={BUNDLE_FORMAT_VERSION}."
             ),
