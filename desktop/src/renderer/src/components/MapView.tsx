@@ -13,11 +13,17 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../api/client'
+import type {
+  BoreholeAxis,
+  BoreholeListItem,
+  CptListItem,
+  CrossSectionResponse,
+} from '../api/client'
 import { lambertToWgs84 } from '../hooks/useWgs84'
 import type { DemOverlayState, DemSource } from '../utils/demSources'
 import BboxDrawer from './BboxDrawer'
 import SectionLineDrawer from './SectionLineDrawer'
+import SectionOverlays from './SectionOverlays'
 
 // CircleMarkers are used instead of Leaflet's default pin icons because at
 // high density (200+ markers in a small bbox) pins overlap into an unreadable
@@ -96,6 +102,12 @@ interface Props {
     end: { lat: number; lng: number },
   ) => void
   onCancelSectionDraw?: () => void
+  // Cross-sections drawn on the map as polyline + buffer polygon.
+  // Click on either layer selects the section. Empty by default so
+  // existing MapView call sites keep working without wiring sections.
+  sections?: readonly CrossSectionResponse[]
+  selectedSectionId?: string | null
+  onSelectSection?: (id: string) => void
 }
 
 type OpenCategory = 'cpt' | 'borehole' | 'terrain' | null
@@ -184,6 +196,9 @@ export default function MapView({
   drawSectionMode = false,
   onSectionLineDrawn,
   onCancelSectionDraw,
+  sections = [],
+  selectedSectionId = null,
+  onSelectSection,
 }: Props) {
   const defaultCenter: [number, number] = [50.85, 4.35] // Belgium
 
@@ -334,6 +349,14 @@ export default function MapView({
           onLineDrawn={onSectionLineDrawn ?? (() => {})}
           onCancel={onCancelSectionDraw ?? (() => {})}
         />
+
+        {sections.length > 0 && onSelectSection && (
+          <SectionOverlays
+            sections={sections}
+            selectedSectionId={selectedSectionId}
+            onSelect={onSelectSection}
+          />
+        )}
 
         {/* CPT markers — circle, colour by type */}
         {cptMarkers.map(m => {
