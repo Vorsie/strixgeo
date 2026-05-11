@@ -10,14 +10,13 @@ Requires the Docker DB on localhost:5433.
 
 from __future__ import annotations
 
-from uuid import UUID
-
 import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.base import Base
 from groundmodel.infrastructure.db.models.investigation_review_orm import (
     InvestigationReviewOrm,
 )
@@ -261,6 +260,13 @@ async def test_unique_constraint_blocks_duplicate_target_rows(
 
 
 async def test_orm_import_is_pinned() -> None:
-    """The ORM class is wired into SQLAlchemy's metadata."""
+    """The ORM class is wired into SQLAlchemy's metadata.
+
+    Without an import somewhere in the test suite, SQLAlchemy's
+    Declarative registry wouldn't see the class and the integration
+    suite would skip the table at create_all() time. The assertion on
+    Base.metadata pins the wiring concretely instead of trusting the
+    side effect of the import statement above.
+    """
     assert InvestigationReviewOrm.__tablename__ == "investigation_review"
-    assert isinstance(uuid7(), UUID)  # smoke check for the uuid lib too
+    assert "investigation_review" in Base.metadata.tables
