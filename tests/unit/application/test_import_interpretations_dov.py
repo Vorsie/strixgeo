@@ -285,3 +285,170 @@ async def test_persist_failure_for_one_observation_does_not_abort_batch(
     assert result.fetched == 3
     assert result.attached == 2
     assert result.failed == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #6 — WFS gap detection: has_<type>=True but no row from the
+# corresponding interpretation WFS stream → WARNING + result.wfs_gaps++
+# ---------------------------------------------------------------------------
+
+
+def _borehole_wfs_row(
+    *,
+    test_id: str = "BH-1",
+    permkey: str = "2024-216503",
+    has_formal_stratigraphy: bool = True,
+    has_geotechnical_coding: bool = False,
+) -> BoreholeWfsRow:  # noqa: F821 — annotation resolved at runtime
+    """Build a BoreholeWfsRow with sensible test defaults.
+
+    All other flags default False; per-test flips set what the WFS
+    cross-check should expect.
+    """
+    from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import (
+        BoreholeWfsRow,
+    )
+
+    return BoreholeWfsRow(
+        permkey=permkey,
+        test_id=test_id,
+        fiche_url=f"https://www.dov.vlaanderen.be/data/boring/{permkey}",
+        xml_url=f"https://www.dov.vlaanderen.be/xdov/proxy/export/boring/{permkey}",
+        x=150000.0,
+        y=200000.0,
+        z=12.0,
+        drill_method=None,
+        municipality=None,
+        executor=None,
+        purpose=None,
+        total_depth_m=None,
+        has_coded_lithology=False,
+        has_geotechnical_coding=has_geotechnical_coding,
+        has_lithological_description=False,
+        has_informal_stratigraphy=False,
+        has_formal_stratigraphy=has_formal_stratigraphy,
+        has_quaternary_stratigraphy=False,
+        has_hydrogeological_stratigraphy=False,
+        has_informal_hydrogeological_stratigraphy=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_wfs_gap_warning_when_flag_true_but_no_row(
+    use_case: ImportInterpretationsDov,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #6: WFS says ``has_formal_stratigraphy=True`` but the
+    ``interpretaties:formele_stratigrafie`` WFS returned no row for
+    this borehole → log a WARNING and bump ``wfs_gaps``.
+    """
+    bh1 = uuid4()
+    test_id_map = {"BH-1": bh1}
+    wfs_row_map = {"BH-1": _borehole_wfs_row(has_formal_stratigraphy=True)}
+
+    # WFS for formal_stratigraphy is empty (the issue's scenario).
+    parsed: list = []
+
+    with patch(
+        "groundmodel.application.import_interpretations_dov."
+        "DovInterpretationClient.fetch_bbox_processed",
+        new=AsyncMock(return_value=parsed),
+    ):
+        with caplog.at_level("WARNING"):
+            result = await use_case.execute(
+                west=3.0,
+                south=51.0,
+                east=3.1,
+                north=51.1,
+                test_id_to_borehole_id=test_id_map,
+                cache=MagicMock(),
+                http=MagicMock(),
+                wfs_row_map=wfs_row_map,
+            )
+
+    assert result.wfs_gaps == 1
+    # WARNING should reference the borehole's permkey + the DOV data URL
+    # so the engineer can click through and verify by hand.
+    warning_lines = [rec.message for rec in caplog.records if rec.levelname == "WARNING"]
+    gap_warnings = [w for w in warning_lines if "WFS gap" in w]
+    assert len(gap_warnings) == 1
+    assert "2024-216503" in gap_warnings[0]
+    assert "has_formal_stratigraphy" in gap_warnings[0]
+    assert "/data/boring/2024-216503" in gap_warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_wfs_gap_silent_when_flag_matches_fetched_row(
+    use_case: ImportInterpretationsDov,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """No gap to report when the WFS returned a row that satisfies the flag."""
+    bh1 = uuid4()
+    test_id_map = {"BH-1": bh1}
+    wfs_row_map = {"BH-1": _borehole_wfs_row(has_formal_stratigraphy=True)}
+
+    parsed = [
+        (
+            _wfs_row(
+                test_id="BH-1",
+                permkey="2025-300001",
+                observation_type=ObservationType.FORMAL_STRATIGRAPHY,
+            ),
+            _parse_result(
+                borehole_id=bh1,
+                observation_type=ObservationType.FORMAL_STRATIGRAPHY,
+            ),
+        ),
+    ]
+
+    with patch(
+        "groundmodel.application.import_interpretations_dov."
+        "DovInterpretationClient.fetch_bbox_processed",
+        new=AsyncMock(return_value=parsed),
+    ):
+        with caplog.at_level("WARNING"):
+            result = await use_case.execute(
+                west=3.0,
+                south=51.0,
+                east=3.1,
+                north=51.1,
+                test_id_to_borehole_id=test_id_map,
+                cache=MagicMock(),
+                http=MagicMock(),
+                wfs_row_map=wfs_row_map,
+            )
+
+    assert result.wfs_gaps == 0
+    gap_warnings = [
+        rec.message
+        for rec in caplog.records
+        if rec.levelname == "WARNING" and "WFS gap" in rec.message
+    ]
+    assert gap_warnings == []
+
+
+@pytest.mark.asyncio
+async def test_wfs_gap_check_skipped_when_wfs_row_map_missing(
+    use_case: ImportInterpretationsDov,
+) -> None:
+    """Backwards compatibility: omitting ``wfs_row_map`` keeps the old
+    behaviour. ``wfs_gaps`` stays 0; no warnings.
+    """
+    bh1 = uuid4()
+    test_id_map = {"BH-1": bh1}
+
+    with patch(
+        "groundmodel.application.import_interpretations_dov."
+        "DovInterpretationClient.fetch_bbox_processed",
+        new=AsyncMock(return_value=[]),
+    ):
+        result = await use_case.execute(
+            west=3.0,
+            south=51.0,
+            east=3.1,
+            north=51.1,
+            test_id_to_borehole_id=test_id_map,
+            cache=MagicMock(),
+            http=MagicMock(),
+        )
+    assert result.wfs_gaps == 0
