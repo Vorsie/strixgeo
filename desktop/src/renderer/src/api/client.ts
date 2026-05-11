@@ -328,6 +328,64 @@ export interface ImportBoreholeDovResponse {
   borehole_ids: string[]
 }
 
+// Cross-section response shape — mirrors CrossSectionResponse on the
+// backend 1:1. The renderer reads endpoints + buffer + display prefs;
+// future S2+ work adds rendering of the projected investigations.
+export interface CrossSectionResponse {
+  id: string
+  app_project_id: string
+  name: string
+  description: string | null
+  start_x: number
+  start_y: number
+  end_x: number
+  end_y: number
+  epsg: number
+  projection_buffer_m: number
+  vertical_exaggeration: number
+  excluded_borehole_ids: string[]
+  excluded_cpt_ids: string[]
+  min_depth_m: number | null
+  max_depth_m: number | null
+  display_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CrossSectionCreatePayload {
+  name: string
+  start_x: number
+  start_y: number
+  end_x: number
+  end_y: number
+  epsg: number
+  description?: string | null
+  projection_buffer_m?: number
+  vertical_exaggeration?: number
+  excluded_borehole_ids?: string[]
+  excluded_cpt_ids?: string[]
+  min_depth_m?: number | null
+  max_depth_m?: number | null
+  display_order?: number
+}
+
+export interface CrossSectionUpdatePayload {
+  name?: string | null
+  description?: string | null
+  start_x?: number | null
+  start_y?: number | null
+  end_x?: number | null
+  end_y?: number | null
+  epsg?: number | null
+  projection_buffer_m?: number | null
+  vertical_exaggeration?: number | null
+  excluded_borehole_ids?: string[] | null
+  excluded_cpt_ids?: string[] | null
+  min_depth_m?: number | null
+  max_depth_m?: number | null
+  display_order?: number | null
+}
+
 export class DuplicateCptError extends Error {
   cptId: string
   constructor(cptId: string) {
@@ -522,5 +580,32 @@ export const api = {
       patchBody: Record<string, unknown>,
     ): Promise<ProjectResponse> =>
       patch(`/projects/${id}/view-state`, { patch: patchBody }),
+  },
+
+  // Cross-section CRUD. Project-scoped via the URL prefix; ``projectId``
+  // is a guard that matches the URL parameter so a leaked section id
+  // can't read or mutate a section in a different project.
+  section: {
+    list: (projectId: string): Promise<CrossSectionResponse[]> =>
+      get(`/projects/${projectId}/sections`),
+
+    get: (projectId: string, sectionId: string): Promise<CrossSectionResponse> =>
+      get(`/projects/${projectId}/sections/${sectionId}`),
+
+    create: (
+      projectId: string,
+      body: CrossSectionCreatePayload,
+    ): Promise<CrossSectionResponse> =>
+      post(`/projects/${projectId}/sections`, body),
+
+    update: (
+      projectId: string,
+      sectionId: string,
+      body: CrossSectionUpdatePayload,
+    ): Promise<CrossSectionResponse> =>
+      patch(`/projects/${projectId}/sections/${sectionId}`, body),
+
+    delete: (projectId: string, sectionId: string): Promise<void> =>
+      del(`/projects/${projectId}/sections/${sectionId}`),
   },
 }
