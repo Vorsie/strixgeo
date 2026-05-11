@@ -166,7 +166,6 @@ describe('SectionPanel — investigation columns', () => {
       id: 'bh-1',
       name: 'BH-1',
       borehole_type: 'DOV',
-      project_id: 'P',
       test_id: 'T',
       location_x: 600,
       location_y: 10,

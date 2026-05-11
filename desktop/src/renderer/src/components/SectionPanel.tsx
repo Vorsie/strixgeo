@@ -30,7 +30,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 
-import type { BoreholeListItem, CptListItem, CrossSectionResponse } from '../api/client'
+import {
+  api,
+  type BoreholeListItem,
+  type CptListItem,
+  type CrossSectionResponse,
+  type DemSamplePoint,
+} from '../api/client'
+import { log } from '../utils/log'
 import { verticalDatumShort } from '../utils/verticalDatum'
 import {
   investigationsOnSection,
@@ -335,6 +342,51 @@ export default function SectionPanel({
     [effLevelMin, effLevelMax],
   )
 
+  // ---- DEM ground-surface samples ---------------------------------------
+
+  // Fetch elevations from the backend's /dem/sample endpoint when the
+  // section's endpoints / CRS change. ``null`` = not loaded yet (or
+  // the endpoint returned an error — see catch below); the renderer
+  // simply skips the polyline in that case rather than blocking the
+  // whole panel. 200 samples is enough for a smooth profile at any
+  // realistic screen width.
+  const [demSamples, setDemSamples] = useState<DemSamplePoint[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setDemSamples(null)
+    api.dem
+      .sampleLine({
+        startX: section.start_x,
+        startY: section.start_y,
+        endX: section.end_x,
+        endY: section.end_y,
+        epsg: section.epsg,
+        nSamples: 200,
+      })
+      .then(res => {
+        if (cancelled) return
+        setDemSamples(res.samples)
+        log.debug('dem', `loaded ${res.samples.length} samples from ${res.source}`)
+      })
+      .catch(err => {
+        // Backend returns 400 when the section's CRS isn't mapped to
+        // a DEM source (anything outside EPSG:31370 today). Stay
+        // quiet — the section still renders cleanly, just without
+        // the surface line.
+        log.warn('dem', `sample failed for section ${section.id}`, err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    section.id,
+    section.start_x,
+    section.start_y,
+    section.end_x,
+    section.end_y,
+    section.epsg,
+  ])
+
   // ---- Projected investigations -----------------------------------------
 
   // Filter + project the CPTs and boreholes onto the section line.
@@ -455,6 +507,23 @@ export default function SectionPanel({
                 </g>
               )
             })}
+
+            {/* DEM ground-surface polyline. Drawn below the
+                investigation columns so the column caps + name
+                labels read cleanly on top — the surface line is
+                context, not the primary content. Breaks at NoData
+                samples (gaps outside DHMVII coverage). */}
+            {demSamples !== null && (
+              <DemSurfaceLine
+                samples={demSamples}
+                xToScreen={xToScreen}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                plotLeft={MARGIN.left}
+                plotRight={MARGIN.left + plotWidth}
+              />
+            )}
 
             {/* Investigation columns. CPTs first (thinner stroke,
                 circle marker) then boreholes (square marker) so the
@@ -842,5 +911,91 @@ function ColumnGlyph({
         </>
       )}
     </g>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DEM ground-surface polyline
+// ---------------------------------------------------------------------------
+//
+// Renders the elevation profile fetched from /dem/sample as a single
+// polyline. NoData samples (null elevation_m) break the line into
+// sub-paths — engineers expect a gap rather than a straight bridge
+// across missing data.
+//
+// Visual: thin earth-brown stroke at 60% opacity. Reads as terrain
+// context without competing with the investigation columns for
+// primary attention.
+
+const DEM_STROKE = '#92400e' // amber-800 — earthy brown
+const DEM_STROKE_WIDTH = 1.5
+
+function DemSurfaceLine({
+  samples,
+  xToScreen,
+  levelToScreen,
+  plotTop,
+  plotBottom,
+  plotLeft,
+  plotRight,
+}: {
+  samples: DemSamplePoint[]
+  xToScreen: (x: number) => number
+  levelToScreen: (level: number) => number
+  plotTop: number
+  plotBottom: number
+  plotLeft: number
+  plotRight: number
+}): JSX.Element {
+  // Walk the samples, accumulating SVG path "d" commands. ``M`` opens
+  // a new sub-path each time we cross a NoData gap or re-enter the
+  // plot area from outside, so the renderer never draws a straight
+  // line across missing data.
+  const path = useMemo(() => {
+    let d = ''
+    let penDown = false
+    for (const s of samples) {
+      if (s.elevation_m === null) {
+        penDown = false
+        continue
+      }
+      const x = xToScreen(s.along_m)
+      const y = levelToScreen(s.elevation_m)
+      // Clip to the plot rect — points outside are skipped (the
+      // surface line is part of the canvas; it shouldn't bleed into
+      // the axis margins). We clamp the pen state on re-entry so a
+      // single sample inside the rect doesn't draw a 1-point M move
+      // and nothing else.
+      if (
+        x < plotLeft ||
+        x > plotRight ||
+        y < plotTop ||
+        y > plotBottom
+      ) {
+        penDown = false
+        continue
+      }
+      if (!penDown) {
+        d += `M ${x.toFixed(2)} ${y.toFixed(2)} `
+        penDown = true
+      } else {
+        d += `L ${x.toFixed(2)} ${y.toFixed(2)} `
+      }
+    }
+    return d.trim()
+  }, [samples, xToScreen, levelToScreen, plotTop, plotBottom, plotLeft, plotRight])
+
+  if (path === '') return <></>
+
+  return (
+    <path
+      d={path}
+      stroke={DEM_STROKE}
+      strokeWidth={DEM_STROKE_WIDTH}
+      strokeOpacity={0.6}
+      fill="none"
+    >
+      <title>Ground surface (DHMVII DTM)</title>
+    </path>
   )
 }
