@@ -27,6 +27,7 @@ import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
 import CptChart from './components/CptChart'
 import BoreholeLog from './components/BoreholeLog'
+import SectionPanel from './components/SectionPanel'
 import WelcomeScreen from './components/WelcomeScreen'
 import NewProjectDialog from './components/NewProjectDialog'
 import ProjectMetadataDialog from './components/ProjectMetadataDialog'
@@ -821,9 +822,10 @@ export default function App() {
 
   const handleSelect = useCallback(async (id: string) => {
     setSelectedId(id)
-    // Switching to a CPT clears any borehole selection so only one detail
-    // panel is rendered at a time.
+    // Switching to a CPT clears any borehole / section selection so
+    // only one detail panel is rendered at a time.
     setSelectedBoreholeId(null)
+    setSelectedSectionId(null)
     // Lazy-load full detail for the chart panel (mTAW elevation, cone props, etc).
     if (!detailMap.has(id)) {
       api.cpt.get(id).then(detail => {
@@ -837,13 +839,24 @@ export default function App() {
   const handleSelectBorehole = useCallback(
     async (id: string) => {
       setSelectedBoreholeId(id)
-      // Mutually exclusive with CPT selection.
+      // Mutually exclusive with CPT + section selection.
       setSelectedId(null)
+      setSelectedSectionId(null)
       await loadBoreholeDetail(id)
       setView('chart')
     },
     [loadBoreholeDetail],
   )
+
+  // Cross-section selection — exclusive with CPT + borehole. Clearing
+  // the others on entry means the existing view-tab logic doesn't
+  // have to know about sections; the dedicated section panel renders
+  // whenever ``selectedSectionId`` is set and supersedes everything.
+  const handleSelectSection = useCallback((id: string) => {
+    setSelectedSectionId(id)
+    setSelectedId(null)
+    setSelectedBoreholeId(null)
+  }, [])
 
   // ---------------------------------------------------------------------------
   // Import
@@ -1061,6 +1074,19 @@ export default function App() {
     [applyViewStatePatch],
   )
 
+  // Resolve the currently-selected section from id + list. Lives here
+  // (above the early-return ladder) so the hook count stays stable
+  // across renders — same Rules-of-Hooks constraint that put the DEM
+  // hooks above this point. The actual render branch consumes
+  // ``selectedSection`` below.
+  const selectedSection = useMemo(
+    () =>
+      selectedSectionId
+        ? sections.find(s => s.id === selectedSectionId) ?? null
+        : null,
+    [selectedSectionId, sections],
+  )
+
   // ---------------------------------------------------------------------------
   // Toasts
   // ---------------------------------------------------------------------------
@@ -1167,14 +1193,18 @@ export default function App() {
           outOfViewportBoreholeIds={outOfViewportBoreholeIds}
           sections={sections}
           selectedSectionId={selectedSectionId}
-          onSelectSection={setSelectedSectionId}
+          onSelectSection={handleSelectSection}
           onCreateSection={handleCreateSection}
           onDeleteSection={handleDeleteSection}
           canCreateSection={project.default_horizontal_epsg != null}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
-          {hasSelection && (
+          {/* Map / Chart tabs only apply to the CPT + borehole flow.
+              The Section panel renders fullscreen below and ignores
+              this toggle — sections have their own header strip with
+              its own controls. */}
+          {hasSelection && selectedSection === null && (
             <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-200 bg-gray-50">
               <ViewTab icon={<MapIcon size={13} />} label="Map" active={view === 'map'} onClick={() => setView('map')} />
               <ViewTab icon={<BarChart2 size={13} />} label="Chart" active={view === 'chart'} onClick={() => setView('chart')} />
@@ -1182,7 +1212,12 @@ export default function App() {
           )}
 
           <div className="flex-1 overflow-hidden">
-            {view === 'map' || !hasSelection ? (
+            {selectedSection !== null ? (
+              <SectionPanel
+                section={selectedSection}
+                zEpsg={project.default_vertical_epsg}
+              />
+            ) : view === 'map' || !hasSelection ? (
               <MapView
                     cpts={visibleCpts}
                     boreholes={visibleBoreholes}
