@@ -24,6 +24,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.investigation_review import (
     InvestigationReviewResponse,
     InvestigationReviewUpsertRequest,
@@ -85,13 +86,11 @@ async def get_review_for_target(
     handler doesn't auto-create on read to keep GET semantics pure.
     """
     repo = InvestigationReviewRepository(session)
-    row = await repo.get_for_target(target_kind, target_id)
-    if row is None or row.app_project_id != project_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No review row for this investigation in this project",
-        )
-    return row
+    return await get_in_project_or_404(
+        repo.get_for_target(target_kind, target_id),
+        project_id,
+        detail="No review row for this investigation in this project",
+    )
 
 
 @router.put(
@@ -152,7 +151,17 @@ async def delete_review_for_target(
     Semantically equivalent to "this investigation was never reviewed"
     — the default state (no row = unreviewed, not hidden) is restored.
     Used by the desktop "reset review" action and by integration tests.
-    No 404 when the row is already absent — DELETE is idempotent.
+
+    Idempotency: DELETE's post-condition is "no review row for this
+    (target_kind, target_id) in this project". If the row is already
+    absent, OR belongs to a different project, the post-condition is
+    already satisfied — return 204 silently. Asymmetry with the PUT
+    handler is deliberate: PUT validates target-in-project (writing a
+    decision against a non-existent target is meaningless), while
+    DELETE only needs to verify the desired post-state.
+
+    Returning 204 (rather than 404) on the wrong-project case also
+    avoids leaking the existence of a review id in a sibling project.
     """
     repo = InvestigationReviewRepository(session)
     row = await repo.get_for_target(target_kind, target_id)
