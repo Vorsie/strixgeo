@@ -12,19 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
-from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
 )
-
-
-async def _make_project(db_session: AsyncSession, *, name: str = "Sections test") -> ProjectOrm:
-    """Insert a bare project and commit. Returns the row."""
-    project = ProjectOrm(id=uuid7(), name=name, status="active")
-    db_session.add(project)
-    await db_session.commit()
-    return project
-
+from tests.integration.db.conftest import make_project
 
 # ---------------------------------------------------------------------------
 # CRUD
@@ -33,7 +24,7 @@ async def _make_project(db_session: AsyncSession, *, name: str = "Sections test"
 
 async def test_create_and_list_ordered(db_session: AsyncSession) -> None:
     """Sections come back ordered by display_order then name."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = CrossSectionRepository(db_session)
 
     await repo.create(
@@ -80,7 +71,7 @@ async def test_partial_update_only_changes_specified_fields(
     db_session: AsyncSession,
 ) -> None:
     """Patch with one key leaves all other columns untouched."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = CrossSectionRepository(db_session)
     section = await repo.create(
         project.id,
@@ -110,7 +101,7 @@ async def test_update_can_change_endpoints_and_buffer(
     db_session: AsyncSession,
 ) -> None:
     """End-to-end update of geometry + view fields persists correctly."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = CrossSectionRepository(db_session)
     section = await repo.create(
         project.id,
@@ -148,7 +139,7 @@ async def test_update_can_change_endpoints_and_buffer(
 
 async def test_delete_removes_the_row(db_session: AsyncSession) -> None:
     """Delete returns True then the section is gone."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = CrossSectionRepository(db_session)
     section = await repo.create(
         project.id,
@@ -181,7 +172,7 @@ async def test_delete_returns_false_for_missing(db_session: AsyncSession) -> Non
 
 async def test_excluded_arrays_round_trip(db_session: AsyncSession) -> None:
     """Exclusion arrays survive insert + reload."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = CrossSectionRepository(db_session)
     excluded_bh = [uuid7(), uuid7()]
     excluded_cpt = [uuid7()]
@@ -211,8 +202,8 @@ async def test_excluded_arrays_round_trip(db_session: AsyncSession) -> None:
 
 async def test_sections_scoped_to_one_project(db_session: AsyncSession) -> None:
     """Sections in project A don't leak into project B's list."""
-    a = await _make_project(db_session, name="A")
-    b = await _make_project(db_session, name="B")
+    a = await make_project(db_session, name="A")
+    b = await make_project(db_session, name="B")
     repo = CrossSectionRepository(db_session)
     await repo.create(
         a.id,

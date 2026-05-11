@@ -20,19 +20,10 @@ from groundmodel.infrastructure.db.base import Base
 from groundmodel.infrastructure.db.models.investigation_review_orm import (
     InvestigationReviewOrm,
 )
-from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.investigation_review_repository import (
     InvestigationReviewRepository,
 )
-
-
-async def _make_project(db_session: AsyncSession, *, name: str = "Reviews test") -> ProjectOrm:
-    """Insert a bare project + commit; returns the row."""
-    project = ProjectOrm(id=uuid7(), name=name, status="active")
-    db_session.add(project)
-    await db_session.commit()
-    return project
-
+from tests.integration.db.conftest import make_project
 
 # ---------------------------------------------------------------------------
 # set_for_target — the dominant write path.
@@ -43,7 +34,7 @@ async def test_set_for_target_inserts_when_no_row_exists(
     db_session: AsyncSession,
 ) -> None:
     """First decision on an investigation creates a fresh row."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
 
@@ -66,7 +57,7 @@ async def test_set_for_target_inserts_when_no_row_exists(
 
 async def test_set_for_target_updates_existing_row(db_session: AsyncSession) -> None:
     """Second call on the same target updates in place — same id."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
 
@@ -92,7 +83,7 @@ async def test_status_transition_to_reviewed_stamps_timestamp(
     db_session: AsyncSession,
 ) -> None:
     """Transition into 'reviewed' stamps reviewed_at; back out clears it."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
 
@@ -124,7 +115,7 @@ async def test_repeated_reviewed_patch_preserves_original_timestamp(
     information that matters, not the most recent acknowledgement.
     Regression: this used to re-stamp on every patch.
     """
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
 
@@ -159,7 +150,7 @@ async def test_null_is_hidden_in_patch_is_a_no_op(db_session: AsyncSession) -> N
     for NOT NULL columns; both on insert (defaults to False) and on
     update (preserves the existing value).
     """
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
 
@@ -187,7 +178,7 @@ async def test_null_is_hidden_in_patch_is_a_no_op(db_session: AsyncSession) -> N
 
 async def test_null_review_status_in_patch_is_a_no_op(db_session: AsyncSession) -> None:
     """Explicit ``null`` for ``review_status`` must NOT crash the NOT NULL column."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
 
@@ -210,7 +201,7 @@ async def test_null_review_status_in_patch_is_a_no_op(db_session: AsyncSession) 
 
 async def test_null_review_notes_clears_the_field(db_session: AsyncSession) -> None:
     """``review_notes`` is nullable — explicit ``null`` clears it."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
 
@@ -233,7 +224,7 @@ async def test_set_for_target_only_writes_keys_in_patch(
     db_session: AsyncSession,
 ) -> None:
     """Patch with one field leaves siblings untouched."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
 
@@ -262,7 +253,7 @@ async def test_set_for_target_only_writes_keys_in_patch(
 
 async def test_set_for_target_rejects_invalid_kind(db_session: AsyncSession) -> None:
     """Unknown target_kind raises ValueError before touching the DB."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     with pytest.raises(ValueError, match="target_kind"):
         await repo.set_for_target(project.id, "lab_test", uuid7(), {})
@@ -270,7 +261,7 @@ async def test_set_for_target_rejects_invalid_kind(db_session: AsyncSession) -> 
 
 async def test_set_for_target_rejects_invalid_status(db_session: AsyncSession) -> None:
     """Unknown review_status raises ValueError before touching the DB."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     with pytest.raises(ValueError, match="review_status"):
         await repo.set_for_target(project.id, "cpt", uuid7(), {"review_status": "done"})
@@ -293,8 +284,8 @@ async def test_list_all_returns_only_this_projects_rows(
     db_session: AsyncSession,
 ) -> None:
     """Reviews from project A don't leak into project B's list."""
-    a = await _make_project(db_session, name="A")
-    b = await _make_project(db_session, name="B")
+    a = await make_project(db_session, name="A")
+    b = await make_project(db_session, name="B")
     repo = InvestigationReviewRepository(db_session)
 
     await repo.set_for_target(a.id, "cpt", uuid7(), {"review_status": "reviewed"})
@@ -312,7 +303,7 @@ async def test_list_all_returns_only_this_projects_rows(
 
 async def test_delete_returns_true_then_row_is_gone(db_session: AsyncSession) -> None:
     """Delete by id removes the row; subsequent get returns None."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     repo = InvestigationReviewRepository(db_session)
     target = uuid7()
     row = await repo.set_for_target(project.id, "cpt", target, {"review_status": "reviewed"})
@@ -340,7 +331,7 @@ async def test_unique_constraint_blocks_duplicate_target_rows(
     db_session: AsyncSession,
 ) -> None:
     """Two raw INSERTs for the same (target_kind, target_id) fail at commit."""
-    project = await _make_project(db_session)
+    project = await make_project(db_session)
     target = uuid7()
     db_session.add_all(
         [
