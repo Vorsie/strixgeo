@@ -472,6 +472,15 @@ export const api = {
 
     plot: (id: string): Promise<CptPlotResponse> => get(`/cpt/${id}/plot`),
 
+    // Batched plot fetch for the cross-section panel. Folds N
+    // per-CPT round-trips into one. Order of the response isn't
+    // guaranteed — callers index by ``cpt_id`` on each entry.
+    // Unknown ids and series-less CPTs drop silently from the
+    // response (same skip-on-missing semantics the section render
+    // already needs).
+    plotBatch: (ids: string[]): Promise<CptPlotResponse[]> =>
+      post(`/cpt/plot-batch`, { ids }),
+
     delete: (id: string): Promise<void> => del(`/cpt/${id}`),
 
     patchElevation: (id: string, body: ElevationPatchBody): Promise<CptResponse> =>
