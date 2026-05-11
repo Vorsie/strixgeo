@@ -62,13 +62,33 @@ class InvestigationReviewResponse(BaseModel):
 class ProjectViewStatePatchRequest(BaseModel):
     """Body of ``PATCH /projects/{pid}/view-state``.
 
-    Merge semantics — each key in the body is shallowly merged into the
-    project's ``view_state`` dict. Sending ``{"dem_overlay": {...}}``
-    overwrites the dem_overlay key without touching siblings like
-    ``hidden_cpt_types``. Pass ``null`` for a key to remove it.
+    **Shallow** merge semantics — each TOP-LEVEL key in the body
+    replaces the same top-level key in the project's existing
+    ``view_state`` dict. Siblings are left untouched. Pass ``null``
+    for a key to remove it.
 
-    Schema-less JSONB at the DB layer; the keys are documented here for
-    callers. Add a new toggle by writing a key — no migration.
+    Nested values are **not** deep-merged. To change one field inside
+    a nested object, the caller must include the *whole* subtree:
+
+    Example — set DEM opacity without disturbing other view_state:
+
+        # Existing view_state on the server:
+        # {"dem_overlay": {"enabled": true, "opacity": 0.5},
+        #  "hidden_cpt_types": ["CPTM"]}
+
+        # WRONG — clobbers dem_overlay.enabled:
+        PATCH { "patch": {"dem_overlay": {"opacity": 0.7}} }
+        # → view_state.dem_overlay becomes {"opacity": 0.7}, enabled gone.
+
+        # RIGHT — replace the dem_overlay subtree as a whole:
+        PATCH { "patch": {"dem_overlay": {"enabled": true, "opacity": 0.7}} }
+
+    The trade-off is intentional: deep merge has surprising semantics
+    around array fields (replace? append? dedup?) that the API can't
+    decide for callers. Shallow + explicit is more predictable.
+
+    Schema-less JSONB at the DB layer; the keys are documented here
+    for callers. Add a new toggle by writing a key — no migration.
     """
 
     # Project-level view toggles. Free-form keys; the dict is opaque at
