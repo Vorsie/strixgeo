@@ -34,6 +34,7 @@ import {
   api,
   type BoreholeListItem,
   type CptListItem,
+  type CptPlotResponse,
   type CrossSectionResponse,
   type DemSamplePoint,
 } from '../api/client'
@@ -44,6 +45,13 @@ import {
   investigationsOnSection,
   type ProjectedInvestigation,
 } from '../utils/sectionProjection'
+import CptDataColumn from './sections/CptDataColumn'
+import {
+  cptDataTrackWidth,
+  DEFAULT_CPT_CHANNELS,
+  readCptChannels,
+  type CptChannels,
+} from './sections/cptChannels'
 
 interface Props {
   section: CrossSectionResponse
@@ -477,6 +485,66 @@ export default function SectionPanel({
     section.epsg,
   ])
 
+  // ---- CPT plot data batch (S7) ----------------------------------------
+
+  // Channels the user has toggled on. Persisted in section.view_state
+  // (currently not part of CrossSectionResponse — falls back to the
+  // documented defaults until that view_state shape lands; see S7
+  // open item below). Local-only for now keeps S7 functional.
+  const [cptChannels] = useState<CptChannels>(() =>
+    readCptChannels(
+      // CrossSectionResponse doesn't expose ``view_state`` yet —
+      // typed as unknown so the read helper applies its full-bag
+      // fallback. Schema can grow later without code change here.
+      (section as unknown as { view_state?: Record<string, unknown> }).view_state,
+    ),
+  )
+
+  // Map of cpt id → CptPlotResponse, populated on section open via
+  // a single ``plot-batch`` round-trip. ``null`` while loading,
+  // ``Map`` once the response lands. The column renderer skips the
+  // data tracks when an id isn't in the map (e.g. just-imported
+  // CPT before refresh, or unknown id from a stale section row).
+  const [cptPlots, setCptPlots] = useState<Map<string, CptPlotResponse> | null>(null)
+  // Compute the in-buffer CPT ids — used as the batch input.
+  // Project once per section/cpts/excluded change; the network call
+  // is the next effect.
+  const inBufferCptIds = useMemo<string[]>(
+    () =>
+      investigationsOnSection(section, cpts, new Set(section.excluded_cpt_ids))
+        .map(p => p.item.id),
+    [section, cpts],
+  )
+  useEffect(() => {
+    let cancelled = false
+    setCptPlots(null)
+    if (inBufferCptIds.length === 0) {
+      setCptPlots(new Map())
+      return
+    }
+    api.cpt
+      .plotBatch(inBufferCptIds)
+      .then(plots => {
+        if (cancelled) return
+        const m = new Map<string, CptPlotResponse>()
+        for (const p of plots) m.set(p.cpt_id, p)
+        setCptPlots(m)
+        log.debug(
+          'section',
+          `loaded ${plots.length}/${inBufferCptIds.length} CPT plots`,
+        )
+      })
+      .catch(err => {
+        // Network failure is recoverable — the panel still renders
+        // bare columns. Log it; don't block.
+        log.warn('section', `cpt plot-batch failed for ${section.id}`, err)
+        if (!cancelled) setCptPlots(new Map())
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [section.id, inBufferCptIds])
+
   // ---- Projected investigations -----------------------------------------
 
   // Filter + project the CPTs and boreholes onto the section line.
@@ -510,16 +578,22 @@ export default function SectionPanel({
   // space changes with scaleH.
   const placedColumns = useMemo<PlacedColumn[]>(() => {
     const items: PlacedColumnInput[] = [
-      ...projectedCpts.map(proj => ({
-        kind: 'cpt' as const,
-        proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
-        trueX: xToScreen(proj.along),
-        // S2/S3 layout: bare column. S7+ will compute this from the
-        // toggle set (qc + Rf + fs widths summed). For now every
-        // column is the same width so the nudge behaves identically
-        // to the pre-width-aware version.
-        width: BARE_COLUMN_WIDTH_PX,
-      })),
+      ...projectedCpts.map(proj => {
+        // CPT column width grows additively with each enabled data
+        // channel. The bare cap+tie width is the floor; track
+        // widths come from ``cptDataTrackWidth``. The nudge then
+        // spaces edge-to-edge so a data-laden CPT next to a bare
+        // borehole still gets enough breathing room.
+        const trackW = cptPlots?.has(proj.item.id)
+          ? cptDataTrackWidth(proj.item.cpt_type, cptChannels)
+          : 0
+        return {
+          kind: 'cpt' as const,
+          proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
+          trueX: xToScreen(proj.along),
+          width: BARE_COLUMN_WIDTH_PX + trackW,
+        }
+      }),
       ...projectedBoreholes.map(proj => ({
         kind: 'borehole' as const,
         proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
@@ -535,7 +609,7 @@ export default function SectionPanel({
       width: r.item.width,
       displaced: r.displaced,
     }))
-  }, [projectedCpts, projectedBoreholes, xToScreen])
+  }, [projectedCpts, projectedBoreholes, xToScreen, cptPlots, cptChannels])
 
   // ---- Render --------------------------------------------------------
 
@@ -667,6 +741,33 @@ export default function SectionPanel({
                 plotRight={MARGIN.left + plotWidth}
               />
             )}
+
+            {/* CPT data tracks (qc curve + Rf strip + optional fs /
+                u2 / q_total) overlay each CPT column's band. Drawn
+                BEFORE the column glyphs so the cap + name label +
+                tie-back sit on top and stay readable. Only renders
+                for CPTs whose plot data finished loading; bare
+                columns render fine without it. */}
+            {cptPlots !== null &&
+              placedColumns.map(col => {
+                if (col.kind !== 'cpt') return null
+                const item = col.proj.item as CptListItem
+                const plot = cptPlots.get(item.id)
+                if (!plot || item.elevation_m === null) return null
+                return (
+                  <CptDataColumn
+                    key={`cpt-data-${item.id}`}
+                    plot={plot}
+                    cptType={item.cpt_type}
+                    channels={cptChannels}
+                    screenX={col.nudgedX}
+                    surfaceElevationM={item.elevation_m}
+                    plotTop={MARGIN.top}
+                    plotBottom={MARGIN.top + plotHeight}
+                    levelToScreen={levelToScreen}
+                  />
+                )
+              })}
 
             {/* Investigation columns. Both kinds rendered from a
                 single nudged list — the layout pass spaces crowded
