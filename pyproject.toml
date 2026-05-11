@@ -22,6 +22,12 @@ dependencies = [
     "python-multipart>=0.0.27",
     "httpx[http2]>=0.27",
     "pyproj>=3.6",
+    # Pillow reads the GeoTIFF blobs we sample from DHMVII WCS for the
+    # cross-section DEM ground-line. Chosen over tifffile + numpy
+    # because it ships pre-built wheels everywhere, handles 32-bit
+    # float TIFFs natively, and ``getpixel`` / ``crop`` are all the
+    # sampler needs — no array-math dependency creep.
+    "Pillow>=10.0",
 ]
 
 [dependency-groups]
