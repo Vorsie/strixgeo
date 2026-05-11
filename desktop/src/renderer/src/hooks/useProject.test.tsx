@@ -24,6 +24,7 @@ const created = {
   archived_at: null,
   created_at: '2026-05-10T10:00:00Z',
   updated_at: '2026-05-10T10:00:00Z',
+  view_state: {},
 }
 
 vi.mock('../api/client', () => ({
@@ -37,6 +38,7 @@ vi.mock('../api/client', () => ({
       duplicate: vi.fn(),
       restore: vi.fn(),
       bundle: vi.fn(),
+      patchViewState: vi.fn(),
     },
   },
 }))
