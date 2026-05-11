@@ -197,8 +197,14 @@ class ImportBoreholeDov(GroundModelLogger):
             borehole_ids: list[UUID] = []
             borehole_map: dict[str, UUID] = {}
             permkey_map: dict[str, UUID] = {}
+            # Per-test_id WFS row map. Carries the ``has_<type>``
+            # flags into the interpretation phase so it can detect
+            # WFS gaps (issue #6). Build for every in-scope borehole
+            # (new + existing) since the gap can happen on either.
+            wfs_row_map: dict[str, BoreholeWfsRow] = {}
 
             for i, (wfs_row, result) in enumerate(parsed, 1):
+                wfs_row_map[wfs_row.test_id] = wfs_row
                 existing_id = existing.get(wfs_row.test_id)
                 if existing_id is not None:
                     duplicates += 1
@@ -238,7 +244,7 @@ class ImportBoreholeDov(GroundModelLogger):
             # boreholes (new + existing). Per-row dedup happens inside
             # the persist function based on Observation.dov_permkey.
             interp_result = await self._fetch_and_attach_interpretations(
-                http, west, south, east, north, borehole_map
+                http, west, south, east, north, borehole_map, wfs_row_map
             )
 
             # Phase 4c — fetch + attach samples + lab tests, same
@@ -352,6 +358,7 @@ class ImportBoreholeDov(GroundModelLogger):
         east: float,
         north: float,
         borehole_map: dict[str, UUID],
+        wfs_row_map: dict[str, BoreholeWfsRow],
     ) -> ImportInterpretationsDovResult:
         """Run Phase 4b — interpretation orchestrator over the same bbox.
 
@@ -360,6 +367,12 @@ class ImportBoreholeDov(GroundModelLogger):
         orchestrator dedupes per row by ``Observation.dov_permkey`` so
         existing boreholes only receive interpretations they don't
         already have.
+
+        ``wfs_row_map`` carries the per-borehole ``has_<type>`` flags
+        the downstream needs to detect WFS gaps (issue #6) — a
+        borehole whose Boringen row says "yes I have a formal
+        stratigraphy" but whose interpretation-WFS query returns
+        nothing. The orchestrator logs WARNINGs for each gap.
 
         Network errors here do NOT roll back the borehole-side persist
         queue; we degrade gracefully so a transient interpretation
@@ -378,6 +391,7 @@ class ImportBoreholeDov(GroundModelLogger):
                 borehole_map,
                 self._interpretation_cache,
                 http,
+                wfs_row_map=wfs_row_map,
             )
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
             # Don't propagate — keep boreholes alive even when interpretations
