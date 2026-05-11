@@ -101,6 +101,10 @@ export interface ProjectBundleResponse {
   project: Record<string, unknown>
   cpts: Record<string, unknown>[]
   boreholes: Record<string, unknown>[]
+  geological_formations: Record<string, unknown>[]
+  geological_models: Record<string, unknown>[]
+  cross_sections: Record<string, unknown>[]
+  investigation_reviews: Record<string, unknown>[]
 }
 
 // POST /projects body. Optional fields default to null/[] server-side.
