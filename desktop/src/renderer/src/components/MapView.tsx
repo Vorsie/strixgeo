@@ -4,6 +4,7 @@ import {
   CircleMarker,
   MapContainer,
   Marker,
+  Pane,
   TileLayer,
   Tooltip,
   WMSTileLayer,
@@ -274,11 +275,14 @@ export default function MapView({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* DEM hillshade overlay. Z-order: above the OSM basemap,
-            below the markers (which render later inside the same
-            MapContainer). Opacity controls visual blend with the
-            basemap; default 50% keeps both street context AND
-            terrain shading readable. */}
+        {/* DEM hillshade overlay. Pinned to its own pane between the
+            basemap (Leaflet's tilePane, z=200) and the marker layers
+            (overlayPane z=400 for CircleMarkers, markerPane z=600 for
+            divIcon-square boreholes). zIndex=250 guarantees CPT and
+            borehole markers always sit visually above the hillshade,
+            regardless of opacity blending. Mounting order alone is
+            insufficient — Leaflet's pane system decides final z-order. */}
+        <Pane name="dem-overlay" style={{ zIndex: 250 }} />
         {demSource && demOverlay?.enabled && (
           <WMSTileLayer
             url={demSource.url}
@@ -288,6 +292,7 @@ export default function MapView({
             version="1.3.0"
             opacity={demOverlay.opacity}
             attribution={demSource.attribution}
+            pane="dem-overlay"
           />
         )}
 
