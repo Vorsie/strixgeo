@@ -1597,13 +1597,69 @@ dangling decision pointing at nothing.
 ``DELETE /cpt/{id}`` today (the sidebar's "remove from project"
 flips ``is_hidden`` on the review row instead), so live data can't
 hit the bug. It surfaces only via direct API use, ``curl``-style
-scripts, or future bulk-clean workflows.
+scripts, or future bulk-clean workflows. The bundle restore guard
+(``project_bundle.py``) does drop orphan reviews on the way back in,
+so a Save-then-Open cycle is self-cleaning.
 
 **Fix shape.** Smallest change: a ``delete_for_target(kind, id)``
 call inside the existing ``DELETE /cpt/{id}`` and
 ``DELETE /borehole/{id}`` handlers, plus a regression test
-asserting the review row vanishes alongside the investigation. A
-periodic GC pass would also work but feels heavier than the bug.
+asserting the review row vanishes alongside the investigation.
 
 **When to revisit.** Before exposing any bulk-delete endpoint, or
 before any external automation can call DELETE on investigations.
+
+### 22. Router-level integration tests absent (medium)
+
+**What.** ``tests/integration/db/`` covers every repository against a
+real PostgreSQL session, but no test exercises the FastAPI app
+end-to-end. Concretely uncovered today:
+
+* ``_target_exists_in_project`` 404 path in
+  ``api/routers/investigation_review.py``.
+* Cross-project tampering — a leaked id from project A used against
+  ``/projects/B/...``. Currently relies on the
+  ``get_in_project_or_404`` helper being wired correctly per call
+  site (verified by code review; no automated regression).
+* ``format_version != BUNDLE_FORMAT_VERSION`` rejection in
+  ``api/routers/project.py``.
+* ``PATCH /projects/{id}/view-state`` shallow-merge semantics +
+  ``null``-removes-key.
+* The deliberate ``DELETE /projects/{pid}/reviews/...`` silent-204
+  on a wrong-project hit.
+
+**Fix shape.** New ``tests/integration/api/`` directory with an
+``httpx.AsyncClient`` fixture that mounts the FastAPI app and uses
+the same Docker DB. One file per router; tests assert status codes
++ JSON shape, not internal repo state (the repo tests cover that).
+
+**When.** Before the second contributor lands, AND/OR before the
+public alpha. Solo-dev is one careful PR review away from catching
+router wiring regressions; a second pair of eyes isn't.
+
+### 23. Race-safe upsert on investigation_review (low)
+
+**What.** ``InvestigationReviewRepository.set_for_target`` is a
+SELECT-then-INSERT/UPDATE pattern. Two concurrent PUTs for the same
+``(target_kind, target_id)`` both pass the ``get_for_target() is
+None`` check, both ``add()``, then one commit raises
+``IntegrityError`` against ``uq_investigation_review_target``. The
+losing caller sees a 500.
+
+**Why deferred.** Solo-dev today never fires this race. A real fix
+needs ``INSERT ... ON CONFLICT DO UPDATE`` with pre-merged values, or
+a try/IntegrityError-rollback/retry loop — both are touchier than
+the rest of the upsert. Worth a focused session, not a side-effect
+of a quality pass.
+
+**Fix shape.** ``sqlalchemy.dialects.postgresql.insert(...)
+.on_conflict_do_update(index_elements=["target_kind", "target_id"],
+set_=...)``. Merge the patch with the current row's values
+client-side so the ``set_`` dict carries the full desired state
+(preserving the per-key None policy and transition-only
+``reviewed_at`` rule). Test with two concurrent ``asyncio.gather``
+calls hitting the same target.
+
+**When.** Before any rapid-fire UI control (e.g. a debounced slider
+that posts on every change) lands against this endpoint, or before
+multi-user editing of the same project lands.
