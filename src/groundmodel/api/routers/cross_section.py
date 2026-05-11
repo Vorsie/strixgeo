@@ -13,6 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.cross_section import (
     CrossSectionCreateRequest,
     CrossSectionResponse,
@@ -79,10 +80,9 @@ async def get_section(
 ) -> CrossSectionOrm:
     """Fetch a single section by id. 404 when missing or not in this project."""
     repo = CrossSectionRepository(session)
-    section = await repo.get(section_id)
-    if section is None or section.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cross-section not found")
-    return section
+    return await get_in_project_or_404(
+        repo.get(section_id), project_id, detail="Cross-section not found"
+    )
 
 
 @router.patch("/{section_id}", response_model=CrossSectionResponse)
@@ -94,13 +94,13 @@ async def update_section(
 ) -> CrossSectionOrm:
     """Partial update — only fields present in the body are written."""
     repo = CrossSectionRepository(session)
-    section = await repo.get(section_id)
-    if section is None or section.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cross-section not found")
+    await get_in_project_or_404(repo.get(section_id), project_id, detail="Cross-section not found")
     # exclude_unset so omitted fields stay untouched; an explicit null
     # is honoured (e.g. clearing min_depth_m back to auto-fit).
     patch = request.model_dump(exclude_unset=True)
     updated = await repo.update(section_id, patch)
+    # repo.update returns None only on a TOCTOU race (the row vanished
+    # between scope-check and update). Vanishingly rare; surface as 404.
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cross-section not found")
     # Post-update invariant: line still has non-zero length. Cheap check.
@@ -124,8 +124,6 @@ async def delete_section(
     """Delete a section. Polylines drawn on it (when the editor lands)
     cascade via FK; today there's nothing to cascade."""
     repo = CrossSectionRepository(session)
-    section = await repo.get(section_id)
-    if section is None or section.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cross-section not found")
+    await get_in_project_or_404(repo.get(section_id), project_id, detail="Cross-section not found")
     await repo.delete(section_id)
     await session.commit()
