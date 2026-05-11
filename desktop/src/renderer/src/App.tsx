@@ -9,6 +9,7 @@ import type {
   CptListItem,
   CptPlotResponse,
   CptResponse,
+  CrossSectionResponse,
 } from './api/client'
 import { useProject } from './hooks/useProject'
 import { usePersistedSet } from './hooks/usePersistedSet'
@@ -147,6 +148,12 @@ export default function App() {
   const [dovImporting, setDovImporting] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
+  // Cross-sections (Phase 4). List comes from the API on project load;
+  // selecting a section will surface its panel in the main view in S2+.
+  // For S1 the selection is wired but the main view still renders the
+  // map / chart / borelog — section view comes next.
+  const [sections, setSections] = useState<CrossSectionResponse[]>([])
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
 
   // Layer-visibility state — lifted from MapView so the Sidebar can also
   // grey out + reorder hidden items. We track HIDDEN values (not visible
@@ -450,11 +457,15 @@ export default function App() {
     boot()
   }, [])
 
-  // Load CPTs + boreholes whenever the API is ready and a project is selected
+  // Load CPTs + boreholes + sections whenever the API is ready and a
+  // project is selected. ``project?.id`` in the dep array means each
+  // project switch re-fetches its own scope (and clears stale section
+  // state for the previous project).
   useEffect(() => {
     if (ready && project) {
       refreshList()
       refreshBoreholeList()
+      refreshSectionList()
     }
   }, [ready, project?.id])
 
@@ -681,6 +692,113 @@ export default function App() {
       toast('error', 'Failed to load borehole list')
     }
   }, [project])
+
+  const refreshSectionList = useCallback(async () => {
+    if (!project) return
+    try {
+      const list = await api.section.list(project.id)
+      setSections(list)
+      log.debug('section', `refreshList: ${list.length} sections`)
+    } catch (err) {
+      log.error('section', 'refreshList failed', err)
+      toast('error', 'Failed to load cross-sections')
+    }
+  }, [project])
+
+  // Placeholder geometry generator. S1 ships the discovery surface
+  // (list / create / delete) but the section's endpoints are picked
+  // by the user on the map in S10. Until then a fresh section lands
+  // at a sensible default location based on the project's existing
+  // data: the diagonal of the CPT/borehole bounding box if any markers
+  // exist, otherwise a 1km E-W line at the project's typical CRS
+  // origin. User edits via the metadata editor (S2) or the live
+  // map-pick interaction (S10).
+  function placeholderEndpoints(epsg: number): {
+    start_x: number
+    start_y: number
+    end_x: number
+    end_y: number
+  } {
+    const xs = [
+      ...cpts.map(c => c.location_x),
+      ...boreholes.map(b => b.location_x),
+    ].filter(Number.isFinite)
+    const ys = [
+      ...cpts.map(c => c.location_y),
+      ...boreholes.map(b => b.location_y),
+    ].filter(Number.isFinite)
+    if (xs.length >= 2 && ys.length >= 2) {
+      // Diagonal across the bbox — guarantees distinct endpoints and
+      // sets the section to span the full data extent the user just
+      // imported. Often a poor default for engineering but a great
+      // visual anchor that's obviously a placeholder.
+      return {
+        start_x: Math.min(...xs),
+        start_y: Math.min(...ys),
+        end_x: Math.max(...xs),
+        end_y: Math.max(...ys),
+      }
+    }
+    // No data — pick a 1 km E-W line centred on a typical site for
+    // the CRS. 150000 / 200000 lands near central Belgium for L72;
+    // 155000 / 463000 lands near central NL for RD New. Either way
+    // the user will move the endpoints once map-pick lands.
+    if (epsg === 28992) {
+      // RD New (Netherlands)
+      return { start_x: 154500, start_y: 463000, end_x: 155500, end_y: 463000 }
+    }
+    // Default to Belgium Lambert72 centre.
+    return { start_x: 149500, start_y: 200000, end_x: 150500, end_y: 200000 }
+  }
+
+  const handleCreateSection = useCallback(async (): Promise<
+    CrossSectionResponse | null
+  > => {
+    if (!project) return null
+    const epsg = project.default_horizontal_epsg
+    if (epsg == null) {
+      toast('error', 'Set a Default horizontal CRS in Project metadata first.')
+      return null
+    }
+    const endpoints = placeholderEndpoints(epsg)
+    // Unique-ish default name. The backend doesn't enforce uniqueness
+    // (engineers might name two sections "AA'") so the counter is just
+    // a hint to the user; they can rename in S2's metadata editor.
+    const ordinal = sections.length + 1
+    try {
+      const created = await api.section.create(project.id, {
+        name: `Section ${ordinal}`,
+        epsg,
+        ...endpoints,
+      })
+      setSections(prev => [...prev, created])
+      setSelectedSectionId(created.id)
+      log.success('section', `created ${created.name} (${created.id})`)
+      return created
+    } catch (err) {
+      log.error('section', 'create failed', err)
+      toast('error', 'Could not create the section.')
+      return null
+    }
+    // ``cpts`` / ``boreholes`` feed placeholderEndpoints; sections drives
+    // the ordinal; project provides id + epsg.
+  }, [project, sections.length, cpts, boreholes])
+
+  const handleDeleteSection = useCallback(
+    async (id: string) => {
+      if (!project) return
+      try {
+        await api.section.delete(project.id, id)
+        setSections(prev => prev.filter(s => s.id !== id))
+        if (selectedSectionId === id) setSelectedSectionId(null)
+        log.info('section', `deleted ${id}`)
+      } catch (err) {
+        log.error('section', `delete ${id} failed`, err)
+        toast('error', 'Could not delete the section.')
+      }
+    },
+    [project, selectedSectionId],
+  )
 
   const loadBoreholeDetail = useCallback(
     async (id: string) => {
@@ -1046,6 +1164,12 @@ export default function App() {
           boreholeAxis={boreholeAxis}
           outOfViewportCptIds={outOfViewportCptIds}
           outOfViewportBoreholeIds={outOfViewportBoreholeIds}
+          sections={sections}
+          selectedSectionId={selectedSectionId}
+          onSelectSection={setSelectedSectionId}
+          onCreateSection={handleCreateSection}
+          onDeleteSection={handleDeleteSection}
+          canCreateSection={project.default_horizontal_epsg != null}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
