@@ -20,15 +20,29 @@
  */
 
 import { Fragment, useMemo } from 'react'
-import { Polygon, Polyline, Tooltip } from 'react-leaflet'
+import { Pane, Polygon, Polyline, Tooltip } from 'react-leaflet'
 
-import type { CrossSectionResponse } from '../api/client'
+import type {
+  BoreholeListItem,
+  CptListItem,
+  CrossSectionResponse,
+} from '../api/client'
 import { projectedToWgs84 } from '../hooks/useWgs84'
+import {
+  investigationsOnSection,
+  projectionFoot,
+} from '../utils/sectionProjection'
 
 interface Props {
   sections: readonly CrossSectionResponse[]
   selectedSectionId: string | null
   onSelect: (id: string) => void
+  // Optional investigation lists. When present AND a section is
+  // selected, thin grey leader lines render from each in-buffer
+  // investigation's true XY to its projection foot on the section
+  // line — makes the projection truth-loss visible on the map.
+  cpts?: readonly CptListItem[]
+  boreholes?: readonly BoreholeListItem[]
 }
 
 // Cap how many sections we render in one pass — projects with
@@ -36,10 +50,19 @@ interface Props {
 // each Leaflet renders aren't free.
 const MAX_OVERLAYS = 200
 
+// Leader-line pane z-index. Slots between the basemap tile pane
+// (z=200) and the marker overlay/marker panes (z=400/600) so leaders
+// render BELOW CPT and borehole markers — clicks on markers must
+// still hit the marker, not the leader sitting on top.
+const LEADER_PANE = 'section-leaders'
+const LEADER_PANE_Z = 350
+
 export default function SectionOverlays({
   sections,
   selectedSectionId,
   onSelect,
+  cpts = [],
+  boreholes = [],
 }: Props): JSX.Element {
   const items = useMemo(
     () =>
@@ -50,8 +73,42 @@ export default function SectionOverlays({
     [sections],
   )
 
+  // Leader-line segments for the SELECTED section only. Drawing
+  // leaders for every section at once would clutter the map; we
+  // limit to the active section so the user can switch sections to
+  // see different leader sets. A leader = polyline from the
+  // investigation's true XY to its projection foot on the line.
+  const leaders = useMemo<LeaderSegment[]>(() => {
+    if (!selectedSectionId) return []
+    const section = sections.find(s => s.id === selectedSectionId)
+    if (!section) return []
+    return buildLeaders(section, cpts, boreholes)
+  }, [selectedSectionId, sections, cpts, boreholes])
+
   return (
     <>
+      {/* Custom pane so leaders sit BELOW the marker overlay pane
+          (z=400) — marker clicks must still hit the marker, not the
+          thin grey leader sitting on top. */}
+      <Pane name={LEADER_PANE} style={{ zIndex: LEADER_PANE_Z }} />
+      {leaders.map(leader => (
+        <Polyline
+          key={leader.id}
+          pane={LEADER_PANE}
+          positions={[leader.fromLatLng, leader.toLatLng]}
+          pathOptions={{
+            color: '#6b7280',
+            weight: 1,
+            opacity: 0.7,
+            dashArray: '3 3',
+            // Leader lines never need to be clickable — interactive
+            // false stops Leaflet from registering hover/click
+            // handlers, keeping the map's hit-testing cheap.
+            interactive: false,
+          }}
+        />
+      ))}
+
       {items.map(item => {
         const selected = item.id === selectedSectionId
         return (
@@ -156,4 +213,55 @@ function buildOverlay(section: CrossSectionResponse): OverlayItem | null {
     // unsupported CRSes (it never needs WGS84).
     return null
   }
+}
+
+// ---------------------------------------------------------------------------
+// Leader lines — true-XY → projection-foot segments
+// ---------------------------------------------------------------------------
+
+interface LeaderSegment {
+  /** Stable key for React's reconciliation — investigation id is
+   * sufficient because at most one leader exists per investigation
+   * per render. */
+  id: string
+  fromLatLng: [number, number]
+  toLatLng: [number, number]
+}
+
+/** Build the leader segments for the in-buffer investigations of
+ * a single section. Returns ``[]`` on unsupported CRSes or zero-
+ * length sections (defensive — same fallthrough as buildOverlay). */
+function buildLeaders(
+  section: CrossSectionResponse,
+  cpts: readonly CptListItem[],
+  boreholes: readonly BoreholeListItem[],
+): LeaderSegment[] {
+  const excludedCpt = new Set(section.excluded_cpt_ids)
+  const excludedBh = new Set(section.excluded_borehole_ids)
+  const projectedCpts = investigationsOnSection(section, cpts, excludedCpt)
+  const projectedBh = investigationsOnSection(section, boreholes, excludedBh)
+  const out: LeaderSegment[] = []
+  try {
+    for (const p of projectedCpts) {
+      const foot = projectionFoot(section, p.along)
+      if (foot === null) continue
+      out.push({
+        id: `cpt-${p.item.id}`,
+        fromLatLng: projectedToWgs84(p.item.location_x, p.item.location_y, section.epsg),
+        toLatLng: projectedToWgs84(foot.x, foot.y, section.epsg),
+      })
+    }
+    for (const p of projectedBh) {
+      const foot = projectionFoot(section, p.along)
+      if (foot === null) continue
+      out.push({
+        id: `bh-${p.item.id}`,
+        fromLatLng: projectedToWgs84(p.item.location_x, p.item.location_y, section.epsg),
+        toLatLng: projectedToWgs84(foot.x, foot.y, section.epsg),
+      })
+    }
+  } catch {
+    return []
+  }
+  return out
 }

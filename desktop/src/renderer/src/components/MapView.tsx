@@ -381,6 +381,8 @@ export default function MapView({
             sections={sections}
             selectedSectionId={selectedSectionId}
             onSelect={onSelectSection}
+            cpts={cpts}
+            boreholes={boreholes}
           />
         )}
 
