@@ -133,3 +133,60 @@ async def test_set_elevation_caller_zepsg_overrides_default(
     await db_session.commit()
     assert updated is not None
     assert updated.z_epsg == 5709
+
+
+# ---------------------------------------------------------------------------
+# S7 — batched plot fetch via ``get_many_with_series``
+# ---------------------------------------------------------------------------
+
+
+async def test_get_many_with_series_returns_each_requested_cpt(
+    db_session: AsyncSession,
+) -> None:
+    """Round-trips a batch of CPTs with their depth-series loaded.
+
+    Backs ``POST /cpt/plot-batch`` — the cross-section panel folds N
+    per-CPT plot fetches into one DB query. Missing ids must drop
+    silently (no exception, no padding) so the caller can index by
+    ``cpt_id`` rather than position.
+    """
+    from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+
+    repo = CptRepository(db_session)
+    a = _cpt(test_id="batch-a")
+    a.series = CptSeriesOrm(
+        depths_m=[0.0, 0.5, 1.0],
+        qc_mpa=[1.2, 2.4, 3.6],
+        fs_mpa=None,
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    b = _cpt(test_id="batch-b")
+    b.series = CptSeriesOrm(
+        depths_m=[0.0, 1.0],
+        qc_mpa=[5.0, 6.0],
+        fs_mpa=None,
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    await repo.save(a)
+    await repo.save(b)
+    await db_session.commit()
+
+    # Mix in an unknown id to confirm it drops silently.
+    out = await repo.get_many_with_series([a.id, b.id, uuid7()])
+    assert len(out) == 2
+    by_id = {c.id: c for c in out}
+    assert by_id[a.id].series is not None
+    assert by_id[a.id].series.depths_m == [0.0, 0.5, 1.0]
+    assert by_id[b.id].series is not None
+
+
+async def test_get_many_with_series_empty_input_returns_empty(
+    db_session: AsyncSession,
+) -> None:
+    """Empty ``cpt_ids`` short-circuits without an IN-query."""
+    repo = CptRepository(db_session)
+    assert await repo.get_many_with_series([]) == []
