@@ -68,6 +68,13 @@ interface UseProjectActions {
   pickAndOpenProject: () => Promise<PickAndOpenResult>
   /** Apply an in-memory patch to ``project`` (no API call, no file write). */
   applyMetadataDraft: (patch: ProjectUpdatePayload) => void
+  /** Shallow-merge a patch into ``project.view_state``. Fires PATCH
+   * /view-state immediately and updates BOTH ``project`` and
+   * ``saved`` so the change does NOT flip ``dirty`` — view_state
+   * lives on its own auto-persist track (it's reversible UI chrome,
+   * not metadata that goes through the Save model). Returns true on
+   * success, false on network failure (caller surfaces the toast). */
+  applyViewStatePatch: (patch: Record<string, unknown>) => Promise<boolean>
   /** Commit ``project`` to the DB + .gmproj file. No-op silently when clean. */
   saveProject: () => Promise<boolean>
   /** Deep-duplicate the current project (DB + all CPTs/boreholes), write a
@@ -285,6 +292,33 @@ export function useProject(): UseProject {
     })
   }, [])
 
+  // Reversible UI-chrome decisions (DEM toggle, hidden-by-type sets,
+  // future view prefs) live in ``project.view_state``. Unlike metadata
+  // changes — which queue under ``dirty`` until the user hits Save —
+  // these auto-persist immediately so the toggle feels native and
+  // the next .gmproj save bundles the current state. Updating BOTH
+  // ``project`` and ``saved`` keeps ``dirty`` false through the
+  // round-trip.
+  const applyViewStatePatch = useCallback(
+    async (patch: Record<string, unknown>): Promise<boolean> => {
+      if (project === null) return false
+      try {
+        const updated = await api.project.patchViewState(project.id, patch)
+        setProject(prev => (prev === null ? null : { ...prev, view_state: updated.view_state }))
+        setSaved(prev => (prev === null ? null : { ...prev, view_state: updated.view_state }))
+        log.info(
+          'project',
+          `view_state patched for ${project.id}: ${JSON.stringify(patch)}`,
+        )
+        return true
+      } catch (err) {
+        log.error('project', `view_state PATCH failed for ${project.id}`, err)
+        return false
+      }
+    },
+    [project],
+  )
+
   // File → Save / Ctrl+S / "Save and close" all funnel here. Returns
   // ``true`` on success (or when the project is already clean — a
   // silent no-op), ``false`` on failure.
@@ -421,6 +455,7 @@ export function useProject(): UseProject {
     openProjectFile,
     pickAndOpenProject,
     applyMetadataDraft,
+    applyViewStatePatch,
     saveProject,
     saveAsProject,
     discardEdits,
