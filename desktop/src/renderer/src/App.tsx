@@ -900,6 +900,49 @@ export default function App() {
 
 
   // ---------------------------------------------------------------------------
+  // DEM hillshade overlay state
+  // ---------------------------------------------------------------------------
+  //
+  // The source is determined by the project's default_horizontal_epsg
+  // (Belgium → DHMVII, NL → AHN); the overlay state lives in
+  // ``project.view_state.dem_overlay`` and round-trips via the
+  // .gmproj bundle. ``readDemOverlay`` clamps out-of-range values so
+  // a hand-edited bundle can't render an invisible / saturated
+  // overlay forever. Memoised on the project handle so render-loop
+  // callers don't churn the object identity.
+  //
+  // These hooks MUST live above every early-return ladder below
+  // (apiError / !ready / !project) — Rules of Hooks: the hook count
+  // must be identical across renders, and the WelcomeScreen branch
+  // would otherwise short-circuit before reaching them, shifting the
+  // ordering once a project is opened.
+  const demSource = useMemo(
+    () => demSourceForEpsg(project?.default_horizontal_epsg ?? null),
+    [project?.default_horizontal_epsg],
+  )
+  const demOverlay = useMemo(
+    () => readDemOverlay(project?.view_state),
+    [project?.view_state],
+  )
+  const handleDemOverlayChange = useCallback(
+    async (next: DemOverlayState) => {
+      // Optimistic UI — the WMS layer flips on/off as fast as the
+      // browser can mount the TileLayer. PATCH /view-state runs in
+      // the background; failure surfaces a toast but the local UI
+      // already reflects the new state. Subsequent saves will write
+      // whatever the server has committed by then.
+      const ok = await applyViewStatePatch({ dem_overlay: next })
+      if (!ok) {
+        toast('error', 'Could not save the terrain overlay setting.')
+      }
+    },
+    // ``toast`` is a hoisted ``function`` declaration in this body —
+    // stable across renders, omitted from deps to match the
+    // convention used by every other callback here.
+    [applyViewStatePatch],
+  )
+
+  // ---------------------------------------------------------------------------
   // Toasts
   // ---------------------------------------------------------------------------
 
@@ -966,36 +1009,6 @@ export default function App() {
   const selectedCpt = cpts.find(c => c.id === selectedId)
   const drawingBbox = bboxImportType !== null
   const hasSelection = selectedId !== null || selectedBoreholeId !== null
-
-  // DEM hillshade overlay state. The source is determined by the
-  // project's default_horizontal_epsg (Belgium → DHMVII, NL → AHN);
-  // the overlay state lives in ``project.view_state.dem_overlay`` and
-  // round-trips via the .gmproj bundle. ``readDemOverlay`` clamps
-  // out-of-range values, so a hand-edited bundle can't render an
-  // invisible / saturated overlay forever. Memoised on the project
-  // handle so render-loop callers don't churn the object identity.
-  const demSource = useMemo(
-    () => demSourceForEpsg(project?.default_horizontal_epsg ?? null),
-    [project?.default_horizontal_epsg],
-  )
-  const demOverlay = useMemo(
-    () => readDemOverlay(project?.view_state),
-    [project?.view_state],
-  )
-  const handleDemOverlayChange = useCallback(
-    async (next: DemOverlayState) => {
-      // Optimistic UI — the WMS layer flips on/off as fast as the
-      // browser can mount the TileLayer. PATCH /view-state runs in
-      // the background; failure surfaces a toast but the local UI
-      // already reflects the new state. Subsequent saves will write
-      // whatever the server has committed by then.
-      const ok = await applyViewStatePatch({ dem_overlay: next })
-      if (!ok) {
-        toast('error', 'Could not save the terrain overlay setting.')
-      }
-    },
-    [applyViewStatePatch],
-  )
 
   return (
     <div className="flex flex-col h-screen bg-white overflow-hidden">
