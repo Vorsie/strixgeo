@@ -49,6 +49,15 @@ from pydantic import BaseModel, Field
 # in a way readers must branch on. New saves always emit this version.
 BUNDLE_FORMAT_VERSION = 3
 
+# Versions a current build will accept on restore. Always includes the
+# current ``BUNDLE_FORMAT_VERSION``; when v4 lands, the v3 reader stays
+# (with an upgrade step) and the constant becomes ``{3, 4}``. Phrased
+# as a set so the route handler's membership test reads naturally and
+# the next bump is a one-line edit, not a re-think of the gate's
+# shape. See CLAUDE.md "Backwards Compatibility" — versioned formats
+# must always parse, with an explicit upgrade chain.
+SUPPORTED_BUNDLE_VERSIONS: frozenset[int] = frozenset({BUNDLE_FORMAT_VERSION})
+
 
 class ProjectBundleRequest(BaseModel):
     """Body of ``POST /projects/{id}/restore``.
