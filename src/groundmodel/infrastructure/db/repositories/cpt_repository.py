@@ -58,6 +58,21 @@ class CptRepository(GroundModelLogger):
         )
         return result.scalar_one_or_none()
 
+    async def get_many_with_series(self, cpt_ids: list[UUID]) -> list[CptOrm]:
+        """Fetch many CPTs (with series eager-loaded) in one query.
+
+        Used by ``POST /cpt/plot-batch`` to fold N per-CPT round-trips
+        into one DB query. Order of the returned list isn't guaranteed
+        to match ``cpt_ids``; the response indexer matches by row id
+        rather than position. Unknown ids drop silently.
+        """
+        if not cpt_ids:
+            return []
+        result = await self._session.execute(
+            select(CptOrm).where(CptOrm.id.in_(cpt_ids)).options(selectinload(CptOrm.series))
+        )
+        return list(result.scalars().all())
+
     async def list_all(self, app_project_id: UUID | None = None) -> list[CptOrm]:
         """Return all CPTs without loading series arrays.
 
