@@ -360,8 +360,17 @@ export default function MapView({
         })}
       </MapContainer>
 
-      {/* Layer control — top-right, dropdown UX (Option B) */}
-      {(cptTypeCounts.size > 0 || boreholes.length > 0 || demSource !== null) && (
+      {/* Layer control — top-right, dropdown UX (Option B). Always
+          renders when ``onDemOverlayChange`` is wired so the Terrain
+          section is discoverable, even when the project's CRS doesn't
+          map to a known DEM source — the section then renders a
+          "no source for this CRS" hint pointing to the metadata
+          editor. Without this carve-out, the dropdown disappears
+          entirely on a fresh project and users can't find where to
+          fix the CRS. */}
+      {(cptTypeCounts.size > 0 ||
+        boreholes.length > 0 ||
+        onDemOverlayChange !== undefined) && (
         <LayerControl
           cptTypeCounts={cptTypeCounts}
           hiddenCptTypes={hiddenCptTypes}
@@ -532,31 +541,50 @@ function LayerControl({
         </div>
       )}
 
-      {/* Terrain category — hillshade DEM overlay. Only renders when
-          the project's horizontal EPSG resolves to a known DEM source
-          (DHMVII for Belgium / AHN for NL). For other projects the
-          terrain context isn't reachable yet and the section hides. */}
-      {demSource && demOverlay && onDemOverlayChange && (
+      {/* Terrain category — hillshade DEM overlay. Always renders when
+          the parent wires ``onDemOverlayChange``; if the project's
+          horizontal EPSG doesn't map to a known DEM source we still
+          surface the section with a "no source for this CRS" hint so
+          the user can find the metadata editor and fix it. Hiding
+          entirely (the previous behaviour) made the feature
+          undiscoverable on fresh projects whose CRS hasn't been set. */}
+      {onDemOverlayChange && demOverlay && (
         <div className={openCategory === 'cpt' || openCategory === 'borehole' ? 'border-t border-gray-100' : ''}>
           <CategoryHeader
             label="Terrain"
             // Surface the active provider name in the badge slot so the
             // user sees which source the toggle is wired to without
-            // expanding the section. Empty when off so the row reads as
-            // a normal toggle when nothing is active.
-            count={demOverlay.enabled ? demSource.provider : ''}
+            // expanding the section. Empty when off / unavailable so
+            // the row reads as a normal toggle when nothing is active.
+            count={demSource && demOverlay.enabled ? demSource.provider : ''}
             open={openCategory === 'terrain'}
             onClick={() => onToggleCategory('terrain')}
           />
-          {openCategory === 'terrain' && (
-            <TerrainSection
-              source={demSource}
-              overlay={demOverlay}
-              onChange={onDemOverlayChange}
-            />
-          )}
+          {openCategory === 'terrain' &&
+            (demSource ? (
+              <TerrainSection
+                source={demSource}
+                overlay={demOverlay}
+                onChange={onDemOverlayChange}
+              />
+            ) : (
+              <TerrainUnavailableHint />
+            ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function TerrainUnavailableHint() {
+  return (
+    <div className="px-3 pb-2 text-[10px] text-gray-500 leading-snug">
+      No terrain source for this project's horizontal CRS. Open{' '}
+      <span className="font-medium text-gray-600">Edit metadata</span> from the
+      sidebar and set <span className="font-mono">Default horizontal CRS</span>{' '}
+      to <span className="font-mono">31370</span> (Belgium) or{' '}
+      <span className="font-mono">28992</span> (Netherlands) to enable the
+      hillshade overlay.
     </div>
   )
 }
