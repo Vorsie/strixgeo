@@ -15,6 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.formation_contact import (
     FormationContactCreateRequest,
     FormationContactResponse,
@@ -102,11 +103,17 @@ async def update_formation(
 ) -> GeologicalFormationOrm:
     """Partial update on a formation. Only fields present in the body are written."""
     repo = GeologyRepository(session)
+    # Scope-check pre-update so a leaked id from another project doesn't
+    # mutate a row this caller has no business touching.
+    await get_in_project_or_404(
+        repo.get_formation(formation_id), project_id, detail="Formation not found"
+    )
     # exclude_unset so omitted fields stay untouched and explicit null
     # only clears optional columns.
     patch = request.model_dump(exclude_unset=True)
     formation = await repo.update_formation(formation_id, patch)
-    if formation is None or formation.app_project_id != project_id:
+    if formation is None:
+        # TOCTOU race — row vanished between scope-check and update.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Formation not found")
     await session.commit()
     await session.refresh(formation)
@@ -121,9 +128,9 @@ async def delete_formation(
 ) -> None:
     """Delete a formation. Cascades to every contact that referenced it."""
     repo = GeologyRepository(session)
-    formation = await repo.get_formation(formation_id)
-    if formation is None or formation.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Formation not found")
+    await get_in_project_or_404(
+        repo.get_formation(formation_id), project_id, detail="Formation not found"
+    )
     await repo.delete_formation(formation_id)
     await session.commit()
 
@@ -176,9 +183,13 @@ async def update_model(
 ) -> GeologicalModelOrm:
     """Partial update on a model. ``is_active`` lives on its own activate endpoint."""
     repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
+    )
     patch = request.model_dump(exclude_unset=True)
     model = await repo.update_model(model_id, patch)
-    if model is None or model.app_project_id != project_id:
+    if model is None:
+        # TOCTOU race — row vanished between scope-check and update.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
     await session.commit()
     await session.refresh(model)
@@ -209,9 +220,9 @@ async def delete_model(
 ) -> None:
     """Delete a model. Cascades to every contact under it."""
     repo = GeologyRepository(session)
-    model = await session.get(GeologicalModelOrm, model_id)
-    if model is None or model.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
+    )
     await repo.delete_model(model_id)
     await session.commit()
 
@@ -235,9 +246,9 @@ async def create_contact(
     """Create a new formation contact under a model."""
     repo = GeologyRepository(session)
     # Guard: model must exist and belong to the project.
-    model = await session.get(GeologicalModelOrm, model_id)
-    if model is None or model.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
+    )
     try:
         contact = await repo.create_contact(
             model_id=model_id,
@@ -275,9 +286,9 @@ async def list_contacts(
     model doesn't belong to the project, preventing trivial id-guessing
     across projects.
     """
-    model = await session.get(GeologicalModelOrm, model_id)
-    if model is None or model.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
+    )
     repo = GeologyRepository(session)
     return await repo.list_contacts(model_id, borehole_id=borehole_id, formation_id=formation_id)
 
@@ -294,16 +305,24 @@ async def update_contact(
     session: AsyncSession = Depends(get_session),
 ) -> FormationContactOrm:
     """Partial update on a contact (depth, formation, confidence, notes)."""
-    contact = await session.get(FormationContactOrm, contact_id)
-    if contact is None or contact.model_id != model_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
-    # Scope guard through the parent model.
-    model = await session.get(GeologicalModelOrm, model_id)
-    if model is None or model.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
+    # Two-stage scope guard: the contact's model_id must match the URL,
+    # AND the model itself must live in the URL's project. Single 404
+    # message either way — we don't leak which boundary the caller hit.
+    await get_in_project_or_404(
+        session.get(FormationContactOrm, contact_id),
+        model_id,
+        detail="Contact not found",
+        project_attr="model_id",
+    )
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Contact not found",
+    )
     repo = GeologyRepository(session)
     updated = await repo.update_contact(contact_id, request.model_dump(exclude_unset=True))
     if updated is None:
+        # TOCTOU race — row vanished between scope-check and update.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
     await session.commit()
     await session.refresh(updated)
@@ -321,12 +340,17 @@ async def delete_contact(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     """Delete a contact."""
-    contact = await session.get(FormationContactOrm, contact_id)
-    if contact is None or contact.model_id != model_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
-    model = await session.get(GeologicalModelOrm, model_id)
-    if model is None or model.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
+    await get_in_project_or_404(
+        session.get(FormationContactOrm, contact_id),
+        model_id,
+        detail="Contact not found",
+        project_attr="model_id",
+    )
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Contact not found",
+    )
     repo = GeologyRepository(session)
     await repo.delete_contact(contact_id)
     await session.commit()
@@ -353,9 +377,9 @@ async def validate_no_gaps(
     editor calls this on save; the response surfaces as inline warnings
     in the section view.
     """
-    model = await session.get(GeologicalModelOrm, model_id)
-    if model is None or model.app_project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model not found")
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
+    )
     repo = GeologyRepository(session)
     issues = await repo.validate_no_gaps(model_id, borehole_id)
     return GapValidationResponse(
