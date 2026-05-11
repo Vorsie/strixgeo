@@ -386,6 +386,20 @@ export interface CrossSectionUpdatePayload {
   display_order?: number | null
 }
 
+// DEM sample shape — mirrors the backend DemSampleLineResponse 1:1.
+// ``elevation_m`` is null at NoData pixels (outside DHMVII coverage
+// or known data holes); the renderer breaks the polyline there
+// rather than connecting across the gap.
+export interface DemSamplePoint {
+  along_m: number
+  elevation_m: number | null
+}
+
+export interface DemSampleLineResponse {
+  source: string
+  samples: DemSamplePoint[]
+}
+
 export class DuplicateCptError extends Error {
   cptId: string
   constructor(cptId: string) {
@@ -580,6 +594,30 @@ export const api = {
       patchBody: Record<string, unknown>,
     ): Promise<ProjectResponse> =>
       patch(`/projects/${id}/view-state`, { patch: patchBody }),
+  },
+
+  // DEM (Digital Elevation Model) sampling — elevation profile along
+  // a line in the project's horizontal CRS. Powers the SectionPanel's
+  // ground-surface polyline.
+  dem: {
+    sampleLine: (params: {
+      startX: number
+      startY: number
+      endX: number
+      endY: number
+      epsg: number
+      nSamples?: number
+    }): Promise<DemSampleLineResponse> => {
+      const q = new URLSearchParams({
+        start_x: String(params.startX),
+        start_y: String(params.startY),
+        end_x: String(params.endX),
+        end_y: String(params.endY),
+        epsg: String(params.epsg),
+        n_samples: String(params.nSamples ?? 200),
+      })
+      return get(`/dem/sample?${q.toString()}`)
+    },
   },
 
   // Cross-section CRUD. Project-scoped via the URL prefix; ``projectId``
