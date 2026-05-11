@@ -701,7 +701,7 @@ export default function App() {
       log.debug('section', `refreshList: ${list.length} sections`)
     } catch (err) {
       log.error('section', 'refreshList failed', err)
-      toast('error', 'Failed to load cross-sections')
+      toast('error', 'Failed to load cross-sections.')
     }
   }, [project])
 
@@ -762,12 +762,13 @@ export default function App() {
     }
     const endpoints = placeholderEndpoints(epsg)
     // Unique-ish default name. The backend doesn't enforce uniqueness
-    // (engineers might name two sections "AA'") so the counter is just
-    // a hint to the user; they can rename in S2's metadata editor.
+    // (engineers might name two cross-sections "AA'") so the counter
+    // is just a hint to the user; they can rename in S2's metadata
+    // editor.
     const ordinal = sections.length + 1
     try {
       const created = await api.section.create(project.id, {
-        name: `Section ${ordinal}`,
+        name: `Cross-section ${ordinal}`,
         epsg,
         ...endpoints,
       })
@@ -777,7 +778,7 @@ export default function App() {
       return created
     } catch (err) {
       log.error('section', 'create failed', err)
-      toast('error', 'Could not create the section.')
+      toast('error', 'Could not create the cross-section.')
       return null
     }
     // ``cpts`` / ``boreholes`` feed placeholderEndpoints; sections drives
@@ -794,7 +795,7 @@ export default function App() {
         log.info('section', `deleted ${id}`)
       } catch (err) {
         log.error('section', `delete ${id} failed`, err)
-        toast('error', 'Could not delete the section.')
+        toast('error', 'Could not delete the cross-section.')
       }
     },
     [project, selectedSectionId],
