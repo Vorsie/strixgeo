@@ -10,6 +10,7 @@ Files under test
 1778056773736.gef  CPTM (TM1) — 1316 rows, zero-qc gap at 25.92–26.08 m
 1778056778310.gef  CPTM (TM2) — pre-drill 2.2 m, total resistance all void
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,6 +34,7 @@ pytestmark = pytest.mark.skipif(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse(filename: str) -> GEFParseResult:
     return GEFParser().parse_bytes((DATA_DIR / filename).read_bytes())
 
@@ -53,61 +55,77 @@ def _warning_codes(result: GEFParseResult) -> set[str]:
 # Parametrised smoke tests — every file must parse and carry Belgian EPSG
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("filename", [
-    "1778054387093.gef",
-    "1778056765226.gef",
-    "1778056769825.gef",
-    "1778056773736.gef",
-    "1778056778310.gef",
-])
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "1778054387093.gef",
+        "1778056765226.gef",
+        "1778056769825.gef",
+        "1778056773736.gef",
+        "1778056778310.gef",
+    ],
+)
 def test_all_files_parse_without_error(filename: str) -> None:
     result = _parse(filename)
     assert result.data is not None
     assert len(result.data) > 0
 
 
-@pytest.mark.parametrize("filename", [
-    "1778054387093.gef",
-    "1778056765226.gef",
-    "1778056769825.gef",
-    "1778056773736.gef",
-    "1778056778310.gef",
-])
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "1778054387093.gef",
+        "1778056765226.gef",
+        "1778056769825.gef",
+        "1778056773736.gef",
+        "1778056778310.gef",
+    ],
+)
 def test_all_files_have_belgian_lambert_epsg(filename: str) -> None:
     result = _parse(filename)
     assert result.header.epsg == 32000
 
 
-@pytest.mark.parametrize("filename", [
-    "1778054387093.gef",
-    "1778056765226.gef",
-    "1778056769825.gef",
-    "1778056773736.gef",
-    "1778056778310.gef",
-])
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "1778054387093.gef",
+        "1778056765226.gef",
+        "1778056769825.gef",
+        "1778056773736.gef",
+        "1778056778310.gef",
+    ],
+)
 def test_all_files_depth_is_monotonically_increasing(filename: str) -> None:
     result = _parse(filename)
     assert "DEPTH_NOT_MONOTONIC" not in _error_codes(result)
 
 
-@pytest.mark.parametrize("filename", [
-    "1778054387093.gef",
-    "1778056765226.gef",
-    "1778056769825.gef",
-    "1778056773736.gef",
-    "1778056778310.gef",
-])
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "1778054387093.gef",
+        "1778056765226.gef",
+        "1778056769825.gef",
+        "1778056773736.gef",
+        "1778056778310.gef",
+    ],
+)
 def test_all_files_have_no_missing_required_columns(filename: str) -> None:
     result = _parse(filename)
     assert "MISSING_COLUMN" not in _error_codes(result)
 
 
-@pytest.mark.parametrize("filename", [
-    "1778054387093.gef",
-    "1778056765226.gef",
-    "1778056769825.gef",
-    "1778056773736.gef",
-])
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "1778054387093.gef",
+        "1778056765226.gef",
+        "1778056769825.gef",
+        "1778056773736.gef",
+    ],
+)
 def test_single_method_files_have_no_hybrid_flag(filename: str) -> None:
     assert "HYBRID_METHOD" not in _warning_codes(_parse(filename))
 
@@ -116,6 +134,7 @@ def test_single_method_files_have_no_hybrid_flag(filename: str) -> None:
 # 1778054387093.gef — CPTE (TE1), GEO-25/122-S22
 # Dual depth/length columns (qty 1 and qty 11), negative fs in top rows.
 # ---------------------------------------------------------------------------
+
 
 class TestCPTE_GEO25_S22:
     FILE = "1778054387093.gef"
@@ -153,6 +172,7 @@ class TestCPTE_GEO25_S22:
 # 1778056765226.gef — CPTU (TE2), GEO-12/098-S1
 # Pre-drill 1.5 m declared via MVAR 13; u2 voided in top rows.
 # ---------------------------------------------------------------------------
+
 
 class TestCPTU_GEO12_S1:
     FILE = "1778056765226.gef"
@@ -196,6 +216,7 @@ class TestCPTU_GEO12_S1:
 # Only 34 rows; qty-128 total resistance column not in standard mapping.
 # ---------------------------------------------------------------------------
 
+
 class TestCPTM_TM4_1804723:
     FILE = "1778056769825.gef"
 
@@ -229,6 +250,7 @@ class TestCPTM_TM4_1804723:
 # 1316 rows; gap at 25.92–26.08 m recorded as zero qc (not missing rows).
 # ---------------------------------------------------------------------------
 
+
 class TestCPTM_TM1_GEO16_S01:
     FILE = "1778056773736.gef"
 
@@ -256,6 +278,7 @@ class TestCPTM_TM1_GEO16_S01:
     def test_depth_gap_rows_have_zero_qc(self) -> None:
         # Rows at 25.94–26.08 m have qc = 0.0 (data gap recorded as zeros)
         import polars as pl
+
         df = _parse(self.FILE).data
         gap = df.filter((pl.col("depth_m") >= 25.94) & (pl.col("depth_m") <= 26.08))
         assert gap.height == 8
@@ -266,6 +289,7 @@ class TestCPTM_TM1_GEO16_S01:
 # 1778056778310.gef — CPTM (TM2), GEO-13/001-S5
 # Pre-drill 2.2 m; total resistance column entirely void (-9999.0).
 # ---------------------------------------------------------------------------
+
 
 class TestCPTM_TM2_GEO13_S5:
     FILE = "1778056778310.gef"
@@ -293,12 +317,22 @@ class TestCPTM_TM2_GEO13_S5:
         assert "HYBRID_METHOD" in _warning_codes(_parse(self.FILE))
 
     def test_total_resistance_voided_only_in_electric_portion(self) -> None:
-        """qty 128 (totaalweerstand) maps to qt_mpa; void-masked in the electric portion."""
+        """qty 128 (totaalweerstand) maps to q_total_mpa; void-masked in the electric portion.
+
+        ``q_total_mpa`` is the CPTM mechanical-cone "totaalweerstand" — combined
+        tip + sleeve force read in one push. Physically distinct from
+        ``qt_mpa``, which is the CPTU-only corrected cone resistance computed
+        from qc + u2(1-a). The two share the historic "qt" symbol but are
+        different quantities and live in different columns. CPTM rows must
+        carry ``q_total_mpa``, never ``qt_mpa``.
+        """
         import polars as pl
 
         df = _parse(self.FILE).data
-        assert "qt_mpa" in df.columns
+        # CPTM ⇒ q_total_mpa is the totaalweerstand column; qt_mpa must be absent.
+        assert "q_total_mpa" in df.columns
+        assert "qt_mpa" not in df.columns
         # Electric CPT portion (2.20–4.59 m, 240 rows) has void total resistance
-        assert df.filter(pl.col("depth_m") <= 4.59)["qt_mpa"].null_count() == 240
+        assert df.filter(pl.col("depth_m") <= 4.59)["q_total_mpa"].null_count() == 240
         # Mechanical portion (4.60 m onwards) has real total resistance measurements
-        assert df.filter(pl.col("depth_m") >= 4.60)["qt_mpa"].null_count() == 0
+        assert df.filter(pl.col("depth_m") >= 4.60)["q_total_mpa"].null_count() == 0
