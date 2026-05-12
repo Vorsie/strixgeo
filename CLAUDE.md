@@ -1713,31 +1713,30 @@ The single-CPT ``GET /cpt/{id}`` retains the same gap and is now
 the only remaining exposure surface — tracked as a follow-on
 (see "GET /cpt/{id} also needs project-scope guard" under #24a).
 
-### 25. ``CrossSectionOrm`` missing ``view_state`` JSONB column
+### 25. ``CrossSectionOrm`` missing ``view_state`` JSONB column — DONE
 
-**What.** Per-section display preferences (CPT channel toggles,
-borehole interpretation toggles, future scale locks) have no
-storage. ``SectionPanel.tsx`` works around this with an unsafe
-``(section as unknown as {view_state?:...}).view_state`` cast.
-``readCptChannels`` always falls through to defaults; the toggle
-state is frozen at mount and never persists. CLAUDE.md "Project
-files" rule: every per-project decision lives in the bundle,
-never in localStorage. This violates that rule silently because
-the toggle UI hasn't shipped yet — the moment it does, channel
-state resets on every section re-open.
+Resolved 2026-05-12. Alembic migration ``8a3f2c91d456`` adds a
+nullable ``view_state JSONB`` column on ``cross_section``. The
+ORM, the Pydantic create/update/response schemas, and the
+repository ``create`` signature all carry it; ``model_dump(
+exclude_unset=True)`` on PATCH lets callers update individual
+keys via the standard partial-update flow.
 
-**Fix shape.** Add ``view_state: Mapped[dict[str, Any]] |
-mapped_column(JSONB, nullable=True, default=dict)`` to
-``CrossSectionOrm``, write the Alembic migration, add the field
-to ``CrossSectionResponse`` + ``CrossSectionPatchRequest``, drop
-the cast in ``SectionPanel.tsx`` and wire a ``PATCH /sections/{id}``
-call on channel-toggle change. Bundle round-trips automatically
-via the existing snapshot machinery.
+Frontend: ``CrossSectionResponse`` in
+``desktop/src/renderer/src/api/client.ts`` exposes
+``view_state: Record<string, unknown> | null``; the unsafe
+``(section as unknown as ...).view_state`` cast in
+``SectionPanel.tsx`` is gone. ``readCptChannels`` reads the bag
+directly with documented defaults.
 
-**When to revisit.** Before the channel toggle UI lands (S7
-polish v2 / task #29 includes a legend; toggles are the next
-natural addition) AND before per-section display preferences are
-advertised as persistent.
+Bundle round-trip is automatic — ``project_bundle.py`` walks
+ORM columns via ``_column_to_json`` / ``_apply_json_to_kwargs``,
+so the new column rides in / out without further plumbing.
+
+Toggle UI itself (writing channel changes back via
+``PATCH /sections/{id}`` on the frontend) remains as the
+follow-on (debt #40 — same trigger: when channel-toggle UI
+ships in S7 polish v2 or later).
 
 ### 26. Geology + section routers bypass the application layer
 

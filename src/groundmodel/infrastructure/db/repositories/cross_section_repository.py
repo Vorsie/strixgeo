@@ -49,6 +49,7 @@ class CrossSectionRepository(GroundModelLogger):
         min_depth_m: float | None = None,
         max_depth_m: float | None = None,
         display_order: int = 0,
+        view_state: dict[str, Any] | None = None,
     ) -> CrossSectionOrm:
         """Insert a new cross-section under the given project."""
         section = CrossSectionOrm(
@@ -68,6 +69,7 @@ class CrossSectionRepository(GroundModelLogger):
             min_depth_m=min_depth_m,
             max_depth_m=max_depth_m,
             display_order=display_order,
+            view_state=view_state,
         )
         self._session.add(section)
         await self._session.flush()

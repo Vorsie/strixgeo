@@ -487,18 +487,13 @@ export default function SectionPanel({
 
   // ---- CPT plot data batch (S7) ----------------------------------------
 
-  // Channels the user has toggled on. Persisted in section.view_state
-  // (currently not part of CrossSectionResponse — falls back to the
-  // documented defaults until that view_state shape lands; see S7
-  // open item below). Local-only for now keeps S7 functional.
-  const [cptChannels] = useState<CptChannels>(() =>
-    readCptChannels(
-      // CrossSectionResponse doesn't expose ``view_state`` yet —
-      // typed as unknown so the read helper applies its full-bag
-      // fallback. Schema can grow later without code change here.
-      (section as unknown as { view_state?: Record<string, unknown> }).view_state,
-    ),
-  )
+  // Channels the user has toggled on. Read from the section row's
+  // ``view_state`` bag; defaults via ``readCptChannels`` when the
+  // bag is null (sections from before the column landed) or when
+  // a key is missing. The toggle UI lands in S7 polish v2 and wires
+  // a debounced ``PATCH /sections/{id}`` to persist changes
+  // (debt #40 tracks the frontend half).
+  const [cptChannels] = useState<CptChannels>(() => readCptChannels(section.view_state))
 
   // Map of cpt id → CptPlotResponse, populated on section open via
   // a single ``plot-batch`` round-trip. ``null`` while loading,

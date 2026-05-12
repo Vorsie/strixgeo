@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -31,6 +32,7 @@ class CrossSectionCreateRequest(BaseModel):
     min_depth_m: float | None = None
     max_depth_m: float | None = None
     display_order: int = 0
+    view_state: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _endpoints_distinct(self) -> CrossSectionCreateRequest:
@@ -75,6 +77,12 @@ class CrossSectionUpdateRequest(BaseModel):
     min_depth_m: float | None = None
     max_depth_m: float | None = None
     display_order: int | None = None
+    # Sentinel: ``None`` means "do not touch view_state"; an explicit
+    # empty dict ``{}`` clears the bag. The router applies a shallow
+    # merge so callers can patch individual toggle keys without
+    # round-tripping the whole bag (mirrors the
+    # ``PATCH /projects/{id}/view-state`` semantics).
+    view_state: dict[str, Any] | None = None
 
 
 class CrossSectionResponse(BaseModel):
@@ -98,5 +106,6 @@ class CrossSectionResponse(BaseModel):
     min_depth_m: float | None
     max_depth_m: float | None
     display_order: int
+    view_state: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import DateTime, Double, Index, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -80,6 +81,15 @@ class CrossSectionOrm(Base):
 
     # Sidebar display order. Loose hint, tied breaks by name in the UI.
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Schema-less display-preference bag for per-section toggles —
+    # CPT channel toggles (qc/Rf/fs/u2/qTotal), borehole interpretation
+    # toggles, future scale locks. Bundle round-trips automatically
+    # via the project_bundle snapshot machinery, so user preferences
+    # persist across machines without per-toggle migrations. Nullable
+    # so existing rows from before the column landed read as None;
+    # frontend defaults apply via ``readCptChannels`` and similar.
+    view_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True, default=None)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -60,6 +60,7 @@ async def create_section(
         min_depth_m=request.min_depth_m,
         max_depth_m=request.max_depth_m,
         display_order=request.display_order,
+        view_state=request.view_state,
     )
     await session.commit()
     await session.refresh(section)

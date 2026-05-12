@@ -348,6 +348,13 @@ export interface CrossSectionResponse {
   min_depth_m: number | null
   max_depth_m: number | null
   display_order: number
+  /** Schema-less display-preference bag — CPT channel toggles,
+   * borehole interpretation toggles, future scale locks. Bundle
+   * round-trips this verbatim so user preferences persist across
+   * machines without per-toggle migrations. ``null`` on rows from
+   * before the column landed; frontend defaults apply via
+   * ``readCptChannels`` and similar. */
+  view_state: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
