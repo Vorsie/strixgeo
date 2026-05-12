@@ -387,17 +387,22 @@ export default function SectionPanel({
   )
 
   const placedColumns = useMemo<PlacedColumn[]>(() => {
-    // Two width concepts:
-    //   visualWidth — what the column actually renders at (cap +
-    //     full band). Used for ``PlacedColumn.width`` so the rest
-    //     of the panel knows how wide each strip is.
-    //   nudgeWidth — what the layout PRETENDS the column is, when
-    //     deciding how aggressively to push neighbours apart.
-    //     Scaled by ``columnSpacing`` ∈ [0, 1] so the user can dial
-    //     in how tightly adjacent tests pack. At 0 the layout sees
-    //     zero-width columns → no nudging → bands overlap at their
-    //     true projected X.
-    const items: PlacedColumnInput[] = [
+    // ``columnSpacing`` lerps between two layouts, both collision-safe:
+    //
+    //   spacing = 1.0 → TRUTH layout: each column's trueX is its
+    //     projected along-distance. Nudge runs over the truth and
+    //     only displaces columns whose natural positions would
+    //     overlap. Distant tests sit exactly where they should.
+    //   spacing = 0.0 → PACKED layout: columns are placed
+    //     edge-to-edge in projection-order starting from the
+    //     leftmost trueX. Adjacent tests sit "right next to each
+    //     other" regardless of how far apart they are on the actual
+    //     section line.
+    //
+    // For each column we feed the lerped position as its trueX into
+    // nudgeColumns, so the standard edge-gap collision rule applies
+    // at every spacing value — bands NEVER overlap.
+    const rawItems = [
       ...projectedCpts.map(proj => {
         const trackW = cptPlots?.has(proj.item.id)
           ? cptBandFullWidth(proj.item.cpt_type, cptChannels, bandHalfWidth)
@@ -407,15 +412,10 @@ export default function SectionPanel({
           kind: 'cpt' as const,
           proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
           trueX: xToScreen(proj.along),
-          width: Math.max(1, Math.round(visualWidth * columnSpacing)),
           visualWidth,
         }
       }),
       ...projectedBoreholes.map(proj => {
-        // N enabled borehole channels = N side-by-side strips, each
-        // ``2 * bandHalfWidth`` wide. The total band auto-widens with
-        // the toggle count so neighbouring tests get pushed apart
-        // proportionally by the nudge.
         const stripsW = boreholeDetails?.has(proj.item.id)
           ? enabledBhChannels * 2 * bandHalfWidth
           : 0
@@ -424,27 +424,52 @@ export default function SectionPanel({
           kind: 'borehole' as const,
           proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
           trueX: xToScreen(proj.along),
-          width: Math.max(1, Math.round(visualWidth * columnSpacing)),
           visualWidth,
         }
       }),
     ]
-    return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r => {
-      // Hand the visual width through to the renderer; the nudge's
-      // shrunken ``r.item.width`` was only useful for the layout
-      // pass. Without this, the InvestigationColumns layer would
-      // think the visual was the spacing-scaled width and the
-      // tie-back diagonals would land at wrong X-coordinates.
-      const item = r.item as PlacedColumnInput & { visualWidth: number }
+    // Stable sort by trueX for the packed layout. The original order
+    // re-emerges naturally because each item carries its identity
+    // (kind + item.id); rendering uses the result keyed by id.
+    const sorted = [...rawItems].sort((a, b) => a.trueX - b.trueX)
+    // Edge-to-edge packed positions starting from the leftmost trueX.
+    // Each consecutive column's centre lands half-its-width past the
+    // previous column's right edge.
+    const packedXBySortedIndex: number[] = []
+    let cursor = sorted.length > 0 ? sorted[0].trueX : 0
+    for (let i = 0; i < sorted.length; i += 1) {
+      const halfW = sorted[i].visualWidth / 2
+      if (i === 0) {
+        packedXBySortedIndex.push(cursor)
+        cursor = cursor + halfW
+      } else {
+        cursor += halfW
+        packedXBySortedIndex.push(cursor)
+        cursor += halfW
+      }
+    }
+    // Re-attach the packed X to each item by identity; rawItems is in
+    // CPT-then-borehole order so we look up each one's place in
+    // ``sorted`` via reference identity.
+    const items: PlacedColumnInput[] = rawItems.map(item => {
+      const sortedIdx = sorted.indexOf(item)
+      const packedX = packedXBySortedIndex[sortedIdx]
+      const lerpedX = packedX + (item.trueX - packedX) * columnSpacing
       return {
         kind: item.kind,
         proj: item.proj,
-        trueX: r.trueX,
-        nudgedX: r.nudgedX,
+        trueX: lerpedX,
         width: item.visualWidth,
-        displaced: r.displaced,
       }
     })
+    return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r => ({
+      kind: r.item.kind,
+      proj: r.item.proj,
+      trueX: r.trueX,
+      nudgedX: r.nudgedX,
+      width: r.item.width,
+      displaced: r.displaced,
+    }))
   }, [
     projectedCpts,
     projectedBoreholes,
