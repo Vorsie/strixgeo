@@ -14,12 +14,57 @@ routers (per the Maintenance Rules: "extract on the second copy" —
 from __future__ import annotations
 
 from collections.abc import Awaitable
-from typing import TypeVar
+from typing import Any, TypeVar
 from uuid import UUID
 
 from fastapi import HTTPException, status
 
 T = TypeVar("T")
+
+
+def merge_view_state(
+    existing: dict[str, Any] | None,
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    """Shallow-merge ``patch`` into ``existing`` for a JSONB view-state bag.
+
+    The merge semantics are deliberately consistent across every
+    view-state surface (project-level, section-level, future
+    investigation-level):
+
+    * Each top-level key in ``patch`` overwrites the same key in
+      ``existing``; siblings are left untouched.
+    * A ``patch`` value of ``None`` removes the key from the bag.
+    * The returned dict is a NEW object — required so SQLAlchemy
+      notices the change on a JSONB column.
+
+    Nested values are intentionally NOT deep-merged. Deep merge has
+    surprising semantics around array fields (replace? append?
+    dedup?) that the API can't decide for callers. To change a
+    nested field, the caller patches the whole subtree.
+
+    Parameters
+    ----------
+    existing : dict[str, Any] | None
+        Current value of the JSONB column. ``None`` is treated as an
+        empty bag — the merge proceeds against ``{}``.
+    patch : dict[str, Any]
+        Top-level keys to merge. An empty dict is a no-op (returns a
+        copy of ``existing``); the caller decides whether to skip
+        the write entirely on empty patches.
+
+    Returns
+    -------
+    dict[str, Any]
+        Fresh dict ready to assign back to the JSONB column.
+    """
+    merged: dict[str, Any] = dict(existing or {})
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
 
 
 async def get_in_project_or_404(
