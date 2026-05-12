@@ -61,7 +61,21 @@ interface UseProjectState {
   manifestCptIds: ReadonlySet<string>
   /** Same as ``manifestCptIds`` but for boreholes. */
   manifestBoreholeIds: ReadonlySet<string>
+  /** Same as ``manifestCptIds`` but for geological formations. A
+   * formation created via the Interpretation pane that isn't yet
+   * saved sits in this set during the session and disappears on a
+   * Ctrl+C reload. */
+  manifestFormationIds: ReadonlySet<string>
+  /** Same as ``manifestCptIds`` but for cross-sections. */
+  manifestSectionIds: ReadonlySet<string>
 }
+
+/** Kind of entity the manifest tracks. All bundle-persistent
+ * top-level arrays (cpts, boreholes, geological_formations,
+ * cross_sections) follow the same lifecycle: seed from file on
+ * open, append on session creation, drop on discard, trim before
+ * file write. */
+export type ManifestKind = 'cpt' | 'borehole' | 'formation' | 'section'
 
 /** Tri-state outcome for picker-driven opens — lets the caller show
  * an error banner only when the failure is real (not just a cancelled
@@ -78,12 +92,13 @@ interface UseProjectActions {
   /** Append IDs to the manifest. Called by the import handlers after
    * a successful CPT/borehole import so the new rows become visible
    * in the sidebar. */
-  addToManifest: (kind: 'cpt' | 'borehole', ids: Iterable<string>) => void
+  addToManifest: (kind: ManifestKind, ids: Iterable<string>) => void
   /** Remove IDs from the manifest. Called by the discard-rollback
-   * path so unsaved imports disappear from view. The DB rows stay
-   * (DOV cache preserved per ``project_no_db_delete_on_rollback``)
-   * but are invisible until a future explicit re-import. */
-  removeFromManifest: (kind: 'cpt' | 'borehole', ids: Iterable<string>) => void
+   * path so unsaved imports / additions disappear from view. The DB
+   * rows stay (DOV cache + already-committed-but-not-yet-saved
+   * formation / section rows) but are invisible until a future
+   * explicit re-create. */
+  removeFromManifest: (kind: ManifestKind, ids: Iterable<string>) => void
   /** Apply an in-memory patch to ``project`` (no API call, no file write). */
   applyMetadataDraft: (patch: ProjectUpdatePayload) => void
   /** Shallow-merge a patch into ``project.view_state``. Fires PATCH
@@ -182,6 +197,8 @@ export function useProject(): UseProject {
   // the .gmproj on disk is the only source of truth on reload.
   const [manifestCptIds, setManifestCptIds] = useState<Set<string>>(new Set())
   const [manifestBoreholeIds, setManifestBoreholeIds] = useState<Set<string>>(new Set())
+  const [manifestFormationIds, setManifestFormationIds] = useState<Set<string>>(new Set())
+  const [manifestSectionIds, setManifestSectionIds] = useState<Set<string>>(new Set())
 
   const dirty = useMemo(() => !projectsEqual(project, saved), [project, saved])
 
@@ -219,13 +236,15 @@ export function useProject(): UseProject {
         // file is a stale snapshot) win over the file's copy.
         const fresh = await api.project.get(parsedId)
         await adopt(fresh, path)
-        // Seed the manifest from the file's bundle. The .gmproj is
-        // the user's anchor — anything in the DB but NOT in the file
-        // is treated as "unsaved from a previous session" and stays
-        // invisible until the user re-imports it. Ctrl+C kills can't
-        // leak imported-but-not-saved rows back into view this way.
+        // Seed the manifest from the file's bundle. The .strix file
+        // is the user's anchor — anything in the DB but NOT in the
+        // file is treated as "unsaved from a previous session" and
+        // stays invisible until the user re-creates it. Ctrl+C kills
+        // can't leak imported / added rows back into view this way.
         setManifestCptIds(new Set(idsFromBundle(parsed.cpts)))
         setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
+        setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
+        setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
         log.info('project', `opened ${fresh.name} from ${path}`)
         return fresh
       } catch (err) {
@@ -254,11 +273,13 @@ export function useProject(): UseProject {
               investigation_reviews: parsed.investigation_reviews,
             })
             await adopt(restored, path)
-            // Same manifest seeding as the happy path — the .gmproj
-            // is now the authoritative list of CPTs/boreholes this
-            // project sees.
+            // Same manifest seeding as the happy path — the .strix
+            // file is now the authoritative list of every
+            // bundle-tracked entity this project sees.
             setManifestCptIds(new Set(idsFromBundle(parsed.cpts)))
             setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
+            setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
+            setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
             log.info(
               'project',
               `restored ${restored.name} from ${path} ` +
@@ -322,10 +343,12 @@ export function useProject(): UseProject {
         return null
       }
       await adopt(created, path)
-      // Fresh project starts with an empty manifest — no CPTs /
-      // boreholes yet. Imports will append.
+      // Fresh project starts with an empty manifest — no entities
+      // yet. Imports + Interpretation creates will append.
       setManifestCptIds(new Set())
       setManifestBoreholeIds(new Set())
+      setManifestFormationIds(new Set())
+      setManifestSectionIds(new Set())
       log.info('project', `created ${created.name} → ${path}`)
       return created
     },
@@ -333,22 +356,33 @@ export function useProject(): UseProject {
   )
 
   // Manifest mutators — wired into the import handlers + discard path
-  // in App.tsx. Set-based so caller's iteration order doesn't matter.
-  const addToManifest = useCallback(
-    (kind: 'cpt' | 'borehole', ids: Iterable<string>): void => {
-      const setter = kind === 'cpt' ? setManifestCptIds : setManifestBoreholeIds
-      setter(prev => {
-        const next = new Set(prev)
-        for (const id of ids) next.add(id)
-        return next
-      })
-    },
-    [],
-  )
+  // in App.tsx and into the Interpretation pane's create / delete
+  // flow. Set-based so caller's iteration order doesn't matter.
+  function setterForKind(kind: ManifestKind): typeof setManifestCptIds {
+    switch (kind) {
+      case 'cpt':
+        return setManifestCptIds
+      case 'borehole':
+        return setManifestBoreholeIds
+      case 'formation':
+        return setManifestFormationIds
+      case 'section':
+        return setManifestSectionIds
+    }
+  }
+
+  const addToManifest = useCallback((kind: ManifestKind, ids: Iterable<string>): void => {
+    const setter = setterForKind(kind)
+    setter(prev => {
+      const next = new Set(prev)
+      for (const id of ids) next.add(id)
+      return next
+    })
+  }, [])
 
   const removeFromManifest = useCallback(
-    (kind: 'cpt' | 'borehole', ids: Iterable<string>): void => {
-      const setter = kind === 'cpt' ? setManifestCptIds : setManifestBoreholeIds
+    (kind: ManifestKind, ids: Iterable<string>): void => {
+      const setter = setterForKind(kind)
       setter(prev => {
         const next = new Set(prev)
         for (const id of ids) next.delete(id)
@@ -419,16 +453,24 @@ export function useProject(): UseProject {
         // round-trip and JSON-encoding cost (potentially MB for big
         // projects) is acceptable.
         const bundle = await api.project.bundle(project.id)
-        // Trim CPTs / boreholes to the in-memory manifest before
-        // writing. The DB may carry rows from a previous session that
-        // the user never saved (e.g., imports + Ctrl+C kill on the
-        // previous launch); the manifest reflects what's actually
-        // displayed in this session, so writing it to disk keeps the
-        // .gmproj truthful. The DB rows stay (DOV cache preserved).
+        // Trim every bundle-tracked top-level array to the in-memory
+        // manifest before writing. The DB may carry rows from a
+        // previous session that the user never saved (imports +
+        // Ctrl+C kill, or formation / section creates that were
+        // never committed to file). The manifest reflects what's
+        // actually displayed in this session, so writing it to disk
+        // keeps the .strix truthful. The DB rows stay (DOV cache +
+        // referential integrity preserved).
         const trimmedBundle = {
           ...bundle,
           cpts: bundle.cpts.filter(c => manifestCptIds.has(c.id)),
           boreholes: bundle.boreholes.filter(b => manifestBoreholeIds.has(b.id)),
+          geological_formations: bundle.geological_formations.filter(f =>
+            manifestFormationIds.has(f.id),
+          ),
+          cross_sections: bundle.cross_sections.filter(s =>
+            manifestSectionIds.has(s.id),
+          ),
         }
         await window.electron.writeProjectFile(
           filePath,
@@ -448,7 +490,15 @@ export function useProject(): UseProject {
       log.error('project', 'saveProject failed', err)
       return false
     }
-  }, [project, filePath, dirty, manifestCptIds, manifestBoreholeIds])
+  }, [
+    project,
+    filePath,
+    dirty,
+    manifestCptIds,
+    manifestBoreholeIds,
+    manifestFormationIds,
+    manifestSectionIds,
+  ])
 
   // Revert in-memory changes back to the last-saved snapshot. Useful
   // for explicit "Revert" UX (not wired today) and as a building block
@@ -516,12 +566,22 @@ export function useProject(): UseProject {
 
     await adopt(duplicated, path)
     // Reseed manifest from the duplicate's bundle. The new project is
-    // now the live one, so its manifest reflects the cloned content.
+    // now the live one, so its manifest reflects the cloned content
+    // across every bundle-tracked entity.
     setManifestCptIds(new Set(dupBundle.cpts.map(c => c.id)))
     setManifestBoreholeIds(new Set(dupBundle.boreholes.map(b => b.id)))
+    setManifestFormationIds(new Set(idsFromBundle(dupBundle.geological_formations)))
+    setManifestSectionIds(new Set(idsFromBundle(dupBundle.cross_sections)))
     log.info('project', `saved-as ${duplicated.name} → ${path}`)
     return duplicated
   }, [project, adopt])
+
+  function clearAllManifests(): void {
+    setManifestCptIds(new Set())
+    setManifestBoreholeIds(new Set())
+    setManifestFormationIds(new Set())
+    setManifestSectionIds(new Set())
+  }
 
   const archiveCurrent = useCallback(async (): Promise<void> => {
     if (project === null) return
@@ -534,16 +594,14 @@ export function useProject(): UseProject {
     setProject(null)
     setSaved(null)
     setFilePath(null)
-    setManifestCptIds(new Set())
-    setManifestBoreholeIds(new Set())
+    clearAllManifests()
   }, [project])
 
   const closeProject = useCallback((): void => {
     setProject(null)
     setSaved(null)
     setFilePath(null)
-    setManifestCptIds(new Set())
-    setManifestBoreholeIds(new Set())
+    clearAllManifests()
   }, [])
 
   return {
@@ -553,6 +611,8 @@ export function useProject(): UseProject {
     filePath,
     manifestCptIds,
     manifestBoreholeIds,
+    manifestFormationIds,
+    manifestSectionIds,
     newProject,
     openProjectFile,
     pickAndOpenProject,
