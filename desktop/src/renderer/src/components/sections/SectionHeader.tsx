@@ -48,12 +48,9 @@ const BOREHOLE_CHANNEL_BUTTONS: readonly {
   label: string
   title: string
 }[] = [
-  { key: 'lithology', label: 'Lith', title: 'Coded lithology (granular ISO 14688 stream)' },
   { key: 'geotech', label: 'Geo', title: 'Geotechnical coding' },
-  { key: 'description', label: 'Desc', title: 'Lithological description' },
   { key: 'formal_strat', label: 'F-Strat', title: 'Formal stratigraphy' },
   { key: 'informal_strat', label: 'I-Strat', title: 'Informal stratigraphy' },
-  { key: 'quaternary', label: 'Q-Strat', title: 'Quaternary stratigraphy' },
 ]
 
 // Projection-buffer slider bounds. 5 m is the tightest engineers
