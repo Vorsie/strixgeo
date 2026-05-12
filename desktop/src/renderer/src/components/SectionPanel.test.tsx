@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 import type { CrossSectionResponse } from '../api/client'
 import SectionPanel from './SectionPanel'
@@ -31,6 +31,59 @@ function makeSection(overrides: Partial<CrossSectionResponse> = {}): CrossSectio
     ...overrides,
   }
 }
+
+describe('SectionPanel — channel toggle group', () => {
+  // The five CPT data channels (qc, Rf, fs, u2, qT) each get a small
+  // button in the header. Defaults (per ``DEFAULT_CPT_CHANNELS``) are
+  // qc + Rf + qT on; fs + u2 off. Clicking a button flips that key
+  // and, when ``onPatch`` is wired, fires a PATCH with the merged
+  // view_state bag (debt #40).
+
+  it('renders every channel button with the documented active default', () => {
+    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    expect(screen.getByLabelText('Toggle qc')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Toggle Rf')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Toggle qT')).toHaveAttribute('aria-pressed', 'true')
+    // fs + u2 default off — only surface when the user opts in.
+    expect(screen.getByLabelText('Toggle fs')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('Toggle u2')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('reads persisted toggle state out of section.view_state on first render', () => {
+    const section = makeSection({
+      view_state: {
+        cpt_channels: { qc: false, rf: true, fs: true, u2: false, qTotal: false },
+      },
+    })
+    render(<SectionPanel section={section} zEpsg={5710} />)
+    expect(screen.getByLabelText('Toggle qc')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('Toggle fs')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Toggle qT')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('clicking a toggle fires onPatch with the full channels bag under cpt_channels', () => {
+    const onPatch = vi.fn().mockResolvedValue(undefined)
+    render(<SectionPanel section={makeSection()} zEpsg={5710} onPatch={onPatch} />)
+
+    fireEvent.click(screen.getByLabelText('Toggle fs'))
+
+    expect(onPatch).toHaveBeenCalledTimes(1)
+    expect(onPatch).toHaveBeenCalledWith({
+      view_state: {
+        // qc/rf/qTotal stay at defaults; fs flips on.
+        cpt_channels: { qc: true, rf: true, fs: true, u2: false, qTotal: true },
+      },
+    })
+  })
+
+  it('clicking updates the button state optimistically (no server round-trip needed)', () => {
+    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    const fs = screen.getByLabelText('Toggle fs')
+    expect(fs).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(fs)
+    expect(fs).toHaveAttribute('aria-pressed', 'true')
+  })
+})
 
 describe('SectionPanel — header readouts', () => {
   it('renders the section name and the Euclidean length of the line', () => {
