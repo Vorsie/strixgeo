@@ -126,6 +126,87 @@ export function readColumnSpacing(
   return Math.max(COLUMN_SPACING_MIN, Math.min(COLUMN_SPACING_MAX, raw))
 }
 
+// ---------------------------------------------------------------------------
+// Borehole interpretation toggles — which observation streams to show
+// inside each borehole's column band on the cross-section.
+// ---------------------------------------------------------------------------
+//
+// Maps DOV's observation_type values into 4 toggle slots. DOV records
+// up to five streams per borehole (lithology, geotechnical coding,
+// formal / quaternary / informal stratigraphy); the section view
+// exposes the four engineers most often want to cross-reference, in
+// the DOV "lengteprofiel" PDF page-3 reading order.
+//
+// Default: only ``geotech`` is on. Engineers reach for geotechnical
+// coding first when building a ground model — it's the
+// engineering-relevant ISO 14688 stream.
+//
+// User-requested behaviour: each enabled stream renders as its OWN
+// strip side by side inside the band. The band auto-widens with N
+// enabled, so the nudge layout pushes neighbours further out. See
+// BoreholeColumn for the strip layout pass.
+
+export interface BoreholeChannels {
+  /** ``coded_lithology`` observation — granular ISO 14688 stream. */
+  lithology: boolean
+  /** ``geotechnical_coding`` observation — what most engineers cite. */
+  geotech: boolean
+  /** ``formal_stratigraphy`` observation. */
+  formal_strat: boolean
+  /** ``quaternary_stratigraphy`` observation. */
+  quaternary: boolean
+}
+
+export const DEFAULT_BOREHOLE_CHANNELS: BoreholeChannels = {
+  lithology: false,
+  geotech: true,
+  formal_strat: false,
+  quaternary: false,
+}
+
+/** Mapping from channel key to the DOV ``observation_type`` value the
+ * backend ships. Iteration order = display order in the band, so
+ * lithology sits leftmost, geotech next, etc. */
+export const BOREHOLE_CHANNEL_OBSERVATION_TYPES: ReadonlyArray<
+  [keyof BoreholeChannels, string]
+> = [
+  ['lithology', 'coded_lithology'],
+  ['geotech', 'geotechnical_coding'],
+  ['formal_strat', 'formal_stratigraphy'],
+  ['quaternary', 'quaternary_stratigraphy'],
+]
+
+export function readBoreholeChannels(
+  viewState: Record<string, unknown> | null | undefined,
+): BoreholeChannels {
+  if (!viewState || typeof viewState !== 'object') return { ...DEFAULT_BOREHOLE_CHANNELS }
+  const raw = (viewState as Record<string, unknown>).borehole_channels
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_BOREHOLE_CHANNELS }
+  const dict = raw as Record<string, unknown>
+  function readBool(key: keyof BoreholeChannels): boolean {
+    const v = dict[key]
+    return typeof v === 'boolean' ? v : DEFAULT_BOREHOLE_CHANNELS[key]
+  }
+  return {
+    lithology: readBool('lithology'),
+    geotech: readBool('geotech'),
+    formal_strat: readBool('formal_strat'),
+    quaternary: readBool('quaternary'),
+  }
+}
+
+/** Count of enabled borehole channels. The width-aware nudge layout
+ * uses this to compute how many strip-widths a borehole column
+ * occupies, so adjacent columns get pushed apart proportionally. */
+export function enabledBoreholeChannelCount(channels: BoreholeChannels): number {
+  let n = 0
+  if (channels.lithology) n += 1
+  if (channels.geotech) n += 1
+  if (channels.formal_strat) n += 1
+  if (channels.quaternary) n += 1
+  return n
+}
+
 /** Parse the persisted channel toggles out of a section's
  * ``view_state`` JSONB bag. Out-of-range / missing values fall
  * back to the documented defaults so a hand-edited bundle can't
