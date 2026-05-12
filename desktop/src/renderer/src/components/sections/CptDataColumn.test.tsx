@@ -1,11 +1,19 @@
-// Smoke tests for CptDataColumn (debt #34).
+// Behaviour tests for CptDataColumn (shared-band model).
 //
-// CptDataColumn is the SVG-heavy data-track renderer that the
-// geological-model editor will extend in S8 (interpretation
-// overlays alongside the qc / Rf curves). These tests pin the
-// per-channel slot-dispatch rule + the "no enabled channels =
-// render nothing" early return; the channel-rule logic itself is
-// covered by cptChannels.test.ts.
+// CptDataColumn renders ONE horizontal band per CPT (the column
+// axis is the centerline; qc plots right, Rf plots mirrored left,
+// fs / u2 / q_total overlay with their own scales). These tests pin
+// the highest-value contracts:
+//
+//   * Single TrackBackground per CPT (was two before the shared-band
+//     refactor — one per slot).
+//   * qc gridlines on the RIGHT of axis; Rf gridlines on the LEFT
+//     (mirrored). 10 MPa qc gridline included alongside 2 MPa.
+//   * Per-CPT value labels render only when showLabels=true.
+//   * Background and gridlines are bounded to the CPT's data extent,
+//     not the full plot height.
+//   * Graceful degrade on missing data + early-return when no channel
+//     is applicable to this cone.
 
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
@@ -14,11 +22,11 @@ import type { CptPlotResponse } from '../../api/client'
 import CptDataColumn from './CptDataColumn'
 import {
   DEFAULT_CPT_CHANNELS,
-  cptTrackWidths,
+  cptBandHalfWidth,
   type CptChannels,
 } from './cptChannels'
 
-const widths = cptTrackWidths(5)
+const halfWidth = cptBandHalfWidth(5)
 // Flipped transform mimicking the real section panel — higher level
 // renders at smaller screen Y, deeper points (lower level) render
 // further down. With surface=10 m and a 5 m CPT, the data band lives
@@ -48,12 +56,13 @@ function renderColumn(
     plot: makePlot(),
     cptType: 'CPTU',
     channels: { ...DEFAULT_CPT_CHANNELS },
-    widths,
+    halfWidth,
     screenX: 100,
     surfaceElevationM: 10,
     plotTop: 0,
     plotBottom: 200,
     levelToScreen: flipped,
+    showLabels: true,
   }
   return render(
     <svg>
@@ -62,16 +71,19 @@ function renderColumn(
   )
 }
 
-describe('CptDataColumn — slot dispatch', () => {
-  it('renders qc + rf tracks for a CPTU with default channels', () => {
+describe('CptDataColumn — single shared band', () => {
+  it('renders exactly one background rect per CPT, centered on the column axis', () => {
+    // Pre-refactor the slot model put one rect per channel; the
+    // shared band collapses them into a single rect spanning
+    // [screenX - halfWidth, screenX + halfWidth].
     const { container } = renderColumn({ cptType: 'CPTU' })
-    // qc + rf each draw at least one path inside the slot; one of the
-    // background rects per slot is the easiest stable count.
-    const bgRects = container.querySelectorAll('rect[fill="#ffffff"]')
-    expect(bgRects.length).toBeGreaterThanOrEqual(2)
+    const rects = container.querySelectorAll('rect[fill="#ffffff"]')
+    expect(rects.length).toBe(1)
+    expect(rects[0].getAttribute('x')).toBe(`${100 - halfWidth}`)
+    expect(rects[0].getAttribute('width')).toBe(`${2 * halfWidth}`)
   })
 
-  it('renders nothing when every channel is off', () => {
+  it('renders nothing when no applicable channel is enabled', () => {
     const allOff: CptChannels = {
       qc: false,
       rf: false,
@@ -80,11 +92,10 @@ describe('CptDataColumn — slot dispatch', () => {
       qTotal: false,
     }
     const { container } = renderColumn({ channels: allOff })
-    // No slot backgrounds rendered.
     expect(container.querySelectorAll('rect[fill="#ffffff"]').length).toBe(0)
   })
 
-  it('drops u2 slot for CPTE (pore-pressure is CPTU-only)', () => {
+  it('drops u2 on a CPTE cone (pore-pressure is CPTU-only) and renders nothing when u2 is the only channel', () => {
     const onlyU2: CptChannels = {
       qc: false,
       rf: false,
@@ -95,57 +106,53 @@ describe('CptDataColumn — slot dispatch', () => {
     const { container } = renderColumn({ cptType: 'CPTE', channels: onlyU2 })
     expect(container.querySelectorAll('rect[fill="#ffffff"]').length).toBe(0)
   })
-
-  it('keeps qc slot for CPTM with qTotal + qc both on (qTotal overlays qc)', () => {
-    const { container } = renderColumn({
-      cptType: 'CPTM',
-      channels: {
-        qc: true,
-        rf: false,
-        fs: false,
-        u2: false,
-        qTotal: true,
-      },
-      plot: makePlot({
-        q_total_mpa: [1, 2, 3, 4, 5, 6],
-      }),
-    })
-    // Exactly one slot — the qc slot, with q_total drawn over it.
-    expect(container.querySelectorAll('rect[fill="#ffffff"]').length).toBe(1)
-  })
 })
 
-describe('CptDataColumn — DOV slot order (Rf left, qc right)', () => {
-  it('renders Rf to the LEFT of qc for a CPTU with both channels on', () => {
-    // DOV lengteprofiel convention: scale annotation reads
-    // "4% 2% +Z 10 MPa" — Rf scale (with 4%/2% gridlines) on the
-    // left of center, qc scale (0..10 MPa) on the right. The
-    // background rects are the cheapest stable handle on slot order.
+describe('CptDataColumn — qc/Rf mirror layout', () => {
+  it('places qc gridlines RIGHT of the column axis', () => {
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
+    })
+    const dashed = Array.from(container.querySelectorAll('line[stroke-dasharray="2 2"]'))
+    expect(dashed.length).toBe(2) // qc 2 MPa + qc 10 MPa
+    for (const line of dashed) {
+      expect(Number(line.getAttribute('x1'))).toBeGreaterThan(100)
+    }
+  })
+
+  it('places Rf gridlines LEFT of the column axis (mirrored)', () => {
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: false, rf: true, fs: false, u2: false, qTotal: false },
+    })
+    const dashed = Array.from(container.querySelectorAll('line[stroke-dasharray="2 2"]'))
+    expect(dashed.length).toBe(2) // rf 2 % + rf 4 %
+    for (const line of dashed) {
+      expect(Number(line.getAttribute('x1'))).toBeLessThan(100)
+    }
+  })
+
+  it('renders qc + rf together with their gridlines on opposite sides of the axis', () => {
     const { container } = renderColumn({
       cptType: 'CPTU',
       channels: { qc: true, rf: true, fs: false, u2: false, qTotal: false },
     })
-    const rects = Array.from(container.querySelectorAll('rect[fill="#ffffff"]'))
-    expect(rects.length).toBe(2)
-    // rf width = 18, qc width = 28 at scaleH=5 → factor 1.0.
-    expect(rects[0].getAttribute('width')).toBe('18')
-    expect(rects[1].getAttribute('width')).toBe('28')
-    // Rf rect must sit to the left of qc rect.
-    const leftXs = rects.map(r => Number(r.getAttribute('x')))
-    expect(leftXs[0]).toBeLessThan(leftXs[1])
+    const dashed = Array.from(container.querySelectorAll('line[stroke-dasharray="2 2"]'))
+    expect(dashed.length).toBe(4)
+    const leftCount = dashed.filter(l => Number(l.getAttribute('x1')) < 100).length
+    const rightCount = dashed.filter(l => Number(l.getAttribute('x1')) > 100).length
+    expect(leftCount).toBe(2)
+    expect(rightCount).toBe(2)
   })
 })
 
-describe('CptDataColumn — per-CPT gridline value labels (DOV convention)', () => {
-  it('renders qc "2" + "10 MPa" labels and rf "2%" + "4%" labels', () => {
-    // DOV lengteprofiel scale annotation: each test's gridline
-    // values sit just above its data band ("4% 2%2 +Z 10 MPa" in
-    // the PDF). Per-CPT labels are the only way to read the qc /
-    // rf scale at a glance when each column is rendered at a
-    // different X on a shared canvas.
+describe('CptDataColumn — per-CPT gridline value labels', () => {
+  it('renders qc "2"/"10 MPa" + rf "2%"/"4%" when showLabels is true', () => {
     const { container } = renderColumn({
       cptType: 'CPTU',
       channels: { qc: true, rf: true, fs: false, u2: false, qTotal: false },
+      showLabels: true,
     })
     const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent)
     expect(texts).toContain('2')
@@ -154,23 +161,35 @@ describe('CptDataColumn — per-CPT gridline value labels (DOV convention)', () 
     expect(texts).toContain('4%')
   })
 
-  it('adds a 10 MPa qc gridline at the right edge of the qc slot', () => {
-    // The user's explicit ask: "Also I want one at 10 qc." Verified
-    // via the dashed gridline count on a qc-only column — there
-    // should be two (2 MPa + 10 MPa).
+  it('suppresses every label when showLabels is false (collision avoidance)', () => {
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: true, rf: true, fs: false, u2: false, qTotal: false },
+      showLabels: false,
+    })
+    const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent)
+    expect(texts).not.toContain('2')
+    expect(texts).not.toContain('10 MPa')
+    expect(texts).not.toContain('2%')
+    expect(texts).not.toContain('4%')
+  })
+})
+
+describe('CptDataColumn — bounded background + gridlines', () => {
+  it('bounds the white track background to the CPT vertical extent', () => {
+    // surface=10 m + bottom depth 5 m + flipped levelToScreen
+    // (Y = 100 - level) → band sits at Y ∈ [90, 95]. Must NOT span
+    // the full plot height (plotTop=0, plotBottom=200).
     const { container } = renderColumn({
       cptType: 'CPTU',
       channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
     })
-    const dashed = container.querySelectorAll('line[stroke-dasharray="2 2"]')
-    expect(dashed.length).toBe(2)
+    const rect = container.querySelector('rect[fill="#ffffff"]')
+    expect(rect?.getAttribute('y')).toBe('90')
+    expect(rect?.getAttribute('height')).toBe('5')
   })
 
-  it('bounds gridlines to the CPT data extent, not the full plot height', () => {
-    // Background bound earlier; the gridline trim came in the
-    // same DOV-faithful pass. Both gridlines on a qc-only column
-    // must sit inside [bgTopY, bgBottomY] = [90, 95] for this
-    // fixture (surface=10 m, 5 m deep, levelToScreen flipped).
+  it('bounds the dashed gridlines to the same data extent', () => {
     const { container } = renderColumn({
       cptType: 'CPTU',
       channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
@@ -183,24 +202,8 @@ describe('CptDataColumn — per-CPT gridline value labels (DOV convention)', () 
   })
 })
 
-describe('CptDataColumn — bounded background', () => {
-  it('limits the white track background to the CPT vertical extent', () => {
-    // surface=10 m and bottom depth 5 m + flipped levelToScreen
-    // (Y = 100 - level) → band sits at Y ∈ [90, 95]. Must NOT span
-    // the full plot height (plotTop=0, plotBottom=200).
-    const { container } = renderColumn({
-      cptType: 'CPTU',
-      channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
-    })
-    const rect = container.querySelector('rect[fill="#ffffff"]')
-    expect(rect).not.toBeNull()
-    expect(rect?.getAttribute('y')).toBe('90')
-    expect(rect?.getAttribute('height')).toBe('5')
-  })
-})
-
 describe('CptDataColumn — graceful degrade', () => {
-  it('renders qc slot even when rf_pct is null on the plot response', () => {
+  it('renders qc curves even when rf_pct is null on the plot response', () => {
     const { container } = renderColumn({
       channels: {
         qc: true,
@@ -218,7 +221,6 @@ describe('CptDataColumn — graceful degrade', () => {
     const { container } = renderColumn({
       plot: makePlot({ depths_m: [], qc_mpa: [], rf_pct: [] }),
     })
-    // Slots still render; the curves degrade to empty paths.
     expect(container.querySelector('svg')).not.toBeNull()
   })
 })
