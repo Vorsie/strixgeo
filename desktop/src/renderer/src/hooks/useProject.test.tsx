@@ -473,6 +473,168 @@ describe('useProject', () => {
     expect(result.current.saved?.description).toBe('a draft')
   })
 
+  // ---------------------------------------------------------------------
+  // Manifest model: load-from-.gmproj guarantee
+  // ---------------------------------------------------------------------
+
+  it('openProjectFile seeds the manifest from the file bundle', async () => {
+    const { api } = await import('../api/client')
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: {
+          id: '01k-NEW',
+          name: 'Site A',
+          status: 'active',
+          tags: [],
+        },
+        cpts: [{ id: 'cpt-1' }, { id: 'cpt-2' }],
+        boreholes: [{ id: 'bh-1' }],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+
+    expect(result.current.manifestCptIds.has('cpt-1')).toBe(true)
+    expect(result.current.manifestCptIds.has('cpt-2')).toBe(true)
+    expect(result.current.manifestBoreholeIds.has('bh-1')).toBe(true)
+    expect(result.current.manifestCptIds.size).toBe(2)
+    expect(result.current.manifestBoreholeIds.size).toBe(1)
+  })
+
+  it('newProject starts with an empty manifest', async () => {
+    const { api } = await import('../api/client')
+    ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'C:/path/site-a.gmproj',
+    )
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.newProject({ name: 'Site A' })
+    })
+
+    expect(result.current.manifestCptIds.size).toBe(0)
+    expect(result.current.manifestBoreholeIds.size).toBe(0)
+  })
+
+  it('addToManifest appends + removeFromManifest drops the listed IDs', async () => {
+    const { result } = renderHook(() => useProject())
+
+    act(() => {
+      result.current.addToManifest('cpt', ['cpt-a', 'cpt-b'])
+      result.current.addToManifest('borehole', ['bh-a'])
+    })
+    expect(result.current.manifestCptIds.has('cpt-a')).toBe(true)
+    expect(result.current.manifestCptIds.has('cpt-b')).toBe(true)
+    expect(result.current.manifestBoreholeIds.has('bh-a')).toBe(true)
+
+    act(() => {
+      result.current.removeFromManifest('cpt', ['cpt-a'])
+    })
+    expect(result.current.manifestCptIds.has('cpt-a')).toBe(false)
+    expect(result.current.manifestCptIds.has('cpt-b')).toBe(true)
+  })
+
+  it('closeProject clears the manifest', async () => {
+    const { api } = await import('../api/client')
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-NEW', name: 'A', status: 'active', tags: [] },
+        cpts: [{ id: 'cpt-1' }],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+    expect(result.current.manifestCptIds.size).toBe(1)
+
+    act(() => {
+      result.current.closeProject()
+    })
+    expect(result.current.manifestCptIds.size).toBe(0)
+    expect(result.current.manifestBoreholeIds.size).toBe(0)
+  })
+
+  it('saveProject trims bundle CPTs/boreholes against the manifest before writing', async () => {
+    // Simulate the scenario the user described: pre-Ctrl+C imports
+    // left extras in the DB. After reopen, manifest = saved IDs
+    // only. When the user saves now, the file must contain ONLY
+    // the manifest IDs — extras are not written even though the
+    // API bundle returns them all.
+    const { api } = await import('../api/client')
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
+        cpts: [{ id: 'cpt-keep' }],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue({
+      format_version: 3,
+      project: created,
+      cpts: [{ id: 'cpt-keep' }, { id: 'cpt-orphan' }],
+      boreholes: [{ id: 'bh-orphan' }],
+      geological_formations: [],
+      geotechnical_units: [],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [],
+    })
+    ;(api.project.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...created,
+      description: 'edit',
+    })
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+    // Make the project dirty so saveProject actually runs.
+    act(() => {
+      result.current.applyMetadataDraft({ description: 'edit' })
+    })
+
+    await act(async () => {
+      await result.current.saveProject()
+    })
+
+    expect(window.electron.writeProjectFile).toHaveBeenCalled()
+    const [, written] = (
+      window.electron.writeProjectFile as ReturnType<typeof vi.fn>
+    ).mock.calls[0]
+    // The saved file must contain the manifest CPT but NOT the
+    // DB-orphan one. Same for the orphan borehole.
+    expect(written).toContain('"cpt-keep"')
+    expect(written).not.toContain('"cpt-orphan"')
+    expect(written).not.toContain('"bh-orphan"')
+  })
+
   it('discardEdits reverts project back to saved (drops in-memory edits)', async () => {
     const { api } = await import('../api/client')
     ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
