@@ -103,10 +103,25 @@ export default function CptDataColumn({
   // when no qc sample exists at exactly 0 m depth.
   const surfaceY = levelToScreen(surfaceElevationM)
 
+  // Vertical extent of the actual CPT data: surface down to the
+  // deepest sample. The track background spans only this band so
+  // the white doesn't bleed across the full plot height and visually
+  // mask geology above / below the test.
+  const bottomDepthM =
+    plot.depths_m.length > 0 ? plot.depths_m[plot.depths_m.length - 1] : 0
+  const dataBottomY = levelToScreen(surfaceElevationM - bottomDepthM)
+  const bgTopY = Math.max(plotTop, Math.min(plotBottom, surfaceY))
+  const bgBottomY = Math.max(plotTop, Math.min(plotBottom, dataBottomY))
+
   return (
     <g pointerEvents="none">
       {slots.map(slot => (
-        <TrackBackground key={`bg-${slot.kind}`} slot={slot} plotTop={plotTop} plotBottom={plotBottom} />
+        <TrackBackground
+          key={`bg-${slot.kind}`}
+          slot={slot}
+          topY={bgTopY}
+          bottomY={bgBottomY}
+        />
       ))}
       {slots.map(slot => {
         switch (slot.kind) {
@@ -201,8 +216,12 @@ function computeSlots(
   screenX: number,
 ): TrackSlot[] {
   const enabled: TrackKind[] = []
-  if (channels.qc) enabled.push('qc')
+  // DOV PDF convention (lengteprofiel page 3, scale annotation
+  // "4% 2%2 +Z 10 MPa"): Rf reads on the LEFT of the column, qc on
+  // the RIGHT. fs / u2 / standalone q_total follow on the far right
+  // when their channels are enabled.
   if (channels.rf) enabled.push('rf')
+  if (channels.qc) enabled.push('qc')
   if (channels.fs && (cptType === 'CPTU' || cptType === 'CPTE')) enabled.push('fs')
   if (channels.u2 && cptType === 'CPTU') enabled.push('u2')
   // Standalone q_total slot only when qc is OFF (otherwise overlaid).
@@ -229,36 +248,40 @@ function computeSlots(
 
 function TrackBackground({
   slot,
-  plotTop,
-  plotBottom,
+  topY,
+  bottomY,
 }: {
   slot: TrackSlot
-  plotTop: number
-  plotBottom: number
-}): JSX.Element {
+  /** Top of the data band in screen px (clamped to plot bounds). */
+  topY: number
+  /** Bottom of the data band in screen px (clamped to plot bounds). */
+  bottomY: number
+}): JSX.Element | null {
+  const height = bottomY - topY
+  if (height <= 0) return null
   return (
     <g pointerEvents="none">
       <rect
         x={slot.leftX}
-        y={plotTop}
+        y={topY}
         width={slot.width}
-        height={plotBottom - plotTop}
+        height={height}
         fill={TRACK_BG}
         fillOpacity={0.7}
       />
       <line
         x1={slot.leftX}
         x2={slot.leftX}
-        y1={plotTop}
-        y2={plotBottom}
+        y1={topY}
+        y2={bottomY}
         stroke={TRACK_BORDER}
         strokeWidth={0.5}
       />
       <line
         x1={slot.rightX}
         x2={slot.rightX}
-        y1={plotTop}
-        y2={plotBottom}
+        y1={topY}
+        y2={bottomY}
         stroke={TRACK_BORDER}
         strokeWidth={0.5}
       />
