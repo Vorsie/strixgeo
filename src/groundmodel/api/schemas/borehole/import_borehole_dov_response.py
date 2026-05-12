@@ -30,4 +30,6 @@ class ImportBoreholeDovResponse(BaseModel):
     organic_failed: int = 0
     water_content_attached: int = 0
     water_content_failed: int = 0
+    scalar_lab_tests_attached: int = 0
+    scalar_lab_tests_failed: int = 0
     borehole_ids: list[UUID]

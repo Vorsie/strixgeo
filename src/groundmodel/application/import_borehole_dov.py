@@ -296,7 +296,9 @@ class ImportBoreholeDov(GroundModelLogger):
             f"caco3: {samples_result.caco3_attached}/{samples_result.caco3_failed}; "
             f"organic: {samples_result.organic_attached}/{samples_result.organic_failed}; "
             f"water: {samples_result.water_content_attached}/"
-            f"{samples_result.water_content_failed}"
+            f"{samples_result.water_content_failed}; "
+            f"scalar: {samples_result.scalar_lab_tests_attached}/"
+            f"{samples_result.scalar_lab_tests_failed}"
         )
         return ImportBoreholeDovResult(
             imported=imported,
@@ -316,6 +318,8 @@ class ImportBoreholeDov(GroundModelLogger):
             organic_failed=samples_result.organic_failed,
             water_content_attached=samples_result.water_content_attached,
             water_content_failed=samples_result.water_content_failed,
+            scalar_lab_tests_attached=samples_result.scalar_lab_tests_attached,
+            scalar_lab_tests_failed=samples_result.scalar_lab_tests_failed,
             borehole_ids=borehole_ids,
         )
 

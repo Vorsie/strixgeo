@@ -1867,25 +1867,16 @@ cross-field.
 (BRO, manual import, BIM upload). Source data quality is unknown
 and a hard crash on first import is the wrong UX.
 
-### 32. ``scalar_lab_tests_attached/_failed`` missing from response
+### 32. ``scalar_lab_tests_attached/_failed`` missing from response — DONE
 
-**What.** ``ImportBoreholeDov`` reads scalar-lab-test counters
-correctly from the samples-result, but never assigns them to
-``ImportBoreholeDovResult``. The result dataclass and the
-``ImportBoreholeDovResponse`` schema both lack the two fields.
-CLAUDE.md API docs (``POST /borehole/import-dov``) advertise them
-in the response contract. Backwards-compat rule (additive contract
-changes only) is being violated by omission rather than removal,
-but the result is the same: the operator and frontend see zero
-counts and can't diagnose catch-all failures.
-
-**Fix shape.** Three-file patch: add the two ``int = 0`` fields
-to ``ImportBoreholeDovResult``, assign from ``samples_result`` in
-``import_borehole_dov.py``, add the two fields to the response
-schema, forward in the router.
-
-**When to revisit.** Before any UI surface displays per-family
-import counts. Should be a 30-minute fix when prioritised.
+Resolved 2026-05-12. ``ImportBoreholeDovResult`` carries the two
+fields with ``int = 0`` defaults; ``ImportBoreholeDov.execute`` now
+assigns them from ``samples_result``; the response schema mirrors
+the result dataclass; the router forwards the new fields. The
+phase-summary INFO log emitted at the end of an import now
+includes the catch-all counters so operators can see them in
+real time. Contract is now additive-aligned with what CLAUDE.md
+already advertised.
 
 ### 33. Node 22 constraint not machine-enforced — DONE
 

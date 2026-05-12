@@ -52,6 +52,12 @@ class ImportBoreholeDovResult:
     atterberg_failed, caco3_failed, organic_failed,
     water_content_failed : int
         Per-row scalar lab-test failures (mapping / persist / null value).
+    scalar_lab_tests_attached : int
+        Number of Phase C5 ``ScalarLabTest`` catch-all rows attached
+        to newly-persisted samples (parameters that don't qualify
+        for a typed family).
+    scalar_lab_tests_failed : int
+        Per-row catch-all failures (mapping / persist / null value).
     borehole_ids : list[UUID]
         IDs of all boreholes the caller now sees in the project — newly
         imported plus pre-existing duplicates.
@@ -74,4 +80,6 @@ class ImportBoreholeDovResult:
     organic_failed: int = 0
     water_content_attached: int = 0
     water_content_failed: int = 0
+    scalar_lab_tests_attached: int = 0
+    scalar_lab_tests_failed: int = 0
     borehole_ids: list[UUID] = field(default_factory=list)

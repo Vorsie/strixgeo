@@ -110,6 +110,8 @@ async def import_borehole_dov(
         organic_failed=result.organic_failed,
         water_content_attached=result.water_content_attached,
         water_content_failed=result.water_content_failed,
+        scalar_lab_tests_attached=result.scalar_lab_tests_attached,
+        scalar_lab_tests_failed=result.scalar_lab_tests_failed,
         borehole_ids=result.borehole_ids,
     )
 
