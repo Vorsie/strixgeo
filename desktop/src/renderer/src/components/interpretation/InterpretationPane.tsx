@@ -24,10 +24,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Layers, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Drill, Layers, Plus, Sparkles, Trash2 } from 'lucide-react'
 
 import { api } from '../../api/client'
 import type {
+  BoreholeListItem,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalFormationUpdatePayload,
@@ -59,6 +60,19 @@ interface Props {
    * model their formation picks belong to. v1 auto-bootstraps a
    * "Default" model per project so this is rarely null. */
   activeModelName?: string | null
+  /** Visible boreholes in the project — the "Boreholes in model"
+   * sub-section lists every one of these with a checkbox. */
+  modelBoreholes?: readonly BoreholeListItem[]
+  /** Borehole IDs the active model EXCLUDES from contact rendering /
+   * placement. A row's checkbox shows checked when the borehole's
+   * id is NOT in this set. */
+  excludedBoreholeIds?: readonly string[]
+  /** Fires when the user flips a borehole's checkbox. Caller
+   * (App.tsx) PATCHes the model with the new exclusion list. */
+  onToggleBoreholeInModel?: (
+    boreholeId: string,
+    included: boolean,
+  ) => void | Promise<void>
   /** App-level callback fired after a successful POST so the
    * manifest + session-imports set update in lockstep with this
    * pane's local state. Without it the pane works but the project
@@ -75,11 +89,23 @@ export default function InterpretationPane({
   sessionImportFormationIds,
   boreholeIds,
   activeModelName,
+  modelBoreholes,
+  excludedBoreholeIds,
+  onToggleBoreholeInModel,
   onFormationCreated,
   onFormationDeleted,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
+  // Collapse the borehole scope sub-section by default — engineers
+  // who don't care about scope shouldn't see a long list pushing
+  // the formations off-screen. Show it expanded only when the user
+  // has explicitly hidden at least one borehole.
+  const [scopeOpen, setScopeOpen] = useState(false)
+  const excludedSet = useMemo(
+    () => new Set(excludedBoreholeIds ?? []),
+    [excludedBoreholeIds],
+  )
   const [formations, setFormations] = useState<GeologicalFormationResponse[]>([])
   const [loading, setLoading] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -427,6 +453,66 @@ export default function InterpretationPane({
             />
           ))}
         </ul>
+      )}
+
+      {/* Boreholes in model — collapsible sub-section. Toggling a
+          checkbox PATCHes the active model's excluded_borehole_ids.
+          Excluded boreholes still render lithology on the section,
+          but their contacts get filtered out of ContactsLayer (so
+          they don't anchor formation tops). Re-including a borehole
+          immediately restores its contacts. */}
+      {modelBoreholes && modelBoreholes.length > 0 && onToggleBoreholeInModel && (
+        <div className="border-t border-gray-100 pt-3 mt-1">
+          <button
+            onClick={() => setScopeOpen(prev => !prev)}
+            className="flex items-center gap-1.5 w-full text-left text-gray-700 hover:text-gray-900"
+            title="Show / hide the per-borehole scope toggles"
+          >
+            {scopeOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <Drill size={12} className="text-gray-500" />
+            <span className="text-xs font-medium">Boreholes in model</span>
+            <span className="text-[10px] text-gray-400 tabular-nums ml-auto">
+              {modelBoreholes.length - excludedSet.size}/{modelBoreholes.length}
+            </span>
+          </button>
+          {scopeOpen && (
+            <ul className="flex flex-col mt-2 max-h-64 overflow-y-auto pr-1">
+              {modelBoreholes.map(b => {
+                const included = !excludedSet.has(b.id)
+                return (
+                  <li
+                    key={b.id}
+                    className={[
+                      'flex items-center gap-2 px-1 py-1 rounded text-xs transition-colors',
+                      included
+                        ? 'text-gray-700 hover:bg-gray-50'
+                        : 'text-gray-400 hover:bg-gray-50',
+                    ].join(' ')}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={included}
+                      onChange={e =>
+                        void onToggleBoreholeInModel(b.id, e.target.checked)
+                      }
+                      className="cursor-pointer shrink-0"
+                      aria-label={`${b.name} in model`}
+                    />
+                    <span
+                      className={[
+                        'truncate flex-1',
+                        included ? '' : 'line-through',
+                      ].join(' ')}
+                      title={b.name}
+                    >
+                      {b.name}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
       )}
 
       <FormationDialog
