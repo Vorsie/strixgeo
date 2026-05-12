@@ -665,9 +665,16 @@ export default function SectionPanel({
               stroke="#e5e7eb"
             />
 
-            {/* Vertical gridlines + x-axis ticks (along-distance). */}
+            {/* Vertical gridlines + x-axis ticks (along-distance).
+                Position uses ``warpedXToScreen`` so the gridlines
+                and axis labels track the test packing at low
+                spacing — same warp the DEM polyline uses. The label
+                values themselves stay at the true along-distance
+                they represent (the "200 m" tick is still 200 m
+                along the section, just rendered at a compressed
+                screen X). */}
             {xTicks.map(v => {
-              const sx = xToScreen(v)
+              const sx = warpedXToScreen(v)
               return (
                 <g key={`xt-${v}`}>
                   <line
