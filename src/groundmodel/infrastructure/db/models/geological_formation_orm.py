@@ -68,3 +68,12 @@ class GeologicalFormationOrm(Base):
         back_populates="formation",
         cascade="all, delete-orphan",
     )
+
+    # Geotechnical units beneath this formation. Same pattern as contacts —
+    # no eager load by default; ORM-level cascade keeps SQLAlchemy's
+    # identity map in sync when the parent formation is deleted (the DB
+    # CASCADE alone leaves stale references in the session).
+    units: Mapped[list[GeotechnicalUnitOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "GeotechnicalUnitOrm",
+        cascade="all, delete-orphan",
+    )

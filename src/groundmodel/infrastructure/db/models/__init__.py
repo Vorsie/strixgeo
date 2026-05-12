@@ -14,6 +14,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.geotechnical_unit_orm import GeotechnicalUnitOrm
 from groundmodel.infrastructure.db.models.grain_size_orm import GrainSizeOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import InvestigationReviewOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
@@ -36,6 +37,7 @@ __all__ = [
     "FormationContactOrm",
     "GeologicalFormationOrm",
     "GeologicalModelOrm",
+    "GeotechnicalUnitOrm",
     "GrainSizeOrm",
     "InvestigationReviewOrm",
     "ObservationLayerOrm",
