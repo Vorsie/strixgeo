@@ -508,6 +508,54 @@ export default function SectionPanel({
     return m
   }, [placedColumns])
 
+  // Warped along-distance → screen X. The Spacing slider's lerp
+  // moves each test from its true projected X toward its packed
+  // position; without warping any other X-positioned content, the
+  // DEM ground-surface line draws at the TRUE along-distance and
+  // visually detaches from the tests at low spacing. Build a
+  // piecewise-linear map anchored by each placed column's
+  // ``(along, nudgedX)`` pair so the DEM "bends" along with the
+  // tests. Outside the test range we fall back to true scaling so
+  // the line extends naturally past the leftmost / rightmost test.
+  //
+  // At spacing=1, ``nudgedX`` ≈ ``xToScreen(along)`` (modulo
+  // collision nudges) so the warp is essentially identity. At
+  // spacing=0, each test sits at its packed X and the function
+  // interpolates the DEM through those.
+  const warpAnchors = useMemo(() => {
+    return [...placedColumns]
+      .map(col => ({ along: col.proj.along, effX: col.nudgedX }))
+      .sort((a, b) => a.along - b.along)
+  }, [placedColumns])
+
+  const warpedXToScreen = useCallback(
+    (along: number): number => {
+      if (warpAnchors.length === 0) return xToScreen(along)
+      // Before the first anchor — extrapolate at true scale so the
+      // DEM extends to the left edge with its natural slope.
+      if (along <= warpAnchors[0].along) {
+        return warpAnchors[0].effX - (warpAnchors[0].along - along) * scaleH
+      }
+      // After the last anchor — same on the right.
+      const last = warpAnchors[warpAnchors.length - 1]
+      if (along >= last.along) {
+        return last.effX + (along - last.along) * scaleH
+      }
+      // Inside — find the segment and linearly interpolate.
+      let i = 0
+      while (i < warpAnchors.length - 1 && warpAnchors[i + 1].along < along) i += 1
+      const a = warpAnchors[i]
+      const b = warpAnchors[i + 1]
+      // Defensive against duplicate-along anchors (two tests
+      // projected to the same along-distance) — fall back to ``a``'s
+      // effX rather than dividing by zero.
+      if (b.along === a.along) return a.effX
+      const frac = (along - a.along) / (b.along - a.along)
+      return a.effX + frac * (b.effX - a.effX)
+    },
+    [warpAnchors, xToScreen, scaleH],
+  )
+
   // IDs of investigations that already have a data band rendered —
   // CPTs with loaded plot data + boreholes with loaded detail — and
   // a known elevation. For these the ColumnGlyph cap + body line is
@@ -677,7 +725,11 @@ export default function SectionPanel({
             {demSamples !== null && (
               <DemSurfaceLine
                 samples={demSamples}
-                xToScreen={xToScreen}
+                // Use the warped x-mapping so the surface line
+                // bends to follow the packed test positions at low
+                // spacing. At spacing=1 the warp is identity and
+                // the DEM draws at its true along-distance.
+                xToScreen={warpedXToScreen}
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
