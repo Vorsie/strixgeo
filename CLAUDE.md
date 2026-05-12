@@ -1760,26 +1760,29 @@ call the gap-check before committing a write — i.e. before any
 mutation in the geological model editor. Trigger: editor work
 starts.
 
-### 27. Geological model has no domain dataclasses
+### 27. Geological model has no domain dataclasses — DONE
 
-**What.** ``GeologicalFormation``, ``GeologicalModel``,
-``FormationContact``, ``CrossSection``, ``InvestigationReview``
-exist only as ORM models and API schemas. There are no
-corresponding ``@dataclass``-shaped types in ``domain/models/``.
-The application and API layers have nothing to work against that
-isn't either an ORM object (binding to a session) or an ad-hoc
-dict.
+Resolved 2026-05-12. ``domain/models/geology/`` now carries four
+frozen dataclasses mirroring the ORM tables:
 
-**Why deferred.** Phase 4 CRUD landed fast using ORM-direct; the
-pattern carried forward. Domain dataclasses add no value for pure
-read-CRUD but become load-bearing the moment topology reasoning,
-interpolation, or G3Dv3 reconciliation arrives.
+* ``GeologicalFormation``
+* ``GeologicalModel``
+* ``FormationContact`` (polymorphic anchor — borehole_id XOR cpt_id)
+* ``CrossSection`` (with optional ``view_state`` field — see #25)
 
-**When to revisit.** Before writing any application-layer use case
-for the geological model editor. Domain objects first, ORM
-mapping second, application use cases third (per the layer rule).
-G3Dv3 import (Phase 5) absolutely cannot ship cleanly without
-domain types.
+Behaviour tests (gap validation, contact ordering, surface
+interpolation) will land in ``domain/services/`` alongside the
+geological-model editor implementation (debt #26). Today's tests
+are shape-only: 7 unit tests asserting the public field set is
+frozen against accidental rename. The dataclasses are the
+contract the upcoming editor + G3Dv3 import + exporter snapshot
+builder all work against.
+
+``InvestigationReview`` was named in the original debt entry but
+is functionally different — it's a per-project decision row, not
+a geological-model entity — so it remains as ORM + Pydantic only
+for now. Promote on second use if a domain-level decision-router
+service emerges.
 
 ### 28. ``BaseExporter`` input contract is undefined — DONE
 
