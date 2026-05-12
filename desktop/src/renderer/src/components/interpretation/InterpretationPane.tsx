@@ -39,13 +39,6 @@ import DirtyAsterisk from '../ui/DirtyAsterisk'
 import Modal from '../ui/Modal'
 import FormationDialog from './FormationDialog'
 
-// DOV observation types whose ``description`` field carries a
-// formation / stratigraphy name (e.g. "Boom Klei", "Quartair").
-// Mirrors the toggle keys exposed in BoreholeChannels but read
-// here from the raw observation_type strings since the
-// auto-populate flow walks borehole details directly.
-const STRAT_OBS_TYPES = new Set(['formal_stratigraphy', 'informal_stratigraphy'])
-
 interface Props {
   projectId: string | null
   /** Set of formation IDs that are part of the project's current
@@ -172,17 +165,31 @@ export default function InterpretationPane({
     [projectId, editing],
   )
 
-  // Walk every visible borehole's formal_stratigraphy + informal_
-  // stratigraphy observations, harvest the unique formation names
-  // from each layer's ``description``, dedupe against existing
-  // formations (case-insensitive on name), and create a row per
-  // new name with a deterministic hash-based colour.
+  // Walk every visible borehole's informal_stratigraphy observation
+  // — that's the source of the formation NAMES (e.g. "Boom Klei",
+  // "Diest Zand" in engineer-friendly wording). For each informal
+  // layer, look up the formal_stratigraphy layer in the same
+  // borehole that overlaps its midpoint depth and use that formal
+  // layer's description as the REGIONAL REFERENCE — the stratigraphic
+  // chart name (e.g. "Boom Formatie", "Diest Formatie") DOV ships
+  // alongside the informal name.
   //
-  // Client-side per-borehole fetch is the v1 implementation — for
-  // projects with hundreds of boreholes a dedicated backend batch
-  // endpoint will become the right move. Promote on second pain
-  // signal; today the per-id loop is the only viable path that
-  // doesn't require a backend change.
+  // Aggregation: across all boreholes, build a count of
+  // (informal_name → formal_name) pairs. The most-common formal name
+  // for a given informal name wins as the regional_ref (handles the
+  // rare case where the same informal description shows up against
+  // multiple formal stratigraphies — geological coverage at borehole
+  // resolution isn't always self-consistent).
+  //
+  // Existing formation names are deduped case-insensitively so re-
+  // running the populate flow is idempotent. Colour is the hash of
+  // the informal name — same name always picks up the same colour
+  // across machines and reseeds. G3Dv3 has authoritative colour
+  // conventions that supersede this when that import lands.
+  //
+  // Client-side per-borehole fetch is the v1 implementation. A
+  // backend batch endpoint becomes the right call when projects
+  // routinely carry hundreds of boreholes.
   const handlePopulateFromBoreholes = useCallback(async (): Promise<void> => {
     if (!projectId || populateBusy) return
     const ids = boreholeIds ?? []
@@ -194,25 +201,44 @@ export default function InterpretationPane({
     setPopulateResult(null)
     try {
       const results = await Promise.allSettled(ids.map(id => api.borehole.get(id)))
-      // Aggregate unique descriptions across every stratigraphy
-      // observation. Preserve case from first occurrence for
-      // user-friendly display; dedupe key is lowercase for
-      // robustness against DOV's mixed-case inputs.
-      const byKey = new Map<string, string>()
+      // For each unique informal description (display-cased on
+      // first sight), keep a tally of the formal-description
+      // candidates we saw at matching depths. The winner is the
+      // most-frequent formal name; ties resolve to the
+      // alphabetically first.
+      const informalDisplay = new Map<string, string>()
+      const formalTallies = new Map<string, Map<string, number>>()
       let failed = 0
       for (const r of results) {
         if (r.status !== 'fulfilled') {
           failed += 1
           continue
         }
-        for (const obs of r.value.observations) {
-          if (!STRAT_OBS_TYPES.has(obs.observation_type)) continue
-          for (const layer of obs.layers) {
-            const desc = (layer.description ?? '').trim()
-            if (desc === '') continue
-            const key = desc.toLowerCase()
-            if (!byKey.has(key)) byKey.set(key, desc)
-          }
+        const informalObs = r.value.observations.find(
+          o => o.observation_type === 'informal_stratigraphy',
+        )
+        if (!informalObs || informalObs.layers.length === 0) continue
+        const formalLayers =
+          r.value.observations.find(o => o.observation_type === 'formal_stratigraphy')
+            ?.layers ?? []
+        for (const inf of informalObs.layers) {
+          const name = (inf.description ?? '').trim()
+          if (name === '') continue
+          const key = name.toLowerCase()
+          if (!informalDisplay.has(key)) informalDisplay.set(key, name)
+          // Find the formal layer covering the informal layer's
+          // midpoint. Layers in DOV aren't synchronised between
+          // streams (different boundaries, different depth bins)
+          // so a midpoint lookup is the simplest robust match.
+          const mid = (inf.top_m + inf.base_m) / 2
+          const formal = formalLayers.find(
+            fl => fl.top_m <= mid && mid <= fl.base_m,
+          )
+          const fDesc = (formal?.description ?? '').trim()
+          if (fDesc === '') continue
+          if (!formalTallies.has(key)) formalTallies.set(key, new Map())
+          const counts = formalTallies.get(key)!
+          counts.set(fDesc, (counts.get(fDesc) ?? 0) + 1)
         }
       }
       // Dedupe against the names already in the manifest-visible
@@ -220,19 +246,39 @@ export default function InterpretationPane({
       // insensitive matching so "Boom Klei" doesn't double up
       // with "boom klei".
       const existingKeys = new Set(visibleFormations.map(f => f.name.toLowerCase()))
-      const newNames = Array.from(byKey.entries())
-        .filter(([key]) => !existingKeys.has(key))
-        .map(([, display]) => display)
+      const newKeys = Array.from(informalDisplay.keys()).filter(
+        k => !existingKeys.has(k),
+      )
+      // Resolve the regional_ref winner per informal name —
+      // most-frequent formal description, alphabetical tiebreaker.
+      function pickFormal(key: string): string | null {
+        const counts = formalTallies.get(key)
+        if (!counts || counts.size === 0) return null
+        let best: { name: string; count: number } | null = null
+        for (const [name, count] of counts) {
+          if (
+            best === null ||
+            count > best.count ||
+            (count === best.count && name.localeCompare(best.name) < 0)
+          ) {
+            best = { name, count }
+          }
+        }
+        return best?.name ?? null
+      }
       // Create the new rows, sequentially so an error on one
       // doesn't leave partial state in the optimistic local list
       // without our control of order. Hash-based colour stays
       // deterministic across reseed.
       let createdCount = 0
-      for (const name of newNames) {
+      for (const key of newKeys) {
+        const name = informalDisplay.get(key)!
+        const regionalRef = pickFormal(key)
         try {
           const created = await api.geology.createFormation(projectId, {
             name,
             color: hashHexColor(name),
+            regional_ref: regionalRef,
           })
           setFormations(prev => sortFormations([...prev, created]))
           onFormationCreated?.(created.id)
@@ -241,13 +287,14 @@ export default function InterpretationPane({
           log.error('geology', `createFormation('${name}') failed`, err)
         }
       }
+      const scanned = ids.length - failed
       const summary =
         createdCount === 0
-          ? `No new formation names found in ${ids.length - failed} borehole${
-              ids.length - failed === 1 ? '' : 's'
+          ? `No new informal-stratigraphy names found in ${scanned} borehole${
+              scanned === 1 ? '' : 's'
             }.`
           : `Added ${createdCount} formation${createdCount === 1 ? '' : 's'} from ` +
-            `${ids.length - failed} borehole${ids.length - failed === 1 ? '' : 's'}` +
+            `${scanned} borehole${scanned === 1 ? '' : 's'}` +
             (failed > 0 ? ` (${failed} fetch failures)` : '') +
             `.`
       setPopulateResult(summary)
