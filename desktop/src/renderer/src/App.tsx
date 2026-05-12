@@ -93,6 +93,8 @@ export default function App() {
     filePath: projectFilePath,
     manifestCptIds,
     manifestBoreholeIds,
+    manifestFormationIds,
+    manifestSectionIds,
     addToManifest,
     removeFromManifest,
     newProject,
@@ -295,26 +297,47 @@ export default function App() {
   const [sessionImportBoreholeIds, setSessionImportBoreholeIds] = usePersistedSet(
     project ? `groundmodel.session_imports.${project.id}.borehole` : undefined,
   )
+  // Interpretation pane (formations + cross-sections + later
+  // geological models + contacts + geotech units) follows the same
+  // manifest-dirty model as imports: created-but-not-yet-saved rows
+  // sit in these sets so the user sees the amber visual AND the
+  // project-level dirty asterisk until File → Save commits the
+  // bundle to disk.
+  const [sessionImportFormationIds, setSessionImportFormationIds] = usePersistedSet(
+    project ? `groundmodel.session_imports.${project.id}.formation` : undefined,
+  )
+  const [sessionImportSectionIds, setSessionImportSectionIds] = usePersistedSet(
+    project ? `groundmodel.session_imports.${project.id}.section` : undefined,
+  )
 
   // Combined "is anything unsaved?" flag. Drives the sidebar / window-
   // title asterisks, the close-attempt branching, and the File → Save
-  // no-op-when-clean check. Declared AFTER the four persisted sets it
-  // reads from — the inline reads below would TDZ-error if reordered.
+  // no-op-when-clean check.
   const projectDirty =
     metadataDirty ||
     sessionImportCptIds.size > 0 ||
-    sessionImportBoreholeIds.size > 0
+    sessionImportBoreholeIds.size > 0 ||
+    sessionImportFormationIds.size > 0 ||
+    sessionImportSectionIds.size > 0
 
-  // saveProject orchestration — commits metadata then clears session
-  // imports. Failure of either step leaves the dirty flag intact so the
-  // user can retry. Returns true on full success.
+  // saveProject orchestration — commits metadata then clears every
+  // session-imports set so the project lands clean. Failure of any
+  // step leaves the dirty flag intact for retry.
   const saveProject = useCallback(async (): Promise<boolean> => {
     const ok = await saveMetadata()
     if (!ok) return false
     setSessionImportCptIds(new Set())
     setSessionImportBoreholeIds(new Set())
+    setSessionImportFormationIds(new Set())
+    setSessionImportSectionIds(new Set())
     return true
-  }, [saveMetadata, setSessionImportCptIds, setSessionImportBoreholeIds])
+  }, [
+    saveMetadata,
+    setSessionImportCptIds,
+    setSessionImportBoreholeIds,
+    setSessionImportFormationIds,
+    setSessionImportSectionIds,
+  ])
 
   // Discard rollback — drops the session-imported IDs from the
   // manifest so they disappear from view. The DB rows stay (DOV
@@ -331,15 +354,66 @@ export default function App() {
   const discardSessionImports = useCallback(() => {
     removeFromManifest('cpt', sessionImportCptIds)
     removeFromManifest('borehole', sessionImportBoreholeIds)
+    removeFromManifest('formation', sessionImportFormationIds)
+    removeFromManifest('section', sessionImportSectionIds)
     setSessionImportCptIds(new Set())
     setSessionImportBoreholeIds(new Set())
+    setSessionImportFormationIds(new Set())
+    setSessionImportSectionIds(new Set())
   }, [
     sessionImportCptIds,
     sessionImportBoreholeIds,
+    sessionImportFormationIds,
+    sessionImportSectionIds,
     removeFromManifest,
     setSessionImportCptIds,
     setSessionImportBoreholeIds,
+    setSessionImportFormationIds,
+    setSessionImportSectionIds,
   ])
+
+  // Interpretation-pane callbacks. When the user creates / deletes a
+  // formation or section via the pane, we update the manifest + the
+  // session-imports set in lockstep so the dirty signal flips
+  // immediately and the per-row amber visual lights up.
+  const handleFormationCreated = useCallback(
+    (id: string) => {
+      addToManifest('formation', [id])
+      addAllToSet(setSessionImportFormationIds, [id])
+    },
+    [addToManifest, setSessionImportFormationIds],
+  )
+  const handleFormationDeleted = useCallback(
+    (id: string) => {
+      removeFromManifest('formation', [id])
+      setSessionImportFormationIds(prev => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    },
+    [removeFromManifest, setSessionImportFormationIds],
+  )
+  const handleSectionCreated = useCallback(
+    (id: string) => {
+      addToManifest('section', [id])
+      addAllToSet(setSessionImportSectionIds, [id])
+    },
+    [addToManifest, setSessionImportSectionIds],
+  )
+  const handleSectionDeleted = useCallback(
+    (id: string) => {
+      removeFromManifest('section', [id])
+      setSessionImportSectionIds(prev => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    },
+    [removeFromManifest, setSessionImportSectionIds],
+  )
 
   // Apply the project-local filter before anything user-visible reads
   // the lists. Two layers stack here:
@@ -363,6 +437,14 @@ export default function App() {
     () =>
       boreholes.filter(b => manifestBoreholeIds.has(b.id) && !removedBoreholeIds.has(b.id)),
     [boreholes, manifestBoreholeIds, removedBoreholeIds],
+  )
+
+  // Cross-sections — same manifest gate as CPTs / boreholes. A
+  // section that was created in a previous session but never saved
+  // to the .strix file disappears on the next open.
+  const visibleSections = useMemo(
+    () => sections.filter(s => manifestSectionIds.has(s.id)),
+    [sections, manifestSectionIds],
   )
 
   // Out-of-viewport sets — empty when the map hasn't reported bounds
@@ -617,7 +699,7 @@ export default function App() {
       return
     }
     const dirtyMark = projectDirty ? ' *' : ''
-    void window.electron.setWindowTitle(`Ground Model — ${projectName}${dirtyMark}`)
+    void window.electron.setWindowTitle(`Strix — ${projectName}${dirtyMark}`)
   }, [projectName, projectDirty])
 
   // Project menu signals — wire each into a handler. Each subscription
@@ -896,6 +978,10 @@ export default function App() {
         })
         setSections(prev => [...prev, created])
         setSelectedSectionId(created.id)
+        // Manifest + session-imports update so the new section
+        // tracks as dirty until File → Save (matches the CPT /
+        // borehole import lifecycle).
+        handleSectionCreated(created.id)
         log.success('section', `created ${created.name} from map draw`)
       } catch (err) {
         log.error('section', 'create-from-draw failed', err)
@@ -912,13 +998,14 @@ export default function App() {
         await api.section.delete(project.id, id)
         setSections(prev => prev.filter(s => s.id !== id))
         if (selectedSectionId === id) setSelectedSectionId(null)
+        handleSectionDeleted(id)
         log.info('section', `deleted ${id}`)
       } catch (err) {
         log.error('section', `delete ${id} failed`, err)
         toast('error', 'Could not delete the cross-section.')
       }
     },
-    [project, selectedSectionId],
+    [project, selectedSectionId, handleSectionDeleted],
   )
 
   // PATCH the currently-selected section. Used by the SectionPanel's
@@ -1268,7 +1355,7 @@ export default function App() {
   if (apiError) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-100 text-gray-500 text-sm gap-2">
-        <div className="text-red-500 font-medium">Failed to start the Ground Model API</div>
+        <div className="text-red-500 font-medium">Failed to start the Strix API</div>
         <div className="text-xs text-gray-400">Check the developer console for the Python traceback.</div>
       </div>
     )
@@ -1278,7 +1365,7 @@ export default function App() {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-500 text-sm gap-2">
         <div className="animate-spin rounded-full border-2 border-gray-300 border-t-blue-500 w-5 h-5" />
-        Starting Ground Model API…
+        Starting Strix API…
       </div>
     )
   }
@@ -1349,6 +1436,9 @@ export default function App() {
           projectDirty={projectDirty}
           sessionImportCptIds={sessionImportCptIds}
           sessionImportBoreholeIds={sessionImportBoreholeIds}
+          sessionImportFormationIds={sessionImportFormationIds}
+          manifestFormationIds={manifestFormationIds}
+          sessionImportSectionIds={sessionImportSectionIds}
           onCloseProject={handleSidebarCloseRequest}
           onEditMetadata={() => setMetadataEditorOpen(true)}
           hiddenCptTypes={hiddenCptTypes}
@@ -1356,12 +1446,15 @@ export default function App() {
           boreholeAxis={boreholeAxis}
           outOfViewportCptIds={outOfViewportCptIds}
           outOfViewportBoreholeIds={outOfViewportBoreholeIds}
-          sections={sections}
+          sections={visibleSections}
           selectedSectionId={selectedSectionId}
           onSelectSection={handleSelectSection}
           onCreateSection={handleCreateSection}
           onDeleteSection={handleDeleteSection}
           canCreateSection={project.default_horizontal_epsg != null}
+          onFormationCreated={handleFormationCreated}
+          onFormationDeleted={handleFormationDeleted}
+          visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
