@@ -1,27 +1,33 @@
 /**
  * Renders the depth-series data tracks for a single CPT column on
- * the cross-section. Each enabled channel gets a slot side-by-side
- * inside the column band, centred on ``screenX``.
+ * the cross-section as ONE shared horizontal band centered on the
+ * column's axis (= ``screenX``). Each enabled channel plots into
+ * this same band with its own x-scale and direction, mirroring the
+ * DOV "lengteprofiel" PDF page-3 convention:
  *
- * Visual conventions follow DOV's "lengteprofiel" PDF so engineers
- * used to the public viewer read the section identically:
+ *   * qc reads RIGHTWARD from the axis (0 at axis, 10 MPa at right
+ *     edge), thin black line, dashed gridlines at 2 MPa and 10 MPa.
+ *   * Rf reads MIRRORED LEFTWARD from the axis (0 at axis, 10% at
+ *     left edge), brown line, dashed gridlines at 2% and 4%.
+ *   * fs overlays RIGHTWARD on its own smaller scale (0–0.5 MPa) so
+ *     the typical sleeve-friction range fills the band; no labels.
+ *   * u2 overlays LEFTWARD on its own scale (0–1 MPa); no labels.
+ *   * q_total overlays RIGHTWARD on the qc scale as a dashed line
+ *     (CPTM only).
  *
- *   * qc track: 0..10 MPa horizontal scale, qc plotted as a thin
- *     black line, dashed gridline at 2 MPa for reference.
- *   * Rf track: 0..10% horizontal scale, Rf plotted as a thin
- *     brown line, dashed gridlines at 2 % and 4 %.
- *   * fs / u2: thin coloured lines (CPTU/CPTE only, off by default).
- *   * q_total: dashed black, overlaid on the qc track for CPTM. If
- *     qc is OFF, q_total gets its own slot at the same full scale.
+ * Gridline value labels ("2", "10 MPa", "2%", "4%") render above
+ * the band at ``bgTopY - 3`` and ONLY when ``showLabels`` is true —
+ * SectionPanel suppresses them when the column has a tight
+ * neighbour so adjacent labels don't pile up. fs / u2 / qTotal
+ * carry no labels by design (their scales differ from qc/Rf and
+ * the four label slots are already occupied).
  *
- * Deliberately NOT here: colour-coded Rf bin fills (would be
- * mistaken for SBT zones), per-CPT auto-scaling (DOV's whole point
- * is one shared scale for visual comparison). Soil behaviour type
- * classification is a Phase 5 concern.
+ * Deliberately NOT here: per-CPT auto-scale (DOV's whole point is
+ * one shared scale across the section), colour-coded SBT zone
+ * fills (Phase 5 concern).
  *
- * NoData samples (``null`` in the series arrays — void-masked
- * rows) break the curve into sub-paths instead of bridging across
- * gaps.
+ * NoData samples (``null`` in the series arrays) break the curve
+ * into sub-paths instead of bridging across gaps.
  */
 
 import { useMemo } from 'react'
@@ -35,18 +41,25 @@ import {
 } from './cptChannels'
 
 // Curve colours — black for the cone-resistance family (qc + qt),
-// brown/amber for friction ratio (matches the BoreholeLog's Rf
-// chart for cross-component consistency), green for sleeve fs,
-// purple for u2.
-const QC_COLOR = '#111827' // gray-900 — primary signal, max contrast
-const QT_COLOR = '#1f2937' // gray-800, dashed overlay
-const RF_COLOR = '#b45309' // amber-700 — matches BoreholeLog
-const FS_COLOR = '#16a34a' // green-600
-const U2_COLOR = '#7c3aed' // violet-600
+// brown/amber for friction ratio (matches BoreholeLog's Rf chart for
+// cross-component consistency), green for sleeve fs, purple for u2.
+const QC_COLOR = '#111827'
+const QT_COLOR = '#1f2937'
+const RF_COLOR = '#b45309'
+const FS_COLOR = '#16a34a'
+const U2_COLOR = '#7c3aed'
 
-const GRID_COLOR = '#d1d5db' // gray-300 — subtle scale tick lines
-const TRACK_BG = '#ffffff' // explicit white so the curves read over the DEM hillshade
-const TRACK_BORDER = '#e5e7eb' // gray-200 — left/right edge ticks of each slot
+const GRID_COLOR = '#d1d5db'
+const TRACK_BG = '#ffffff'
+const TRACK_BORDER = '#e5e7eb'
+const LABEL_FILL = '#6b7280'
+
+// fs / u2 full scales — sensitive enough for typical soft-soil readings
+// while staying inside the shared band visually. Auto-scaling per CPT
+// is intentionally NOT done (would defeat the DOV "one scale across
+// the section" rule).
+const FS_FULL_SCALE_MPA = 0.5
+const U2_FULL_SCALE_MPA = 1.0
 
 interface Props {
   plot: CptPlotResponse
@@ -54,12 +67,10 @@ interface Props {
    * per kind; some channels don't apply to mechanical cones. */
   cptType: string
   channels: CptChannels
-  /** Pixel widths for each channel at the current zoom level —
-   * comes from ``cptTrackWidths(scaleH)``. The component does the
-   * slot math from this; the section panel does the nudge layout
-   * from ``cptDataTrackWidth`` over the same widths so positions
-   * and widths agree. */
-  widths: Record<keyof CptChannels, number>
+  /** Half-width of the shared band in px. Column axis sits at
+   * ``screenX``; the band extends ±halfWidth. Scaled with zoom by
+   * the caller (``SectionPanel``) via ``cptBandHalfWidth``. */
+  halfWidth: number
   /** Screen X of the column centerline (the nudged X from the
    * width-aware layout pass — see ``nudgeColumns``). */
   screenX: number
@@ -72,315 +83,173 @@ interface Props {
   /** World-level (m TAW) → screen Y converter from the section
    * panel's viewport. */
   levelToScreen: (level: number) => number
+  /** When false, suppress gridline value labels for this column.
+   * SectionPanel sets this based on neighbour distance — tight
+   * columns drop labels so adjacent ones don't overlap. */
+  showLabels: boolean
 }
 
 export default function CptDataColumn({
   plot,
   cptType,
   channels,
-  widths,
+  halfWidth,
   screenX,
   surfaceElevationM,
   plotTop,
   plotBottom,
   levelToScreen,
+  showLabels,
 }: Props): JSX.Element | null {
-  const slots = useMemo(
-    () => computeSlots(cptType, channels, widths, screenX),
-    [cptType, channels, widths, screenX],
-  )
-  if (slots.length === 0) return null
-
-  // Map (sample index → screen Y) once per render; reused across
-  // every channel that plots vs. depth.
+  // Memoise sample-index → screen-Y once per render. Must be
+  // declared BEFORE any early return so the hook order stays stable
+  // across renders even when no channel is enabled.
   const screenYByIdx = useMemo(
     () => plot.depths_m.map(d => levelToScreen(surfaceElevationM - d)),
     [plot.depths_m, levelToScreen, surfaceElevationM],
   )
 
-  // Drop a horizontal "data top" tick where the curve will start —
-  // matches DOV's convention of showing the surface contact even
-  // when no qc sample exists at exactly 0 m depth.
-  const surfaceY = levelToScreen(surfaceElevationM)
+  const showQc = channels.qc
+  const showRf = channels.rf && plot.rf_pct !== null
+  const showFs =
+    channels.fs && (cptType === 'CPTU' || cptType === 'CPTE') && plot.fs_mpa !== null
+  const showU2 = channels.u2 && cptType === 'CPTU' && plot.u2_mpa !== null
+  const showQTotal = channels.qTotal && cptType === 'CPTM' && plot.q_total_mpa !== null
+
+  if (!showQc && !showRf && !showFs && !showU2 && !showQTotal) return null
+
+  const axisX = screenX
+  const leftX = screenX - halfWidth
+  const rightX = screenX + halfWidth
 
   // Vertical extent of the actual CPT data: surface down to the
-  // deepest sample. The track background spans only this band so
-  // the white doesn't bleed across the full plot height and visually
-  // mask geology above / below the test.
+  // deepest sample. The track background + gridlines span only this
+  // band so the white doesn't bleed across the full plot height and
+  // visually mask geology above / below the test.
+  const surfaceY = levelToScreen(surfaceElevationM)
   const bottomDepthM =
     plot.depths_m.length > 0 ? plot.depths_m[plot.depths_m.length - 1] : 0
   const dataBottomY = levelToScreen(surfaceElevationM - bottomDepthM)
   const bgTopY = Math.max(plotTop, Math.min(plotBottom, surfaceY))
   const bgBottomY = Math.max(plotTop, Math.min(plotBottom, dataBottomY))
+  const hasBand = bgBottomY - bgTopY > 0
 
-  return (
-    <g pointerEvents="none">
-      {slots.map(slot => (
-        <TrackBackground
-          key={`bg-${slot.kind}`}
-          slot={slot}
-          topY={bgTopY}
-          bottomY={bgBottomY}
-        />
-      ))}
-      {slots.map(slot => {
-        switch (slot.kind) {
-          case 'qc':
-            return (
-              <QcTrack
-                key="qc"
-                slot={slot}
-                qc={plot.qc_mpa}
-                qTotal={cptType === 'CPTM' && channels.qTotal ? plot.q_total_mpa : null}
-                screenY={screenYByIdx}
-                plotTop={plotTop}
-                plotBottom={plotBottom}
-                surfaceY={surfaceY}
-                bgTopY={bgTopY}
-                bgBottomY={bgBottomY}
-              />
-            )
-          case 'rf':
-            return (
-              <RfTrack
-                key="rf"
-                slot={slot}
-                rf={plot.rf_pct}
-                screenY={screenYByIdx}
-                plotTop={plotTop}
-                plotBottom={plotBottom}
-                surfaceY={surfaceY}
-                bgTopY={bgTopY}
-                bgBottomY={bgBottomY}
-              />
-            )
-          case 'fs':
-            return (
-              <LineTrack
-                key="fs"
-                slot={slot}
-                values={plot.fs_mpa}
-                fullScale={0.5}
-                color={FS_COLOR}
-                screenY={screenYByIdx}
-                plotTop={plotTop}
-                plotBottom={plotBottom}
-              />
-            )
-          case 'u2':
-            return (
-              <LineTrack
-                key="u2"
-                slot={slot}
-                values={plot.u2_mpa}
-                fullScale={1.0}
-                color={U2_COLOR}
-                screenY={screenYByIdx}
-                plotTop={plotTop}
-                plotBottom={plotBottom}
-              />
-            )
-          case 'qTotal':
-            return (
-              <LineTrack
-                key="qTotal"
-                slot={slot}
-                values={plot.q_total_mpa}
-                fullScale={QT_FULL_SCALE_MPA}
-                color={QT_COLOR}
-                dashed
-                screenY={screenYByIdx}
-                plotTop={plotTop}
-                plotBottom={plotBottom}
-              />
-            )
-        }
-      })}
-    </g>
-  )
-}
+  // Gridline positions on the column axis ± a fraction of halfWidth.
+  // qc gridlines on the right half; rf gridlines on the (mirrored)
+  // left half.
+  const qc2X = axisX + (2 / QC_FULL_SCALE_MPA) * halfWidth
+  const qc10X = rightX
+  const rf2X = axisX - (2 / RF_FULL_SCALE_PCT) * halfWidth
+  const rf4X = axisX - (4 / RF_FULL_SCALE_PCT) * halfWidth
 
-// ---------------------------------------------------------------------------
-// Slot layout — assign each enabled track a [leftX, rightX] band
-// ---------------------------------------------------------------------------
-
-type TrackKind = 'qc' | 'rf' | 'fs' | 'u2' | 'qTotal'
-
-interface TrackSlot {
-  kind: TrackKind
-  leftX: number
-  rightX: number
-  width: number
-}
-
-function computeSlots(
-  cptType: string,
-  channels: CptChannels,
-  widths: Record<keyof CptChannels, number>,
-  screenX: number,
-): TrackSlot[] {
-  const enabled: TrackKind[] = []
-  // DOV PDF convention (lengteprofiel page 3, scale annotation
-  // "4% 2%2 +Z 10 MPa"): Rf reads on the LEFT of the column, qc on
-  // the RIGHT. fs / u2 / standalone q_total follow on the far right
-  // when their channels are enabled.
-  if (channels.rf) enabled.push('rf')
-  if (channels.qc) enabled.push('qc')
-  if (channels.fs && (cptType === 'CPTU' || cptType === 'CPTE')) enabled.push('fs')
-  if (channels.u2 && cptType === 'CPTU') enabled.push('u2')
-  // Standalone q_total slot only when qc is OFF (otherwise overlaid).
-  if (channels.qTotal && cptType === 'CPTM' && !channels.qc) enabled.push('qTotal')
-
-  const slotWidths = enabled.map(k => widths[k])
-  const totalWidth = slotWidths.reduce((a, b) => a + b, 0)
-  if (totalWidth === 0) return []
-
-  // Centre the data band on the column's nudged X.
-  let cursor = screenX - totalWidth / 2
-  return enabled.map((kind, i) => {
-    const w = slotWidths[i]
-    const slot: TrackSlot = { kind, leftX: cursor, rightX: cursor + w, width: w }
-    cursor += w
-    return slot
-  })
-}
-
-// ---------------------------------------------------------------------------
-// Track background — subtle white fill so curves read over the DEM
-// hillshade, plus left/right tick lines marking the slot edges.
-// ---------------------------------------------------------------------------
-
-function TrackBackground({
-  slot,
-  topY,
-  bottomY,
-}: {
-  slot: TrackSlot
-  /** Top of the data band in screen px (clamped to plot bounds). */
-  topY: number
-  /** Bottom of the data band in screen px (clamped to plot bounds). */
-  bottomY: number
-}): JSX.Element | null {
-  const height = bottomY - topY
-  if (height <= 0) return null
-  return (
-    <g pointerEvents="none">
-      <rect
-        x={slot.leftX}
-        y={topY}
-        width={slot.width}
-        height={height}
-        fill={TRACK_BG}
-        fillOpacity={0.7}
-      />
-      <line
-        x1={slot.leftX}
-        x2={slot.leftX}
-        y1={topY}
-        y2={bottomY}
-        stroke={TRACK_BORDER}
-        strokeWidth={0.5}
-      />
-      <line
-        x1={slot.rightX}
-        x2={slot.rightX}
-        y1={topY}
-        y2={bottomY}
-        stroke={TRACK_BORDER}
-        strokeWidth={0.5}
-      />
-    </g>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// qc track — primary signal, with 2 MPa gridline + optional q_total
-// dashed overlay (CPTM with both channels on)
-// ---------------------------------------------------------------------------
-
-function QcTrack({
-  slot,
-  qc,
-  qTotal,
-  screenY,
-  plotTop,
-  plotBottom,
-  surfaceY,
-  bgTopY,
-  bgBottomY,
-}: {
-  slot: TrackSlot
-  qc: number[]
-  qTotal: (number | null)[] | null
-  screenY: number[]
-  plotTop: number
-  plotBottom: number
-  surfaceY: number
-  /** Top / bottom Y of the CPT data band — gridlines are trimmed to
-   * this range so they don't bleed across the full plot height. */
-  bgTopY: number
-  bgBottomY: number
-}): JSX.Element {
-  const qcPath = curvePath(qc, screenY, slot, QC_FULL_SCALE_MPA, plotTop, plotBottom)
-  const qtPath = qTotal
-    ? curvePath(qTotal, screenY, slot, QT_FULL_SCALE_MPA, plotTop, plotBottom)
-    : ''
-  // 2 MPa gridline (DOV reference for the loose-vs-dense sand
-  // transition) + 10 MPa gridline at the qc full-scale right edge.
-  // Both bounded to the data extent rather than the full plot
-  // height — the section reads cleaner when the dashed grey lines
-  // stop where the CPT does.
-  const grid2X = slot.leftX + (2 / QC_FULL_SCALE_MPA) * slot.width
-  const grid10X = slot.rightX
-  const showSurfaceTick = surfaceY >= plotTop && surfaceY <= plotBottom
-  const showLabels = bgBottomY - bgTopY > 4 && bgTopY > plotTop + 4
+  // Label gating: caller's collision flag PLUS local headroom check.
+  // ``bgTopY > plotTop + 4`` keeps labels out of the top margin band.
+  const renderLabels = showLabels && hasBand && bgTopY > plotTop + 4
   const labelY = bgTopY - 3
+
+  const showSurfaceTick = surfaceY >= plotTop && surfaceY <= plotBottom
+
   return (
     <g pointerEvents="none">
-      <line
-        x1={grid2X}
-        x2={grid2X}
-        y1={bgTopY}
-        y2={bgBottomY}
-        stroke={GRID_COLOR}
-        strokeWidth={0.5}
-        strokeDasharray="2 2"
-      />
-      <line
-        x1={grid10X}
-        x2={grid10X}
-        y1={bgTopY}
-        y2={bgBottomY}
-        stroke={GRID_COLOR}
-        strokeWidth={0.5}
-        strokeDasharray="2 2"
-      />
-      {showLabels && (
+      {hasBand && (
         <>
-          <text
-            x={grid2X}
-            y={labelY}
-            fontSize={7}
-            fill="#6b7280"
-            textAnchor="middle"
-          >
+          <rect
+            x={leftX}
+            y={bgTopY}
+            width={2 * halfWidth}
+            height={bgBottomY - bgTopY}
+            fill={TRACK_BG}
+            fillOpacity={0.7}
+          />
+          <line
+            x1={leftX}
+            x2={leftX}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={TRACK_BORDER}
+            strokeWidth={0.5}
+          />
+          <line
+            x1={rightX}
+            x2={rightX}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={TRACK_BORDER}
+            strokeWidth={0.5}
+          />
+        </>
+      )}
+
+      {showQc && hasBand && (
+        <>
+          <line
+            x1={qc2X}
+            x2={qc2X}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={GRID_COLOR}
+            strokeWidth={0.5}
+            strokeDasharray="2 2"
+          />
+          <line
+            x1={qc10X}
+            x2={qc10X}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={GRID_COLOR}
+            strokeWidth={0.5}
+            strokeDasharray="2 2"
+          />
+        </>
+      )}
+      {showRf && hasBand && (
+        <>
+          <line
+            x1={rf2X}
+            x2={rf2X}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={GRID_COLOR}
+            strokeWidth={0.5}
+            strokeDasharray="2 2"
+          />
+          <line
+            x1={rf4X}
+            x2={rf4X}
+            y1={bgTopY}
+            y2={bgBottomY}
+            stroke={GRID_COLOR}
+            strokeWidth={0.5}
+            strokeDasharray="2 2"
+          />
+        </>
+      )}
+
+      {renderLabels && showQc && (
+        <>
+          <text x={qc2X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
             2
           </text>
-          <text
-            x={grid10X}
-            y={labelY}
-            fontSize={7}
-            fill="#6b7280"
-            textAnchor="end"
-          >
+          <text x={qc10X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="end">
             10 MPa
           </text>
         </>
       )}
+      {renderLabels && showRf && (
+        <>
+          <text x={rf2X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+            2%
+          </text>
+          <text x={rf4X} y={labelY} fontSize={7} fill={LABEL_FILL} textAnchor="middle">
+            4%
+          </text>
+        </>
+      )}
+
       {showSurfaceTick && (
         <line
-          x1={slot.leftX}
-          x2={slot.rightX}
+          x1={leftX}
+          x2={rightX}
           y1={surfaceY}
           y2={surfaceY}
           stroke={QC_COLOR}
@@ -388,12 +257,46 @@ function QcTrack({
           strokeOpacity={0.5}
         />
       )}
-      {qcPath && (
-        <path d={qcPath} stroke={QC_COLOR} strokeWidth={1.1} strokeOpacity={0.95} fill="none" />
-      )}
-      {qtPath && (
+
+      {showQc && (
         <path
-          d={qtPath}
+          d={curvePath(plot.qc_mpa, screenYByIdx, axisX, halfWidth, QC_FULL_SCALE_MPA, 1, plotTop, plotBottom)}
+          stroke={QC_COLOR}
+          strokeWidth={1.1}
+          strokeOpacity={0.95}
+          fill="none"
+        />
+      )}
+      {showRf && (
+        <path
+          d={curvePath(plot.rf_pct!, screenYByIdx, axisX, halfWidth, RF_FULL_SCALE_PCT, -1, plotTop, plotBottom)}
+          stroke={RF_COLOR}
+          strokeWidth={1}
+          strokeOpacity={0.9}
+          fill="none"
+        />
+      )}
+      {showFs && (
+        <path
+          d={curvePath(plot.fs_mpa!, screenYByIdx, axisX, halfWidth, FS_FULL_SCALE_MPA, 1, plotTop, plotBottom)}
+          stroke={FS_COLOR}
+          strokeWidth={1}
+          strokeOpacity={0.85}
+          fill="none"
+        />
+      )}
+      {showU2 && (
+        <path
+          d={curvePath(plot.u2_mpa!, screenYByIdx, axisX, halfWidth, U2_FULL_SCALE_MPA, -1, plotTop, plotBottom)}
+          stroke={U2_COLOR}
+          strokeWidth={1}
+          strokeOpacity={0.85}
+          fill="none"
+        />
+      )}
+      {showQTotal && (
+        <path
+          d={curvePath(plot.q_total_mpa!, screenYByIdx, axisX, halfWidth, QT_FULL_SCALE_MPA, 1, plotTop, plotBottom)}
           stroke={QT_COLOR}
           strokeWidth={1}
           strokeOpacity={0.75}
@@ -406,138 +309,21 @@ function QcTrack({
 }
 
 // ---------------------------------------------------------------------------
-// Rf track — friction ratio as a line, with 2 % and 4 % gridlines
-// matching DOV's PDF convention. NOT colour-coded SBT bins — those
-// would conflate measurement with classification (Phase 5).
-// ---------------------------------------------------------------------------
-
-function RfTrack({
-  slot,
-  rf,
-  screenY,
-  plotTop,
-  plotBottom,
-  surfaceY,
-  bgTopY,
-  bgBottomY,
-}: {
-  slot: TrackSlot
-  rf: (number | null)[] | null
-  screenY: number[]
-  plotTop: number
-  plotBottom: number
-  surfaceY: number
-  bgTopY: number
-  bgBottomY: number
-}): JSX.Element | null {
-  if (rf === null || rf.length === 0) return null
-  const rfPath = curvePath(rf, screenY, slot, RF_FULL_SCALE_PCT, plotTop, plotBottom)
-  const grid2 = slot.leftX + (2 / RF_FULL_SCALE_PCT) * slot.width
-  const grid4 = slot.leftX + (4 / RF_FULL_SCALE_PCT) * slot.width
-  const showSurfaceTick = surfaceY >= plotTop && surfaceY <= plotBottom
-  const showLabels = bgBottomY - bgTopY > 4 && bgTopY > plotTop + 4
-  const labelY = bgTopY - 3
-  return (
-    <g pointerEvents="none">
-      <line
-        x1={grid2}
-        x2={grid2}
-        y1={bgTopY}
-        y2={bgBottomY}
-        stroke={GRID_COLOR}
-        strokeWidth={0.5}
-        strokeDasharray="2 2"
-      />
-      <line
-        x1={grid4}
-        x2={grid4}
-        y1={bgTopY}
-        y2={bgBottomY}
-        stroke={GRID_COLOR}
-        strokeWidth={0.5}
-        strokeDasharray="2 2"
-      />
-      {showLabels && (
-        <>
-          <text x={grid2} y={labelY} fontSize={7} fill="#6b7280" textAnchor="middle">
-            2%
-          </text>
-          <text x={grid4} y={labelY} fontSize={7} fill="#6b7280" textAnchor="middle">
-            4%
-          </text>
-        </>
-      )}
-      {showSurfaceTick && (
-        <line
-          x1={slot.leftX}
-          x2={slot.rightX}
-          y1={surfaceY}
-          y2={surfaceY}
-          stroke={RF_COLOR}
-          strokeWidth={0.75}
-          strokeOpacity={0.5}
-        />
-      )}
-      {rfPath && (
-        <path d={rfPath} stroke={RF_COLOR} strokeWidth={1} strokeOpacity={0.9} fill="none" />
-      )}
-    </g>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Generic line track — fs, u2, standalone q_total
-// ---------------------------------------------------------------------------
-
-function LineTrack({
-  slot,
-  values,
-  fullScale,
-  color,
-  dashed,
-  screenY,
-  plotTop,
-  plotBottom,
-}: {
-  slot: TrackSlot
-  values: (number | null)[] | null
-  fullScale: number
-  color: string
-  dashed?: boolean
-  screenY: number[]
-  plotTop: number
-  plotBottom: number
-}): JSX.Element | null {
-  if (values === null || values.length === 0) return null
-  const d = curvePath(values, screenY, slot, fullScale, plotTop, plotBottom)
-  if (d === '') return null
-  return (
-    <path
-      pointerEvents="none"
-      d={d}
-      stroke={color}
-      strokeWidth={1}
-      strokeOpacity={0.85}
-      strokeDasharray={dashed ? '3 2' : undefined}
-      fill="none"
-    />
-  )
-}
-
-// ---------------------------------------------------------------------------
-// SVG path builder for a depth-vs-value curve
+// SVG path builder for a depth-vs-value curve in the shared band
 // ---------------------------------------------------------------------------
 //
-// Walks the depth-series sample by sample. Each row contributes one
-// "M" or "L" command depending on whether the previous sample was
-// in-bounds + non-null. NoData samples break the curve into sub-
-// paths so the renderer doesn't bridge across gaps.
+// ``direction``: +1 plots rightward from ``axisX`` (qc, fs, qTotal),
+// -1 plots leftward (Rf, u2 — the mirrored channels). Out-of-scale
+// spikes clip to the band edge rather than escaping; sub-zero values
+// clip to the axis. NoData samples break the curve into sub-paths.
 
 function curvePath(
   values: readonly (number | null | undefined)[],
   screenY: readonly number[],
-  slot: TrackSlot,
+  axisX: number,
+  halfWidth: number,
   fullScale: number,
+  direction: 1 | -1,
   plotTop: number,
   plotBottom: number,
 ): string {
@@ -549,11 +335,8 @@ function curvePath(
       penDown = false
       continue
     }
-    // Clamp horizontally so out-of-scale spikes don't escape the
-    // slot. DOV does the same — peaks above 10 MPa hit the right
-    // edge and stay there. Sub-zero values clip to leftX.
     const xRel = Math.max(0, Math.min(1, v / fullScale))
-    const x = slot.leftX + xRel * slot.width
+    const x = axisX + direction * xRel * halfWidth
     const y = screenY[i]
     if (y < plotTop || y > plotBottom) {
       penDown = false
