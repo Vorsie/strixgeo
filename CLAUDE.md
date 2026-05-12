@@ -1709,3 +1709,359 @@ calls hitting the same target.
 **When.** Before any rapid-fire UI control (e.g. a debounced slider
 that posts on every change) lands against this endpoint, or before
 multi-user editing of the same project lands.
+
+### 24. ``POST /cpt/plot-batch`` missing project-scope filter (CRITICAL)
+
+**What.** ``CptRepository.get_many_with_series`` queries
+``CptOrm.id.in_(cpt_ids)`` with NO ``app_project_id`` filter. A
+caller in project A who knows or guesses a UUID from project B
+retrieves the full depth series for that foreign CPT. Every other
+batch / list path (``list_all``, ``find_existing_test_ids``) gates
+on ``app_project_id``. The single-CPT ``GET /cpt/{id}`` has the
+same gap (pre-existing), but the batch endpoint multiplies the
+exposure surface — and the section panel already passes
+``app_project_id`` from the section row, so the data to filter on
+is in hand.
+
+**Fix shape.** Add ``app_project_id: UUID`` to
+``CptPlotBatchRequest``, thread it through to
+``get_many_with_series`` as an optional param, and add a
+``.where(CptOrm.app_project_id == app_project_id)`` clause when
+present. Mirror the single-CPT endpoint with the same fix.
+
+**Why deferred.** Caught in the 2026-05-12 whole-project audit;
+not yet shipped because the API contract change deserves a
+deliberate moment, not a drive-by patch.
+
+**When to revisit.** Before any non-solo-DB deployment — second
+user, shared LAN DB, SaaS layer. Solo dev on local Postgres is
+safe today; the moment a second user shares the install this
+becomes a real data leak.
+
+### 25. ``CrossSectionOrm`` missing ``view_state`` JSONB column
+
+**What.** Per-section display preferences (CPT channel toggles,
+borehole interpretation toggles, future scale locks) have no
+storage. ``SectionPanel.tsx`` works around this with an unsafe
+``(section as unknown as {view_state?:...}).view_state`` cast.
+``readCptChannels`` always falls through to defaults; the toggle
+state is frozen at mount and never persists. CLAUDE.md "Project
+files" rule: every per-project decision lives in the bundle,
+never in localStorage. This violates that rule silently because
+the toggle UI hasn't shipped yet — the moment it does, channel
+state resets on every section re-open.
+
+**Fix shape.** Add ``view_state: Mapped[dict[str, Any]] |
+mapped_column(JSONB, nullable=True, default=dict)`` to
+``CrossSectionOrm``, write the Alembic migration, add the field
+to ``CrossSectionResponse`` + ``CrossSectionPatchRequest``, drop
+the cast in ``SectionPanel.tsx`` and wire a ``PATCH /sections/{id}``
+call on channel-toggle change. Bundle round-trips automatically
+via the existing snapshot machinery.
+
+**When to revisit.** Before the channel toggle UI lands (S7
+polish v2 / task #29 includes a legend; toggles are the next
+natural addition) AND before per-section display preferences are
+advertised as persistent.
+
+### 26. Geology + section routers bypass the application layer
+
+**What.** ``api/routers/geology.py`` and ``api/routers/cross_section.py``
+talk directly to repositories and ORM models with no use-case class
+between. Read-heavy CRUD tolerates this, but the upcoming
+geological model EDITOR has business invariants (gap-check, contact
+ordering, cascade re-interpolation) that belong in
+``application/``. The validator already exists as a GET endpoint
+inside the repository, not as a domain service.
+
+**Fix shape.** Introduce ``application/set_formation_contact.py``,
+``application/create_geological_model.py``, etc. as
+``GroundModelLogger``-inheriting use-case classes. Move the
+gap-check helper to ``domain/services/geology_validator.py``.
+Routers call use cases; use cases call repositories.
+
+**When to revisit.** Before the first router handler needs to
+call the gap-check before committing a write — i.e. before any
+mutation in the geological model editor. Trigger: editor work
+starts.
+
+### 27. Geological model has no domain dataclasses
+
+**What.** ``GeologicalFormation``, ``GeologicalModel``,
+``FormationContact``, ``CrossSection``, ``InvestigationReview``
+exist only as ORM models and API schemas. There are no
+corresponding ``@dataclass``-shaped types in ``domain/models/``.
+The application and API layers have nothing to work against that
+isn't either an ORM object (binding to a session) or an ad-hoc
+dict.
+
+**Why deferred.** Phase 4 CRUD landed fast using ORM-direct; the
+pattern carried forward. Domain dataclasses add no value for pure
+read-CRUD but become load-bearing the moment topology reasoning,
+interpolation, or G3Dv3 reconciliation arrives.
+
+**When to revisit.** Before writing any application-layer use case
+for the geological model editor. Domain objects first, ORM
+mapping second, application use cases third (per the layer rule).
+G3Dv3 import (Phase 5) absolutely cannot ship cleanly without
+domain types.
+
+### 28. ``BaseExporter`` input contract is undefined
+
+**What.** ``BaseExporter.export(project: object) -> bytes``
+accepts an untyped object. ``PlaxisExporter``, ``DSheetExporter``,
+``GeoStudioExporter`` are identical stubs; ``DxfExporter`` doesn't
+exist yet. Implementing any one of them without first defining
+the input shape forces an ad-hoc parameter workaround or pulls
+the whole project bundle through the exporter.
+
+**Fix shape.** Define ``GroundModelSnapshot`` as a dataclass in
+``application/`` or ``domain/value_objects/`` carrying:
+``project_id``, ``crs_epsg``, ``layers: list[LayerGeometry]``,
+where ``LayerGeometry`` has ``formation_name``, ``top_depth_m``,
+``base_depth_m``, ``location_x``, ``location_y``. Update the ABC
+signature to take this concrete type. DXF (via ``ezdxf``) is then
+one POLYLINE per formation surface; Plaxis is a coordinate list;
+both follow the same input contract.
+
+**When to revisit.** Before implementing any concrete exporter.
+DXF first (most universal), Plaxis second, D-Sheet third.
+
+### 29. Geotechnical subdivision undesigned + absent from bundle
+
+**What.** The v1.0 MVP gate explicitly requires "subdivide
+geological formations into geotechnical units (structure only;
+parameter values blank in v1)". There is no ORM, no domain model,
+no API schema, no migration, no bundle field for
+``geotechnical_unit``. It's a named MVP deliverable with zero
+implementation. The order-of-attack in CLAUDE.local.md correctly
+slots it after editor work; but the editor needs to know whether
+it draws formation contacts, geotech-unit contacts, or both.
+
+**Fix shape.** Schema:
+``geotechnical_unit(id, app_project_id, geological_formation_id,
+name, code, display_order, color, notes)``. Bundle field:
+``geotechnical_units: []`` alongside ``geological_formations``.
+Standard CRUD under ``/projects/{pid}/geology/formations/{fid}/units``.
+No parameter columns until Phase 5.
+
+**When to revisit.** Before starting the geological model editor
+— the editor needs the entity definition pinned to know what it
+mutates.
+
+### 30. Router-layer logging entirely absent
+
+**What.** Every router file (``borehole.py``, ``cpt.py``,
+``project.py``, ``geology.py``, ``cross_section.py``, ``dem.py``,
+``investigation_review.py``) has zero log calls. DoD §1 (entry /
+exit, external-call logging) is systematically unmet at the API
+layer. A 500 on production with no server-side log is
+undiagnosable; the user-facing toast says "import failed" and the
+backend says nothing.
+
+**Fix shape.** Routers are functions, not classes — they can't
+inherit ``GroundModelLogger``. Add a module-level
+``logger = LoggerFactory.get_logger(__name__)`` in each router
+file (yes, the rule says avoid module-level loggers for classes;
+for stateless functions a module logger is the documented
+fallback). Log INFO on entry with key params and
+SUCCESS/WARNING/ERROR on exit. Mirrors the pattern in
+``application/`` use cases.
+
+**When to revisit.** Before the first non-solo user. Pre-revenue
+deferral is acceptable but every paid user makes silent 500s
+expensive.
+
+### 31. Cross-field invariants raise from domain dataclasses
+
+**What.** ``DrillSegment``, ``ObservationLayer``,
+``FieldLogInterval``, ``Sample`` all raise ``ValueError`` in
+``__post_init__`` for ``base_m <= top_m``. Data Integrity Rule §5
+(CLAUDE.md): cross-field invariants belong in the parser's
+``ValidationIssue`` list, not as ``raise`` in the domain
+dataclass. A malformed real-world DOV row with an inverted
+segment hard-crashes the import instead of flowing through as a
+flagged issue.
+
+**Why deferred.** DOV data is generally clean; the raise has not
+triggered in practice. Single-field non-negativity guards
+(``top_m >= 0``) are NOT in scope here — those are not
+cross-field.
+
+**When to revisit.** Before any non-DOV borehole source lands
+(BRO, manual import, BIM upload). Source data quality is unknown
+and a hard crash on first import is the wrong UX.
+
+### 32. ``scalar_lab_tests_attached/_failed`` missing from response
+
+**What.** ``ImportBoreholeDov`` reads scalar-lab-test counters
+correctly from the samples-result, but never assigns them to
+``ImportBoreholeDovResult``. The result dataclass and the
+``ImportBoreholeDovResponse`` schema both lack the two fields.
+CLAUDE.md API docs (``POST /borehole/import-dov``) advertise them
+in the response contract. Backwards-compat rule (additive contract
+changes only) is being violated by omission rather than removal,
+but the result is the same: the operator and frontend see zero
+counts and can't diagnose catch-all failures.
+
+**Fix shape.** Three-file patch: add the two ``int = 0`` fields
+to ``ImportBoreholeDovResult``, assign from ``samples_result`` in
+``import_borehole_dov.py``, add the two fields to the response
+schema, forward in the router.
+
+**When to revisit.** Before any UI surface displays per-family
+import counts. Should be a 30-minute fix when prioritised.
+
+### 33. Node 22 constraint not machine-enforced
+
+**What.** CLAUDE.md and the memory file document the Node 22 LTS
+pin (Node 24.15 segfaults vitest). But ``desktop/package.json``
+has no ``"engines": {"node": ">=22 <24"}`` field, and the repo
+has no ``.nvmrc`` or ``.node-version``. A fresh contributor, a
+new machine, or a CI runner picks up whatever Node is on PATH
+and hits the segfault with no diagnostic.
+
+**Fix shape.** Add ``.nvmrc`` containing ``22`` at repo root.
+Add ``"engines": {"node": ">=22.0.0 <24.0.0"}`` to
+``desktop/package.json``. Both are one-line; together they cover
+the three Node version managers (nvm-windows, fnm, Volta) plus
+plain npm.
+
+**When to revisit.** Before opening the repo to any collaborator,
+or before standing up a CI runner. Also re-evaluate when Node
+24.16+ ships in case the V8 fix lands upstream — at that point
+the pin can lift.
+
+### 34. Frontend components with zero test coverage
+
+**What.** ``CptChart.tsx`` (type-dispatch, panel layout, ghost-axis
+math), ``Sidebar.tsx`` (multi-select, removed-set, viewport
+partition), ``MapView.tsx``, ``LabTestPanel.tsx``,
+``BboxDrawer.tsx``, ``SectionLineDrawer.tsx``,
+``SectionOverlays.tsx``, ``Toolbar.tsx``, plus the section
+column primitives (``CptDataColumn.tsx``, ``cptChannels.ts``)
+under ``components/sections/`` — none have a test file. The
+recent Rules-of-Hooks TDZ audit and the S7 infinite-render-loop
+bug both hit untested render paths; the next silent regression
+is statistically here.
+
+**Fix shape.** Add smoke tests
+(``render(<Component {...minimal} />)``) for each — catches the
+TDZ + module-import-error class without needing logic coverage.
+Layer on logic tests for the highest-density components
+(``CptChart`` type-dispatch, ``Sidebar`` removed-set partition).
+
+**When to revisit.** Before S8 (borehole interpretation tracks)
+extends ``CptDataColumn``; before any non-trivial refactor of
+``Sidebar`` or ``MapView``.
+
+### 35. ``SectionPanel.tsx`` approaching split threshold
+
+**What.** ~1480 lines today, mirrors the ``BoreholeLog.tsx``
+debt-#8 pattern. Five extractable inner functions (``SectionHeader``,
+``SectionScrubBar``, ``InvestigationColumns``, ``ColumnGlyph``,
+``DemSurfaceLine``) plus pure helpers (``sectionLengthM``,
+``niceStep``, ``ticks``, ``useElementSize``). The geological
+model editor will add a draw-mode cursor that needs to coexist
+with viewport state — adding edit mode to the current monolith
+risks bugs in one concern silently breaking another.
+
+**Fix shape.** Extract ``useSectionData(sectionId)`` hook
+(projection + investigation data + plot-batch). ``SectionPanel``
+becomes a pure renderer of the hook output plus viewport state.
+Future ``SectionEditorOverlay`` receives the same hook output as
+props. File layout: ``sections/SectionHeader.tsx``,
+``sections/SectionScrubBar.tsx``, ``sections/InvestigationColumns.tsx``,
+``sections/ColumnGlyph.tsx``, ``sections/DemSurfaceLine.tsx``,
+``sections/utils.ts``. Orchestrator ``SectionPanel.tsx`` shrinks
+to ~400 lines.
+
+**When to revisit.** Before the geological model editor work
+begins — extracting after edit-mode state has been written into
+the monolith is much more expensive.
+
+### 36. ``GapIssue`` dataclass in an infrastructure file (low)
+
+**What.** ``GapIssue`` value object is defined inside
+``infrastructure/db/repositories/geology_repository.py``. The
+"one class per file" rule is violated, AND it's a domain-flavoured
+value object sitting in an infrastructure file. The router
+instantiates a ``GapIssueResponse`` schema directly from it.
+
+**Fix shape.** Move to ``domain/value_objects/gap_issue.py`` (or
+``domain/services/geology_validator.py`` when #26 lands). The
+``_SURFACE_TOLERANCE_M`` constant goes to a sibling
+``*_constants.py``.
+
+**When to revisit.** When #26 (geology application layer) lands —
+the validator naturally moves with it.
+
+### 37. ``run_interpretation`` + ``export_project`` use module-level loggers
+
+**What.** Both use ``logger = LoggerFactory.get_logger(__name__)``
+at module level rather than the ``class Foo(GroundModelLogger)``
+pattern every other application-layer use case follows. Both are
+stubs today, but when implementations land they'll be classes;
+the author has to remember to migrate the logging style at that
+moment.
+
+**Fix shape.** Convert each to ``class RunInterpretation(GroundModelLogger)``
+and ``class ExportProject(GroundModelLogger)`` stubs now — empty
+``execute`` body, but the inheritance is in place so future
+implementation auto-aligns with convention.
+
+**When to revisit.** At the start of Phase 5 (run_interpretation)
+or alongside #28 (exporters).
+
+### 38. Mixed-CRS spatial-query guard absent
+
+**What.** The bundle format and the API both accept per-investigation
+EPSG. PostGIS spatial queries (bbox containment, proximity) on a
+mixed-CRS project silently compare geometries in different
+coordinate systems and return wrong results. The
+``_make_location(x, y, epsg)`` builder on bundle restore rebuilds
+``POINT(x y, SRID=epsg)`` correctly, but downstream queries don't
+ST_Transform to a common CRS.
+
+**Why deferred.** All real projects today are mono-CRS (Belgian
+Lambert72 from DOV). The issue surfaces only with multi-source
+imports.
+
+**When to revisit.** Before G3Dv3 import (Phase 5) lands — G3Dv3
+is Lambert72 but users may have RD New (28992) NL boreholes in
+the same project. Or before any project spans the BE/NL border.
+
+### 39. ``eslint-disable react-hooks/exhaustive-deps`` without reasons
+
+**What.** Three sites disable the rule:
+``SectionPanel.tsx`` (well-documented with a multi-line WHY
+comment), ``Sidebar.tsx``, ``usePersistedJSON.ts`` (both
+unadorned). A reason-less disable is opaque to a future
+reviewer and removes the linter's signal on the entire
+``useEffect`` block — including any future dep added to the body
+that gets silently missed.
+
+**Fix shape.** Add a same-line ``// reason: ...`` comment to the
+two unadorned sites. Codify the rule in CLAUDE.md § Code
+Conventions: every ``eslint-disable react-hooks/exhaustive-deps``
+MUST carry a reason comment explaining the workaround.
+
+**When to revisit.** Next time either file is touched. Cheap to
+land in any drive-by.
+
+### 40. ``cpt_channels`` toggle never persisted (related to #25)
+
+**What.** ``SectionPanel.tsx`` reads channel state via
+``readCptChannels`` but exposes no setter — ``useState`` without a
+setter means the value is frozen at mount. No ``PATCH /sections/{id}``
+call exists anywhere. The moment a toggle UI lands (S7 polish v2
+/ task #29 or later), user changes will silently reset on every
+section open.
+
+**Fix shape.** This is the frontend half of #25 — once
+``CrossSectionResponse`` exposes ``view_state``, expose a
+``setCptChannels`` setter, debounce-PATCH the section row on
+change, and surface a small toggle button group in the section
+header.
+
+**When to revisit.** Whenever #25 lands. Same trigger.
