@@ -357,6 +357,11 @@ export default function Sidebar({
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
+    // reason: ``bulkRemove`` is recreated on every render via inline
+    // closure capture; the actual semantic deps are ``selectedCount``
+    // (gate the key handler) and ``activeTab`` (closure scope for the
+    // remove target). Adding bulkRemove to deps would re-bind the
+    // keydown listener every render with no behaviour change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCount, activeTab])
 

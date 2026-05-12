@@ -563,6 +563,10 @@ class TaskQueue(GroundModelLogger, ABC): ...
 
 Concrete subclasses always call `super().__init__(__name__)` with their own `__name__` so the logger reflects the correct module.
 
+### `eslint-disable react-hooks/exhaustive-deps` — must carry a reason
+
+Every `// eslint-disable-next-line react-hooks/exhaustive-deps` site MUST be preceded by a `// reason: ...` block comment explaining *why* the linter is wrong here. The S7 infinite-render-loop incident (commit `15fb2cb`) was exactly this class of bug — an effect dep array that looked correct but referenced a default-prop literal that re-identified every render. The lint rule catches most cases; the reason comment forces a human to think before silencing it. Reason-less suppressions are opaque to future reviewers and erase the linter's signal on the entire `useEffect` body.
+
 ---
 
 ## Logging
@@ -2009,23 +2013,15 @@ imports.
 is Lambert72 but users may have RD New (28992) NL boreholes in
 the same project. Or before any project spans the BE/NL border.
 
-### 39. ``eslint-disable react-hooks/exhaustive-deps`` without reasons
+### 39. ``eslint-disable react-hooks/exhaustive-deps`` without reasons — DONE
 
-**What.** Three sites disable the rule:
-``SectionPanel.tsx`` (well-documented with a multi-line WHY
-comment), ``Sidebar.tsx``, ``usePersistedJSON.ts`` (both
-unadorned). A reason-less disable is opaque to a future
-reviewer and removes the linter's signal on the entire
-``useEffect`` block — including any future dep added to the body
-that gets silently missed.
-
-**Fix shape.** Add a same-line ``// reason: ...`` comment to the
-two unadorned sites. Codify the rule in CLAUDE.md § Code
-Conventions: every ``eslint-disable react-hooks/exhaustive-deps``
-MUST carry a reason comment explaining the workaround.
-
-**When to revisit.** Next time either file is touched. Cheap to
-land in any drive-by.
+Resolved 2026-05-12. ``Sidebar.tsx`` (the only unadorned site —
+``usePersistedJSON.ts`` already had a documented reason)
+received a multi-line ``// reason:`` block. The rule itself is
+now codified in CLAUDE.md § Code Conventions: every
+``eslint-disable react-hooks/exhaustive-deps`` MUST carry a
+reason comment. Reviewer + future contributors can cite the
+convention when a reason-less suppression appears in a diff.
 
 ### 40. ``cpt_channels`` toggle never persisted (related to #25)
 
