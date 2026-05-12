@@ -1781,26 +1781,28 @@ mapping second, application use cases third (per the layer rule).
 G3Dv3 import (Phase 5) absolutely cannot ship cleanly without
 domain types.
 
-### 28. ``BaseExporter`` input contract is undefined
+### 28. ``BaseExporter`` input contract is undefined — DONE
 
-**What.** ``BaseExporter.export(project: object) -> bytes``
-accepts an untyped object. ``PlaxisExporter``, ``DSheetExporter``,
-``GeoStudioExporter`` are identical stubs; ``DxfExporter`` doesn't
-exist yet. Implementing any one of them without first defining
-the input shape forces an ad-hoc parameter workaround or pulls
-the whole project bundle through the exporter.
+Resolved 2026-05-12. New module
+``application/ground_model_snapshot.py`` carries two frozen
+dataclasses:
 
-**Fix shape.** Define ``GroundModelSnapshot`` as a dataclass in
-``application/`` or ``domain/value_objects/`` carrying:
-``project_id``, ``crs_epsg``, ``layers: list[LayerGeometry]``,
-where ``LayerGeometry`` has ``formation_name``, ``top_depth_m``,
-``base_depth_m``, ``location_x``, ``location_y``. Update the ABC
-signature to take this concrete type. DXF (via ``ezdxf``) is then
-one POLYLINE per formation surface; Plaxis is a coordinate list;
-both follow the same input contract.
+* ``LayerGeometry`` — one (formation, top_depth_m, base_depth_m,
+  location_x, location_y, surface_elevation_m) row per
+  investigation column. ``formation_code`` is optional for
+  downstream tools that key off codes (Plaxis material libraries).
+* ``GroundModelSnapshot`` — project_id + project_name + crs_epsg +
+  ``layers: list[LayerGeometry]``.
 
-**When to revisit.** Before implementing any concrete exporter.
-DXF first (most universal), Plaxis second, D-Sheet third.
+``BaseExporter.export`` now takes ``GroundModelSnapshot`` instead
+of ``object``. The three concrete stubs (Plaxis, D-Sheet,
+GeoStudio) updated to the new signature; ``export`` raises
+``NotImplementedError`` until Phase 4 export work lands.
+
+Per-layer parameters intentionally NOT in the snapshot at Phase
+4 — the MVP gate is geometry-only. Phase 5 either extends
+``LayerGeometry`` with optional parameter fields or adds a
+parallel slice; callers pay no cost today for the absence.
 
 ### 29. Geotechnical subdivision undesigned + absent from bundle
 
