@@ -382,6 +382,13 @@ a flag that something needs a follow-up commit.
 | Frontend | Electron + React | desktop first, SaaS later |
 | 3D | CesiumJS | geographic context |
 
+**Node runtime — pinned to 22 LTS.** Node 24.15 segfaults on the
+static-ESM resolver path that ``vite``/``vitest`` walks (deep
+``tinyglobby → fdir`` chain) — diagnosed 2026-05-11. Plain
+``node script.js`` works; ``vitest run`` crashes before any test
+file is loaded. Stay on Node 22 LTS until V8 13.6 ships a fix.
+``winget install OpenJS.NodeJS.22 --force`` is the recovery path.
+
 ---
 
 ## Depth Series Storage
