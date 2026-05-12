@@ -168,21 +168,28 @@ export default function ColumnGlyph({
               fillOpacity={elevKnown ? 0.95 : 0.5}
             />
           )}
-          {/* Rotated -30° so adjacent crowded columns don't pile
-              labels on top of each other. Anchor at end so the
-              text extends up-left from the cap, mirroring DOV's
-              lengteprofiel PDF convention for dense profiles. */}
+          {/* Vertically-stacked labels directly above the cap, DOV
+              "lengteprofiel" convention (page 3 of the per-section
+              PDF): the test name reads horizontally on top, the
+              signed elevation reads just below it. Horizontal text
+              stays legible after the user zooms in; the previous
+              diagonal rotation produced a "forest of slanted names"
+              at wide zooms that nobody can scan. */}
           <text
             x={sx}
-            y={sy - 7}
+            y={sy - 14}
             fontSize={9}
             fill={elevKnown ? '#1f2937' : '#9ca3af'}
-            textAnchor="end"
-            transform={`rotate(-30 ${sx} ${sy - 7})`}
+            textAnchor="middle"
           >
             {name}
             {offsetLabel}
           </text>
+          {elevKnown && (
+            <text x={sx} y={sy - 5} fontSize={8} fill="#6b7280" textAnchor="middle">
+              {`${elevation! >= 0 ? '+' : ''}${elevation!.toFixed(2)} m`}
+            </text>
+          )}
         </>
       )}
     </g>
