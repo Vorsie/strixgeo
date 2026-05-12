@@ -39,7 +39,11 @@ import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import BoreholeColumn from './sections/BoreholeColumn'
 import CptDataColumn from './sections/CptDataColumn'
-import { cptBandFullWidth, cptBandHalfWidth } from './sections/cptChannels'
+import {
+  cptBandFullWidth,
+  cptBandHalfWidth,
+  enabledBoreholeChannelCount,
+} from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
 import SectionHeader from './sections/SectionHeader'
@@ -312,6 +316,8 @@ export default function SectionPanel({
   const {
     cptChannels,
     setCptChannels,
+    boreholeChannels,
+    setBoreholeChannels,
     columnSpacing,
     setColumnSpacing,
     demSamples,
@@ -334,6 +340,18 @@ export default function SectionPanel({
       }
     },
     [setCptChannels, onPatch],
+  )
+
+  // Same shape for borehole interpretation toggles — optimistic
+  // in-memory update + PATCH so the choice rides .gmproj saves.
+  const handleBoreholeChannelsChange = useCallback(
+    (next: typeof boreholeChannels) => {
+      setBoreholeChannels(next)
+      if (onPatch) {
+        void onPatch({ view_state: { borehole_channels: next } })
+      }
+    },
+    [setBoreholeChannels, onPatch],
   )
 
   // Spacing-slider commit. Same shape as channels — optimistic local
@@ -363,6 +381,11 @@ export default function SectionPanel({
   // back to the column renderer so it can draw a tie-back diagonal.
   // Recomputes on viewport pan / zoom because the available pixel
   // space changes with scaleH.
+  const enabledBhChannels = useMemo(
+    () => enabledBoreholeChannelCount(boreholeChannels),
+    [boreholeChannels],
+  )
+
   const placedColumns = useMemo<PlacedColumn[]>(() => {
     // Two width concepts:
     //   visualWidth — what the column actually renders at (cap +
@@ -389,8 +412,14 @@ export default function SectionPanel({
         }
       }),
       ...projectedBoreholes.map(proj => {
-        const stripW = boreholeDetails?.has(proj.item.id) ? 2 * bandHalfWidth : 0
-        const visualWidth = BARE_COLUMN_WIDTH_PX + stripW
+        // N enabled borehole channels = N side-by-side strips, each
+        // ``2 * bandHalfWidth`` wide. The total band auto-widens with
+        // the toggle count so neighbouring tests get pushed apart
+        // proportionally by the nudge.
+        const stripsW = boreholeDetails?.has(proj.item.id)
+          ? enabledBhChannels * 2 * bandHalfWidth
+          : 0
+        const visualWidth = BARE_COLUMN_WIDTH_PX + stripsW
         return {
           kind: 'borehole' as const,
           proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
@@ -425,6 +454,7 @@ export default function SectionPanel({
     cptChannels,
     bandHalfWidth,
     columnSpacing,
+    enabledBhChannels,
   ])
 
   // Collision-aware gridline labels: a CPT only shows its per-CPT
@@ -468,7 +498,11 @@ export default function SectionPanel({
         if (cptPlots.has(item.id) && item.elevation_m !== null) s.add(item.id)
       }
     }
-    if (boreholeDetails !== null) {
+    if (boreholeDetails !== null && enabledBhChannels > 0) {
+      // Borehole stick only gets hidden when at least one
+      // interpretation strip is actually showing. With zero channels
+      // enabled BoreholeColumn renders nothing and the stick stays
+      // as the column's only visual.
       for (const col of placedColumns) {
         if (col.kind !== 'borehole') continue
         const item = col.proj.item as BoreholeListItem
@@ -476,7 +510,7 @@ export default function SectionPanel({
       }
     }
     return s
-  }, [placedColumns, cptPlots, boreholeDetails])
+  }, [placedColumns, cptPlots, boreholeDetails, enabledBhChannels])
 
   // ---- Render --------------------------------------------------------
 
@@ -509,6 +543,8 @@ export default function SectionPanel({
         }
         channels={cptChannels}
         onChannelsChange={handleChannelsChange}
+        boreholeChannels={boreholeChannels}
+        onBoreholeChannelsChange={handleBoreholeChannelsChange}
         columnSpacing={columnSpacing}
         onColumnSpacingChange={setColumnSpacing}
         onColumnSpacingCommit={onPatch ? handleSpacingCommit : undefined}
@@ -672,6 +708,7 @@ export default function SectionPanel({
                   <BoreholeColumn
                     key={`bh-strip-${item.id}`}
                     detail={detail}
+                    channels={boreholeChannels}
                     screenX={col.nudgedX}
                     halfWidth={bandHalfWidth}
                     surfaceElevationM={item.elevation_m}
