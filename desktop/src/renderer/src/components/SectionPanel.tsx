@@ -312,8 +312,8 @@ export default function SectionPanel({
   const {
     cptChannels,
     setCptChannels,
-    columnDensity,
-    setColumnDensity,
+    columnSpacing,
+    setColumnSpacing,
     demSamples,
     cptPlots,
     projectedCpts,
@@ -336,38 +336,25 @@ export default function SectionPanel({
     [setCptChannels, onPatch],
   )
 
-  // Density-slider commit. Same shape as channels — optimistic local
+  // Spacing-slider commit. Same shape as channels — optimistic local
   // update for instant feedback while the user drags, server-side
-  // PATCH on release so the chosen density rides the .gmproj bundle.
-  // SectionHeader calls ``setColumnDensity`` on every input change
-  // (smooth visual update) and ``handleDensityCommit`` on release.
-  const handleDensityCommit = useCallback(
+  // PATCH on release so the chosen spacing rides the .gmproj bundle.
+  // SectionHeader calls ``setColumnSpacing`` on every input change
+  // (smooth visual update) and ``handleSpacingCommit`` on release.
+  const handleSpacingCommit = useCallback(
     (next: number) => {
       if (onPatch) {
-        void onPatch({ view_state: { column_density: next } })
+        void onPatch({ view_state: { column_spacing: next } })
       }
     },
     [onPatch],
   )
 
-  // Band half-width scales with horizontal zoom — at low zoom keep
-  // columns compact, at high zoom let curves breathe. The same
-  // half-width feeds both the layout (nudge) and the render (column
-  // glyph) so positions and visuals stay in sync.
-  //
-  // Multiplied by ``columnDensity`` (a per-section view_state knob,
-  // range 0.4..1.0) so the user can pack investigations horizontally
-  // on crowded sections. Density also scales the inter-column edge
-  // gap, so the whole layout compresses consistently rather than
-  // making narrow columns sit in wide gaps.
-  const bandHalfWidth = useMemo(
-    () => Math.round(cptBandHalfWidth(scaleH) * columnDensity),
-    [scaleH, columnDensity],
-  )
-  const effectiveEdgeGap = useMemo(
-    () => Math.max(0, Math.round(COLUMN_EDGE_GAP_PX * columnDensity)),
-    [columnDensity],
-  )
+  // Band half-width scales with horizontal zoom only — at low zoom
+  // keep columns compact, at high zoom let curves breathe. This is
+  // the VISUAL width — what each band renders at — and stays fixed
+  // regardless of the column-spacing knob.
+  const bandHalfWidth = useMemo(() => cptBandHalfWidth(scaleH), [scaleH])
 
   // Column collision handling — when multiple investigations project
   // near the same along-distance their columns would overlap into an
@@ -377,47 +364,58 @@ export default function SectionPanel({
   // Recomputes on viewport pan / zoom because the available pixel
   // space changes with scaleH.
   const placedColumns = useMemo<PlacedColumn[]>(() => {
+    // Two width concepts:
+    //   visualWidth — what the column actually renders at (cap +
+    //     full band). Used for ``PlacedColumn.width`` so the rest
+    //     of the panel knows how wide each strip is.
+    //   nudgeWidth — what the layout PRETENDS the column is, when
+    //     deciding how aggressively to push neighbours apart.
+    //     Scaled by ``columnSpacing`` ∈ [0, 1] so the user can dial
+    //     in how tightly adjacent tests pack. At 0 the layout sees
+    //     zero-width columns → no nudging → bands overlap at their
+    //     true projected X.
     const items: PlacedColumnInput[] = [
       ...projectedCpts.map(proj => {
-        // CPT column width = bare cap+tie width (the floor) + the
-        // shared data band when at least one channel is applicable
-        // to this cone. The nudge then spaces edge-to-edge so a
-        // data-laden CPT next to a bare borehole gets breathing room.
         const trackW = cptPlots?.has(proj.item.id)
           ? cptBandFullWidth(proj.item.cpt_type, cptChannels, bandHalfWidth)
           : 0
+        const visualWidth = BARE_COLUMN_WIDTH_PX + trackW
         return {
           kind: 'cpt' as const,
           proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
           trueX: xToScreen(proj.along),
-          width: BARE_COLUMN_WIDTH_PX + trackW,
+          width: Math.max(1, Math.round(visualWidth * columnSpacing)),
+          visualWidth,
         }
       }),
       ...projectedBoreholes.map(proj => {
-        // Borehole columns claim the lithology-strip width whenever
-        // their detail has loaded — the strip mirrors the CPT band's
-        // total width so a section reads with consistent column
-        // footprints regardless of investigation kind. Boreholes
-        // without loaded detail (still in-flight) fall back to the
-        // bare cap width so the layout doesn't reflow when the data
-        // arrives.
         const stripW = boreholeDetails?.has(proj.item.id) ? 2 * bandHalfWidth : 0
+        const visualWidth = BARE_COLUMN_WIDTH_PX + stripW
         return {
           kind: 'borehole' as const,
           proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
           trueX: xToScreen(proj.along),
-          width: BARE_COLUMN_WIDTH_PX + stripW,
+          width: Math.max(1, Math.round(visualWidth * columnSpacing)),
+          visualWidth,
         }
       }),
     ]
-    return nudgeColumns(items, effectiveEdgeGap).map(r => ({
-      kind: r.item.kind,
-      proj: r.item.proj,
-      trueX: r.trueX,
-      nudgedX: r.nudgedX,
-      width: r.item.width,
-      displaced: r.displaced,
-    }))
+    return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r => {
+      // Hand the visual width through to the renderer; the nudge's
+      // shrunken ``r.item.width`` was only useful for the layout
+      // pass. Without this, the InvestigationColumns layer would
+      // think the visual was the spacing-scaled width and the
+      // tie-back diagonals would land at wrong X-coordinates.
+      const item = r.item as PlacedColumnInput & { visualWidth: number }
+      return {
+        kind: item.kind,
+        proj: item.proj,
+        trueX: r.trueX,
+        nudgedX: r.nudgedX,
+        width: item.visualWidth,
+        displaced: r.displaced,
+      }
+    })
   }, [
     projectedCpts,
     projectedBoreholes,
@@ -426,7 +424,7 @@ export default function SectionPanel({
     boreholeDetails,
     cptChannels,
     bandHalfWidth,
-    effectiveEdgeGap,
+    columnSpacing,
   ])
 
   // Collision-aware gridline labels: a CPT only shows its per-CPT
@@ -454,6 +452,31 @@ export default function SectionPanel({
     }
     return m
   }, [placedColumns])
+
+  // IDs of investigations that already have a data band rendered —
+  // CPTs with loaded plot data + boreholes with loaded detail — and
+  // a known elevation. For these the ColumnGlyph cap + body line is
+  // redundant ("you can see where the test sits, that's the band"),
+  // so we suppress the stick visual but keep the name + elevation
+  // labels above the band as the identifier.
+  const hideStickIds = useMemo(() => {
+    const s = new Set<string>()
+    if (cptPlots !== null) {
+      for (const col of placedColumns) {
+        if (col.kind !== 'cpt') continue
+        const item = col.proj.item as CptListItem
+        if (cptPlots.has(item.id) && item.elevation_m !== null) s.add(item.id)
+      }
+    }
+    if (boreholeDetails !== null) {
+      for (const col of placedColumns) {
+        if (col.kind !== 'borehole') continue
+        const item = col.proj.item as BoreholeListItem
+        if (boreholeDetails.has(item.id) && item.elevation_m !== null) s.add(item.id)
+      }
+    }
+    return s
+  }, [placedColumns, cptPlots, boreholeDetails])
 
   // ---- Render --------------------------------------------------------
 
@@ -486,9 +509,9 @@ export default function SectionPanel({
         }
         channels={cptChannels}
         onChannelsChange={handleChannelsChange}
-        columnDensity={columnDensity}
-        onColumnDensityChange={setColumnDensity}
-        onColumnDensityCommit={onPatch ? handleDensityCommit : undefined}
+        columnSpacing={columnSpacing}
+        onColumnSpacingChange={setColumnSpacing}
+        onColumnSpacingCommit={onPatch ? handleSpacingCommit : undefined}
         scaleH={scaleH}
         scaleV={scaleV}
         onReset={resetView}
@@ -671,6 +694,7 @@ export default function SectionPanel({
               plotBottom={MARGIN.top + plotHeight}
               onSelectCpt={onSelectCpt}
               onSelectBorehole={onSelectBorehole}
+              hideStickIds={hideStickIds}
             />
 
             {/* Axis labels. */}
