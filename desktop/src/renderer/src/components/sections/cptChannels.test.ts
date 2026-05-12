@@ -13,6 +13,7 @@ import {
   DEFAULT_CPT_CHANNELS,
   cptBandFullWidth,
   cptBandHalfWidth,
+  readColumnDensity,
   readCptChannels,
 } from './cptChannels'
 
@@ -87,6 +88,37 @@ describe('cptBandFullWidth — applicable-channel gate', () => {
     const channels = { ...DEFAULT_CPT_CHANNELS }
     // qc + rf still apply universally; kind-gated channels drop out.
     expect(cptBandFullWidth(null, channels, halfWidth)).toBe(2 * halfWidth)
+  })
+})
+
+describe('readColumnDensity — clamp to [MIN, MAX] with default fallback', () => {
+  it('returns the default (1.0) when view_state is null', () => {
+    expect(readColumnDensity(null)).toBe(1.0)
+  })
+
+  it('returns the default when column_density key is missing', () => {
+    expect(readColumnDensity({ cpt_channels: {} })).toBe(1.0)
+  })
+
+  it('returns the default when value is not a finite number', () => {
+    expect(readColumnDensity({ column_density: 'tight' })).toBe(1.0)
+    expect(readColumnDensity({ column_density: Number.NaN })).toBe(1.0)
+    expect(readColumnDensity({ column_density: Number.POSITIVE_INFINITY })).toBe(1.0)
+  })
+
+  it('clamps below MIN (0.4) so hand-edited bundles can’t hide every column', () => {
+    expect(readColumnDensity({ column_density: 0 })).toBe(0.4)
+    expect(readColumnDensity({ column_density: -2 })).toBe(0.4)
+  })
+
+  it('clamps above MAX (1.0)', () => {
+    expect(readColumnDensity({ column_density: 5 })).toBe(1.0)
+  })
+
+  it('returns the value unchanged when inside the range', () => {
+    expect(readColumnDensity({ column_density: 0.6 })).toBe(0.6)
+    expect(readColumnDensity({ column_density: 0.4 })).toBe(0.4)
+    expect(readColumnDensity({ column_density: 1.0 })).toBe(1.0)
   })
 })
 
