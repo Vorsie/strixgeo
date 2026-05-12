@@ -1952,30 +1952,33 @@ Layer on logic tests for the highest-density components
 extends ``CptDataColumn``; before any non-trivial refactor of
 ``Sidebar`` or ``MapView``.
 
-### 35. ``SectionPanel.tsx`` approaching split threshold
+### 35. ``SectionPanel.tsx`` approaching split threshold — DONE
 
-**What.** ~1480 lines today, mirrors the ``BoreholeLog.tsx``
-debt-#8 pattern. Five extractable inner functions (``SectionHeader``,
-``SectionScrubBar``, ``InvestigationColumns``, ``ColumnGlyph``,
-``DemSurfaceLine``) plus pure helpers (``sectionLengthM``,
-``niceStep``, ``ticks``, ``useElementSize``). The geological
-model editor will add a draw-mode cursor that needs to coexist
-with viewport state — adding edit mode to the current monolith
-risks bugs in one concern silently breaking another.
+Resolved 2026-05-12. ``SectionPanel.tsx`` shrunk from 1478 → 591
+lines; the five sub-components + ``useSectionData`` hook + shared
+utils now live under ``components/sections/``:
 
-**Fix shape.** Extract ``useSectionData(sectionId)`` hook
-(projection + investigation data + plot-batch). ``SectionPanel``
-becomes a pure renderer of the hook output plus viewport state.
-Future ``SectionEditorOverlay`` receives the same hook output as
-props. File layout: ``sections/SectionHeader.tsx``,
-``sections/SectionScrubBar.tsx``, ``sections/InvestigationColumns.tsx``,
-``sections/ColumnGlyph.tsx``, ``sections/DemSurfaceLine.tsx``,
-``sections/utils.ts``. Orchestrator ``SectionPanel.tsx`` shrinks
-to ~400 lines.
+* ``sections/utils.ts`` — pure helpers (``sectionLengthM``,
+  ``niceStep``, ``ticks``), shared constants (``MARGIN``,
+  ``VEX_MIN/MAX``, ``WHEEL_ZOOM_FACTOR``, ``BARE_COLUMN_WIDTH_PX``,
+  ``COLUMN_EDGE_GAP_PX``), shared types (``Viewport``,
+  ``PlacedColumn``, ``PlacedColumnInput``), and ``useElementSize``.
+* ``sections/useSectionData.ts`` — DEM samples + CPT plot batch +
+  projected investigations + persisted CPT channel toggles. The
+  upcoming geological-model editor overlay will consume the same
+  hook output as props.
+* ``sections/SectionHeader.tsx`` / ``SectionScrubBar.tsx`` /
+  ``InvestigationColumns.tsx`` / ``ColumnGlyph.tsx`` /
+  ``DemSurfaceLine.tsx`` — extracted sub-components.
 
-**When to revisit.** Before the geological model editor work
-begins — extracting after edit-mode state has been written into
-the monolith is much more expensive.
+``SectionPanel.tsx`` retains viewport state (xMin/xMax,
+levelMin/levelMax, VEX), the coordinate transforms
+(``xToScreen`` / ``levelToScreen``), pan / wheel-zoom / scrub-bar
+interactions, the collision-handled ``placedColumns`` (depends on
+viewport via ``xToScreen``), and the SVG composition. 160 desktop
+tests pass; ``tsc --noEmit`` is clean. Edit-mode state for the
+geological-model editor can now land in the orchestrator without
+touching sub-component internals.
 
 ### 36. ``GapIssue`` dataclass in an infrastructure file — DONE
 
