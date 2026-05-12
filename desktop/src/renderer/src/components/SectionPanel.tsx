@@ -108,6 +108,9 @@ interface Props {
   /** Formation vocabulary — used to colour each contact polyline
    * with the formation's own colour. */
   formations?: readonly GeologicalFormationResponse[]
+  /** Borehole IDs the active model excludes from contact rendering.
+   * The ContactsLayer skips polyline vertices at these anchors. */
+  excludedBoreholeIds?: readonly string[]
 }
 
 export default function SectionPanel({
@@ -119,6 +122,7 @@ export default function SectionPanel({
   onClose,
   contacts = [],
   formations = [],
+  excludedBoreholeIds,
   onSelectCpt,
   onSelectBorehole,
 }: Props): JSX.Element {
@@ -846,6 +850,11 @@ export default function SectionPanel({
               contacts={contacts}
               formations={formations}
               placedColumns={placedColumns}
+              excludedBoreholeIds={
+                excludedBoreholeIds === undefined
+                  ? undefined
+                  : new Set(excludedBoreholeIds)
+              }
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}

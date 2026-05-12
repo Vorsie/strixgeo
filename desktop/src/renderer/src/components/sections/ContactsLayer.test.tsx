@@ -162,6 +162,33 @@ describe('ContactsLayer', () => {
     expect(container.querySelector('path')).toBeNull()
   })
 
+  it('skips contacts anchored at boreholes excluded from the model', () => {
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-keep' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-skip' }),
+    ]
+    const { container } = render(
+      <svg>
+        <ContactsLayer
+          contacts={contacts}
+          formations={[makeFormation()]}
+          placedColumns={[
+            makeBoreholePlaced('bh-keep', 50),
+            makeBoreholePlaced('bh-skip', 150),
+          ]}
+          excludedBoreholeIds={new Set(['bh-skip'])}
+          levelToScreen={flipped}
+          plotTop={0}
+          plotBottom={50}
+        />
+      </svg>,
+    )
+    // Only the bh-keep contact contributes a vertex; the polyline
+    // has a single anchor and so renders as a one-point path with
+    // a single circle marker.
+    expect(container.querySelectorAll('circle').length).toBe(1)
+  })
+
   it('uses the formation colour for the polyline stroke', () => {
     const contacts = [
       makeContact({ id: 'c-1', borehole_id: 'bh-1' }),

@@ -108,6 +108,16 @@ interface Props {
   /** Name of the project's active geological model. Threaded
    * through to the Interpretation pane as a subtitle. */
   activeModelName?: string | null
+  /** Visible boreholes — the Interpretation pane shows them in a
+   * "Boreholes in model" sub-section with a per-row checkbox so
+   * the user can mark which ones contribute formation contacts. */
+  visibleBoreholes?: readonly BoreholeListItem[]
+  /** Borehole IDs the active model excludes from contact rendering /
+   * placement. Mirrors the model's ``excluded_borehole_ids``. */
+  excludedBoreholeIds?: readonly string[]
+  /** Toggle a borehole in / out of the active model. The Interpretation
+   * pane calls this on checkbox change. App PATCHes the model. */
+  onToggleBoreholeInModel?: (boreholeId: string, included: boolean) => void | Promise<void>
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -248,6 +258,9 @@ export default function Sidebar({
   onFormationDeleted,
   visibleBoreholeIds,
   activeModelName,
+  visibleBoreholes: panelBoreholes,
+  excludedBoreholeIds,
+  onToggleBoreholeInModel,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -713,6 +726,9 @@ export default function Sidebar({
             sessionImportFormationIds={sessionImportFormationIds}
             boreholeIds={visibleBoreholeIds}
             activeModelName={activeModelName}
+            modelBoreholes={panelBoreholes ?? []}
+            excludedBoreholeIds={excludedBoreholeIds}
+            onToggleBoreholeInModel={onToggleBoreholeInModel}
             onFormationCreated={onFormationCreated}
             onFormationDeleted={onFormationDeleted}
           />

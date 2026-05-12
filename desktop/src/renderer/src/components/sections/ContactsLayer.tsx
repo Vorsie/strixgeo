@@ -46,6 +46,12 @@ interface Props {
    * order. The component looks up each contact's anchor by id to
    * pull screen X + surface elevation. */
   placedColumns: readonly PlacedColumn[]
+  /** Borehole IDs the active model excludes from contact rendering.
+   * Mirrors ``GeologicalModel.excluded_borehole_ids`` — contacts
+   * whose ``borehole_id`` is in this set get skipped at render
+   * time. The DB rows persist; re-including the borehole brings the
+   * polyline vertices back without a refetch. */
+  excludedBoreholeIds?: ReadonlySet<string>
   levelToScreen: (level: number) => number
   plotTop: number
   plotBottom: number
@@ -64,6 +70,7 @@ export default function ContactsLayer({
   contacts,
   formations,
   placedColumns,
+  excludedBoreholeIds,
   levelToScreen,
   plotTop,
   plotBottom,
@@ -103,6 +110,10 @@ export default function ContactsLayer({
     for (const c of contacts) {
       const anchorId = c.borehole_id ?? c.cpt_id
       if (!anchorId) continue
+      // Model-scope filter: contacts pointing at a borehole excluded
+      // from the active model don't anchor the polyline. CPTs are
+      // never excluded today (no excluded_cpt_ids on the schema).
+      if (c.borehole_id && excludedBoreholeIds?.has(c.borehole_id)) continue
       const anchor = anchorById.get(anchorId)
       if (!anchor) continue
       // depth_top_m is measured downward from the surface; level
@@ -142,7 +153,15 @@ export default function ContactsLayer({
     // belong to the rightmost lines (visual reading order).
     out.sort((a, b) => a.vertices[0].sortKey - b.vertices[0].sortKey)
     return out
-  }, [contacts, formations, placedColumns, levelToScreen, plotTop, plotBottom])
+  }, [
+    contacts,
+    formations,
+    placedColumns,
+    excludedBoreholeIds,
+    levelToScreen,
+    plotTop,
+    plotBottom,
+  ])
 
   if (polylines.length === 0) return null
 
