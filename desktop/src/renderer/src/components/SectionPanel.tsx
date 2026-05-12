@@ -37,7 +37,7 @@ import { verticalDatumShort } from '../utils/verticalDatum'
 import { nudgeColumns } from '../utils/columnLayout'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import CptDataColumn from './sections/CptDataColumn'
-import { cptDataTrackWidth, cptTrackWidths } from './sections/cptChannels'
+import { cptBandFullWidth, cptBandHalfWidth } from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
 import SectionHeader from './sections/SectionHeader'
@@ -331,11 +331,11 @@ export default function SectionPanel({
     [setCptChannels, onPatch],
   )
 
-  // Track widths scale with horizontal zoom — at low zoom keep
+  // Band half-width scales with horizontal zoom — at low zoom keep
   // columns compact, at high zoom let curves breathe. The same
-  // widths feed both the layout (nudge) and the render (column
+  // half-width feeds both the layout (nudge) and the render (column
   // glyph) so positions and visuals stay in sync.
-  const trackWidthsByChannel = useMemo(() => cptTrackWidths(scaleH), [scaleH])
+  const bandHalfWidth = useMemo(() => cptBandHalfWidth(scaleH), [scaleH])
 
   // Column collision handling — when multiple investigations project
   // near the same along-distance their columns would overlap into an
@@ -347,13 +347,12 @@ export default function SectionPanel({
   const placedColumns = useMemo<PlacedColumn[]>(() => {
     const items: PlacedColumnInput[] = [
       ...projectedCpts.map(proj => {
-        // CPT column width grows additively with each enabled data
-        // channel. The bare cap+tie width is the floor; track
-        // widths come from ``cptDataTrackWidth`` at the current
-        // zoom. The nudge then spaces edge-to-edge so a data-laden
-        // CPT next to a bare borehole still gets breathing room.
+        // CPT column width = bare cap+tie width (the floor) + the
+        // shared data band when at least one channel is applicable
+        // to this cone. The nudge then spaces edge-to-edge so a
+        // data-laden CPT next to a bare borehole gets breathing room.
         const trackW = cptPlots?.has(proj.item.id)
-          ? cptDataTrackWidth(proj.item.cpt_type, cptChannels, trackWidthsByChannel)
+          ? cptBandFullWidth(proj.item.cpt_type, cptChannels, bandHalfWidth)
           : 0
         return {
           kind: 'cpt' as const,
@@ -383,8 +382,34 @@ export default function SectionPanel({
     xToScreen,
     cptPlots,
     cptChannels,
-    trackWidthsByChannel,
+    bandHalfWidth,
   ])
+
+  // Collision-aware gridline labels: a CPT only shows its per-CPT
+  // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
+  // nearest CPT neighbour on the cross-section is far enough away
+  // that the label strips don't overlap. Without this gate, every
+  // label band collapses into an unreadable wall at the default
+  // section zoom.
+  //
+  // Threshold ~50 px gives the worst-case label ("10 MPa", ~32 px
+  // wide at fontSize=7) plus a small gap. Tight columns drop labels
+  // silently; the user can zoom in to spread them out.
+  const showLabelsByCptId = useMemo(() => {
+    const LABEL_MIN_SPACING_PX = 50
+    const cptCols = placedColumns.filter(c => c.kind === 'cpt')
+    const m = new Map<string, boolean>()
+    for (const col of cptCols) {
+      let minDist = Infinity
+      for (const other of cptCols) {
+        if (other === col) continue
+        const d = Math.abs(col.nudgedX - other.nudgedX)
+        if (d < minDist) minDist = d
+      }
+      m.set(col.proj.item.id, minDist >= LABEL_MIN_SPACING_PX)
+    }
+    return m
+  }, [placedColumns])
 
   // ---- Render --------------------------------------------------------
 
@@ -538,12 +563,13 @@ export default function SectionPanel({
                     plot={plot}
                     cptType={item.cpt_type}
                     channels={cptChannels}
-                    widths={trackWidthsByChannel}
+                    halfWidth={bandHalfWidth}
                     screenX={col.nudgedX}
                     surfaceElevationM={item.elevation_m}
                     plotTop={MARGIN.top}
                     plotBottom={MARGIN.top + plotHeight}
                     levelToScreen={levelToScreen}
+                    showLabels={showLabelsByCptId.get(item.id) ?? true}
                   />
                 )
               })}
