@@ -151,28 +151,44 @@ export interface BoreholeChannels {
   lithology: boolean
   /** ``geotechnical_coding`` observation — what most engineers cite. */
   geotech: boolean
+  /** ``lithological_description`` observation — narrative + soil-code
+   * stream. */
+  description: boolean
   /** ``formal_stratigraphy`` observation. */
   formal_strat: boolean
+  /** ``informal_stratigraphy`` observation. */
+  informal_strat: boolean
   /** ``quaternary_stratigraphy`` observation. */
   quaternary: boolean
+  // NOTE: ``drill_method`` (a borehole-header field, not an
+  // observation) and ``field_log`` (a separate intervals array with
+  // its own kinds) are deliberately NOT in this toggle bag. Both
+  // need a different rendering than the per-observation-type strip
+  // model and will land as additional column types when their
+  // rendering passes ship.
 }
 
 export const DEFAULT_BOREHOLE_CHANNELS: BoreholeChannels = {
   lithology: false,
   geotech: true,
+  description: false,
   formal_strat: false,
+  informal_strat: false,
   quaternary: false,
 }
 
 /** Mapping from channel key to the DOV ``observation_type`` value the
- * backend ships. Iteration order = display order in the band, so
- * lithology sits leftmost, geotech next, etc. */
+ * backend ships. Iteration order = display order in the band:
+ * lithology → geotech → description → formal → informal → quaternary,
+ * matching DOV's "lengteprofiel" PDF stream order. */
 export const BOREHOLE_CHANNEL_OBSERVATION_TYPES: ReadonlyArray<
   [keyof BoreholeChannels, string]
 > = [
   ['lithology', 'coded_lithology'],
   ['geotech', 'geotechnical_coding'],
+  ['description', 'lithological_description'],
   ['formal_strat', 'formal_stratigraphy'],
+  ['informal_strat', 'informal_stratigraphy'],
   ['quaternary', 'quaternary_stratigraphy'],
 ]
 
@@ -190,7 +206,9 @@ export function readBoreholeChannels(
   return {
     lithology: readBool('lithology'),
     geotech: readBool('geotech'),
+    description: readBool('description'),
     formal_strat: readBool('formal_strat'),
+    informal_strat: readBool('informal_strat'),
     quaternary: readBool('quaternary'),
   }
 }
@@ -202,7 +220,9 @@ export function enabledBoreholeChannelCount(channels: BoreholeChannels): number 
   let n = 0
   if (channels.lithology) n += 1
   if (channels.geotech) n += 1
+  if (channels.description) n += 1
   if (channels.formal_strat) n += 1
+  if (channels.informal_strat) n += 1
   if (channels.quaternary) n += 1
   return n
 }
