@@ -1973,22 +1973,17 @@ used in exactly one method and would be a single-use
 ``*_constants.py``, which the "extract on second copy" rule says
 to defer. Promote on second use.
 
-### 37. ``run_interpretation`` + ``export_project`` use module-level loggers
+### 37. ``run_interpretation`` + ``export_project`` use module-level loggers — DONE
 
-**What.** Both use ``logger = LoggerFactory.get_logger(__name__)``
-at module level rather than the ``class Foo(GroundModelLogger)``
-pattern every other application-layer use case follows. Both are
-stubs today, but when implementations land they'll be classes;
-the author has to remember to migrate the logging style at that
-moment.
-
-**Fix shape.** Convert each to ``class RunInterpretation(GroundModelLogger)``
-and ``class ExportProject(GroundModelLogger)`` stubs now — empty
-``execute`` body, but the inheritance is in place so future
-implementation auto-aligns with convention.
-
-**When to revisit.** At the start of Phase 5 (run_interpretation)
-or alongside #28 (exporters).
+Resolved 2026-05-12. Both stubs converted to
+``class RunInterpretation(GroundModelLogger)`` and
+``class ExportProject(GroundModelLogger)`` with the standard
+``__init__(self) -> None: super().__init__(__name__)`` pattern.
+``execute`` methods raise ``NotImplementedError`` with a phase-
+specific message; the surrounding scaffolding (inheritance, log
+methods, docstrings) is in place so the Phase 4 + 5
+implementations land without restructuring callers or churning
+the logging convention.
 
 ### 38. Mixed-CRS spatial-query guard absent
 
