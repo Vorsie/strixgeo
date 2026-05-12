@@ -18,6 +18,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from groundmodel.api.schemas.dem import DemSampleLineResponse, DemSamplePointResponse
 from groundmodel.infrastructure.dem.dhmvii_sampler import DhmviiSampler
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Module-level logger — routers are stateless functions, not classes.
+logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter(prefix="/dem", tags=["dem"])
 

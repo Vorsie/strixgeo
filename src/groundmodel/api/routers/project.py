@@ -33,6 +33,10 @@ from groundmodel.infrastructure.db.repositories.project_repository import (
     ProjectRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Module-level logger — routers are stateless functions, not classes.
+logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -74,6 +78,7 @@ async def create_project(
     The generated UUID is the canonical project id — desktop clients write
     it into the ``.gmproj`` file alongside the metadata.
     """
+    logger.info(f"POST /projects: name={request.name!r}")
     project = ProjectOrm(
         id=uuid7(),
         name=request.name,
@@ -96,6 +101,7 @@ async def create_project(
     # the response builder raises MissingGreenlet — they were expired/never-
     # loaded and re-fetching is async work that the sync extractor can't do.
     await session.refresh(project)
+    logger.info(f"POST /projects → created {project.id}")
     return project
 
 

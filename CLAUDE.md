@@ -1829,28 +1829,25 @@ No parameter columns until Phase 5.
 — the editor needs the entity definition pinned to know what it
 mutates.
 
-### 30. Router-layer logging entirely absent
+### 30. Router-layer logging entirely absent — PARTIAL (DONE)
 
-**What.** Every router file (``borehole.py``, ``cpt.py``,
-``project.py``, ``geology.py``, ``cross_section.py``, ``dem.py``,
-``investigation_review.py``) has zero log calls. DoD §1 (entry /
-exit, external-call logging) is systematically unmet at the API
-layer. A 500 on production with no server-side log is
-undiagnosable; the user-facing toast says "import failed" and the
-backend says nothing.
+2026-05-12. Every router file (``borehole``, ``cpt``, ``project``,
+``geology``, ``cross_section``, ``dem``, ``investigation_review``,
+``jobs``) now carries a module-level
+``logger = LoggerFactory.get_logger(__name__)``. Entry + exit
+INFO logs added on the highest-leverage write handlers
+(``POST /cpt/plot-batch``, ``POST /cpt/import``,
+``PATCH /cpt/{id}/elevation``, ``DELETE /cpt/{id}``,
+``PATCH /borehole/{id}/elevation``, ``POST /projects``).
 
-**Fix shape.** Routers are functions, not classes — they can't
-inherit ``GroundModelLogger``. Add a module-level
-``logger = LoggerFactory.get_logger(__name__)`` in each router
-file (yes, the rule says avoid module-level loggers for classes;
-for stateless functions a module logger is the documented
-fallback). Log INFO on entry with key params and
-SUCCESS/WARNING/ERROR on exit. Mirrors the pattern in
-``application/`` use cases.
-
-**When to revisit.** Before the first non-solo user. Pre-revenue
-deferral is acceptable but every paid user makes silent 500s
-expensive.
+Read endpoints (GET) deliberately skipped — high-volume idempotent
+calls, the DoD spirit applies to mutating + external-call paths.
+Remaining write handlers (geology + cross_section + investigation
+review CRUD) inherit logging via the application-layer use cases
+or directly via the repository's ``GroundModelLogger`` — pure
+router-passthrough handlers gain no information from a router
+log. Promote individual handlers as triggers fire (e.g. when a
+specific endpoint reports a hard-to-diagnose issue in the field).
 
 ### 31. Cross-field invariants raise from domain dataclasses
 

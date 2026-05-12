@@ -24,6 +24,10 @@ from groundmodel.infrastructure.db.repositories.cross_section_repository import 
     CrossSectionRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Module-level logger — routers are stateless functions, not classes.
+logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/sections", tags=["cross-sections"])
 

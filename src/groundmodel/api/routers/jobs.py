@@ -12,6 +12,10 @@ from pydantic import BaseModel
 from groundmodel.application.synchronous_queue import SynchronousQueue
 from groundmodel.domain.models.job import Job
 from groundmodel.infrastructure.db.session import get_queue
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Module-level logger — routers are stateless functions, not classes.
+logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 

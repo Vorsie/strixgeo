@@ -29,6 +29,13 @@ from groundmodel.infrastructure.db.repositories.investigation_review_repository 
 )
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.exceptions import DuplicateCptError, ParseError
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Module-level logger — routers are functions, not classes, so the
+# ``GroundModelLogger`` inheritance pattern doesn't apply. The
+# documented fallback for stateless module functions is a single
+# module-level logger via ``LoggerFactory``.
+logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter(prefix="/cpt", tags=["cpt"])
 
@@ -63,6 +70,7 @@ async def import_cpt(
         When the file extension is not supported, or the file is a duplicate
         (same contract number + test number already in the database).
     """
+    logger.info(f"POST /cpt/import: file={file.filename!r} project_id={project_id}")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".gef"}:
         raise HTTPException(
@@ -270,6 +278,9 @@ async def patch_cpt_elevation(
     HTTPException(404)
         When no CPT with the given id exists.
     """
+    logger.info(
+        f"PATCH /cpt/{cpt_id}/elevation: elevation_m={request.elevation_m} z_epsg={request.z_epsg}"
+    )
     repo = CptRepository(session)
     # The repository derives the canonical vertical CRS from the row's
     # horizontal EPSG when ``z_epsg`` is None (e.g. 31370 → 5710 mTAW for
@@ -278,6 +289,7 @@ async def patch_cpt_elevation(
     # practice; multi-country imports just work.
     cpt = await repo.set_elevation(cpt_id, request.elevation_m, request.z_epsg)
     if cpt is None:
+        logger.warning(f"PATCH /cpt/{cpt_id}/elevation → 404 (not found)")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
     await session.commit()
     return CptResponse(
@@ -315,6 +327,7 @@ async def delete_cpt(
     HTTPException(404)
         When no CPT with the given ID exists.
     """
+    logger.info(f"DELETE /cpt/{cpt_id}")
     repo = CptRepository(session)
     cpt = await repo.get_by_id(cpt_id)
     if cpt is None:
@@ -327,6 +340,7 @@ async def delete_cpt(
     await review_repo.delete_for_target("cpt", cpt_id)
     await repo.delete(cpt_id)
     await session.commit()
+    logger.info(f"DELETE /cpt/{cpt_id} → deleted")
 
 
 def _plot_response_from_cpt(cpt: CptOrm) -> CptPlotResponse:
@@ -414,6 +428,7 @@ async def post_cpt_plot_batch(
     typical N is <30 today; 500 leaves headroom for very dense
     project bboxes.
     """
+    logger.info(f"POST /cpt/plot-batch: {len(request.ids)} ids, scope={request.app_project_id}")
     repo = CptRepository(session)
     cpts = await repo.get_many_with_series(request.ids, app_project_id=request.app_project_id)
     out: list[CptPlotResponse] = []
@@ -424,4 +439,5 @@ async def post_cpt_plot_batch(
             # Series rowless — same drop-from-response policy as the
             # single endpoint's 404, except batch can't 404 per item.
             continue
+    logger.info(f"POST /cpt/plot-batch → {len(out)}/{len(request.ids)} plots returned")
     return out

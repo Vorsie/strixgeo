@@ -24,6 +24,11 @@ from groundmodel.infrastructure.db.repositories.borehole_repository import (
     BoreholeRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Module-level logger — routers are stateless functions, not classes.
+# See CLAUDE.md § Code Conventions for the rationale.
+logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter()
 
@@ -220,6 +225,10 @@ async def patch_borehole_elevation(
     HTTPException(404)
         When no borehole with the given id exists.
     """
+    logger.info(
+        f"PATCH /borehole/{borehole_id}/elevation: "
+        f"elevation_m={request.elevation_m} z_epsg={request.z_epsg}"
+    )
     repo = BoreholeRepository(session)
     # The repository derives the canonical vertical CRS from the row's
     # horizontal EPSG when ``z_epsg`` is None — see ``vertical_crs.py``
@@ -227,6 +236,7 @@ async def patch_borehole_elevation(
     # imports map to NAP without further router changes.
     borehole = await repo.set_elevation(borehole_id, request.elevation_m, request.z_epsg)
     if borehole is None:
+        logger.warning(f"PATCH /borehole/{borehole_id}/elevation → 404 (not found)")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Borehole {borehole_id} not found",

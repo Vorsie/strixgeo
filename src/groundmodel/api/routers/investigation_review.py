@@ -45,6 +45,10 @@ from groundmodel.infrastructure.db.repositories.project_repository import (
     ProjectRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Module-level logger — routers are stateless functions, not classes.
+logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["investigation-review"])
 
