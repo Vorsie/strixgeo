@@ -1632,32 +1632,16 @@ than no landing page.
 exports). Start collecting emails before announcing pricing — the
 list calibrates demand and the launch send is the conversion event.
 
-### 21. Investigation DELETE leaves orphan review rows (low)
+### 21. Investigation DELETE leaves orphan review rows — DONE
 
-**What.** ``investigation_review`` carries a polymorphic
-(``target_kind``, ``target_id``) anchor with no DB-side FK to the
-target tables. ``DELETE /cpt/{id}`` (still wired even though the
-desktop frontend doesn't call it) hard-deletes the CPT row but
-leaves any review row for that target in place. The orphan blocks a
-future review for any row that re-uses the UUID (vanishingly
-unlikely under uuid7) and shows up in the bundle on Save as a
-dangling decision pointing at nothing.
-
-**Why deferred.** The desktop frontend never calls
-``DELETE /cpt/{id}`` today (the sidebar's "remove from project"
-flips ``is_hidden`` on the review row instead), so live data can't
-hit the bug. It surfaces only via direct API use, ``curl``-style
-scripts, or future bulk-clean workflows. The bundle restore guard
-(``project_bundle.py``) does drop orphan reviews on the way back in,
-so a Save-then-Open cycle is self-cleaning.
-
-**Fix shape.** Smallest change: a ``delete_for_target(kind, id)``
-call inside the existing ``DELETE /cpt/{id}`` and
-``DELETE /borehole/{id}`` handlers, plus a regression test
-asserting the review row vanishes alongside the investigation.
-
-**When to revisit.** Before exposing any bulk-delete endpoint, or
-before any external automation can call DELETE on investigations.
+Resolved 2026-05-12.
+``InvestigationReviewRepository.delete_for_target(kind, id)`` cascades
+the polymorphic row when the underlying investigation goes away.
+``DELETE /cpt/{id}`` calls it before dropping the CPT itself; no
+``DELETE /borehole/{id}`` exists today, so the borehole half waits
+on that endpoint to land. Two integration tests cover the happy
+path (review present → removed) and the common idempotent case
+(no review → returns False without raising).
 
 ### 22. Router-level integration tests absent (medium)
 

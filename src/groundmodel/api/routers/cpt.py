@@ -24,6 +24,9 @@ from groundmodel.application.import_cpt_dov import ImportCptDov
 from groundmodel.domain.services.cpt_corrections import calculate_qt_series
 from groundmodel.domain.services.cpt_interpretation import calculate_ic_series
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
+from groundmodel.infrastructure.db.repositories.investigation_review_repository import (
+    InvestigationReviewRepository,
+)
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.exceptions import DuplicateCptError, ParseError
 
@@ -316,6 +319,12 @@ async def delete_cpt(
     cpt = await repo.get_by_id(cpt_id)
     if cpt is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+    # Cascade-drop the polymorphic review row for this CPT before the
+    # CPT itself goes away — investigation_review has no DB-side FK
+    # to cpt, so without this call the review row dangles and shows
+    # up as an orphan in the bundle on Save (debt #21).
+    review_repo = InvestigationReviewRepository(session)
+    await review_repo.delete_for_target("cpt", cpt_id)
     await repo.delete(cpt_id)
     await session.commit()
 

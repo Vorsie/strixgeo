@@ -321,6 +321,42 @@ async def test_delete_returns_false_for_missing(db_session: AsyncSession) -> Non
     assert await repo.delete(uuid7()) is False
 
 
+async def test_delete_for_target_drops_the_row(db_session: AsyncSession) -> None:
+    """``delete_for_target`` removes the review row anchored at a polymorphic id.
+
+    Backs the cascade in ``DELETE /cpt/{id}`` / ``DELETE /borehole/{id}``
+    so review rows don't dangle after the investigation they point at
+    is gone (debt #21).
+    """
+    repo = InvestigationReviewRepository(db_session)
+    app_project_id = uuid7()
+    target_id = uuid7()
+    await repo.set_for_target(
+        app_project_id=app_project_id,
+        target_kind="cpt",
+        target_id=target_id,
+        patch={"review_status": "reviewed", "is_hidden": False},
+    )
+    await db_session.flush()
+    assert (await repo.get_for_target("cpt", target_id)) is not None
+
+    removed = await repo.delete_for_target("cpt", target_id)
+    assert removed is True
+    assert (await repo.get_for_target("cpt", target_id)) is None
+
+
+async def test_delete_for_target_returns_false_when_absent(
+    db_session: AsyncSession,
+) -> None:
+    """No row for the target → idempotent ``False``, no exception.
+
+    The common case: an investigation that was never reviewed gets
+    deleted. The cascade call must be silent.
+    """
+    repo = InvestigationReviewRepository(db_session)
+    assert await repo.delete_for_target("cpt", uuid7()) is False
+
+
 # ---------------------------------------------------------------------------
 # Defence-in-depth: DB UNIQUE constraint catches collisions even when the
 # repository's per-target check is bypassed.

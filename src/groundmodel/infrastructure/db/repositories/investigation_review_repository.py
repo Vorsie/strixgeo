@@ -172,3 +172,26 @@ class InvestigationReviewRepository(GroundModelLogger):
         await self._session.flush()
         self.info(f"Review deleted: {review_id}")
         return True
+
+    async def delete_for_target(self, target_kind: str, target_id: UUID) -> bool:
+        """Drop the review row (if any) for a polymorphic target.
+
+        Used by ``DELETE /cpt/{id}`` and ``DELETE /borehole/{id}`` to
+        clear the matching review row alongside the investigation
+        itself. ``investigation_review`` has no DB-side FK to the
+        target tables (the anchor is polymorphic), so without this
+        call the review row dangles after the investigation it
+        points at is gone — surfaced as orphan rows in the bundle
+        on Save.
+
+        Returns ``True`` when a row was removed, ``False`` when no
+        review existed for the target (the common "never-reviewed"
+        case).
+        """
+        row = await self.get_for_target(target_kind, target_id)
+        if row is None:
+            return False
+        await self._session.delete(row)
+        await self._session.flush()
+        self.info(f"Review cascaded on {target_kind} {target_id} delete")
+        return True
