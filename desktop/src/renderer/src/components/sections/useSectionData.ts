@@ -47,8 +47,10 @@ import {
   type ProjectedInvestigation,
 } from '../../utils/sectionProjection'
 import {
+  readBoreholeChannels,
   readColumnSpacing,
   readCptChannels,
+  type BoreholeChannels,
   type CptChannels,
 } from './cptChannels'
 
@@ -62,6 +64,14 @@ export interface SectionData {
    * directly to a toggle UI — no debouncing here since toggles
    * are single clicks, not drags. */
   setCptChannels: (next: CptChannels) => void
+  /** Borehole interpretation toggles — which DOV observation
+   * streams render as side-by-side strips inside each borehole's
+   * column band. Reads from ``section.view_state.borehole_channels``. */
+  boreholeChannels: BoreholeChannels
+  /** Update the in-memory borehole channel state. Paired with a
+   * separate commit path through PATCH /sections/{id} so the choice
+   * rides the .gmproj bundle. */
+  setBoreholeChannels: (next: BoreholeChannels) => void
   /** Column-spacing multiplier (0..1, default 1.0). Scales only the
    * width the nudge layout uses when packing columns; the visual
    * column width is unaffected. At 0, columns can fully overlap at
@@ -138,9 +148,13 @@ export function useSectionData(
   const [columnSpacing, setColumnSpacing] = useState<number>(() =>
     readColumnSpacing(section.view_state),
   )
+  const [boreholeChannels, setBoreholeChannels] = useState<BoreholeChannels>(() =>
+    readBoreholeChannels(section.view_state),
+  )
   useEffect(() => {
     setCptChannels(readCptChannels(section.view_state))
     setColumnSpacing(readColumnSpacing(section.view_state))
+    setBoreholeChannels(readBoreholeChannels(section.view_state))
     // reason: we only want to re-read on section identity change,
     // not on every server-roundtrip update to view_state — see
     // the comment block above for the flicker rationale.
@@ -336,6 +350,8 @@ export function useSectionData(
   return {
     cptChannels,
     setCptChannels,
+    boreholeChannels,
+    setBoreholeChannels,
     columnSpacing,
     setColumnSpacing,
     demSamples,
