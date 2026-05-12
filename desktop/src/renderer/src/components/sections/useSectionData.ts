@@ -49,9 +49,14 @@ import { readCptChannels, type CptChannels } from './cptChannels'
 
 export interface SectionData {
   /** CPT data-channel toggles read out of the section's
-   * ``view_state``. Persisting changes back is debt #40 — for now
-   * this is read-only at the section level. */
+   * ``view_state``. Updated optimistically by ``setCptChannels``;
+   * the caller is responsible for persisting changes server-side
+   * via the ``onCommitChannels`` callback. */
   cptChannels: CptChannels
+  /** Update the in-memory channel state. The caller wires this
+   * directly to a toggle UI — no debouncing here since toggles
+   * are single clicks, not drags. */
+  setCptChannels: (next: CptChannels) => void
   /** DEM ground-surface samples along the section line. ``null``
    * while the request is in flight (or after an error — the
    * renderer simply skips the polyline). */
@@ -90,13 +95,33 @@ export function useSectionData(
   cpts: readonly CptListItem[],
   boreholes: readonly BoreholeListItem[],
 ): SectionData {
-  // Channels the user has toggled on. Read from the section row's
-  // ``view_state`` bag; defaults via ``readCptChannels`` when the
-  // bag is null (sections from before the column landed) or when
-  // a key is missing. The toggle UI lands in S7 polish v2 and wires
-  // a debounced ``PATCH /sections/{id}`` to persist changes
-  // (debt #40 tracks the frontend half).
-  const [cptChannels] = useState<CptChannels>(() => readCptChannels(section.view_state))
+  // Channels the user has toggled on. Initialised from the
+  // section row's ``view_state`` bag on mount; defaults via
+  // ``readCptChannels`` when the bag is null (sections from
+  // before the column landed) or when a key is missing.
+  //
+  // The setter updates this local state optimistically so the
+  // section re-renders instantly; the caller wires a separate
+  // commit path to ``PATCH /sections/{id}`` with the new bag so
+  // the change rides the .gmproj bundle on next save.
+  //
+  // Re-sync the local state when the section identity changes
+  // (switching to a different section row). We deliberately do
+  // NOT re-sync when ``section.view_state`` changes from the
+  // server response that completes our own PATCH — that would
+  // flicker the toggles if the server returned a slightly
+  // different shape (e.g. omitted defaults). The local state
+  // wins until the section is reopened.
+  const [cptChannels, setCptChannels] = useState<CptChannels>(() =>
+    readCptChannels(section.view_state),
+  )
+  useEffect(() => {
+    setCptChannels(readCptChannels(section.view_state))
+    // reason: we only want to re-read on section identity change,
+    // not on every server-roundtrip update to view_state — see
+    // the comment block above for the flicker rationale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.id])
 
   // ---- DEM ground-surface samples ---------------------------------------
 
@@ -228,6 +253,7 @@ export function useSectionData(
 
   return {
     cptChannels,
+    setCptChannels,
     demSamples,
     cptPlots,
     projectedCpts,
