@@ -229,30 +229,53 @@ export default function App() {
   // Three id-keyed sets coordinate the project-scoped row visibility:
   //
   //   1. ``removedCptIds`` / ``removedBoreholeIds`` — project-local
-  //      hide. Persisted to localStorage. A row in this set is filtered
-  //      OUT before the data ever reaches the Sidebar (visibleCpts /
-  //      visibleBoreholes below).
+  //      hide, derived from server-side investigation_review rows where
+  //      ``is_hidden=true``. Bundle-persisted (rides in the .gmproj on
+  //      save, restored on open), so hiding a CPT on PC A shows up
+  //      hidden when PC B opens the same .gmproj. Locally maintained
+  //      as a state Set for optimistic UX; the server is the source of
+  //      truth and the load-on-project-change effect re-seeds it.
   //   2. ``sessionImportCptIds`` / ``sessionImportBoreholeIds`` — rows
   //      added since the last File → Save. Persisted to localStorage.
-  //      Drives the per-row amber asterisks. Cleared by saveProject.
+  //      Drives the project-level dirty signal. Cleared by saveProject.
   //   3. ``selectedForRemoval`` (in Sidebar) — multi-select for the
-  //      bulk-remove action. Ephemeral (not persisted), reset on tab
-  //      switch.
-  //
-  // Allowed overlap: a row CAN be in (1) and (2) simultaneously after
-  // a discard-on-close — discardSessionImports moves session-import
-  // ids INTO the removed set so the row stays in the DB but hides from
-  // view. (3) and (1) are disjoint by construction since removed rows
-  // never reach the Sidebar.
-  //
-  // Each persisted set is keyed by project id so closing and reopening
-  // the app preserves the user's curated state per project.
-  const [removedCptIds, setRemovedCptIds] = usePersistedSet(
-    project ? `groundmodel.removed.${project.id}.cpt` : undefined,
-  )
-  const [removedBoreholeIds, setRemovedBoreholeIds] = usePersistedSet(
-    project ? `groundmodel.removed.${project.id}.borehole` : undefined,
-  )
+  //      bulk-remove action. Ephemeral, reset on tab switch.
+  const [removedCptIds, setRemovedCptIds] = useState<Set<string>>(new Set())
+  const [removedBoreholeIds, setRemovedBoreholeIds] = useState<Set<string>>(new Set())
+
+  // Reload the removed-sets from the server whenever the project
+  // changes. The .gmproj-restore path will have pushed the saved
+  // is_hidden state into the DB before this fires; the GET picks up
+  // exactly what should be hidden in this session. Empty fallback on
+  // failure so the user sees ALL rows rather than nothing.
+  useEffect(() => {
+    if (!project) {
+      setRemovedCptIds(new Set())
+      setRemovedBoreholeIds(new Set())
+      return
+    }
+    let cancelled = false
+    api.review
+      .list(project.id)
+      .then(reviews => {
+        if (cancelled) return
+        const cptHidden = new Set<string>()
+        const bhHidden = new Set<string>()
+        for (const r of reviews) {
+          if (!r.is_hidden) continue
+          if (r.target_kind === 'cpt') cptHidden.add(r.target_id)
+          else if (r.target_kind === 'borehole') bhHidden.add(r.target_id)
+        }
+        setRemovedCptIds(cptHidden)
+        setRemovedBoreholeIds(bhHidden)
+      })
+      .catch(err => {
+        log.warn('reviews', `load failed for project ${project.id}`, err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [project])
 
   // Session imports — records added since the last File → Save. Drives
   // the per-row amber asterisks in the sidebar AND the project-level
@@ -358,25 +381,35 @@ export default function App() {
 
   const handleRemoveCpts = useCallback(
     (ids: string[]) => {
-      if (ids.length === 0) return
+      if (ids.length === 0 || !project) return
+      // Optimistic local update — server upserts fire in parallel and
+      // failures are logged but don't roll back the UI (the user can
+      // re-hide if needed; the saved-state is what matters and that
+      // gets reconciled on next project load).
       setRemovedCptIds(prev => {
         const next = new Set(prev)
         for (const id of ids) next.add(id)
         return next
       })
-      // If the currently-selected CPT is being removed, clear the
-      // selection so the chart panel doesn't keep displaying it.
       if (selectedId && ids.includes(selectedId)) {
         setSelectedId(null)
         setView('map')
       }
+      void Promise.allSettled(
+        ids.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: true })),
+      ).then(results => {
+        const failed = results.filter(r => r.status === 'rejected').length
+        if (failed > 0) {
+          log.warn('reviews', `${failed}/${ids.length} hide-CPT upserts failed`)
+        }
+      })
     },
-    [selectedId],
+    [project, selectedId],
   )
 
   const handleRemoveBoreholes = useCallback(
     (ids: string[]) => {
-      if (ids.length === 0) return
+      if (ids.length === 0 || !project) return
       setRemovedBoreholeIds(prev => {
         const next = new Set(prev)
         for (const id of ids) next.add(id)
@@ -386,12 +419,49 @@ export default function App() {
         setSelectedBoreholeId(null)
         setView('map')
       }
+      void Promise.allSettled(
+        ids.map(id =>
+          api.review.upsert(project.id, 'borehole', id, { is_hidden: true }),
+        ),
+      ).then(results => {
+        const failed = results.filter(r => r.status === 'rejected').length
+        if (failed > 0) {
+          log.warn('reviews', `${failed}/${ids.length} hide-borehole upserts failed`)
+        }
+      })
     },
-    [selectedBoreholeId],
+    [project, selectedBoreholeId],
   )
 
-  const handleRestoreAllCpts = useCallback(() => setRemovedCptIds(new Set()), [])
-  const handleRestoreAllBoreholes = useCallback(() => setRemovedBoreholeIds(new Set()), [])
+  const handleRestoreAllCpts = useCallback(() => {
+    if (!project) return
+    const ids = Array.from(removedCptIds)
+    setRemovedCptIds(new Set())
+    void Promise.allSettled(
+      ids.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: false })),
+    ).then(results => {
+      const failed = results.filter(r => r.status === 'rejected').length
+      if (failed > 0) {
+        log.warn('reviews', `${failed}/${ids.length} restore-CPT upserts failed`)
+      }
+    })
+  }, [project, removedCptIds])
+
+  const handleRestoreAllBoreholes = useCallback(() => {
+    if (!project) return
+    const ids = Array.from(removedBoreholeIds)
+    setRemovedBoreholeIds(new Set())
+    void Promise.allSettled(
+      ids.map(id =>
+        api.review.upsert(project.id, 'borehole', id, { is_hidden: false }),
+      ),
+    ).then(results => {
+      const failed = results.filter(r => r.status === 'rejected').length
+      if (failed > 0) {
+        log.warn('reviews', `${failed}/${ids.length} restore-borehole upserts failed`)
+      }
+    })
+  }, [project, removedBoreholeIds])
 
   // Phase 3a — manual surface-elevation edit handlers. Both update three
   // pieces of state in one go: the list (so the sidebar badge clears),
@@ -453,31 +523,43 @@ export default function App() {
   // again" signal, so clear any of the supplied ids from the project-local
   // removed-set. Without this, a 409-duplicate import returns the existing
   // id, the sidebar's removed-filter hides it, and the user sees no change.
+  // The server-side is_hidden flag is flipped via a parallel upsert so the
+  // un-hide rides into the next .gmproj save.
   const unhideCpts = useCallback(
     (ids: Iterable<string>) => {
+      const touched: string[] = []
       setRemovedCptIds(prev => {
         const next = new Set(prev)
-        let changed = false
         for (const id of ids) {
-          if (next.delete(id)) changed = true
+          if (next.delete(id)) touched.push(id)
         }
-        return changed ? next : prev
+        return touched.length > 0 ? next : prev
       })
+      if (!project || touched.length === 0) return
+      void Promise.allSettled(
+        touched.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: false })),
+      )
     },
-    [setRemovedCptIds],
+    [project],
   )
   const unhideBoreholes = useCallback(
     (ids: Iterable<string>) => {
+      const touched: string[] = []
       setRemovedBoreholeIds(prev => {
         const next = new Set(prev)
-        let changed = false
         for (const id of ids) {
-          if (next.delete(id)) changed = true
+          if (next.delete(id)) touched.push(id)
         }
-        return changed ? next : prev
+        return touched.length > 0 ? next : prev
       })
+      if (!project || touched.length === 0) return
+      void Promise.allSettled(
+        touched.map(id =>
+          api.review.upsert(project.id, 'borehole', id, { is_hidden: false }),
+        ),
+      )
     },
-    [setRemovedBoreholeIds],
+    [project],
   )
 
   // ---------------------------------------------------------------------------
