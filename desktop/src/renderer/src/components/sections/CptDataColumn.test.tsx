@@ -19,7 +19,11 @@ import {
 } from './cptChannels'
 
 const widths = cptTrackWidths(5)
-const identity = (level: number): number => level
+// Flipped transform mimicking the real section panel — higher level
+// renders at smaller screen Y, deeper points (lower level) render
+// further down. With surface=10 m and a 5 m CPT, the data band lives
+// at screen Y ∈ [90, 95].
+const flipped = (level: number): number => 100 - level
 
 function makePlot(overrides: Partial<CptPlotResponse> = {}): CptPlotResponse {
   return {
@@ -47,9 +51,9 @@ function renderColumn(
     widths,
     screenX: 100,
     surfaceElevationM: 10,
-    plotTop: -100,
-    plotBottom: 100,
-    levelToScreen: identity,
+    plotTop: 0,
+    plotBottom: 200,
+    levelToScreen: flipped,
   }
   return render(
     <svg>
@@ -108,6 +112,43 @@ describe('CptDataColumn — slot dispatch', () => {
     })
     // Exactly one slot — the qc slot, with q_total drawn over it.
     expect(container.querySelectorAll('rect[fill="#ffffff"]').length).toBe(1)
+  })
+})
+
+describe('CptDataColumn — DOV slot order (Rf left, qc right)', () => {
+  it('renders Rf to the LEFT of qc for a CPTU with both channels on', () => {
+    // DOV lengteprofiel convention: scale annotation reads
+    // "4% 2% +Z 10 MPa" — Rf scale (with 4%/2% gridlines) on the
+    // left of center, qc scale (0..10 MPa) on the right. The
+    // background rects are the cheapest stable handle on slot order.
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: true, rf: true, fs: false, u2: false, qTotal: false },
+    })
+    const rects = Array.from(container.querySelectorAll('rect[fill="#ffffff"]'))
+    expect(rects.length).toBe(2)
+    // rf width = 18, qc width = 28 at scaleH=5 → factor 1.0.
+    expect(rects[0].getAttribute('width')).toBe('18')
+    expect(rects[1].getAttribute('width')).toBe('28')
+    // Rf rect must sit to the left of qc rect.
+    const leftXs = rects.map(r => Number(r.getAttribute('x')))
+    expect(leftXs[0]).toBeLessThan(leftXs[1])
+  })
+})
+
+describe('CptDataColumn — bounded background', () => {
+  it('limits the white track background to the CPT vertical extent', () => {
+    // surface=10 m and bottom depth 5 m + flipped levelToScreen
+    // (Y = 100 - level) → band sits at Y ∈ [90, 95]. Must NOT span
+    // the full plot height (plotTop=0, plotBottom=200).
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
+    })
+    const rect = container.querySelector('rect[fill="#ffffff"]')
+    expect(rect).not.toBeNull()
+    expect(rect?.getAttribute('y')).toBe('90')
+    expect(rect?.getAttribute('height')).toBe('5')
   })
 })
 
