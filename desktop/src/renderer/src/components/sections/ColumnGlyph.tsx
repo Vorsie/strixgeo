@@ -168,16 +168,19 @@ export default function ColumnGlyph({
               fillOpacity={elevKnown ? 0.95 : 0.5}
             />
           )}
-          {/* Vertically-stacked labels directly above the cap, DOV
-              "lengteprofiel" convention (page 3 of the per-section
-              PDF): the test name reads horizontally on top, the
-              signed elevation reads just below it. Horizontal text
-              stays legible after the user zooms in; the previous
-              diagonal rotation produced a "forest of slanted names"
-              at wide zooms that nobody can scan. */}
+          {/* Three-row label stack above the cap, DOV "lengteprofiel"
+              convention (page 3 scale annotation
+              "4% 2%2 +7.48 10 MPa"):
+                  row 1 (sy-22): test name (horizontal, centered)
+                  row 2 (sy-12): signed elevation marker
+                  row 3 (sy-3): per-CPT gridline value labels (added
+                                  by CptDataColumn, NOT here)
+              The name is shifted up to leave a clear strip between
+              the elevation and the cap so CptDataColumn's gridline
+              labels can sit there without colliding. */}
           <text
             x={sx}
-            y={sy - 14}
+            y={sy - 22}
             fontSize={9}
             fill={elevKnown ? '#1f2937' : '#9ca3af'}
             textAnchor="middle"
@@ -186,7 +189,7 @@ export default function ColumnGlyph({
             {offsetLabel}
           </text>
           {elevKnown && (
-            <text x={sx} y={sy - 5} fontSize={8} fill="#6b7280" textAnchor="middle">
+            <text x={sx} y={sy - 12} fontSize={8} fill="#6b7280" textAnchor="middle">
               {`${elevation! >= 0 ? '+' : ''}${elevation!.toFixed(2)} m`}
             </text>
           )}
