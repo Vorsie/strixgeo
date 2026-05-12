@@ -70,13 +70,15 @@ interface Props {
   /** All boreholes in the project. Same filter as cpts. */
   boreholes?: readonly BoreholeListItem[]
   /** Patch the section row server-side. Called on slider release
-   * for ``projection_buffer_m`` and ``vertical_exaggeration`` so
-   * the values persist across opens and ride the .gmproj bundle.
-   * The handler is optional so the test-render path can mount
-   * without a network seam. */
+   * for ``projection_buffer_m`` and ``vertical_exaggeration`` and
+   * on every channel-toggle click for ``view_state.cpt_channels``,
+   * so the values persist across opens and ride the .gmproj
+   * bundle. The handler is optional so the test-render path can
+   * mount without a network seam. */
   onPatch?: (patch: {
     projection_buffer_m?: number
     vertical_exaggeration?: number
+    view_state?: Record<string, unknown>
   }) => Promise<void>
   /** Close the section view — typically clears the parent's
    * selectedSectionId so the App's render branch flips back to the
@@ -307,11 +309,27 @@ export default function SectionPanel({
 
   const {
     cptChannels,
+    setCptChannels,
     demSamples,
     cptPlots,
     projectedCpts,
     projectedBoreholes,
   } = useSectionData(section, cpts, boreholes)
+
+  // Channel-toggle commit: update the in-memory state optimistically
+  // for an instant re-render, then PATCH the section row's
+  // ``view_state.cpt_channels`` so the change survives section
+  // reopens + .gmproj round-trips. Falls back to local-only when
+  // ``onPatch`` is absent (test-render path).
+  const handleChannelsChange = useCallback(
+    (next: typeof cptChannels) => {
+      setCptChannels(next)
+      if (onPatch) {
+        void onPatch({ view_state: { cpt_channels: next } })
+      }
+    },
+    [setCptChannels, onPatch],
+  )
 
   // Track widths scale with horizontal zoom — at low zoom keep
   // columns compact, at high zoom let curves breathe. The same
@@ -397,6 +415,8 @@ export default function SectionPanel({
             ? next => void onPatch({ projection_buffer_m: next })
             : undefined
         }
+        channels={cptChannels}
+        onChannelsChange={handleChannelsChange}
         scaleH={scaleH}
         scaleV={scaleV}
         onReset={resetView}
