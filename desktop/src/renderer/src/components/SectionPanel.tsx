@@ -312,6 +312,8 @@ export default function SectionPanel({
   const {
     cptChannels,
     setCptChannels,
+    columnDensity,
+    setColumnDensity,
     demSamples,
     cptPlots,
     projectedCpts,
@@ -334,11 +336,38 @@ export default function SectionPanel({
     [setCptChannels, onPatch],
   )
 
+  // Density-slider commit. Same shape as channels — optimistic local
+  // update for instant feedback while the user drags, server-side
+  // PATCH on release so the chosen density rides the .gmproj bundle.
+  // SectionHeader calls ``setColumnDensity`` on every input change
+  // (smooth visual update) and ``handleDensityCommit`` on release.
+  const handleDensityCommit = useCallback(
+    (next: number) => {
+      if (onPatch) {
+        void onPatch({ view_state: { column_density: next } })
+      }
+    },
+    [onPatch],
+  )
+
   // Band half-width scales with horizontal zoom — at low zoom keep
   // columns compact, at high zoom let curves breathe. The same
   // half-width feeds both the layout (nudge) and the render (column
   // glyph) so positions and visuals stay in sync.
-  const bandHalfWidth = useMemo(() => cptBandHalfWidth(scaleH), [scaleH])
+  //
+  // Multiplied by ``columnDensity`` (a per-section view_state knob,
+  // range 0.4..1.0) so the user can pack investigations horizontally
+  // on crowded sections. Density also scales the inter-column edge
+  // gap, so the whole layout compresses consistently rather than
+  // making narrow columns sit in wide gaps.
+  const bandHalfWidth = useMemo(
+    () => Math.round(cptBandHalfWidth(scaleH) * columnDensity),
+    [scaleH, columnDensity],
+  )
+  const effectiveEdgeGap = useMemo(
+    () => Math.max(0, Math.round(COLUMN_EDGE_GAP_PX * columnDensity)),
+    [columnDensity],
+  )
 
   // Column collision handling — when multiple investigations project
   // near the same along-distance their columns would overlap into an
@@ -381,7 +410,7 @@ export default function SectionPanel({
         }
       }),
     ]
-    return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r => ({
+    return nudgeColumns(items, effectiveEdgeGap).map(r => ({
       kind: r.item.kind,
       proj: r.item.proj,
       trueX: r.trueX,
@@ -397,6 +426,7 @@ export default function SectionPanel({
     boreholeDetails,
     cptChannels,
     bandHalfWidth,
+    effectiveEdgeGap,
   ])
 
   // Collision-aware gridline labels: a CPT only shows its per-CPT
@@ -456,6 +486,9 @@ export default function SectionPanel({
         }
         channels={cptChannels}
         onChannelsChange={handleChannelsChange}
+        columnDensity={columnDensity}
+        onColumnDensityChange={setColumnDensity}
+        onColumnDensityCommit={onPatch ? handleDensityCommit : undefined}
         scaleH={scaleH}
         scaleV={scaleV}
         onReset={resetView}
