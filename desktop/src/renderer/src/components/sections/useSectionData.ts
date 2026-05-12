@@ -46,7 +46,11 @@ import {
   investigationsOnSection,
   type ProjectedInvestigation,
 } from '../../utils/sectionProjection'
-import { readCptChannels, type CptChannels } from './cptChannels'
+import {
+  readColumnDensity,
+  readCptChannels,
+  type CptChannels,
+} from './cptChannels'
 
 export interface SectionData {
   /** CPT data-channel toggles read out of the section's
@@ -58,6 +62,15 @@ export interface SectionData {
    * directly to a toggle UI — no debouncing here since toggles
    * are single clicks, not drags. */
   setCptChannels: (next: CptChannels) => void
+  /** Column-density multiplier (0.4..1.0, default 1.0). Scales the
+   * CPT band half-width AND the inter-column edge gap so dense
+   * sections can pack their investigations horizontally. Reads from
+   * ``section.view_state.column_density``. */
+  columnDensity: number
+  /** Update the in-memory density state. Caller wires a separate
+   * commit path to ``PATCH /sections/{id}`` so the choice rides the
+   * .gmproj bundle on next save. */
+  setColumnDensity: (next: number) => void
   /** DEM ground-surface samples along the section line. ``null``
    * while the request is in flight (or after an error — the
    * renderer simply skips the polyline). */
@@ -121,8 +134,12 @@ export function useSectionData(
   const [cptChannels, setCptChannels] = useState<CptChannels>(() =>
     readCptChannels(section.view_state),
   )
+  const [columnDensity, setColumnDensity] = useState<number>(() =>
+    readColumnDensity(section.view_state),
+  )
   useEffect(() => {
     setCptChannels(readCptChannels(section.view_state))
+    setColumnDensity(readColumnDensity(section.view_state))
     // reason: we only want to re-read on section identity change,
     // not on every server-roundtrip update to view_state — see
     // the comment block above for the flicker rationale.
@@ -318,6 +335,8 @@ export function useSectionData(
   return {
     cptChannels,
     setCptChannels,
+    columnDensity,
+    setColumnDensity,
     demSamples,
     cptPlots,
     projectedCpts,
