@@ -136,6 +136,32 @@ describe('ColumnGlyph — stacked horizontal labels (DOV convention)', () => {
   })
 })
 
+describe('ColumnGlyph — hideStick (band-rendered columns)', () => {
+  it('drops the cap + body line when hideStick is true', () => {
+    const { container } = renderGlyph({ hideStick: true })
+    expect(container.querySelector('circle')).toBeNull()
+    expect(container.querySelector('line[stroke-width="1.5"]')).toBeNull()
+  })
+
+  it('keeps the name + elevation labels even when hideStick is true', () => {
+    // The labels remain as the column's identifier above the band.
+    const { container } = renderGlyph({ hideStick: true, elevation: 7.5 })
+    const texts = container.querySelectorAll('text')
+    expect(texts.length).toBe(2)
+    expect(texts[0].textContent).toBe('CPT-1')
+    expect(texts[1].textContent).toBe('+7.50 m')
+  })
+
+  it('also drops the tie-back diagonal when displaced + hideStick', () => {
+    const { container } = renderGlyph({
+      tieBackTrueX: 50,
+      screenX: 100,
+      hideStick: true,
+    })
+    expect(container.querySelector('line[stroke="#6b7280"]')).toBeNull()
+  })
+})
+
 describe('ColumnGlyph — offset hint in label', () => {
   it('omits the offset hint when |offset| < 1 m', () => {
     const { container } = renderGlyph({ offset: 0.4 })
