@@ -1,67 +1,72 @@
 /**
- * BoreholeColumn — narrow lithology strip for the cross-section.
+ * BoreholeColumn — per-stream lithology strips for the cross-section.
  *
- * Renders a single borehole's coded-lithology layers as a stack of
- * patterned coloured rectangles inside the borehole's column band on
- * the cross-section. Mirrors the DOV "lengteprofiel" PDF convention:
- * each layer appears as a rect filled with the soil code's pattern
- * (sand dots, clay hatching, glauconite chevrons, etc.) so the
- * geologist can scan the section and see lithology context.
+ * Renders one or more vertical strips inside a borehole's column
+ * band, one per ENABLED interpretation stream
+ * (``coded_lithology`` / ``geotechnical_coding`` /
+ * ``formal_stratigraphy`` / ``quaternary_stratigraphy``). Each strip
+ * shows the matching observation's layers as patterned coloured
+ * rectangles — DOV "lengteprofiel" PDF page-3 layout: when 3 streams
+ * are toggled on, each borehole is 3 strips wide side by side.
  *
- * Prerequisite for the geological model editor — drawing formation
- * tops between investigations needs the user to SEE the underlying
- * soil, not just stick columns.
+ * The band auto-widens with the count of enabled channels — total
+ * visual width = ``N * 2 * halfWidth`` — and SectionPanel feeds that
+ * widened width into the nudge layout so neighbouring tests get
+ * pushed out proportionally.
  *
- * v1 scope:
+ * Strip with no matching observation renders empty so the slot
+ * stays consistent across boreholes (different boreholes carry
+ * different subsets of observations; the strip order is fixed so
+ * a user reading the section can scan one stream vertically across
+ * the whole canvas).
  *
- *   * Layers from the first coded_lithology / geotechnical_coding
- *     observation on the borehole. The PDF picks the granular
- *     ISO-14688 stream the same way.
- *   * Soil-code → pattern fill via ``getSoilFillUrl``. Unknown codes
- *     fall back to the solid colour from ``soilStyle``.
- *   * Vertical clip to the plot area; deep layers extending past
- *     ``plotBottom`` clamp cleanly.
+ * Layer fill: ``getSoilFillUrl(layer.main_soil_codes[0])`` — pattern
+ * URL for known DOV codes, fallback solid colour for unknowns.
+ * Clips to ``[plotTop, plotBottom]``.
  *
- * Deferred to future passes:
- *
- *   * Sample track (depth markers + sample IDs on the right edge).
- *   * Observation labels (description text alongside layers).
- *   * Admixture chips (colour swatches at layer edges).
- *   * Layer hover / select hooks for the geological model editor.
+ * Deferred to future passes: sample track on the right edge,
+ * observation labels alongside layers, admixture chips, layer
+ * hover/select hooks for the geological editor.
  */
 
-import type { BoreholeDetailResponse } from '../../api/client'
+import type {
+  BoreholeDetailResponse,
+  ObservationResponse,
+} from '../../api/client'
 import { getSoilFillUrl } from '../../utils/soilPatterns'
-
-// Lithology observation kinds — same set ``BoreholeLog.tsx`` uses
-// to gate the lithology track. Duplicated here as a 2-element set;
-// promote to ``utils/observationTypes.ts`` if a third caller lands.
-const LITHOLOGY_TYPES = new Set(['coded_lithology', 'geotechnical_coding'])
+import {
+  BOREHOLE_CHANNEL_OBSERVATION_TYPES,
+  type BoreholeChannels,
+} from './cptChannels'
 
 interface Props {
   detail: BoreholeDetailResponse
+  /** Toggle state for the four interpretation streams. Channels in
+   * fixed display order (lithology / geotech / formal_strat /
+   * quaternary); each enabled stream gets its own strip. */
+  channels: BoreholeChannels
   /** Screen X of the column centerline (the nudged X from the
-   * width-aware layout pass — see ``nudgeColumns``). */
+   * width-aware layout pass — see ``nudgeColumns``). The band is
+   * centred on this X regardless of how many strips it contains. */
   screenX: number
-  /** Half-width of the lithology strip in px. The band extends
-   * ±halfWidth from ``screenX``; total visual width is
-   * ``2 * halfWidth``. Caller scales this with horizontal zoom so
-   * the strip matches the CPT band on the same section. */
+  /** Half-width of ONE strip in px. Total band half-width =
+   * ``halfWidth * enabledCount``; passed in pre-computed by
+   * SectionPanel so the caller stays in charge of zoom + spacing
+   * scaling.
+   */
   halfWidth: number
-  /** Elevation in m of the borehole's surface (column top). Caller
-   * MUST skip rendering when the borehole has no elevation —
-   * without a Z we can't position the layers vertically. */
+  /** Surface elevation in m. Caller MUST skip rendering when null. */
   surfaceElevationM: number
   /** Plot-area Y bounds — anything outside gets clamped. */
   plotTop: number
   plotBottom: number
-  /** World-level (m TAW) → screen Y converter from the section
-   * panel's viewport. */
+  /** World-level → screen Y converter. */
   levelToScreen: (level: number) => number
 }
 
 export default function BoreholeColumn({
   detail,
+  channels,
   screenX,
   halfWidth,
   surfaceElevationM,
@@ -69,42 +74,69 @@ export default function BoreholeColumn({
   plotBottom,
   levelToScreen,
 }: Props): JSX.Element | null {
-  // Pick the first lithology observation. DOV boreholes typically
-  // carry one ``coded_lithology`` plus optional ``geotechnical_coding``
-  // and ``formal_stratigraphy`` streams; for cross-section context
-  // the coded lithology is the most useful single track. If a
-  // borehole has only ``geotechnical_coding`` we fall back to it.
-  const lithology = detail.observations.find(o =>
-    LITHOLOGY_TYPES.has(o.observation_type),
-  )
-  if (!lithology || lithology.layers.length === 0) return null
+  // Walk the channel list in display order, picking up the matching
+  // observation (or null) per slot. We collect both the entry and
+  // the slot index so layout uses positional X offsets regardless of
+  // which slots happen to be empty.
+  const enabledSlots: { key: keyof BoreholeChannels; obs: ObservationResponse | null }[] = []
+  for (const [key, obsType] of BOREHOLE_CHANNEL_OBSERVATION_TYPES) {
+    if (!channels[key]) continue
+    const obs = detail.observations.find(o => o.observation_type === obsType) ?? null
+    enabledSlots.push({ key, obs })
+  }
+  if (enabledSlots.length === 0) return null
 
-  const leftX = screenX - halfWidth
-  const width = 2 * halfWidth
+  const stripWidth = 2 * halfWidth
+  const totalWidth = stripWidth * enabledSlots.length
+  // Band is centred on the column axis so the column axis stays the
+  // visual identity anchor for the test even as the band widens.
+  const bandLeftX = screenX - totalWidth / 2
 
   return (
     <g pointerEvents="none">
-      {lithology.layers.map(layer => {
-        const yTop = levelToScreen(surfaceElevationM - layer.top_m)
-        const yBottom = levelToScreen(surfaceElevationM - layer.base_m)
-        // Clip to the plot area so layers extending past the viewport
-        // bottom don't paint into the axis chrome below.
-        const clampedTop = Math.max(plotTop, Math.min(plotBottom, yTop))
-        const clampedBottom = Math.max(plotTop, Math.min(plotBottom, yBottom))
-        const height = clampedBottom - clampedTop
-        if (height <= 0) return null
-        const primaryCode = layer.main_soil_codes[0] ?? null
+      {enabledSlots.map((slot, i) => {
+        const stripLeftX = bandLeftX + i * stripWidth
+        if (slot.obs === null || slot.obs.layers.length === 0) {
+          // Empty strip — keeps the slot footprint consistent across
+          // boreholes even when this borehole doesn't carry the
+          // selected stream. Light grey background so the user can
+          // see "the slot is here, just empty for this test".
+          return (
+            <g key={slot.key}>
+              <rect
+                x={stripLeftX}
+                y={plotTop}
+                width={stripWidth}
+                height={0}
+                fill="#f9fafb"
+              />
+            </g>
+          )
+        }
         return (
-          <rect
-            key={layer.id}
-            x={leftX}
-            y={clampedTop}
-            width={width}
-            height={height}
-            fill={getSoilFillUrl(primaryCode)}
-            stroke="#9ca3af"
-            strokeWidth={0.3}
-          />
+          <g key={slot.key}>
+            {slot.obs.layers.map(layer => {
+              const yTop = levelToScreen(surfaceElevationM - layer.top_m)
+              const yBottom = levelToScreen(surfaceElevationM - layer.base_m)
+              const clampedTop = Math.max(plotTop, Math.min(plotBottom, yTop))
+              const clampedBottom = Math.max(plotTop, Math.min(plotBottom, yBottom))
+              const height = clampedBottom - clampedTop
+              if (height <= 0) return null
+              const primaryCode = layer.main_soil_codes[0] ?? null
+              return (
+                <rect
+                  key={layer.id}
+                  x={stripLeftX}
+                  y={clampedTop}
+                  width={stripWidth}
+                  height={height}
+                  fill={getSoilFillUrl(primaryCode)}
+                  stroke="#9ca3af"
+                  strokeWidth={0.3}
+                />
+              )
+            })}
+          </g>
         )
       })}
     </g>
