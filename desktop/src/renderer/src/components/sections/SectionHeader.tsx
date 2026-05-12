@@ -18,7 +18,12 @@ import { useEffect, useState } from 'react'
 import { Minus, Plus, RotateCcw, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
-import { COLUMN_SPACING_MAX, COLUMN_SPACING_MIN, type CptChannels } from './cptChannels'
+import {
+  COLUMN_SPACING_MAX,
+  COLUMN_SPACING_MIN,
+  type BoreholeChannels,
+  type CptChannels,
+} from './cptChannels'
 import { VEX_MAX, VEX_MIN } from './utils'
 
 // Order matches DOV's "lengteprofiel" PDF reading order: primary
@@ -30,6 +35,21 @@ const CHANNEL_BUTTONS: readonly { key: keyof CptChannels; label: string; title: 
   { key: 'fs', label: 'fs', title: 'Sleeve friction (fs) — CPTU/CPTE only' },
   { key: 'u2', label: 'u2', title: 'Pore-water pressure (u2) — CPTU only' },
   { key: 'qTotal', label: 'qT', title: 'Total resistance (qTotal) — CPTM only' },
+]
+
+// Borehole interpretation stream toggles, in DOV lengteprofiel
+// display order (lithology → geotech → formal strat → quaternary).
+// Geotech is the default-ON stream; the others are
+// engineer-toggleable.
+const BOREHOLE_CHANNEL_BUTTONS: readonly {
+  key: keyof BoreholeChannels
+  label: string
+  title: string
+}[] = [
+  { key: 'lithology', label: 'lit', title: 'Coded lithology (granular ISO 14688 stream)' },
+  { key: 'geotech', label: 'geo', title: 'Geotechnical coding' },
+  { key: 'formal_strat', label: 'fst', title: 'Formal stratigraphy' },
+  { key: 'quaternary', label: 'qst', title: 'Quaternary stratigraphy' },
 ]
 
 // Projection-buffer slider bounds. 5 m is the tightest engineers
@@ -50,6 +70,8 @@ export default function SectionHeader({
   onBufferCommit,
   channels,
   onChannelsChange,
+  boreholeChannels,
+  onBoreholeChannelsChange,
   columnSpacing,
   onColumnSpacingChange,
   onColumnSpacingCommit,
@@ -78,6 +100,13 @@ export default function SectionHeader({
    * view_state via ``PATCH /sections/{id}`` (so the toggle
    * survives reopens + .gmproj round-trips). */
   onChannelsChange: (next: CptChannels) => void
+  /** Borehole interpretation stream toggles. Each enabled stream
+   * renders as its own strip side by side inside the borehole's
+   * column band; the band auto-widens with the count. */
+  boreholeChannels: BoreholeChannels
+  /** Same shape as ``onChannelsChange`` for the borehole toggle
+   * group — optimistic in-memory update + bundle-persistent PATCH. */
+  onBoreholeChannelsChange: (next: BoreholeChannels) => void
   /** Spacing multiplier (0..1). At 1.0 the nudge layout pushes
    * adjacent columns apart by their full visual width + edge gap;
    * at 0.0 the layout sees zero-width columns and lets bands sit
@@ -166,6 +195,37 @@ export default function SectionHeader({
                 'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
                 (active
                   ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                  : 'bg-white text-gray-500 border-gray-200 hover:text-gray-800 hover:bg-gray-100')
+              }
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="flex items-center gap-1">
+        <span
+          className="text-[10px] text-gray-500 mr-1"
+          title="Borehole interpretation stream toggles — each enabled stream renders as its own strip side by side"
+        >
+          Bore
+        </span>
+        {BOREHOLE_CHANNEL_BUTTONS.map(({ key, label, title }) => {
+          const active = boreholeChannels[key]
+          return (
+            <button
+              key={key}
+              onClick={() =>
+                onBoreholeChannelsChange({ ...boreholeChannels, [key]: !active })
+              }
+              title={title}
+              aria-label={`Toggle ${label}`}
+              aria-pressed={active}
+              className={
+                'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
+                (active
+                  ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
                   : 'bg-white text-gray-500 border-gray-200 hover:text-gray-800 hover:bg-gray-100')
               }
             >
