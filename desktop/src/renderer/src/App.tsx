@@ -10,6 +10,9 @@ import type {
   CptPlotResponse,
   CptResponse,
   CrossSectionResponse,
+  FormationContactResponse,
+  GeologicalFormationResponse,
+  GeologicalModelResponse,
 } from './api/client'
 import { useProject } from './hooks/useProject'
 import { usePersistedSet } from './hooks/usePersistedSet'
@@ -162,6 +165,16 @@ export default function App() {
   // map / chart / borelog — section view comes next.
   const [sections, setSections] = useState<CrossSectionResponse[]>([])
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
+
+  // Geological model state — lifted to App so SectionPanel can
+  // render contacts with formation colours AND InterpretationPane
+  // can manage the formations vocabulary without double-fetching.
+  // Each project gets exactly one active model auto-bootstrapped on
+  // first open; multi-model UX comes later.
+  const [activeGeologicalModel, setActiveGeologicalModel] =
+    useState<GeologicalModelResponse | null>(null)
+  const [formations, setFormations] = useState<GeologicalFormationResponse[]>([])
+  const [contacts, setContacts] = useState<FormationContactResponse[]>([])
   // ``true`` while the user is two-click-drawing a section line on
   // the map. The Sidebar's "+ New cross-section" button enters this
   // mode; the MapView mounts a SectionLineDrawer that completes via
@@ -274,6 +287,73 @@ export default function App() {
       .catch(err => {
         log.warn('reviews', `load failed for project ${project.id}`, err)
       })
+    return () => {
+      cancelled = true
+    }
+  }, [project])
+
+  // Geological-model bootstrap + load.
+  //
+  // Every project carries exactly one active geological model in v1.
+  // On project change we (1) fetch the model list, (2) pick the
+  // active one, (3) auto-create a "Default" model if the project
+  // has none, and (4) refresh the formations + contacts that the
+  // editor surfaces (Ground model pane + cross-section overlay).
+  //
+  // The bootstrap-on-empty step is what makes the editor accessible
+  // immediately after File → New — no separate "create model"
+  // button to discover. Multi-model UX (named scenarios, model
+  // comparison) lands later.
+  useEffect(() => {
+    if (!project) {
+      setActiveGeologicalModel(null)
+      setFormations([])
+      setContacts([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const projectId = project.id
+        // Step 1: model list. Bootstrap a default if empty.
+        let models = await api.geology.listModels(projectId)
+        let active = models.find(m => m.is_active) ?? null
+        if (models.length === 0) {
+          const created = await api.geology.createModel(projectId, {
+            name: 'Default',
+            is_active: true,
+          })
+          models = [created]
+          active = created
+          log.info('geology', `bootstrapped Default model for ${projectId}`)
+        } else if (active === null) {
+          // Models exist but none is active — activate the first
+          // (alphabetical by name is fine; v1 has at most one).
+          const promoted = await api.geology.activateModel(projectId, models[0].id)
+          active = promoted
+        }
+        if (cancelled) return
+        setActiveGeologicalModel(active)
+
+        // Step 2: formations + contacts in parallel.
+        const [forms, conts] = await Promise.all([
+          api.geology.listFormations(projectId),
+          active === null
+            ? Promise.resolve([] as FormationContactResponse[])
+            : api.geology.listContacts(projectId, active.id),
+        ])
+        if (cancelled) return
+        setFormations(forms)
+        setContacts(conts)
+      } catch (err) {
+        log.warn('geology', `model bootstrap failed for ${project.id}`, err)
+        if (!cancelled) {
+          setActiveGeologicalModel(null)
+          setFormations([])
+          setContacts([])
+        }
+      }
+    })()
     return () => {
       cancelled = true
     }
@@ -1455,6 +1535,7 @@ export default function App() {
           onFormationCreated={handleFormationCreated}
           onFormationDeleted={handleFormationDeleted}
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
+          activeModelName={activeGeologicalModel?.name ?? null}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
@@ -1480,6 +1561,8 @@ export default function App() {
                 onClose={() => setSelectedSectionId(null)}
                 onSelectCpt={handleSelect}
                 onSelectBorehole={handleSelectBorehole}
+                contacts={contacts}
+                formations={formations}
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
