@@ -861,7 +861,28 @@ GET    /projects/{pid}/geology/formations           List project formations
                                                     (display order, then name).
 PATCH  /projects/{pid}/geology/formations/{fid}     Partial update.
 DELETE /projects/{pid}/geology/formations/{fid}     Cascade-removes every
-                                                    contact pointing at it.
+                                                    contact pointing at it,
+                                                    plus every geotechnical
+                                                    unit hanging off it.
+
+POST   /projects/{pid}/geology/formations/{fid}/units
+                                                    Create a geotechnical unit
+                                                    under a formation. Structure
+                                                    only in v1 (name / code /
+                                                    color / display_order /
+                                                    description) — parameter
+                                                    values are Phase 5.
+GET    /projects/{pid}/geology/formations/{fid}/units
+                                                    List units under the
+                                                    formation (display order,
+                                                    then name).
+PATCH  /projects/{pid}/geology/formations/{fid}/units/{uid}
+                                                    Partial update. Parent
+                                                    formation_id NOT updatable —
+                                                    delete + recreate to
+                                                    re-parent.
+DELETE /projects/{pid}/geology/formations/{fid}/units/{uid}
+                                                    Delete a geotechnical unit.
 
 POST   /projects/{pid}/geology/models               Create a model.
 GET    /projects/{pid}/geology/models               List models (active first).
@@ -981,6 +1002,7 @@ metadata editor.
   "cpts": [ ],
   "boreholes": [ ],
   "geological_formations": [ ],
+  "geotechnical_units": [ ],
   "geological_models": [ ],
   "cross_sections": [ ],
   "investigation_reviews": [ ]
@@ -997,7 +1019,7 @@ metadata editor.
   tree: drill segments, field log intervals, observations + layers +
   admixtures, samples + 6 lab-test families) under ``boreholes``;
   the geological-model interpretation arrays (``geological_formations``,
-  ``geological_models``); the project-scoped cross-section definitions
+  ``geotechnical_units``, ``geological_models``); the project-scoped cross-section definitions
   (``cross_sections``); and every per-(project, investigation)
   decision (``investigation_reviews``: review status / notes / hidden
   flag, polymorphic target). Every per-project engineering decision
@@ -1806,27 +1828,44 @@ Per-layer parameters intentionally NOT in the snapshot at Phase
 ``LayerGeometry`` with optional parameter fields or adds a
 parallel slice; callers pay no cost today for the absence.
 
-### 29. Geotechnical subdivision undesigned + absent from bundle
+### 29. Geotechnical subdivision undesigned + absent from bundle — DONE
 
-**What.** The v1.0 MVP gate explicitly requires "subdivide
-geological formations into geotechnical units (structure only;
-parameter values blank in v1)". There is no ORM, no domain model,
-no API schema, no migration, no bundle field for
-``geotechnical_unit``. It's a named MVP deliverable with zero
-implementation. The order-of-attack in CLAUDE.local.md correctly
-slots it after editor work; but the editor needs to know whether
-it draws formation contacts, geotech-unit contacts, or both.
+Resolved 2026-05-12. The geotechnical model layer landed end-to-end:
 
-**Fix shape.** Schema:
-``geotechnical_unit(id, app_project_id, geological_formation_id,
-name, code, display_order, color, notes)``. Bundle field:
-``geotechnical_units: []`` alongside ``geological_formations``.
-Standard CRUD under ``/projects/{pid}/geology/formations/{fid}/units``.
-No parameter columns until Phase 5.
+* Alembic migration ``f4b2c91e5a78`` creates the
+  ``geotechnical_unit`` table with FK to ``geological_formation``
+  (CASCADE on parent delete) + indexes on ``app_project_id`` and
+  ``geological_formation_id``.
+* ``GeotechnicalUnitOrm`` (infrastructure) + ``GeotechnicalUnit``
+  domain dataclass (``domain/models/geology``). Frozen dataclass
+  with the same audit-timestamp shape as ``GeologicalFormation``.
+* Pydantic schemas (Create / Update / Response). Schema is
+  *structure only* — name, code, color, display_order, description.
+  Per-unit parameter values (γ, c', φ', E) are Phase 5 work and
+  will land as additive optional fields on the same dataclass +
+  ORM when the shape settles.
+* ``GeologyRepository`` carries five new methods
+  (``create_unit / list_units / get_unit / update_unit / delete_unit``)
+  with the standard ``GroundModelLogger`` entry/exit tracing.
+* REST surface (4 endpoints, two-level project scope):
+  ``POST/GET /projects/{pid}/geology/formations/{fid}/units``,
+  ``PATCH/DELETE /projects/{pid}/geology/formations/{fid}/units/{uid}``.
+  Two-stage scope guard (unit → formation, formation → project);
+  ``geological_formation_id`` is NOT updatable (re-parent via
+  delete + recreate, mirroring the formation-contact anchor rule).
+* Bundle plumbing: ``geotechnical_units`` array in the
+  ProjectBundleRequest/Response payload, build + restore wired on
+  the Python side; ``ProjectFileV3`` carries the field on the
+  frontend; ``parseProjectFile`` backfills the field on older
+  v3 files saved before this build (``[]`` default).
+* Tests: 2 unit tests for the domain dataclass, 3 integration
+  tests for repository CRUD + cascade + per-formation scoping,
+  2 bundle round-trip tests (full round-trip + omitted-payload
+  defaults). Total: 7 new tests, all passing.
 
-**When to revisit.** Before starting the geological model editor
-— the editor needs the entity definition pinned to know what it
-mutates.
+The geological model editor (debt #26) now has the data layer it
+needs to know what it draws — formation contacts and/or
+geotechnical-unit assignments.
 
 ### 30. Router-layer logging entirely absent — PARTIAL (DONE)
 
