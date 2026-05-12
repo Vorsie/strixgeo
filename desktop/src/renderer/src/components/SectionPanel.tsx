@@ -36,6 +36,8 @@ import type {
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { nudgeColumns } from '../utils/columnLayout'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
+import { SoilPatterns } from '../utils/soilPatterns'
+import BoreholeColumn from './sections/BoreholeColumn'
 import CptDataColumn from './sections/CptDataColumn'
 import { cptBandFullWidth, cptBandHalfWidth } from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
@@ -314,6 +316,7 @@ export default function SectionPanel({
     cptPlots,
     projectedCpts,
     projectedBoreholes,
+    boreholeDetails,
   } = useSectionData(section, cpts, boreholes)
 
   // Channel-toggle commit: update the in-memory state optimistically
@@ -361,12 +364,22 @@ export default function SectionPanel({
           width: BARE_COLUMN_WIDTH_PX + trackW,
         }
       }),
-      ...projectedBoreholes.map(proj => ({
-        kind: 'borehole' as const,
-        proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
-        trueX: xToScreen(proj.along),
-        width: BARE_COLUMN_WIDTH_PX,
-      })),
+      ...projectedBoreholes.map(proj => {
+        // Borehole columns claim the lithology-strip width whenever
+        // their detail has loaded — the strip mirrors the CPT band's
+        // total width so a section reads with consistent column
+        // footprints regardless of investigation kind. Boreholes
+        // without loaded detail (still in-flight) fall back to the
+        // bare cap width so the layout doesn't reflow when the data
+        // arrives.
+        const stripW = boreholeDetails?.has(proj.item.id) ? 2 * bandHalfWidth : 0
+        return {
+          kind: 'borehole' as const,
+          proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
+          trueX: xToScreen(proj.along),
+          width: BARE_COLUMN_WIDTH_PX + stripW,
+        }
+      }),
     ]
     return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r => ({
       kind: r.item.kind,
@@ -381,6 +394,7 @@ export default function SectionPanel({
     projectedBoreholes,
     xToScreen,
     cptPlots,
+    boreholeDetails,
     cptChannels,
     bandHalfWidth,
   ])
@@ -463,6 +477,17 @@ export default function SectionPanel({
             onMouseLeave={handleMouseUp}
             onDoubleClick={resetView}
           >
+            {/* Soil-code pattern defs — hoisted to a single ``<defs>``
+                so every BoreholeColumn renders into the same pattern
+                instances (one render of each pattern per SVG, not per
+                column). Pattern ids are stable (``soil-FZ``,
+                ``soil-KL``, …); ``getSoilFillUrl`` produces matching
+                ``url(#soil-XXX)`` references from the layer's soil
+                code. */}
+            <defs>
+              <SoilPatterns />
+            </defs>
+
             {/* Plot-area background — solid white over the tinted
                 container so the grid + axes read cleanly even when
                 a future overlay tints the canvas. */}
@@ -570,6 +595,33 @@ export default function SectionPanel({
                     plotBottom={MARGIN.top + plotHeight}
                     levelToScreen={levelToScreen}
                     showLabels={showLabelsByCptId.get(item.id) ?? true}
+                  />
+                )
+              })}
+
+            {/* Borehole lithology strips — DOV lengteprofiel
+                convention, patterned coloured rectangles per
+                coded_lithology layer. Renders ONLY for boreholes
+                whose detail finished loading AND that have a known
+                elevation; bare cap-only columns render fine without
+                a strip. Drawn before InvestigationColumns so the
+                cap + name label overlays on top. */}
+            {boreholeDetails !== null &&
+              placedColumns.map(col => {
+                if (col.kind !== 'borehole') return null
+                const item = col.proj.item as BoreholeListItem
+                const detail = boreholeDetails.get(item.id)
+                if (!detail || item.elevation_m === null) return null
+                return (
+                  <BoreholeColumn
+                    key={`bh-strip-${item.id}`}
+                    detail={detail}
+                    screenX={col.nudgedX}
+                    halfWidth={bandHalfWidth}
+                    surfaceElevationM={item.elevation_m}
+                    plotTop={MARGIN.top}
+                    plotBottom={MARGIN.top + plotHeight}
+                    levelToScreen={levelToScreen}
                   />
                 )
               })}
