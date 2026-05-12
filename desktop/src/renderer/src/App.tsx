@@ -91,6 +91,10 @@ export default function App() {
     saved: savedProject,
     dirty: metadataDirty,
     filePath: projectFilePath,
+    manifestCptIds,
+    manifestBoreholeIds,
+    addToManifest,
+    removeFromManifest,
     newProject,
     openProjectFile,
     pickAndOpenProject,
@@ -289,34 +293,53 @@ export default function App() {
     return true
   }, [saveMetadata, setSessionImportCptIds, setSessionImportBoreholeIds])
 
-  // Discard rollback — moves session imports into the project-local
-  // removed set so the rows stay in the DB (fast re-import via dedup
-  // cache) but hide from view. Then clears session imports.
+  // Discard rollback — drops the session-imported IDs from the
+  // manifest so they disappear from view. The DB rows stay (DOV
+  // cache preserved per ``project_no_db_delete_on_rollback``) but
+  // are no longer part of THIS project's manifest — equivalent to
+  // "these imports were never saved" per the user's intent. Then
+  // clears the session-imports tracking set.
+  //
+  // Old behaviour moved IDs into the project-local removed-set
+  // (localStorage-persisted, surfaced with "N removed · restore
+  // all"). That conflicted with the new "unsaved = lost" rule and
+  // is gone — restore-all only applies to manually-hidden rows
+  // from a saved project now.
   const discardSessionImports = useCallback(() => {
-    addAllToSet(setRemovedCptIds, sessionImportCptIds)
-    addAllToSet(setRemovedBoreholeIds, sessionImportBoreholeIds)
+    removeFromManifest('cpt', sessionImportCptIds)
+    removeFromManifest('borehole', sessionImportBoreholeIds)
     setSessionImportCptIds(new Set())
     setSessionImportBoreholeIds(new Set())
   }, [
     sessionImportCptIds,
     sessionImportBoreholeIds,
-    setRemovedCptIds,
-    setRemovedBoreholeIds,
+    removeFromManifest,
     setSessionImportCptIds,
     setSessionImportBoreholeIds,
   ])
 
   // Apply the project-local filter before anything user-visible reads
-  // the lists. Map markers, sidebar rows, layer-control counts all work
-  // off the filtered view; the unfiltered cpts / boreholes lists never
-  // leave App.
+  // the lists. Two layers stack here:
+  //
+  //   1. Manifest gate — only IDs that exist in the .gmproj bundle
+  //      (or were imported in this session) are visible. Anything in
+  //      the DB but not in the manifest is treated as "unsaved from
+  //      a previous session" and stays invisible until the user
+  //      explicitly re-imports.
+  //   2. Removed-set overlay — project-local hide UX. User-driven
+  //      "X this row" never deletes from the DB, just hides from view.
+  //
+  // Map markers, sidebar rows, layer-control counts all work off the
+  // filtered view; the unfiltered cpts / boreholes lists never leave
+  // App.
   const visibleCpts = useMemo(
-    () => cpts.filter(c => !removedCptIds.has(c.id)),
-    [cpts, removedCptIds],
+    () => cpts.filter(c => manifestCptIds.has(c.id) && !removedCptIds.has(c.id)),
+    [cpts, manifestCptIds, removedCptIds],
   )
   const visibleBoreholes = useMemo(
-    () => boreholes.filter(b => !removedBoreholeIds.has(b.id)),
-    [boreholes, removedBoreholeIds],
+    () =>
+      boreholes.filter(b => manifestBoreholeIds.has(b.id) && !removedBoreholeIds.has(b.id)),
+    [boreholes, manifestBoreholeIds, removedBoreholeIds],
   )
 
   // Out-of-viewport sets — empty when the map hasn't reported bounds
@@ -956,6 +979,11 @@ export default function App() {
       toast(errors > 0 && ok === 0 ? 'error' : 'success', parts.join(', '))
 
       unhideCpts(touchedIds)
+      // Append to the manifest (visibility gate) AND the session-
+      // imports tracking set (drives project-level dirty + discard
+      // rollback). Both sets see the same IDs; they answer different
+      // questions about them.
+      addToManifest('cpt', newIds)
       addAllToSet(setSessionImportCptIds, newIds)
       await refreshList()
       if (firstId) {
@@ -966,7 +994,7 @@ export default function App() {
     } finally {
       setImporting(false)
     }
-  }, [project, refreshList, loadChart, unhideCpts, setSessionImportCptIds])
+  }, [project, refreshList, loadChart, unhideCpts, addToManifest, setSessionImportCptIds])
 
   // ---------------------------------------------------------------------------
   // DOV import
@@ -1005,6 +1033,11 @@ export default function App() {
             parts.join(', ') || 'No CPTs found in this area',
           )
           unhideCpts(result.cpt_ids)
+          // Every CPT returned by DOV (new or duplicate) needs to be
+          // visible — add them all to the manifest. Session-imports
+          // tracking only flags the genuinely-new ones so a re-import
+          // of an already-saved area doesn't re-dirty the project.
+          addToManifest('cpt', result.cpt_ids)
           addAllToSet(
             setSessionImportCptIds,
             result.cpt_ids.filter(id => !beforeIds.has(id)),
@@ -1040,6 +1073,7 @@ export default function App() {
             summary + detail,
           )
           unhideBoreholes(result.borehole_ids)
+          addToManifest('borehole', result.borehole_ids)
           addAllToSet(
             setSessionImportBoreholeIds,
             result.borehole_ids.filter(id => !beforeIds.has(id)),
@@ -1072,6 +1106,7 @@ export default function App() {
       loadBoreholeDetail,
       unhideCpts,
       unhideBoreholes,
+      addToManifest,
       setSessionImportCptIds,
       setSessionImportBoreholeIds,
     ],
