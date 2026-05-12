@@ -52,6 +52,15 @@ interface UseProjectState {
   dirty: boolean
   /** Path to the .gmproj file on disk. */
   filePath: string | null
+  /** Set of CPT IDs that this project's saved-on-disk .gmproj
+   * references. Seeded from the file on open; appended to when the
+   * user imports new CPTs; trimmed on discard. NOT persisted to
+   * localStorage — a Ctrl+C kill loses any in-memory additions
+   * (= unsaved imports), exactly the behaviour the user wants.
+   * Drives the visible-list filter in App. */
+  manifestCptIds: ReadonlySet<string>
+  /** Same as ``manifestCptIds`` but for boreholes. */
+  manifestBoreholeIds: ReadonlySet<string>
 }
 
 /** Tri-state outcome for picker-driven opens — lets the caller show
@@ -66,6 +75,15 @@ interface UseProjectActions {
   newProject: (metadata: ProjectCreatePayload) => Promise<ProjectResponse | null>
   openProjectFile: (filePath: string) => Promise<ProjectResponse | null>
   pickAndOpenProject: () => Promise<PickAndOpenResult>
+  /** Append IDs to the manifest. Called by the import handlers after
+   * a successful CPT/borehole import so the new rows become visible
+   * in the sidebar. */
+  addToManifest: (kind: 'cpt' | 'borehole', ids: Iterable<string>) => void
+  /** Remove IDs from the manifest. Called by the discard-rollback
+   * path so unsaved imports disappear from view. The DB rows stay
+   * (DOV cache preserved per ``project_no_db_delete_on_rollback``)
+   * but are invisible until a future explicit re-import. */
+  removeFromManifest: (kind: 'cpt' | 'borehole', ids: Iterable<string>) => void
   /** Apply an in-memory patch to ``project`` (no API call, no file write). */
   applyMetadataDraft: (patch: ProjectUpdatePayload) => void
   /** Shallow-merge a patch into ``project.view_state``. Fires PATCH
@@ -141,10 +159,29 @@ function fullPatchFrom(project: ProjectResponse): ProjectUpdatePayload {
   }
 }
 
+// Extract the string ``id`` field from each bundle row. Filters out
+// rows whose id isn't a string (defensive — the file format guarantees
+// it, but the renderer treats bundle entries as opaque ``Record``s so
+// the type system can't.).
+function idsFromBundle(rows: Record<string, unknown>[]): string[] {
+  return rows
+    .map(r => r.id)
+    .filter((id): id is string => typeof id === 'string')
+}
+
 export function useProject(): UseProject {
   const [project, setProject] = useState<ProjectResponse | null>(null)
   const [saved, setSaved] = useState<ProjectResponse | null>(null)
   const [filePath, setFilePath] = useState<string | null>(null)
+
+  // Manifest: in-memory only. Seeded from the .gmproj bundle on open
+  // and from the duplicate's bundle on saveAs; cleared on close /
+  // archive. NOT persisted — a hard kill (Ctrl+C, crash) loses any
+  // additions the user hadn't yet committed via File → Save. That's
+  // the documented intent: unsaved imports are LOST on shutdown, and
+  // the .gmproj on disk is the only source of truth on reload.
+  const [manifestCptIds, setManifestCptIds] = useState<Set<string>>(new Set())
+  const [manifestBoreholeIds, setManifestBoreholeIds] = useState<Set<string>>(new Set())
 
   const dirty = useMemo(() => !projectsEqual(project, saved), [project, saved])
 
@@ -182,6 +219,13 @@ export function useProject(): UseProject {
         // file is a stale snapshot) win over the file's copy.
         const fresh = await api.project.get(parsedId)
         await adopt(fresh, path)
+        // Seed the manifest from the file's bundle. The .gmproj is
+        // the user's anchor — anything in the DB but NOT in the file
+        // is treated as "unsaved from a previous session" and stays
+        // invisible until the user re-imports it. Ctrl+C kills can't
+        // leak imported-but-not-saved rows back into view this way.
+        setManifestCptIds(new Set(idsFromBundle(parsed.cpts)))
+        setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
         log.info('project', `opened ${fresh.name} from ${path}`)
         return fresh
       } catch (err) {
@@ -210,6 +254,11 @@ export function useProject(): UseProject {
               investigation_reviews: parsed.investigation_reviews,
             })
             await adopt(restored, path)
+            // Same manifest seeding as the happy path — the .gmproj
+            // is now the authoritative list of CPTs/boreholes this
+            // project sees.
+            setManifestCptIds(new Set(idsFromBundle(parsed.cpts)))
+            setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
             log.info(
               'project',
               `restored ${restored.name} from ${path} ` +
@@ -273,10 +322,40 @@ export function useProject(): UseProject {
         return null
       }
       await adopt(created, path)
+      // Fresh project starts with an empty manifest — no CPTs /
+      // boreholes yet. Imports will append.
+      setManifestCptIds(new Set())
+      setManifestBoreholeIds(new Set())
       log.info('project', `created ${created.name} → ${path}`)
       return created
     },
     [adopt],
+  )
+
+  // Manifest mutators — wired into the import handlers + discard path
+  // in App.tsx. Set-based so caller's iteration order doesn't matter.
+  const addToManifest = useCallback(
+    (kind: 'cpt' | 'borehole', ids: Iterable<string>): void => {
+      const setter = kind === 'cpt' ? setManifestCptIds : setManifestBoreholeIds
+      setter(prev => {
+        const next = new Set(prev)
+        for (const id of ids) next.add(id)
+        return next
+      })
+    },
+    [],
+  )
+
+  const removeFromManifest = useCallback(
+    (kind: 'cpt' | 'borehole', ids: Iterable<string>): void => {
+      const setter = kind === 'cpt' ? setManifestCptIds : setManifestBoreholeIds
+      setter(prev => {
+        const next = new Set(prev)
+        for (const id of ids) next.delete(id)
+        return next
+      })
+    },
+    [],
   )
 
   // Editor's Save button calls this. Spreading the patch keys onto the
@@ -340,9 +419,20 @@ export function useProject(): UseProject {
         // round-trip and JSON-encoding cost (potentially MB for big
         // projects) is acceptable.
         const bundle = await api.project.bundle(project.id)
+        // Trim CPTs / boreholes to the in-memory manifest before
+        // writing. The DB may carry rows from a previous session that
+        // the user never saved (e.g., imports + Ctrl+C kill on the
+        // previous launch); the manifest reflects what's actually
+        // displayed in this session, so writing it to disk keeps the
+        // .gmproj truthful. The DB rows stay (DOV cache preserved).
+        const trimmedBundle = {
+          ...bundle,
+          cpts: bundle.cpts.filter(c => manifestCptIds.has(c.id)),
+          boreholes: bundle.boreholes.filter(b => manifestBoreholeIds.has(b.id)),
+        }
         await window.electron.writeProjectFile(
           filePath,
-          serialiseProjectFile(buildProjectFile(bundle)),
+          serialiseProjectFile(buildProjectFile(trimmedBundle)),
         )
       } catch (err) {
         // File write failure leaves the DB ahead of the file. Log loudly
@@ -358,7 +448,7 @@ export function useProject(): UseProject {
       log.error('project', 'saveProject failed', err)
       return false
     }
-  }, [project, filePath, dirty])
+  }, [project, filePath, dirty, manifestCptIds, manifestBoreholeIds])
 
   // Revert in-memory changes back to the last-saved snapshot. Useful
   // for explicit "Revert" UX (not wired today) and as a building block
@@ -398,15 +488,17 @@ export function useProject(): UseProject {
       return null
     }
 
+    let dupBundle
     try {
       // Save As writes a full bundle for the duplicate too — the
       // duplicated DB row already has its own CPTs / boreholes
       // (deep-cloned by ``POST /projects/{id}/duplicate``), so the
-      // bundle endpoint returns everything we need.
-      const bundle = await api.project.bundle(duplicated.id)
+      // bundle endpoint returns everything we need. No trim applied
+      // because the duplicate is freshly minted (no extras yet).
+      dupBundle = await api.project.bundle(duplicated.id)
       await window.electron.writeProjectFile(
         path,
-        serialiseProjectFile(buildProjectFile(bundle)),
+        serialiseProjectFile(buildProjectFile(dupBundle)),
       )
     } catch (err) {
       log.error('project', 'saveAsProject: writeProjectFile failed, rolling back', err)
@@ -423,6 +515,10 @@ export function useProject(): UseProject {
     }
 
     await adopt(duplicated, path)
+    // Reseed manifest from the duplicate's bundle. The new project is
+    // now the live one, so its manifest reflects the cloned content.
+    setManifestCptIds(new Set(dupBundle.cpts.map(c => c.id)))
+    setManifestBoreholeIds(new Set(dupBundle.boreholes.map(b => b.id)))
     log.info('project', `saved-as ${duplicated.name} → ${path}`)
     return duplicated
   }, [project, adopt])
@@ -438,12 +534,16 @@ export function useProject(): UseProject {
     setProject(null)
     setSaved(null)
     setFilePath(null)
+    setManifestCptIds(new Set())
+    setManifestBoreholeIds(new Set())
   }, [project])
 
   const closeProject = useCallback((): void => {
     setProject(null)
     setSaved(null)
     setFilePath(null)
+    setManifestCptIds(new Set())
+    setManifestBoreholeIds(new Set())
   }, [])
 
   return {
@@ -451,9 +551,13 @@ export function useProject(): UseProject {
     saved,
     dirty,
     filePath,
+    manifestCptIds,
+    manifestBoreholeIds,
     newProject,
     openProjectFile,
     pickAndOpenProject,
+    addToManifest,
+    removeFromManifest,
     applyMetadataDraft,
     applyViewStatePatch,
     saveProject,
