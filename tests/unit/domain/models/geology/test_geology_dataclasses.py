@@ -19,6 +19,7 @@ from groundmodel.domain.models.geology.cross_section import CrossSection
 from groundmodel.domain.models.geology.formation_contact import FormationContact
 from groundmodel.domain.models.geology.geological_formation import GeologicalFormation
 from groundmodel.domain.models.geology.geological_model import GeologicalModel
+from groundmodel.domain.models.geology.geotechnical_unit import GeotechnicalUnit
 
 
 def test_geological_formation_holds_required_fields() -> None:
@@ -102,6 +103,36 @@ def test_cross_section_required_fields() -> None:
     assert s.excluded_cpt_ids == []
     assert s.min_depth_m is None
     assert s.view_state is None
+
+
+def test_geotechnical_unit_holds_required_fields() -> None:
+    """A minimal unit accepts the documented fields without raising."""
+    u = GeotechnicalUnit(
+        id=uuid4(),
+        app_project_id=uuid4(),
+        geological_formation_id=uuid4(),
+        name="Weathered crust",
+        code="BmK-wc",
+        color="#a0805f",
+    )
+    assert u.name == "Weathered crust"
+    assert u.code == "BmK-wc"
+    assert u.display_order == 0  # default
+    assert u.description is None
+
+
+def test_geotechnical_unit_is_frozen() -> None:
+    """Frozen — immutability protects domain invariants from drift."""
+    u = GeotechnicalUnit(
+        id=uuid4(),
+        app_project_id=uuid4(),
+        geological_formation_id=uuid4(),
+        name="X",
+        code=None,
+        color="#000000",
+    )
+    with pytest.raises(FrozenInstanceError):
+        u.name = "Y"  # type: ignore[misc]
 
 
 def test_cross_section_view_state_is_optional_dict() -> None:
