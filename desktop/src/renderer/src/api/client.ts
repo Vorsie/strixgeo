@@ -113,6 +113,34 @@ export interface ProjectBundleResponse {
   investigation_reviews: Record<string, unknown>[]
 }
 
+// Investigation-review response — per-(project, investigation) row:
+// review status / notes / is_hidden flag. Polymorphic via
+// ``target_kind`` + ``target_id``. Bundle-persisted: rides in the
+// .gmproj on save, restored on open. Drives the sidebar's
+// "remove from project" UX (is_hidden) and, in Phase 5, the
+// reviewed-state filter for the geotechnical-decision workflow.
+export type ReviewTargetKind = 'cpt' | 'borehole'
+export type ReviewStatus = 'unreviewed' | 'in_progress' | 'reviewed'
+
+export interface InvestigationReviewResponse {
+  id: string
+  app_project_id: string
+  target_kind: ReviewTargetKind
+  target_id: string
+  review_status: ReviewStatus
+  review_notes: string | null
+  reviewed_at: string | null
+  is_hidden: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface InvestigationReviewUpsertPayload {
+  review_status?: ReviewStatus | null
+  review_notes?: string | null
+  is_hidden?: boolean | null
+}
+
 // Geotechnical-unit response shape — mirrors GeotechnicalUnitResponse
 // on the backend 1:1. Structure-only in v1.0 (no parameter values);
 // Phase 5 extends this with γ / c' / φ' / E etc. as additive optional
@@ -486,6 +514,19 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
   return res.json()
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${_base}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}))
+    throw new Error(detail.detail ?? `PUT ${path} → ${res.status}`)
+  }
+  return res.json()
+}
+
 async function post<T>(path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method: 'POST' }
   if (body !== undefined) {
@@ -717,6 +758,29 @@ export const api = {
       unitId: string,
     ): Promise<void> =>
       del(`/projects/${projectId}/geology/formations/${formationId}/units/${unitId}`),
+  },
+
+  // Investigation-review CRUD. Per-(project, investigation) decisions:
+  // review status / notes / is_hidden. Upsert by target — the UI knows
+  // which investigation it's annotating, not the review row's id.
+  // Bundle-backed: every change rides in ``GET /projects/{id}/bundle``
+  // and round-trips through the .gmproj file, so hiding a CPT on PC A
+  // shows up hidden when PC B opens the same .gmproj.
+  review: {
+    list: (projectId: string): Promise<InvestigationReviewResponse[]> =>
+      get(`/projects/${projectId}/reviews`),
+
+    upsert: (
+      projectId: string,
+      kind: 'cpt' | 'borehole',
+      targetId: string,
+      body: InvestigationReviewUpsertPayload,
+    ): Promise<InvestigationReviewResponse> =>
+      put(`/projects/${projectId}/reviews/${kind}/${targetId}`, body),
+
+    // Idempotent — silently returns when no row exists for the target.
+    delete: (projectId: string, kind: 'cpt' | 'borehole', targetId: string): Promise<void> =>
+      del(`/projects/${projectId}/reviews/${kind}/${targetId}`),
   },
 
   // Cross-section CRUD. Project-scoped via the URL prefix; ``projectId``
