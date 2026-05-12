@@ -105,6 +105,9 @@ interface Props {
    * "Populate from boreholes" affordance to walk every borehole's
    * stratigraphy observations and harvest formation names. */
   visibleBoreholeIds?: readonly string[]
+  /** Name of the project's active geological model. Threaded
+   * through to the Interpretation pane as a subtitle. */
+  activeModelName?: string | null
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -244,6 +247,7 @@ export default function Sidebar({
   onFormationCreated,
   onFormationDeleted,
   visibleBoreholeIds,
+  activeModelName,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -708,6 +712,7 @@ export default function Sidebar({
             manifestFormationIds={manifestFormationIds}
             sessionImportFormationIds={sessionImportFormationIds}
             boreholeIds={visibleBoreholeIds}
+            activeModelName={activeModelName}
             onFormationCreated={onFormationCreated}
             onFormationDeleted={onFormationDeleted}
           />

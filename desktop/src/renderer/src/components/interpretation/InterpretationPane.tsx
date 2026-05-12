@@ -54,6 +54,11 @@ interface Props {
    * "Populate from boreholes" button to walk every borehole's
    * stratigraphy observations and extract unique formation names. */
   boreholeIds?: readonly string[]
+  /** Name of the project's active geological model. Surfaced as a
+   * small subtitle in the pane header so the user knows which
+   * model their formation picks belong to. v1 auto-bootstraps a
+   * "Default" model per project so this is rarely null. */
+  activeModelName?: string | null
   /** App-level callback fired after a successful POST so the
    * manifest + session-imports set update in lockstep with this
    * pane's local state. Without it the pane works but the project
@@ -69,6 +74,7 @@ export default function InterpretationPane({
   manifestFormationIds,
   sessionImportFormationIds,
   boreholeIds,
+  activeModelName,
   onFormationCreated,
   onFormationDeleted,
 }: Props): JSX.Element {
@@ -331,12 +337,22 @@ export default function InterpretationPane({
   return (
     <div className="flex flex-col gap-3 px-3 py-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-gray-700">
-          <Layers size={14} className="text-amber-700" />
-          <span className="text-xs font-medium">Formations</span>
-          <span className="text-[10px] text-gray-400 tabular-nums">
-            {visibleFormations.length}
-          </span>
+        <div className="flex flex-col gap-0.5 text-gray-700 min-w-0">
+          <div className="flex items-center gap-2">
+            <Layers size={14} className="text-amber-700" />
+            <span className="text-xs font-medium">Formations</span>
+            <span className="text-[10px] text-gray-400 tabular-nums">
+              {visibleFormations.length}
+            </span>
+          </div>
+          {activeModelName && (
+            <div
+              className="text-[10px] text-gray-400 pl-5 truncate"
+              title="Active geological model — every formation pick belongs to this model"
+            >
+              Model: <span className="text-gray-600">{activeModelName}</span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <Button

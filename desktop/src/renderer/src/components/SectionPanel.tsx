@@ -32,12 +32,15 @@ import type {
   BoreholeListItem,
   CptListItem,
   CrossSectionResponse,
+  FormationContactResponse,
+  GeologicalFormationResponse,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { nudgeColumns } from '../utils/columnLayout'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import BoreholeColumn from './sections/BoreholeColumn'
+import ContactsLayer from './sections/ContactsLayer'
 import CptDataColumn from './sections/CptDataColumn'
 import {
   cptBandFullWidth,
@@ -98,6 +101,13 @@ interface Props {
    * panel cleanly. Optional for the test-render path. */
   onSelectCpt?: (id: string) => void
   onSelectBorehole?: (id: string) => void
+  /** Active geological model's formation contacts — render as the
+   * Phase 4 editor overlay (horizontal lines connecting picks per
+   * formation across the projected investigations). */
+  contacts?: readonly FormationContactResponse[]
+  /** Formation vocabulary — used to colour each contact polyline
+   * with the formation's own colour. */
+  formations?: readonly GeologicalFormationResponse[]
 }
 
 export default function SectionPanel({
@@ -107,6 +117,8 @@ export default function SectionPanel({
   boreholes = [],
   onPatch,
   onClose,
+  contacts = [],
+  formations = [],
   onSelectCpt,
   onSelectBorehole,
 }: Props): JSX.Element {
@@ -822,6 +834,21 @@ export default function SectionPanel({
               onSelectCpt={undefined}
               onSelectBorehole={undefined}
               hideStickIds={hideStickIds}
+            />
+
+            {/* Geological-model formation contacts. Each formation
+                with ≥1 contact in this section renders as a
+                coloured polyline through its anchor columns; the
+                formation's name label sits to the right of the
+                rightmost vertex. Empty when the project has no
+                contacts yet (the Phase 4 editor's blank canvas). */}
+            <ContactsLayer
+              contacts={contacts}
+              formations={formations}
+              placedColumns={placedColumns}
+              levelToScreen={levelToScreen}
+              plotTop={MARGIN.top}
+              plotBottom={MARGIN.top + plotHeight}
             />
 
             {/* Axis labels. */}
