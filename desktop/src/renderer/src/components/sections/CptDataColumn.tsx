@@ -136,6 +136,8 @@ export default function CptDataColumn({
                 plotTop={plotTop}
                 plotBottom={plotBottom}
                 surfaceY={surfaceY}
+                bgTopY={bgTopY}
+                bgBottomY={bgBottomY}
               />
             )
           case 'rf':
@@ -148,6 +150,8 @@ export default function CptDataColumn({
                 plotTop={plotTop}
                 plotBottom={plotBottom}
                 surfaceY={surfaceY}
+                bgTopY={bgTopY}
+                bgBottomY={bgBottomY}
               />
             )
           case 'fs':
@@ -302,6 +306,8 @@ function QcTrack({
   plotTop,
   plotBottom,
   surfaceY,
+  bgTopY,
+  bgBottomY,
 }: {
   slot: TrackSlot
   qc: number[]
@@ -310,29 +316,67 @@ function QcTrack({
   plotTop: number
   plotBottom: number
   surfaceY: number
+  /** Top / bottom Y of the CPT data band — gridlines are trimmed to
+   * this range so they don't bleed across the full plot height. */
+  bgTopY: number
+  bgBottomY: number
 }): JSX.Element {
   const qcPath = curvePath(qc, screenY, slot, QC_FULL_SCALE_MPA, plotTop, plotBottom)
   const qtPath = qTotal
     ? curvePath(qTotal, screenY, slot, QT_FULL_SCALE_MPA, plotTop, plotBottom)
     : ''
-  // 2 MPa gridline — DOV reference for the loose-vs-dense sand
-  // transition. Subtle dashed line behind the curve.
-  const gridX = slot.leftX + (2 / QC_FULL_SCALE_MPA) * slot.width
-  // Surface tick — a short horizontal stub at the column's top
-  // showing where depth=0 is, even when the first qc sample is at
-  // 0.5 m (pre-drilled).
+  // 2 MPa gridline (DOV reference for the loose-vs-dense sand
+  // transition) + 10 MPa gridline at the qc full-scale right edge.
+  // Both bounded to the data extent rather than the full plot
+  // height — the section reads cleaner when the dashed grey lines
+  // stop where the CPT does.
+  const grid2X = slot.leftX + (2 / QC_FULL_SCALE_MPA) * slot.width
+  const grid10X = slot.rightX
   const showSurfaceTick = surfaceY >= plotTop && surfaceY <= plotBottom
+  const showLabels = bgBottomY - bgTopY > 4 && bgTopY > plotTop + 4
+  const labelY = bgTopY - 3
   return (
     <g pointerEvents="none">
       <line
-        x1={gridX}
-        x2={gridX}
-        y1={plotTop}
-        y2={plotBottom}
+        x1={grid2X}
+        x2={grid2X}
+        y1={bgTopY}
+        y2={bgBottomY}
         stroke={GRID_COLOR}
         strokeWidth={0.5}
         strokeDasharray="2 2"
       />
+      <line
+        x1={grid10X}
+        x2={grid10X}
+        y1={bgTopY}
+        y2={bgBottomY}
+        stroke={GRID_COLOR}
+        strokeWidth={0.5}
+        strokeDasharray="2 2"
+      />
+      {showLabels && (
+        <>
+          <text
+            x={grid2X}
+            y={labelY}
+            fontSize={7}
+            fill="#6b7280"
+            textAnchor="middle"
+          >
+            2
+          </text>
+          <text
+            x={grid10X}
+            y={labelY}
+            fontSize={7}
+            fill="#6b7280"
+            textAnchor="end"
+          >
+            10 MPa
+          </text>
+        </>
+      )}
       {showSurfaceTick && (
         <line
           x1={slot.leftX}
@@ -374,6 +418,8 @@ function RfTrack({
   plotTop,
   plotBottom,
   surfaceY,
+  bgTopY,
+  bgBottomY,
 }: {
   slot: TrackSlot
   rf: (number | null)[] | null
@@ -381,19 +427,23 @@ function RfTrack({
   plotTop: number
   plotBottom: number
   surfaceY: number
+  bgTopY: number
+  bgBottomY: number
 }): JSX.Element | null {
   if (rf === null || rf.length === 0) return null
   const rfPath = curvePath(rf, screenY, slot, RF_FULL_SCALE_PCT, plotTop, plotBottom)
   const grid2 = slot.leftX + (2 / RF_FULL_SCALE_PCT) * slot.width
   const grid4 = slot.leftX + (4 / RF_FULL_SCALE_PCT) * slot.width
   const showSurfaceTick = surfaceY >= plotTop && surfaceY <= plotBottom
+  const showLabels = bgBottomY - bgTopY > 4 && bgTopY > plotTop + 4
+  const labelY = bgTopY - 3
   return (
     <g pointerEvents="none">
       <line
         x1={grid2}
         x2={grid2}
-        y1={plotTop}
-        y2={plotBottom}
+        y1={bgTopY}
+        y2={bgBottomY}
         stroke={GRID_COLOR}
         strokeWidth={0.5}
         strokeDasharray="2 2"
@@ -401,12 +451,22 @@ function RfTrack({
       <line
         x1={grid4}
         x2={grid4}
-        y1={plotTop}
-        y2={plotBottom}
+        y1={bgTopY}
+        y2={bgBottomY}
         stroke={GRID_COLOR}
         strokeWidth={0.5}
         strokeDasharray="2 2"
       />
+      {showLabels && (
+        <>
+          <text x={grid2} y={labelY} fontSize={7} fill="#6b7280" textAnchor="middle">
+            2%
+          </text>
+          <text x={grid4} y={labelY} fontSize={7} fill="#6b7280" textAnchor="middle">
+            4%
+          </text>
+        </>
+      )}
       {showSurfaceTick && (
         <line
           x1={slot.leftX}
