@@ -136,6 +136,53 @@ describe('CptDataColumn — DOV slot order (Rf left, qc right)', () => {
   })
 })
 
+describe('CptDataColumn — per-CPT gridline value labels (DOV convention)', () => {
+  it('renders qc "2" + "10 MPa" labels and rf "2%" + "4%" labels', () => {
+    // DOV lengteprofiel scale annotation: each test's gridline
+    // values sit just above its data band ("4% 2%2 +Z 10 MPa" in
+    // the PDF). Per-CPT labels are the only way to read the qc /
+    // rf scale at a glance when each column is rendered at a
+    // different X on a shared canvas.
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: true, rf: true, fs: false, u2: false, qTotal: false },
+    })
+    const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent)
+    expect(texts).toContain('2')
+    expect(texts).toContain('10 MPa')
+    expect(texts).toContain('2%')
+    expect(texts).toContain('4%')
+  })
+
+  it('adds a 10 MPa qc gridline at the right edge of the qc slot', () => {
+    // The user's explicit ask: "Also I want one at 10 qc." Verified
+    // via the dashed gridline count on a qc-only column — there
+    // should be two (2 MPa + 10 MPa).
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
+    })
+    const dashed = container.querySelectorAll('line[stroke-dasharray="2 2"]')
+    expect(dashed.length).toBe(2)
+  })
+
+  it('bounds gridlines to the CPT data extent, not the full plot height', () => {
+    // Background bound earlier; the gridline trim came in the
+    // same DOV-faithful pass. Both gridlines on a qc-only column
+    // must sit inside [bgTopY, bgBottomY] = [90, 95] for this
+    // fixture (surface=10 m, 5 m deep, levelToScreen flipped).
+    const { container } = renderColumn({
+      cptType: 'CPTU',
+      channels: { qc: true, rf: false, fs: false, u2: false, qTotal: false },
+    })
+    const dashed = container.querySelectorAll('line[stroke-dasharray="2 2"]')
+    for (const line of dashed) {
+      expect(line.getAttribute('y1')).toBe('90')
+      expect(line.getAttribute('y2')).toBe('95')
+    }
+  })
+})
+
 describe('CptDataColumn — bounded background', () => {
   it('limits the white track background to the CPT vertical extent', () => {
     // surface=10 m and bottom depth 5 m + flipped levelToScreen
