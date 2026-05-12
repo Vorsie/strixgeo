@@ -825,6 +825,7 @@ export default function App() {
     async (patch: {
       projection_buffer_m?: number
       vertical_exaggeration?: number
+      view_state?: Record<string, unknown>
     }) => {
       if (!project || !selectedSectionId) return
       try {
