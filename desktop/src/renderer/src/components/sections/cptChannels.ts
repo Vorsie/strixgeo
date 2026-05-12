@@ -147,49 +147,39 @@ export function readColumnSpacing(
 // BoreholeColumn for the strip layout pass.
 
 export interface BoreholeChannels {
-  /** ``coded_lithology`` observation — granular ISO 14688 stream. */
-  lithology: boolean
   /** ``geotechnical_coding`` observation — what most engineers cite. */
   geotech: boolean
-  /** ``lithological_description`` observation — narrative + soil-code
-   * stream. */
-  description: boolean
   /** ``formal_stratigraphy`` observation. */
   formal_strat: boolean
   /** ``informal_stratigraphy`` observation. */
   informal_strat: boolean
-  /** ``quaternary_stratigraphy`` observation. */
-  quaternary: boolean
-  // NOTE: ``drill_method`` (a borehole-header field, not an
-  // observation) and ``field_log`` (a separate intervals array with
-  // its own kinds) are deliberately NOT in this toggle bag. Both
-  // need a different rendering than the per-observation-type strip
-  // model and will land as additional column types when their
-  // rendering passes ship.
+  // NOTE: ``coded_lithology``, ``lithological_description`` and
+  // ``quaternary_stratigraphy`` were toggles in an earlier turn but
+  // the user dropped them — geotech + formal + informal are the
+  // streams worth cross-referencing in a section view. The detail
+  // panel still surfaces the dropped streams when needed.
+  //
+  // ``drill_method`` (a borehole-header field, not an observation)
+  // and ``field_log`` (separate intervals array with its own kinds)
+  // are intentional gaps — both need a different column-render than
+  // the strip model.
 }
 
 export const DEFAULT_BOREHOLE_CHANNELS: BoreholeChannels = {
-  lithology: false,
   geotech: true,
-  description: false,
   formal_strat: false,
   informal_strat: false,
-  quaternary: false,
 }
 
 /** Mapping from channel key to the DOV ``observation_type`` value the
  * backend ships. Iteration order = display order in the band:
- * lithology → geotech → description → formal → informal → quaternary,
- * matching DOV's "lengteprofiel" PDF stream order. */
+ * geotech → formal → informal. */
 export const BOREHOLE_CHANNEL_OBSERVATION_TYPES: ReadonlyArray<
   [keyof BoreholeChannels, string]
 > = [
-  ['lithology', 'coded_lithology'],
   ['geotech', 'geotechnical_coding'],
-  ['description', 'lithological_description'],
   ['formal_strat', 'formal_stratigraphy'],
   ['informal_strat', 'informal_stratigraphy'],
-  ['quaternary', 'quaternary_stratigraphy'],
 ]
 
 export function readBoreholeChannels(
@@ -204,12 +194,9 @@ export function readBoreholeChannels(
     return typeof v === 'boolean' ? v : DEFAULT_BOREHOLE_CHANNELS[key]
   }
   return {
-    lithology: readBool('lithology'),
     geotech: readBool('geotech'),
-    description: readBool('description'),
     formal_strat: readBool('formal_strat'),
     informal_strat: readBool('informal_strat'),
-    quaternary: readBool('quaternary'),
   }
 }
 
@@ -218,12 +205,9 @@ export function readBoreholeChannels(
  * occupies, so adjacent columns get pushed apart proportionally. */
 export function enabledBoreholeChannelCount(channels: BoreholeChannels): number {
   let n = 0
-  if (channels.lithology) n += 1
   if (channels.geotech) n += 1
-  if (channels.description) n += 1
   if (channels.formal_strat) n += 1
   if (channels.informal_strat) n += 1
-  if (channels.quaternary) n += 1
   return n
 }
 
