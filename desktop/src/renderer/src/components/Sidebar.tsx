@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { usePersistedJSON } from '../hooks/usePersistedJSON'
+import InterpretationPane from './interpretation/InterpretationPane'
 import {
   Activity,
   AlertTriangle,
@@ -8,6 +9,7 @@ import {
   Drill,
   EyeOff,
   Gauge,
+  Layers,
   MapPin,
   Plus,
   Search,
@@ -24,7 +26,7 @@ import type {
 import DirtyAsterisk from './ui/DirtyAsterisk'
 import { isTypingTarget } from '../utils/keyboard'
 
-type DataType = 'cpt' | 'borehole' | 'section' | 'dmt'
+type DataType = 'cpt' | 'borehole' | 'section' | 'dmt' | 'geology'
 type SortKey = 'default' | 'name' | 'depth'
 type SortDirection = 'asc' | 'desc'
 
@@ -110,16 +112,46 @@ interface Props {
   canCreateSection?: boolean
 }
 
-const TABS: { id: DataType; label: string; icon: React.ReactNode; available: boolean }[] = [
-  { id: 'cpt',      label: 'CPT',      icon: <Activity size={14} />,  available: true  },
-  { id: 'borehole', label: 'Borehole', icon: <Drill size={14} />,     available: true  },
-  // ``Slash`` reads as a straight diagonal line — closest stock-icon
-  // metaphor for a cross-section slice through the project. Tab label
-  // is the geotech-shorthand "X-sections" (10 chars) so it fits next
-  // to "Borehole" in the cramped tab bar; the formal term
-  // "Cross-section" is used in every body text, button, and tooltip.
-  { id: 'section',  label: 'X-sections', icon: <Slash size={14} />,   available: true  },
-  { id: 'dmt',      label: 'DMT',      icon: <Gauge size={14} />,     available: false },
+// Three top-level categories — Tests are raw data sources,
+// Visualisation is views into those sources (X-sections; eventually
+// maps + 3D), Interpretation is the engineering model the platform
+// produces (geological formations + contacts + geotech units, the
+// Phase 4 MVP-gate output).
+//
+// Sub-tabs live under each category header so the IA stays clean as
+// more tabs land: a new lab-test type joins Tests; a 3D view joins
+// Visualisation; a parameter editor joins Interpretation. Adding a
+// tab is a single line in the right bucket rather than another
+// entry in a flat bar that eventually overflows.
+const CATEGORIES: {
+  name: string
+  tabs: { id: DataType; label: string; icon: React.ReactNode; available: boolean }[]
+}[] = [
+  {
+    name: 'Tests',
+    tabs: [
+      { id: 'cpt',      label: 'CPT',      icon: <Activity size={14} />, available: true  },
+      { id: 'borehole', label: 'Borehole', icon: <Drill size={14} />,    available: true  },
+      { id: 'dmt',      label: 'DMT',      icon: <Gauge size={14} />,    available: false },
+    ],
+  },
+  {
+    name: 'Visualisation',
+    tabs: [
+      // ``Slash`` reads as a straight diagonal line — closest stock
+      // icon to a cross-section slice through the project.
+      { id: 'section', label: 'X-sections', icon: <Slash size={14} />, available: true },
+    ],
+  },
+  {
+    name: 'Interpretation',
+    tabs: [
+      // The Phase 4 MVP-gate feature: a per-project geological model
+      // (formations + contacts + geotech subdivision) that the
+      // exporters serialise to DXF / Plaxis.
+      { id: 'geology', label: 'Ground model', icon: <Layers size={14} />, available: true },
+    ],
+  },
 ]
 
 function cptBadgeColor(type: string) {
@@ -438,25 +470,39 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex border-b border-gray-200">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => tab.available && setActiveTab(tab.id)}
-            title={tab.available ? tab.label : `${tab.label} — Phase 3`}
-            className={[
-              'flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors',
-              !tab.available
-                ? 'text-gray-300 cursor-not-allowed'
-                : activeTab === tab.id
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
-            ].join(' ')}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
+      {/* Three-category tab bar: Tests / Visualisation /
+          Interpretation. Each category renders its own row of
+          sub-tabs underneath a small uppercase label. The IA
+          mirrors how engineers think about the work — raw data
+          sources up top, views into those sources in the middle,
+          the engineering model (Phase 4 MVP gate) at the bottom. */}
+      <div className="border-b border-gray-200">
+        {CATEGORIES.map(category => (
+          <div key={category.name} className="border-t border-gray-100 first:border-t-0">
+            <div className="px-3 pt-1.5 pb-0.5 text-[9px] uppercase tracking-wide text-gray-400 font-medium">
+              {category.name}
+            </div>
+            <div className="flex">
+              {category.tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => tab.available && setActiveTab(tab.id)}
+                  title={tab.available ? tab.label : `${tab.label} — coming later`}
+                  className={[
+                    'flex-1 flex flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors',
+                    !tab.available
+                      ? 'text-gray-300 cursor-not-allowed'
+                      : activeTab === tab.id
+                        ? 'text-blue-600 border-b-2 border-blue-600'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+                  ].join(' ')}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 
@@ -621,6 +667,7 @@ export default function Sidebar({
             canCreate={canCreateSection}
           />
         )}
+        {activeTab === 'geology' && <InterpretationPane />}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
       </div>
 
@@ -639,6 +686,7 @@ export default function Sidebar({
             {sections.length} cross-section{sections.length !== 1 ? 's' : ''}
           </span>
         )}
+        {activeTab === 'geology' && <span>Ground model</span>}
         {activeTab === 'dmt' && <span>—</span>}
         {removedCount > 0 && (activeTab === 'cpt' || activeTab === 'borehole') && (
           <button
