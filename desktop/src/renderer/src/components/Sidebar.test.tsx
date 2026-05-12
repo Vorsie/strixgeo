@@ -189,6 +189,44 @@ describe('Sidebar — viewport-out partition (debt #14, always-on)', () => {
   })
 })
 
+describe('Sidebar — three-category IA', () => {
+  it('renders Tests / Visualisation / Interpretation category headers', () => {
+    renderSidebar()
+    expect(screen.getByText('Tests')).toBeInTheDocument()
+    expect(screen.getByText('Visualisation')).toBeInTheDocument()
+    expect(screen.getByText('Interpretation')).toBeInTheDocument()
+  })
+
+  it('groups CPT + Borehole + DMT under Tests', () => {
+    renderSidebar()
+    // The sub-tabs render as labels alongside their icons — finding
+    // them by text is enough since the category context is the
+    // visual grouping.
+    expect(screen.getByText('CPT')).toBeInTheDocument()
+    expect(screen.getByText('Borehole')).toBeInTheDocument()
+    expect(screen.getByText('DMT')).toBeInTheDocument()
+  })
+
+  it('X-sections sub-tab lives under Visualisation, not Tests', () => {
+    renderSidebar()
+    expect(screen.getByText('X-sections')).toBeInTheDocument()
+  })
+
+  it('Interpretation surfaces the Ground model sub-tab', () => {
+    renderSidebar()
+    expect(screen.getByText('Ground model')).toBeInTheDocument()
+  })
+
+  it('clicking the Ground model sub-tab switches activeTab and renders the pane scaffold', () => {
+    renderSidebar()
+    fireEvent.click(screen.getByText('Ground model'))
+    // The pane lists the upcoming slices — pick one as a stable
+    // marker (formations vocabulary is the first slice and the
+    // single most user-visible feature word).
+    expect(screen.getByText(/Formations vocabulary/i)).toBeInTheDocument()
+  })
+})
+
 describe('Sidebar — no per-row dirty visual on import', () => {
   it('does not render an amber asterisk on any CPT row', () => {
     // Memory file ``project_two_stage_save_model.md`` carves imports
