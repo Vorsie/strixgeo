@@ -10,9 +10,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  DEFAULT_BOREHOLE_CHANNELS,
   DEFAULT_CPT_CHANNELS,
   cptBandFullWidth,
   cptBandHalfWidth,
+  enabledBoreholeChannelCount,
+  readBoreholeChannels,
   readColumnSpacing,
   readCptChannels,
 } from './cptChannels'
@@ -88,6 +91,72 @@ describe('cptBandFullWidth — applicable-channel gate', () => {
     const channels = { ...DEFAULT_CPT_CHANNELS }
     // qc + rf still apply universally; kind-gated channels drop out.
     expect(cptBandFullWidth(null, channels, halfWidth)).toBe(2 * halfWidth)
+  })
+})
+
+describe('readBoreholeChannels — parse + default fallback', () => {
+  it('returns the documented defaults when view_state is null', () => {
+    expect(readBoreholeChannels(null)).toEqual(DEFAULT_BOREHOLE_CHANNELS)
+  })
+
+  it('returns the defaults when borehole_channels key is missing', () => {
+    expect(readBoreholeChannels({ cpt_channels: {} })).toEqual(DEFAULT_BOREHOLE_CHANNELS)
+  })
+
+  it('returns the defaults when value is not an object', () => {
+    expect(readBoreholeChannels({ borehole_channels: 'yes' })).toEqual(
+      DEFAULT_BOREHOLE_CHANNELS,
+    )
+  })
+
+  it('parses a full toggle bag verbatim', () => {
+    const persisted = {
+      borehole_channels: {
+        lithology: true,
+        geotech: false,
+        formal_strat: true,
+        quaternary: false,
+      },
+    }
+    expect(readBoreholeChannels(persisted)).toEqual(persisted.borehole_channels)
+  })
+
+  it('falls back to the per-key default when a key is missing or non-boolean', () => {
+    const partial = { borehole_channels: { lithology: true, geotech: 'oops' } }
+    expect(readBoreholeChannels(partial)).toEqual({
+      lithology: true, // honoured
+      geotech: DEFAULT_BOREHOLE_CHANNELS.geotech, // string ignored, default
+      formal_strat: DEFAULT_BOREHOLE_CHANNELS.formal_strat,
+      quaternary: DEFAULT_BOREHOLE_CHANNELS.quaternary,
+    })
+  })
+})
+
+describe('enabledBoreholeChannelCount', () => {
+  it('returns 0 when no channel is enabled', () => {
+    expect(
+      enabledBoreholeChannelCount({
+        lithology: false,
+        geotech: false,
+        formal_strat: false,
+        quaternary: false,
+      }),
+    ).toBe(0)
+  })
+
+  it('counts each enabled channel', () => {
+    expect(
+      enabledBoreholeChannelCount({
+        lithology: true,
+        geotech: true,
+        formal_strat: false,
+        quaternary: true,
+      }),
+    ).toBe(3)
+  })
+
+  it('the default channel bag has count 1 (geotech on)', () => {
+    expect(enabledBoreholeChannelCount(DEFAULT_BOREHOLE_CHANNELS)).toBe(1)
   })
 })
 
