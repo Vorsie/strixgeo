@@ -1760,26 +1760,44 @@ Toggle UI itself (writing channel changes back via
 follow-on (debt #40 — same trigger: when channel-toggle UI
 ships in S7 polish v2 or later).
 
-### 26. Geology + section routers bypass the application layer
+### 26. Geology + section routers bypass the application layer — DONE (partial; CRUD intentionally direct)
 
-**What.** ``api/routers/geology.py`` and ``api/routers/cross_section.py``
-talk directly to repositories and ORM models with no use-case class
-between. Read-heavy CRUD tolerates this, but the upcoming
-geological model EDITOR has business invariants (gap-check, contact
-ordering, cascade re-interpolation) that belong in
-``application/``. The validator already exists as a GET endpoint
-inside the repository, not as a domain service.
+Resolved 2026-05-12 for the editor-load-bearing surface:
 
-**Fix shape.** Introduce ``application/set_formation_contact.py``,
-``application/create_geological_model.py``, etc. as
-``GroundModelLogger``-inheriting use-case classes. Move the
-gap-check helper to ``domain/services/geology_validator.py``.
-Routers call use cases; use cases call repositories.
+* ``domain/services/geology_validator.py`` carries ``GeologyValidator``
+  + a frozen ``ContactDepth`` input shape. The validator is pure
+  domain logic with no infrastructure import; 9 unit tests pin the
+  rules. ``GeologyRepository.validate_no_gaps`` keeps the
+  single-call loader signature but is now a 4-line thin shim that
+  projects ORM rows into ``ContactDepth`` and delegates.
+* Three application use cases land for the formation-contact
+  mutation flow (the editor's bread and butter):
+  ``CreateFormationContact``, ``UpdateFormationContact``,
+  ``DeleteFormationContact``. One class per file under
+  ``application/``; each inherits ``GroundModelLogger`` and owns
+  its session commit.
+* ``ValidateBoreholeStratigraphy`` use case wraps the read-only
+  validate-no-gaps call so the editor has a single stable hook for
+  future batch-validate orchestration.
+* Geology router wires the four endpoints through use cases. Other
+  CRUD endpoints (formations, geotechnical units, models — pure
+  read/write pass-through) stay direct-to-repo by design: the use
+  case pattern earns its keep when there's real orchestration, not
+  for one-line ``repo.create + commit``. The debt's "Read-heavy
+  CRUD tolerates this" call applies symmetrically to write-CRUD
+  with no domain invariants.
 
-**When to revisit.** Before the first router handler needs to
-call the gap-check before committing a write — i.e. before any
-mutation in the geological model editor. Trigger: editor work
-starts.
+XOR check on the contact anchor stays at three boundaries by
+design — Pydantic 422 (HTTP), ``GeologyRepository.create_contact``
+``ValueError`` (defence for non-API callers), and the DB CHECK
+constraint. The use case does not re-check.
+
+Cross-section router still calls ``CrossSectionRepository``
+directly. There are no cross-field invariants on a section that
+need a use case today; the distinct-endpoints check lives at the
+Pydantic boundary and is re-checked post-update in the router.
+Promote to a use case if/when the editor's batch-save flow needs
+to update a section + its contained contacts atomically.
 
 ### 27. Geological model has no domain dataclasses — DONE
 
