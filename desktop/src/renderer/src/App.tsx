@@ -1346,6 +1346,8 @@ export default function App() {
           projectName={project.name}
           projectFilePath={projectFilePath}
           projectDirty={projectDirty}
+          sessionImportCptIds={sessionImportCptIds}
+          sessionImportBoreholeIds={sessionImportBoreholeIds}
           onCloseProject={handleSidebarCloseRequest}
           onEditMetadata={() => setMetadataEditorOpen(true)}
           hiddenCptTypes={hiddenCptTypes}
