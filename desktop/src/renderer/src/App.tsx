@@ -495,6 +495,49 @@ export default function App() {
     [removeFromManifest, setSessionImportSectionIds],
   )
 
+  // Toggle whether a borehole anchors formation contacts in the
+  // active geological model. The model's ``excluded_borehole_ids``
+  // is the bundle-portable source of truth. Toggling fires
+  // PATCH /projects/{pid}/geology/models/{mid} and updates the
+  // local state optimistically so the contacts overlay redraws
+  // without waiting for the round-trip.
+  //
+  // Excluded boreholes still render their lithology strip (the
+  // user can still SEE them for context), but their contacts get
+  // filtered out of the ContactsLayer. Contact data stays in the
+  // DB — re-including the borehole brings the lines back.
+  const handleToggleBoreholeInModel = useCallback(
+    async (boreholeId: string, included: boolean): Promise<void> => {
+      if (!project || !activeGeologicalModel) return
+      const current = new Set(activeGeologicalModel.excluded_borehole_ids)
+      // ``included = true`` means the user wants this borehole IN
+      // the model → remove from exclusion. ``false`` adds it.
+      if (included) current.delete(boreholeId)
+      else current.add(boreholeId)
+      const nextExcluded = Array.from(current)
+      // Optimistic update first, then PATCH. On failure we log
+      // and let the next project-change effect reconcile.
+      setActiveGeologicalModel(prev =>
+        prev === null ? null : { ...prev, excluded_borehole_ids: nextExcluded },
+      )
+      try {
+        await api.geology.updateModel(project.id, activeGeologicalModel.id, {
+          excluded_borehole_ids: nextExcluded,
+        })
+      } catch (err) {
+        log.error('geology', `updateModel exclude-borehole failed for ${boreholeId}`, err)
+        // Roll back optimistic state on failure so the toggle
+        // visually reflects server truth.
+        setActiveGeologicalModel(prev =>
+          prev === null
+            ? null
+            : { ...prev, excluded_borehole_ids: activeGeologicalModel.excluded_borehole_ids },
+        )
+      }
+    },
+    [project, activeGeologicalModel],
+  )
+
   // Apply the project-local filter before anything user-visible reads
   // the lists. Two layers stack here:
   //
@@ -1536,6 +1579,11 @@ export default function App() {
           onFormationDeleted={handleFormationDeleted}
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
           activeModelName={activeGeologicalModel?.name ?? null}
+          visibleBoreholes={visibleBoreholes}
+          excludedBoreholeIds={
+            activeGeologicalModel?.excluded_borehole_ids ?? []
+          }
+          onToggleBoreholeInModel={handleToggleBoreholeInModel}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
@@ -1563,6 +1611,9 @@ export default function App() {
                 onSelectBorehole={handleSelectBorehole}
                 contacts={contacts}
                 formations={formations}
+                excludedBoreholeIds={
+                  activeGeologicalModel?.excluded_borehole_ids ?? []
+                }
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
