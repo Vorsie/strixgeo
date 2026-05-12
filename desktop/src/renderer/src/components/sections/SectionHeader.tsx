@@ -38,18 +38,22 @@ const CHANNEL_BUTTONS: readonly { key: keyof CptChannels; label: string; title: 
 ]
 
 // Borehole interpretation stream toggles, in DOV lengteprofiel
-// display order (lithology → geotech → formal strat → quaternary).
-// Geotech is the default-ON stream; the others are
-// engineer-toggleable.
+// display order. Labels chosen for readability — full DOV stream
+// name in the tooltip. Geotech is the default-ON stream; the others
+// are engineer-toggleable. drill_method + field_log are intentional
+// gaps (they need a different column-render than the lithology
+// strips and will arrive in a follow-up pass).
 const BOREHOLE_CHANNEL_BUTTONS: readonly {
   key: keyof BoreholeChannels
   label: string
   title: string
 }[] = [
-  { key: 'lithology', label: 'lit', title: 'Coded lithology (granular ISO 14688 stream)' },
-  { key: 'geotech', label: 'geo', title: 'Geotechnical coding' },
-  { key: 'formal_strat', label: 'fst', title: 'Formal stratigraphy' },
-  { key: 'quaternary', label: 'qst', title: 'Quaternary stratigraphy' },
+  { key: 'lithology', label: 'Lith', title: 'Coded lithology (granular ISO 14688 stream)' },
+  { key: 'geotech', label: 'Geo', title: 'Geotechnical coding' },
+  { key: 'description', label: 'Desc', title: 'Lithological description' },
+  { key: 'formal_strat', label: 'F-Strat', title: 'Formal stratigraphy' },
+  { key: 'informal_strat', label: 'I-Strat', title: 'Informal stratigraphy' },
+  { key: 'quaternary', label: 'Q-Strat', title: 'Quaternary stratigraphy' },
 ]
 
 // Projection-buffer slider bounds. 5 m is the tightest engineers
@@ -141,7 +145,10 @@ export default function SectionHeader({
   }, [section.id, section.projection_buffer_m])
 
   return (
-    <div className="flex items-center gap-4 px-3 py-2 border-b border-gray-200 bg-gray-50 text-xs">
+    // ``flex-wrap`` so the controls fall onto a second row in narrow
+    // windows instead of clipping the close button off the right
+    // edge. ``gap-y-1`` keeps the wrapped row hugging the first.
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 border-b border-gray-200 bg-gray-50 text-xs">
       <div className="flex flex-col min-w-0">
         <span
           className="font-medium text-gray-800 truncate"
@@ -314,7 +321,11 @@ export default function SectionHeader({
       {onClose && (
         <button
           onClick={onClose}
-          className="flex items-center justify-center w-7 h-7 rounded border border-gray-200 text-gray-500 hover:bg-white hover:text-gray-800 transition-colors"
+          // ``ml-auto`` pushes the close button to the far right of
+          // whichever wrapped row it lands on so it stays reachable
+          // even when the header overflows into two rows in narrow
+          // windows.
+          className="ml-auto shrink-0 flex items-center justify-center w-7 h-7 rounded border border-gray-200 text-gray-500 hover:bg-white hover:text-gray-800 transition-colors"
           title="Close section view (back to map)"
           aria-label="Close section view"
         >
