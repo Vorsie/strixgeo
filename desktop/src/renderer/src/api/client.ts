@@ -141,6 +141,129 @@ export interface InvestigationReviewUpsertPayload {
   is_hidden?: boolean | null
 }
 
+// Geological-formation response — per-project formation vocabulary
+// (e.g. "Boom Klei", "Diest Zand"). The geological-model editor
+// references formations by id when placing contacts; the formation
+// itself owns the display attributes (name, colour, display_order).
+// Bundle-persisted via ``project_bundle.geological_formations``.
+export interface GeologicalFormationResponse {
+  id: string
+  app_project_id: string
+  name: string
+  color: string
+  code: string | null
+  display_order: number
+  regional_ref: string | null
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GeologicalFormationCreatePayload {
+  name: string
+  color?: string
+  code?: string | null
+  display_order?: number
+  regional_ref?: string | null
+  description?: string | null
+}
+
+export interface GeologicalFormationUpdatePayload {
+  name?: string | null
+  color?: string | null
+  code?: string | null
+  display_order?: number | null
+  regional_ref?: string | null
+  description?: string | null
+}
+
+// Geological-model response — a project can have multiple
+// interpretation models; one is active at a time. Contacts live as
+// child rows fetched separately so the model list response stays
+// light.
+export interface GeologicalModelResponse {
+  id: string
+  app_project_id: string
+  name: string
+  description: string | null
+  is_active: boolean
+  excluded_borehole_ids: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface GeologicalModelCreatePayload {
+  name: string
+  description?: string | null
+  is_active?: boolean
+  excluded_borehole_ids?: string[]
+}
+
+export interface GeologicalModelUpdatePayload {
+  name?: string | null
+  description?: string | null
+  excluded_borehole_ids?: string[] | null
+}
+
+// Formation contact — one (formation top) pick per investigation
+// in the model. Polymorphic anchor (borehole_id XOR cpt_id); v1
+// ships borehole-only, the cpt_id slot stays for the Phase 5
+// Robertson-Ic-driven auto-picks.
+export type ContactSource = 'borehole_observation' | 'manual_pick' | 'interpolated'
+export type ContactConfidence = 'high' | 'medium' | 'low'
+
+export interface FormationContactResponse {
+  id: string
+  model_id: string
+  formation_id: string
+  borehole_id: string | null
+  cpt_id: string | null
+  depth_top_m: number
+  source: ContactSource
+  confidence: ContactConfidence
+  observation_id: string | null
+  observation_layer_id: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FormationContactCreatePayload {
+  formation_id: string
+  depth_top_m: number
+  borehole_id?: string | null
+  cpt_id?: string | null
+  source?: ContactSource
+  confidence?: ContactConfidence
+  observation_id?: string | null
+  observation_layer_id?: string | null
+  notes?: string | null
+}
+
+export interface FormationContactUpdatePayload {
+  formation_id?: string | null
+  depth_top_m?: number | null
+  source?: ContactSource | null
+  confidence?: ContactConfidence | null
+  notes?: string | null
+}
+
+// Gap validator output — the editor surfaces these as soft warnings
+// per borehole (missing surface contact, duplicate depth, contact
+// below test depth, etc.). Empty issues = clean stratigraphy.
+export interface GapIssueResponse {
+  kind: string
+  detail: string
+  depth_m: number | null
+  contact_ids: string[]
+}
+
+export interface GapValidationResponse {
+  model_id: string
+  borehole_id: string
+  issues: GapIssueResponse[]
+}
+
 // Geotechnical-unit response shape — mirrors GeotechnicalUnitResponse
 // on the backend 1:1. Structure-only in v1.0 (no parameter values);
 // Phase 5 extends this with γ / c' / φ' / E etc. as additive optional
@@ -720,6 +843,110 @@ export const api = {
       })
       return get(`/dem/sample?${q.toString()}`)
     },
+  },
+
+  // Geological model — formations vocabulary + interpretation models
+  // + per-investigation contacts. The Phase 4 v1.0 MVP-gate feature
+  // is built around this surface: editor places contacts on the
+  // cross-section panel, exporters serialise the resulting layer
+  // geometry to DXF / Plaxis. Every endpoint is project-scoped at
+  // the URL and bundle-persisted via ``project_bundle.geological_*``.
+  geology: {
+    // --- Formations vocabulary -------------------------------------
+    listFormations: (projectId: string): Promise<GeologicalFormationResponse[]> =>
+      get(`/projects/${projectId}/geology/formations`),
+
+    createFormation: (
+      projectId: string,
+      body: GeologicalFormationCreatePayload,
+    ): Promise<GeologicalFormationResponse> =>
+      post(`/projects/${projectId}/geology/formations`, body),
+
+    updateFormation: (
+      projectId: string,
+      formationId: string,
+      body: GeologicalFormationUpdatePayload,
+    ): Promise<GeologicalFormationResponse> =>
+      patch(`/projects/${projectId}/geology/formations/${formationId}`, body),
+
+    deleteFormation: (projectId: string, formationId: string): Promise<void> =>
+      del(`/projects/${projectId}/geology/formations/${formationId}`),
+
+    // --- Geological models ----------------------------------------
+    listModels: (projectId: string): Promise<GeologicalModelResponse[]> =>
+      get(`/projects/${projectId}/geology/models`),
+
+    createModel: (
+      projectId: string,
+      body: GeologicalModelCreatePayload,
+    ): Promise<GeologicalModelResponse> =>
+      post(`/projects/${projectId}/geology/models`, body),
+
+    updateModel: (
+      projectId: string,
+      modelId: string,
+      body: GeologicalModelUpdatePayload,
+    ): Promise<GeologicalModelResponse> =>
+      patch(`/projects/${projectId}/geology/models/${modelId}`, body),
+
+    activateModel: (
+      projectId: string,
+      modelId: string,
+    ): Promise<GeologicalModelResponse> =>
+      post(`/projects/${projectId}/geology/models/${modelId}/activate`, {}),
+
+    deleteModel: (projectId: string, modelId: string): Promise<void> =>
+      del(`/projects/${projectId}/geology/models/${modelId}`),
+
+    // --- Formation contacts (per model) ---------------------------
+    listContacts: (
+      projectId: string,
+      modelId: string,
+      filters?: { boreholeId?: string; formationId?: string },
+    ): Promise<FormationContactResponse[]> => {
+      const q = new URLSearchParams()
+      if (filters?.boreholeId) q.set('borehole_id', filters.boreholeId)
+      if (filters?.formationId) q.set('formation_id', filters.formationId)
+      const qs = q.toString()
+      return get(
+        `/projects/${projectId}/geology/models/${modelId}/contacts${qs ? `?${qs}` : ''}`,
+      )
+    },
+
+    createContact: (
+      projectId: string,
+      modelId: string,
+      body: FormationContactCreatePayload,
+    ): Promise<FormationContactResponse> =>
+      post(`/projects/${projectId}/geology/models/${modelId}/contacts`, body),
+
+    updateContact: (
+      projectId: string,
+      modelId: string,
+      contactId: string,
+      body: FormationContactUpdatePayload,
+    ): Promise<FormationContactResponse> =>
+      patch(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`,
+        body,
+      ),
+
+    deleteContact: (
+      projectId: string,
+      modelId: string,
+      contactId: string,
+    ): Promise<void> =>
+      del(`/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`),
+
+    // --- Gap validator (per borehole) -----------------------------
+    validateBorehole: (
+      projectId: string,
+      modelId: string,
+      boreholeId: string,
+    ): Promise<GapValidationResponse> =>
+      get(
+        `/projects/${projectId}/geology/models/${modelId}/boreholes/${boreholeId}/validate`,
+      ),
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
