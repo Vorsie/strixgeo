@@ -217,13 +217,13 @@ describe('Sidebar — three-category IA', () => {
     expect(screen.getByText('Ground model')).toBeInTheDocument()
   })
 
-  it('clicking the Ground model sub-tab switches activeTab and renders the pane scaffold', () => {
+  it('clicking the Ground model sub-tab switches activeTab and renders the pane', () => {
     renderSidebar()
     fireEvent.click(screen.getByText('Ground model'))
-    // The pane lists the upcoming slices — pick one as a stable
-    // marker (formations vocabulary is the first slice and the
-    // single most user-visible feature word).
-    expect(screen.getByText(/Formations vocabulary/i)).toBeInTheDocument()
+    // No projectId is passed in the default render — the pane shows
+    // its no-project guard text. Stable marker that doesn't depend
+    // on mocking the geology API.
+    expect(screen.getByText(/Open or create a project/i)).toBeInTheDocument()
   })
 })
 
