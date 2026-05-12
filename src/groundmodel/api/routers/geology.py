@@ -38,6 +38,12 @@ from groundmodel.api.schemas.project.geotechnical_unit import (
     GeotechnicalUnitResponse,
     GeotechnicalUnitUpdateRequest,
 )
+from groundmodel.application.create_formation_contact import CreateFormationContact
+from groundmodel.application.delete_formation_contact import DeleteFormationContact
+from groundmodel.application.update_formation_contact import UpdateFormationContact
+from groundmodel.application.validate_borehole_stratigraphy import (
+    ValidateBoreholeStratigraphy,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -376,13 +382,12 @@ async def create_contact(
     session: AsyncSession = Depends(get_session),
 ) -> FormationContactOrm:
     """Create a new formation contact under a model."""
-    repo = GeologyRepository(session)
     # Guard: model must exist and belong to the project.
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
     )
     try:
-        contact = await repo.create_contact(
+        return await CreateFormationContact(session).execute(
             model_id=model_id,
             formation_id=request.formation_id,
             depth_top_m=request.depth_top_m,
@@ -395,10 +400,11 @@ async def create_contact(
             notes=request.notes,
         )
     except ValueError as err:
+        # Defence-in-depth ValueError from the repository's XOR check
+        # — Pydantic should have already rejected this at the 422
+        # boundary, so reaching here means a non-API caller bypassed
+        # the request schema.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
-    await session.commit()
-    await session.refresh(contact)
-    return contact
 
 
 @router.get(
@@ -451,13 +457,12 @@ async def update_contact(
         project_id,
         detail="Contact not found",
     )
-    repo = GeologyRepository(session)
-    updated = await repo.update_contact(contact_id, request.model_dump(exclude_unset=True))
+    updated = await UpdateFormationContact(session).execute(
+        contact_id, request.model_dump(exclude_unset=True)
+    )
     if updated is None:
         # TOCTOU race — row vanished between scope-check and update.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
-    await session.commit()
-    await session.refresh(updated)
     return updated
 
 
@@ -483,9 +488,7 @@ async def delete_contact(
         project_id,
         detail="Contact not found",
     )
-    repo = GeologyRepository(session)
-    await repo.delete_contact(contact_id)
-    await session.commit()
+    await DeleteFormationContact(session).execute(contact_id)
 
 
 # ---------------------------------------------------------------------------
@@ -512,8 +515,7 @@ async def validate_no_gaps(
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
     )
-    repo = GeologyRepository(session)
-    issues = await repo.validate_no_gaps(model_id, borehole_id)
+    issues = await ValidateBoreholeStratigraphy(session).execute(model_id, borehole_id)
     return GapValidationResponse(
         model_id=model_id,
         borehole_id=borehole_id,
