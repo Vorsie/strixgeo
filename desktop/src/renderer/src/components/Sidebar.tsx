@@ -83,6 +83,28 @@ interface Props {
   // active session — exactly when they're useful.
   sessionImportCptIds?: ReadonlySet<string>
   sessionImportBoreholeIds?: ReadonlySet<string>
+  /** IDs of formations created in this session but not yet saved
+   * to the .strix file. Drives the per-row amber visual in the
+   * Interpretation pane. */
+  sessionImportFormationIds?: ReadonlySet<string>
+  /** Manifest of saved + session-created formation IDs — used by
+   * the Interpretation pane to filter out prior-session unsaved
+   * rows that still live in the DB. */
+  manifestFormationIds?: ReadonlySet<string>
+  /** Same but for cross-sections — surfaces in the SectionList
+   * when a session-created section hasn't been saved yet. */
+  sessionImportSectionIds?: ReadonlySet<string>
+  /** Fires when the Interpretation pane successfully creates a
+   * new formation — App uses it to update the manifest +
+   * session-imports set so the dirty signal flips immediately. */
+  onFormationCreated?: (id: string) => void
+  /** Fires when the Interpretation pane successfully deletes a
+   * formation. */
+  onFormationDeleted?: (id: string) => void
+  /** Visible borehole IDs — used by the Interpretation pane's
+   * "Populate from boreholes" affordance to walk every borehole's
+   * stratigraphy observations and harvest formation names. */
+  visibleBoreholeIds?: readonly string[]
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -216,6 +238,12 @@ export default function Sidebar({
   projectDirty,
   sessionImportCptIds,
   sessionImportBoreholeIds,
+  sessionImportFormationIds,
+  manifestFormationIds,
+  sessionImportSectionIds,
+  onFormationCreated,
+  onFormationDeleted,
+  visibleBoreholeIds,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -671,9 +699,19 @@ export default function Sidebar({
             onCreate={onCreateSection}
             onDelete={onDeleteSection}
             canCreate={canCreateSection}
+            sessionImportSectionIds={sessionImportSectionIds}
           />
         )}
-        {activeTab === 'geology' && <InterpretationPane projectId={projectId ?? null} />}
+        {activeTab === 'geology' && (
+          <InterpretationPane
+            projectId={projectId ?? null}
+            manifestFormationIds={manifestFormationIds}
+            sessionImportFormationIds={sessionImportFormationIds}
+            boreholeIds={visibleBoreholeIds}
+            onFormationCreated={onFormationCreated}
+            onFormationDeleted={onFormationDeleted}
+          />
+        )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
       </div>
 
@@ -992,6 +1030,7 @@ function SectionList({
   onCreate,
   onDelete,
   canCreate,
+  sessionImportSectionIds,
 }: {
   sections: CrossSectionResponse[]
   selectedId: string | null
@@ -999,6 +1038,10 @@ function SectionList({
   onCreate: (() => Promise<CrossSectionResponse | null>) | undefined
   onDelete: ((id: string) => Promise<void>) | undefined
   canCreate: boolean
+  /** IDs of sections created in the active session but not yet
+   * saved. Each surfaces with the same amber stripe / tint /
+   * asterisk as a freshly-imported CPT or borehole. */
+  sessionImportSectionIds?: ReadonlySet<string>
 }) {
   // Local flag so the "+ New" button can disable itself while a POST
   // is in flight; otherwise rapid double-clicks would race and create
@@ -1065,6 +1108,7 @@ function SectionList({
             key={s.id}
             section={s}
             selected={s.id === selectedId}
+            unsaved={sessionImportSectionIds?.has(s.id) ?? false}
             onClick={() => onSelect?.(s.id)}
             onDelete={onDelete ? () => onDelete(s.id) : undefined}
           />
@@ -1077,11 +1121,13 @@ function SectionList({
 function SectionRow({
   section,
   selected,
+  unsaved,
   onClick,
   onDelete,
 }: {
   section: CrossSectionResponse
   selected: boolean
+  unsaved: boolean
   onClick: () => void
   // Optional so a test can mount the row without wiring delete.
   onDelete: (() => Promise<void>) | undefined
@@ -1112,8 +1158,14 @@ function SectionRow({
     <div
       className={[
         'group relative flex items-center border-b border-gray-100 transition-colors',
-        'border-l-2 border-l-transparent',
-        selected ? 'bg-blue-50' : 'hover:bg-gray-50',
+        unsaved
+          ? 'border-l-4 border-l-amber-500'
+          : 'border-l-2 border-l-transparent',
+        selected
+          ? 'bg-blue-50'
+          : unsaved
+            ? 'bg-amber-100/70 hover:bg-amber-100/90'
+            : 'hover:bg-gray-50',
       ].join(' ')}
     >
       <button
@@ -1125,6 +1177,9 @@ function SectionRow({
           <span className="text-xs font-medium text-gray-800 truncate">
             {section.name}
           </span>
+          {unsaved && (
+            <DirtyAsterisk title="Created since last save — File → Save to commit" />
+          )}
         </div>
         <div className="flex items-center gap-1.5 pl-4 text-[10px] text-gray-400">
           <span>{lengthM.toFixed(0)} m</span>
