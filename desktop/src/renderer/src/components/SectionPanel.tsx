@@ -48,7 +48,7 @@ import {
 import CptDataColumn from './sections/CptDataColumn'
 import {
   cptDataTrackWidth,
-  DEFAULT_CPT_CHANNELS,
+  cptTrackWidths,
   readCptChannels,
   type CptChannels,
 } from './sections/cptChannels'
@@ -585,6 +585,12 @@ export default function SectionPanel({
     [section, boreholes, excludedBhIds],
   )
 
+  // Track widths scale with horizontal zoom — at low zoom keep
+  // columns compact, at high zoom let curves breathe. The same
+  // widths feed both the layout (nudge) and the render (column
+  // glyph) so positions and visuals stay in sync.
+  const trackWidthsByChannel = useMemo(() => cptTrackWidths(scaleH), [scaleH])
+
   // Column collision handling — when multiple investigations project
   // near the same along-distance their columns would overlap into an
   // unreadable stack. Combine both kinds, nudge in a single sweep so
@@ -597,11 +603,11 @@ export default function SectionPanel({
       ...projectedCpts.map(proj => {
         // CPT column width grows additively with each enabled data
         // channel. The bare cap+tie width is the floor; track
-        // widths come from ``cptDataTrackWidth``. The nudge then
-        // spaces edge-to-edge so a data-laden CPT next to a bare
-        // borehole still gets enough breathing room.
+        // widths come from ``cptDataTrackWidth`` at the current
+        // zoom. The nudge then spaces edge-to-edge so a data-laden
+        // CPT next to a bare borehole still gets breathing room.
         const trackW = cptPlots?.has(proj.item.id)
-          ? cptDataTrackWidth(proj.item.cpt_type, cptChannels)
+          ? cptDataTrackWidth(proj.item.cpt_type, cptChannels, trackWidthsByChannel)
           : 0
         return {
           kind: 'cpt' as const,
@@ -625,7 +631,7 @@ export default function SectionPanel({
       width: r.item.width,
       displaced: r.displaced,
     }))
-  }, [projectedCpts, projectedBoreholes, xToScreen, cptPlots, cptChannels])
+  }, [projectedCpts, projectedBoreholes, xToScreen, cptPlots, cptChannels, trackWidthsByChannel])
 
   // ---- Render --------------------------------------------------------
 
@@ -758,12 +764,13 @@ export default function SectionPanel({
               />
             )}
 
-            {/* CPT data tracks (qc curve + Rf strip + optional fs /
-                u2 / q_total) overlay each CPT column's band. Drawn
-                BEFORE the column glyphs so the cap + name label +
-                tie-back sit on top and stay readable. Only renders
-                for CPTs whose plot data finished loading; bare
-                columns render fine without it. */}
+            {/* CPT data tracks (qc curve + Rf curve + optional fs /
+                u2 / q_total). Drawn BEFORE the column glyphs so the
+                cap + name label + tie-back sit on top and stay
+                readable. Only renders for CPTs whose plot data
+                finished loading; bare columns render fine without
+                it. Widths scale with horizontal zoom so curves stay
+                readable when the user zooms in. */}
             {cptPlots !== null &&
               placedColumns.map(col => {
                 if (col.kind !== 'cpt') return null
@@ -776,6 +783,7 @@ export default function SectionPanel({
                     plot={plot}
                     cptType={item.cpt_type}
                     channels={cptChannels}
+                    widths={trackWidthsByChannel}
                     screenX={col.nudgedX}
                     surfaceElevationM={item.elevation_m}
                     plotTop={MARGIN.top}
@@ -1259,12 +1267,17 @@ function ColumnGlyph({
               fillOpacity={elevKnown ? 0.95 : 0.5}
             />
           )}
+          {/* Rotated -30° so adjacent crowded columns don't pile
+              labels on top of each other. Anchor at end so the text
+              extends up-left from the cap, mirroring DOV's
+              lengteprofiel PDF convention for dense profiles. */}
           <text
             x={sx}
-            y={sy - 6}
+            y={sy - 7}
             fontSize={9}
             fill={elevKnown ? '#1f2937' : '#9ca3af'}
-            textAnchor="middle"
+            textAnchor="end"
+            transform={`rotate(-30 ${sx} ${sy - 7})`}
           >
             {name}
             {offsetLabel}
