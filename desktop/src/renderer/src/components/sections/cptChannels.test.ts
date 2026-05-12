@@ -114,7 +114,9 @@ describe('readBoreholeChannels — parse + default fallback', () => {
       borehole_channels: {
         lithology: true,
         geotech: false,
+        description: true,
         formal_strat: true,
+        informal_strat: false,
         quaternary: false,
       },
     }
@@ -126,7 +128,9 @@ describe('readBoreholeChannels — parse + default fallback', () => {
     expect(readBoreholeChannels(partial)).toEqual({
       lithology: true, // honoured
       geotech: DEFAULT_BOREHOLE_CHANNELS.geotech, // string ignored, default
+      description: DEFAULT_BOREHOLE_CHANNELS.description,
       formal_strat: DEFAULT_BOREHOLE_CHANNELS.formal_strat,
+      informal_strat: DEFAULT_BOREHOLE_CHANNELS.informal_strat,
       quaternary: DEFAULT_BOREHOLE_CHANNELS.quaternary,
     })
   })
@@ -138,7 +142,9 @@ describe('enabledBoreholeChannelCount', () => {
       enabledBoreholeChannelCount({
         lithology: false,
         geotech: false,
+        description: false,
         formal_strat: false,
+        informal_strat: false,
         quaternary: false,
       }),
     ).toBe(0)
@@ -149,10 +155,12 @@ describe('enabledBoreholeChannelCount', () => {
       enabledBoreholeChannelCount({
         lithology: true,
         geotech: true,
+        description: false,
         formal_strat: false,
+        informal_strat: true,
         quaternary: true,
       }),
-    ).toBe(3)
+    ).toBe(4)
   })
 
   it('the default channel bag has count 1 (geotech on)', () => {
