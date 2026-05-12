@@ -91,6 +91,34 @@ export function cptBandFullWidth(
   return anyApplicable ? 2 * halfWidth : 0
 }
 
+// ---------------------------------------------------------------------------
+// Column density — horizontal compactness knob for crowded sections.
+// ---------------------------------------------------------------------------
+//
+// Multiplier on the band half-width AND the inter-column edge gap.
+// 1.0 = current default (full-width columns, 4 px gap). 0.4 = the
+// tightest readable setting (columns ~19 px wide at default zoom,
+// gaps near-flush). Scaling both terms together means the user gets
+// a single intuitive knob — "narrower columns" — that compresses the
+// whole section without making columns disproportionate to their
+// spacing.
+//
+// Lives in ``section.view_state.column_density`` so the choice rides
+// in the .gmproj bundle and survives reopens on another PC.
+
+export const COLUMN_DENSITY_MIN = 0.4
+export const COLUMN_DENSITY_MAX = 1.0
+export const COLUMN_DENSITY_DEFAULT = 1.0
+
+export function readColumnDensity(
+  viewState: Record<string, unknown> | null | undefined,
+): number {
+  if (!viewState || typeof viewState !== 'object') return COLUMN_DENSITY_DEFAULT
+  const raw = (viewState as Record<string, unknown>).column_density
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return COLUMN_DENSITY_DEFAULT
+  return Math.max(COLUMN_DENSITY_MIN, Math.min(COLUMN_DENSITY_MAX, raw))
+}
+
 /** Parse the persisted channel toggles out of a section's
  * ``view_state`` JSONB bag. Out-of-range / missing values fall
  * back to the documented defaults so a hand-edited bundle can't
