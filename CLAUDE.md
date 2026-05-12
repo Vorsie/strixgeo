@@ -1950,28 +1950,47 @@ warning on install when the active Node version is out of range.
 Re-evaluate the upper bound when Node 24.16+ ships in case the
 V8 segfault fix lands upstream.
 
-### 34. Frontend components with zero test coverage
+### 34. Frontend components with zero test coverage — DONE (partial; map-heavy still uncovered)
 
-**What.** ``CptChart.tsx`` (type-dispatch, panel layout, ghost-axis
-math), ``Sidebar.tsx`` (multi-select, removed-set, viewport
-partition), ``MapView.tsx``, ``LabTestPanel.tsx``,
-``BboxDrawer.tsx``, ``SectionLineDrawer.tsx``,
-``SectionOverlays.tsx``, ``Toolbar.tsx``, plus the section
-column primitives (``CptDataColumn.tsx``, ``cptChannels.ts``)
-under ``components/sections/`` — none have a test file. The
-recent Rules-of-Hooks TDZ audit and the S7 infinite-render-loop
-bug both hit untested render paths; the next silent regression
-is statistically here.
+Resolved 2026-05-12 for the highest-signal components. 7 new test
+files, 66 new cases (164 → 230 total frontend tests):
 
-**Fix shape.** Add smoke tests
-(``render(<Component {...minimal} />)``) for each — catches the
-TDZ + module-import-error class without needing logic coverage.
-Layer on logic tests for the highest-density components
-(``CptChart`` type-dispatch, ``Sidebar`` removed-set partition).
+* ``cptChannels.test.ts`` (14 cases) — pure helpers: zoom-clamp,
+  per-kind channel gating, qTotal overlay rule, persisted-bag
+  parse + defaults fallback.
+* ``CptChart.test.tsx`` (11 cases) — header readout, per-kind
+  legend dispatch (CPTU u2 / CPTE fs / CPTM qTotal), pre-drill
+  legend, Ic SBT strip, elevation editor surface vs read-only
+  fallback.
+* ``Sidebar.test.tsx`` (10 cases) — smoke, tab switching,
+  multi-select reveals bulk action bar, viewport-out demotion,
+  removed-set footer + restore.
+* ``ColumnGlyph.test.tsx`` (10 cases) — shape vocabulary (CPT
+  circle vs borehole square), missing-elevation degrade, missing-
+  depth degrade, tie-back chrome, click routing, offset hint.
+* ``InvestigationColumns.test.tsx`` (4 cases) — dispatch +
+  per-kind click routing.
+* ``CptDataColumn.test.tsx`` (6 cases) — slot dispatch (CPTU vs
+  CPTE u2-gated, CPTM qTotal-overlay), all-channels-off early
+  return, empty-array graceful degrade.
+* ``LabTestPanel.test.tsx`` (6 cases) — sample header, empty-
+  state, scalar-tests panel surfaces water-content row, Escape
+  closes, Arrow nav.
+* ``Toolbar.test.tsx`` (5 cases) — Import dropdown, drawing-bbox
+  label, action routing, phase-tagged disabled items.
 
-**When to revisit.** Before S8 (borehole interpretation tracks)
-extends ``CptDataColumn``; before any non-trivial refactor of
-``Sidebar`` or ``MapView``.
+Test-infra cleanup: ``test/setup.ts`` now stubs
+``window.matchMedia`` alongside ``ResizeObserver`` so Toolbar's
+``useTheme`` hook (and any future component touching
+``prefers-color-scheme``) renders cleanly in jsdom.
+
+Remaining gap: ``MapView.tsx``, ``BboxDrawer.tsx``,
+``SectionLineDrawer.tsx``, ``SectionOverlays.tsx`` — all are
+Leaflet-tight; a meaningful jsdom render requires either a heavy
+Leaflet mock or a Playwright-style runner. Defer to one of two
+triggers, whichever fires first: (a) before the geological-model
+editor lands map-side overlays (Phase 4 mid-point) or
+(b) when introducing a Playwright suite for end-to-end coverage.
 
 ### 35. ``SectionPanel.tsx`` approaching split threshold — DONE
 
