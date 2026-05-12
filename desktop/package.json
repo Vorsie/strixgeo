@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Ground Model Platform — desktop client",
   "main": "out/main/index.js",
+  "engines": {
+    "node": ">=22.0.0 <24.0.0"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

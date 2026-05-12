@@ -1899,25 +1899,16 @@ schema, forward in the router.
 **When to revisit.** Before any UI surface displays per-family
 import counts. Should be a 30-minute fix when prioritised.
 
-### 33. Node 22 constraint not machine-enforced
+### 33. Node 22 constraint not machine-enforced — DONE
 
-**What.** CLAUDE.md and the memory file document the Node 22 LTS
-pin (Node 24.15 segfaults vitest). But ``desktop/package.json``
-has no ``"engines": {"node": ">=22 <24"}`` field, and the repo
-has no ``.nvmrc`` or ``.node-version``. A fresh contributor, a
-new machine, or a CI runner picks up whatever Node is on PATH
-and hits the segfault with no diagnostic.
+Resolved 2026-05-12. Repo root carries ``.nvmrc`` with content
+``22`` (picked up by nvm-windows + fnm + Volta on shell entry).
+``desktop/package.json`` carries
+``"engines": {"node": ">=22.0.0 <24.0.0"}``; npm 9+ surfaces a
+warning on install when the active Node version is out of range.
 
-**Fix shape.** Add ``.nvmrc`` containing ``22`` at repo root.
-Add ``"engines": {"node": ">=22.0.0 <24.0.0"}`` to
-``desktop/package.json``. Both are one-line; together they cover
-the three Node version managers (nvm-windows, fnm, Volta) plus
-plain npm.
-
-**When to revisit.** Before opening the repo to any collaborator,
-or before standing up a CI runner. Also re-evaluate when Node
-24.16+ ships in case the V8 fix lands upstream — at that point
-the pin can lift.
+Re-evaluate the upper bound when Node 24.16+ ships in case the
+V8 segfault fix lands upstream.
 
 ### 34. Frontend components with zero test coverage
 
