@@ -107,9 +107,43 @@ export interface ProjectBundleResponse {
   cpts: Record<string, unknown>[]
   boreholes: Record<string, unknown>[]
   geological_formations: Record<string, unknown>[]
+  geotechnical_units: Record<string, unknown>[]
   geological_models: Record<string, unknown>[]
   cross_sections: Record<string, unknown>[]
   investigation_reviews: Record<string, unknown>[]
+}
+
+// Geotechnical-unit response shape — mirrors GeotechnicalUnitResponse
+// on the backend 1:1. Structure-only in v1.0 (no parameter values);
+// Phase 5 extends this with γ / c' / φ' / E etc. as additive optional
+// fields.
+export interface GeotechnicalUnitResponse {
+  id: string
+  app_project_id: string
+  geological_formation_id: string
+  name: string
+  color: string
+  code: string | null
+  display_order: number
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GeotechnicalUnitCreatePayload {
+  name: string
+  color?: string
+  code?: string | null
+  display_order?: number
+  description?: string | null
+}
+
+export interface GeotechnicalUnitUpdatePayload {
+  name?: string | null
+  color?: string | null
+  code?: string | null
+  display_order?: number | null
+  description?: string | null
 }
 
 // POST /projects body. Optional fields default to null/[] server-side.
@@ -639,6 +673,44 @@ export const api = {
       })
       return get(`/dem/sample?${q.toString()}`)
     },
+  },
+
+  // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
+  // /geology/formations/{fid}/units``. The ``fid`` in the URL is the
+  // parent formation; the unit's ``geological_formation_id`` is NOT
+  // updatable (re-parent via delete + recreate, mirroring the
+  // formation-contact anchor rule).
+  geotechnicalUnit: {
+    list: (
+      projectId: string,
+      formationId: string,
+    ): Promise<GeotechnicalUnitResponse[]> =>
+      get(`/projects/${projectId}/geology/formations/${formationId}/units`),
+
+    create: (
+      projectId: string,
+      formationId: string,
+      body: GeotechnicalUnitCreatePayload,
+    ): Promise<GeotechnicalUnitResponse> =>
+      post(`/projects/${projectId}/geology/formations/${formationId}/units`, body),
+
+    update: (
+      projectId: string,
+      formationId: string,
+      unitId: string,
+      body: GeotechnicalUnitUpdatePayload,
+    ): Promise<GeotechnicalUnitResponse> =>
+      patch(
+        `/projects/${projectId}/geology/formations/${formationId}/units/${unitId}`,
+        body,
+      ),
+
+    delete: (
+      projectId: string,
+      formationId: string,
+      unitId: string,
+    ): Promise<void> =>
+      del(`/projects/${projectId}/geology/formations/${formationId}/units/${unitId}`),
   },
 
   // Cross-section CRUD. Project-scoped via the URL prefix; ``projectId``
