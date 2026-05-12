@@ -18,13 +18,12 @@ project A can't read or mutate project B's data.
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.routers._helpers import get_in_project_or_404, merge_view_state
 from groundmodel.api.schemas.project.investigation_review import (
     InvestigationReviewResponse,
     InvestigationReviewUpsertRequest,
@@ -200,15 +199,10 @@ async def patch_project_view_state(
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    # Shallow merge. Build a new dict so SQLAlchemy notices the change
-    # — JSONB columns require a *new* object reference to flag dirty.
-    merged: dict[str, Any] = dict(project.view_state or {})
-    for key, value in request.patch.items():
-        if value is None:
-            merged.pop(key, None)
-        else:
-            merged[key] = value
-    project.view_state = merged
+    # Shallow merge via shared helper (mirrors PATCH /sections/{id}
+    # view_state semantics). Assigning the returned dict back gives
+    # SQLAlchemy a new object reference so the JSONB column flags dirty.
+    project.view_state = merge_view_state(project.view_state, request.patch)
 
     await session.flush()
     await session.commit()
