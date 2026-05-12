@@ -6,7 +6,13 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 // File extension for project files. Kept here (not imported from the
 // renderer) so the main process is build-self-contained — Electron's
 // ``out/main`` doesn't include the renderer source tree.
-const PROJECT_FILE_EXTENSION = 'gmproj'
+//
+// ``.strix`` is the canonical extension; ``.gmproj`` is the legacy
+// pre-rebrand extension that the open-dialog filter also accepts so
+// users with old files can keep working. New saves always emit
+// ``.strix``.
+const PROJECT_FILE_EXTENSION = 'strix'
+const PROJECT_FILE_OPEN_EXTENSIONS = ['strix', 'gmproj']
 
 // Recent-projects list — capped so the menu doesn't explode and we don't
 // accidentally accumulate decade-old paths. List is ordered most-recent
@@ -85,7 +91,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: 'Ground Model',
+    title: 'Strix',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -206,11 +212,11 @@ function buildMenu(win: BrowserWindow): void {
     {
       label: 'Help',
       submenu: [
-        { label: 'About Ground Model', click: () => {
+        { label: 'About Strix', click: () => {
           dialog.showMessageBox(win, {
             type: 'info',
-            title: 'Ground Model',
-            message: 'Ground Model Platform',
+            title: 'Strix',
+            message: 'Strix — Ground Model Platform',
             detail: 'Version 0.1.0 — Phase 2\nGeotechnical data management for EC7 Gen2.'
           })
         }}
@@ -307,7 +313,10 @@ ipcMain.handle('project:open-dialog', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [
-      { name: 'Ground Model Project', extensions: [PROJECT_FILE_EXTENSION] },
+      // Accept both the canonical ``.strix`` and the legacy
+      // ``.gmproj`` extension so users with pre-rebrand files can
+      // still open them.
+      { name: 'Strix Project', extensions: PROJECT_FILE_OPEN_EXTENSIONS },
       { name: 'All Files', extensions: ['*'] },
     ],
   })
@@ -318,7 +327,7 @@ ipcMain.handle(
   'project:save-dialog',
   async (_event, defaultName: string | undefined) => {
     const result = await dialog.showSaveDialog({
-      filters: [{ name: 'Ground Model Project', extensions: [PROJECT_FILE_EXTENSION] }],
+      filters: [{ name: 'Strix Project', extensions: [PROJECT_FILE_EXTENSION] }],
       defaultPath: defaultName,
     })
     return result.canceled ? null : result.filePath ?? null
@@ -355,7 +364,7 @@ ipcMain.handle('project:get-recent', (): RecentProject[] => readRecentProjects()
 // back to the default app title.
 ipcMain.handle('window:set-title', (_event, title: string | null) => {
   if (mainWindow === null) return
-  mainWindow.setTitle(title && title !== '' ? title : 'Ground Model')
+  mainWindow.setTitle(title && title !== '' ? title : 'Strix')
 })
 
 // Renderer's response to ``app:before-quit``. ``allowed=true`` means the

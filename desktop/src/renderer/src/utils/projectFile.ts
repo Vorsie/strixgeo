@@ -141,7 +141,14 @@ export function projectResponseFromFile(
 
 // File extension used in the open / save dialogs. Lower-case + no leading
 // dot — Electron's ``FileFilter.extensions`` field expects this shape.
-export const PROJECT_FILE_EXTENSION = 'gmproj'
+// New saves go to ``.strix``. The legacy extension ``.gmproj`` was
+// the project's internal codename before the public rebrand; we
+// continue to accept .gmproj files on open (see main-process open
+// dialog filters) so users with existing files can keep working,
+// but every Save / Save As writes the .strix extension going
+// forward.
+export const PROJECT_FILE_EXTENSION = 'strix'
+export const LEGACY_PROJECT_FILE_EXTENSION = 'gmproj'
 
 // Default suggested filename when saving a new project. Sanitised so the
 // project name doesn't blow up the OS file picker (Windows forbids
