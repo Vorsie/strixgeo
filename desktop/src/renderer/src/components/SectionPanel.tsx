@@ -754,8 +754,14 @@ export default function SectionPanel({
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
-              onSelectCpt={onSelectCpt}
-              onSelectBorehole={onSelectBorehole}
+              // Click-to-open on section glyphs disabled per
+              // user request — accidental clicks during pan / zoom
+              // were yanking the user into the detail panel. The
+              // onSelectCpt / onSelectBorehole props are still in
+              // the component signature for future re-enablement
+              // (likely behind a confirm prompt).
+              onSelectCpt={undefined}
+              onSelectBorehole={undefined}
               hideStickIds={hideStickIds}
             />
 
