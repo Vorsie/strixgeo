@@ -515,6 +515,18 @@ export default function SectionPanel({
         .map(p => p.item.id),
     [section, cpts],
   )
+  // Stable signature for the effect deps — when callers don't pass
+  // ``cpts`` (test fixtures, callers that don't have the list yet),
+  // the default ``cpts = []`` creates a NEW array literal on every
+  // render. ``useMemo`` over that returns a NEW ``[]`` per render
+  // too, so a raw ``[inBufferCptIds]`` effect dep fires on every
+  // render → setCptPlots → re-render → infinite loop (and a hung
+  // jsdom worker in tests).
+  //
+  // Joining to a string collapses reference churn into a value
+  // comparison. We pay one ``.join`` per render in exchange for a
+  // bounded effect.
+  const inBufferCptIdsKey = inBufferCptIds.join(',')
   useEffect(() => {
     let cancelled = false
     setCptPlots(null)
@@ -543,7 +555,11 @@ export default function SectionPanel({
     return () => {
       cancelled = true
     }
-  }, [section.id, inBufferCptIds])
+    // inBufferCptIds is intentionally NOT in the deps — its identity
+    // changes every render under the default-prop literal. The string
+    // key above captures its content stably.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.id, inBufferCptIdsKey])
 
   // ---- Projected investigations -----------------------------------------
 
