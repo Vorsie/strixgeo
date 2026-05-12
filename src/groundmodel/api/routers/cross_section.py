@@ -13,7 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.routers._helpers import get_in_project_or_404, merge_view_state
 from groundmodel.api.schemas.project.cross_section import (
     CrossSectionCreateRequest,
     CrossSectionResponse,
@@ -99,10 +99,28 @@ async def update_section(
 ) -> CrossSectionOrm:
     """Partial update — only fields present in the body are written."""
     repo = CrossSectionRepository(session)
-    await get_in_project_or_404(repo.get(section_id), project_id, detail="Cross-section not found")
+    section = await get_in_project_or_404(
+        repo.get(section_id), project_id, detail="Cross-section not found"
+    )
     # exclude_unset so omitted fields stay untouched; an explicit null
     # is honoured (e.g. clearing min_depth_m back to auto-fit).
     patch = request.model_dump(exclude_unset=True)
+    # view_state has its own merge semantics — see the schema docstring:
+    #   * absent from body → key not in patch (exclude_unset) → no change
+    #   * explicit ``null`` → "do not touch" sentinel; drop the key now
+    #     before the generic setattr loop runs in the repo
+    #   * empty dict ``{}`` → clear the bag (store None on the column)
+    #   * non-empty dict → shallow-merge into the existing bag so
+    #     callers can patch individual toggle keys without round-
+    #     tripping the whole bag (mirrors PATCH /projects/{id}/view-state)
+    if "view_state" in patch:
+        incoming = patch["view_state"]
+        if incoming is None:
+            patch.pop("view_state")
+        elif incoming == {}:
+            patch["view_state"] = None
+        else:
+            patch["view_state"] = merge_view_state(section.view_state, incoming)
     updated = await repo.update(section_id, patch)
     # repo.update returns None only on a TOCTOU race (the row vanished
     # between scope-check and update). Vanishingly rare; surface as 404.
