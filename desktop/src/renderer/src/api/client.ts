@@ -425,6 +425,12 @@ export interface CrossSectionUpdatePayload {
   min_depth_m?: number | null
   max_depth_m?: number | null
   display_order?: number | null
+  /** Shallow-merged into the section's view_state JSONB bag. Send
+   * a partial dict ({cpt_channels: {...}}) to patch single keys
+   * without round-tripping the whole bag. ``null`` for a top-level
+   * key removes it; ``{}`` clears the bag entirely; ``null`` for
+   * the whole field is the "do not touch" sentinel. */
+  view_state?: Record<string, unknown> | null
 }
 
 // DEM sample shape — mirrors the backend DemSampleLineResponse 1:1.
