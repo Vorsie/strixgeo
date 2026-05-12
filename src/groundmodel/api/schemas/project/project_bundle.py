@@ -76,6 +76,13 @@ class ProjectBundleRequest(BaseModel):
     # Per-project formation vocabulary — substrate entities the
     # geological model references.
     geological_formations: list[dict[str, Any]] = Field(default_factory=list)
+    # Geotechnical subdivision of formations (v1.0 MVP gate). Flat
+    # array — each row carries its own ``geological_formation_id``
+    # so the restore is "formations first, then units" and a missing
+    # parent surfaces as an FK error rather than a silent partial
+    # load. Older bundles without this key restore cleanly (default
+    # empty list).
+    geotechnical_units: list[dict[str, Any]] = Field(default_factory=list)
     # Interpretation containers. Each carries its own ``contacts`` list
     # nested (formation top per investigation), mirroring how CPT
     # carries series and borehole carries observations / samples.
@@ -101,6 +108,7 @@ class ProjectBundleResponse(BaseModel):
     cpts: list[dict[str, Any]]
     boreholes: list[dict[str, Any]]
     geological_formations: list[dict[str, Any]] = Field(default_factory=list)
+    geotechnical_units: list[dict[str, Any]] = Field(default_factory=list)
     geological_models: list[dict[str, Any]] = Field(default_factory=list)
     cross_sections: list[dict[str, Any]] = Field(default_factory=list)
     investigation_reviews: list[dict[str, Any]] = Field(default_factory=list)

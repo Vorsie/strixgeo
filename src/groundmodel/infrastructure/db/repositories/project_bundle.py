@@ -55,6 +55,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.geotechnical_unit_orm import GeotechnicalUnitOrm
 from groundmodel.infrastructure.db.models.investigation_review_orm import (
     InvestigationReviewOrm,
 )
@@ -265,6 +266,12 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
     formations_stmt = select(GeologicalFormationOrm).where(
         GeologicalFormationOrm.app_project_id == project.id
     )
+    # Geotechnical units are siblings of formations in the bundle layout
+    # rather than nested under them — the parent formation_id rides on
+    # each row, so the restore path is one flat array walk per kind. A
+    # nested shape would have to defer the unit insert until its parent
+    # formation existed in the session; flat is simpler.
+    units_stmt = select(GeotechnicalUnitOrm).where(GeotechnicalUnitOrm.app_project_id == project.id)
     models_stmt = (
         select(GeologicalModelOrm)
         .where(GeologicalModelOrm.app_project_id == project.id)
@@ -278,6 +285,7 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
     cpts = (await session.execute(cpts_stmt)).scalars().all()
     boreholes = (await session.execute(boreholes_stmt)).scalars().all()
     formations = (await session.execute(formations_stmt)).scalars().all()
+    units = (await session.execute(units_stmt)).scalars().all()
     models = (await session.execute(models_stmt)).scalars().all()
     sections = (await session.execute(sections_stmt)).scalars().all()
     reviews = (await session.execute(reviews_stmt)).scalars().all()
@@ -290,13 +298,15 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
         "cpts": [_cpt_to_dict(c) for c in cpts],
         "boreholes": [_borehole_to_dict(b) for b in boreholes],
         "geological_formations": [_column_to_json(f, _SKIP_COLUMNS) for f in formations],
+        "geotechnical_units": [_column_to_json(u, _SKIP_COLUMNS) for u in units],
         "geological_models": [_geological_model_to_dict(m) for m in models],
         "cross_sections": [_column_to_json(s, _SKIP_COLUMNS) for s in sections],
         "investigation_reviews": [_column_to_json(r, _SKIP_COLUMNS) for r in reviews],
     }
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
-        f"+ {len(formations)} formations + {len(models)} models + {len(sections)} sections "
+        f"+ {len(formations)} formations + {len(units)} geotech units "
+        f"+ {len(models)} models + {len(sections)} sections "
         f"+ {len(reviews)} reviews"
     )
     return bundle
@@ -457,6 +467,7 @@ async def restore_project_bundle(
     geological_models_payload: list[dict[str, Any]] | None = None,
     cross_sections_payload: list[dict[str, Any]] | None = None,
     investigation_reviews_payload: list[dict[str, Any]] | None = None,
+    geotechnical_units_payload: list[dict[str, Any]] | None = None,
 ) -> ProjectOrm:
     """Idempotently materialise a project + every child collection from a bundle.
 
@@ -483,6 +494,7 @@ async def restore_project_bundle(
     geological_models_payload = geological_models_payload or []
     cross_sections_payload = cross_sections_payload or []
     investigation_reviews_payload = investigation_reviews_payload or []
+    geotechnical_units_payload = geotechnical_units_payload or []
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -562,6 +574,37 @@ async def restore_project_bundle(
         kwargs["app_project_id"] = project_id
         session.add(GeologicalFormationOrm(**kwargs))
         new_formations += 1
+
+    # ---- Geotechnical units ---------------------------------------------
+    # Flat array — each row carries its own ``geological_formation_id`` so
+    # the restore order is "formations first, then units", same as any
+    # FK-respecting load. The session.flush below the loop materialises
+    # the formation rows so the unit's FK lookup succeeds even on a
+    # cold-restore (the formation was inserted three statements ago and
+    # hasn't been flushed yet).
+    existing_unit_ids = set(
+        (
+            await session.execute(
+                select(GeotechnicalUnitOrm.id).where(
+                    GeotechnicalUnitOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_units = 0
+    for u_payload in geotechnical_units_payload:
+        u_id_raw = u_payload.get("id")
+        if u_id_raw is None:
+            continue
+        u_id = UUID(u_id_raw) if isinstance(u_id_raw, str) else u_id_raw
+        if u_id in existing_unit_ids:
+            continue
+        kwargs = _apply_json_to_kwargs(GeotechnicalUnitOrm, u_payload)
+        kwargs["app_project_id"] = project_id
+        session.add(GeotechnicalUnitOrm(**kwargs))
+        new_units += 1
 
     # ---- Geological models + their formation contacts --------------------
     existing_model_ids = set(
@@ -696,8 +739,9 @@ async def restore_project_bundle(
     logger.info(
         f"restore_project_bundle({project_id}): "
         f"+{new_cpts} CPTs, +{new_boreholes} boreholes, "
-        f"+{new_formations} formations, +{new_models} models "
-        f"(+{new_contacts} contacts), +{new_sections} sections, "
+        f"+{new_formations} formations, +{new_units} geotech units, "
+        f"+{new_models} models (+{new_contacts} contacts), "
+        f"+{new_sections} sections, "
         f"+{new_reviews} reviews ({dropped_reviews} dropped as orphan)"
     )
     return project
