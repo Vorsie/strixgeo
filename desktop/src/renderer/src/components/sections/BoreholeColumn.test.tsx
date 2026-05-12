@@ -111,16 +111,16 @@ describe('BoreholeColumn — N-strip rendering', () => {
     expect(container.querySelectorAll('rect').length).toBe(2)
   })
 
-  it('renders three strips side by side when lithology + geotech + formal are on', () => {
+  it('renders three strips side by side when all three channels are on', () => {
     const detail = makeDetail([
-      makeObservation('coded_lithology', [makeLayer({ id: 'a', top_m: 0, base_m: 1 })]),
       makeObservation('geotechnical_coding', [makeLayer({ id: 'b', top_m: 0, base_m: 1 })]),
       makeObservation('formal_stratigraphy', [makeLayer({ id: 'c', top_m: 0, base_m: 1 })]),
+      makeObservation('informal_stratigraphy', [makeLayer({ id: 'd', top_m: 0, base_m: 1 })]),
     ])
     const { container } = renderColumn(detail, {
-      lithology: true,
       geotech: true,
       formal_strat: true,
+      informal_strat: true,
     })
     const rects = Array.from(container.querySelectorAll('rect'))
     expect(rects.length).toBe(3)
@@ -132,13 +132,12 @@ describe('BoreholeColumn — N-strip rendering', () => {
 
   it('renders nothing when no channel is enabled', () => {
     const detail = makeDetail([
-      makeObservation('coded_lithology', [makeLayer({ id: 'l1', top_m: 0, base_m: 1 })]),
+      makeObservation('geotechnical_coding', [makeLayer({ id: 'l1', top_m: 0, base_m: 1 })]),
     ])
     const { container } = renderColumn(detail, {
-      lithology: false,
       geotech: false,
       formal_strat: false,
-      quaternary: false,
+      informal_strat: false,
     })
     expect(container.querySelectorAll('rect').length).toBe(0)
   })
@@ -167,27 +166,25 @@ describe('BoreholeColumn — N-strip rendering', () => {
   })
 
   it('keeps slot positions stable when a borehole is missing the enabled stream', () => {
-    // Enabling lithology + geotech, but the borehole only has the
-    // geotech observation. The lithology slot stays in its place
-    // (slot index 0); the geotech strip sits in slot 1 at the
-    // expected X. This is the consistency-of-layout contract.
+    // Enabling geotech + formal_strat, but the borehole only carries
+    // the formal_strat observation. Slot order is geotech (idx 0),
+    // formal_strat (idx 1); formal_strat's strip sits at the slot-1
+    // X regardless of the geotech slot being empty.
     const detail = makeDetail([
-      makeObservation('geotechnical_coding', [
-        makeLayer({ id: 'g1', top_m: 0, base_m: 1 }),
+      makeObservation('formal_stratigraphy', [
+        makeLayer({ id: 'f1', top_m: 0, base_m: 1 }),
       ]),
     ])
     const { container } = renderColumn(detail, {
-      lithology: true,
       geotech: true,
+      formal_strat: true,
     })
-    // Only the geotech strip has content (one layer rect). The
-    // lithology slot is empty (zero-height background rect).
     const layerRects = Array.from(container.querySelectorAll('rect')).filter(
       r => Number(r.getAttribute('height')) > 0,
     )
     expect(layerRects.length).toBe(1)
     // Band centred on screenX=100, strip width=40, so band spans
-    // [60, 140]. geotech is slot index 1 → x = 60 + 1*40 = 100.
+    // [60, 140]. formal_strat is slot index 1 → x = 60 + 1*40 = 100.
     expect(layerRects[0].getAttribute('x')).toBe('100')
   })
 })
