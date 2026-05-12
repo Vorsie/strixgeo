@@ -39,6 +39,22 @@ import {
   type BoreholeChannels,
 } from './cptChannels'
 
+// Which observation types render with patterned soil fills (DOV
+// codes drive the pattern) vs. solid card-style fills with a text
+// label. Mirrors the same split BoreholeLog.tsx uses for the detail
+// panel — stratigraphy + lithological description don't carry
+// ``main_soil_codes`` so a pattern fill would be a blank stroke;
+// instead we paint a soft off-white background and label each
+// layer with its formation / description.
+const LITHOLOGY_OBS_TYPES = new Set(['coded_lithology', 'geotechnical_coding'])
+const CARD_STYLE_OBS_TYPES = new Set([
+  'lithological_description',
+  'formal_stratigraphy',
+  'informal_stratigraphy',
+  'quaternary_stratigraphy',
+])
+const CARD_FILL = '#f8fafc' // slate-50 — same as BoreholeLog's stratigraphy bg
+
 interface Props {
   detail: BoreholeDetailResponse
   /** Toggle state for the four interpretation streams. Channels in
@@ -99,8 +115,8 @@ export default function BoreholeColumn({
         if (slot.obs === null || slot.obs.layers.length === 0) {
           // Empty strip — keeps the slot footprint consistent across
           // boreholes even when this borehole doesn't carry the
-          // selected stream. Light grey background so the user can
-          // see "the slot is here, just empty for this test".
+          // selected stream. Zero-height "ghost" so the layout
+          // dimension is preserved without painting anything.
           return (
             <g key={slot.key}>
               <rect
@@ -113,6 +129,9 @@ export default function BoreholeColumn({
             </g>
           )
         }
+        const obsType = slot.obs.observation_type
+        const isLithology = LITHOLOGY_OBS_TYPES.has(obsType)
+        const isCardStyle = CARD_STYLE_OBS_TYPES.has(obsType)
         return (
           <g key={slot.key}>
             {slot.obs.layers.map(layer => {
@@ -123,17 +142,42 @@ export default function BoreholeColumn({
               const height = clampedBottom - clampedTop
               if (height <= 0) return null
               const primaryCode = layer.main_soil_codes[0] ?? null
+              const fill = isCardStyle
+                ? CARD_FILL
+                : isLithology
+                  ? getSoilFillUrl(primaryCode)
+                  : getSoilFillUrl(primaryCode)
+              // Card-style strips carry a centred label per layer with
+              // the formation name (stratigraphy) or the free-text
+              // description. Mirrors BoreholeLog.tsx's stratigraphy
+              // track. Skip labels on slices too short to render text
+              // (< 14 px); skip lithology strips entirely (pattern
+              // fill IS the label).
+              const cardLabel = isCardStyle ? layer.description : null
               return (
-                <rect
-                  key={layer.id}
-                  x={stripLeftX}
-                  y={clampedTop}
-                  width={stripWidth}
-                  height={height}
-                  fill={getSoilFillUrl(primaryCode)}
-                  stroke="#9ca3af"
-                  strokeWidth={0.3}
-                />
+                <g key={layer.id}>
+                  <rect
+                    x={stripLeftX}
+                    y={clampedTop}
+                    width={stripWidth}
+                    height={height}
+                    fill={fill}
+                    stroke="#9ca3af"
+                    strokeWidth={0.3}
+                  />
+                  {cardLabel && height >= 14 && (
+                    <text
+                      x={stripLeftX + stripWidth / 2}
+                      y={clampedTop + height / 2}
+                      fontSize={8}
+                      fill="#1f2937"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                    >
+                      {cardLabel.length > 8 ? `${cardLabel.slice(0, 7)}…` : cardLabel}
+                    </text>
+                  )}
+                </g>
               )
             })}
           </g>
