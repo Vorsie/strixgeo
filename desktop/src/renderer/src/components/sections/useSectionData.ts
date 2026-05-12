@@ -34,6 +34,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
   api,
+  type BoreholeDetailResponse,
   type BoreholeListItem,
   type CptListItem,
   type CptPlotResponse,
@@ -73,6 +74,11 @@ export interface SectionData {
    * along-distance + offset. Excludes anything in
    * ``section.excluded_borehole_ids``. */
   projectedBoreholes: ProjectedInvestigation<BoreholeListItem>[]
+  /** Borehole id → full detail (observations + layers + samples).
+   * ``null`` while the batch of per-id requests is in flight;
+   * ``Map`` once they resolve (possibly partial when some requests
+   * failed — log them as warnings, render bare columns instead). */
+  boreholeDetails: Map<string, BoreholeDetailResponse> | null
 }
 
 /**
@@ -251,6 +257,64 @@ export function useSectionData(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section.id, section.app_project_id, inBufferCptIdsKey])
 
+  // ---- Borehole detail batch --------------------------------------------
+
+  // Map of borehole id → full detail tree (observations + layers +
+  // samples), populated when the section opens. The per-id fetch path
+  // is simpler than CPT's plot-batch — there's no dedicated batch
+  // endpoint today, so we fire one ``GET /borehole/{id}`` per visible
+  // borehole and Promise.all them. For typical section sizes (10–30
+  // boreholes) this is cheap; if it becomes a bottleneck the right
+  // fix is a backend batch endpoint, not client-side parallelism
+  // tuning.
+  const [boreholeDetails, setBoreholeDetails] = useState<
+    Map<string, BoreholeDetailResponse> | null
+  >(null)
+  const inBufferBhIds = useMemo<string[]>(
+    () => projectedBoreholes.map(p => p.item.id),
+    [projectedBoreholes],
+  )
+  // Same join-trick as inBufferCptIdsKey — content-stable so the
+  // effect doesn't re-fire on every render due to array identity.
+  const inBufferBhIdsKey = inBufferBhIds.join(',')
+  useEffect(() => {
+    let cancelled = false
+    setBoreholeDetails(null)
+    if (inBufferBhIds.length === 0) {
+      setBoreholeDetails(new Map())
+      return
+    }
+    Promise.allSettled(inBufferBhIds.map(id => api.borehole.get(id)))
+      .then(results => {
+        if (cancelled) return
+        const m = new Map<string, BoreholeDetailResponse>()
+        let failed = 0
+        for (const r of results) {
+          if (r.status === 'fulfilled') {
+            m.set(r.value.id, r.value)
+          } else {
+            failed += 1
+          }
+        }
+        setBoreholeDetails(m)
+        log.debug(
+          'section',
+          `loaded ${m.size}/${inBufferBhIds.length} borehole details` +
+            (failed > 0 ? ` (${failed} failed)` : ''),
+        )
+      })
+      .catch(err => {
+        log.warn('section', `borehole-detail batch failed for ${section.id}`, err)
+        if (!cancelled) setBoreholeDetails(new Map())
+      })
+    return () => {
+      cancelled = true
+    }
+    // reason: same as inBufferCptIds — identity churn under default
+    // empty arrays; the join key captures content stably.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.id, inBufferBhIdsKey])
+
   return {
     cptChannels,
     setCptChannels,
@@ -258,5 +322,6 @@ export function useSectionData(
     cptPlots,
     projectedCpts,
     projectedBoreholes,
+    boreholeDetails,
   }
 }
