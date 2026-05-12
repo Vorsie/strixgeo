@@ -172,26 +172,23 @@ export default function InterpretationPane({
   )
 
   // Walk every visible borehole's informal_stratigraphy observation
-  // — that's the source of the formation NAMES (e.g. "Boom Klei",
-  // "Diest Zand" in engineer-friendly wording). For each informal
-  // layer, look up the formal_stratigraphy layer in the same
-  // borehole that overlaps its midpoint depth and use that formal
-  // layer's description as the REGIONAL REFERENCE — the stratigraphic
-  // chart name (e.g. "Boom Formatie", "Diest Formatie") DOV ships
-  // alongside the informal name.
+  // and pair each layer with the formal_stratigraphy layer covering
+  // its midpoint depth. The FORMAL description is the unique anchor
+  // — each formal stratigraphy appears at most once in the
+  // resulting formations list (mirroring the DOV chart: one
+  // formation per formal stratigraphic unit).
   //
-  // Aggregation: across all boreholes, build a count of
-  // (informal_name → formal_name) pairs. The most-common formal name
-  // for a given informal name wins as the regional_ref (handles the
-  // rare case where the same informal description shows up against
-  // multiple formal stratigraphies — geological coverage at borehole
-  // resolution isn't always self-consistent).
+  // Within each formal group, multiple informal descriptions may
+  // exist (different boreholes describe the same formal unit with
+  // varying wording — e.g. "klei" vs "stijve klei van het lid van
+  // Boom"). The LONGEST informal wins as the formation NAME, since
+  // longer descriptions carry more useful context for the engineer
+  // building the model. Tiebreakers: highest pair-count, then
+  // alphabetical.
   //
-  // Existing formation names are deduped case-insensitively so re-
-  // running the populate flow is idempotent. Colour is the hash of
-  // the informal name — same name always picks up the same colour
-  // across machines and reseeds. G3Dv3 has authoritative colour
-  // conventions that supersede this when that import lands.
+  // Re-run idempotency: skip formal descriptions already present
+  // as a ``regional_ref`` on an existing formation. Hash-based
+  // colour stays deterministic.
   //
   // Client-side per-borehole fetch is the v1 implementation. A
   // backend batch endpoint becomes the right call when projects
@@ -207,13 +204,15 @@ export default function InterpretationPane({
     setPopulateResult(null)
     try {
       const results = await Promise.allSettled(ids.map(id => api.borehole.get(id)))
-      // For each unique informal description (display-cased on
-      // first sight), keep a tally of the formal-description
-      // candidates we saw at matching depths. The winner is the
-      // most-frequent formal name; ties resolve to the
-      // alphabetically first.
-      const informalDisplay = new Map<string, string>()
-      const formalTallies = new Map<string, Map<string, number>>()
+      // Per formal stratigraphy (case-insensitive key):
+      //   * formalDisplay — first-seen display casing
+      //   * informals     — Map<informal-key, {display, count}>
+      type InformalCandidate = { display: string; count: number }
+      type FormalGroup = {
+        formalDisplay: string
+        informals: Map<string, InformalCandidate>
+      }
+      const byFormal = new Map<string, FormalGroup>()
       let failed = 0
       for (const r of results) {
         if (r.status !== 'fulfilled') {
@@ -228,63 +227,80 @@ export default function InterpretationPane({
           r.value.observations.find(o => o.observation_type === 'formal_stratigraphy')
             ?.layers ?? []
         for (const inf of informalObs.layers) {
-          const name = (inf.description ?? '').trim()
-          if (name === '') continue
-          const key = name.toLowerCase()
-          if (!informalDisplay.has(key)) informalDisplay.set(key, name)
+          const infDisplay = (inf.description ?? '').trim()
+          if (infDisplay === '') continue
           // Find the formal layer covering the informal layer's
           // midpoint. Layers in DOV aren't synchronised between
-          // streams (different boundaries, different depth bins)
-          // so a midpoint lookup is the simplest robust match.
+          // streams, so midpoint lookup is the simplest robust
+          // match.
           const mid = (inf.top_m + inf.base_m) / 2
           const formal = formalLayers.find(
             fl => fl.top_m <= mid && mid <= fl.base_m,
           )
-          const fDesc = (formal?.description ?? '').trim()
-          if (fDesc === '') continue
-          if (!formalTallies.has(key)) formalTallies.set(key, new Map())
-          const counts = formalTallies.get(key)!
-          counts.set(fDesc, (counts.get(fDesc) ?? 0) + 1)
-        }
-      }
-      // Dedupe against the names already in the manifest-visible
-      // formations list (the listFormations response). Case-
-      // insensitive matching so "Boom Klei" doesn't double up
-      // with "boom klei".
-      const existingKeys = new Set(visibleFormations.map(f => f.name.toLowerCase()))
-      const newKeys = Array.from(informalDisplay.keys()).filter(
-        k => !existingKeys.has(k),
-      )
-      // Resolve the regional_ref winner per informal name —
-      // most-frequent formal description, alphabetical tiebreaker.
-      function pickFormal(key: string): string | null {
-        const counts = formalTallies.get(key)
-        if (!counts || counts.size === 0) return null
-        let best: { name: string; count: number } | null = null
-        for (const [name, count] of counts) {
-          if (
-            best === null ||
-            count > best.count ||
-            (count === best.count && name.localeCompare(best.name) < 0)
-          ) {
-            best = { name, count }
+          const formalDisplay = (formal?.description ?? '').trim()
+          if (formalDisplay === '') continue
+          const formalKey = formalDisplay.toLowerCase()
+          if (!byFormal.has(formalKey)) {
+            byFormal.set(formalKey, {
+              formalDisplay,
+              informals: new Map(),
+            })
+          }
+          const group = byFormal.get(formalKey)!
+          const infKey = infDisplay.toLowerCase()
+          const existing = group.informals.get(infKey)
+          if (existing) {
+            existing.count += 1
+          } else {
+            group.informals.set(infKey, { display: infDisplay, count: 1 })
           }
         }
-        return best?.name ?? null
       }
-      // Create the new rows, sequentially so an error on one
-      // doesn't leave partial state in the optimistic local list
-      // without our control of order. Hash-based colour stays
-      // deterministic across reseed.
+      // Idempotency dedupe: skip formals already present as a
+      // regional_ref on an existing formation (case-insensitive).
+      // Also dedupe informal-name collisions so the user can't end
+      // up with two rows sharing the same display name.
+      const existingFormalKeys = new Set(
+        visibleFormations
+          .map(f => (f.regional_ref ?? '').toLowerCase())
+          .filter(k => k !== ''),
+      )
+      const existingNameKeys = new Set(
+        visibleFormations.map(f => f.name.toLowerCase()),
+      )
+      // Pick the longest informal display per formal group. Length
+      // tiebreaker = higher pair-count, then alphabetical.
+      function pickBestInformal(group: FormalGroup): InformalCandidate | null {
+        let best: InformalCandidate | null = null
+        for (const cand of group.informals.values()) {
+          const beats =
+            best === null ||
+            cand.display.length > best.display.length ||
+            (cand.display.length === best.display.length && cand.count > best.count) ||
+            (cand.display.length === best.display.length &&
+              cand.count === best.count &&
+              cand.display.localeCompare(best.display) < 0)
+          if (beats) best = cand
+        }
+        return best
+      }
+      const toCreate: { name: string; regional_ref: string }[] = []
+      for (const [formalKey, group] of byFormal) {
+        if (existingFormalKeys.has(formalKey)) continue
+        const best = pickBestInformal(group)
+        if (best === null) continue
+        if (existingNameKeys.has(best.display.toLowerCase())) continue
+        toCreate.push({ name: best.display, regional_ref: group.formalDisplay })
+      }
+      // Create them sequentially so a failure mid-loop leaves us
+      // with a consistent optimistic state.
       let createdCount = 0
-      for (const key of newKeys) {
-        const name = informalDisplay.get(key)!
-        const regionalRef = pickFormal(key)
+      for (const { name, regional_ref } of toCreate) {
         try {
           const created = await api.geology.createFormation(projectId, {
             name,
             color: hashHexColor(name),
-            regional_ref: regionalRef,
+            regional_ref,
           })
           setFormations(prev => sortFormations([...prev, created]))
           onFormationCreated?.(created.id)
@@ -296,7 +312,7 @@ export default function InterpretationPane({
       const scanned = ids.length - failed
       const summary =
         createdCount === 0
-          ? `No new informal-stratigraphy names found in ${scanned} borehole${
+          ? `No new formal-stratigraphy units found in ${scanned} borehole${
               scanned === 1 ? '' : 's'
             }.`
           : `Added ${createdCount} formation${createdCount === 1 ? '' : 's'} from ` +
