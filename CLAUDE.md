@@ -1665,33 +1665,36 @@ on that endpoint to land. Two integration tests cover the happy
 path (review present → removed) and the common idempotent case
 (no review → returns False without raising).
 
-### 22. Router-level integration tests absent (medium)
+### 22. Router-level integration tests absent — DONE (partial; project-bundle gap remains)
 
-**What.** ``tests/integration/db/`` covers every repository against a
-real PostgreSQL session, but no test exercises the FastAPI app
-end-to-end. Concretely uncovered today:
+Resolved 2026-05-12 for the highest-signal surfaces:
 
-* ``_target_exists_in_project`` 404 path in
-  ``api/routers/investigation_review.py``.
-* Cross-project tampering — a leaked id from project A used against
-  ``/projects/B/...``. Currently relies on the
-  ``get_in_project_or_404`` helper being wired correctly per call
-  site (verified by code review; no automated regression).
-* ``format_version != BUNDLE_FORMAT_VERSION`` rejection in
-  ``api/routers/project.py``.
-* ``PATCH /projects/{id}/view-state`` shallow-merge semantics +
-  ``null``-removes-key.
-* The deliberate ``DELETE /projects/{pid}/reviews/...`` silent-204
-  on a wrong-project hit.
+* ``tests/integration/conftest.py`` carries the shared
+  ``db_session`` fixture + ``make_project`` helper (lifted out of
+  ``db/conftest.py`` on its second copy — debt-rule trigger fired).
+  Existing db tests continue to import ``make_project`` from
+  ``tests.integration.db.conftest`` via a re-export shim.
+* ``tests/integration/api/conftest.py`` wires the FastAPI app
+  through ``httpx.ASGITransport`` and overrides ``get_session`` to
+  share the test engine. The override creates its own session per
+  request so the request lifecycle mirrors production exactly.
+* ``test_geology.py`` (8 cases) covers the new contact-mutation
+  use cases end-to-end + the cross-project tampering guard on
+  ``POST /...contacts`` and ``GET /...validate`` (a leaked id from
+  project B used inside project A's URL gets 404'd).
+* ``test_investigation_review.py`` (8 cases) pins both router
+  asymmetries that were called out by name in the original debt:
+  PUT against a wrong-project / unknown target returns 404; DELETE
+  against a wrong-project target returns 204 silently and leaves
+  the real row in the rightful project untouched. View-state
+  PATCH covered too — shallow-merge keeps siblings, ``null``
+  removes a key, unknown project surfaces as 404 not 500.
 
-**Fix shape.** New ``tests/integration/api/`` directory with an
-``httpx.AsyncClient`` fixture that mounts the FastAPI app and uses
-the same Docker DB. One file per router; tests assert status codes
-+ JSON shape, not internal repo state (the repo tests cover that).
-
-**When.** Before the second contributor lands, AND/OR before the
-public alpha. Solo-dev is one careful PR review away from catching
-router wiring regressions; a second pair of eyes isn't.
+Remaining gap: ``format_version != BUNDLE_FORMAT_VERSION`` rejection
+on ``POST /projects/{id}/restore``. The non-trivial fixture (a full
+v3 bundle on disk) wasn't worth wedging into this session; promote
+on the next .gmproj format bump (i.e. when v4 is introduced and the
+upgrade-chain rule from the Backwards Compatibility section fires).
 
 ### 23. Race-safe upsert on investigation_review (low)
 
