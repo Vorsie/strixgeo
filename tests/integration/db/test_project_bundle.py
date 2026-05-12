@@ -733,3 +733,149 @@ async def test_restore_skips_sections_when_payload_omits_them(
         .all()
     )
     assert list(sections_after) == []
+
+
+async def test_bundle_carries_geotechnical_units(db_session: AsyncSession) -> None:
+    """Build + restore round-trips geotechnical units alongside their parent formation."""
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.geotechnical_unit_orm import (
+        GeotechnicalUnitOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    project_id = source.id
+
+    boom = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        name="Boom Klei",
+        code="Bm",
+        color="#5a4a3a",
+        display_order=0,
+    )
+    db_session.add(boom)
+    await db_session.flush()
+
+    crust = GeotechnicalUnitOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        geological_formation_id=boom.id,
+        name="Weathered crust",
+        code="BmK-wc",
+        color="#a0805f",
+        display_order=0,
+    )
+    undisturbed = GeotechnicalUnitOrm(
+        id=uuid7(),
+        app_project_id=project_id,
+        geological_formation_id=boom.id,
+        name="Undisturbed",
+        code="BmK-u",
+        color="#5a4a3a",
+        display_order=1,
+        description="Below the crust, intact clay.",
+    )
+    db_session.add_all([crust, undisturbed])
+    await db_session.commit()
+
+    original_unit_ids = {crust.id, undisturbed.id}
+
+    # ---- Build the bundle, assert the units are in it ------------------
+    bundle = await build_project_bundle(db_session, source)
+    assert "geotechnical_units" in bundle
+    unit_names = {u["name"] for u in bundle["geotechnical_units"]}
+    assert unit_names == {"Weathered crust", "Undisturbed"}
+    # Free-text description survives JSON.
+    descriptions = [u.get("description") for u in bundle["geotechnical_units"]]
+    assert "Below the crust, intact clay." in descriptions
+
+    # ---- Wipe and restore ---------------------------------------------
+    await db_session.execute(
+        delete(GeotechnicalUnitOrm).where(GeotechnicalUnitOrm.app_project_id == project_id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == project_id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == project_id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == project_id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    await restore_project_bundle(
+        db_session,
+        project_id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        bundle["cross_sections"],
+        bundle["investigation_reviews"],
+        geotechnical_units_payload=bundle["geotechnical_units"],
+    )
+    await db_session.commit()
+
+    units_after = list(
+        (
+            await db_session.execute(
+                select(GeotechnicalUnitOrm).where(GeotechnicalUnitOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {u.id for u in units_after} == original_unit_ids
+    by_name = {u.name: u for u in units_after}
+    assert by_name["Weathered crust"].geological_formation_id == boom.id
+    assert by_name["Undisturbed"].description == "Below the crust, intact clay."
+
+
+async def test_restore_skips_units_when_payload_omits_them(
+    db_session: AsyncSession,
+) -> None:
+    """Older bundles without a ``geotechnical_units`` kwarg still restore cleanly."""
+    from groundmodel.infrastructure.db.models.geotechnical_unit_orm import (
+        GeotechnicalUnitOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    project_id = source.id
+    bundle = await build_project_bundle(db_session, source)
+
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == project_id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == project_id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # geotechnical_units_payload omitted entirely — defaults to [] inside
+    # restore_project_bundle. Mirrors how a pre-this-build .gmproj will
+    # round-trip through the new code path.
+    await restore_project_bundle(
+        db_session,
+        project_id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        bundle["cross_sections"],
+        bundle["investigation_reviews"],
+    )
+    await db_session.commit()
+
+    units_after = (
+        (
+            await db_session.execute(
+                select(GeotechnicalUnitOrm.id).where(
+                    GeotechnicalUnitOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert list(units_after) == []

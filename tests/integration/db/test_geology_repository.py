@@ -101,6 +101,112 @@ async def test_formation_update_and_delete(db_session: AsyncSession) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Geotechnical units
+# ---------------------------------------------------------------------------
+
+
+async def test_unit_create_list_update_delete(db_session: AsyncSession) -> None:
+    """Full CRUD round-trip for geotechnical units hanging off a formation."""
+    project, _ = await _make_project_with_borehole(db_session)
+    repo = GeologyRepository(db_session)
+
+    formation = await repo.create_formation(
+        project.id, name="Boom Klei", code="Bm", color="#5a4a3a"
+    )
+    await db_session.commit()
+
+    # Two units under the same formation, deliberately added in non-sort order
+    # so list_units's ordering (display_order, then name) is exercised.
+    crust = await repo.create_unit(
+        app_project_id=project.id,
+        geological_formation_id=formation.id,
+        name="Weathered crust",
+        code="BmK-wc",
+        color="#a0805f",
+        display_order=1,
+    )
+    undisturbed = await repo.create_unit(
+        app_project_id=project.id,
+        geological_formation_id=formation.id,
+        name="Undisturbed",
+        code="BmK-u",
+        color="#5a4a3a",
+        display_order=0,
+    )
+    await db_session.commit()
+
+    units = await repo.list_units(geological_formation_id=formation.id)
+    assert [u.name for u in units] == ["Undisturbed", "Weathered crust"]
+
+    # Update name + display_order; code stays.
+    updated = await repo.update_unit(crust.id, {"name": "Crust (weathered)", "display_order": 2})
+    await db_session.commit()
+    assert updated is not None
+    assert updated.name == "Crust (weathered)"
+    assert updated.display_order == 2
+    assert updated.code == "BmK-wc"
+
+    ok = await repo.delete_unit(undisturbed.id)
+    await db_session.commit()
+    assert ok is True
+    assert await repo.get_unit(undisturbed.id) is None
+
+
+async def test_unit_cascade_on_formation_delete(db_session: AsyncSession) -> None:
+    """Dropping a formation removes every unit beneath it (DB-level CASCADE)."""
+    project, _ = await _make_project_with_borehole(db_session)
+    repo = GeologyRepository(db_session)
+
+    formation = await repo.create_formation(project.id, name="F", color="#aaa")
+    await db_session.commit()
+    unit = await repo.create_unit(
+        app_project_id=project.id,
+        geological_formation_id=formation.id,
+        name="U",
+        code=None,
+        color="#bbb",
+    )
+    await db_session.commit()
+    unit_id = unit.id
+
+    await repo.delete_formation(formation.id)
+    await db_session.commit()
+
+    assert await repo.get_unit(unit_id) is None
+
+
+async def test_unit_list_scoped_to_one_formation(db_session: AsyncSession) -> None:
+    """Units under a sibling formation don't leak into the other's list."""
+    project, _ = await _make_project_with_borehole(db_session)
+    repo = GeologyRepository(db_session)
+
+    a = await repo.create_formation(project.id, name="A", color="#aaa")
+    b = await repo.create_formation(project.id, name="B", color="#bbb")
+    await db_session.commit()
+
+    await repo.create_unit(
+        app_project_id=project.id,
+        geological_formation_id=a.id,
+        name="A1",
+        code=None,
+        color="#a01",
+    )
+    await repo.create_unit(
+        app_project_id=project.id,
+        geological_formation_id=b.id,
+        name="B1",
+        code=None,
+        color="#b01",
+    )
+    await db_session.commit()
+
+    a_units = await repo.list_units(geological_formation_id=a.id)
+    b_units = await repo.list_units(geological_formation_id=b.id)
+    assert [u.name for u in a_units] == ["A1"]
+    assert [u.name for u in b_units] == ["B1"]
+
+
+# ---------------------------------------------------------------------------
 # Models + activate
 # ---------------------------------------------------------------------------
 
