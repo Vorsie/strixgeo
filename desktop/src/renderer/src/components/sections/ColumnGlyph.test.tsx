@@ -105,6 +105,37 @@ describe('ColumnGlyph — click handler', () => {
   })
 })
 
+describe('ColumnGlyph — stacked horizontal labels (DOV convention)', () => {
+  it('renders the name label horizontally with no rotation transform', () => {
+    // Previous diagonal -30° rotation produced a "forest of slanted
+    // names" at wide zooms. DOV's lengteprofiel stacks horizontal
+    // text above each column — easier to scan after a quick zoom-in.
+    const { container } = renderGlyph({ name: 'CPT-1' })
+    const text = container.querySelector('text')
+    expect(text?.getAttribute('transform')).toBeNull()
+    expect(text?.getAttribute('text-anchor')).toBe('middle')
+  })
+
+  it('renders the signed elevation label below the name when elevation is known', () => {
+    const { container } = renderGlyph({ name: 'CPT-1', elevation: 10 })
+    const texts = container.querySelectorAll('text')
+    expect(texts.length).toBe(2)
+    expect(texts[1].textContent).toBe('+10.00 m')
+  })
+
+  it('preserves the minus sign on negative elevations', () => {
+    const { container } = renderGlyph({ elevation: -3.5 })
+    const texts = container.querySelectorAll('text')
+    expect(texts[1].textContent).toBe('-3.50 m')
+  })
+
+  it('omits the elevation label when elevation is null', () => {
+    const { container } = renderGlyph({ elevation: null })
+    const texts = container.querySelectorAll('text')
+    expect(texts.length).toBe(1)
+  })
+})
+
 describe('ColumnGlyph — offset hint in label', () => {
   it('omits the offset hint when |offset| < 1 m', () => {
     const { container } = renderGlyph({ offset: 0.4 })
