@@ -51,6 +51,11 @@ interface Props {
   onRestoreAllCpts: () => void
   onRestoreAllBoreholes: () => void
   projectName: string
+  /** Project UUID — used by the Interpretation pane to fetch
+   * formations / models / contacts for the active project. Null
+   * before a project loads (the sidebar isn't mounted then, but
+   * keep optional so future tooling can render the chrome). */
+  projectId?: string | null
   // Path to the .gmproj file on disk; rendered as a tooltip on the
   // project name so the user can confirm which file is loaded without
   // leaving the sidebar. ``null`` when no project is open (currently
@@ -204,6 +209,7 @@ export default function Sidebar({
   onRestoreAllCpts,
   onRestoreAllBoreholes,
   projectName,
+  projectId,
   projectFilePath,
   onCloseProject,
   onEditMetadata,
@@ -667,7 +673,7 @@ export default function Sidebar({
             canCreate={canCreateSection}
           />
         )}
-        {activeTab === 'geology' && <InterpretationPane />}
+        {activeTab === 'geology' && <InterpretationPane projectId={projectId ?? null} />}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
       </div>
 

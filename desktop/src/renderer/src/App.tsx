@@ -1344,6 +1344,7 @@ export default function App() {
           onRestoreAllCpts={handleRestoreAllCpts}
           onRestoreAllBoreholes={handleRestoreAllBoreholes}
           projectName={project.name}
+          projectId={project.id}
           projectFilePath={projectFilePath}
           projectDirty={projectDirty}
           sessionImportCptIds={sessionImportCptIds}
