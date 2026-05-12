@@ -2052,19 +2052,30 @@ now codified in CLAUDE.md § Code Conventions: every
 reason comment. Reviewer + future contributors can cite the
 convention when a reason-less suppression appears in a diff.
 
-### 40. ``cpt_channels`` toggle never persisted (related to #25)
+### 40. ``cpt_channels`` toggle never persisted — DONE
 
-**What.** ``SectionPanel.tsx`` reads channel state via
-``readCptChannels`` but exposes no setter — ``useState`` without a
-setter means the value is frozen at mount. No ``PATCH /sections/{id}``
-call exists anywhere. The moment a toggle UI lands (S7 polish v2
-/ task #29 or later), user changes will silently reset on every
-section open.
+Resolved 2026-05-12. End-to-end channel-toggle persistence:
 
-**Fix shape.** This is the frontend half of #25 — once
-``CrossSectionResponse`` exposes ``view_state``, expose a
-``setCptChannels`` setter, debounce-PATCH the section row on
-change, and surface a small toggle button group in the section
-header.
-
-**When to revisit.** Whenever #25 lands. Same trigger.
+* ``PATCH /projects/{pid}/sections/{sid}`` now honours its
+  documented shallow-merge semantics on ``view_state``. The router
+  was clobbering the bag despite the schema docstring promising
+  merge; debt #25 had wired the column but not the merge layer.
+* New ``merge_view_state`` helper in ``api/routers/_helpers.py``
+  centralises the rule (extracted on the second copy: project
+  view-state used the same logic verbatim). 5 integration cases
+  pin the contract: shallow merge, null-inside-dict removes a key,
+  ``{}`` clears the bag, explicit-null sentinel "do not touch",
+  omitted field "do not touch".
+* ``useSectionData`` exposes ``setCptChannels`` (optimistic local
+  update) alongside ``cptChannels``. Re-seeds from ``view_state``
+  on section identity change but NOT on view_state churn from our
+  own PATCH responses (the local state wins to avoid flicker).
+* ``SectionPanel`` wires a ``handleChannelsChange`` callback that
+  updates local state + fires ``PATCH`` with
+  ``{view_state: {cpt_channels: next}}``. Single click per
+  toggle, no debounce — toggles aren't dragged.
+* ``SectionHeader`` carries a 5-button group (qc / Rf / fs / u2 /
+  qT) with active-state styling via ``aria-pressed`` + a blue
+  background. 4 new frontend tests cover the default state, the
+  persisted-state read on mount, the PATCH dispatch shape, and
+  the optimistic re-render.
