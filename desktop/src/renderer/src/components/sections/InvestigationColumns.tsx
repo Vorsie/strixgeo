@@ -37,6 +37,7 @@ export default function InvestigationColumns({
   plotBottom,
   onSelectCpt,
   onSelectBorehole,
+  hideStickIds,
 }: {
   columns: PlacedColumn[]
   levelToScreen: (level: number) => number
@@ -44,6 +45,12 @@ export default function InvestigationColumns({
   plotBottom: number
   onSelectCpt: ((id: string) => void) | undefined
   onSelectBorehole: ((id: string) => void) | undefined
+  /** Set of investigation IDs that already have a data band rendered
+   * (CPT plot or borelog lithology strip). For these the cap + body
+   * line + tie-back diagonal are redundant — the band itself is the
+   * "this is where the test sits" visual — so ColumnGlyph hides the
+   * stick. Name + elevation labels stay as identifiers. */
+  hideStickIds?: ReadonlySet<string>
 }): JSX.Element {
   return (
     <g>
@@ -75,6 +82,7 @@ export default function InvestigationColumns({
             plotTop={plotTop}
             plotBottom={plotBottom}
             onClick={onClick}
+            hideStick={hideStickIds?.has(item.id) ?? false}
           />
         )
       })}
