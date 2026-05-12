@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react'
 import { Minus, Plus, RotateCcw, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
-import type { CptChannels } from './cptChannels'
+import { COLUMN_DENSITY_MAX, COLUMN_DENSITY_MIN, type CptChannels } from './cptChannels'
 import { VEX_MAX, VEX_MIN } from './utils'
 
 // Order matches DOV's "lengteprofiel" PDF reading order: primary
@@ -50,6 +50,9 @@ export default function SectionHeader({
   onBufferCommit,
   channels,
   onChannelsChange,
+  columnDensity,
+  onColumnDensityChange,
+  onColumnDensityCommit,
   scaleH,
   scaleV,
   onReset,
@@ -75,6 +78,16 @@ export default function SectionHeader({
    * view_state via ``PATCH /sections/{id}`` (so the toggle
    * survives reopens + .gmproj round-trips). */
   onChannelsChange: (next: CptChannels) => void
+  /** Multiplier (0.4..1.0) on the CPT band half-width AND the
+   * inter-column edge gap. Lets the user pack investigations
+   * horizontally on crowded sections. */
+  columnDensity: number
+  /** Fires on each input change — optimistic local update so the
+   * slider feels smooth as the user drags. */
+  onColumnDensityChange: (next: number) => void
+  /** Fires on slider release with the final value; ``undefined``
+   * means "don't persist". */
+  onColumnDensityCommit: ((next: number) => void) | undefined
   scaleH: number
   scaleV: number
   onReset: () => void
@@ -158,6 +171,32 @@ export default function SectionHeader({
             </button>
           )
         })}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span
+          className="text-[10px] text-gray-500"
+          title="Column width — narrower packs more investigations into view"
+        >
+          Width
+        </span>
+        <input
+          type="range"
+          min={Math.round(COLUMN_DENSITY_MIN * 100)}
+          max={Math.round(COLUMN_DENSITY_MAX * 100)}
+          step={5}
+          value={Math.round(columnDensity * 100)}
+          onChange={e => onColumnDensityChange(Number(e.target.value) / 100)}
+          onMouseUp={() => onColumnDensityCommit?.(columnDensity)}
+          onTouchEnd={() => onColumnDensityCommit?.(columnDensity)}
+          onKeyUp={() => onColumnDensityCommit?.(columnDensity)}
+          className="w-24 cursor-pointer"
+          aria-label="Column width"
+          disabled={onColumnDensityCommit === undefined}
+        />
+        <span className="tabular-nums w-10 text-right">
+          {Math.round(columnDensity * 100)}%
+        </span>
       </div>
 
       <div className="flex items-center gap-2">
