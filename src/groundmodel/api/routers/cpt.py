@@ -406,7 +406,7 @@ async def post_cpt_plot_batch(
     project bboxes.
     """
     repo = CptRepository(session)
-    cpts = await repo.get_many_with_series(request.ids)
+    cpts = await repo.get_many_with_series(request.ids, app_project_id=request.app_project_id)
     out: list[CptPlotResponse] = []
     for cpt in cpts:
         try:

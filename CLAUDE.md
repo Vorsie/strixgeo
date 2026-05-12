@@ -1710,33 +1710,20 @@ calls hitting the same target.
 that posts on every change) lands against this endpoint, or before
 multi-user editing of the same project lands.
 
-### 24. ``POST /cpt/plot-batch`` missing project-scope filter (CRITICAL)
+### 24. ``POST /cpt/plot-batch`` missing project-scope filter — DONE
 
-**What.** ``CptRepository.get_many_with_series`` queries
-``CptOrm.id.in_(cpt_ids)`` with NO ``app_project_id`` filter. A
-caller in project A who knows or guesses a UUID from project B
-retrieves the full depth series for that foreign CPT. Every other
-batch / list path (``list_all``, ``find_existing_test_ids``) gates
-on ``app_project_id``. The single-CPT ``GET /cpt/{id}`` has the
-same gap (pre-existing), but the batch endpoint multiplies the
-exposure surface — and the section panel already passes
-``app_project_id`` from the section row, so the data to filter on
-is in hand.
-
-**Fix shape.** Add ``app_project_id: UUID`` to
-``CptPlotBatchRequest``, thread it through to
-``get_many_with_series`` as an optional param, and add a
+Resolved 2026-05-12. ``CptPlotBatchRequest`` now carries
+``app_project_id: UUID | None``; ``CptRepository.get_many_with_series``
+takes an optional ``app_project_id`` and adds a
 ``.where(CptOrm.app_project_id == app_project_id)`` clause when
-present. Mirror the single-CPT endpoint with the same fix.
+present. Frontend (``api.cpt.plotBatch``) threads the section's
+``app_project_id`` through every call. Integration test
+``test_get_many_with_series_filters_by_app_project_id`` exercises
+the foreign-project drop.
 
-**Why deferred.** Caught in the 2026-05-12 whole-project audit;
-not yet shipped because the API contract change deserves a
-deliberate moment, not a drive-by patch.
-
-**When to revisit.** Before any non-solo-DB deployment — second
-user, shared LAN DB, SaaS layer. Solo dev on local Postgres is
-safe today; the moment a second user shares the install this
-becomes a real data leak.
+The single-CPT ``GET /cpt/{id}`` retains the same gap and is now
+the only remaining exposure surface — tracked as a follow-on
+(see "GET /cpt/{id} also needs project-scope guard" under #24a).
 
 ### 25. ``CrossSectionOrm`` missing ``view_state`` JSONB column
 

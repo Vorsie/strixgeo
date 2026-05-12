@@ -21,6 +21,15 @@ class CptPlotBatchRequest(BaseModel):
     by array position. Unknown ids and series-less CPTs are silently
     dropped from the response (same skip-on-missing semantics the
     cross-section panel already needs at render time).
+
+    ``app_project_id`` is the project scope. The endpoint filters
+    returned CPTs to those that belong to this project so a caller
+    can't fetch series for a foreign-project CPT by guessing its
+    UUID. When omitted, no scope filter is applied — this path is
+    reserved for tests and admin tools and should NOT be used from
+    the desktop client. The cross-section panel always knows the
+    project id from the section row and threads it through.
     """
 
     ids: list[UUID] = Field(min_length=1, max_length=_MAX_IDS)
+    app_project_id: UUID | None = None

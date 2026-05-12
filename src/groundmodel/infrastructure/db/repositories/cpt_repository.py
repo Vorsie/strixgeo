@@ -58,19 +58,36 @@ class CptRepository(GroundModelLogger):
         )
         return result.scalar_one_or_none()
 
-    async def get_many_with_series(self, cpt_ids: list[UUID]) -> list[CptOrm]:
+    async def get_many_with_series(
+        self,
+        cpt_ids: list[UUID],
+        app_project_id: UUID | None = None,
+    ) -> list[CptOrm]:
         """Fetch many CPTs (with series eager-loaded) in one query.
 
         Used by ``POST /cpt/plot-batch`` to fold N per-CPT round-trips
         into one DB query. Order of the returned list isn't guaranteed
         to match ``cpt_ids``; the response indexer matches by row id
         rather than position. Unknown ids drop silently.
+
+        Parameters
+        ----------
+        cpt_ids:
+            CPT row ids the caller wants depth-series for.
+        app_project_id:
+            When provided, only return CPTs that belong to this project.
+            This is the project-scope guard — without it, a caller in
+            project A who knows or guesses a UUID from project B
+            retrieves that foreign CPT's series. Always pass this from
+            an API surface. The ``None`` default is for tests / admin
+            tools that need cross-project reads.
         """
         if not cpt_ids:
             return []
-        result = await self._session.execute(
-            select(CptOrm).where(CptOrm.id.in_(cpt_ids)).options(selectinload(CptOrm.series))
-        )
+        stmt = select(CptOrm).where(CptOrm.id.in_(cpt_ids)).options(selectinload(CptOrm.series))
+        if app_project_id is not None:
+            stmt = stmt.where(CptOrm.app_project_id == app_project_id)
+        result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
     async def list_all(self, app_project_id: UUID | None = None) -> list[CptOrm]:

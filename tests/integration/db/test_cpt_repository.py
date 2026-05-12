@@ -190,3 +190,49 @@ async def test_get_many_with_series_empty_input_returns_empty(
     """Empty ``cpt_ids`` short-circuits without an IN-query."""
     repo = CptRepository(db_session)
     assert await repo.get_many_with_series([]) == []
+
+
+async def test_get_many_with_series_filters_by_app_project_id(
+    db_session: AsyncSession,
+) -> None:
+    """The project-scope guard drops foreign-project CPTs even when their id is in the batch.
+
+    This is debt #24's regression test. A caller passing a CPT id from
+    project B alongside ids from project A must NOT receive project B's
+    series — that's the cross-project data leak the filter prevents.
+    """
+    from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+
+    repo = CptRepository(db_session)
+    project_a = uuid7()
+    project_b = uuid7()
+    a = _cpt(test_id="proj-a-cpt", app_project_id=project_a)
+    a.series = CptSeriesOrm(
+        depths_m=[0.0, 1.0],
+        qc_mpa=[1.0, 2.0],
+        fs_mpa=None,
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    b = _cpt(test_id="proj-b-cpt", app_project_id=project_b)
+    b.series = CptSeriesOrm(
+        depths_m=[0.0, 1.0],
+        qc_mpa=[10.0, 20.0],
+        fs_mpa=None,
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    await repo.save(a)
+    await repo.save(b)
+    await db_session.commit()
+
+    # Caller in project A asks for BOTH ids. The filter must drop B.
+    out = await repo.get_many_with_series([a.id, b.id], app_project_id=project_a)
+    assert len(out) == 1
+    assert out[0].id == a.id
+
+    # Without the filter (admin / test path), both come back.
+    unfiltered = await repo.get_many_with_series([a.id, b.id])
+    assert len(unfiltered) == 2

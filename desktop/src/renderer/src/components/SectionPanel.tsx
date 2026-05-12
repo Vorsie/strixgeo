@@ -535,7 +535,7 @@ export default function SectionPanel({
       return
     }
     api.cpt
-      .plotBatch(inBufferCptIds)
+      .plotBatch(inBufferCptIds, section.app_project_id)
       .then(plots => {
         if (cancelled) return
         const m = new Map<string, CptPlotResponse>()

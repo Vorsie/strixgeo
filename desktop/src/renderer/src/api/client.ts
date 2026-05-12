@@ -478,8 +478,13 @@ export const api = {
     // Unknown ids and series-less CPTs drop silently from the
     // response (same skip-on-missing semantics the section render
     // already needs).
-    plotBatch: (ids: string[]): Promise<CptPlotResponse[]> =>
-      post(`/cpt/plot-batch`, { ids }),
+    //
+    // ``appProjectId`` is the project scope — the backend filters
+    // returned CPTs to those that belong to the project, preventing
+    // a leak across projects via a guessed UUID. Always pass it
+    // from the section's ``app_project_id``.
+    plotBatch: (ids: string[], appProjectId: string): Promise<CptPlotResponse[]> =>
+      post(`/cpt/plot-batch`, { ids, app_project_id: appProjectId }),
 
     delete: (id: string): Promise<void> => del(`/cpt/${id}`),
 
