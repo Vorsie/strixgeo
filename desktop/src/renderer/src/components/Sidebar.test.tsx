@@ -189,6 +189,33 @@ describe('Sidebar — viewport-out partition (debt #14, always-on)', () => {
   })
 })
 
+describe('Sidebar — no per-row dirty visual on import', () => {
+  it('does not render an amber asterisk on any CPT row', () => {
+    // Memory file ``project_two_stage_save_model.md`` carves imports
+    // out of the dirty model. A previous build flagged every row in
+    // the sessionImports set with a 4px amber left-stripe + amber
+    // asterisk; with 100+ imported CPTs this becomes a visual storm.
+    // Project-level dirty (sidebar header + window title) stays as
+    // the single dirty signal.
+    const { container } = renderSidebar({
+      cpts: [makeCpt({ id: 'a', name: 'CPT-A' }), makeCpt({ id: 'b', name: 'CPT-B' })],
+    })
+    // No amber span (the DirtyAsterisk uses text-amber-600). Project
+    // header DirtyAsterisk is gated by projectDirty=undefined here so
+    // it doesn't render either — the assertion holds for both row
+    // and header for this fixture.
+    expect(container.querySelector('.text-amber-600')).toBeNull()
+  })
+
+  it('still renders the project-level dirty asterisk when projectDirty=true', () => {
+    const { container } = renderSidebar({ projectDirty: true })
+    // Exactly one amber asterisk — on the project name header, NOT
+    // on any row.
+    const amber = container.querySelectorAll('.text-amber-600')
+    expect(amber.length).toBe(1)
+  })
+})
+
 describe('Sidebar — removed footer', () => {
   it('surfaces "N removed · restore all" when the project removed set is non-empty', () => {
     renderSidebar({ removedCptCount: 3 })
