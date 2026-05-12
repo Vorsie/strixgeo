@@ -92,31 +92,38 @@ export function cptBandFullWidth(
 }
 
 // ---------------------------------------------------------------------------
-// Column density — horizontal compactness knob for crowded sections.
+// Column spacing — horizontal adjacency knob for crowded sections.
 // ---------------------------------------------------------------------------
 //
-// Multiplier on the band half-width AND the inter-column edge gap.
-// 1.0 = current default (full-width columns, 4 px gap). 0.4 = the
-// tightest readable setting (columns ~19 px wide at default zoom,
-// gaps near-flush). Scaling both terms together means the user gets
-// a single intuitive knob — "narrower columns" — that compresses the
-// whole section without making columns disproportionate to their
-// spacing.
+// Multiplier on the column width that is fed to the nudge layout
+// (``nudgeColumns``). The VISUAL width of each column band stays the
+// same regardless of this knob; only the layout's idea of "how much
+// space each column claims" shrinks. At 0.0 the nudge thinks every
+// column is zero-width, so adjacent tests render at their true
+// projected X with overlapping bands. At 1.0 the nudge sees the full
+// width and adjacent columns sit edge-to-edge with the standard
+// edge gap — the current default behaviour.
 //
-// Lives in ``section.view_state.column_density`` so the choice rides
+// Why scale nudge-input width rather than visual width: the user
+// wants control over WHERE columns sit on the section, not how wide
+// they are. A narrower visual would hide qc/Rf and lithology; a
+// narrower nudge-input lets dense tests pack closer (with visual
+// overlap) while keeping each individual strip legible.
+//
+// Lives in ``section.view_state.column_spacing`` so the choice rides
 // in the .gmproj bundle and survives reopens on another PC.
 
-export const COLUMN_DENSITY_MIN = 0.4
-export const COLUMN_DENSITY_MAX = 1.0
-export const COLUMN_DENSITY_DEFAULT = 1.0
+export const COLUMN_SPACING_MIN = 0.0
+export const COLUMN_SPACING_MAX = 1.0
+export const COLUMN_SPACING_DEFAULT = 1.0
 
-export function readColumnDensity(
+export function readColumnSpacing(
   viewState: Record<string, unknown> | null | undefined,
 ): number {
-  if (!viewState || typeof viewState !== 'object') return COLUMN_DENSITY_DEFAULT
-  const raw = (viewState as Record<string, unknown>).column_density
-  if (typeof raw !== 'number' || !Number.isFinite(raw)) return COLUMN_DENSITY_DEFAULT
-  return Math.max(COLUMN_DENSITY_MIN, Math.min(COLUMN_DENSITY_MAX, raw))
+  if (!viewState || typeof viewState !== 'object') return COLUMN_SPACING_DEFAULT
+  const raw = (viewState as Record<string, unknown>).column_spacing
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return COLUMN_SPACING_DEFAULT
+  return Math.max(COLUMN_SPACING_MIN, Math.min(COLUMN_SPACING_MAX, raw))
 }
 
 /** Parse the persisted channel toggles out of a section's
