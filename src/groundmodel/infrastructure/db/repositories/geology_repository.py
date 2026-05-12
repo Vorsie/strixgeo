@@ -33,6 +33,9 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
+from groundmodel.infrastructure.db.models.geotechnical_unit_orm import (
+    GeotechnicalUnitOrm,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Tolerance for the "is this contact at the surface?" check in the
@@ -124,6 +127,94 @@ class GeologyRepository(GroundModelLogger):
         await self._session.delete(formation)
         await self._session.flush()
         self.info(f"Formation deleted: {formation_id}")
+        return True
+
+    # -----------------------------------------------------------------
+    # Geotechnical units — formation subdivision (structure only in v1)
+    # -----------------------------------------------------------------
+
+    async def create_unit(
+        self,
+        *,
+        app_project_id: UUID,
+        geological_formation_id: UUID,
+        name: str,
+        color: str,
+        code: str | None = None,
+        display_order: int = 0,
+        description: str | None = None,
+    ) -> GeotechnicalUnitOrm:
+        """Insert a new geotechnical unit under a formation."""
+        unit = GeotechnicalUnitOrm(
+            id=uuid7(),
+            app_project_id=app_project_id,
+            geological_formation_id=geological_formation_id,
+            name=name,
+            color=color,
+            code=code,
+            display_order=display_order,
+            description=description,
+        )
+        self._session.add(unit)
+        await self._session.flush()
+        self.success(f"Geotechnical unit created: {unit.id} — {name}")
+        return unit
+
+    async def list_units(
+        self,
+        *,
+        app_project_id: UUID | None = None,
+        geological_formation_id: UUID | None = None,
+    ) -> list[GeotechnicalUnitOrm]:
+        """List units, scoped by project and/or formation.
+
+        At least one filter should be supplied — the router always
+        passes ``geological_formation_id`` for the per-formation list.
+        Sorted by ``display_order`` then name to match the formation
+        list pattern.
+        """
+        stmt = select(GeotechnicalUnitOrm)
+        if app_project_id is not None:
+            stmt = stmt.where(GeotechnicalUnitOrm.app_project_id == app_project_id)
+        if geological_formation_id is not None:
+            stmt = stmt.where(
+                GeotechnicalUnitOrm.geological_formation_id == geological_formation_id
+            )
+        stmt = stmt.order_by(
+            GeotechnicalUnitOrm.display_order,
+            GeotechnicalUnitOrm.name,
+        )
+        return list((await self._session.execute(stmt)).scalars().all())
+
+    async def get_unit(self, unit_id: UUID) -> GeotechnicalUnitOrm | None:
+        """Look up a unit by id. Returns ``None`` when missing."""
+        return await self._session.get(GeotechnicalUnitOrm, unit_id)
+
+    async def update_unit(self, unit_id: UUID, patch: dict[str, Any]) -> GeotechnicalUnitOrm | None:
+        """Apply a partial update. Only keys present in ``patch`` are written.
+
+        The router strips ``geological_formation_id`` from the patch
+        upstream — re-parenting a unit goes through delete + recreate
+        rather than mutate, mirroring the same rule for
+        ``FormationContact``'s anchor.
+        """
+        unit = await self.get_unit(unit_id)
+        if unit is None:
+            return None
+        for key, value in patch.items():
+            setattr(unit, key, value)
+        await self._session.flush()
+        self.info(f"Geotechnical unit updated: {unit_id}")
+        return unit
+
+    async def delete_unit(self, unit_id: UUID) -> bool:
+        """Delete a unit. No cascading children — units are leaves in v1."""
+        unit = await self.get_unit(unit_id)
+        if unit is None:
+            return False
+        await self._session.delete(unit)
+        await self._session.flush()
+        self.info(f"Geotechnical unit deleted: {unit_id}")
         return True
 
     # -----------------------------------------------------------------

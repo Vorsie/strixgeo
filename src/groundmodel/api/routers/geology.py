@@ -33,6 +33,11 @@ from groundmodel.api.schemas.project.geological_model import (
     GeologicalModelResponse,
     GeologicalModelUpdateRequest,
 )
+from groundmodel.api.schemas.project.geotechnical_unit import (
+    GeotechnicalUnitCreateRequest,
+    GeotechnicalUnitResponse,
+    GeotechnicalUnitUpdateRequest,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -41,6 +46,9 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
+)
+from groundmodel.infrastructure.db.models.geotechnical_unit_orm import (
+    GeotechnicalUnitOrm,
 )
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
@@ -136,6 +144,126 @@ async def delete_formation(
         repo.get_formation(formation_id), project_id, detail="Formation not found"
     )
     await repo.delete_formation(formation_id)
+    await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Geotechnical units — formation subdivision (structure only in v1)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/formations/{formation_id}/units",
+    response_model=GeotechnicalUnitResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_unit(
+    project_id: UUID,
+    formation_id: UUID,
+    request: GeotechnicalUnitCreateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechnicalUnitOrm:
+    """Create a new geotechnical unit under a formation.
+
+    Scope guard: the formation must exist and belong to the URL's
+    project. The unit's ``app_project_id`` is sourced from the parent
+    formation (denormalised onto the row), not the URL — same data,
+    one source of truth.
+    """
+    repo = GeologyRepository(session)
+    formation = await get_in_project_or_404(
+        repo.get_formation(formation_id), project_id, detail="Formation not found"
+    )
+    unit = await repo.create_unit(
+        app_project_id=formation.app_project_id,
+        geological_formation_id=formation_id,
+        name=request.name,
+        color=request.color,
+        code=request.code,
+        display_order=request.display_order,
+        description=request.description,
+    )
+    await session.commit()
+    await session.refresh(unit)
+    return unit
+
+
+@router.get(
+    "/formations/{formation_id}/units",
+    response_model=list[GeotechnicalUnitResponse],
+)
+async def list_units(
+    project_id: UUID,
+    formation_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> list[GeotechnicalUnitOrm]:
+    """List the geotechnical units under one formation."""
+    repo = GeologyRepository(session)
+    # Scope-check the formation; a missing formation 404s rather than
+    # silently returning an empty list under a wrong-project guess.
+    await get_in_project_or_404(
+        repo.get_formation(formation_id), project_id, detail="Formation not found"
+    )
+    return await repo.list_units(geological_formation_id=formation_id)
+
+
+@router.patch(
+    "/formations/{formation_id}/units/{unit_id}",
+    response_model=GeotechnicalUnitResponse,
+)
+async def update_unit(
+    project_id: UUID,
+    formation_id: UUID,
+    unit_id: UUID,
+    request: GeotechnicalUnitUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> GeotechnicalUnitOrm:
+    """Partial update on a unit. Only fields present in the body are written."""
+    repo = GeologyRepository(session)
+    # Two-stage scope guard: the unit must point at this formation,
+    # AND the formation must live in this project. Single 404 message
+    # either way — we don't leak which boundary the caller hit.
+    await get_in_project_or_404(
+        repo.get_unit(unit_id),
+        formation_id,
+        detail="Unit not found",
+        project_attr="geological_formation_id",
+    )
+    await get_in_project_or_404(
+        repo.get_formation(formation_id), project_id, detail="Unit not found"
+    )
+    patch = request.model_dump(exclude_unset=True)
+    updated = await repo.update_unit(unit_id, patch)
+    if updated is None:
+        # TOCTOU race — row vanished between scope-check and update.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unit not found")
+    await session.commit()
+    await session.refresh(updated)
+    return updated
+
+
+@router.delete(
+    "/formations/{formation_id}/units/{unit_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_unit(
+    project_id: UUID,
+    formation_id: UUID,
+    unit_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete a geotechnical unit."""
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_unit(unit_id),
+        formation_id,
+        detail="Unit not found",
+        project_attr="geological_formation_id",
+    )
+    await get_in_project_or_404(
+        repo.get_formation(formation_id), project_id, detail="Unit not found"
+    )
+    await repo.delete_unit(unit_id)
     await session.commit()
 
 
