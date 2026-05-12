@@ -35,6 +35,7 @@ export default function ColumnGlyph({
   plotTop,
   plotBottom,
   onClick,
+  hideStick = false,
 }: {
   name: string
   kind: 'cpt' | 'borehole'
@@ -47,6 +48,12 @@ export default function ColumnGlyph({
   plotTop: number
   plotBottom: number
   onClick: (() => void) | undefined
+  /** When true, suppress the cap + body line + tie-back diagonal —
+   * the caller is already rendering a CPT data band or a borelog
+   * lithology strip at this column's X, so the stick "where is this
+   * test" visual is redundant. Name + signed elevation labels still
+   * render above the band as the column's identifier. */
+  hideStick?: boolean
 }): JSX.Element | null {
   const sx = screenX
   // ``null`` elevation gets the column floated at level=0 in a
@@ -114,8 +121,9 @@ export default function ColumnGlyph({
 
       {/* Tie-back: short tick at the true X on the top axis +
           diagonal up to the cap at the nudged screenX. Renders
-          only when the layout pass had to displace this column. */}
-      {tieBackTrueX !== null && (
+          only when the layout pass had to displace this column AND
+          the caller hasn't suppressed the stick visual. */}
+      {tieBackTrueX !== null && !hideStick && (
         <g pointerEvents="none">
           <line
             x1={tieBackTrueX}
@@ -140,8 +148,9 @@ export default function ColumnGlyph({
       )}
 
       {/* Body line — only rendered when both endpoints land inside
-          the plot area. */}
-      {clampedBottom !== null && clampedTop < clampedBottom && (
+          the plot area AND the caller hasn't suppressed the stick
+          visual (a band already shows the column's extent). */}
+      {!hideStick && clampedBottom !== null && clampedTop < clampedBottom && (
         <line
           x1={sx}
           x2={sx}
@@ -153,21 +162,25 @@ export default function ColumnGlyph({
         />
       )}
 
-      {/* Top cap + label — only inside the plot area. */}
+      {/* Top cap + label — only inside the plot area. The CAP itself
+          is suppressed when ``hideStick`` is set (a band is showing
+          where the test sits); the LABELS still render so the
+          column keeps its identifier. */}
       {sy >= plotTop && sy <= plotBottom && (
         <>
-          {kind === 'cpt' ? (
-            <circle cx={sx} cy={sy} r={3.5} fill={color} fillOpacity={elevKnown ? 0.95 : 0.5} />
-          ) : (
-            <rect
-              x={sx - 3.5}
-              y={sy - 3.5}
-              width={7}
-              height={7}
-              fill={color}
-              fillOpacity={elevKnown ? 0.95 : 0.5}
-            />
-          )}
+          {!hideStick &&
+            (kind === 'cpt' ? (
+              <circle cx={sx} cy={sy} r={3.5} fill={color} fillOpacity={elevKnown ? 0.95 : 0.5} />
+            ) : (
+              <rect
+                x={sx - 3.5}
+                y={sy - 3.5}
+                width={7}
+                height={7}
+                fill={color}
+                fillOpacity={elevKnown ? 0.95 : 0.5}
+              />
+            ))}
           {/* Three-row label stack above the cap, DOV "lengteprofiel"
               convention (page 3 scale annotation
               "4% 2%2 +7.48 10 MPa"):
