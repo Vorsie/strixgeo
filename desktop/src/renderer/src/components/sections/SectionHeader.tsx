@@ -18,7 +18,19 @@ import { useEffect, useState } from 'react'
 import { Minus, Plus, RotateCcw, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
+import type { CptChannels } from './cptChannels'
 import { VEX_MAX, VEX_MIN } from './utils'
+
+// Order matches DOV's "lengteprofiel" PDF reading order: primary
+// tracks (qc, Rf) first, then specialist toggles. Each entry is
+// the channel key + a 2-char button label.
+const CHANNEL_BUTTONS: readonly { key: keyof CptChannels; label: string; title: string }[] = [
+  { key: 'qc', label: 'qc', title: 'Cone resistance (qc)' },
+  { key: 'rf', label: 'Rf', title: 'Friction ratio (Rf)' },
+  { key: 'fs', label: 'fs', title: 'Sleeve friction (fs) — CPTU/CPTE only' },
+  { key: 'u2', label: 'u2', title: 'Pore-water pressure (u2) — CPTU only' },
+  { key: 'qTotal', label: 'qT', title: 'Total resistance (qTotal) — CPTM only' },
+]
 
 // Projection-buffer slider bounds. 5 m is the tightest engineers
 // typically use (closely-spaced corridor surveys); 500 m covers
@@ -36,6 +48,8 @@ export default function SectionHeader({
   onVexChange,
   onVexCommit,
   onBufferCommit,
+  channels,
+  onChannelsChange,
   scaleH,
   scaleV,
   onReset,
@@ -52,6 +66,15 @@ export default function SectionHeader({
    * seam). */
   onVexCommit: ((next: number) => void) | undefined
   onBufferCommit: ((next: number) => void) | undefined
+  /** Current CPT channel toggle state — drives the active styling
+   * on each channel button. */
+  channels: CptChannels
+  /** Fires on each toggle click with the next channels object.
+   * Wires through to both the in-memory section state (so the
+   * column glyphs re-render instantly) AND the section row's
+   * view_state via ``PATCH /sections/{id}`` (so the toggle
+   * survives reopens + .gmproj round-trips). */
+  onChannelsChange: (next: CptChannels) => void
   scaleH: number
   scaleV: number
   onReset: () => void
@@ -109,6 +132,32 @@ export default function SectionHeader({
           disabled={onBufferCommit === undefined}
         />
         <span className="tabular-nums w-12 text-right">±{Math.round(localBuffer)} m</span>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-gray-500 mr-1" title="CPT data channel toggles">
+          Channels
+        </span>
+        {CHANNEL_BUTTONS.map(({ key, label, title }) => {
+          const active = channels[key]
+          return (
+            <button
+              key={key}
+              onClick={() => onChannelsChange({ ...channels, [key]: !active })}
+              title={title}
+              aria-label={`Toggle ${label}`}
+              aria-pressed={active}
+              className={
+                'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
+                (active
+                  ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                  : 'bg-white text-gray-500 border-gray-200 hover:text-gray-800 hover:bg-gray-100')
+              }
+            >
+              {label}
+            </button>
+          )
+        })}
       </div>
 
       <div className="flex items-center gap-2">
