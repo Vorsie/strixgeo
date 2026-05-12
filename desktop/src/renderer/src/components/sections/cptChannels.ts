@@ -1,29 +1,31 @@
-// CPT data-channel toggles + zoom-responsive track widths for the
+// CPT data-channel toggles + zoom-responsive band geometry for the
 // cross-section panel.
 //
-// Channels match DOV's "lengteprofiel" PDF: qc curve (0-10 MPa) and
-// Rf curve (0-10%) are the primary tracks; fs / u2 / q_total are
-// off by default and surface via a toggle when the user needs them.
+// Each CPT renders into ONE shared horizontal band centered on its
+// column axis (= the column's nudged X). qc and Rf are the primary
+// curves (qc reads right of axis, Rf mirrored left of axis); fs / u2
+// overlay with their own scales when enabled. The DOV "lengteprofiel"
+// PDF page 3 is the visual reference.
 //
-// Track widths scale with the horizontal pixel-per-metre ratio so
-// the curves stay readable across the zoom range — narrow when the
-// whole section is in view, wider when zoomed into a 30 m window.
-// The width-aware column nudge (``utils/columnLayout.ts``) consumes
-// the per-column width so adjacent CPTs respect each other's data
-// footprints.
+// Band width scales with the horizontal pixel-per-metre ratio so the
+// curves stay readable across the zoom range — compact when the whole
+// section is in view, wider when zoomed into a 30 m window. The
+// width-aware column nudge (``utils/columnLayout.ts``) consumes the
+// band width so adjacent CPTs respect each other's data footprints.
 
 export interface CptChannels {
   qc: boolean
   rf: boolean
   /** fs (sleeve friction) — CPTU/CPTE specialist track. Off by
    * default; the DOV PDF doesn't show it, so neither do we until
-   * the user asks. */
+   * the user asks. Overlays the same band as qc with its own
+   * smaller full scale. */
   fs: boolean
-  /** u2 (pore-water pressure) — CPTU-only. Off by default. */
+  /** u2 (pore-water pressure) — CPTU-only. Off by default. Overlays
+   * the mirrored (left-of-axis) side of the band with its own scale. */
   u2: boolean
-  /** q_total (CPTM totaalweerstand). When both qc and qTotal are on
-   * for a CPTM, q_total overlays the qc track as a dashed line. When
-   * qc is OFF, q_total gets a standalone line slot. */
+  /** q_total (CPTM totaalweerstand). When enabled on a CPTM cone,
+   * overlays the qc track as a dashed line on the qc scale. */
   qTotal: boolean
 }
 
@@ -36,71 +38,57 @@ export const DEFAULT_CPT_CHANNELS: CptChannels = {
 }
 
 // DOV PDF scale conventions — keep these in sync with the gridline
-// markers drawn in ``CptDataColumn``.
+// markers + curve mappings drawn in ``CptDataColumn``.
 //
-//   * qc: 0..10 MPa, dashed gridline at 2 MPa (DOV's reference).
-//   * Rf: 0..10%, dashed gridlines at 2% and 4% (DOV convention).
+//   * qc: 0..10 MPa (rightward from axis), gridlines at 2 + 10 MPa.
+//   * Rf: 0..10% (leftward from axis, mirrored), gridlines at 2 + 4 %.
 //
 // Auto-scale per CPT is intentionally NOT done — DOV's whole point
-// is that every column reads on the SAME scale so the eye can
-// compare CPTs at a glance. Auto-scaling breaks that contract.
+// is that every column reads on the SAME scale so the eye can compare
+// CPTs at a glance. Auto-scaling breaks that contract.
 export const QC_FULL_SCALE_MPA = 10
 export const RF_FULL_SCALE_PCT = 10
 export const QT_FULL_SCALE_MPA = 10
 
 /**
- * Compute zoom-responsive pixel widths for each track.
+ * Half-width of the shared CPT band in px at the current horizontal
+ * zoom. The band extends ±halfWidth from the column axis (so total
+ * pixel width is ``2 * halfWidth``).
  *
  * ``scaleH`` is px-per-metre on the horizontal axis. At a typical
  * Strix layout (300 m section in a 1500 px canvas) the resting zoom
- * is ~5 px/m; at 1.5× zoom it's ~7.5 px/m; at 3× zoom ~15 px/m. The
- * widths are clamped so a fully-zoomed-out section keeps columns
- * compact enough to coexist, and a fully-zoomed-in section gives
- * the curves enough horizontal space that the user can read peaks.
- *
- * Returns widths in px for every channel. The enabled-subset sum
- * for a specific CPT kind is in ``cptDataTrackWidth``.
+ * is ~5 px/m → factor 1.0 → halfWidth = 24 px (48 px total band).
+ * Below ~3 px/m the floor (factor 0.6) keeps columns legible; above
+ * ~15 px/m the cap (factor 3.0) prevents runaway widths at high zoom.
  */
-export function cptTrackWidths(
-  scaleH: number,
-): Record<keyof CptChannels, number> {
-  // Anchor at scaleH = 5 px/m → factor 1.0. Below ~3 px/m we
-  // collapse to a floor; above ~15 px/m we cap.
+export function cptBandHalfWidth(scaleH: number): number {
   const factor = Math.max(0.6, Math.min(3.0, scaleH / 5))
-  return {
-    qc: Math.round(28 * factor),
-    rf: Math.round(18 * factor),
-    fs: Math.round(14 * factor),
-    u2: Math.round(14 * factor),
-    qTotal: Math.round(18 * factor),
-  }
+  return Math.round(24 * factor)
 }
 
 /**
- * Sum of the enabled-channel widths for a given CPT kind. The
- * width-aware nudge consumes this so adjacent CPTs respect each
- * other's data footprints.
+ * Pixel width of the full shared band for a given CPT kind +
+ * channel selection. The nudge layout consumes this so adjacent CPTs
+ * respect each other's data footprints.
+ *
+ * Returns 0 when NO effectively-applicable channel is enabled (e.g.
+ * only u2 is on but the cone is CPTE — pore-pressure doesn't apply,
+ * so the CPT contributes only its bare column glyph width to the
+ * layout). Otherwise returns ``2 * halfWidth`` — the band is the
+ * same size regardless of which channels are inside it.
  */
-export function cptDataTrackWidth(
+export function cptBandFullWidth(
   cptType: string | null | undefined,
   channels: CptChannels,
-  widths: Record<keyof CptChannels, number>,
+  halfWidth: number,
 ): number {
-  let w = 0
-  if (channels.qc) w += widths.qc
-  if (channels.rf) w += widths.rf
-  if (channels.fs && (cptType === 'CPTU' || cptType === 'CPTE')) {
-    w += widths.fs
-  }
-  if (channels.u2 && cptType === 'CPTU') {
-    w += widths.u2
-  }
-  // q_total only adds a separate slot when qc is OFF. When both are
-  // on, q_total overlays the qc track and contributes no new width.
-  if (channels.qTotal && cptType === 'CPTM' && !channels.qc) {
-    w += widths.qTotal
-  }
-  return w
+  const anyApplicable =
+    channels.qc ||
+    channels.rf ||
+    (channels.fs && (cptType === 'CPTU' || cptType === 'CPTE')) ||
+    (channels.u2 && cptType === 'CPTU') ||
+    (channels.qTotal && cptType === 'CPTM')
+  return anyApplicable ? 2 * halfWidth : 0
 }
 
 /** Parse the persisted channel toggles out of a section's
