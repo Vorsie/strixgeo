@@ -22,6 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid6 import uuid7
 
+from groundmodel.domain.services.geology_validator import (
+    ContactDepth,
+    GeologyValidator,
+)
 from groundmodel.domain.value_objects.gap_issue import GapIssue
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -37,14 +41,6 @@ from groundmodel.infrastructure.db.models.geotechnical_unit_orm import (
     GeotechnicalUnitOrm,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-# Tolerance for the "is this contact at the surface?" check in the
-# no-gaps validator. The DOV stratigraphy stores depths to one decimal
-# but practical surface picks may be a few centimetres off (the very
-# top of a hole is often "covered with vegetation 0-0.05 m" etc). 0.10 m
-# is generous enough to cover real-world picks without letting an
-# outright-missing surface formation slip past.
-_SURFACE_TOLERANCE_M = 0.10
 
 
 class GeologyRepository(GroundModelLogger):
@@ -420,84 +416,19 @@ class GeologyRepository(GroundModelLogger):
     # -----------------------------------------------------------------
 
     async def validate_no_gaps(self, model_id: UUID, borehole_id: UUID) -> list[GapIssue]:
-        """Check the formation contacts for a borehole in a model.
+        """Load contacts + borehole depth and delegate to :class:`GeologyValidator`.
 
-        Returns a list of issues — empty list means the contacts form a
-        valid contiguous stratigraphy from surface to test depth (or
-        deeper). The "no gaps" rule from the user's brief:
-
-        * The topmost contact should be at (or near) the surface
-          (depth ≈ 0). Missing surface contact ⇒ unknown formation at
-          the top of the hole.
-        * No two contacts at the same depth — that's ambiguous.
-        * Every contact's depth must be within the borehole's drilled
-          depth (else the contact has nothing to anchor against).
-
-        The validator never raises — bad data is reported, not refused.
-        The editor decides whether to block save or warn the user.
+        Kept on the repository so the existing single-call surface
+        (``GET /...validate``) doesn't fan out into a use case +
+        repo dance for what is fundamentally a read-only check.
+        The domain logic itself lives in
+        :mod:`groundmodel.domain.services.geology_validator`; this
+        method is the infrastructure-side loader.
         """
         contacts = await self.list_contacts(model_id, borehole_id=borehole_id)
         borehole = await self._session.get(BoreholeOrm, borehole_id)
         total_depth = borehole.total_depth_m if borehole is not None else None
-
-        issues: list[GapIssue] = []
-
-        if not contacts:
-            # No contacts at all — not an error per se (the user might
-            # not have started modelling this hole yet), but worth
-            # signalling so the editor can highlight the borehole.
-            return [
-                GapIssue(
-                    kind="no_contacts",
-                    detail=("No formation contacts defined for this borehole in this model."),
-                )
-            ]
-
-        # Sorted ascending by list_contacts above.
-        shallowest = contacts[0]
-        if shallowest.depth_top_m > _SURFACE_TOLERANCE_M:
-            issues.append(
-                GapIssue(
-                    kind="missing_surface_contact",
-                    detail=(
-                        f"Shallowest contact is at {shallowest.depth_top_m:.2f} m; "
-                        "no formation defined for the top of the borehole."
-                    ),
-                    depth_m=shallowest.depth_top_m,
-                    contact_ids=(shallowest.id,),
-                )
-            )
-
-        # Duplicate depths — ambiguous which formation owns the band
-        # below. We compare consecutive pairs since the list is sorted.
-        for prev, curr in zip(contacts, contacts[1:], strict=False):
-            if abs(curr.depth_top_m - prev.depth_top_m) < 1e-9:
-                issues.append(
-                    GapIssue(
-                        kind="duplicate_depth",
-                        detail=(f"Two contacts at the same depth {prev.depth_top_m:.2f} m"),
-                        depth_m=prev.depth_top_m,
-                        contact_ids=(prev.id, curr.id),
-                    )
-                )
-
-        # Contacts deeper than the test depth — usually a typo or a
-        # leftover from before the borehole's depth was corrected.
-        if total_depth is not None:
-            for c in contacts:
-                if c.depth_top_m > total_depth:
-                    issues.append(
-                        GapIssue(
-                            kind="contact_below_test",
-                            detail=(
-                                f"Contact at {c.depth_top_m:.2f} m is deeper than "
-                                f"the borehole's test depth ({total_depth:.2f} m)."
-                            ),
-                            depth_m=c.depth_top_m,
-                            contact_ids=(c.id,),
-                        )
-                    )
-
-        if issues:
-            self.warning(f"validate_no_gaps({model_id}, {borehole_id}): {len(issues)} issue(s)")
-        return issues
+        # Project ORM rows into the validator's narrow input shape so
+        # the domain service has zero infrastructure dependency.
+        depths = [ContactDepth(id=c.id, depth_top_m=c.depth_top_m) for c in contacts]
+        return GeologyValidator().validate_no_gaps(depths, total_depth)
