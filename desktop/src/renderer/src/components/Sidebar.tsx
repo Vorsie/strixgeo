@@ -66,15 +66,13 @@ interface Props {
   onEditMetadata?: () => void
   // ``true`` when the live project state differs from the last-saved
   // snapshot. Renders an asterisk after the project name as a glance-
-  // able dirty indicator (Word / Plaxis convention).
+  // able dirty indicator (Word / Plaxis convention). Per-row asterisks
+  // were previously driven by per-row import sets; they generated a
+  // visual storm of 100+ amber markers after a typical DOV bbox
+  // import, which the memory file ``project_two_stage_save_model.md``
+  // explicitly carves out (``Imports stay out of this model``). The
+  // project-level marker is now the single dirty signal.
   projectDirty?: boolean
-  // CPT and borehole IDs added since the last File → Save. Each row
-  // whose id is in the relevant set shows an amber asterisk in the
-  // sidebar — same visual language as the project-name marker, scaled
-  // down to the row level so the user can spot which records are not
-  // yet committed at a glance.
-  sessionImportCptIds?: ReadonlySet<string>
-  sessionImportBoreholeIds?: ReadonlySet<string>
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -175,8 +173,6 @@ export default function Sidebar({
   onCloseProject,
   onEditMetadata,
   projectDirty,
-  sessionImportCptIds,
-  sessionImportBoreholeIds,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -547,7 +543,6 @@ export default function Sidebar({
                   cpt={c}
                   selected={c.id === selectedCptId}
                   hidden={false}
-                  unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={() => toggleSelection(c.id)}
                   onClick={() => onSelectCpt(c.id)}
@@ -561,7 +556,6 @@ export default function Sidebar({
                   cpt={c}
                   selected={c.id === selectedCptId}
                   hidden
-                  unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={() => toggleSelection(c.id)}
                   onClick={() => onSelectCpt(c.id)}
@@ -587,7 +581,6 @@ export default function Sidebar({
                   borehole={b}
                   selected={b.id === selectedBoreholeId}
                   hidden={false}
-                  unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={() => toggleSelection(b.id)}
                   onClick={() => onSelectBorehole(b.id)}
@@ -601,7 +594,6 @@ export default function Sidebar({
                   borehole={b}
                   selected={b.id === selectedBoreholeId}
                   hidden
-                  unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={() => toggleSelection(b.id)}
                   onClick={() => onSelectBorehole(b.id)}
@@ -739,7 +731,6 @@ function CptRow({
   cpt,
   selected,
   hidden,
-  unsaved,
   checked,
   onToggleCheck,
   onClick,
@@ -748,7 +739,6 @@ function CptRow({
   cpt: CptListItem
   selected: boolean
   hidden: boolean
-  unsaved: boolean
   checked: boolean
   onToggleCheck: () => void
   onClick: () => void
@@ -762,24 +752,12 @@ function CptRow({
   return (
     <div
       className={[
-        // Dirty rows get a thicker amber accent (4 px left stripe) and
-        // a clearly tinted background; clean rows keep a 2 px
-        // transparent left border so the layout shift between the two
-        // states is small and readable as 'this one stands out'.
-        'group relative flex items-center border-b border-gray-100 transition-colors',
-        unsaved
-          ? 'border-l-4 border-l-amber-500'
-          : 'border-l-2 border-l-transparent',
-        // Selection / bulk-check state still wins on the body
-        // background so the active row is unambiguous, but the amber
-        // left-stripe stays visible regardless.
-        selected
-          ? 'bg-blue-50'
-          : checked
-            ? 'bg-blue-50/40'
-            : unsaved
-              ? 'bg-amber-100/70 hover:bg-amber-100/90'
-              : 'hover:bg-gray-50',
+        // Imports no longer flag a per-row dirty visual — the
+        // project-level title / sidebar-header asterisk is the
+        // single dirty signal. A 2 px transparent left border keeps
+        // the visual rhythm consistent with the selection state.
+        'group relative flex items-center border-b border-gray-100 border-l-2 border-l-transparent transition-colors',
+        selected ? 'bg-blue-50' : checked ? 'bg-blue-50/40' : 'hover:bg-gray-50',
         hidden ? 'opacity-40' : '',
       ].join(' ')}
     >
@@ -794,9 +772,6 @@ function CptRow({
         <div className="flex items-center gap-1.5 mb-0.5">
           <MapPin size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
           <span className="text-xs font-medium text-gray-800 truncate">{cpt.name}</span>
-          {unsaved && (
-            <DirtyAsterisk title="Imported since last save — File → Save to commit" />
-          )}
           {cpt.elevation_m == null && (
             <span title="No surface elevation — needs manual Z entry">
               <AlertTriangle size={10} className="text-amber-500 shrink-0" />
@@ -831,7 +806,6 @@ function BoreholeRow({
   borehole,
   selected,
   hidden,
-  unsaved,
   checked,
   onToggleCheck,
   onClick,
@@ -840,7 +814,6 @@ function BoreholeRow({
   borehole: BoreholeListItem
   selected: boolean
   hidden: boolean
-  unsaved: boolean
   checked: boolean
   onToggleCheck: () => void
   onClick: () => void
@@ -858,24 +831,11 @@ function BoreholeRow({
   return (
     <div
       className={[
-        // Dirty rows get a thicker amber accent (4 px left stripe) and
-        // a clearly tinted background; clean rows keep a 2 px
-        // transparent left border so the layout shift between the two
-        // states is small and readable as 'this one stands out'.
-        'group relative flex items-center border-b border-gray-100 transition-colors',
-        unsaved
-          ? 'border-l-4 border-l-amber-500'
-          : 'border-l-2 border-l-transparent',
-        // Selection / bulk-check state still wins on the body
-        // background so the active row is unambiguous, but the amber
-        // left-stripe stays visible regardless.
-        selected
-          ? 'bg-blue-50'
-          : checked
-            ? 'bg-blue-50/40'
-            : unsaved
-              ? 'bg-amber-100/70 hover:bg-amber-100/90'
-              : 'hover:bg-gray-50',
+        // Imports no longer flag a per-row dirty visual — the
+        // project-level title / sidebar-header asterisk is the
+        // single dirty signal. See ``CptRow`` for the same rationale.
+        'group relative flex items-center border-b border-gray-100 border-l-2 border-l-transparent transition-colors',
+        selected ? 'bg-blue-50' : checked ? 'bg-blue-50/40' : 'hover:bg-gray-50',
         hidden ? 'opacity-40' : '',
       ].join(' ')}
     >
@@ -890,9 +850,6 @@ function BoreholeRow({
         <div className="flex items-center gap-1.5 mb-0.5">
           <Drill size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
           <span className="text-xs font-medium text-gray-800 truncate">{borehole.name}</span>
-          {unsaved && (
-            <DirtyAsterisk title="Imported since last save — File → Save to commit" />
-          )}
           {noZ && (
             <span title="No surface elevation — needs manual Z entry">
               <AlertTriangle size={10} className="text-amber-500 shrink-0" />
