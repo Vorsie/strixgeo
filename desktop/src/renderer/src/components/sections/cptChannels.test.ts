@@ -1,114 +1,92 @@
-// Unit tests for the pure helpers in cptChannels.ts (debt #34).
+// Unit tests for the pure helpers in cptChannels.ts.
 //
-// These functions feed into both the section's column-nudge layout
-// and the per-track rendering, so a quiet regression here would
-// silently misalign every CPT column on the section view. The
-// trade-off rules (q_total overlay on qc, fs/u2 gated by cone type)
-// are subtle enough that a few targeted tests beat a re-read of the
-// implementation.
+// These functions feed both the section's column-nudge layout and
+// the per-CPT shared-band render, so a quiet regression here would
+// silently misalign every column on the section view. The trade-off
+// rules (band width is 0 when no applicable channel is enabled,
+// type-gated channels stay accounted for) are subtle enough that a
+// few targeted tests beat a re-read of the implementation.
 
 import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_CPT_CHANNELS,
-  cptDataTrackWidth,
-  cptTrackWidths,
+  cptBandFullWidth,
+  cptBandHalfWidth,
   readCptChannels,
 } from './cptChannels'
 
-describe('cptTrackWidths — zoom-responsive width scaling', () => {
-  it('returns the anchor widths at scaleH = 5 px/m (factor = 1.0)', () => {
-    const w = cptTrackWidths(5)
-    expect(w.qc).toBe(28)
-    expect(w.rf).toBe(18)
-    expect(w.fs).toBe(14)
-    expect(w.u2).toBe(14)
-    expect(w.qTotal).toBe(18)
+describe('cptBandHalfWidth — zoom-responsive band geometry', () => {
+  it('returns the anchor half-width at scaleH = 5 px/m (factor = 1.0)', () => {
+    // 24 * 1.0 = 24 px — single-side extent from the column axis.
+    expect(cptBandHalfWidth(5)).toBe(24)
   })
 
   it('clamps the factor floor at 0.6 (anything below ~3 px/m bottoms out)', () => {
     // factor = max(0.6, scaleH / 5). At scaleH = 1 the un-clamped
-    // factor is 0.2; the clamp keeps widths legible.
-    const w = cptTrackWidths(1)
-    // 28 * 0.6 = 16.8 → rounds to 17.
-    expect(w.qc).toBe(17)
+    // factor is 0.2; the clamp keeps the band legible.
+    // 24 * 0.6 = 14.4 → rounds to 14.
+    expect(cptBandHalfWidth(1)).toBe(14)
   })
 
   it('caps the factor at 3.0 (anything above ~15 px/m caps)', () => {
-    const w = cptTrackWidths(100)
-    // 28 * 3 = 84.
-    expect(w.qc).toBe(84)
-    expect(w.rf).toBe(54)
+    // 24 * 3 = 72.
+    expect(cptBandHalfWidth(100)).toBe(72)
   })
 })
 
-describe('cptDataTrackWidth — additive enabled-channel widths', () => {
-  const widths = cptTrackWidths(5) // anchor values for readability
+describe('cptBandFullWidth — applicable-channel gate', () => {
+  const halfWidth = cptBandHalfWidth(5) // = 24
 
   it('returns 0 when no channels are enabled', () => {
     expect(
-      cptDataTrackWidth('CPTU', {
+      cptBandFullWidth('CPTU', {
         qc: false,
         rf: false,
         fs: false,
         u2: false,
         qTotal: false,
-      }, widths),
+      }, halfWidth),
     ).toBe(0)
   })
 
-  it('sums qc + rf for any CPT kind (universal tracks)', () => {
-    const w = cptDataTrackWidth('CPTE', { ...DEFAULT_CPT_CHANNELS, fs: false, u2: false, qTotal: false }, widths)
-    expect(w).toBe(widths.qc + widths.rf)
+  it('returns 2 * halfWidth when qc is enabled (universal channel)', () => {
+    const channels = { qc: true, rf: false, fs: false, u2: false, qTotal: false }
+    expect(cptBandFullWidth('CPTU', channels, halfWidth)).toBe(2 * halfWidth)
+    expect(cptBandFullWidth('CPTM', channels, halfWidth)).toBe(2 * halfWidth)
   })
 
-  it('adds fs only when cptType is CPTU or CPTE (sleeve-friction families)', () => {
-    const channels = { qc: true, rf: false, fs: true, u2: false, qTotal: false }
-    expect(cptDataTrackWidth('CPTU', channels, widths)).toBe(widths.qc + widths.fs)
-    expect(cptDataTrackWidth('CPTE', channels, widths)).toBe(widths.qc + widths.fs)
-    // CPTM mechanical cone — no fs channel exists; fs flag is ignored.
-    expect(cptDataTrackWidth('CPTM', channels, widths)).toBe(widths.qc)
+  it('returns 2 * halfWidth when only rf is enabled (Rf applies to any CPT)', () => {
+    const channels = { qc: false, rf: true, fs: false, u2: false, qTotal: false }
+    expect(cptBandFullWidth('CPTM', channels, halfWidth)).toBe(2 * halfWidth)
   })
 
-  it('adds u2 only for CPTU (pore-pressure measurement is CPTU-only)', () => {
-    const channels = { qc: true, rf: false, fs: false, u2: true, qTotal: false }
-    expect(cptDataTrackWidth('CPTU', channels, widths)).toBe(widths.qc + widths.u2)
-    expect(cptDataTrackWidth('CPTE', channels, widths)).toBe(widths.qc)
-    expect(cptDataTrackWidth('CPTM', channels, widths)).toBe(widths.qc)
+  it('ignores fs on a CPTM cone (sleeve friction is CPTU/CPTE-only)', () => {
+    const channels = { qc: false, rf: false, fs: true, u2: false, qTotal: false }
+    expect(cptBandFullWidth('CPTU', channels, halfWidth)).toBe(2 * halfWidth)
+    expect(cptBandFullWidth('CPTE', channels, halfWidth)).toBe(2 * halfWidth)
+    // CPTM mechanical cone — fs doesn't apply, no other channel on,
+    // so the column contributes no band width to the layout.
+    expect(cptBandFullWidth('CPTM', channels, halfWidth)).toBe(0)
   })
 
-  it('qTotal contributes a slot only on CPTM AND only when qc is OFF', () => {
-    // qTotal-on, qc-on → q_total overlays qc, no extra width.
-    expect(
-      cptDataTrackWidth(
-        'CPTM',
-        { qc: true, rf: false, fs: false, u2: false, qTotal: true },
-        widths,
-      ),
-    ).toBe(widths.qc)
-    // qTotal-on, qc-off → q_total gets its own slot.
-    expect(
-      cptDataTrackWidth(
-        'CPTM',
-        { qc: false, rf: false, fs: false, u2: false, qTotal: true },
-        widths,
-      ),
-    ).toBe(widths.qTotal)
-    // Non-CPTM cones ignore qTotal entirely.
-    expect(
-      cptDataTrackWidth(
-        'CPTU',
-        { qc: false, rf: false, fs: false, u2: false, qTotal: true },
-        widths,
-      ),
-    ).toBe(0)
+  it('ignores u2 on non-CPTU cones (pore-pressure is CPTU-only)', () => {
+    const channels = { qc: false, rf: false, fs: false, u2: true, qTotal: false }
+    expect(cptBandFullWidth('CPTU', channels, halfWidth)).toBe(2 * halfWidth)
+    expect(cptBandFullWidth('CPTE', channels, halfWidth)).toBe(0)
+    expect(cptBandFullWidth('CPTM', channels, halfWidth)).toBe(0)
+  })
+
+  it('ignores qTotal on non-CPTM cones', () => {
+    const channels = { qc: false, rf: false, fs: false, u2: false, qTotal: true }
+    expect(cptBandFullWidth('CPTM', channels, halfWidth)).toBe(2 * halfWidth)
+    expect(cptBandFullWidth('CPTU', channels, halfWidth)).toBe(0)
   })
 
   it('handles null / undefined cptType (e.g. CPT with no kind tag yet)', () => {
     const channels = { ...DEFAULT_CPT_CHANNELS }
-    // qc + rf still count; the kind-gated channels drop out.
-    const w = cptDataTrackWidth(null, channels, widths)
-    expect(w).toBe(widths.qc + widths.rf)
+    // qc + rf still apply universally; kind-gated channels drop out.
+    expect(cptBandFullWidth(null, channels, halfWidth)).toBe(2 * halfWidth)
   })
 })
 
