@@ -14,7 +14,6 @@ exit / success-or-warning logging.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -23,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid6 import uuid7
 
+from groundmodel.domain.value_objects.gap_issue import GapIssue
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
@@ -42,30 +42,6 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 # is generous enough to cover real-world picks without letting an
 # outright-missing surface formation slip past.
 _SURFACE_TOLERANCE_M = 0.10
-
-
-@dataclass(frozen=True)
-class GapIssue:
-    """One problem found by ``validate_no_gaps``.
-
-    Attributes
-    ----------
-    kind : str
-        One of ``"missing_surface_contact"``, ``"duplicate_depth"``,
-        ``"contact_below_test"``. New kinds may be added; callers should
-        treat unknown kinds as warnings rather than crash.
-    detail : str
-        Free-text explanation suitable for the UI.
-    depth_m : float | None
-        Depth involved in the issue, when relevant.
-    contact_ids : list[UUID]
-        Contact rows the issue points at (for the editor to highlight).
-    """
-
-    kind: str
-    detail: str
-    depth_m: float | None = None
-    contact_ids: tuple[UUID, ...] = ()
 
 
 class GeologyRepository(GroundModelLogger):

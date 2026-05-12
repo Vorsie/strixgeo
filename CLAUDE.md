@@ -1962,21 +1962,16 @@ to ~400 lines.
 begins — extracting after edit-mode state has been written into
 the monolith is much more expensive.
 
-### 36. ``GapIssue`` dataclass in an infrastructure file (low)
+### 36. ``GapIssue`` dataclass in an infrastructure file — DONE
 
-**What.** ``GapIssue`` value object is defined inside
-``infrastructure/db/repositories/geology_repository.py``. The
-"one class per file" rule is violated, AND it's a domain-flavoured
-value object sitting in an infrastructure file. The router
-instantiates a ``GapIssueResponse`` schema directly from it.
-
-**Fix shape.** Move to ``domain/value_objects/gap_issue.py`` (or
-``domain/services/geology_validator.py`` when #26 lands). The
-``_SURFACE_TOLERANCE_M`` constant goes to a sibling
-``*_constants.py``.
-
-**When to revisit.** When #26 (geology application layer) lands —
-the validator naturally moves with it.
+Resolved 2026-05-12. ``GapIssue`` now lives in
+``domain/value_objects/gap_issue.py`` alongside the other domain
+value objects (``Coordinate``, ``Depth``, ``Admixture``, ...).
+``geology_repository.py`` imports it from there. ``_SURFACE_TOLERANCE_M``
+stays in the repository file as a private constant for now — it's
+used in exactly one method and would be a single-use
+``*_constants.py``, which the "extract on second copy" rule says
+to defer. Promote on second use.
 
 ### 37. ``run_interpretation`` + ``export_project`` use module-level loggers
 
