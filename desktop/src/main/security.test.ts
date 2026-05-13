@@ -10,6 +10,7 @@ import {
   buildContentSecurityPolicy,
   decideExternalOpen,
   isInAppNavigation,
+  isValidRecentProjectEntry,
   normalizePathForCompare,
 } from './security'
 
@@ -148,6 +149,63 @@ describe('normalizePathForCompare', () => {
         normalizePathForCompare('/b'),
       )
     }
+  })
+})
+
+describe('isValidRecentProjectEntry (debt #41)', () => {
+  it('accepts a well-formed entry within length caps', () => {
+    expect(
+      isValidRecentProjectEntry({
+        path: 'C:\\Users\\Project.strix',
+        name: 'My Project',
+        lastOpened: '2026-05-13T10:00:00Z',
+      }),
+    ).toBe(true)
+  })
+
+  it('rejects non-objects + null', () => {
+    expect(isValidRecentProjectEntry(null)).toBe(false)
+    expect(isValidRecentProjectEntry(undefined)).toBe(false)
+    expect(isValidRecentProjectEntry('a-string')).toBe(false)
+    expect(isValidRecentProjectEntry(42)).toBe(false)
+  })
+
+  it('rejects missing fields', () => {
+    expect(isValidRecentProjectEntry({})).toBe(false)
+    expect(isValidRecentProjectEntry({ path: 'x' })).toBe(false)
+    expect(
+      isValidRecentProjectEntry({ path: 'x', name: 'y' }),
+    ).toBe(false)
+  })
+
+  it('rejects empty path', () => {
+    expect(
+      isValidRecentProjectEntry({
+        path: '',
+        name: 'My Project',
+        lastOpened: '2026-05-13T10:00:00Z',
+      }),
+    ).toBe(false)
+  })
+
+  it('rejects pathological name length (DoS class)', () => {
+    expect(
+      isValidRecentProjectEntry({
+        path: 'C:\\x.strix',
+        name: 'x'.repeat(10_000),
+        lastOpened: '2026-05-13T10:00:00Z',
+      }),
+    ).toBe(false)
+  })
+
+  it('rejects pathological path length', () => {
+    expect(
+      isValidRecentProjectEntry({
+        path: 'C:\\' + 'x'.repeat(10_000),
+        name: 'My Project',
+        lastOpened: '2026-05-13T10:00:00Z',
+      }),
+    ).toBe(false)
   })
 })
 
