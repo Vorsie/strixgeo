@@ -29,7 +29,18 @@ class DrillSegment:
     Raises
     ------
     ValueError
-        If ``top_m`` is negative, ``base_m <= top_m``, or ``method`` is empty.
+        If ``top_m`` is negative or ``method`` is empty.
+
+    Notes
+    -----
+    The cross-field invariant ``base_m > top_m`` is deliberately NOT
+    enforced in the dataclass — per CLAUDE.md "Data Integrity Rules §5"
+    cross-field invariants belong in the parser's ``ValidationIssue``
+    list, not as a raise in the domain dataclass. The DOV pipeline
+    pre-checks the invariant in ``DovBoringParser`` and emits an
+    ``INVALID_INTERVAL`` warning before skipping the row. Single-field
+    guards (negativity, emptiness) stay here because they're not
+    cross-field. Debt #15.
     """
 
     top_m: float
@@ -39,9 +50,5 @@ class DrillSegment:
     def __post_init__(self) -> None:
         if self.top_m < 0:
             raise ValueError(f"DrillSegment.top_m cannot be negative: {self.top_m}")
-        if self.base_m <= self.top_m:
-            raise ValueError(
-                f"DrillSegment.base_m must be greater than top_m: {self.base_m} <= {self.top_m}"
-            )
         if not self.method:
             raise ValueError("DrillSegment.method cannot be empty")
