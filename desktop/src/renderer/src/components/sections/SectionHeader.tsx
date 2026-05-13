@@ -73,6 +73,8 @@ export default function SectionHeader({
   onChannelsChange,
   boreholeChannels,
   onBoreholeChannelsChange,
+  snapToStratigraphy,
+  onSnapToStratigraphyChange,
   columnSpacing,
   onColumnSpacingChange,
   onColumnSpacingCommit,
@@ -108,6 +110,11 @@ export default function SectionHeader({
   /** Same shape as ``onChannelsChange`` for the borehole toggle
    * group — optimistic in-memory update + bundle-persistent PATCH. */
   onBoreholeChannelsChange: (next: BoreholeChannels) => void
+  /** Click-to-place snap mode — when on, borehole clicks snap to
+   * the nearest formal/informal stratigraphy boundary within an
+   * 8 px tolerance. Off = free placement. */
+  snapToStratigraphy: boolean
+  onSnapToStratigraphyChange: (next: boolean) => void
   /** Spacing multiplier (0..1). At 1.0 the nudge layout pushes
    * adjacent columns apart by their full visual width + edge gap;
    * at 0.0 the layout sees zero-width columns and lets bands sit
@@ -238,6 +245,23 @@ export default function SectionHeader({
           )
         })}
       </div>
+
+      <button
+        onClick={() => onSnapToStratigraphyChange(!snapToStratigraphy)}
+        aria-pressed={snapToStratigraphy}
+        title={
+          'When on, click-to-place on a borehole snaps the contact depth ' +
+          'to the nearest formal / informal stratigraphy boundary (within 8 px)'
+        }
+        className={
+          'px-1.5 py-0.5 text-[10px] rounded border transition-colors ' +
+          (snapToStratigraphy
+            ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
+            : 'bg-white text-gray-500 border-gray-200 hover:text-gray-800 hover:bg-gray-100')
+        }
+      >
+        Snap
+      </button>
 
       <div className="flex items-center gap-2">
         <span
