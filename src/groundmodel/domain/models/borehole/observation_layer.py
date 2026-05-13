@@ -48,7 +48,15 @@ class ObservationLayer:
     Raises
     ------
     ValueError
-        If ``top_m`` is negative, ``base_m <= top_m``, or ``layer_index`` is negative.
+        If ``top_m`` is negative or ``layer_index`` is negative.
+
+    Notes
+    -----
+    The cross-field invariant ``base_m > top_m`` is deliberately NOT
+    enforced in the dataclass — per CLAUDE.md "Data Integrity Rules §5"
+    it belongs in the parser's ``ValidationIssue`` list.
+    ``DovInterpretationParser`` pre-checks it and emits an
+    ``INVALID_INTERVAL`` warning before skipping the row. Debt #15.
     """
 
     observation_id: UUID
@@ -64,9 +72,5 @@ class ObservationLayer:
     def __post_init__(self) -> None:
         if self.top_m < 0:
             raise ValueError(f"ObservationLayer.top_m cannot be negative: {self.top_m}")
-        if self.base_m <= self.top_m:
-            raise ValueError(
-                f"ObservationLayer.base_m must be greater than top_m: {self.base_m} <= {self.top_m}"
-            )
         if self.layer_index < 0:
             raise ValueError(f"ObservationLayer.layer_index cannot be negative: {self.layer_index}")
