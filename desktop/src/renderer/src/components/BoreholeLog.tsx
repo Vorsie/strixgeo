@@ -50,6 +50,11 @@ import {
   truncate,
   usePxPerM,
 } from './borelog/utils'
+import { Field } from './borelog/components/Field'
+import { LegendChip } from './borelog/components/LegendChip'
+import { LegendSection } from './borelog/components/LegendSection'
+import { TrackHeader } from './borelog/components/TrackHeader'
+import { WrappedText } from './borelog/components/WrappedText'
 
 // PR 4b–4d — full-feature borelog modelled on DOV's Rapport BoorProfiel:
 //
@@ -436,33 +441,6 @@ function BoreholeHeader({
   )
 }
 
-function Field({
-  label,
-  value,
-  bold,
-  warn,
-}: {
-  label: string
-  value: string
-  bold?: boolean
-  warn?: boolean
-}): React.ReactElement {
-  return (
-    <div className="flex flex-col leading-tight">
-      <span className="text-[9px] uppercase tracking-wide text-gray-400">{label}</span>
-      <span
-        className={[
-          'text-gray-700',
-          bold ? 'font-semibold' : '',
-          warn ? 'text-amber-600 italic' : '',
-        ].join(' ')}
-      >
-        {value}
-      </span>
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Absolute-level (Z) axis (SVG)
 //
@@ -544,54 +522,6 @@ function MTawAxis({
             </g>
           )
         })}
-    </g>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Track header — diagonal-text title + author/date sub-line (SVG)
-// ---------------------------------------------------------------------------
-
-function TrackHeader({
-  x,
-  width,
-  y,
-  title,
-  subtitle,
-}: {
-  x: number
-  width: number
-  y: number
-  title: string
-  subtitle: string | null
-}): React.ReactElement {
-  // Render as horizontal text — diagonal looks nice at print sizes but is
-  // hard to read at on-screen sizes. Two lines: title + subtitle.
-  return (
-    <g>
-      <rect
-        x={x}
-        y={y}
-        width={width}
-        height={HEADER_HEIGHT}
-        fill="#fafafa"
-        stroke="#e5e7eb"
-        strokeWidth={0.5}
-      />
-      <text
-        x={x + 4}
-        y={y + 14}
-        fontSize={10}
-        fontWeight={600}
-        fill="#374151"
-      >
-        {truncate(title, 22)}
-      </text>
-      {subtitle && (
-        <text x={x + 4} y={y + 28} fontSize={9} fill="#9ca3af">
-          {truncate(subtitle, 26)}
-        </text>
-      )}
     </g>
   )
 }
@@ -1571,138 +1501,6 @@ function Legend({ borehole }: { borehole: BoreholeDetailResponse }): React.React
         </div>
       )}
     </div>
-  )
-}
-
-function LegendSection({
-  title,
-  children,
-}: {
-  title: string
-  children: React.ReactNode
-}): React.ReactElement {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="text-[9px] uppercase tracking-wide text-gray-400">{title}</div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1">{children}</div>
-    </div>
-  )
-}
-
-function LegendChip({
-  code,
-  label,
-  preview,
-}: {
-  code: string
-  label: string
-  preview?: React.ReactNode
-}): React.ReactElement {
-  return (
-    <span className="flex items-center gap-1.5 text-gray-700">
-      {preview}
-      <span className="font-mono text-gray-500">{code}</span>
-      <span>{label}</span>
-    </span>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Word-wrap an SVG text label inside a bounded rectangle.
- *
- * Splits on whitespace, packs words greedily into lines that fit
- * ``maxWidth`` (estimated via average char width — SVG has no
- * ``measureText`` we can use synchronously), stops adding lines once
- * the next line would push past ``maxHeight``, and ellipsises the
- * last line when more words remain. Lines are emitted as ``<tspan>``s
- * with ``dy`` line spacing relative to the centre baseline.
- *
- * Used for the stratigraphy column where descriptions like
- * ``"Paleogeen: Formatie van Kortrijk - Lid van Roubaix"`` need to
- * read across multiple lines on tall layers (instead of overflowing
- * into the next column) and gracefully degrade to a single
- * truncated line on thin layers.
- */
-function WrappedText({
-  text,
-  centerX,
-  centerY,
-  maxWidth,
-  maxHeight,
-  fontSize,
-  fontWeight,
-  fill,
-}: {
-  text: string
-  centerX: number
-  centerY: number
-  maxWidth: number
-  maxHeight: number
-  fontSize: number
-  fontWeight?: number
-  fill: string
-}): React.ReactElement {
-  // Average character width at 11pt ≈ 6 px for the Inter / system
-  // fallback we ship. This is approximate but stable enough for
-  // packing words; the centre alignment and ellipsis handle slack.
-  const charW = fontSize * 0.55
-  const lineH = fontSize * 1.15
-  const maxCharsPerLine = Math.max(1, Math.floor(maxWidth / charW))
-  const maxLines = Math.max(1, Math.floor(maxHeight / lineH))
-
-  const words = text.split(/\s+/).filter(Boolean)
-  const lines: string[] = []
-  let current = ''
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word
-    if (candidate.length <= maxCharsPerLine) {
-      current = candidate
-    } else {
-      if (current) lines.push(current)
-      // Word longer than the line itself — hard-truncate.
-      current = word.length <= maxCharsPerLine ? word : truncate(word, maxCharsPerLine)
-      if (lines.length >= maxLines) break
-    }
-  }
-  if (current && lines.length < maxLines) lines.push(current)
-
-  // If we ran out of room before consuming every word, ellipsise the
-  // last line so the user sees that more text exists.
-  const consumedAll =
-    lines.join(' ').length >= text.replace(/\s+/g, ' ').length - 1 &&
-    lines.length <= maxLines
-  if (!consumedAll && lines.length > 0) {
-    const last = lines[lines.length - 1]
-    lines[lines.length - 1] = truncate(last, Math.max(1, last.length))
-    // truncate only changes if it's already at the limit — force ellipsis:
-    if (!lines[lines.length - 1].endsWith('…')) {
-      lines[lines.length - 1] = truncate(last + ' …', maxCharsPerLine)
-    }
-  }
-
-  // Centre vertically: the FIRST line's y offset is centerY minus the
-  // half-stack so the whole block is balanced around centerY.
-  const firstY = centerY - ((lines.length - 1) * lineH) / 2 + fontSize / 3
-
-  return (
-    <text
-      x={centerX}
-      y={firstY}
-      textAnchor="middle"
-      fontSize={fontSize}
-      fontWeight={fontWeight}
-      fill={fill}
-    >
-      {lines.map((line, i) => (
-        <tspan key={i} x={centerX} dy={i === 0 ? 0 : lineH}>
-          {line}
-        </tspan>
-      ))}
-    </text>
   )
 }
 
