@@ -211,6 +211,32 @@ export function enabledBoreholeChannelCount(channels: BoreholeChannels): number 
   return n
 }
 
+// ---------------------------------------------------------------------------
+// Snap-to-stratigraphy — click-to-place sticky boundaries.
+// ---------------------------------------------------------------------------
+//
+// When the user clicks on a borehole's lithology strip to drop a
+// formation top, the click depth gets adjusted toward the nearest
+// ``formal_stratigraphy`` / ``informal_stratigraphy`` layer
+// boundary (top or base) if one is within an 8 px tolerance on
+// screen. Lets engineers snap contacts to known geological breaks
+// without zooming to pixel-precision. Off by default — engineers
+// who want free placement keep the raw depth.
+//
+// Persists in ``section.view_state.snap_to_stratigraphy`` so the
+// preference rides the .strix file the same way channel toggles
+// do.
+
+export const SNAP_TOLERANCE_PX = 8
+
+export function readSnapToStratigraphy(
+  viewState: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!viewState || typeof viewState !== 'object') return false
+  const raw = (viewState as Record<string, unknown>).snap_to_stratigraphy
+  return typeof raw === 'boolean' ? raw : false
+}
+
 /** Parse the persisted channel toggles out of a section's
  * ``view_state`` JSONB bag. Out-of-range / missing values fall
  * back to the documented defaults so a hand-edited bundle can't
