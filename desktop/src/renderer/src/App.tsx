@@ -10,6 +10,7 @@ import type {
   CptPlotResponse,
   CptResponse,
   CrossSectionResponse,
+  FormationContactBatchUpdateEntry,
   FormationContactResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
@@ -686,6 +687,46 @@ export default function App() {
       } catch (err) {
         log.error('geology', 'updateContact failed', err)
         toast('error', 'Could not update the contact depth.')
+      }
+    },
+    [project, activeGeologicalModel],
+  )
+
+  // All-or-nothing batch commit — fired by the section editor's
+  // multi-drag and cross-column re-anchor flows. Sends one PUT and
+  // patches local state with the returned rows so the section
+  // overlay updates without a refetch. Used in two scenarios:
+  //   * single-contact cross-column drag (anchor changes)
+  //   * multi-selection drag (N contacts move together)
+  // The single-contact same-anchor depth-only drag still goes
+  // through ``handleUpdateContactDepth`` to keep the existing PATCH
+  // tests pinned and to avoid a server round-trip per pixel.
+  const handleBatchUpdateContacts = useCallback(
+    async (
+      updates: readonly FormationContactBatchUpdateEntry[],
+    ): Promise<void> => {
+      if (!project || !activeGeologicalModel) return
+      if (updates.length === 0) return
+      log.debug(
+        'geology',
+        `batchUpdateContacts entry count=${updates.length}`,
+      )
+      try {
+        const res = await api.geology.updateContactsBatch(
+          project.id,
+          activeGeologicalModel.id,
+          updates,
+        )
+        // Index by id so the local state patch is O(N+M).
+        const byId = new Map(res.contacts.map(c => [c.id, c]))
+        setContacts(prev => prev.map(c => byId.get(c.id) ?? c))
+        log.success(
+          'geology',
+          `batchUpdateContacts ok count=${res.contacts.length}`,
+        )
+      } catch (err) {
+        log.error('geology', 'batchUpdateContacts failed', err)
+        toast('error', 'Could not update the selected contacts.')
       }
     },
     [project, activeGeologicalModel],
@@ -1893,6 +1934,7 @@ export default function App() {
                 onCreateContact={handleCreateContact}
                 onUpdateContactDepth={handleUpdateContactDepth}
                 onDeleteContact={handleDeleteContact}
+                onBatchUpdateContacts={handleBatchUpdateContacts}
                 onCreateFormation={handleInlineCreateFormation}
                 onExportDxf={
                   activeGeologicalModel
