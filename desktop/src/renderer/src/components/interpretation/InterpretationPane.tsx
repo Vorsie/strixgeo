@@ -85,6 +85,13 @@ interface Props {
    * resyncs its cached formations list so SectionPanel's picker
    * + ContactsLayer pick up the change without a reload. */
   onFormationUpdated?: (id: string) => void
+  /** Refresh signal — when the integer increases the pane refetches
+   * its formations list from the API. App bumps it after server-
+   * side mutations that the pane wouldn't otherwise see (e.g. the
+   * "Seed from stratigraphy" auto-populate creating new formations
+   * outside the pane's own create-edit-delete flow). The integer
+   * value is opaque; only the change matters. */
+  refreshSignal?: number
 }
 
 export default function InterpretationPane({
@@ -99,6 +106,7 @@ export default function InterpretationPane({
   onFormationCreated,
   onFormationDeleted,
   onFormationUpdated,
+  refreshSignal,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -146,7 +154,11 @@ export default function InterpretationPane({
     return () => {
       cancelled = true
     }
-  }, [projectId])
+    // ``refreshSignal`` in the deps re-runs the effect on App
+    // bumping the counter — covers server-side formation creates
+    // (e.g. auto-populate from stratigraphy) that bypass the
+    // pane's own create-edit-delete flow.
+  }, [projectId, refreshSignal])
 
   // Manifest gate — formations in the DB but NOT in the manifest
   // are treated as "unsaved from a previous session" (a kill
