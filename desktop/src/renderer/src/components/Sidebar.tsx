@@ -105,6 +105,12 @@ interface Props {
    * uses this to resync the cached formations list so the section
    * picker + ContactsLayer pick up the change. */
   onFormationUpdated?: (id: string) => void
+  /** Refresh signal — App bumps this after server-side mutations
+   * the Interpretation pane wouldn't otherwise see (e.g. auto-
+   * populate from stratigraphy creating new formations outside
+   * the pane's own create-edit-delete flow). Threaded straight
+   * through to ``InterpretationPane.refreshSignal``. */
+  formationsRefreshSignal?: number
   /** Visible borehole IDs — used by the Interpretation pane's
    * "Populate from boreholes" affordance to walk every borehole's
    * stratigraphy observations and harvest formation names. */
@@ -261,6 +267,7 @@ export default function Sidebar({
   onFormationCreated,
   onFormationDeleted,
   onFormationUpdated,
+  formationsRefreshSignal,
   visibleBoreholeIds,
   activeModelName,
   visibleBoreholes: panelBoreholes,
@@ -737,6 +744,7 @@ export default function Sidebar({
             onFormationCreated={onFormationCreated}
             onFormationDeleted={onFormationDeleted}
             onFormationUpdated={onFormationUpdated}
+            refreshSignal={formationsRefreshSignal}
           />
         )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
