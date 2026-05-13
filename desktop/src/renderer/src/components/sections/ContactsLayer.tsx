@@ -81,6 +81,13 @@ interface Props {
     newDepthM: number,
     snapped: boolean,
   ) => Promise<void>
+  /** Right-click → confirm → delete the contact. Called only after
+   * the native confirm() returns true so the caller never has to
+   * gate the destructive action itself. When absent the contact's
+   * hit-strip falls back to its drag-only behaviour. DB delete is
+   * irreversible per CLAUDE.md UX conventions; the native confirm
+   * is the user-facing safety rail. */
+  onDeleteContact?: (contactId: string) => Promise<void>
   /** Snap-target depths per anchor id, used by the drag interaction
    * to mirror BoreholeColumn's snap-to-stratigraphy behaviour: when a
    * borehole anchor has candidates here, the dragged depth snaps to
@@ -256,6 +263,7 @@ export default function ContactsLayer({
   plotTop,
   plotBottom,
   onUpdateContactDepth,
+  onDeleteContact,
   snapDepthsByAnchorId,
   getCptValuesAtDepth,
 }: Props): JSX.Element | null {
@@ -690,9 +698,10 @@ export default function ContactsLayer({
             )}
             {/* Transparent hit-strip — wider than the visible line so
                 the user can grab without precision aiming. Rendered
-                only when a commit handler is wired; without one the
-                lines stay non-interactive. */}
-            {onUpdateContactDepth &&
+                whenever either an edit OR a delete handler is wired
+                so the lines participate in pointer events; without
+                both they stay fully non-interactive. */}
+            {(onUpdateContactDepth || onDeleteContact) &&
               layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
               layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
                 <rect
@@ -702,7 +711,29 @@ export default function ContactsLayer({
                   height={DRAG_HIT_HALF_HEIGHT_PX * 2}
                   fill="transparent"
                   style={{ cursor: isDragged ? 'grabbing' : 'ns-resize' }}
-                  onMouseDown={e => startDrag(rawLayer, e)}
+                  onMouseDown={
+                    onUpdateContactDepth
+                      ? e => startDrag(rawLayer, e)
+                      : undefined
+                  }
+                  onContextMenu={
+                    onDeleteContact
+                      ? e => {
+                          e.preventDefault()
+                          // Native confirm is the irreversible-action
+                          // safety rail per CLAUDE.md UX. A re-pick is
+                          // one click in the picker, so we deliberately
+                          // skip a custom modal — confirm is enough.
+                          if (
+                            window.confirm(
+                              `Delete contact at ${layer.formationName}? This cannot be undone.`,
+                            )
+                          ) {
+                            void onDeleteContact(layer.contactId)
+                          }
+                        }
+                      : undefined
+                  }
                   data-contact-id={layer.contactId}
                   data-testid="contact-drag-strip"
                 />
