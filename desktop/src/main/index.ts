@@ -7,6 +7,7 @@ import {
   buildContentSecurityPolicy,
   decideExternalOpen,
   isInAppNavigation,
+  isValidRecentProjectEntry,
   normalizePathForCompare,
 } from './security'
 
@@ -319,21 +320,15 @@ function readRecentProjects(): RecentProject[] {
   try {
     const raw = readFileSync(path, 'utf-8')
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter(isRecentProject) : []
+    if (!Array.isArray(parsed)) return []
+    // ``isValidRecentProjectEntry`` enforces length caps so a
+    // corrupted file with a 100-MB ``name`` can't freeze the menu
+    // rebuild (debt #41).
+    return parsed.filter(isValidRecentProjectEntry) as RecentProject[]
   } catch {
     // Corrupt / unreadable file shouldn't block startup — start fresh.
     return []
   }
-}
-
-function isRecentProject(value: unknown): value is RecentProject {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  return (
-    typeof v.path === 'string' &&
-    typeof v.name === 'string' &&
-    typeof v.lastOpened === 'string'
-  )
 }
 
 function writeRecentProjects(entries: RecentProject[]): void {
