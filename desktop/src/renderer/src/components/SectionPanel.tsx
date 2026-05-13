@@ -47,6 +47,7 @@ import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
+import { useContactPicker } from './sections/useContactPicker'
 import CptDataColumn from './sections/CptDataColumn'
 import {
   cptBandFullWidth,
@@ -562,74 +563,19 @@ export default function SectionPanel({
     enabledBhChannels,
   ])
 
-  // Click-to-place pick context. When non-null the FormationPicker
-  // modal is open; ``anchor`` carries the CPT/borehole + depth +
-  // elevation so the picker can show a confirmation subtitle. The
-  // modal closes by clearing this state (cancel) or by calling
-  // ``onCreateContact`` then clearing (commit).
-  const [pickContext, setPickContext] = useState<{
-    kind: 'cpt' | 'borehole'
-    anchorId: string
-    anchorName: string
-    depth_m: number
-    elevationM: number
-    snapped: boolean
-  } | null>(null)
-
-  const handlePickCpt = useCallback(
-    (anchor: {
-      kind: 'cpt'
-      cptId: string
-      cptName: string
-      depth_m: number
-      elevationM: number
-      snapped: false
-    }) => {
-      setPickContext({
-        kind: 'cpt',
-        anchorId: anchor.cptId,
-        anchorName: anchor.cptName,
-        depth_m: anchor.depth_m,
-        elevationM: anchor.elevationM,
-        snapped: anchor.snapped,
-      })
-    },
-    [],
-  )
-  const handlePickBorehole = useCallback(
-    (anchor: {
-      kind: 'borehole'
-      boreholeId: string
-      boreholeName: string
-      depth_m: number
-      elevationM: number
-      snapped: boolean
-    }) => {
-      setPickContext({
-        kind: 'borehole',
-        anchorId: anchor.boreholeId,
-        anchorName: anchor.boreholeName,
-        depth_m: anchor.depth_m,
-        elevationM: anchor.elevationM,
-        snapped: anchor.snapped,
-      })
-    },
-    [],
-  )
-  const handlePickerSelect = useCallback(
-    async (formationId: string): Promise<void> => {
-      if (!pickContext || !onCreateContact) return
-      await onCreateContact(
-        pickContext.kind,
-        pickContext.anchorId,
-        pickContext.depth_m,
-        formationId,
-        pickContext.snapped,
-      )
-      setPickContext(null)
-    },
-    [pickContext, onCreateContact],
-  )
+  // Click-to-place pick state + handlers. The hook owns the modal's
+  // open / closed state and the create-on-select flow; the
+  // ColumnGlyph + ContactPickBar + BoreholeColumn click handlers
+  // call into its handlePickCpt / handlePickBorehole entries, and
+  // the FormationPickerDialog's onSelect / onCancel hit
+  // handlePickerSelect / cancel respectively. Debt #30.
+  const {
+    pickContext,
+    handlePickCpt,
+    handlePickBorehole,
+    handlePickerSelect,
+    cancel: cancelPicker,
+  } = useContactPicker(onCreateContact)
 
   // Focus mode — when set, the section renders only the named test's
   // column (no DEM, no neighbours). Used for single-test boundary
@@ -1306,7 +1252,7 @@ export default function SectionPanel({
           if (!onCreateFormation) return null
           return onCreateFormation(payload)
         }}
-        onCancel={() => setPickContext(null)}
+        onCancel={cancelPicker}
       />
     </div>
   )
