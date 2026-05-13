@@ -129,6 +129,12 @@ interface Props {
    * hit-tests, then commits selections via ``onSetMarquee(null)``. */
   marquee?: MarqueeState | null
   onSetMarquee?: (next: MarqueeState | null) => void
+  /** Reset signal — when this number increases, ContactsLayer
+   * clears its selection. SectionPanel bumps it on a plain (no-
+   * shift) click on the section background so the user can deselect
+   * with one click. The integer value is opaque; only the change is
+   * meaningful (see useEffect below). */
+  selectionResetSignal?: number
   /** Snap-target depths per anchor id, used by the drag interaction
    * to mirror BoreholeColumn's snap-to-stratigraphy behaviour: when a
    * borehole anchor has candidates here, the dragged depth snaps to
@@ -445,6 +451,7 @@ export default function ContactsLayer({
   onBatchCreateContacts,
   marquee,
   onSetMarquee,
+  selectionResetSignal,
   snapDepthsByAnchorId,
   getCptValuesAtDepth,
 }: Props): JSX.Element | null {
@@ -467,6 +474,16 @@ export default function ContactsLayer({
     },
     [onSetMarquee],
   )
+  // Selection reset signal — SectionPanel bumps the integer to ask
+  // ContactsLayer to clear its current selection (e.g. on a plain-
+  // click on the section background). The integer's value is
+  // opaque; only the change matters. ``undefined`` (caller not
+  // wired) → no resets ever fire.
+  useEffect(() => {
+    if (selectionResetSignal === undefined) return
+    setSelection(new Set())
+    setLastSelectionContactId(null)
+  }, [selectionResetSignal])
   // Stage A — data-classification pass. Produces ``LayerSlabData[]``
   // and ``PolylineVertexData[]`` from data + horizontal layout only.
   // Crucially excludes ``levelToScreen`` / ``plotTop`` / ``plotBottom``
