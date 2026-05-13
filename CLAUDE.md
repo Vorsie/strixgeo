@@ -1795,25 +1795,6 @@ extracting is mechanical but not zero-risk.
 (surface-interpolation overlay editing, or free-draw formation
 boundaries).
 
-### 31. Drag interaction edge cases untested in ``ContactsLayer.test.tsx`` (low)
-
-**What.** The drag suite covers the happy path, zero-delta no-op,
-snap, blur cancellation, button-released-outside cancellation, and
-the pxPerMetre=0 collapsed-viewport guard. Two narrow edge cases
-remain untested:
-1. Drag when ``elevation_m`` is null on the anchor — hit-strip
-   should NOT render (the layer-build pass already filters these
-   anchors out, but no test pins that the hit-strip is absent).
-2. Contact depth committed at exactly ``depth_m = 0`` (surface
-   contact) — ``Math.max(0, rawDepth)`` clamp untested at its
-   boundary.
-
-**Why deferred.** Guards exist for both; the missing tests are
-specification-insurance against future refactors.
-
-**When to revisit.** Before any drag ``handleMove`` refactor, or
-before promoting drag to a keyboard-accessible flow.
-
 ### 33. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
 
 **What.** CLAUDE.md "Distribution model" plans an installer that
