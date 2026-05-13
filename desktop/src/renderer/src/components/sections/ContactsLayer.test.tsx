@@ -1,8 +1,8 @@
 // Behaviour tests for ContactsLayer — the formation-contact
 // polyline overlay on the cross-section.
 
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, fireEvent, render } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import type {
   BoreholeListItem,
@@ -95,6 +95,10 @@ function renderLayer(
   formations: GeologicalFormationResponse[],
   placedColumns: PlacedColumn[],
   excludedBoreholeIds?: ReadonlySet<string>,
+  extras: {
+    onUpdateContactDepth?: (id: string, depth: number) => Promise<void>
+    snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
+  } = {},
 ) {
   return render(
     <svg>
@@ -106,6 +110,8 @@ function renderLayer(
         levelToScreen={flipped}
         plotTop={0}
         plotBottom={50}
+        onUpdateContactDepth={extras.onUpdateContactDepth}
+        snapDepthsByAnchorId={extras.snapDepthsByAnchorId}
       />
     </svg>,
   )
@@ -252,6 +258,114 @@ describe('ContactsLayer', () => {
     expect(container.querySelectorAll('line').length).toBe(1)
     // No cross-column polyline either — only one vertex remains.
     expect(container.querySelector('path')).toBeNull()
+  })
+
+  it('does not emit drag hit-strips when onUpdateContactDepth is absent', () => {
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+    )
+    expect(container.querySelectorAll('[data-testid="contact-drag-strip"]').length).toBe(0)
+  })
+
+  it('emits one drag hit-strip per contact when onUpdateContactDepth is wired', () => {
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-2', depth_top_m: 5 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
+      undefined,
+      { onUpdateContactDepth: vi.fn().mockResolvedValue(undefined) },
+    )
+    expect(container.querySelectorAll('[data-testid="contact-drag-strip"]').length).toBe(2)
+  })
+
+  it('commits the new depth on drag end (mousedown → document mousemove → mouseup)', () => {
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth },
+    )
+    const strip = container.querySelector('[data-testid="contact-drag-strip"]')!
+    // mousedown starts the drag at clientY=0 (jsdom default). With
+    // flipped(level) = 20-level: surfaceY=10, pxPerMetre=1. A
+    // 5-px-delta mousemove pushes the contact 5 m deeper → new
+    // depth = 3 + 5 = 8.
+    fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
+    act(() => {
+      const ev = new MouseEvent('mousemove', { clientY: 5, bubbles: true })
+      document.dispatchEvent(ev)
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth.mock.calls[0][0]).toBe('c-1')
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(8, 5)
+  })
+
+  it('does not commit when the drag never moved (zero-delta release)', () => {
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth },
+    )
+    const strip = container.querySelector('[data-testid="contact-drag-strip"]')!
+    fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
+  })
+
+  it('snaps the drag depth to a stratigraphy candidate within tolerance', () => {
+    // pxPerMetre = 1 (from flipped), SNAP_TOLERANCE_PX = 8.
+    // Starting depth = 3 m. A 5-px-delta mousemove → raw depth 8.
+    // With candidate at 10 m (5 m away → 5 px), inside tolerance, the
+    // drag commits to 10 (the candidate), not 8 (the raw).
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const snapDepthsByAnchorId = new Map<string, readonly number[]>([
+      ['bh-1', [10]],
+    ])
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth, snapDepthsByAnchorId },
+    )
+    const strip = container.querySelector('[data-testid="contact-drag-strip"]')!
+    fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mousemove', { clientY: 5, bubbles: true }))
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(10, 5)
   })
 
   it('uses the formation colour for both segment + polyline stroke', () => {
