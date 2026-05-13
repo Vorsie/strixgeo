@@ -78,6 +78,17 @@ interface Props {
   plotBottom: number
   /** World-level → screen Y converter. */
   levelToScreen: (level: number) => number
+  /** Click anywhere on the lithology strip to place a formation
+   * contact at that depth. Caller (SectionPanel) opens the
+   * formation picker pre-seeded with the (anchor, depth) tuple.
+   * When undefined, the strip stays inert. */
+  onCommitDepth?: (anchor: {
+    kind: 'borehole'
+    boreholeId: string
+    boreholeName: string
+    depth_m: number
+    elevationM: number
+  }) => void
 }
 
 export default function BoreholeColumn({
@@ -89,6 +100,7 @@ export default function BoreholeColumn({
   plotTop,
   plotBottom,
   levelToScreen,
+  onCommitDepth,
 }: Props): JSX.Element | null {
   // Walk the channel list in display order, picking up the matching
   // observation (or null) per slot. We collect both the entry and
@@ -108,8 +120,57 @@ export default function BoreholeColumn({
   // visual identity anchor for the test even as the band widens.
   const bandLeftX = screenX - totalWidth / 2
 
+  // Band Y extent in screen coords — surface at top, depth =
+  // total_depth_m at bottom (clamped to the plot area). Used by the
+  // click-to-place overlay to constrain the pickable region.
+  const surfaceY = levelToScreen(surfaceElevationM)
+  const bottomY = levelToScreen(
+    surfaceElevationM - (detail.total_depth_m ?? Number.POSITIVE_INFINITY),
+  )
+  const bandTopY = Math.max(plotTop, Math.min(plotBottom, surfaceY))
+  const bandBottomY = Math.max(plotTop, Math.min(plotBottom, bottomY))
+  // Derive inverse Y → depth via the local px-per-metre rate.
+  const oneMetreDownPx =
+    levelToScreen(surfaceElevationM - 1) - levelToScreen(surfaceElevationM)
+  function depthAtY(y: number): number {
+    return oneMetreDownPx === 0 ? 0 : (y - surfaceY) / oneMetreDownPx
+  }
+
+  function handleClick(e: React.MouseEvent<SVGRectElement>): void {
+    if (!onCommitDepth) return
+    const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect()
+    const localY = e.clientY - rect.top + bandTopY
+    const clamped = Math.max(bandTopY, Math.min(bandBottomY, localY))
+    const depth = depthAtY(clamped)
+    onCommitDepth({
+      kind: 'borehole',
+      boreholeId: detail.id,
+      boreholeName: detail.name,
+      depth_m: depth,
+      elevationM: surfaceElevationM - depth,
+    })
+  }
+
   return (
     <g pointerEvents="none">
+      {/* Click-capture overlay over the full band. Renders ABOVE
+          the layer rects (paint order is parent-then-children, so
+          this sibling sits visually behind subsequent siblings; but
+          ``pointer-events=auto`` on this rect means it catches the
+          click first inside the band area). Cursor switches to
+          crosshair while hovering so the affordance is obvious. */}
+      {onCommitDepth && bandBottomY - bandTopY > 0 && (
+        <rect
+          x={bandLeftX}
+          y={bandTopY}
+          width={totalWidth}
+          height={bandBottomY - bandTopY}
+          fill="transparent"
+          style={{ cursor: 'crosshair' }}
+          pointerEvents="auto"
+          onClick={handleClick}
+        />
+      )}
       {enabledSlots.map((slot, i) => {
         const stripLeftX = bandLeftX + i * stripWidth
         if (slot.obs === null || slot.obs.layers.length === 0) {
