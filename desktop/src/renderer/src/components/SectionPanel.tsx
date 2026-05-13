@@ -149,6 +149,11 @@ interface Props {
   onCreateFormation?: (
     payload: GeologicalFormationCreatePayload,
   ) => Promise<{ id: string } | null>
+  /** Fire the "Export DXF" header action. The handler owns the
+   * fetch + Electron save-dialog + file-write flow so the panel
+   * stays storage-agnostic. Omitting it (or there being no active
+   * geological model) hides the button. */
+  onExportDxf?: () => Promise<void>
 }
 
 export default function SectionPanel({
@@ -164,6 +169,7 @@ export default function SectionPanel({
   onCreateContact,
   onUpdateContactDepth,
   onCreateFormation,
+  onExportDxf,
   onSelectCpt,
   onSelectBorehole,
 }: Props): JSX.Element {
@@ -816,6 +822,7 @@ export default function SectionPanel({
         scaleH={scaleH}
         scaleV={scaleV}
         onReset={resetView}
+        onExportDxf={onExportDxf}
       />
 
       <div
