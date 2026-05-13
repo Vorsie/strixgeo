@@ -45,6 +45,7 @@ import BoreholeColumn from './sections/BoreholeColumn'
 import ColumnContextMenu from './sections/ColumnContextMenu'
 import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer from './sections/ContactsLayer'
+import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import CptDataColumn from './sections/CptDataColumn'
 import {
   cptBandFullWidth,
@@ -673,12 +674,96 @@ export default function SectionPanel({
     )
   }, [placedColumns, focusedColumn])
 
+  // Auto-zoom on focus entry; restore on exit. The pre-focus
+  // viewport + VEX live in refs (not state) because we don't want
+  // the React render path observing the snapshot — the only callers
+  // are this effect's enter/exit transitions.
+  const preFocusViewportRef = useRef<Viewport | null>(null)
+  const preFocusVexRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (focusedColumn === null) {
+      // Exit: restore pre-focus framing if we captured one. Skips
+      // when the user never focused in the first place (initial
+      // mount).
+      if (preFocusViewportRef.current !== null) {
+        setViewport(preFocusViewportRef.current)
+        preFocusViewportRef.current = null
+      }
+      if (preFocusVexRef.current !== null) {
+        setVex(preFocusVexRef.current)
+        preFocusVexRef.current = null
+      }
+      return
+    }
+    // Enter: snapshot the current framing, then fit the viewport to
+    // the focused column. The column's projected along-distance +
+    // surface elevation + total/max depth come from PlacedColumn so
+    // we read them once here.
+    const col = placedColumns.find(
+      c => c.kind === focusedColumn.kind && c.proj.item.id === focusedColumn.id,
+    )
+    if (!col) return
+    preFocusViewportRef.current = viewport
+    preFocusVexRef.current = vex
+    const item = col.proj.item as CptListItem | BoreholeListItem
+    const elevation = item.elevation_m
+    const depth =
+      col.kind === 'cpt'
+        ? (item as CptListItem).max_depth_m
+        : (item as BoreholeListItem).total_depth_m
+    // Horizontal window — 40 m centred on the column's projected
+    // along-distance. Wide enough to give the column band breathing
+    // room, narrow enough that the test reads as the obvious subject.
+    const xHalf = 20
+    let newLevelMin = viewport.levelMin
+    let newLevelMax = viewport.levelMax
+    if (elevation !== null) {
+      const dEff = depth ?? 30
+      // 2 m headroom above the surface + 2 m below the bottom so the
+      // column caps don't sit flush against the plot edge.
+      newLevelMax = elevation + 2
+      newLevelMin = elevation - dEff - 2
+    }
+    setViewport({
+      xMin: col.proj.along - xHalf,
+      xMax: col.proj.along + xHalf,
+      levelMin: newLevelMin,
+      levelMax: newLevelMax,
+    })
+    // Reset VEX to 1.0 so the focused test renders without any
+    // residual vertical exaggeration — engineers expect a focused
+    // single-test view to read in natural proportions.
+    setVex(1.0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // reason: viewport + vex + placedColumns are intentionally
+    // stale-reads. We only want this effect to fire on focusedColumn
+    // transitions, not on every pan / zoom / column relayout — those
+    // would clobber the user's in-focus pan with a reset.
+  }, [focusedColumn])
+
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
   // "free drag" so CPTs (which have no stratigraphy to snap to) also
   // fall through correctly. Same set of depths the click-to-place
   // snap consumer in BoreholeColumn uses (formal + informal
   // stratigraphy layer tops + bases).
+  // Lookup callback for ContactsLayer's drag readout — interpolates
+  // qc + Rf at the dragged depth from the CPT's plot series.
+  // Returns null when the CPT id isn't currently loaded (still
+  // streaming, off-section, etc.) so the readout falls back to
+  // depth + mTAW only.
+  const getCptValuesAtDepth = useCallback(
+    (cptId: string, depthM: number) => {
+      const plot = cptPlots?.get(cptId)
+      if (!plot) return null
+      return {
+        qc: lookupCptValueAtDepth(plot.depths_m, plot.qc_mpa, depthM),
+        rf: lookupCptValueAtDepth(plot.depths_m, plot.rf_pct ?? [], depthM),
+      }
+    },
+    [cptPlots],
+  )
+
   const snapDepthsByAnchorId = useMemo(() => {
     const out = new Map<string, readonly number[]>()
     if (!snapToStratigraphy || boreholeDetails === null) return out
@@ -1166,6 +1251,7 @@ export default function SectionPanel({
               plotBottom={MARGIN.top + plotHeight}
               onUpdateContactDepth={onUpdateContactDepth}
               snapDepthsByAnchorId={snapDepthsByAnchorId}
+              getCptValuesAtDepth={getCptValuesAtDepth}
             />
 
             {/* Axis labels. */}
