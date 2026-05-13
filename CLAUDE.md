@@ -1655,24 +1655,6 @@ the frontend never sends it.
 and source becomes load-bearing for distinguishing automated from
 manual picks.
 
-### 24. Section ``view_state`` keys are untyped + unconstrained (low)
-
-**What.** The section ``view_state`` JSONB column now
-carries four live keys: ``cpt_channels``, ``borehole_channels``,
-``column_spacing``, ``snap_to_stratigraphy``. Read/written via
-``read*`` helpers in ``cptChannels.ts``. No schema documents the
-valid keys; the server-side ``merge_view_state`` accepts any JSON
-key. A client shipping ``snap_to_stratigrahpy`` (typo) silently
-persists junk with no server-side rejection.
-
-**Why deferred.** Solo developer; no external clients; typos
-detectable in dev.
-
-**When to revisit.** Before any second client (mobile companion,
-future export preset) or before sections are ever shared
-cross-machine. Fix: define ``SectionViewState`` TypeScript +
-Pydantic type with exhaustive keys; validate on PATCH.
-
 ### 25. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
 
 **What.** ``geotechnical_unit`` rows (formation → unit
