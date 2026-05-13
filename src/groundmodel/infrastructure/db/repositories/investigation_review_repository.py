@@ -18,6 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -109,54 +110,84 @@ class InvestigationReviewRepository(GroundModelLogger):
         status_in = patch.get("review_status")
         hidden_in = patch.get("is_hidden")
 
+        # Pre-read the current row so the per-column None policy +
+        # the ``reviewed_at`` transition rule resolve against the
+        # actual state. The race that motivated this refactor
+        # (debt #14) is the INSERT-collides-with-INSERT path —
+        # ``ON CONFLICT DO UPDATE`` below converts that path's
+        # IntegrityError into a deterministic UPDATE instead of a
+        # bubbling 500. Two concurrent PUTs settle to last-writer-
+        # wins; the IntegrityError class is gone.
         row = await self.get_for_target(target_kind, target_id)
-        if row is None:
-            initial_status = status_in if status_in is not None else "unreviewed"
-            initial_hidden = hidden_in if hidden_in is not None else False
-            row = InvestigationReviewOrm(
-                id=uuid7(),
+        old_status = row.review_status if row is not None else None
+
+        # Merge patch with current state to derive the FINAL desired
+        # row, then push it through INSERT ... ON CONFLICT. Doing the
+        # merge client-side preserves the ``"absent key" vs explicit
+        # null`` distinction that plain SQL can't express.
+        final_status = (
+            status_in
+            if status_in is not None
+            else (row.review_status if row is not None else "unreviewed")
+        )
+        final_hidden = (
+            hidden_in if hidden_in is not None else (row.is_hidden if row is not None else False)
+        )
+        if "review_notes" in patch:
+            final_notes = patch["review_notes"]  # explicit null clears
+        else:
+            final_notes = row.review_notes if row is not None else None
+        # ``reviewed_at`` follows status transitions only:
+        #   * unchanged status → keep the existing timestamp (or
+        #     None for a brand-new row not in 'reviewed').
+        #   * status → 'reviewed' → stamp now.
+        #   * 'reviewed' → anything else → clear to None.
+        if final_status == old_status:
+            final_reviewed_at = row.reviewed_at if row is not None else None
+        elif final_status == "reviewed":
+            final_reviewed_at = datetime.now(UTC)
+        else:
+            final_reviewed_at = None
+
+        stmt = (
+            pg_insert(InvestigationReviewOrm)
+            .values(
+                id=row.id if row is not None else uuid7(),
                 app_project_id=app_project_id,
                 target_kind=target_kind,
                 target_id=target_id,
-                review_status=initial_status,
-                review_notes=patch.get("review_notes"),
-                is_hidden=initial_hidden,
-                # Stamp on insert iff the row lands directly in
-                # 'reviewed' (one-click "mark reviewed" from the UI).
-                reviewed_at=(datetime.now(UTC) if initial_status == "reviewed" else None),
+                review_status=final_status,
+                review_notes=final_notes,
+                is_hidden=final_hidden,
+                reviewed_at=final_reviewed_at,
             )
-            self._session.add(row)
-            await self._session.flush()
+            .returning(InvestigationReviewOrm)
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["target_kind", "target_id"],
+            set_={
+                "review_status": stmt.excluded.review_status,
+                "review_notes": stmt.excluded.review_notes,
+                "is_hidden": stmt.excluded.is_hidden,
+                "reviewed_at": stmt.excluded.reviewed_at,
+            },
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        # ``returning(orm)`` gives back an OrmRow whose first column
+        # is the ORM instance. ``scalar_one()`` extracts it.
+        out: InvestigationReviewOrm = result.scalar_one()
+        if row is None:
             self.success(
                 f"Review created for {target_kind} {target_id}: "
-                f"status={row.review_status} hidden={row.is_hidden}"
+                f"status={out.review_status} hidden={out.is_hidden}"
             )
-            return row
-
-        # Update path — capture pre-patch status before any setattr so
-        # ``reviewed_at`` can detect a real transition (otherwise a
-        # repeated ``reviewed → reviewed`` patch would refresh the
-        # timestamp and lose the original review time).
-        old_status = row.review_status
-        if status_in is not None:
-            row.review_status = status_in
-        if hidden_in is not None:
-            row.is_hidden = hidden_in
-        if "review_notes" in patch:
-            # Nullable column — an explicit ``null`` clears notes.
-            row.review_notes = patch["review_notes"]
-
-        # ``reviewed_at`` follows status transitions only. Same-state
-        # patches preserve the existing timestamp.
-        if row.review_status != old_status:
-            row.reviewed_at = datetime.now(UTC) if row.review_status == "reviewed" else None
-
-        await self._session.flush()
-        self.info(
-            f"Review updated for {target_kind} {target_id}: "
-            f"status={row.review_status} hidden={row.is_hidden}"
-        )
-        return row
+        else:
+            self.info(
+                f"Review updated for {target_kind} {target_id}: "
+                f"status={out.review_status} hidden={out.is_hidden}"
+            )
+        return out
 
     async def delete(self, review_id: UUID) -> bool:
         """Delete a review row by id. Returns ``True`` if a row was removed.
