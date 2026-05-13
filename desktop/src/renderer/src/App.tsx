@@ -814,6 +814,96 @@ export default function App() {
     [project, activeGeologicalModel, setSessionImportContactIds],
   )
 
+  // Auto-populate the active model with contacts derived from
+  // each section borehole's stratigraphy observation (formal
+  // preferred, informal fallback). Backend creates contacts +
+  // any missing formations in one transaction; we refresh local
+  // formations + contacts state from the API afterwards (cheaper
+  // and more correct than reconstructing from the returned id
+  // lists).
+  const handleAutoPopulateFromStratigraphy = useCallback(
+    async (boreholeIds: readonly string[]): Promise<void> => {
+      if (!project || !activeGeologicalModel) return
+      if (boreholeIds.length === 0) return
+      log.debug(
+        'geology',
+        `autoPopulateFromStratigraphy entry boreholes=${boreholeIds.length}`,
+      )
+      try {
+        const outcome = await api.geology.autoPopulateFromStratigraphy(
+          project.id,
+          activeGeologicalModel.id,
+          boreholeIds,
+        )
+        // Refresh formations + contacts state. The auto-populate
+        // path can have created either / both — re-fetching is the
+        // simplest path to consistency.
+        const [forms, conts] = await Promise.all([
+          api.geology.listFormations(project.id),
+          api.geology.listContacts(project.id, activeGeologicalModel.id),
+        ])
+        setFormations(forms)
+        setContacts(conts)
+        // New formations are session-import entities so they
+        // survive the save flow's manifest filter.
+        addAllToSet(
+          setSessionImportFormationIds,
+          outcome.created_formation_ids,
+        )
+        addAllToSet(
+          setSessionImportContactIds,
+          outcome.created_contact_ids,
+        )
+        const created = outcome.created_contact_ids.length
+        const skipped =
+          outcome.skipped_existing +
+          outcome.skipped_unmatched +
+          outcome.skipped_no_stratigraphy
+        log.success(
+          'geology',
+          `autoPopulateFromStratigraphy ok +${created} contacts, ` +
+            `+${outcome.created_formation_ids.length} formations, ` +
+            `skipped ${outcome.skipped_existing} existing / ` +
+            `${outcome.skipped_unmatched} unmatched / ` +
+            `${outcome.skipped_no_stratigraphy} no-strat`,
+        )
+        // Surface a short summary toast. Tone: success on any new
+        // rows; info on a pure-idempotent re-run; warning when
+        // nothing was created AND boreholes lacked stratigraphy.
+        if (created > 0) {
+          toast(
+            'success',
+            `Seeded ${created} contacts` +
+              (outcome.created_formation_ids.length
+                ? ` and ${outcome.created_formation_ids.length} new formations`
+                : '') +
+              '.',
+          )
+        } else if (outcome.skipped_no_stratigraphy === boreholeIds.length) {
+          toast(
+            'error',
+            'No boreholes on this section carry stratigraphy data.',
+          )
+        } else if (skipped > 0) {
+          toast('success', 'Already in sync — nothing to add.')
+        }
+      } catch (err) {
+        log.error(
+          'geology',
+          'autoPopulateFromStratigraphy failed',
+          err,
+        )
+        toast('error', 'Could not seed contacts from stratigraphy.')
+      }
+    },
+    [
+      project,
+      activeGeologicalModel,
+      setSessionImportFormationIds,
+      setSessionImportContactIds,
+    ],
+  )
+
   // Export the section's drawn geological model to DXF. Owns the
   // full flow (fetch bytes → save dialog → file write) so the
   // SectionPanel + SectionHeader stay storage-agnostic. The button
@@ -1986,6 +2076,11 @@ export default function App() {
                 onDeleteContact={handleDeleteContact}
                 onBatchUpdateContacts={handleBatchUpdateContacts}
                 onBatchCreateContacts={handleBatchCreateContacts}
+                onAutoPopulateFromStratigraphy={
+                  activeGeologicalModel
+                    ? handleAutoPopulateFromStratigraphy
+                    : undefined
+                }
                 onCreateFormation={handleInlineCreateFormation}
                 onExportDxf={
                   activeGeologicalModel
