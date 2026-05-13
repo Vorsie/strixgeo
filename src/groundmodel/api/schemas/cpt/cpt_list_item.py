@@ -40,3 +40,8 @@ class CptListItem(BaseModel):
     # means the source omitted Z and the user has not entered one yet.
     elevation_m: float | None
     z_epsg: int | None
+    # Provenance of ``elevation_m`` — ``"dov"`` / ``"gef"`` /
+    # ``"manual"`` / ``"none"``. Surfaced in the list payload so the
+    # sidebar can render a tiny "(DOV)" / "(manual)" tag next to the Z
+    # value without a second GET /cpt/{id} fetch. Debt #8.
+    elevation_source: str
