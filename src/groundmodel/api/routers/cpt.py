@@ -261,6 +261,7 @@ async def list_cpts(
             epsg=c.epsg,
             elevation_m=c.elevation_m,
             z_epsg=c.z_epsg,
+            elevation_source=c.elevation_source,
         )
         for c in cpts
     ]
@@ -286,6 +287,7 @@ async def get_cpt(
         epsg=cpt.epsg,
         elevation_m=cpt.elevation_m,
         z_epsg=cpt.z_epsg,
+        elevation_source=cpt.elevation_source,
         pre_drill_m=cpt.pre_drill_m,
         cone_area_ratio=cpt.cone_area_ratio,
         max_depth_m=cpt.max_depth_m,
@@ -337,6 +339,7 @@ async def patch_cpt_elevation(
         epsg=cpt.epsg,
         elevation_m=cpt.elevation_m,
         z_epsg=cpt.z_epsg,
+        elevation_source=cpt.elevation_source,
         pre_drill_m=cpt.pre_drill_m,
         cone_area_ratio=cpt.cone_area_ratio,
         max_depth_m=cpt.max_depth_m,
