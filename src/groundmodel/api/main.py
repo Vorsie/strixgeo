@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import text
+from starlette.responses import PlainTextResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from groundmodel.api.routers import (
     borehole,
@@ -63,7 +65,85 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+# Max bytes any single request body may carry. 256 MiB is well above
+# typical project sizes (a 500-CPT DOV-bbox import lands at a few MB
+# per CLAUDE.md "DOV Import"); below this the per-array Pydantic
+# ``max_length`` caps in ``ProjectBundleRequest`` defend against the
+# next layer (10⁷ entry list inside a fits-the-envelope body). Above
+# this the middleware returns 413 before any buffering kicks in.
+# Debt #38.
+_MAX_BODY_BYTES = 256 * 1024 * 1024
+
+
+class BodySizeLimitMiddleware:
+    """ASGI middleware that rejects requests whose body exceeds a cap.
+
+    Pre-buffer check uses the ``Content-Length`` header (every browser
+    + httpx + the Electron renderer set it on POST bodies). Streaming
+    check tracks bytes across ``http.request`` events so a chunked-
+    encoding upload that omits Content-Length still gets capped.
+
+    Returns 413 ``Payload Too Large`` on overflow.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        # 1. Pre-buffer Content-Length check — rejects oversized
+        #    requests before we read a single byte.
+        for header_name, header_value in scope.get("headers", []):
+            if header_name == b"content-length":
+                try:
+                    declared = int(header_value)
+                except ValueError:
+                    break
+                if declared > self.max_bytes:
+                    await PlainTextResponse("Request body too large", status_code=413)(
+                        scope, receive, send
+                    )
+                    return
+                break
+        # 2. Streaming guard — tracks actual bytes across body chunks
+        #    in case Content-Length was absent (chunked transfer
+        #    encoding) or lied. We wrap ``receive`` so the app under
+        #    test still gets its body normally on the happy path.
+        received_bytes = 0
+        overflowed = False
+
+        async def guarded_receive() -> Message:
+            nonlocal received_bytes, overflowed
+            message = await receive()
+            if message["type"] == "http.request":
+                body = message.get("body", b"")
+                received_bytes += len(body)
+                if received_bytes > self.max_bytes:
+                    overflowed = True
+                    # Drain the rest so the client doesn't hang on a
+                    # half-consumed body, then signal end of stream.
+                    return {"type": "http.request", "body": b"", "more_body": False}
+            return message
+
+        async def guarded_send(message: Message) -> None:
+            # If we've overflowed, suppress the app's normal response
+            # and emit 413 instead. The app will write its response
+            # after our guarded_receive returns end-of-stream; we
+            # short-circuit it here.
+            if overflowed:
+                return
+            await send(message)
+
+        await self.app(scope, guarded_receive, guarded_send)
+        if overflowed:
+            await PlainTextResponse("Request body too large", status_code=413)(scope, receive, send)
+
+
 app = FastAPI(title="Ground Model Platform", version="0.1.0", lifespan=lifespan)
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=_MAX_BODY_BYTES)
 
 # The API binds to 127.0.0.1 only; the threat model that matters is NOT
 # network exposure (we have none) but cross-origin reads from other browser
