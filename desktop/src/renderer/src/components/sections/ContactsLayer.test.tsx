@@ -540,6 +540,71 @@ describe('ContactsLayer', () => {
     expect(onUpdateContactDepth).not.toHaveBeenCalled()
   })
 
+  it('reprojects segments when only levelToScreen changes (vertical pan)', () => {
+    // Debt #29 regression: the data-classification pass should stay
+    // cached when only the vertical transform changes, BUT the
+    // projection step must re-run so the visible segment Y reflects
+    // the new ``levelToScreen``. With surface=10 and depth=3 on a
+    // borehole, segment Y = levelToScreen(10-3) = levelToScreen(7).
+    //
+    // First render: flipped(7) = 20-7 = 13. Re-render with a shifted
+    // transform: flipped_shifted(7) = 30-7 = 23. The segment must
+    // move from y=13 to y=23 with no other inputs changing.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const formations = [makeFormation({ name: 'X' })]
+    const placed = [makeBoreholePlaced('bh-1', 100)]
+    const { container, rerender } = render(
+      <svg>
+        <ContactsLayer
+          contacts={contacts}
+          formations={formations}
+          placedColumns={placed}
+          levelToScreen={(level: number) => 20 - level}
+          plotTop={0}
+          plotBottom={50}
+        />
+      </svg>,
+    )
+    const initialY = Number(container.querySelector('line')?.getAttribute('y1'))
+    expect(initialY).toBeCloseTo(13, 1)
+
+    rerender(
+      <svg>
+        <ContactsLayer
+          contacts={contacts}
+          formations={formations}
+          placedColumns={placed}
+          levelToScreen={(level: number) => 30 - level}
+          plotTop={0}
+          plotBottom={50}
+        />
+      </svg>,
+    )
+    const shiftedY = Number(container.querySelector('line')?.getAttribute('y1'))
+    expect(shiftedY).toBeCloseTo(23, 1)
+  })
+
+  it('pre-indexes contacts by anchor so unrelated contacts at other anchors are ignored', () => {
+    // Debt #29 regression — the new data pass pre-indexes contacts
+    // by anchor id (O(M) once) rather than walking every contact for
+    // every column (O(N×M)). The behaviour pin: a contact with an
+    // anchor id absent from placedColumns produces no render, and
+    // the contacts at present anchors render normally.
+    const contacts = [
+      makeContact({ id: 'c-keep', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-orphan', borehole_id: 'bh-orphan', depth_top_m: 4 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+    )
+    // One present borehole + one orphan → only one top segment.
+    expect(container.querySelectorAll('line').length).toBe(1)
+  })
+
   it('uses the formation colour for both segment + polyline stroke', () => {
     const contacts = [
       makeContact({ id: 'c-1', borehole_id: 'bh-1' }),
