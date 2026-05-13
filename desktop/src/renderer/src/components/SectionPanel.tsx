@@ -642,6 +642,77 @@ export default function SectionPanel({
     [],
   )
 
+  // Focus enter/exit are event-driven rather than effect-driven.
+  // The previous useEffect on ``[focusedColumn]`` had to stale-read
+  // viewport + vex + placedColumns from closure (eslint-disabled) —
+  // exactly the pattern that bites in subtle ways. With the logic
+  // in plain useCallbacks we capture the current values through
+  // the React closure naturally; no eslint suppression needed
+  // (debt #21).
+  //
+  // The pre-focus snapshot only fires when entering from un-focused
+  // state — re-focusing column B while still in column A's focus
+  // keeps column A's original pre-focus framing as the restore
+  // target. Otherwise sub-focuses would lose the original viewport.
+  const preFocusViewportRef = useRef<Viewport | null>(null)
+  const preFocusVexRef = useRef<number | null>(null)
+
+  const enterFocus = useCallback(
+    (target: { kind: 'cpt' | 'borehole'; id: string; name: string }) => {
+      const col = placedColumns.find(
+        c => c.kind === target.kind && c.proj.item.id === target.id,
+      )
+      if (!col) return
+      // Only snapshot when not already in focus mode — protects
+      // against sub-focus chains overwriting the original framing.
+      if (preFocusViewportRef.current === null) {
+        preFocusViewportRef.current = viewport
+        preFocusVexRef.current = vex
+      }
+      const item = col.proj.item as CptListItem | BoreholeListItem
+      const elevation = item.elevation_m
+      const depth =
+        col.kind === 'cpt'
+          ? (item as CptListItem).max_depth_m
+          : (item as BoreholeListItem).total_depth_m
+      // Horizontal window — 40 m centred on the column's projected
+      // along-distance. Wide enough to give the column band
+      // breathing room, narrow enough that the test reads as the
+      // obvious subject.
+      const xHalf = 20
+      let newLevelMin = viewport.levelMin
+      let newLevelMax = viewport.levelMax
+      if (elevation !== null) {
+        const dEff = depth ?? 30
+        // 2 m headroom above the surface + 2 m below the bottom so
+        // the column caps don't sit flush against the plot edge.
+        newLevelMax = elevation + 2
+        newLevelMin = elevation - dEff - 2
+      }
+      setViewport({
+        xMin: col.proj.along - xHalf,
+        xMax: col.proj.along + xHalf,
+        levelMin: newLevelMin,
+        levelMax: newLevelMax,
+      })
+      setVex(1.0)
+      setFocusedColumn(target)
+    },
+    [placedColumns, viewport, vex],
+  )
+
+  const exitFocus = useCallback(() => {
+    if (preFocusViewportRef.current !== null) {
+      setViewport(preFocusViewportRef.current)
+      preFocusViewportRef.current = null
+    }
+    if (preFocusVexRef.current !== null) {
+      setVex(preFocusVexRef.current)
+      preFocusVexRef.current = null
+    }
+    setFocusedColumn(null)
+  }, [])
+
   // Esc exits focus + dismisses any open context menu. Skip when the
   // user is typing into an input so we don't steal text-editing Esc.
   useEffect(() => {
@@ -658,11 +729,11 @@ export default function SectionPanel({
         return
       }
       if (contextMenu !== null) setContextMenu(null)
-      else if (focusedColumn !== null) setFocusedColumn(null)
+      else if (focusedColumn !== null) exitFocus()
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [contextMenu, focusedColumn])
+  }, [contextMenu, focusedColumn, exitFocus])
 
   // Filter the layout pass to just the focused column when active.
   // Downstream warpAnchors, showLabelsByCptId, hideStickIds all read
@@ -675,72 +746,6 @@ export default function SectionPanel({
     )
   }, [placedColumns, focusedColumn])
 
-  // Auto-zoom on focus entry; restore on exit. The pre-focus
-  // viewport + VEX live in refs (not state) because we don't want
-  // the React render path observing the snapshot — the only callers
-  // are this effect's enter/exit transitions.
-  const preFocusViewportRef = useRef<Viewport | null>(null)
-  const preFocusVexRef = useRef<number | null>(null)
-  useEffect(() => {
-    if (focusedColumn === null) {
-      // Exit: restore pre-focus framing if we captured one. Skips
-      // when the user never focused in the first place (initial
-      // mount).
-      if (preFocusViewportRef.current !== null) {
-        setViewport(preFocusViewportRef.current)
-        preFocusViewportRef.current = null
-      }
-      if (preFocusVexRef.current !== null) {
-        setVex(preFocusVexRef.current)
-        preFocusVexRef.current = null
-      }
-      return
-    }
-    // Enter: snapshot the current framing, then fit the viewport to
-    // the focused column. The column's projected along-distance +
-    // surface elevation + total/max depth come from PlacedColumn so
-    // we read them once here.
-    const col = placedColumns.find(
-      c => c.kind === focusedColumn.kind && c.proj.item.id === focusedColumn.id,
-    )
-    if (!col) return
-    preFocusViewportRef.current = viewport
-    preFocusVexRef.current = vex
-    const item = col.proj.item as CptListItem | BoreholeListItem
-    const elevation = item.elevation_m
-    const depth =
-      col.kind === 'cpt'
-        ? (item as CptListItem).max_depth_m
-        : (item as BoreholeListItem).total_depth_m
-    // Horizontal window — 40 m centred on the column's projected
-    // along-distance. Wide enough to give the column band breathing
-    // room, narrow enough that the test reads as the obvious subject.
-    const xHalf = 20
-    let newLevelMin = viewport.levelMin
-    let newLevelMax = viewport.levelMax
-    if (elevation !== null) {
-      const dEff = depth ?? 30
-      // 2 m headroom above the surface + 2 m below the bottom so the
-      // column caps don't sit flush against the plot edge.
-      newLevelMax = elevation + 2
-      newLevelMin = elevation - dEff - 2
-    }
-    setViewport({
-      xMin: col.proj.along - xHalf,
-      xMax: col.proj.along + xHalf,
-      levelMin: newLevelMin,
-      levelMax: newLevelMax,
-    })
-    // Reset VEX to 1.0 so the focused test renders without any
-    // residual vertical exaggeration — engineers expect a focused
-    // single-test view to read in natural proportions.
-    setVex(1.0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // reason: viewport + vex + placedColumns are intentionally
-    // stale-reads. We only want this effect to fire on focusedColumn
-    // transitions, not on every pan / zoom / column relayout — those
-    // would clobber the user's in-focus pan with a reset.
-  }, [focusedColumn])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -1276,7 +1281,7 @@ export default function SectionPanel({
             y={contextMenu.y}
             name={contextMenu.name}
             onFocus={() =>
-              setFocusedColumn({
+              enterFocus({
                 kind: contextMenu.kind,
                 id: contextMenu.id,
                 name: contextMenu.name,
@@ -1291,7 +1296,7 @@ export default function SectionPanel({
             <button
               type="button"
               className="hover:text-purple-200"
-              onClick={() => setFocusedColumn(null)}
+              onClick={exitFocus}
               title="Exit focus mode (Esc)"
               aria-label="Exit focus mode"
             >
