@@ -45,7 +45,10 @@ import FormationPickerDialog from './interpretation/FormationPickerDialog'
 import BoreholeColumn from './sections/BoreholeColumn'
 import ColumnContextMenu from './sections/ColumnContextMenu'
 import ContactPickBar from './sections/ContactPickBar'
-import ContactsLayer, { type MarqueeState } from './sections/ContactsLayer'
+import ContactsLayer, {
+  type ContactCopyPayload,
+  type MarqueeState,
+} from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import { useContactPicker } from './sections/useContactPicker'
@@ -150,11 +153,19 @@ interface Props {
    * state so the overlay updates without a refetch. */
   onDeleteContact?: (contactId: string) => Promise<void>
   /** All-or-nothing batch update — fired by the section editor's
-   * multi-drag and cross-column re-anchor flows. Forwarded straight
-   * to ContactsLayer; the caller posts the batch and refreshes the
-   * local contacts state in one pass. */
+   * multi-drag (same-column depth shift) and cross-column re-anchor
+   * (Alt+drag MOVE) flows. Forwarded straight to ContactsLayer;
+   * the caller posts the batch and refreshes the local contacts
+   * state in one pass. */
   onBatchUpdateContacts?: (
     updates: readonly FormationContactBatchUpdateEntry[],
+  ) => Promise<void>
+  /** Batch CREATE — fired by cross-column drag WITHOUT Alt (the
+   * COPY default). Each entry becomes a new contact at the target
+   * anchor with the dragged depth; originals stay where they were.
+   * Forwarded to ContactsLayer. */
+  onBatchCreateContacts?: (
+    creates: readonly ContactCopyPayload[],
   ) => Promise<void>
   /** Inline-create a formation from the picker modal's "New
    * formation here" affordance. Returns the new row's id so the
@@ -183,6 +194,7 @@ export default function SectionPanel({
   onUpdateContactDepth,
   onDeleteContact,
   onBatchUpdateContacts,
+  onBatchCreateContacts,
   onCreateFormation,
   onExportDxf,
   onSelectCpt,
@@ -899,6 +911,14 @@ export default function SectionPanel({
                 onBatchUpdateContacts
                   ? e => {
                       if (e.button !== 0) return
+                      // Marquee only when Shift is held. Plain
+                      // left-drag falls through to the SVG's pan
+                      // handler — we mustn't stopPropagation here or
+                      // pan breaks. Ctrl/Cmd are deliberately NOT
+                      // honoured here so they stay free for system-
+                      // level shortcuts (Ctrl+S save, etc.).
+                      if (!e.shiftKey) return
+                      e.stopPropagation()
                       const svgEl = e.currentTarget.ownerSVGElement
                       const rect = svgEl?.getBoundingClientRect()
                       setMarquee({
@@ -908,7 +928,11 @@ export default function SectionPanel({
                         currentClientY: e.clientY,
                         svgLeft: rect?.left ?? 0,
                         svgTop: rect?.top ?? 0,
-                        additive: e.shiftKey || e.ctrlKey || e.metaKey,
+                        // Modifier-launched marquee is always additive
+                        // — preserves the existing selection. To
+                        // "replace via marquee", click bg first to
+                        // clear, then modifier-drag.
+                        additive: true,
                       })
                     }
                   : undefined
@@ -1152,6 +1176,7 @@ export default function SectionPanel({
               onUpdateContactDepth={onUpdateContactDepth}
               onDeleteContact={onDeleteContact}
               onBatchUpdateContacts={onBatchUpdateContacts}
+              onBatchCreateContacts={onBatchCreateContacts}
               marquee={marquee}
               onSetMarquee={setMarquee}
               snapDepthsByAnchorId={snapDepthsByAnchorId}
