@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.formation_contact import (
+    FormationContactBatchUpdateRequest,
+    FormationContactBatchUpdateResponse,
     FormationContactCreateRequest,
     FormationContactResponse,
     FormationContactUpdateRequest,
@@ -41,6 +43,9 @@ from groundmodel.api.schemas.project.geotechnical_unit import (
 from groundmodel.application.create_formation_contact import CreateFormationContact
 from groundmodel.application.delete_formation_contact import DeleteFormationContact
 from groundmodel.application.update_formation_contact import UpdateFormationContact
+from groundmodel.application.update_formation_contacts_batch import (
+    UpdateFormationContactsBatch,
+)
 from groundmodel.application.validate_borehole_stratigraphy import (
     ValidateBoreholeStratigraphy,
 )
@@ -442,7 +447,15 @@ async def update_contact(
     request: FormationContactUpdateRequest,
     session: AsyncSession = Depends(get_session),
 ) -> FormationContactOrm:
-    """Partial update on a contact (depth, formation, confidence, notes)."""
+    """Partial update on a contact (depth, formation, anchor, confidence, notes).
+
+    The anchor pair (``borehole_id`` / ``cpt_id``) is updatable so
+    the section editor's drag-re-anchor flow works without a
+    delete+create round-trip. Anchor updates require BOTH fields in
+    the body — the unused side must be explicitly null — so the
+    XOR invariant survives partial patches. The schema validator
+    rejects malformed shapes with a 422.
+    """
     # Two-stage scope guard: the contact's model_id must match the URL,
     # AND the model itself must live in the URL's project. Single 404
     # message either way — we don't leak which boundary the caller hit.
@@ -489,6 +502,54 @@ async def delete_contact(
         detail="Contact not found",
     )
     await DeleteFormationContact(session).execute(contact_id)
+
+
+@router.put(
+    "/models/{model_id}/contacts/batch",
+    response_model=FormationContactBatchUpdateResponse,
+)
+async def update_contacts_batch(
+    project_id: UUID,
+    model_id: UUID,
+    request: FormationContactBatchUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> FormationContactBatchUpdateResponse:
+    """All-or-nothing batch PATCH for N contacts.
+
+    The section editor's multi-drag flow ships every selected
+    contact's new (depth_top_m, anchor) in one call so a partial
+    failure can't strand half the selection mid-move. The use case
+    validates every entry's scope before mutating; any miss returns
+    404 without touching the DB. On success, one commit covers the
+    whole list and the response returns the updated rows in input
+    order so the client can patch its local state by index.
+    """
+    # Model scope guard up front — the use case re-checks per-contact
+    # but failing on a wrong model_id here gives a cleaner error
+    # message and skips an unnecessary DB read.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+
+    entries = [
+        (
+            entry.contact_id,
+            entry.model_dump(exclude={"contact_id"}, exclude_unset=True),
+        )
+        for entry in request.updates
+    ]
+
+    updated = await UpdateFormationContactsBatch(session).execute(model_id, entries)
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more contacts not found in this model",
+        )
+    return FormationContactBatchUpdateResponse(
+        contacts=[FormationContactResponse.model_validate(c) for c in updated]
+    )
 
 
 # ---------------------------------------------------------------------------
