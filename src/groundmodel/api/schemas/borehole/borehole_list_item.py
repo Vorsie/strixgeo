@@ -40,6 +40,11 @@ class BoreholeListItem(BaseModel):
     z_epsg:
         Vertical CRS code (5710 = mTAW). ``None`` when ``elevation_m`` is
         also ``None``.
+    elevation_source:
+        Provenance of ``elevation_m`` — ``"dov"`` / ``"gef"`` /
+        ``"manual"`` / ``"none"``. Surfaced in the list payload so the
+        sidebar can render a tiny "(DOV)" / "(manual)" tag next to the
+        Z value without firing GET /borehole/{id} per row. Debt #8.
     drill_method:
         Source-vocabulary drill-method summary (DOV WFS ``methode``:
         ``"Meerdere technieken"``, ``"kernboring"``, ...). Used by the
@@ -69,6 +74,7 @@ class BoreholeListItem(BaseModel):
     epsg: int | None
     elevation_m: float | None
     z_epsg: int | None
+    elevation_source: str
     drill_method: str | None
     borehole_type: str | None
     total_depth_m: float | None
