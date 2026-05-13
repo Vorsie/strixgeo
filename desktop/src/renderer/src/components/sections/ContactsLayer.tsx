@@ -41,7 +41,7 @@
  *     boreholes that disagree).
  */
 
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
   BoreholeListItem,
@@ -49,6 +49,7 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
+import HoverReadoutCard from './HoverReadoutCard'
 import type { PlacedColumn } from './utils'
 
 interface Props {
@@ -67,6 +68,17 @@ interface Props {
   levelToScreen: (level: number) => number
   plotTop: number
   plotBottom: number
+  /** Fires on the drag's mouseup with the contact id and its new
+   * depth_top_m. Caller PATCHes the contact and refreshes its local
+   * contacts state. When absent the per-contact hit-strip stays
+   * unmounted — the lines are non-interactive in read-only mode. */
+  onUpdateContactDepth?: (contactId: string, newDepthM: number) => Promise<void>
+  /** Snap-target depths per anchor id, used by the drag interaction
+   * to mirror BoreholeColumn's snap-to-stratigraphy behaviour: when a
+   * borehole anchor has candidates here, the dragged depth snaps to
+   * the nearest one within ``SNAP_TOLERANCE_PX``. Empty map / absent
+   * entry → free drag. */
+  snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
 }
 
 interface PolylineVertex {
@@ -78,6 +90,8 @@ interface PolylineVertex {
 
 interface RenderedLayer {
   key: string
+  contactId: string
+  anchorId: string
   formationId: string
   formationName: string
   color: string
@@ -90,6 +104,38 @@ interface RenderedLayer {
   bodyBottomY: number
   /** Column anchor X for the name label. */
   labelX: number
+  /** Anchor metadata needed by the drag handler — saved on the layer
+   * so we don't re-walk placedColumns on every mousemove. */
+  surfaceElevationM: number
+  pxPerMetre: number
+  surfaceY: number
+  /** Original (un-dragged) depth, kept on the layer so the drag
+   * commit can no-op when the user releases at the same depth. */
+  originalDepthM: number
+}
+
+interface DragState {
+  contactId: string
+  anchorId: string
+  surfaceElevationM: number
+  pxPerMetre: number
+  surfaceY: number
+  startClientY: number
+  startSegY: number
+  /** Latest drag-derived depth (live during the drag, set by the
+   * document mousemove handler). Used to (a) re-render the segment +
+   * label, (b) override the corresponding polyline vertex's Y, and
+   * (c) feed the commit on mouseup. */
+  currentDepthM: number
+  /** Cached display info to keep the floating readout self-contained
+   * without re-querying placedColumns. */
+  color: string
+  formationName: string
+  segLeftX: number
+  segRightX: number
+  labelX: number
+  plotTop: number
+  plotBottom: number
 }
 
 // Below this height (px) the layer is too small for a middle label
@@ -97,6 +143,13 @@ interface RenderedLayer {
 const LAYER_LABEL_MIN_HEIGHT_PX = 14
 // Avg glyph width at fontSize=9 — used by the truncation budget.
 const APPROX_GLYPH_WIDTH_PX = 5
+// Same threshold the BoreholeColumn click-to-place path uses; keeps
+// the click + drag affordances consistent on borehole anchors.
+const SNAP_TOLERANCE_PX = 8
+// Vertical hit-strip half-height (px) around each top segment — wide
+// enough that the line is grabbable without precision aiming, narrow
+// enough that adjacent layers don't fight for the same pointer.
+const DRAG_HIT_HALF_HEIGHT_PX = 5
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -126,6 +179,8 @@ export default function ContactsLayer({
   levelToScreen,
   plotTop,
   plotBottom,
+  onUpdateContactDepth,
+  snapDepthsByAnchorId,
 }: Props): JSX.Element | null {
   // Pre-index lookups + filter excluded boreholes once. Both render
   // halves (polyline + per-column layers) consume the same set.
@@ -206,8 +261,17 @@ export default function ContactsLayer({
             : clamp(levelToScreen(bottomLevel), plotTop, plotBottom)
         if (bodyBottomY < bodyTopY) continue
         const halfW = column.width / 2
+        // px-per-metre derived from levelToScreen — deeper points map
+        // to larger Y in the flipped section transform. We need this
+        // both at render time (to draw the segment after a drag
+        // override) and in the drag move handler.
+        const pxPerMetre =
+          levelToScreen(surfaceElevationM - 1) - levelToScreen(surfaceElevationM)
+        const surfaceY = levelToScreen(surfaceElevationM)
         layersOut.push({
           key: `${column.proj.item.id}-${contact.id}`,
+          contactId: contact.id,
+          anchorId: column.proj.item.id,
           formationId: contact.formation_id,
           formationName: formation.name,
           color: formation.color,
@@ -217,6 +281,10 @@ export default function ContactsLayer({
           bodyTopY,
           bodyBottomY,
           labelX: column.nudgedX,
+          surfaceElevationM,
+          pxPerMetre,
+          surfaceY,
+          originalDepthM: topDepth,
         })
       }
     }
@@ -272,19 +340,135 @@ export default function ContactsLayer({
     plotBottom,
   ])
 
+  // Drag state lives in the component so its update path is
+  // explicit. Document-level mousemove + mouseup listeners attach
+  // only while a drag is active.
+  const [drag, setDrag] = useState<DragState | null>(null)
+
+  // Apply snap-to-stratigraphy (matches the click path's behaviour
+  // on borehole anchors). Falls through to the raw depth when there's
+  // no snap candidate within ``SNAP_TOLERANCE_PX`` or the anchor has
+  // no candidates registered.
+  const snapDepth = useCallback(
+    (rawDepth: number, anchorId: string, pxPerMetre: number): number => {
+      if (pxPerMetre === 0) return rawDepth
+      const candidates = snapDepthsByAnchorId?.get(anchorId)
+      if (!candidates || candidates.length === 0) return rawDepth
+      let bestDepth = rawDepth
+      let bestPxDistance = SNAP_TOLERANCE_PX + 1
+      for (const cand of candidates) {
+        const px = Math.abs((cand - rawDepth) * pxPerMetre)
+        if (px <= SNAP_TOLERANCE_PX && px < bestPxDistance) {
+          bestPxDistance = px
+          bestDepth = cand
+        }
+      }
+      return bestDepth
+    },
+    [snapDepthsByAnchorId],
+  )
+
+  // Document-level move/up while a drag is active. clientY delta
+  // converts to a Y delta in SVG space (the SVG is in a relative
+  // container; absolute scale is 1:1 so we don't need to walk the
+  // bounding rect). Recomputing depth from start values keeps the
+  // math drift-free as the cursor wanders far from the line.
+  useEffect(() => {
+    if (drag === null) return
+    function handleMove(e: MouseEvent): void {
+      const draggedSegY = drag!.startSegY + (e.clientY - drag!.startClientY)
+      const rawDepth = (draggedSegY - drag!.surfaceY) / drag!.pxPerMetre
+      // Depth ≥ 0 — contacts can't sit above the surface. No upper
+      // bound here: the user may want to push a contact past the
+      // test's recorded total depth if they're correcting a typo.
+      const clamped = Math.max(0, rawDepth)
+      const snapped = snapDepth(clamped, drag!.anchorId, drag!.pxPerMetre)
+      setDrag(prev => (prev === null ? null : { ...prev, currentDepthM: snapped }))
+    }
+    function handleUp(): void {
+      const final = drag
+      setDrag(null)
+      if (!final || !onUpdateContactDepth) return
+      // No-op commit when the depth didn't change (e.g. a click that
+      // never moved). Saves a server round-trip + spurious history.
+      const start = (final.startSegY - final.surfaceY) / final.pxPerMetre
+      if (Math.abs(final.currentDepthM - start) < 1e-6) return
+      void onUpdateContactDepth(final.contactId, final.currentDepthM)
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+  }, [drag, snapDepth, onUpdateContactDepth])
+
+  const startDrag = useCallback(
+    (layer: RenderedLayer, e: React.MouseEvent<SVGRectElement>) => {
+      if (!onUpdateContactDepth) return
+      // Only the left button starts a drag — right-click is reserved
+      // for the section's column context menu.
+      if (e.button !== 0) return
+      e.preventDefault()
+      e.stopPropagation()
+      setDrag({
+        contactId: layer.contactId,
+        anchorId: layer.anchorId,
+        surfaceElevationM: layer.surfaceElevationM,
+        pxPerMetre: layer.pxPerMetre,
+        surfaceY: layer.surfaceY,
+        startClientY: e.clientY,
+        startSegY: layer.segY,
+        currentDepthM: layer.originalDepthM,
+        color: layer.color,
+        formationName: layer.formationName,
+        segLeftX: layer.segLeftX,
+        segRightX: layer.segRightX,
+        labelX: layer.labelX,
+        plotTop,
+        plotBottom,
+      })
+    },
+    [onUpdateContactDepth, plotTop, plotBottom],
+  )
+
   if (layers.length === 0 && polylines.length === 0) return null
 
+  // Per-render override: when a layer is the dragged one, replace
+  // its segY + label position with the drag's live depth.
+  function applyDragOverride(layer: RenderedLayer): RenderedLayer {
+    if (drag === null || drag.contactId !== layer.contactId) return layer
+    const newSegY = drag.surfaceY + drag.currentDepthM * drag.pxPerMetre
+    // Preserve the layer body extent — the dragged contact's bottom
+    // moves with the segment, but adjacent layers don't reshape
+    // until commit. Visually it's the "ghost" pattern from
+    // ContactPickBar: while dragging, the segment + label follow the
+    // cursor, neighbours stay put.
+    const bodyBottomY = layer.bodyBottomY
+    return {
+      ...layer,
+      segY: newSegY,
+      bodyTopY: clamp(newSegY, plotTop, plotBottom),
+      bodyBottomY,
+    }
+  }
+
   return (
-    <g pointerEvents="none">
+    <g>
       {/* Cross-column polylines (formation surfaces). Drawn first so
           the per-column top segments + name labels paint on top. */}
       {polylines.map(line => {
         if (line.vertices.length < 2) return null
         const path = line.vertices
-          .map(
-            (v, i) =>
-              `${i === 0 ? 'M' : 'L'} ${v.screenX.toFixed(2)} ${v.screenY.toFixed(2)}`,
-          )
+          .map((v, i) => {
+            // Live-override the dragged vertex's Y so the surface
+            // line tracks the drag instead of snapping at commit.
+            const y =
+              drag !== null && drag.contactId === v.contactId
+                ? drag.surfaceY + drag.currentDepthM * drag.pxPerMetre
+                : v.screenY
+            return `${i === 0 ? 'M' : 'L'} ${v.screenX.toFixed(2)} ${y.toFixed(2)}`
+          })
           .join(' ')
         return (
           <path
@@ -295,19 +479,24 @@ export default function ContactsLayer({
             strokeOpacity={0.55}
             strokeDasharray="4 3"
             fill="none"
+            pointerEvents="none"
           />
         )
       })}
 
       {/* Per-column horizontal segments at each contact top + name
           label in the layer's vertical middle. Each layer is one
-          formation slab at one column. */}
-      {layers.map(layer => {
+          formation slab at one column. The drag hit-strip sits on
+          top of the segment and the visible line + label paint
+          underneath. */}
+      {layers.map(rawLayer => {
+        const layer = applyDragOverride(rawLayer)
         const labelY = (layer.bodyTopY + layer.bodyBottomY) / 2
         const layerHeight = layer.bodyBottomY - layer.bodyTopY
         const showLabel = layerHeight >= LAYER_LABEL_MIN_HEIGHT_PX
         const labelWidth = layer.segRightX - layer.segLeftX
         const display = showLabel ? truncateToWidth(layer.formationName, labelWidth) : ''
+        const isDragged = drag !== null && drag.contactId === layer.contactId
         return (
           <g key={layer.key}>
             {/* Top segment — only when the top sits inside the plot
@@ -320,8 +509,9 @@ export default function ContactsLayer({
                 y1={layer.segY}
                 y2={layer.segY}
                 stroke={layer.color}
-                strokeWidth={1.75}
+                strokeWidth={isDragged ? 2.5 : 1.75}
                 strokeOpacity={0.95}
+                pointerEvents="none"
               />
             )}
             {showLabel && (
@@ -333,13 +523,55 @@ export default function ContactsLayer({
                 fontWeight={500}
                 textAnchor="middle"
                 dominantBaseline="middle"
+                pointerEvents="none"
               >
                 {display}
               </text>
             )}
+            {/* Transparent hit-strip — wider than the visible line so
+                the user can grab without precision aiming. Rendered
+                only when a commit handler is wired; without one the
+                lines stay non-interactive. */}
+            {onUpdateContactDepth &&
+              layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
+              layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
+                <rect
+                  x={layer.segLeftX}
+                  y={layer.segY - DRAG_HIT_HALF_HEIGHT_PX}
+                  width={layer.segRightX - layer.segLeftX}
+                  height={DRAG_HIT_HALF_HEIGHT_PX * 2}
+                  fill="transparent"
+                  style={{ cursor: isDragged ? 'grabbing' : 'ns-resize' }}
+                  onMouseDown={e => startDrag(rawLayer, e)}
+                  data-contact-id={layer.contactId}
+                  data-testid="contact-drag-strip"
+                />
+              )}
           </g>
         )
       })}
+
+      {/* Drag readout — depth + mTAW for the contact currently being
+          dragged. Same card shape ContactPickBar uses. */}
+      {drag !== null && (
+        <g pointerEvents="none">
+          <HoverReadoutCard
+            x={drag.segRightX + 8}
+            y={drag.surfaceY + drag.currentDepthM * drag.pxPerMetre}
+            plotTop={drag.plotTop}
+            plotBottom={drag.plotBottom}
+            lines={[
+              { text: `depth ${drag.currentDepthM.toFixed(2)} m`, color: drag.color },
+              {
+                text: `${
+                  drag.surfaceElevationM - drag.currentDepthM >= 0 ? '+' : ''
+                }${(drag.surfaceElevationM - drag.currentDepthM).toFixed(2)} m TAW`,
+                color: drag.color,
+              },
+            ]}
+          />
+        </g>
+      )}
     </g>
   )
 }
