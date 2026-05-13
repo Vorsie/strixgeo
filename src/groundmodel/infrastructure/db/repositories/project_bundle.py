@@ -616,8 +616,32 @@ async def restore_project_bundle(
         .scalars()
         .all()
     )
+    # Build the set of formation_ids actually present after restore
+    # (formations just created in this transaction + formations that
+    # already existed in the DB for this project). Contacts that
+    # reference a formation_id NOT in this set are orphaned — typically
+    # because an older save lost the formation row before the
+    # "include-by-reference" save fix landed. Skipping them prevents
+    # an FK-violation 500 and lets the rest of the file open.
+    existing_formation_ids = set(
+        (
+            await session.execute(
+                select(GeologicalFormationOrm.id).where(
+                    GeologicalFormationOrm.app_project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    valid_formation_ids = existing_formation_ids | {
+        UUID(f["id"]) if isinstance(f.get("id"), str) else f["id"]
+        for f in geological_formations_payload
+        if f.get("id") is not None
+    }
     new_models = 0
     new_contacts = 0
+    skipped_orphan_contacts = 0
     for m_payload in geological_models_payload:
         m_id_raw = m_payload.get("id")
         if m_id_raw is None:
@@ -633,13 +657,33 @@ async def restore_project_bundle(
         model_kwargs = _apply_json_to_kwargs(GeologicalModelOrm, m_payload)
         model_kwargs["app_project_id"] = project_id
         model = GeologicalModelOrm(**model_kwargs)
-        model.contacts = [
-            FormationContactOrm(**_apply_json_to_kwargs(FormationContactOrm, c))
-            for c in contacts_payload
-        ]
+        valid_contacts: list[FormationContactOrm] = []
+        for c in contacts_payload:
+            fid_raw = c.get("formation_id")
+            if fid_raw is None:
+                skipped_orphan_contacts += 1
+                continue
+            fid = UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw
+            if fid not in valid_formation_ids:
+                # Orphan reference — formation was lost from the
+                # bundle (or never persisted) but the contact survived.
+                # Skip rather than blow up the entire restore on a
+                # foreign key violation.
+                skipped_orphan_contacts += 1
+                continue
+            valid_contacts.append(
+                FormationContactOrm(**_apply_json_to_kwargs(FormationContactOrm, c))
+            )
+        model.contacts = valid_contacts
         session.add(model)
         new_models += 1
-        new_contacts += len(contacts_payload)
+        new_contacts += len(valid_contacts)
+    if skipped_orphan_contacts:
+        logger.warning(
+            f"restore_project_bundle({project_id}): skipped "
+            f"{skipped_orphan_contacts} orphan-formation contacts "
+            f"(missing formation row in bundle)"
+        )
 
     # ---- Cross-sections --------------------------------------------------
     existing_section_ids = set(
