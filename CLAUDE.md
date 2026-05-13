@@ -1360,25 +1360,33 @@ not renumber after each fix); explicit cleanup passes (last done
 2026-05-13, 24 DONE items removed, open items compacted to 1–34)
 compact them.
 
-### 1. WFS client base class (medium)
+### 1. WFS client base class — remaining wrapper duplication (low)
 
-**What.** The bbox-split + count + features pattern is duplicated
-across 5 DOV WFS clients (boring, interpretation, sample, grain-size,
-scalar). Every time DOV changes their query rules (the BBOX+CQL
-mutual-exclusion was the latest one) we patch in 5 places.
-``collect_wfs_features_recursive`` already extracts the bbox
-recursion; the remaining duplication is the HTTP request shape and
-common params.
+**What.** The big-three shared blocks are now extracted:
 
-**Why deferred.** The 5 clients differ in subtle ways
-(``DovBoreholeClient`` has a download phase; ``DovSampleClient`` is
-WFS-only; ``DovGrainSizeClient`` takes a process callback). A clean
-abstraction needs all 5 cases tested; the refactor is high-touch
-across files I'd rather not regress on the same day.
+* ``collect_wfs_features_recursive`` — bbox-split + dedup recursion.
+* ``wfs_count`` / ``wfs_features_json`` — WFS HTTP + CQL-bbox folding.
+* ``parallel_download_and_process`` — cache + semaphore + per-row
+  error funnelling, used by the 3 download clients (boring,
+  interpretation, grain-size).
 
-**When.** Pair this with the DMT / pressuremeter / monitoring
-clients in Phase 3 — the 6th and 7th instance will make the
-abstraction obvious, and we'll have fresh test coverage.
+What's left duplicated is small-grained per-client wrapper
+boilerplate: the WGS84→Lambert72 transform at entry, the bound
+``_wfs_count`` / ``_wfs_features`` method pair on each client, and
+the typed-row ``_build_row`` body (which CORRECTLY differs — each
+WFS layer ships different properties).
+
+**Why deferred.** The remaining duplication is mostly per-client
+convention (different field constants, different skip-counter
+warnings) rather than logic. A base class would have to model both
+download flavours (with cache + parse callback) and WFS-only
+flavours (sample / scalar), plus single-layer (boring, sample) and
+multi-layer (interpretation × 8) variants. Net win is small.
+
+**When.** When a 6th or 7th DOV WFS source lands (DMT / pressuremeter
+/ monitoring) and the same WGS→Lambert + partial-binding plumbing
+gets typed for a fourth time. At that point the abstraction shape is
+obvious from a wider sample.
 
 ### 2. ``API include=`` parameter for SampleResponse (low)
 
