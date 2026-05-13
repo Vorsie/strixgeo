@@ -38,9 +38,11 @@ import type {
 import { getSoilFillUrl } from '../../utils/soilPatterns'
 import {
   BOREHOLE_CHANNEL_OBSERVATION_TYPES,
+  SNAP_TOLERANCE_PX,
   type BoreholeChannels,
 } from './cptChannels'
 import HoverReadoutCard from './HoverReadoutCard'
+import { collectSnapDepths } from './utils'
 
 // Which observation types render with patterned soil fills (DOV
 // codes drive the pattern) vs. solid card-style fills with a text
@@ -106,12 +108,6 @@ interface Props {
   showHoverReadout?: boolean
 }
 
-const SNAP_TOLERANCE_PX = 8
-const STRAT_OBS_TYPES_FOR_SNAP = new Set([
-  'formal_stratigraphy',
-  'informal_stratigraphy',
-])
-
 export default function BoreholeColumn({
   detail,
   channels,
@@ -168,25 +164,9 @@ export default function BoreholeColumn({
     return oneMetreDownPx === 0 ? 0 : (y - surfaceY) / oneMetreDownPx
   }
 
-  // Build the snap candidates lazily — every formal / informal
-  // stratigraphy layer's top + base in this borehole, deduped.
-  // Each candidate is the depth in metres (not screen Y) so the
-  // snap math works at any zoom level without recomputing.
-  function snapDepthsFromObservations(): number[] {
-    const out = new Set<number>()
-    for (const obs of detail.observations) {
-      if (!STRAT_OBS_TYPES_FOR_SNAP.has(obs.observation_type)) continue
-      for (const layer of obs.layers) {
-        out.add(layer.top_m)
-        out.add(layer.base_m)
-      }
-    }
-    return Array.from(out)
-  }
-
   function snapDepth(rawDepth: number, rawY: number): number {
     if (!snapToStratigraphy) return rawDepth
-    const candidates = snapDepthsFromObservations()
+    const candidates = collectSnapDepths(detail)
     if (candidates.length === 0) return rawDepth
     let bestDepth = rawDepth
     let bestPxDistance = SNAP_TOLERANCE_PX + 1
