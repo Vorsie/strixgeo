@@ -290,6 +290,54 @@ describe('useProject', () => {
     )
   })
 
+  it('openProjectFile: restore payload carries geotechnical_units (regression pin)', async () => {
+    // Geotechnical units were silently dropped from the restore
+    // payload before this fix — every unit saved in a .strix
+    // disappeared on a 404→restore open. Same shape of bug as the
+    // pre-fix save flow that lost contacts. This pins the
+    // geotechnical_units key on the api.project.restore call so
+    // the next refactor can't regress it.
+    const { api } = await import('../api/client')
+    const ghostFile = {
+      format_version: 3,
+      project: {
+        id: '01k-WITH-UNITS',
+        name: 'WithUnits',
+        status: 'active',
+        tags: [],
+      },
+      cpts: [],
+      boreholes: [],
+      geological_formations: [{ id: 'f-1', name: 'Boom Klei' }],
+      geotechnical_units: [
+        { id: 'u-1', geological_formation_id: 'f-1', name: 'Weathered crust' },
+      ],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [],
+    }
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify(ghostFile),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('GET /projects/01k-WITH-UNITS → 404'),
+    )
+    const restored = { ...created, id: '01k-WITH-UNITS', name: 'WithUnits' }
+    ;(api.project.restore as ReturnType<typeof vi.fn>).mockResolvedValue(restored)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/with-units.gmproj')
+    })
+
+    expect(api.project.restore).toHaveBeenCalledWith(
+      '01k-WITH-UNITS',
+      expect.objectContaining({
+        geotechnical_units: ghostFile.geotechnical_units,
+      }),
+    )
+  })
+
   it('openProjectFile: returns null for pre-v3 files (legacy formats no longer accepted)', async () => {
     // Pre-shipping, we explicitly dropped v1/v2 readers — anyone
     // holding an old dev .gmproj has to re-save from a current build.
@@ -415,9 +463,28 @@ describe('useProject', () => {
     expect(result.current.saved?.description).toBeNull()
   })
 
-  it('saveProject when clean is a silent no-op — no API call, returns true', async () => {
+  it('saveProject when metadata is clean skips API PATCH but STILL rewrites the file', async () => {
+    // Previously this was a "silent no-op" — the dirty gate skipped
+    // both the metadata PATCH and the file write. That assumed only
+    // metadata could be dirty, which is wrong: every geological
+    // contact / formation / model / section is mutated via separate
+    // API calls that never touch project metadata. Skipping the file
+    // write here was a real data-loss bug — the user's contacts
+    // disappeared on the next open. Fix: PATCH is still gated (no
+    // need to round-trip identical metadata) but the file write
+    // always runs so the .strix stays current with the DB.
     const { api } = await import('../api/client')
     ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue({
+      project: created,
+      cpts: [],
+      boreholes: [],
+      geological_formations: [],
+      geotechnical_units: [],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [],
+    })
     ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
       'C:/path/site-a.gmproj',
     )
@@ -436,8 +503,11 @@ describe('useProject', () => {
       ok = await result.current.saveProject()
     })
     expect(ok).toBe(true)
+    // PATCH stays gated — no metadata changed, no round-trip.
     expect(updateMock).not.toHaveBeenCalled()
-    expect(window.electron.writeProjectFile).not.toHaveBeenCalled()
+    // BUT the file write runs — geological data may have changed
+    // since last save without flipping the metadata-dirty flag.
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
   })
 
   it('saveProject when dirty PATCHes + writes file + clears dirty', async () => {
