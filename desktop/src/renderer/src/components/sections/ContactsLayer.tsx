@@ -387,9 +387,29 @@ export default function ContactsLayer({
   // container; absolute scale is 1:1 so we don't need to walk the
   // bounding rect). Recomputing depth from start values keeps the
   // math drift-free as the cursor wanders far from the line.
+  //
+  // Three defensive cancel paths cover the case where the user
+  // releases the mouse OUTSIDE the browser viewport (``mouseup``
+  // never reaches our document listener):
+  //   1. ``e.buttons === 0`` at the top of handleMove — when the
+  //      cursor comes back into the window with no button held,
+  //      we know the release happened off-screen.
+  //   2. ``window.blur`` — if the user switches apps mid-drag the
+  //      window loses focus; cancel without committing.
+  //   3. ``pxPerMetre === 0`` guard — pathological collapsed
+  //      viewport (VEX edge case); prevents Infinity from ever
+  //      reaching the commit path.
   useEffect(() => {
     if (drag === null) return
+    function cancel(): void {
+      setDrag(null)
+    }
     function handleMove(e: MouseEvent): void {
+      if (e.buttons === 0) {
+        cancel()
+        return
+      }
+      if (drag!.pxPerMetre === 0) return
       const draggedSegY = drag!.startSegY + (e.clientY - drag!.startClientY)
       const rawDepth = (draggedSegY - drag!.surfaceY) / drag!.pxPerMetre
       // Depth ≥ 0 — contacts can't sit above the surface. No upper
@@ -403,6 +423,7 @@ export default function ContactsLayer({
       const final = drag
       setDrag(null)
       if (!final || !onUpdateContactDepth) return
+      if (final.pxPerMetre === 0) return
       // No-op commit when the depth didn't change (e.g. a click that
       // never moved). Saves a server round-trip + spurious history.
       const start = (final.startSegY - final.surfaceY) / final.pxPerMetre
@@ -411,9 +432,11 @@ export default function ContactsLayer({
     }
     document.addEventListener('mousemove', handleMove)
     document.addEventListener('mouseup', handleUp)
+    window.addEventListener('blur', cancel)
     return () => {
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleUp)
+      window.removeEventListener('blur', cancel)
     }
   }, [drag, snapDepth, onUpdateContactDepth])
 
