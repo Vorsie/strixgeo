@@ -56,7 +56,12 @@ async def async_client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides[get_session] = override_get_session
     try:
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # ``localhost`` (not ``testserver``) because the API's
+        # TrustedHostMiddleware (see ``api/main.py``) only accepts
+        # 127.0.0.1 / localhost. Using "testserver" makes every
+        # request 400 with "Invalid host header" before the route
+        # body runs.
+        async with AsyncClient(transport=transport, base_url="http://localhost") as client:
             yield client
     finally:
         app.dependency_overrides.pop(get_session, None)
