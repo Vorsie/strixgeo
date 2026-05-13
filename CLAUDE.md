@@ -1352,29 +1352,14 @@ Items that need a focused session — bigger than a quick fix, smaller
 than a phase. Tracked here so each one is visible in PR / commit
 context without rediscovering it from grep. Order is loose priority.
 
-### 1. Refresh-on-duplicate — DONE
+When an item is resolved, **delete it from this list** — its
+implementation history lives in the relevant commit on ``develop``,
+not here. Numbers stay stable through a debt-fixing campaign (do
+not renumber after each fix); explicit cleanup passes (last done
+2026-05-13, 24 DONE items removed, open items compacted to 1–34)
+compact them.
 
-Resolved by ``dov_permkey`` columns on every Borehole/Sample child +
-partial unique indexes scoped per parent. ``ImportBoreholeDov`` phases
-4b/4c now run for ALL in-scope boreholes (new + duplicates); per-row
-dedup against ``dov_permkey`` keeps existing children intact while
-attaching anything the upstream now provides. Eliminates the
-``TRUNCATE borehole CASCADE`` loop after a parser fix.
-
-Two follow-ups split out into their own debt items:
-
-* **#12 Legacy NULL-permkey rows.** Pre-PR rows have ``dov_permkey =
-  NULL`` and don't participate in dedup, so the first re-import after
-  this lands creates duplicate children for those legacy boreholes.
-  Documented trade-off; fine for solo dev (we wiped the DB on
-  2026-05-10), bites the moment a second user with pre-existing data
-  shows up.
-* **#13 Integration test for refresh.** Five unit tests cover the
-  helpers and per-row skip path; no test asserts the full end-to-end
-  ``import → re-import → no DB duplicates``. Manual smoke test
-  validates it for now.
-
-### 2. WFS client base class (medium)
+### 1. WFS client base class (medium)
 
 **What.** The bbox-split + count + features pattern is duplicated
 across 5 DOV WFS clients (boring, interpretation, sample, grain-size,
@@ -1394,40 +1379,7 @@ across files I'd rather not regress on the same day.
 clients in Phase 3 — the 6th and 7th instance will make the
 abstraction obvious, and we'll have fresh test coverage.
 
-### 3. Frontend test infrastructure — DONE
-
-Vitest + jsdom + ``@testing-library/react`` is set up and in use.
-70 frontend tests across 7 files cover ``BoreholeLog``,
-``ElevationEditor``, ``NewProjectDialog``, ``WelcomeScreen``,
-``useProject``, ``viewportFilter``, and a regression check. The
-admixture-rendering churn that motivated this debt would now be
-caught by the BoreholeLog smoke test. The git pre-commit hook runs
-``npm test`` whenever ``desktop/*.{ts,tsx}`` is staged.
-
-### 4. Single-project model — DONE (multi-project shipped)
-
-Multi-project landed 2026-05-10:
-
-* ``project`` table with full metadata + soft archive.
-* /projects API: list / create / get / update / archive / unarchive.
-* ``.gmproj`` file format (pointer + metadata, format_version=1).
-* Electron file menu: New / Open / Open Recent / Close (Ctrl+W).
-* WelcomeScreen with two columns (create-or-open + recent list).
-* Save-As deep duplicate: POST /projects/{id}/duplicate clones the
-  project row + every CPT (with series) + every borehole subtree
-  (drill segments, field log, observations + layers + admixtures,
-  samples + 5 typed lab families + the catch-all). Wired through
-  the File menu and useProject.saveAsProject.
-
-### 5. DOV cache eviction — DONE
-
-Resolved by ``DovXmlCache(max_bytes=…)``. Each cache instance sweeps
-oldest-by-mtime when over its cap, with a 10 % headroom to avoid
-thrashing. Default per-instance budget: 256 MiB (``DOV_CACHE_MAX_BYTES``
-env override). With CPT + 4 borehole subdirs we ceiling at ≈1.25 GiB
-total. Set ``DOV_CACHE_MAX_BYTES=0`` to disable eviction entirely.
-
-### 6. ``API include=`` parameter for SampleResponse (low)
+### 2. ``API include=`` parameter for SampleResponse (low)
 
 **What.** ``GET /borehole/{id}`` always selectinloads all 6 lab-test
 relationships per sample. Fine at our 232-sample scale; at 5000
@@ -1438,7 +1390,7 @@ would let the caller request only what it'll render.
 **When.** When a single borehole-detail call exceeds ~500 ms in
 production.
 
-### 7. Translate ``ScalarLabTest.parameter`` storage (low)
+### 3. Translate ``ScalarLabTest.parameter`` storage (low)
 
 **What.** 671 rows already store the verbatim DOV string
 ``"Korrelvolumemassa (korrelvolumemassa)"`` etc. If DOV changes their
@@ -1450,7 +1402,7 @@ make the storage column independent of upstream tweaks.
 **When.** When a query against ``scalar_lab_test`` is added that
 filters by parameter — at that point the slug becomes load-bearing.
 
-### 8. ``BoreholeLog.tsx`` size (low)
+### 4. ``BoreholeLog.tsx`` size (low)
 
 **What.** ~1850 lines. Cohesive (everything is borelog rendering)
 but big. If we add another track type (e.g. CPT-overlay-on-borelog
@@ -1460,14 +1412,14 @@ in Phase 5) it'll cross the "split this file" threshold.
 ``borelog/utils.ts`` for pure helpers, ``borelog/tracks/`` for the
 per-track components.
 
-### 9. Telemetry / crash reporting (low)
+### 5. Telemetry / crash reporting (low)
 
 **What.** No Sentry-equivalent. Frontend ``log.*`` calls go to the
 devtools console; user-side crashes are invisible to us.
 
 **When.** Before any non-solo user.
 
-### 10. CI runner / `tsc` enforcement (low — partial)
+### 6. CI runner / `tsc` enforcement (low — partial)
 
 **What.** Local `pytest tests/unit` + desktop `npm test` now gate the
 git pre-commit hook (see Development Workflow). Still missing: a CI
@@ -1477,19 +1429,10 @@ contributor lands.
 
 **When.** Before opening the repo to collaborators.
 
-### 11. Bump Electron + vitest majors — DONE
+### 7. Backfill `dov_permkey` for legacy rows (low)
 
-Electron 36.3.1 → 42.0.1 and vitest 2.1.8 → 4.1.5. Both upgrades
-landed without code changes — our main-process patterns
-(`contextIsolation: true`, `ipcMain.handle`, `contextBridge`) are
-stable across the version range. `npm audit` now reports **0
-vulnerabilities** (was 1 high + 5 moderate). The deprecated CJS Vite
-Node API warning that vitest 2 emitted is gone with vitest 4.
-
-### 12. Backfill `dov_permkey` for legacy rows (low)
-
-**What.** Refresh-on-duplicate (debt #1, resolved) keys per-row dedup
-on `dov_permkey`. Children stored before that PR landed have
+**What.** Refresh-on-duplicate (resolved in an earlier PR) keys
+per-row dedup on `dov_permkey`. Children stored before that PR landed have
 `dov_permkey = NULL` and don't participate in dedup, so the first
 re-import of a previously-imported bbox creates duplicate observation
 / sample / lab-test rows for those legacy boreholes.
@@ -1505,24 +1448,7 @@ shape is well-defined: a one-off backfill that walks
 `dov_permkey` from a re-fetch of the parent's source XML or WFS row,
 and stamps the column. ~Half a day of work plus a careful run.
 
-### 13. Integration test for refresh-on-duplicate — DONE
-
-Resolved by `tests/integration/db/test_refresh_on_duplicate.py` —
-5 cases against a real PostgreSQL session covering the dedup helpers
-(set + permkey-to-id), the partial UNIQUE index as defence-in-depth,
-per-parent scoping, and the documented NULL-permkey carve-out.
-
-### 14. Viewport-coupled sidebar — DONE
-
-`MapView` emits `onViewportChange(LatLngBounds)` from a `moveend`
-listener. App tracks the bounds, computes per-record "is the marker
-outside the viewport?" sets via the cached `lambertToWgs84`
-projection, and the Sidebar unions those into its existing visible /
-hidden-bottom partition. Always-on — coupling is soft (out-of-
-viewport rows are demoted to opacity-40, still clickable, still
-counted in the footer), so no toggle is needed.
-
-### 15. Elevation provenance + audit (medium)
+### 8. Elevation provenance + audit (medium)
 
 **What.** ``PATCH /{cpt,borehole}/{id}/elevation`` blindly overwrites
 ``elevation_m`` and ``z_epsg`` with no source-tag and no history. Today's
@@ -1555,7 +1481,7 @@ fields (currently it only refreshes child collections). For solo dev
 on DOV-Belgium data, the current "manual edits survive re-imports
 because re-imports are no-ops on the parent" behaviour is acceptable.
 
-### 16. Vertical-CRS picker in elevation editor (low)
+### 9. Vertical-CRS picker in elevation editor (low)
 
 **What.** The desktop ``ElevationEditor`` has no CRS picker — it sends
 ``z_epsg = null`` and lets the backend default from the row's
@@ -1571,7 +1497,7 @@ plausible defaults per horizontal CRS. The component contract already
 accepts ``zEpsg`` as a prop, so the picker is purely additive — drop a
 ``<select>`` next to the input and pass the chosen value through.
 
-### 17. License key + activation system (medium → blocking before paid release)
+### 10. License key + activation system (medium → blocking before paid release)
 
 **What.** No licensing today; anyone with the binary can run it.
 For a paid release we need a license token system. Suggested shape:
@@ -1594,7 +1520,7 @@ exist is the wrong order of operations.
 work: token format + signing CLI + verifier in the Electron main
 process + a thin "Activate license" UI.
 
-### 18. Installer + code signing + auto-update (medium → blocking before paid release)
+### 11. Installer + code signing + auto-update (medium → blocking before paid release)
 
 **What.** electron-builder produces .exe / .dmg / .deb / .AppImage,
 electron-updater handles deltas. Windows requires EV code signing
@@ -1604,14 +1530,14 @@ macOS notarization is similar (~€100/year Apple Developer
 membership + signing + Apple notary upload). Linux can ship
 unsigned today.
 
-**Why deferred.** Same as #17 — pre-revenue, premature.
+**Why deferred.** Same as #10 — pre-revenue, premature.
 
-**When.** In parallel with #17, before the first paid release.
+**When.** In parallel with #10, before the first paid release.
 Auto-update is especially important because future .gmproj format
 upgrades depend on every user reaching the build that introduced
 the upgrade path.
 
-### 19. Tamper / reverse-engineering hardening (low — pragmatic posture)
+### 12. Tamper / reverse-engineering hardening (low — pragmatic posture)
 
 **What.** A determined reverse engineer will defeat any client-side
 license check. The goals here are modest:
@@ -1632,7 +1558,7 @@ way leaking a movie pre-release is.
 paths (DOV XML, GEF, .gmproj, future imports) for malformed-input
 robustness. License check itself stays simple.
 
-### 20. Marketing site + market-facing name (medium → blocking before paid release)
+### 13. Marketing site + market-facing name (medium → blocking before paid release)
 
 **What.**
 
@@ -1654,49 +1580,7 @@ than no landing page.
 exports). Start collecting emails before announcing pricing — the
 list calibrates demand and the launch send is the conversion event.
 
-### 21. Investigation DELETE leaves orphan review rows — DONE
-
-Resolved 2026-05-12.
-``InvestigationReviewRepository.delete_for_target(kind, id)`` cascades
-the polymorphic row when the underlying investigation goes away.
-``DELETE /cpt/{id}`` calls it before dropping the CPT itself; no
-``DELETE /borehole/{id}`` exists today, so the borehole half waits
-on that endpoint to land. Two integration tests cover the happy
-path (review present → removed) and the common idempotent case
-(no review → returns False without raising).
-
-### 22. Router-level integration tests absent — DONE (partial; project-bundle gap remains)
-
-Resolved 2026-05-12 for the highest-signal surfaces:
-
-* ``tests/integration/conftest.py`` carries the shared
-  ``db_session`` fixture + ``make_project`` helper (lifted out of
-  ``db/conftest.py`` on its second copy — debt-rule trigger fired).
-  Existing db tests continue to import ``make_project`` from
-  ``tests.integration.db.conftest`` via a re-export shim.
-* ``tests/integration/api/conftest.py`` wires the FastAPI app
-  through ``httpx.ASGITransport`` and overrides ``get_session`` to
-  share the test engine. The override creates its own session per
-  request so the request lifecycle mirrors production exactly.
-* ``test_geology.py`` (8 cases) covers the new contact-mutation
-  use cases end-to-end + the cross-project tampering guard on
-  ``POST /...contacts`` and ``GET /...validate`` (a leaked id from
-  project B used inside project A's URL gets 404'd).
-* ``test_investigation_review.py`` (8 cases) pins both router
-  asymmetries that were called out by name in the original debt:
-  PUT against a wrong-project / unknown target returns 404; DELETE
-  against a wrong-project target returns 204 silently and leaves
-  the real row in the rightful project untouched. View-state
-  PATCH covered too — shallow-merge keeps siblings, ``null``
-  removes a key, unknown project surfaces as 404 not 500.
-
-Remaining gap: ``format_version != BUNDLE_FORMAT_VERSION`` rejection
-on ``POST /projects/{id}/restore``. The non-trivial fixture (a full
-v3 bundle on disk) wasn't worth wedging into this session; promote
-on the next .gmproj format bump (i.e. when v4 is introduced and the
-upgrade-chain rule from the Backwards Compatibility section fires).
-
-### 23. Race-safe upsert on investigation_review (low)
+### 14. Race-safe upsert on investigation_review (low)
 
 **What.** ``InvestigationReviewRepository.set_for_target`` is a
 SELECT-then-INSERT/UPDATE pattern. Two concurrent PUTs for the same
@@ -1723,192 +1607,7 @@ calls hitting the same target.
 that posts on every change) lands against this endpoint, or before
 multi-user editing of the same project lands.
 
-### 24. ``POST /cpt/plot-batch`` missing project-scope filter — DONE
-
-Resolved 2026-05-12. ``CptPlotBatchRequest`` now carries
-``app_project_id: UUID | None``; ``CptRepository.get_many_with_series``
-takes an optional ``app_project_id`` and adds a
-``.where(CptOrm.app_project_id == app_project_id)`` clause when
-present. Frontend (``api.cpt.plotBatch``) threads the section's
-``app_project_id`` through every call. Integration test
-``test_get_many_with_series_filters_by_app_project_id`` exercises
-the foreign-project drop.
-
-The single-CPT ``GET /cpt/{id}`` retains the same gap and is now
-the only remaining exposure surface — tracked as a follow-on
-(see "GET /cpt/{id} also needs project-scope guard" under #24a).
-
-### 25. ``CrossSectionOrm`` missing ``view_state`` JSONB column — DONE
-
-Resolved 2026-05-12. Alembic migration ``8a3f2c91d456`` adds a
-nullable ``view_state JSONB`` column on ``cross_section``. The
-ORM, the Pydantic create/update/response schemas, and the
-repository ``create`` signature all carry it; ``model_dump(
-exclude_unset=True)`` on PATCH lets callers update individual
-keys via the standard partial-update flow.
-
-Frontend: ``CrossSectionResponse`` in
-``desktop/src/renderer/src/api/client.ts`` exposes
-``view_state: Record<string, unknown> | null``; the unsafe
-``(section as unknown as ...).view_state`` cast in
-``SectionPanel.tsx`` is gone. ``readCptChannels`` reads the bag
-directly with documented defaults.
-
-Bundle round-trip is automatic — ``project_bundle.py`` walks
-ORM columns via ``_column_to_json`` / ``_apply_json_to_kwargs``,
-so the new column rides in / out without further plumbing.
-
-Toggle UI itself (writing channel changes back via
-``PATCH /sections/{id}`` on the frontend) remains as the
-follow-on (debt #40 — same trigger: when channel-toggle UI
-ships in S7 polish v2 or later).
-
-### 26. Geology + section routers bypass the application layer — DONE (partial; CRUD intentionally direct)
-
-Resolved 2026-05-12 for the editor-load-bearing surface:
-
-* ``domain/services/geology_validator.py`` carries ``GeologyValidator``
-  + a frozen ``ContactDepth`` input shape. The validator is pure
-  domain logic with no infrastructure import; 9 unit tests pin the
-  rules. ``GeologyRepository.validate_no_gaps`` keeps the
-  single-call loader signature but is now a 4-line thin shim that
-  projects ORM rows into ``ContactDepth`` and delegates.
-* Three application use cases land for the formation-contact
-  mutation flow (the editor's bread and butter):
-  ``CreateFormationContact``, ``UpdateFormationContact``,
-  ``DeleteFormationContact``. One class per file under
-  ``application/``; each inherits ``GroundModelLogger`` and owns
-  its session commit.
-* ``ValidateBoreholeStratigraphy`` use case wraps the read-only
-  validate-no-gaps call so the editor has a single stable hook for
-  future batch-validate orchestration.
-* Geology router wires the four endpoints through use cases. Other
-  CRUD endpoints (formations, geotechnical units, models — pure
-  read/write pass-through) stay direct-to-repo by design: the use
-  case pattern earns its keep when there's real orchestration, not
-  for one-line ``repo.create + commit``. The debt's "Read-heavy
-  CRUD tolerates this" call applies symmetrically to write-CRUD
-  with no domain invariants.
-
-XOR check on the contact anchor stays at three boundaries by
-design — Pydantic 422 (HTTP), ``GeologyRepository.create_contact``
-``ValueError`` (defence for non-API callers), and the DB CHECK
-constraint. The use case does not re-check.
-
-Cross-section router still calls ``CrossSectionRepository``
-directly. There are no cross-field invariants on a section that
-need a use case today; the distinct-endpoints check lives at the
-Pydantic boundary and is re-checked post-update in the router.
-Promote to a use case if/when the editor's batch-save flow needs
-to update a section + its contained contacts atomically.
-
-### 27. Geological model has no domain dataclasses — DONE
-
-Resolved 2026-05-12. ``domain/models/geology/`` now carries four
-frozen dataclasses mirroring the ORM tables:
-
-* ``GeologicalFormation``
-* ``GeologicalModel``
-* ``FormationContact`` (polymorphic anchor — borehole_id XOR cpt_id)
-* ``CrossSection`` (with optional ``view_state`` field — see #25)
-
-Behaviour tests (gap validation, contact ordering, surface
-interpolation) will land in ``domain/services/`` alongside the
-geological-model editor implementation (debt #26). Today's tests
-are shape-only: 7 unit tests asserting the public field set is
-frozen against accidental rename. The dataclasses are the
-contract the upcoming editor + G3Dv3 import + exporter snapshot
-builder all work against.
-
-``InvestigationReview`` was named in the original debt entry but
-is functionally different — it's a per-project decision row, not
-a geological-model entity — so it remains as ORM + Pydantic only
-for now. Promote on second use if a domain-level decision-router
-service emerges.
-
-### 28. ``BaseExporter`` input contract is undefined — DONE
-
-Resolved 2026-05-12. New module
-``application/ground_model_snapshot.py`` carries two frozen
-dataclasses:
-
-* ``LayerGeometry`` — one (formation, top_depth_m, base_depth_m,
-  location_x, location_y, surface_elevation_m) row per
-  investigation column. ``formation_code`` is optional for
-  downstream tools that key off codes (Plaxis material libraries).
-* ``GroundModelSnapshot`` — project_id + project_name + crs_epsg +
-  ``layers: list[LayerGeometry]``.
-
-``BaseExporter.export`` now takes ``GroundModelSnapshot`` instead
-of ``object``. The three concrete stubs (Plaxis, D-Sheet,
-GeoStudio) updated to the new signature; ``export`` raises
-``NotImplementedError`` until Phase 4 export work lands.
-
-Per-layer parameters intentionally NOT in the snapshot at Phase
-4 — the MVP gate is geometry-only. Phase 5 either extends
-``LayerGeometry`` with optional parameter fields or adds a
-parallel slice; callers pay no cost today for the absence.
-
-### 29. Geotechnical subdivision undesigned + absent from bundle — DONE
-
-Resolved 2026-05-12. The geotechnical model layer landed end-to-end:
-
-* Alembic migration ``f4b2c91e5a78`` creates the
-  ``geotechnical_unit`` table with FK to ``geological_formation``
-  (CASCADE on parent delete) + indexes on ``app_project_id`` and
-  ``geological_formation_id``.
-* ``GeotechnicalUnitOrm`` (infrastructure) + ``GeotechnicalUnit``
-  domain dataclass (``domain/models/geology``). Frozen dataclass
-  with the same audit-timestamp shape as ``GeologicalFormation``.
-* Pydantic schemas (Create / Update / Response). Schema is
-  *structure only* — name, code, color, display_order, description.
-  Per-unit parameter values (γ, c', φ', E) are Phase 5 work and
-  will land as additive optional fields on the same dataclass +
-  ORM when the shape settles.
-* ``GeologyRepository`` carries five new methods
-  (``create_unit / list_units / get_unit / update_unit / delete_unit``)
-  with the standard ``GroundModelLogger`` entry/exit tracing.
-* REST surface (4 endpoints, two-level project scope):
-  ``POST/GET /projects/{pid}/geology/formations/{fid}/units``,
-  ``PATCH/DELETE /projects/{pid}/geology/formations/{fid}/units/{uid}``.
-  Two-stage scope guard (unit → formation, formation → project);
-  ``geological_formation_id`` is NOT updatable (re-parent via
-  delete + recreate, mirroring the formation-contact anchor rule).
-* Bundle plumbing: ``geotechnical_units`` array in the
-  ProjectBundleRequest/Response payload, build + restore wired on
-  the Python side; ``ProjectFileV3`` carries the field on the
-  frontend; ``parseProjectFile`` backfills the field on older
-  v3 files saved before this build (``[]`` default).
-* Tests: 2 unit tests for the domain dataclass, 3 integration
-  tests for repository CRUD + cascade + per-formation scoping,
-  2 bundle round-trip tests (full round-trip + omitted-payload
-  defaults). Total: 7 new tests, all passing.
-
-The geological model editor (debt #26) now has the data layer it
-needs to know what it draws — formation contacts and/or
-geotechnical-unit assignments.
-
-### 30. Router-layer logging entirely absent — PARTIAL (DONE)
-
-2026-05-12. Every router file (``borehole``, ``cpt``, ``project``,
-``geology``, ``cross_section``, ``dem``, ``investigation_review``,
-``jobs``) now carries a module-level
-``logger = LoggerFactory.get_logger(__name__)``. Entry + exit
-INFO logs added on the highest-leverage write handlers
-(``POST /cpt/plot-batch``, ``POST /cpt/import``,
-``PATCH /cpt/{id}/elevation``, ``DELETE /cpt/{id}``,
-``PATCH /borehole/{id}/elevation``, ``POST /projects``).
-
-Read endpoints (GET) deliberately skipped — high-volume idempotent
-calls, the DoD spirit applies to mutating + external-call paths.
-Remaining write handlers (geology + cross_section + investigation
-review CRUD) inherit logging via the application-layer use cases
-or directly via the repository's ``GroundModelLogger`` — pure
-router-passthrough handlers gain no information from a router
-log. Promote individual handlers as triggers fire (e.g. when a
-specific endpoint reports a hard-to-diagnose issue in the field).
-
-### 31. Cross-field invariants raise from domain dataclasses
+### 15. Cross-field invariants raise from domain dataclasses
 
 **What.** ``DrillSegment``, ``ObservationLayer``,
 ``FieldLogInterval``, ``Sample`` all raise ``ValueError`` in
@@ -1928,122 +1627,7 @@ cross-field.
 (BRO, manual import, BIM upload). Source data quality is unknown
 and a hard crash on first import is the wrong UX.
 
-### 32. ``scalar_lab_tests_attached/_failed`` missing from response — DONE
-
-Resolved 2026-05-12. ``ImportBoreholeDovResult`` carries the two
-fields with ``int = 0`` defaults; ``ImportBoreholeDov.execute`` now
-assigns them from ``samples_result``; the response schema mirrors
-the result dataclass; the router forwards the new fields. The
-phase-summary INFO log emitted at the end of an import now
-includes the catch-all counters so operators can see them in
-real time. Contract is now additive-aligned with what CLAUDE.md
-already advertised.
-
-### 33. Node 22 constraint not machine-enforced — DONE
-
-Resolved 2026-05-12. Repo root carries ``.nvmrc`` with content
-``22`` (picked up by nvm-windows + fnm + Volta on shell entry).
-``desktop/package.json`` carries
-``"engines": {"node": ">=22.0.0 <24.0.0"}``; npm 9+ surfaces a
-warning on install when the active Node version is out of range.
-
-Re-evaluate the upper bound when Node 24.16+ ships in case the
-V8 segfault fix lands upstream.
-
-### 34. Frontend components with zero test coverage — DONE (partial; map-heavy still uncovered)
-
-Resolved 2026-05-12 for the highest-signal components. 7 new test
-files, 66 new cases (164 → 230 total frontend tests):
-
-* ``cptChannels.test.ts`` (14 cases) — pure helpers: zoom-clamp,
-  per-kind channel gating, qTotal overlay rule, persisted-bag
-  parse + defaults fallback.
-* ``CptChart.test.tsx`` (11 cases) — header readout, per-kind
-  legend dispatch (CPTU u2 / CPTE fs / CPTM qTotal), pre-drill
-  legend, Ic SBT strip, elevation editor surface vs read-only
-  fallback.
-* ``Sidebar.test.tsx`` (10 cases) — smoke, tab switching,
-  multi-select reveals bulk action bar, viewport-out demotion,
-  removed-set footer + restore.
-* ``ColumnGlyph.test.tsx`` (10 cases) — shape vocabulary (CPT
-  circle vs borehole square), missing-elevation degrade, missing-
-  depth degrade, tie-back chrome, click routing, offset hint.
-* ``InvestigationColumns.test.tsx`` (4 cases) — dispatch +
-  per-kind click routing.
-* ``CptDataColumn.test.tsx`` (6 cases) — slot dispatch (CPTU vs
-  CPTE u2-gated, CPTM qTotal-overlay), all-channels-off early
-  return, empty-array graceful degrade.
-* ``LabTestPanel.test.tsx`` (6 cases) — sample header, empty-
-  state, scalar-tests panel surfaces water-content row, Escape
-  closes, Arrow nav.
-* ``Toolbar.test.tsx`` (5 cases) — Import dropdown, drawing-bbox
-  label, action routing, phase-tagged disabled items.
-
-Test-infra cleanup: ``test/setup.ts`` now stubs
-``window.matchMedia`` alongside ``ResizeObserver`` so Toolbar's
-``useTheme`` hook (and any future component touching
-``prefers-color-scheme``) renders cleanly in jsdom.
-
-Remaining gap: ``MapView.tsx``, ``BboxDrawer.tsx``,
-``SectionLineDrawer.tsx``, ``SectionOverlays.tsx`` — all are
-Leaflet-tight; a meaningful jsdom render requires either a heavy
-Leaflet mock or a Playwright-style runner. Defer to one of two
-triggers, whichever fires first: (a) before the geological-model
-editor lands map-side overlays (Phase 4 mid-point) or
-(b) when introducing a Playwright suite for end-to-end coverage.
-
-### 35. ``SectionPanel.tsx`` approaching split threshold — DONE
-
-Resolved 2026-05-12. ``SectionPanel.tsx`` shrunk from 1478 → 591
-lines; the five sub-components + ``useSectionData`` hook + shared
-utils now live under ``components/sections/``:
-
-* ``sections/utils.ts`` — pure helpers (``sectionLengthM``,
-  ``niceStep``, ``ticks``), shared constants (``MARGIN``,
-  ``VEX_MIN/MAX``, ``WHEEL_ZOOM_FACTOR``, ``BARE_COLUMN_WIDTH_PX``,
-  ``COLUMN_EDGE_GAP_PX``), shared types (``Viewport``,
-  ``PlacedColumn``, ``PlacedColumnInput``), and ``useElementSize``.
-* ``sections/useSectionData.ts`` — DEM samples + CPT plot batch +
-  projected investigations + persisted CPT channel toggles. The
-  upcoming geological-model editor overlay will consume the same
-  hook output as props.
-* ``sections/SectionHeader.tsx`` / ``SectionScrubBar.tsx`` /
-  ``InvestigationColumns.tsx`` / ``ColumnGlyph.tsx`` /
-  ``DemSurfaceLine.tsx`` — extracted sub-components.
-
-``SectionPanel.tsx`` retains viewport state (xMin/xMax,
-levelMin/levelMax, VEX), the coordinate transforms
-(``xToScreen`` / ``levelToScreen``), pan / wheel-zoom / scrub-bar
-interactions, the collision-handled ``placedColumns`` (depends on
-viewport via ``xToScreen``), and the SVG composition. 160 desktop
-tests pass; ``tsc --noEmit`` is clean. Edit-mode state for the
-geological-model editor can now land in the orchestrator without
-touching sub-component internals.
-
-### 36. ``GapIssue`` dataclass in an infrastructure file — DONE
-
-Resolved 2026-05-12. ``GapIssue`` now lives in
-``domain/value_objects/gap_issue.py`` alongside the other domain
-value objects (``Coordinate``, ``Depth``, ``Admixture``, ...).
-``geology_repository.py`` imports it from there. ``_SURFACE_TOLERANCE_M``
-stays in the repository file as a private constant for now — it's
-used in exactly one method and would be a single-use
-``*_constants.py``, which the "extract on second copy" rule says
-to defer. Promote on second use.
-
-### 37. ``run_interpretation`` + ``export_project`` use module-level loggers — DONE
-
-Resolved 2026-05-12. Both stubs converted to
-``class RunInterpretation(GroundModelLogger)`` and
-``class ExportProject(GroundModelLogger)`` with the standard
-``__init__(self) -> None: super().__init__(__name__)`` pattern.
-``execute`` methods raise ``NotImplementedError`` with a phase-
-specific message; the surrounding scaffolding (inheritance, log
-methods, docstrings) is in place so the Phase 4 + 5
-implementations land without restructuring callers or churning
-the logging convention.
-
-### 38. Mixed-CRS spatial-query guard absent
+### 16. Mixed-CRS spatial-query guard absent
 
 **What.** The bundle format and the API both accept per-investigation
 EPSG. PostGIS spatial queries (bbox containment, proximity) on a
@@ -2061,55 +1645,7 @@ imports.
 is Lambert72 but users may have RD New (28992) NL boreholes in
 the same project. Or before any project spans the BE/NL border.
 
-### 39. ``eslint-disable react-hooks/exhaustive-deps`` without reasons — DONE
-
-Resolved 2026-05-12. ``Sidebar.tsx`` (the only unadorned site —
-``usePersistedJSON.ts`` already had a documented reason)
-received a multi-line ``// reason:`` block. The rule itself is
-now codified in CLAUDE.md § Code Conventions: every
-``eslint-disable react-hooks/exhaustive-deps`` MUST carry a
-reason comment. Reviewer + future contributors can cite the
-convention when a reason-less suppression appears in a diff.
-
-### 40. ``cpt_channels`` toggle never persisted — DONE
-
-Resolved 2026-05-12. End-to-end channel-toggle persistence:
-
-* ``PATCH /projects/{pid}/sections/{sid}`` now honours its
-  documented shallow-merge semantics on ``view_state``. The router
-  was clobbering the bag despite the schema docstring promising
-  merge; debt #25 had wired the column but not the merge layer.
-* New ``merge_view_state`` helper in ``api/routers/_helpers.py``
-  centralises the rule (extracted on the second copy: project
-  view-state used the same logic verbatim). 5 integration cases
-  pin the contract: shallow merge, null-inside-dict removes a key,
-  ``{}`` clears the bag, explicit-null sentinel "do not touch",
-  omitted field "do not touch".
-* ``useSectionData`` exposes ``setCptChannels`` (optimistic local
-  update) alongside ``cptChannels``. Re-seeds from ``view_state``
-  on section identity change but NOT on view_state churn from our
-  own PATCH responses (the local state wins to avoid flicker).
-* ``SectionPanel`` wires a ``handleChannelsChange`` callback that
-  updates local state + fires ``PATCH`` with
-  ``{view_state: {cpt_channels: next}}``. Single click per
-  toggle, no debounce — toggles aren't dragged.
-* ``SectionHeader`` carries a 5-button group (qc / Rf / fs / u2 /
-  qT) with active-state styling via ``aria-pressed`` + a blue
-  background. 4 new frontend tests cover the default state, the
-  persisted-state read on mount, the PATCH dispatch shape, and
-  the optimistic re-render.
-
-### Items #41–#58 — surfaced by the 2026-05-13 four-agent audit pass
-
-Aggregated from a parallel run of ``senior-code-reviewer`` (recent
-diff review), ``system-architect`` (geological-model subsystem),
-``staff-engineer`` (implementation quality), and
-``product-strategy-advisor`` (v1.0 gate progress). Some are bugs
-flagged for an imminent fix commit, others are real debt with
-explicit revisit triggers. All carry the standard
-*what / why deferred / when to revisit* shape.
-
-### 41. Drag mouseup outside the browser window leaks document listeners (blocker bug)
+### 17. Drag mouseup outside the browser window leaks document listeners (blocker bug)
 
 **What.** ``ContactsLayer.tsx`` attaches ``mousemove`` + ``mouseup``
 to ``document`` while ``drag !== null``. The cleanup function only
@@ -2128,7 +1664,7 @@ Fix is small: also subscribe to ``visibilitychange`` / ``blur`` /
 **When to revisit.** Before any user-facing testing of the drag
 flow.
 
-### 42. ``discardSessionImports`` drops contact session IDs without clearing them (bug)
+### 18. ``discardSessionImports`` drops contact session IDs without clearing them (bug)
 
 **What.** ``App.tsx`` ``discardSessionImports`` trims the manifest
 for CPTs / boreholes / formations / sections on close-without-save
@@ -2142,10 +1678,10 @@ they're "session-only" data the user discarded. The companion
 solo dev because mid-session close-without-save is uncommon, but
 the discard semantics are broken on this path.
 
-**When to revisit.** Same commit that fixes #41 — both are quick
+**When to revisit.** Same commit that fixes #17 — both are quick
 fixes the editor needs before any user-facing testing.
 
-### 43. ``pxPerMetre === 0`` zero-guard missing in ContactsLayer drag ``handleMove`` (should-fix bug)
+### 19. ``pxPerMetre === 0`` zero-guard missing in ContactsLayer drag ``handleMove`` (should-fix bug)
 
 **What.** ``ContactsLayer.handleMove`` computes
 ``rawDepth = (draggedSegY - drag.surfaceY) / drag.pxPerMetre``.
@@ -2158,9 +1694,9 @@ the API on release. The ``snapDepth`` callback has a matching
 
 **Why deferred.** Pathological case; never observed.
 
-**When to revisit.** Pair with #41 / #42 fix; one-line guard.
+**When to revisit.** Pair with #17 / #18 fix; one-line guard.
 
-### 44. DoD entry/exit logging missing on App contact handlers (should-fix)
+### 20. DoD entry/exit logging missing on App contact handlers (should-fix)
 
 **What.** ``handleCreateContact`` and ``handleUpdateContactDepth``
 both fire API calls but log nothing on entry; success path also
@@ -2174,7 +1710,7 @@ it didn't move".
 **When to revisit.** Next session that touches App.tsx contact
 handlers.
 
-### 45. Focus-zoom effect captures viewport mid-render-batch (low — theoretical race)
+### 21. Focus-zoom effect captures viewport mid-render-batch (low — theoretical race)
 
 **What.** ``SectionPanel`` focus-zoom ``useEffect`` deliberately
 stale-reads ``viewport`` + ``vex`` + ``placedColumns`` on
@@ -2190,7 +1726,7 @@ event-handler-driven flow rather than a regular effect.
 **When to revisit.** If any user reports a "focus mode opened
 weird" symptom.
 
-### 46. ``FormationContact.confidence`` field stored but never set or rendered (low)
+### 22. ``FormationContact.confidence`` field stored but never set or rendered (low)
 
 **What.** ``confidence`` is a first-class column on the domain
 dataclass, ORM, Pydantic schema, and bundle. ``ContactsLayer.tsx``
@@ -2209,7 +1745,7 @@ manually-placed ``"medium"`` picks. The field is already in the
 right place; only the setter + the stroke-dasharray render path
 are missing.
 
-### 47. ``FormationContact.source`` never refreshed on drag re-pick (low)
+### 23. ``FormationContact.source`` never refreshed on drag re-pick (low)
 
 **What.** ``handleUpdateContactDepth`` (App.tsx) PATCHes only
 ``{depth_top_m}`` — leaves ``source`` whatever it was at creation.
@@ -2219,16 +1755,16 @@ depth still reads as snap-sourced. Server-side
 ``UpdateFormationContact`` accepts ``source`` in the request body;
 the frontend never sends it.
 
-**Why deferred.** Same trigger as #46 — no consumer reads
+**Why deferred.** Same trigger as #22 — no consumer reads
 ``source`` for anything meaningful today.
 
-**When to revisit.** Same as #46 — when Ic-derived contacts land
+**When to revisit.** Same as #22 — when Ic-derived contacts land
 and source becomes load-bearing for distinguishing automated from
 manual picks.
 
-### 48. Section ``view_state`` keys are untyped + unconstrained (low)
+### 24. Section ``view_state`` keys are untyped + unconstrained (low)
 
-**What.** The section ``view_state`` JSONB column (debt #25) now
+**What.** The section ``view_state`` JSONB column now
 carries four live keys: ``cpt_channels``, ``borehole_channels``,
 ``column_spacing``, ``snap_to_stratigraphy``. Read/written via
 ``read*`` helpers in ``cptChannels.ts``. No schema documents the
@@ -2244,9 +1780,9 @@ future export preset) or before sections are ever shared
 cross-machine. Fix: define ``SectionViewState`` TypeScript +
 Pydantic type with exhaustive keys; validate on PATCH.
 
-### 49. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
+### 25. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
 
-**What.** ``geotechnical_unit`` rows (debt #29 — formation → unit
+**What.** ``geotechnical_unit`` rows (formation → unit
 hierarchy) only surface in ``InterpretationPane``.
 ``FormationContact`` carries ``formation_id`` only — no
 ``geotechnical_unit_id``. The section editor and ``App.tsx`` never
@@ -2265,7 +1801,7 @@ contacts. At that point ``FormationContact`` needs either
 ``geotechnical_unit_id`` FK or a separate ``GeotechnicalContact``
 entity. Design the anchor before Phase 5 export work begins.
 
-### 50. ``SNAP_TOLERANCE_PX`` defined three times (low — one-line fix)
+### 26. ``SNAP_TOLERANCE_PX`` defined three times (low — one-line fix)
 
 **What.** The literal ``8`` is defined independently in
 ``BoreholeColumn.tsx``, ``ContactsLayer.tsx``, and exported from
@@ -2278,7 +1814,7 @@ a one-line import in both consumers.
 **When to revisit.** Before any drag/snap UX tuning session, or
 next time either file is touched.
 
-### 51. Snap-candidate collection duplicated across click + drag paths (low)
+### 27. Snap-candidate collection duplicated across click + drag paths (low)
 
 **What.** ``BoreholeColumn.snapDepthsFromObservations`` (click
 path) and ``SectionPanel`` ``snapDepthsByAnchorId`` builder
@@ -2296,7 +1832,7 @@ home is ``sections/utils.ts`` as
 the snap set (e.g. ``quaternary_stratigraphy``), OR next time
 ``BoreholeColumn`` is touched.
 
-### 52. ``PlacedColumn.proj.item`` is a union — narrowed by casts everywhere (medium)
+### 28. ``PlacedColumn.proj.item`` is a union — narrowed by casts everywhere (medium)
 
 **What.** ``PlacedColumn.proj`` is typed
 ``ProjectedInvestigation<CptListItem | BoreholeListItem>``. Every
@@ -2316,7 +1852,7 @@ another ``PlacedColumn`` consumer (likely the formation-surface
 interpolation overlay). At three cast sites outside SectionPanel
 the structural type collapses.
 
-### 53. ContactsLayer ``useMemo`` invalidates on every pan via ``levelToScreen`` dep (medium — perf)
+### 29. ContactsLayer ``useMemo`` invalidates on every pan via ``levelToScreen`` dep (medium — perf)
 
 **What.** ``ContactsLayer`` lists ``levelToScreen`` in its main
 ``useMemo`` dep array. ``levelToScreen`` is a ``useCallback`` in
@@ -2335,10 +1871,10 @@ coords to the render pass. Structural change to ``RenderedLayer``.
 contact section, or before any viewport tweening / animation
 lands.
 
-### 54. ``SectionPanel.tsx`` at ~1280 lines — split interactions into hooks (medium)
+### 30. ``SectionPanel.tsx`` at ~1280 lines — split interactions into hooks (medium)
 
 **What.** ``SectionPanel.tsx`` re-crossed the split threshold this
-session (was 591 lines after debt #35; now ~1280). Three
+session (was 591 lines after the prior split; now ~1280). Three
 interaction modes added this session share no state with each
 other and could each live in a dedicated hook: ``useContactPicker``
 (~60 lines: pickContext + handlePickCpt / handlePickBorehole /
@@ -2354,25 +1890,25 @@ extracting is mechanical but not zero-risk.
 (surface-interpolation overlay editing, or free-draw formation
 boundaries).
 
-### 55. Drag interaction edge cases untested in ``ContactsLayer.test.tsx`` (low)
+### 31. Drag interaction edge cases untested in ``ContactsLayer.test.tsx`` (low)
 
 **What.** Current 14 tests cover the happy drag path, zero-delta
 no-op, and snap. Three untested cases:
 1. Drag when ``elevation_m`` is null on the anchor — hit-strip
    should NOT render.
 2. ``pxPerMetre`` near zero (collapsed viewport) — ``snapDepth``
-   guards; ``handleMove`` does not (see #43).
+   guards; ``handleMove`` does not (see #19).
 3. Contact depth committed at exactly ``depth_m = 0`` (surface
    contact) — ``Math.max(0, rawDepth)`` clamp untested at its
    boundary.
 
-**Why deferred.** Guards exist (mostly — see #43); the missing
+**Why deferred.** Guards exist (mostly — see #19); the missing
 tests are specification-insurance against future refactors.
 
 **When to revisit.** Before any drag ``handleMove`` refactor, or
 before promoting drag to a keyboard-accessible flow.
 
-### 56. Snap-to-stratigraphy click path untested in BoreholeColumn (low)
+### 32. Snap-to-stratigraphy click path untested in BoreholeColumn (low)
 
 **What.** ``BoreholeColumn.tsx`` has a ``snapToStratigraphy`` prop,
 a ``STRAT_OBS_TYPES_FOR_SNAP`` constant, and a ``snapDepth``
@@ -2386,9 +1922,9 @@ interaction is manual-only).
 
 **When to revisit.** When snap behaviour is tuned (tolerance, type
 set) or when ``snapDepthsFromObservations`` is extracted
-(see #51).
+(see #27).
 
-### 57. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
+### 33. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
 
 **What.** CLAUDE.md "Distribution model" plans an installer that
 bundles Postgres + PostGIS (the Plaxis pattern). No prototype
@@ -2408,7 +1944,7 @@ SpatiaLite fallback (already called out in CLAUDE.md) becomes the
 real plan and is a non-trivial refactor. The decision belongs
 ahead of the first beta install.
 
-### 58. Plaxis target version unconfirmed (medium → blocking before exporter implementation)
+### 34. Plaxis target version unconfirmed (medium → blocking before exporter implementation)
 
 **What.** The Plaxis exporter (MVP gate item) needs a target file
 format. Plaxis 2D 2016+ uses ``.plxs``; older versions (still
