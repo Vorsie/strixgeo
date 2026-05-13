@@ -17,9 +17,11 @@ import type {
   GeologicalModelResponse,
 } from './api/client'
 import { useProject } from './hooks/useProject'
+import { useUndoStack } from './hooks/useUndoStack'
 import { usePersistedSet } from './hooks/usePersistedSet'
 import { useTheme } from './hooks/useTheme'
 import { wgs84ToProjected } from './hooks/useWgs84'
+import { isTypingTarget } from './utils/keyboard'
 import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
 import { addAllToSet } from './utils/sets'
@@ -146,6 +148,45 @@ export default function App() {
   // a future task — calling the hook here ensures system-preference
   // tracking is active from app start).
   useTheme()
+
+  // Undo / redo for geological-model edits (debt #45). Each mutation
+  // handler below pushes a Command after success; Ctrl+Z reverts,
+  // Ctrl+Y / Ctrl+Shift+Z reapplies. The stack clears on project
+  // switch (see the effect below).
+  const undoStack = useUndoStack({
+    onError: msg => toast('error', msg),
+  })
+
+  // Clear undo history whenever the project changes. Cross-project
+  // undo is semantically undefined (the captured ids belong to the
+  // old project's DB rows) and the safe move is to start fresh.
+  useEffect(() => {
+    undoStack.clear()
+  }, [project?.id, undoStack])
+
+  // Keyboard listener — Ctrl+Z = undo, Ctrl+Y OR Ctrl+Shift+Z =
+  // redo. Cmd on macOS, Ctrl on Windows/Linux. ``isTypingTarget``
+  // gates so the bindings don't fight an active <input>.
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent): void {
+      if (isTypingTarget(e.target)) return
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod) return
+      if (e.key === 'z' || e.key === 'Z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          void undoStack.redo()
+        } else {
+          void undoStack.undo()
+        }
+      } else if (e.key === 'y' || e.key === 'Y') {
+        e.preventDefault()
+        void undoStack.redo()
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [undoStack])
 
   const [ready, setReady] = useState(false)
   const [apiError, setApiError] = useState(false)
@@ -627,17 +668,20 @@ export default function App() {
         // Free-placed: engineer's manual call, source = 'manual_pick',
         // confidence stays at the schema default 'medium'.
         // Debt #22 / #23.
+        const payload = {
+          formation_id: formationId,
+          depth_top_m: depth_m,
+          borehole_id: anchorKind === 'borehole' ? anchorId : null,
+          cpt_id: anchorKind === 'cpt' ? anchorId : null,
+          source: (snapped ? 'borehole_observation' : 'manual_pick') as
+            | 'borehole_observation'
+            | 'manual_pick',
+          confidence: (snapped ? 'high' : 'medium') as 'high' | 'medium',
+        }
         const created = await api.geology.createContact(
           project.id,
           activeGeologicalModel.id,
-          {
-            formation_id: formationId,
-            depth_top_m: depth_m,
-            borehole_id: anchorKind === 'borehole' ? anchorId : null,
-            cpt_id: anchorKind === 'cpt' ? anchorId : null,
-            source: snapped ? 'borehole_observation' : 'manual_pick',
-            confidence: snapped ? 'high' : 'medium',
-          },
+          payload,
         )
         setContacts(prev => [...prev, created])
         addAllToSet(setSessionImportContactIds, [created.id])
@@ -645,12 +689,35 @@ export default function App() {
           'geology',
           `createContact ok id=${created.id} depth=${created.depth_top_m.toFixed(3)}m source=${created.source}`,
         )
+        // Undo command — captures the created id in a closure
+        // variable so the reapply path can overwrite it on
+        // redo (the re-POST gets a new server-assigned id).
+        const projectId = project.id
+        const modelId = activeGeologicalModel.id
+        let currentId = created.id
+        undoStack.push({
+          description: 'Create contact',
+          revert: async () => {
+            await api.geology.deleteContact(projectId, modelId, currentId)
+            setContacts(prev => prev.filter(c => c.id !== currentId))
+          },
+          reapply: async () => {
+            const recreated = await api.geology.createContact(
+              projectId,
+              modelId,
+              payload,
+            )
+            currentId = recreated.id
+            setContacts(prev => [...prev, recreated])
+            addAllToSet(setSessionImportContactIds, [recreated.id])
+          },
+        })
       } catch (err) {
         log.error('geology', 'createContact failed', err)
         toast('error', 'Could not place the formation contact.')
       }
     },
-    [project, activeGeologicalModel, setSessionImportContactIds],
+    [project, activeGeologicalModel, setSessionImportContactIds, undoStack],
   )
 
   // Re-pick an existing contact's depth — the commit handler for
@@ -669,12 +736,11 @@ export default function App() {
         `updateContactDepth entry id=${contactId} newDepth=${newDepthM.toFixed(3)}m snapped=${snapped}`,
       )
       try {
-        // Drag landed on a snap candidate → reclassify as
-        // borehole_observation / high. Drag landed freely → manual_pick
-        // / medium. Drag-update without snap context can't preserve a
-        // pre-existing 'interpolated' source, but #22/#23 are about
-        // capturing operator intent on each commit. Same rule as the
-        // create path.
+        // Snapshot the pre-update contact so undo can restore depth
+        // + source + confidence in one PATCH (debt #22 / #23 rule:
+        // source/confidence ride along with depth changes).
+        const previous = contacts.find(c => c.id === contactId)
+        if (!previous) return
         const updated = await api.geology.updateContact(
           project.id,
           activeGeologicalModel.id,
@@ -690,12 +756,56 @@ export default function App() {
           'geology',
           `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m source=${updated.source}`,
         )
+        // Undo: PATCH the contact back to its pre-drag state.
+        const projectId = project.id
+        const modelId = activeGeologicalModel.id
+        const beforePayload = {
+          depth_top_m: previous.depth_top_m,
+          source: previous.source as
+            | 'borehole_observation'
+            | 'manual_pick'
+            | 'interpolated',
+          confidence: previous.confidence as 'high' | 'medium' | 'low',
+        }
+        const afterPayload = {
+          depth_top_m: updated.depth_top_m,
+          source: updated.source as
+            | 'borehole_observation'
+            | 'manual_pick'
+            | 'interpolated',
+          confidence: updated.confidence as 'high' | 'medium' | 'low',
+        }
+        undoStack.push({
+          description: 'Move contact',
+          revert: async () => {
+            const reverted = await api.geology.updateContact(
+              projectId,
+              modelId,
+              contactId,
+              beforePayload,
+            )
+            setContacts(prev =>
+              prev.map(c => (c.id === contactId ? reverted : c)),
+            )
+          },
+          reapply: async () => {
+            const reapplied = await api.geology.updateContact(
+              projectId,
+              modelId,
+              contactId,
+              afterPayload,
+            )
+            setContacts(prev =>
+              prev.map(c => (c.id === contactId ? reapplied : c)),
+            )
+          },
+        })
       } catch (err) {
         log.error('geology', 'updateContact failed', err)
         toast('error', 'Could not update the contact depth.')
       }
     },
-    [project, activeGeologicalModel],
+    [project, activeGeologicalModel, contacts, undoStack],
   )
 
   // Cross-column COPY commit — fired by plain-drag onto a different
@@ -734,6 +844,38 @@ export default function App() {
           'geology',
           `batchCreateContacts ok count=${created.length}`,
         )
+        // Undo: delete every created id. Redo: re-POST every
+        // payload (gets new server ids; the closure tracks the
+        // current id set so undo always targets the latest set).
+        const projectId = project.id
+        const modelId = activeGeologicalModel.id
+        const payloads = creates.slice()
+        let currentIds = created.map(c => c.id)
+        undoStack.push({
+          description: `Copy ${created.length} contact(s)`,
+          revert: async () => {
+            await Promise.all(
+              currentIds.map(id =>
+                api.geology.deleteContact(projectId, modelId, id),
+              ),
+            )
+            const deleted = new Set(currentIds)
+            setContacts(prev => prev.filter(c => !deleted.has(c.id)))
+          },
+          reapply: async () => {
+            const recreated = await Promise.all(
+              payloads.map(p =>
+                api.geology.createContact(projectId, modelId, p),
+              ),
+            )
+            currentIds = recreated.map(c => c.id)
+            setContacts(prev => [...prev, ...recreated])
+            addAllToSet(
+              setSessionImportContactIds,
+              recreated.map(c => c.id),
+            )
+          },
+        })
       } catch (err) {
         // Partial failure leaves SOME contacts created and others
         // missing. Logged loudly so the user can re-drag the missing
@@ -746,7 +888,7 @@ export default function App() {
         )
       }
     },
-    [project, activeGeologicalModel, setSessionImportContactIds],
+    [project, activeGeologicalModel, setSessionImportContactIds, undoStack],
   )
 
   // All-or-nothing batch UPDATE commit — fired by the section
@@ -768,6 +910,13 @@ export default function App() {
         `batchUpdateContacts entry count=${updates.length}`,
       )
       try {
+        // Snapshot the pre-update state for every contact in the
+        // batch so undo can PUT them back in one call.
+        const updateIds = updates.map(u => u.contact_id)
+        const idSet = new Set(updateIds)
+        const beforeById = new Map(
+          contacts.filter(c => idSet.has(c.id)).map(c => [c.id, c]),
+        )
         const res = await api.geology.updateContactsBatch(
           project.id,
           activeGeologicalModel.id,
@@ -780,12 +929,52 @@ export default function App() {
           'geology',
           `batchUpdateContacts ok count=${res.contacts.length}`,
         )
+        // Undo: PUT the snapshot back. Redo: PUT the original
+        // update payload again.
+        const projectId = project.id
+        const modelId = activeGeologicalModel.id
+        const beforeUpdates: FormationContactBatchUpdateEntry[] = updateIds
+          .map(id => beforeById.get(id))
+          .filter((c): c is FormationContactResponse => Boolean(c))
+          .map(c => ({
+            contact_id: c.id,
+            depth_top_m: c.depth_top_m,
+            borehole_id: c.borehole_id,
+            cpt_id: c.cpt_id,
+            source: c.source as
+              | 'borehole_observation'
+              | 'manual_pick'
+              | 'interpolated',
+            confidence: c.confidence as 'high' | 'medium' | 'low',
+          }))
+        const afterUpdates = updates.slice()
+        undoStack.push({
+          description: `Update ${updateIds.length} contact(s)`,
+          revert: async () => {
+            const back = await api.geology.updateContactsBatch(
+              projectId,
+              modelId,
+              beforeUpdates,
+            )
+            const map = new Map(back.contacts.map(c => [c.id, c]))
+            setContacts(prev => prev.map(c => map.get(c.id) ?? c))
+          },
+          reapply: async () => {
+            const fwd = await api.geology.updateContactsBatch(
+              projectId,
+              modelId,
+              afterUpdates,
+            )
+            const map = new Map(fwd.contacts.map(c => [c.id, c]))
+            setContacts(prev => prev.map(c => map.get(c.id) ?? c))
+          },
+        })
       } catch (err) {
         log.error('geology', 'batchUpdateContacts failed', err)
         toast('error', 'Could not update the selected contacts.')
       }
     },
-    [project, activeGeologicalModel],
+    [project, activeGeologicalModel, contacts, undoStack],
   )
 
   // Right-click → confirm → delete an existing contact. ContactsLayer
@@ -799,6 +988,11 @@ export default function App() {
       if (!project || !activeGeologicalModel) return
       log.debug('geology', `deleteContact entry id=${contactId}`)
       try {
+        // Snapshot the contact before deletion so undo can re-POST
+        // an equivalent row (server assigns a new id on the re-create
+        // — captured in the closure for redo).
+        const snapshot = contacts.find(c => c.id === contactId)
+        if (!snapshot) return
         await api.geology.deleteContact(
           project.id,
           activeGeologicalModel.id,
@@ -812,12 +1006,56 @@ export default function App() {
           return next
         })
         log.success('geology', `deleteContact ok id=${contactId}`)
+        const projectId = project.id
+        const modelId = activeGeologicalModel.id
+        const recreatePayload = {
+          formation_id: snapshot.formation_id,
+          depth_top_m: snapshot.depth_top_m,
+          borehole_id: snapshot.borehole_id,
+          cpt_id: snapshot.cpt_id,
+          source: snapshot.source as
+            | 'borehole_observation'
+            | 'manual_pick'
+            | 'interpolated',
+          confidence: snapshot.confidence as 'high' | 'medium' | 'low',
+        }
+        // currentId tracks the most-recently-created id so the
+        // next revert (delete) targets the latest row. Starts at
+        // null because the contact was JUST deleted; the first
+        // revert call re-creates it.
+        let currentId: string | null = null
+        undoStack.push({
+          description: 'Delete contact',
+          revert: async () => {
+            const recreated = await api.geology.createContact(
+              projectId,
+              modelId,
+              recreatePayload,
+            )
+            currentId = recreated.id
+            setContacts(prev => [...prev, recreated])
+            addAllToSet(setSessionImportContactIds, [recreated.id])
+          },
+          reapply: async () => {
+            if (!currentId) return
+            await api.geology.deleteContact(projectId, modelId, currentId)
+            const deletedId = currentId
+            setContacts(prev => prev.filter(c => c.id !== deletedId))
+            currentId = null
+          },
+        })
       } catch (err) {
         log.error('geology', `deleteContact failed id=${contactId}`, err)
         toast('error', 'Could not delete the contact.')
       }
     },
-    [project, activeGeologicalModel, setSessionImportContactIds],
+    [
+      project,
+      activeGeologicalModel,
+      setSessionImportContactIds,
+      contacts,
+      undoStack,
+    ],
   )
 
   // Auto-populate the active model with contacts derived from
@@ -881,6 +1119,60 @@ export default function App() {
             `${outcome.skipped_unmatched} unmatched / ` +
             `${outcome.skipped_no_stratigraphy} no-strat`,
         )
+        // Undo: delete every created contact + every created formation
+        // (contacts first — FK from contact.formation_id). The redo
+        // path re-runs the auto-populate against the same boreholes;
+        // idempotency on observation_layer_id means the same layers
+        // get re-seeded (potentially with new server-assigned ids).
+        if (created > 0 || outcome.created_formation_ids.length > 0) {
+          const projectId = project.id
+          const modelId = activeGeologicalModel.id
+          const boreholeIdsSnapshot = boreholeIds.slice()
+          // Capture both lists in closure; mutated on each reapply
+          // since the recreated rows get fresh server ids.
+          let currentContactIds = outcome.created_contact_ids.slice()
+          let currentFormationIds = outcome.created_formation_ids.slice()
+          undoStack.push({
+            description: `Seed from stratigraphy (+${created} contacts)`,
+            revert: async () => {
+              await Promise.all(
+                currentContactIds.map(id =>
+                  api.geology.deleteContact(projectId, modelId, id),
+                ),
+              )
+              await Promise.all(
+                currentFormationIds.map(id =>
+                  api.geology.deleteFormation(projectId, id),
+                ),
+              )
+              const droppedContacts = new Set(currentContactIds)
+              const droppedFormations = new Set(currentFormationIds)
+              setContacts(prev =>
+                prev.filter(c => !droppedContacts.has(c.id)),
+              )
+              setFormations(prev =>
+                prev.filter(f => !droppedFormations.has(f.id)),
+              )
+              setFormationsRefreshCounter(c => c + 1)
+            },
+            reapply: async () => {
+              const next = await api.geology.autoPopulateFromStratigraphy(
+                projectId,
+                modelId,
+                boreholeIdsSnapshot,
+              )
+              currentContactIds = next.created_contact_ids.slice()
+              currentFormationIds = next.created_formation_ids.slice()
+              const [forms2, conts2] = await Promise.all([
+                api.geology.listFormations(projectId),
+                api.geology.listContacts(projectId, modelId),
+              ])
+              setFormations(forms2)
+              setContacts(conts2)
+              setFormationsRefreshCounter(c => c + 1)
+            },
+          })
+        }
         // Surface a short summary toast. Tone: success on any new
         // rows; info on a pure-idempotent re-run; warning when
         // nothing was created AND boreholes lacked stratigraphy.
@@ -916,6 +1208,7 @@ export default function App() {
       setSessionImportFormationIds,
       setSessionImportContactIds,
       addToManifest,
+      undoStack,
     ],
   )
 
