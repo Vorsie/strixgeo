@@ -132,8 +132,11 @@ export default function ContactPickBar({
     setCursorY(null)
   }
 
-  function handleClick(): void {
+  function handleClick(e: React.MouseEvent<SVGRectElement>): void {
     if (cursorY === null || !onCommitDepth) return
+    // Shift held → user wants the section bg-marquee for multi-
+    // select; let the click bubble up by bailing here.
+    if (e.shiftKey) return
     const depth = depthAtY(cursorY)
     onCommitDepth({
       kind: 'cpt',
