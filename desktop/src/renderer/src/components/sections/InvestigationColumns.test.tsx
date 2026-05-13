@@ -138,6 +138,30 @@ describe('InvestigationColumns', () => {
     expect(onSelectBorehole).not.toHaveBeenCalled()
   })
 
+  it('forwards right-click to onColumnContextMenu with column identity', () => {
+    const onColumnContextMenu = vi.fn()
+    const { container } = render(
+      <svg>
+        <InvestigationColumns
+          columns={[cptColumn(makeCpt({ id: 'cpt-x', name: 'CPT-X' }), 100)]}
+          levelToScreen={identity}
+          plotTop={-100}
+          plotBottom={100}
+          onSelectCpt={undefined}
+          onSelectBorehole={undefined}
+          onColumnContextMenu={onColumnContextMenu}
+        />
+      </svg>,
+    )
+    // The hit-box renders when onContextMenu is wired even without
+    // onClick; right-click fires onColumnContextMenu with the React
+    // event + column identity.
+    fireEvent.contextMenu(container.querySelector('rect[fill="transparent"]')!)
+    expect(onColumnContextMenu).toHaveBeenCalledTimes(1)
+    const [, col] = onColumnContextMenu.mock.calls[0]
+    expect(col).toEqual({ kind: 'cpt', id: 'cpt-x', name: 'CPT-X' })
+  })
+
   it('routes borehole clicks to onSelectBorehole with the borehole id', () => {
     const onSelectCpt = vi.fn()
     const onSelectBorehole = vi.fn()
