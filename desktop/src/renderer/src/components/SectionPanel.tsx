@@ -468,29 +468,42 @@ export default function SectionPanel({
     // For each column we feed the lerped position as its trueX into
     // nudgeColumns, so the standard edge-gap collision rule applies
     // at every spacing value — bands NEVER overlap.
-    const rawItems = [
-      ...projectedCpts.map(proj => {
+    // Type the array as the discriminated union directly so TS
+    // doesn't widen the per-branch ``proj`` to a single union and
+    // force the cast back at the consumer (debt #28).
+    type RawCpt = {
+      kind: 'cpt'
+      proj: ProjectedInvestigation<CptListItem>
+      trueX: number
+      visualWidth: number
+    }
+    type RawBh = {
+      kind: 'borehole'
+      proj: ProjectedInvestigation<BoreholeListItem>
+      trueX: number
+      visualWidth: number
+    }
+    const rawItems: (RawCpt | RawBh)[] = [
+      ...projectedCpts.map((proj): RawCpt => {
         const trackW = cptPlots?.has(proj.item.id)
           ? cptBandFullWidth(proj.item.cpt_type, cptChannels, bandHalfWidth)
           : 0
-        const visualWidth = BARE_COLUMN_WIDTH_PX + trackW
         return {
-          kind: 'cpt' as const,
-          proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
+          kind: 'cpt',
+          proj,
           trueX: xToScreen(proj.along),
-          visualWidth,
+          visualWidth: BARE_COLUMN_WIDTH_PX + trackW,
         }
       }),
-      ...projectedBoreholes.map(proj => {
+      ...projectedBoreholes.map((proj): RawBh => {
         const stripsW = boreholeDetails?.has(proj.item.id)
           ? enabledBhChannels * 2 * bandHalfWidth
           : 0
-        const visualWidth = BARE_COLUMN_WIDTH_PX + stripsW
         return {
-          kind: 'borehole' as const,
-          proj: proj as ProjectedInvestigation<CptListItem | BoreholeListItem>,
+          kind: 'borehole',
+          proj,
           trueX: xToScreen(proj.along),
-          visualWidth,
+          visualWidth: BARE_COLUMN_WIDTH_PX + stripsW,
         }
       }),
     ]
@@ -684,12 +697,13 @@ export default function SectionPanel({
         preFocusViewportRef.current = viewport
         preFocusVexRef.current = vex
       }
-      const item = col.proj.item as CptListItem | BoreholeListItem
-      const elevation = item.elevation_m
+      const elevation = col.proj.item.elevation_m
+      // Narrowing via the discriminated PlacedColumn union — no
+      // cast needed (debt #28).
       const depth =
         col.kind === 'cpt'
-          ? (item as CptListItem).max_depth_m
-          : (item as BoreholeListItem).total_depth_m
+          ? col.proj.item.max_depth_m
+          : col.proj.item.total_depth_m
       // Horizontal window — 40 m centred on the column's projected
       // along-distance. Wide enough to give the column band
       // breathing room, narrow enough that the test reads as the
@@ -924,7 +938,7 @@ export default function SectionPanel({
     if (cptPlots !== null) {
       for (const col of visibleColumns) {
         if (col.kind !== 'cpt') continue
-        const item = col.proj.item as CptListItem
+        const item = col.proj.item
         if (cptPlots.has(item.id) && item.elevation_m !== null) s.add(item.id)
       }
     }
@@ -935,7 +949,7 @@ export default function SectionPanel({
       // as the column's only visual.
       for (const col of visibleColumns) {
         if (col.kind !== 'borehole') continue
-        const item = col.proj.item as BoreholeListItem
+        const item = col.proj.item
         if (boreholeDetails.has(item.id) && item.elevation_m !== null) s.add(item.id)
       }
     }
@@ -1117,7 +1131,7 @@ export default function SectionPanel({
             {cptPlots !== null &&
               visibleColumns.map(col => {
                 if (col.kind !== 'cpt') return null
-                const item = col.proj.item as CptListItem
+                const item = col.proj.item
                 const plot = cptPlots.get(item.id)
                 if (!plot || item.elevation_m === null) return null
                 return (
@@ -1147,7 +1161,7 @@ export default function SectionPanel({
             {boreholeDetails !== null &&
               visibleColumns.map(col => {
                 if (col.kind !== 'borehole') return null
-                const item = col.proj.item as BoreholeListItem
+                const item = col.proj.item
                 const detail = boreholeDetails.get(item.id)
                 if (!detail || item.elevation_m === null) return null
                 return (
@@ -1178,7 +1192,7 @@ export default function SectionPanel({
             {cptPlots !== null && (onCreateContact || focusedColumn !== null) &&
               visibleColumns.map(col => {
                 if (col.kind !== 'cpt') return null
-                const item = col.proj.item as CptListItem
+                const item = col.proj.item
                 const plot = cptPlots.get(item.id)
                 if (!plot || item.elevation_m === null) return null
                 // Re-derive the cap-clamped data extent the
