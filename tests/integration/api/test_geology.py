@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 
@@ -160,6 +161,230 @@ async def test_update_contact_applies_patch(
     assert body["notes"] == "Re-picked"
     # Confidence unchanged from create-time default.
     assert body["confidence"] == "medium"
+
+
+async def test_update_contact_re_anchors_borehole_to_cpt(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Anchor PATCH carries both fields (one null) — drag-re-anchor flow."""
+    project, borehole = project_with_borehole
+    cpt = CptOrm(
+        id=uuid7(),
+        name="CPT-1",
+        cpt_type="CPTU",
+        app_project_id=project.id,
+        location_x=150100.0,
+        location_y=200100.0,
+        epsg=31370,
+        max_depth_m=12.0,
+    )
+    db_session.add(cpt)
+    await db_session.commit()
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    contact = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+
+    resp = await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/{contact['id']}",
+        json={
+            "depth_top_m": 4.5,
+            "borehole_id": None,
+            "cpt_id": str(cpt.id),
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["borehole_id"] is None
+    assert body["cpt_id"] == str(cpt.id)
+    assert body["depth_top_m"] == 4.5
+
+
+async def test_update_contact_rejects_partial_anchor_update(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Sending only one of the anchor fields is a 422 (XOR safety)."""
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    contact = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+
+    resp = await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/{contact['id']}",
+        json={"cpt_id": str(uuid7())},
+    )
+    assert resp.status_code == 422
+
+
+async def test_update_contact_rejects_both_anchors_set(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Both anchor fields non-null violates the XOR — 422 at the schema."""
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    contact = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+
+    resp = await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/{contact['id']}",
+        json={
+            "borehole_id": str(borehole.id),
+            "cpt_id": str(uuid7()),
+        },
+    )
+    assert resp.status_code == 422
+
+
+async def test_update_contact_rejects_both_anchors_null(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Both anchor fields null violates the XOR — 422 at the schema."""
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    contact = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+
+    resp = await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/{contact['id']}",
+        json={"borehole_id": None, "cpt_id": None},
+    )
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Batch update — UpdateFormationContactsBatch use case (multi-drag flow)
+# ---------------------------------------------------------------------------
+
+
+async def test_batch_update_applies_all_in_one_commit(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Happy path — PUT /batch updates N contacts in one call."""
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    c1 = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+    c2 = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=5.0
+    )
+
+    resp = await async_client.put(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/batch",
+        json={
+            "updates": [
+                {"contact_id": c1["id"], "depth_top_m": 2.5},
+                {"contact_id": c2["id"], "depth_top_m": 5.5},
+            ]
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["contacts"]) == 2
+    # Return order matches input order so the client can patch by index.
+    assert body["contacts"][0]["id"] == c1["id"]
+    assert body["contacts"][0]["depth_top_m"] == 2.5
+    assert body["contacts"][1]["id"] == c2["id"]
+    assert body["contacts"][1]["depth_top_m"] == 5.5
+
+
+async def test_batch_update_rolls_back_when_one_contact_out_of_scope(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """One id from another model → 404, the in-scope one stays unchanged."""
+    project_a, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project_a.id)
+    model_a = await _create_model(async_client, project_a.id)
+    legit = await _create_contact(
+        async_client,
+        project_a.id,
+        model_a["id"],
+        formation["id"],
+        borehole.id,
+        depth=2.0,
+    )
+
+    # Build a contact under a separate project + model — out of scope
+    # for the URL we're about to PUT against.
+    project_b = ProjectOrm(id=uuid7(), name="Other", status="active")
+    db_session.add(project_b)
+    await db_session.commit()
+    formation_b = await _create_formation(async_client, project_b.id)
+    model_b = await _create_model(async_client, project_b.id)
+    borehole_b = BoreholeOrm(
+        id=uuid7(),
+        name="BH-B",
+        app_project_id=project_b.id,
+        project_id="DOV",
+        test_id="BH-B-001",
+        location_x=160000.0,
+        location_y=210000.0,
+        epsg=31370,
+        total_depth_m=10.0,
+    )
+    db_session.add(borehole_b)
+    await db_session.commit()
+    foreign = await _create_contact(
+        async_client,
+        project_b.id,
+        model_b["id"],
+        formation_b["id"],
+        borehole_b.id,
+        depth=4.0,
+    )
+
+    # URL targets model_a; the second entry's contact lives under model_b.
+    resp = await async_client.put(
+        f"/projects/{project_a.id}/geology/models/{model_a['id']}/contacts/batch",
+        json={
+            "updates": [
+                {"contact_id": legit["id"], "depth_top_m": 99.0},
+                {"contact_id": foreign["id"], "depth_top_m": 99.0},
+            ]
+        },
+    )
+
+    assert resp.status_code == 404
+    # The legit row's depth is unchanged — the batch never committed.
+    check = await async_client.get(
+        f"/projects/{project_a.id}/geology/models/{model_a['id']}/contacts",
+    )
+    rows = check.json()
+    assert len(rows) == 1
+    assert rows[0]["depth_top_m"] == 2.0
+
+
+async def test_batch_update_rejects_empty_payload(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """min_length=1 — no-op batch calls are 422 at the schema layer."""
+    project, _ = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    resp = await async_client.put(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/batch",
+        json={"updates": []},
+    )
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------
