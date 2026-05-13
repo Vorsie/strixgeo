@@ -64,6 +64,7 @@ import {
   MARGIN,
   VEX_DEFAULT,
   WHEEL_ZOOM_FACTOR,
+  collectSnapDepths,
   sectionLengthM,
   ticks,
   useElementSize,
@@ -768,20 +769,8 @@ export default function SectionPanel({
     const out = new Map<string, readonly number[]>()
     if (!snapToStratigraphy || boreholeDetails === null) return out
     for (const [id, detail] of boreholeDetails) {
-      const depths = new Set<number>()
-      for (const obs of detail.observations) {
-        if (
-          obs.observation_type !== 'formal_stratigraphy' &&
-          obs.observation_type !== 'informal_stratigraphy'
-        ) {
-          continue
-        }
-        for (const layer of obs.layers) {
-          depths.add(layer.top_m)
-          depths.add(layer.base_m)
-        }
-      }
-      if (depths.size > 0) out.set(id, Array.from(depths))
+      const depths = collectSnapDepths(detail)
+      if (depths.length > 0) out.set(id, depths)
     }
     return out
   }, [snapToStratigraphy, boreholeDetails])
