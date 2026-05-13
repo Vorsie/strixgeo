@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parser import GEFParser
 from groundmodel.infrastructure.parsers.cpt.validation.validation_level import ValidationLevel
@@ -587,3 +588,25 @@ class TestParseBytes:
         gef = _gef().replace("CPT-01", "CPT-\xe9l\xe8ve")
         result = parser.parse_bytes(gef.encode("latin-1"))
         assert len(result.data) == 3
+
+
+class TestElevationSourceStamping:
+    """Pin the ``elevation_source`` stamp on every GEF parse (debt #8).
+
+    A GEF file's ``#ZID=`` header is the canonical source of Z for the
+    file-import path. When it's present the parser stamps ``GEF``;
+    when it's absent (rare, but parsable) the stamp is ``NONE`` so the
+    row surfaces through the same "needs-Z" affordance as a DOV row
+    without ``Z_mTAW``.
+    """
+
+    def test_gef_z_present_stamps_gef(self, parser: GEFParser) -> None:
+        result = parser.parse(_gef())
+        assert result.header.z == 5.0
+        assert result.elevation_source == ElevationSource.GEF
+
+    def test_gef_z_absent_stamps_none(self, parser: GEFParser) -> None:
+        header_without_zid = _BASE_HEADER.replace("#ZID= 32001, 5.0\n", "")
+        result = parser.parse(_gef(header=header_without_zid))
+        assert result.header.z is None
+        assert result.elevation_source == ElevationSource.NONE
