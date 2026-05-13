@@ -34,6 +34,13 @@ import {
 interface Props {
   elevationM: number | null
   zEpsg: number | null
+  // Provenance of ``elevationM`` — ``"dov"`` / ``"gef"`` / ``"manual"``
+  // / ``"none"`` (the API enum from debt #8). Rendered as a tiny
+  // greyed tag next to the Z value so engineers can tell DOV-published
+  // Z apart from their own corrections at a glance. Optional so
+  // legacy callers that don't yet thread it just see the un-badged
+  // version; new call sites should pass it.
+  elevationSource?: string | null
   // Parent owns the API call so this component stays storage-agnostic
   // (CPT and borehole hit different endpoints). Resolves on success;
   // rejects with an Error whose message is surfaced to the user. The
@@ -41,6 +48,16 @@ interface Props {
   // (defaults to mTAW for fresh entries) so the saved row always lands
   // with a known vertical CRS.
   onSave: (elevationM: number | null, zEpsg: number | null) => Promise<void>
+}
+
+// Short human label for the provenance tag — keeps the badge tight on
+// the borelog / CPT header strip. The "none" case never renders (the
+// row's elevation is null in that case and the editor shows the amber
+// "Set elevation" link instead).
+const SOURCE_LABEL: Record<string, string> = {
+  dov: 'DOV',
+  gef: 'GEF',
+  manual: 'manual',
 }
 
 // Strip everything that isn't a digit, leading minus, or a single decimal
@@ -60,7 +77,12 @@ function cleanNumericInput(raw: string): string {
   return (negative ? '-' : '') + s
 }
 
-export default function ElevationEditor({ elevationM, zEpsg, onSave }: Props) {
+export default function ElevationEditor({
+  elevationM,
+  zEpsg,
+  elevationSource,
+  onSave,
+}: Props) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<string>('')
   // The picker's selected EPSG. Initialised at edit-mode entry from the
@@ -164,13 +186,27 @@ export default function ElevationEditor({ elevationM, zEpsg, onSave }: Props) {
         </button>
       )
     }
+    // Provenance tag — small, greyed, only when a real source is set.
+    // Goes between the datum label and the pencil so the user's eye
+    // hits "Z = +12.45 m TAW (DOV)" → pencil-on-hover.
+    const sourceLabel = elevationSource ? SOURCE_LABEL[elevationSource] : undefined
     return (
       <button
         onClick={start}
         className="group inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800"
         title="Edit surface elevation"
       >
-        <span>Z = {elevationM.toFixed(2)} {idleDatumLabel}</span>
+        <span>
+          Z = {elevationM.toFixed(2)} {idleDatumLabel}
+        </span>
+        {sourceLabel && (
+          <span
+            className="text-[10px] text-gray-400"
+            title={`Elevation source: ${elevationSource}`}
+          >
+            ({sourceLabel})
+          </span>
+        )}
         <Pencil size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
       </button>
     )
