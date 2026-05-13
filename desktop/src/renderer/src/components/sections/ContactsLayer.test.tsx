@@ -10,6 +10,7 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
+import type { ContactCopyPayload } from './ContactsLayer'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
 import ContactsLayer from './ContactsLayer'
 import type { PlacedColumn } from './utils'
@@ -102,9 +103,10 @@ function renderLayer(
     onBatchUpdateContacts?: (
       updates: readonly FormationContactBatchUpdateEntry[],
     ) => Promise<void>
+    onBatchCreateContacts?: (
+      creates: readonly ContactCopyPayload[],
+    ) => Promise<void>
     snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
-    plotLeft?: number
-    plotRight?: number
   } = {},
 ) {
   return render(
@@ -120,8 +122,7 @@ function renderLayer(
         onUpdateContactDepth={extras.onUpdateContactDepth}
         onDeleteContact={extras.onDeleteContact}
         onBatchUpdateContacts={extras.onBatchUpdateContacts}
-        plotLeft={extras.plotLeft}
-        plotRight={extras.plotRight}
+        onBatchCreateContacts={extras.onBatchCreateContacts}
         snapDepthsByAnchorId={extras.snapDepthsByAnchorId}
       />
     </svg>,
@@ -812,29 +813,38 @@ describe('ContactsLayer', () => {
   // Cross-column drag → onBatchUpdateContacts with new anchor
   // -----------------------------------------------------------------
 
-  it('cross-column drag fires onBatchUpdateContacts with the target anchor', () => {
+  it('cross-column plain drag fires onBatchCreateContacts (COPY default)', () => {
     // Two columns: bh-1 at nudgedX=50, bh-2 at nudgedX=200. Drag c-1
     // from bh-1 horizontally past the 15px hysteresis into bh-2's
-    // band. Commit should carry the new borehole_id.
-    const onBatch = vi.fn().mockResolvedValue(undefined)
+    // band. Plain (no Alt) cross-column = COPY → creates new contact
+    // at bh-2 with the same formation; the original at bh-1 stays.
+    const onCreate = vi.fn().mockResolvedValue(undefined)
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
     const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
     const contacts = [
-      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({
+        id: 'c-1',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        formation_id: 'f-X',
+      }),
     ]
     const { container } = renderLayer(
       contacts,
-      [makeFormation({ name: 'X' })],
+      [makeFormation({ id: 'f-X', name: 'X' })],
       [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 200)],
       undefined,
-      { onUpdateContactDepth, onBatchUpdateContacts: onBatch },
+      {
+        onUpdateContactDepth,
+        onBatchUpdateContacts: onUpdate,
+        onBatchCreateContacts: onCreate,
+      },
     )
     const strip = container.querySelector(
       '[data-testid="contact-drag-strip"]',
     )!
     fireEvent.mouseDown(strip, { button: 0, clientX: 50, clientY: 10 })
     act(() => {
-      // Horizontal move: clientX 50 → 200 (right onto bh-2 column).
-      // Vertical stays so depth doesn't change.
       document.dispatchEvent(
         new MouseEvent('mousemove', {
           clientX: 200,
@@ -848,13 +858,98 @@ describe('ContactsLayer', () => {
     })
 
     expect(onUpdateContactDepth).not.toHaveBeenCalled()
-    expect(onBatch).toHaveBeenCalledTimes(1)
-    const updates = onBatch.mock.calls[0][0]
-    expect(updates.length).toBe(1)
+    expect(onUpdate).not.toHaveBeenCalled()
+    expect(onCreate).toHaveBeenCalledTimes(1)
+    const creates = onCreate.mock.calls[0][0]
+    expect(creates.length).toBe(1)
+    expect(creates[0].formation_id).toBe('f-X')
+    expect(creates[0].borehole_id).toBe('bh-2')
+    expect(creates[0].cpt_id).toBeNull()
+  })
+
+  it('cross-column Alt+drag fires onBatchUpdateContacts (MOVE — explicit opt-in)', () => {
+    // Same setup as above but the mouseup carries altKey=true →
+    // re-anchor (the original first-ship behaviour, now opt-in).
+    const onCreate = vi.fn().mockResolvedValue(undefined)
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 200)],
+      undefined,
+      {
+        onUpdateContactDepth: vi.fn().mockResolvedValue(undefined),
+        onBatchUpdateContacts: onUpdate,
+        onBatchCreateContacts: onCreate,
+      },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    fireEvent.mouseDown(strip, { button: 0, clientX: 50, clientY: 10 })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: 200,
+          clientY: 10,
+          buttons: 1,
+        }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mouseup', { altKey: true }),
+      )
+    })
+
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(onUpdate).toHaveBeenCalledTimes(1)
+    const updates = onUpdate.mock.calls[0][0]
     expect(updates[0].contact_id).toBe('c-1')
-    // The new anchor — drag was onto bh-2.
     expect(updates[0].borehole_id).toBe('bh-2')
-    expect(updates[0].cpt_id).toBeNull()
+  })
+
+  it('cross-column drag degrades to MOVE when only onBatchUpdateContacts is wired', () => {
+    // Caller didn't wire COPY but wired MOVE — avoids a silent no-op
+    // by routing the plain drag through the update path (with
+    // anchor-change semantics).
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 200)],
+      undefined,
+      {
+        onUpdateContactDepth: vi.fn().mockResolvedValue(undefined),
+        onBatchUpdateContacts: onUpdate,
+        // onBatchCreateContacts intentionally omitted.
+      },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    fireEvent.mouseDown(strip, { button: 0, clientX: 50, clientY: 10 })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: 200,
+          clientY: 10,
+          buttons: 1,
+        }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup'))
+    })
+
+    expect(onUpdate).toHaveBeenCalledTimes(1)
+    expect(onUpdate.mock.calls[0][0][0].borehole_id).toBe('bh-2')
   })
 
   it('same-column depth drag still routes through onUpdateContactDepth', () => {
