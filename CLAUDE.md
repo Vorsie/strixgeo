@@ -818,6 +818,14 @@ GET    /borehole/{id}           Full borehole tree (header + drill segments + fi
                                 + observations with layers + admixtures + samples with
                                 grain-size + Atterberg + CaCO3 + organic + water-content
                                 + the ``scalar_lab_tests`` catch-all list). 404 when missing.
+                                Optional ``?include=`` query parameter scopes the
+                                per-sample lab-test families that get eager-loaded
+                                (debt #2): comma-separated aliases from
+                                {``grain_size``, ``atterberg``, ``caco3``,
+                                ``organic``, ``water_content``, ``scalar``}.
+                                Default (no ``?include=``) loads every family. Unrequested
+                                families come back as empty lists, so the JSON shape is
+                                unchanged — existing clients keep working.
 PATCH  /borehole/{id}/elevation Mirror of ``PATCH /cpt/{id}/elevation`` — same
                                 request body. Returns the lightweight
                                 ``BoreholeListItem`` shape so the frontend can
@@ -1388,16 +1396,6 @@ multi-layer (interpretation × 8) variants. Net win is small.
 gets typed for a fourth time. At that point the abstraction shape is
 obvious from a wider sample.
 
-### 2. ``API include=`` parameter for SampleResponse (low)
-
-**What.** ``GET /borehole/{id}`` always selectinloads all 6 lab-test
-relationships per sample. Fine at our 232-sample scale; at 5000
-samples per borehole this becomes a measurable bottleneck. An
-``?include=grain_size,atterberg_limits`` style scope on the endpoint
-would let the caller request only what it'll render.
-
-**When.** When a single borehole-detail call exceeds ~500 ms in
-production.
 
 ### 3. Translate ``ScalarLabTest.parameter`` storage (low)
 
