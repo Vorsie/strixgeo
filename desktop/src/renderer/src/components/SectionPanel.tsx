@@ -124,6 +124,11 @@ interface Props {
     depth_m: number,
     formationId: string,
   ) => Promise<void>
+  /** Drag-to-re-pick hook. Fires on the drag's mouseup with the
+   * contact id and its new depth_top_m. Caller PATCHes and updates
+   * the local contacts state. Omitting it leaves contacts immovable
+   * (the dragable hit-strip stays inert). */
+  onUpdateContactDepth?: (contactId: string, newDepthM: number) => Promise<void>
   /** Inline-create a formation from the picker modal's "New
    * formation here" affordance. Returns the new row's id so the
    * picker can chain to a contact commit. */
@@ -143,6 +148,7 @@ export default function SectionPanel({
   formations = [],
   excludedBoreholeIds,
   onCreateContact,
+  onUpdateContactDepth,
   onCreateFormation,
   onSelectCpt,
   onSelectBorehole,
@@ -667,6 +673,34 @@ export default function SectionPanel({
     )
   }, [placedColumns, focusedColumn])
 
+  // Per-borehole snap candidates for the contact-drag interaction.
+  // Empty when snap is off — ContactsLayer treats absent entries as
+  // "free drag" so CPTs (which have no stratigraphy to snap to) also
+  // fall through correctly. Same set of depths the click-to-place
+  // snap consumer in BoreholeColumn uses (formal + informal
+  // stratigraphy layer tops + bases).
+  const snapDepthsByAnchorId = useMemo(() => {
+    const out = new Map<string, readonly number[]>()
+    if (!snapToStratigraphy || boreholeDetails === null) return out
+    for (const [id, detail] of boreholeDetails) {
+      const depths = new Set<number>()
+      for (const obs of detail.observations) {
+        if (
+          obs.observation_type !== 'formal_stratigraphy' &&
+          obs.observation_type !== 'informal_stratigraphy'
+        ) {
+          continue
+        }
+        for (const layer of obs.layers) {
+          depths.add(layer.top_m)
+          depths.add(layer.base_m)
+        }
+      }
+      if (depths.size > 0) out.set(id, Array.from(depths))
+    }
+    return out
+  }, [snapToStratigraphy, boreholeDetails])
+
   // SVG-level right-click handler. Acts as the wide-area fallback so
   // the user can right-click anywhere within a column's VISUAL width
   // (including the CPT data band + borehole lithology strips) to open
@@ -1130,6 +1164,8 @@ export default function SectionPanel({
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
+              onUpdateContactDepth={onUpdateContactDepth}
+              snapDepthsByAnchorId={snapDepthsByAnchorId}
             />
 
             {/* Axis labels. */}
