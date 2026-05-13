@@ -1646,22 +1646,6 @@ imports.
 is Lambert72 but users may have RD New (28992) NL boreholes in
 the same project. Or before any project spans the BE/NL border.
 
-### 21. Focus-zoom effect captures viewport mid-render-batch (low — theoretical race)
-
-**What.** ``SectionPanel`` focus-zoom ``useEffect`` deliberately
-stale-reads ``viewport`` + ``vex`` + ``placedColumns`` on
-``focusedColumn`` transitions (eslint-disabled with a documented
-``reason:``). If ``focusedColumn`` flips during the same render
-batch as a pan, the captured snapshot can be the partially-updated
-viewport.
-
-**Why deferred.** Cannot reproduce in practice; clean fix is to
-capture the snapshot in a ``useLayoutEffect`` or via an
-event-handler-driven flow rather than a regular effect.
-
-**When to revisit.** If any user reports a "focus mode opened
-weird" symptom.
-
 ### 22. ``FormationContact.confidence`` field stored but never set or rendered (low)
 
 **What.** ``confidence`` is a first-class column on the domain
