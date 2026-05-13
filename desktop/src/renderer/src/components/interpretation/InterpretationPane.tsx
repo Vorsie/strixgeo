@@ -230,9 +230,18 @@ export default function InterpretationPane({
   // routinely carry hundreds of boreholes.
   const handlePopulateFromBoreholes = useCallback(async (): Promise<void> => {
     if (!projectId || populateBusy) return
-    const ids = boreholeIds ?? []
+    // Respect the active model's scope — boreholes the user
+    // unchecked under "Boreholes in model" do NOT contribute their
+    // stratigraphy to the auto-populate. The user's expectation is
+    // that the model scope filter applies everywhere, not just to
+    // the section overlay's contact rendering.
+    const ids = (boreholeIds ?? []).filter(id => !excludedSet.has(id))
     if (ids.length === 0) {
-      setPopulateResult('No boreholes in this project yet.')
+      setPopulateResult(
+        (boreholeIds?.length ?? 0) === 0
+          ? 'No boreholes in this project yet.'
+          : 'No boreholes selected for the active model.',
+      )
       return
     }
     setPopulateBusy(true)
@@ -358,7 +367,7 @@ export default function InterpretationPane({
     } finally {
       setPopulateBusy(false)
     }
-  }, [projectId, populateBusy, boreholeIds, visibleFormations, onFormationCreated])
+  }, [projectId, populateBusy, boreholeIds, excludedSet, visibleFormations, onFormationCreated])
 
   const handleDelete = useCallback(async () => {
     if (!projectId || !pendingDelete) return
