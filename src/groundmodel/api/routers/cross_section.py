@@ -11,6 +11,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404, merge_view_state
@@ -19,11 +20,14 @@ from groundmodel.api.schemas.project.cross_section import (
     CrossSectionResponse,
     CrossSectionUpdateRequest,
 )
+from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.infrastructure.exporters.dxf_section_exporter import DxfSectionExporter
+from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -150,3 +154,81 @@ async def delete_section(
     await get_in_project_or_404(repo.get(section_id), project_id, detail="Cross-section not found")
     await repo.delete(section_id)
     await session.commit()
+
+
+@router.get("/{section_id}/export/dxf")
+async def export_section_dxf(
+    project_id: UUID,
+    section_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Export the section's drawn geological model to a DXF file.
+
+    The DXF carries:
+
+    * One LWPOLYLINE per formation, threaded through the formation's
+      contacts sorted left-to-right along the section line.
+    * One vertical LINE + name TEXT per projected investigation
+      column (CPT or borehole within the section's projection
+      buffer).
+    * A title block with project + section + datum metadata.
+
+    Engineers download the file and import it into AutoCAD /
+    Plaxis 2D / D-Sheet / GeoStudio as the geometric reference for
+    their design calculations.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    section_id : UUID
+        Section to export. Must belong to ``project_id``.
+    model_id : UUID
+        Which geological model's contacts to include. The desktop
+        sends the active model id by default; nothing prevents
+        exporting a non-active model.
+
+    Returns
+    -------
+    Response
+        ``application/dxf`` body with a ``Content-Disposition``
+        header proposing a filename derived from the section name.
+
+    Raises
+    ------
+    HTTPException(404)
+        When section / model / project resolution fails — the use
+        case raises ``ParseError``; we map to 404 since the typical
+        failure mode is "this id doesn't exist in this project".
+    """
+    logger.info(f"GET /projects/{project_id}/sections/{section_id}/export/dxf (model={model_id})")
+    try:
+        snapshot = await BuildSectionSnapshot(session).execute(
+            app_project_id=project_id,
+            section_id=section_id,
+            model_id=model_id,
+        )
+    except ParseError as exc:
+        # The use case raises ParseError for not-found / degenerate
+        # cases; surface as 404 with the underlying message.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    payload = DxfSectionExporter().export(snapshot)
+    # Sanitise the section name for the filename — DXF receivers
+    # don't like names with forward slashes, control chars, etc.
+    safe_name = (
+        "".join(
+            c if c.isalnum() or c in ("-", "_", " ") else "_" for c in snapshot.section_name
+        ).strip()
+        or "section"
+    )
+    filename = f"{safe_name}.dxf"
+    return Response(
+        content=payload,
+        media_type="application/dxf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
