@@ -92,6 +92,10 @@ interface Props {
    * outside the pane's own create-edit-delete flow). The integer
    * value is opaque; only the change matters. */
   refreshSignal?: number
+  /** Push an UndoCommand onto the App-level undo stack after a
+   * successful create / update / delete here. Optional so test-
+   * harness mounts work without an undo provider. */
+  pushUndoCommand?: (cmd: import('../../hooks/useUndoStack').UndoCommand) => void
 }
 
 export default function InterpretationPane({
@@ -107,6 +111,7 @@ export default function InterpretationPane({
   onFormationDeleted,
   onFormationUpdated,
   refreshSignal,
+  pushUndoCommand,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -176,31 +181,51 @@ export default function InterpretationPane({
     async (payload: GeologicalFormationCreatePayload | GeologicalFormationUpdatePayload) => {
       if (!projectId) return
       try {
-        const created = await api.geology.createFormation(
-          projectId,
-          payload as GeologicalFormationCreatePayload,
-        )
+        const createPayload = payload as GeologicalFormationCreatePayload
+        const created = await api.geology.createFormation(projectId, createPayload)
         setFormations(prev => sortFormations([...prev, created]))
         // Flip the project to dirty + tag the new row with the
         // amber visual until the user runs File → Save.
         onFormationCreated?.(created.id)
         setDialogOpen(false)
         setEditing(null)
+        // Undo: DELETE the created row. Redo: re-POST and capture
+        // the new server id for subsequent reverts.
+        let currentId = created.id
+        pushUndoCommand?.({
+          description: 'Create formation',
+          revert: async () => {
+            await api.geology.deleteFormation(projectId, currentId)
+            setFormations(prev => prev.filter(f => f.id !== currentId))
+            onFormationDeleted?.(currentId)
+          },
+          reapply: async () => {
+            const recreated = await api.geology.createFormation(
+              projectId,
+              createPayload,
+            )
+            currentId = recreated.id
+            setFormations(prev => sortFormations([...prev, recreated]))
+            onFormationCreated?.(recreated.id)
+          },
+        })
       } catch (err) {
         log.error('geology', 'createFormation failed', err)
       }
     },
-    [projectId, onFormationCreated],
+    [projectId, onFormationCreated, onFormationDeleted, pushUndoCommand],
   )
 
   const handleUpdate = useCallback(
     async (payload: GeologicalFormationCreatePayload | GeologicalFormationUpdatePayload) => {
       if (!projectId || !editing) return
       try {
+        const before = editing
+        const updatePayload = payload as GeologicalFormationUpdatePayload
         const updated = await api.geology.updateFormation(
           projectId,
           editing.id,
-          payload as GeologicalFormationUpdatePayload,
+          updatePayload,
         )
         setFormations(prev =>
           sortFormations(prev.map(f => (f.id === updated.id ? updated : f))),
@@ -211,11 +236,46 @@ export default function InterpretationPane({
         onFormationUpdated?.(updated.id)
         setDialogOpen(false)
         setEditing(null)
+        // Undo: PATCH back to the snapshot's name/color/code/etc.
+        // Redo: re-PATCH the user's update payload.
+        const beforePayload: GeologicalFormationUpdatePayload = {
+          name: before.name,
+          color: before.color,
+          code: before.code,
+          regional_ref: before.regional_ref,
+          description: before.description,
+          display_order: before.display_order,
+        }
+        pushUndoCommand?.({
+          description: 'Edit formation',
+          revert: async () => {
+            const back = await api.geology.updateFormation(
+              projectId,
+              before.id,
+              beforePayload,
+            )
+            setFormations(prev =>
+              sortFormations(prev.map(f => (f.id === back.id ? back : f))),
+            )
+            onFormationUpdated?.(back.id)
+          },
+          reapply: async () => {
+            const fwd = await api.geology.updateFormation(
+              projectId,
+              before.id,
+              updatePayload,
+            )
+            setFormations(prev =>
+              sortFormations(prev.map(f => (f.id === fwd.id ? fwd : f))),
+            )
+            onFormationUpdated?.(fwd.id)
+          },
+        })
       } catch (err) {
         log.error('geology', 'updateFormation failed', err)
       }
     },
-    [projectId, editing, onFormationUpdated],
+    [projectId, editing, onFormationUpdated, pushUndoCommand],
   )
 
   // Walk every visible borehole's informal_stratigraphy observation
@@ -385,16 +445,55 @@ export default function InterpretationPane({
     if (!projectId || !pendingDelete) return
     setDeleteBusy(true)
     try {
-      await api.geology.deleteFormation(projectId, pendingDelete.id)
-      setFormations(prev => prev.filter(f => f.id !== pendingDelete.id))
-      onFormationDeleted?.(pendingDelete.id)
+      const snapshot = pendingDelete
+      await api.geology.deleteFormation(projectId, snapshot.id)
+      setFormations(prev => prev.filter(f => f.id !== snapshot.id))
+      onFormationDeleted?.(snapshot.id)
       setPendingDelete(null)
+      // Undo: re-POST an equivalent formation with the snapshot's
+      // fields. Server assigns a new id (captured in closure for
+      // redo's subsequent delete).
+      const recreatePayload: GeologicalFormationCreatePayload = {
+        name: snapshot.name,
+        color: snapshot.color,
+        code: snapshot.code ?? undefined,
+        regional_ref: snapshot.regional_ref ?? undefined,
+        description: snapshot.description ?? undefined,
+        display_order: snapshot.display_order,
+      }
+      let currentId: string | null = null
+      pushUndoCommand?.({
+        description: 'Delete formation',
+        revert: async () => {
+          const recreated = await api.geology.createFormation(
+            projectId,
+            recreatePayload,
+          )
+          currentId = recreated.id
+          setFormations(prev => sortFormations([...prev, recreated]))
+          onFormationCreated?.(recreated.id)
+        },
+        reapply: async () => {
+          if (!currentId) return
+          await api.geology.deleteFormation(projectId, currentId)
+          const deletedId = currentId
+          setFormations(prev => prev.filter(f => f.id !== deletedId))
+          onFormationDeleted?.(deletedId)
+          currentId = null
+        },
+      })
     } catch (err) {
       log.error('geology', 'deleteFormation failed', err)
     } finally {
       setDeleteBusy(false)
     }
-  }, [projectId, pendingDelete, onFormationDeleted])
+  }, [
+    projectId,
+    pendingDelete,
+    onFormationDeleted,
+    onFormationCreated,
+    pushUndoCommand,
+  ])
 
   // No project yet — the pane is unreachable in this state because
   // the welcome screen owns the no-project view, but guard anyway.
