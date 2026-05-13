@@ -37,6 +37,11 @@ from groundmodel.shared.logging.logger_factory import LoggerFactory
 # module-level logger via ``LoggerFactory``.
 logger = LoggerFactory.get_logger(__name__)
 
+# Cap on a single GEF upload's byte count (debt #39). A 100k-row CPT
+# weighs ~4 MB on disk; 200 MiB is two orders of magnitude past that
+# and still small enough to stream through ``tempfile`` without OOM.
+_MAX_GEF_UPLOAD_BYTES = 200 * 1024 * 1024
+
 router = APIRouter(prefix="/cpt", tags=["cpt"])
 
 
@@ -88,10 +93,30 @@ async def import_cpt(
                 detail=f"Invalid project_id: {project_id!r}",
             )
 
-    content = await file.read()
-
+    # Stream-copy with a byte counter so a 5-GB "GEF" file can't OOM
+    # the API by being slurped wholesale (debt #39). The cap is well
+    # above any plausible real GEF (a 100k-row CPT is ~4 MB); the
+    # outer BodySizeLimitMiddleware caps the request envelope at
+    # 256 MiB but UploadFile streams chunk-by-chunk so we need the
+    # per-upload guard here too.
+    received = 0
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(content)
+        while True:
+            chunk = await file.read(1024 * 1024)  # 1 MiB
+            if not chunk:
+                break
+            received += len(chunk)
+            if received > _MAX_GEF_UPLOAD_BYTES:
+                tmp_path = Path(tmp.name)
+                tmp.close()
+                tmp_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"GEF upload exceeds the {_MAX_GEF_UPLOAD_BYTES // (1024 * 1024)} MiB cap"
+                    ),
+                )
+            tmp.write(chunk)
         tmp_path = Path(tmp.name)
 
     try:
