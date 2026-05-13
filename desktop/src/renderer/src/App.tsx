@@ -153,7 +153,19 @@ export default function App() {
   // handler below pushes a Command after success; Ctrl+Z reverts,
   // Ctrl+Y / Ctrl+Shift+Z reapplies. The stack clears on project
   // switch (see the effect below).
-  const undoStack = useUndoStack({
+  //
+  // CRITICAL: destructure the hook's return into individual stable
+  // callbacks. The wrapper object literal is rebuilt every render
+  // (busy / canUndo / canRedo are state that changes); putting the
+  // whole object into a useEffect / useCallback dep list creates an
+  // infinite render loop because the dep is "new" every commit. The
+  // four function fields below are individually useCallback-stable.
+  const {
+    push: pushUndo,
+    undo: doUndo,
+    redo: doRedo,
+    clear: clearUndo,
+  } = useUndoStack({
     onError: msg => toast('error', msg),
   })
 
@@ -161,8 +173,8 @@ export default function App() {
   // undo is semantically undefined (the captured ids belong to the
   // old project's DB rows) and the safe move is to start fresh.
   useEffect(() => {
-    undoStack.clear()
-  }, [project?.id, undoStack])
+    clearUndo()
+  }, [project?.id, clearUndo])
 
   // Keyboard listener — Ctrl+Z = undo, Ctrl+Y OR Ctrl+Shift+Z =
   // redo. Cmd on macOS, Ctrl on Windows/Linux. ``isTypingTarget``
@@ -175,18 +187,18 @@ export default function App() {
       if (e.key === 'z' || e.key === 'Z') {
         e.preventDefault()
         if (e.shiftKey) {
-          void undoStack.redo()
+          void doRedo()
         } else {
-          void undoStack.undo()
+          void doUndo()
         }
       } else if (e.key === 'y' || e.key === 'Y') {
         e.preventDefault()
-        void undoStack.redo()
+        void doRedo()
       }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [undoStack])
+  }, [doUndo, doRedo])
 
   const [ready, setReady] = useState(false)
   const [apiError, setApiError] = useState(false)
@@ -695,7 +707,7 @@ export default function App() {
         const projectId = project.id
         const modelId = activeGeologicalModel.id
         let currentId = created.id
-        undoStack.push({
+        pushUndo({
           description: 'Create contact',
           revert: async () => {
             await api.geology.deleteContact(projectId, modelId, currentId)
@@ -717,7 +729,7 @@ export default function App() {
         toast('error', 'Could not place the formation contact.')
       }
     },
-    [project, activeGeologicalModel, setSessionImportContactIds, undoStack],
+    [project, activeGeologicalModel, setSessionImportContactIds, pushUndo],
   )
 
   // Re-pick an existing contact's depth — the commit handler for
@@ -775,7 +787,7 @@ export default function App() {
             | 'interpolated',
           confidence: updated.confidence as 'high' | 'medium' | 'low',
         }
-        undoStack.push({
+        pushUndo({
           description: 'Move contact',
           revert: async () => {
             const reverted = await api.geology.updateContact(
@@ -805,7 +817,7 @@ export default function App() {
         toast('error', 'Could not update the contact depth.')
       }
     },
-    [project, activeGeologicalModel, contacts, undoStack],
+    [project, activeGeologicalModel, contacts, pushUndo],
   )
 
   // Cross-column COPY commit — fired by plain-drag onto a different
@@ -851,7 +863,7 @@ export default function App() {
         const modelId = activeGeologicalModel.id
         const payloads = creates.slice()
         let currentIds = created.map(c => c.id)
-        undoStack.push({
+        pushUndo({
           description: `Copy ${created.length} contact(s)`,
           revert: async () => {
             await Promise.all(
@@ -888,7 +900,7 @@ export default function App() {
         )
       }
     },
-    [project, activeGeologicalModel, setSessionImportContactIds, undoStack],
+    [project, activeGeologicalModel, setSessionImportContactIds, pushUndo],
   )
 
   // All-or-nothing batch UPDATE commit — fired by the section
@@ -948,7 +960,7 @@ export default function App() {
             confidence: c.confidence as 'high' | 'medium' | 'low',
           }))
         const afterUpdates = updates.slice()
-        undoStack.push({
+        pushUndo({
           description: `Update ${updateIds.length} contact(s)`,
           revert: async () => {
             const back = await api.geology.updateContactsBatch(
@@ -974,7 +986,7 @@ export default function App() {
         toast('error', 'Could not update the selected contacts.')
       }
     },
-    [project, activeGeologicalModel, contacts, undoStack],
+    [project, activeGeologicalModel, contacts, pushUndo],
   )
 
   // Right-click → confirm → delete an existing contact. ContactsLayer
@@ -1024,7 +1036,7 @@ export default function App() {
         // null because the contact was JUST deleted; the first
         // revert call re-creates it.
         let currentId: string | null = null
-        undoStack.push({
+        pushUndo({
           description: 'Delete contact',
           revert: async () => {
             const recreated = await api.geology.createContact(
@@ -1054,7 +1066,7 @@ export default function App() {
       activeGeologicalModel,
       setSessionImportContactIds,
       contacts,
-      undoStack,
+      pushUndo,
     ],
   )
 
@@ -1132,7 +1144,7 @@ export default function App() {
           // since the recreated rows get fresh server ids.
           let currentContactIds = outcome.created_contact_ids.slice()
           let currentFormationIds = outcome.created_formation_ids.slice()
-          undoStack.push({
+          pushUndo({
             description: `Seed from stratigraphy (+${created} contacts)`,
             revert: async () => {
               await Promise.all(
@@ -1208,7 +1220,7 @@ export default function App() {
       setSessionImportFormationIds,
       setSessionImportContactIds,
       addToManifest,
-      undoStack,
+      pushUndo,
     ],
   )
 
@@ -1293,7 +1305,7 @@ export default function App() {
         const modelId = activeGeologicalModel.id
         const beforeList = previousExcluded.slice()
         const afterList = nextExcluded.slice()
-        undoStack.push({
+        pushUndo({
           description: included
             ? 'Include borehole in model'
             : 'Exclude borehole from model',
@@ -1329,7 +1341,7 @@ export default function App() {
         )
       }
     },
-    [project, activeGeologicalModel, undoStack],
+    [project, activeGeologicalModel, pushUndo],
   )
 
   // Apply the project-local filter before anything user-visible reads
@@ -1488,7 +1500,7 @@ export default function App() {
         ),
       )
       log.info('cpt', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
-      undoStack.push({
+      pushUndo({
         description: 'Edit CPT elevation',
         revert: async () => {
           const back = await api.cpt.patchElevation(id, {
@@ -1520,7 +1532,7 @@ export default function App() {
         },
       })
     },
-    [cpts, undoStack],
+    [cpts, pushUndo],
   )
 
   const handlePatchBoreholeElevation = useCallback(
@@ -1553,7 +1565,7 @@ export default function App() {
         return next
       })
       log.info('borehole', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
-      undoStack.push({
+      pushUndo({
         description: 'Edit borehole elevation',
         revert: async () => {
           const back = await api.borehole.patchElevation(id, {
@@ -1605,7 +1617,7 @@ export default function App() {
         },
       })
     },
-    [boreholes, undoStack],
+    [boreholes, pushUndo],
   )
 
   // Re-importing or re-fetching a record is an explicit "make this visible
@@ -1993,7 +2005,7 @@ export default function App() {
         log.success('section', `created ${created.name} from map draw`)
         const projectId = project.id
         let currentId = created.id
-        undoStack.push({
+        pushUndo({
           description: 'Create cross-section',
           revert: async () => {
             await api.section.delete(projectId, currentId)
@@ -2013,7 +2025,7 @@ export default function App() {
         toast('error', 'Could not create the cross-section.')
       }
     },
-    [project, sections.length, handleSectionCreated, undoStack],
+    [project, sections.length, handleSectionCreated, pushUndo],
   )
 
   const handleDeleteSection = useCallback(
@@ -2041,7 +2053,7 @@ export default function App() {
           vertical_exaggeration: snapshot.vertical_exaggeration,
         }
         let currentId: string | null = null
-        undoStack.push({
+        pushUndo({
           description: 'Delete cross-section',
           revert: async () => {
             const recreated = await api.section.create(projectId, recreatePayload)
@@ -2069,7 +2081,7 @@ export default function App() {
       handleSectionDeleted,
       handleSectionCreated,
       sections,
-      undoStack,
+      pushUndo,
     ],
   )
 
@@ -2521,7 +2533,7 @@ export default function App() {
           onFormationUpdated={handleFormationUpdated}
           onFormationDeleted={handleFormationDeleted}
           formationsRefreshSignal={formationsRefreshCounter}
-          pushUndoCommand={undoStack.push}
+          pushUndoCommand={pushUndo}
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
           activeModelName={activeGeologicalModel?.name ?? null}
           visibleBoreholes={visibleBoreholes}
