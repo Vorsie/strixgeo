@@ -1403,16 +1403,6 @@ make the storage column independent of upstream tweaks.
 **When.** When a query against ``scalar_lab_test`` is added that
 filters by parameter — at that point the slug becomes load-bearing.
 
-### 4. ``BoreholeLog.tsx`` size (low)
-
-**What.** ~1850 lines. Cohesive (everything is borelog rendering)
-but big. If we add another track type (e.g. CPT-overlay-on-borelog
-in Phase 5) it'll cross the "split this file" threshold.
-
-**When.** Before adding the next track type. Natural splits:
-``borelog/utils.ts`` for pure helpers, ``borelog/tracks/`` for the
-per-track components.
-
 ### 5. Telemetry / crash reporting (low)
 
 **What.** No Sentry-equivalent. Frontend ``log.*`` calls go to the
