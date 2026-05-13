@@ -79,6 +79,16 @@ interface Props {
    * the nearest one within ``SNAP_TOLERANCE_PX``. Empty map / absent
    * entry → free drag. */
   snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
+  /** Looks up qc + Rf at a given depth for a CPT anchor. Used to
+   * decorate the drag readout with the same depth-series values
+   * ContactPickBar surfaces on hover — engineers want to see what
+   * the cone reported at the depth they're picking. Returning null
+   * (or the values being null) drops the qc / Rf lines from the
+   * readout but still shows depth + mTAW. */
+  getCptValuesAtDepth?: (
+    cptId: string,
+    depthM: number,
+  ) => { qc: number | null; rf: number | null } | null
 }
 
 interface PolylineVertex {
@@ -92,6 +102,7 @@ interface RenderedLayer {
   key: string
   contactId: string
   anchorId: string
+  anchorKind: 'cpt' | 'borehole'
   formationId: string
   formationName: string
   color: string
@@ -117,6 +128,7 @@ interface RenderedLayer {
 interface DragState {
   contactId: string
   anchorId: string
+  anchorKind: 'cpt' | 'borehole'
   surfaceElevationM: number
   pxPerMetre: number
   surfaceY: number
@@ -181,6 +193,7 @@ export default function ContactsLayer({
   plotBottom,
   onUpdateContactDepth,
   snapDepthsByAnchorId,
+  getCptValuesAtDepth,
 }: Props): JSX.Element | null {
   // Pre-index lookups + filter excluded boreholes once. Both render
   // halves (polyline + per-column layers) consume the same set.
@@ -272,6 +285,7 @@ export default function ContactsLayer({
           key: `${column.proj.item.id}-${contact.id}`,
           contactId: contact.id,
           anchorId: column.proj.item.id,
+          anchorKind: column.kind,
           formationId: contact.formation_id,
           formationName: formation.name,
           color: formation.color,
@@ -414,6 +428,7 @@ export default function ContactsLayer({
       setDrag({
         contactId: layer.contactId,
         anchorId: layer.anchorId,
+        anchorKind: layer.anchorKind,
         surfaceElevationM: layer.surfaceElevationM,
         pxPerMetre: layer.pxPerMetre,
         surfaceY: layer.surfaceY,
@@ -551,27 +566,44 @@ export default function ContactsLayer({
         )
       })}
 
-      {/* Drag readout — depth + mTAW for the contact currently being
-          dragged. Same card shape ContactPickBar uses. */}
-      {drag !== null && (
-        <g pointerEvents="none">
-          <HoverReadoutCard
-            x={drag.segRightX + 8}
-            y={drag.surfaceY + drag.currentDepthM * drag.pxPerMetre}
-            plotTop={drag.plotTop}
-            plotBottom={drag.plotBottom}
-            lines={[
-              { text: `depth ${drag.currentDepthM.toFixed(2)} m`, color: drag.color },
-              {
-                text: `${
-                  drag.surfaceElevationM - drag.currentDepthM >= 0 ? '+' : ''
-                }${(drag.surfaceElevationM - drag.currentDepthM).toFixed(2)} m TAW`,
-                color: drag.color,
-              },
-            ]}
-          />
-        </g>
-      )}
+      {/* Drag readout — depth + mTAW always, plus qc + Rf when the
+          contact is anchored at a CPT (mirrors ContactPickBar so the
+          drag flow surfaces the same depth-series values as the
+          hover-pick flow). Same card shape used elsewhere. */}
+      {drag !== null && (() => {
+        const elevation = drag.surfaceElevationM - drag.currentDepthM
+        const lines = [
+          { text: `depth ${drag.currentDepthM.toFixed(2)} m`, color: drag.color },
+          {
+            text: `${elevation >= 0 ? '+' : ''}${elevation.toFixed(2)} m TAW`,
+            color: drag.color,
+          },
+        ]
+        if (drag.anchorKind === 'cpt' && getCptValuesAtDepth) {
+          const v = getCptValuesAtDepth(drag.anchorId, drag.currentDepthM)
+          if (v) {
+            lines.push({
+              text: `qc ${v.qc === null ? '—' : `${v.qc.toFixed(2)} MPa`}`,
+              color: '#111827',
+            })
+            lines.push({
+              text: `Rf ${v.rf === null ? '—' : `${v.rf.toFixed(2)} %`}`,
+              color: '#b45309',
+            })
+          }
+        }
+        return (
+          <g pointerEvents="none">
+            <HoverReadoutCard
+              x={drag.segRightX + 8}
+              y={drag.surfaceY + drag.currentDepthM * drag.pxPerMetre}
+              plotTop={drag.plotTop}
+              plotBottom={drag.plotBottom}
+              lines={lines}
+            />
+          </g>
+        )
+      })()}
     </g>
   )
 }
