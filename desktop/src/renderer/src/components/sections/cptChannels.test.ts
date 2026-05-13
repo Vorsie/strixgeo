@@ -18,6 +18,7 @@ import {
   readBoreholeChannels,
   readColumnSpacing,
   readCptChannels,
+  readSnapToStratigraphy,
 } from './cptChannels'
 
 describe('cptBandHalfWidth — zoom-responsive band geometry', () => {
@@ -153,6 +154,26 @@ describe('enabledBoreholeChannelCount', () => {
 
   it('the default channel bag has count 1 (geotech on)', () => {
     expect(enabledBoreholeChannelCount(DEFAULT_BOREHOLE_CHANNELS)).toBe(1)
+  })
+})
+
+describe('readSnapToStratigraphy', () => {
+  it('returns false when view_state is null', () => {
+    expect(readSnapToStratigraphy(null)).toBe(false)
+  })
+
+  it('returns false when the key is missing', () => {
+    expect(readSnapToStratigraphy({ cpt_channels: {} })).toBe(false)
+  })
+
+  it('returns false when the value is not a boolean', () => {
+    expect(readSnapToStratigraphy({ snap_to_stratigraphy: 'yes' })).toBe(false)
+    expect(readSnapToStratigraphy({ snap_to_stratigraphy: 1 })).toBe(false)
+  })
+
+  it('returns the value when it is a boolean', () => {
+    expect(readSnapToStratigraphy({ snap_to_stratigraphy: true })).toBe(true)
+    expect(readSnapToStratigraphy({ snap_to_stratigraphy: false })).toBe(false)
   })
 })
 
