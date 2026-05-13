@@ -35,6 +35,7 @@ export default function ColumnGlyph({
   plotTop,
   plotBottom,
   onClick,
+  onContextMenu,
   hideStick = false,
 }: {
   name: string
@@ -48,6 +49,11 @@ export default function ColumnGlyph({
   plotTop: number
   plotBottom: number
   onClick: (() => void) | undefined
+  /** Right-click handler. Receives the raw React event so the caller
+   * can read clientX/clientY for menu positioning. Rendering the
+   * hit-box is gated on having either onClick or onContextMenu
+   * wired; without one, the column stays inert. */
+  onContextMenu?: (e: React.MouseEvent<SVGRectElement>) => void
   /** When true, suppress the cap + body line + tie-back diagonal —
    * the caller is already rendering a CPT data band or a borelog
    * lithology strip at this column's X, so the stick "where is this
@@ -97,14 +103,17 @@ export default function ColumnGlyph({
           invisible rect catches clicks anywhere within ±6 px of the
           column's X across the full plot height. ``pointerEvents``
           on the rect alone (not the wider <g>) keeps the tie-back
-          diagonals and other siblings non-clickable. */}
-      {onClick && (
+          diagonals and other siblings non-clickable. Right-click
+          fires onContextMenu when wired, opening the column's
+          per-test action menu (focus, hide, …). */}
+      {(onClick || onContextMenu) && (
         <rect
           x={sx - 7}
           y={plotTop}
           width={14}
           height={plotBottom - plotTop}
           fill="transparent"
+          onContextMenu={onContextMenu}
         />
       )}
 
