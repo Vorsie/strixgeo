@@ -371,7 +371,7 @@ a flag that something needs a follow-up commit.
 
 ## Subagents
 
-Four project-scoped subagents live in `.claude/agents/`. They are
+Five project-scoped subagents live in `.claude/agents/`. They are
 Strix-tuned: each one reads CLAUDE.md (and CLAUDE.local.md, and the
 memory directory) before opining, so its advice respects the layer
 model, the .gmproj v3 contract, the data-integrity rules, and the
@@ -382,6 +382,7 @@ documented debt list rather than reaching for generic best practices.
 | `senior-code-reviewer` | Before commits / PRs that touch non-trivial code — a new feature, a refactor, a parser change, a migration. Returns blockers / should-fix / consider, with citations to the project rule. Skip for one-line fixes and doc-only commits. |
 | `system-architect` | Before designing a new subsystem, evaluating a schema change, weighing competing implementation approaches, or considering whether to bend an architectural rule. NOT for stylistic tweaks. |
 | `staff-engineer` | For non-trivial implementation work — designing + writing a feature inside the existing conventions, modernising a legacy module, mid-stream performance fixes. Less review-focused than `senior-code-reviewer`; this is who builds the thing. |
+| `security-reviewer` | Before merging code that touches a security-sensitive surface — file parsers (DOV XML, GEF, .strix), DB query construction outside the ORM, Electron IPC handlers, file-system access from the renderer, endpoints that take user-supplied IDs, future license/auth flows. Critical / High / Medium / Low findings with concrete attack scenarios. NOT a substitute for `senior-code-reviewer` — pair them on diffs that touch trust boundaries. |
 | `product-strategy-advisor` | Build/kill/defer/enhance decisions, competitive positioning vs gINT / D-Series / GeoStudio, pricing tier shape, validation cadence, v1.0 MVP gate scope. NOT for implementation questions. |
 
 **What "automatic" means in practice.** The agent descriptions are
