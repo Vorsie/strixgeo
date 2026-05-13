@@ -119,18 +119,27 @@ interface Props {
   excludedBoreholeIds?: readonly string[]
   /** Click-to-place hook. Fires when the user picks a formation on
    * the picker modal — caller (App) POSTs the contact and updates
-   * the contacts state. Omitting it leaves the section read-only. */
+   * the contacts state. Omitting it leaves the section read-only.
+   *
+   * ``snapped`` reflects whether the depth came from a snap-to-
+   * stratigraphy boundary; the caller uses it to decide the
+   * contact's ``source`` + ``confidence`` fields (debt #22/#23). */
   onCreateContact?: (
     anchorKind: 'cpt' | 'borehole',
     anchorId: string,
     depth_m: number,
     formationId: string,
+    snapped: boolean,
   ) => Promise<void>
   /** Drag-to-re-pick hook. Fires on the drag's mouseup with the
-   * contact id and its new depth_top_m. Caller PATCHes and updates
-   * the local contacts state. Omitting it leaves contacts immovable
-   * (the dragable hit-strip stays inert). */
-  onUpdateContactDepth?: (contactId: string, newDepthM: number) => Promise<void>
+   * contact id, its new depth_top_m, and whether the depth landed
+   * on a snap candidate. Caller PATCHes and updates the local
+   * contacts state. */
+  onUpdateContactDepth?: (
+    contactId: string,
+    newDepthM: number,
+    snapped: boolean,
+  ) => Promise<void>
   /** Inline-create a formation from the picker modal's "New
    * formation here" affordance. Returns the new row's id so the
    * picker can chain to a contact commit. */
@@ -550,6 +559,7 @@ export default function SectionPanel({
     anchorName: string
     depth_m: number
     elevationM: number
+    snapped: boolean
   } | null>(null)
 
   const handlePickCpt = useCallback(
@@ -559,6 +569,7 @@ export default function SectionPanel({
       cptName: string
       depth_m: number
       elevationM: number
+      snapped: false
     }) => {
       setPickContext({
         kind: 'cpt',
@@ -566,6 +577,7 @@ export default function SectionPanel({
         anchorName: anchor.cptName,
         depth_m: anchor.depth_m,
         elevationM: anchor.elevationM,
+        snapped: anchor.snapped,
       })
     },
     [],
@@ -577,6 +589,7 @@ export default function SectionPanel({
       boreholeName: string
       depth_m: number
       elevationM: number
+      snapped: boolean
     }) => {
       setPickContext({
         kind: 'borehole',
@@ -584,6 +597,7 @@ export default function SectionPanel({
         anchorName: anchor.boreholeName,
         depth_m: anchor.depth_m,
         elevationM: anchor.elevationM,
+        snapped: anchor.snapped,
       })
     },
     [],
@@ -596,6 +610,7 @@ export default function SectionPanel({
         pickContext.anchorId,
         pickContext.depth_m,
         formationId,
+        pickContext.snapped,
       )
       setPickContext(null)
     },
