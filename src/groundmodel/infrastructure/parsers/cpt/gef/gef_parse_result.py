@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import polars as pl
 
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_header import GEFHeader
 from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import (
@@ -34,6 +35,12 @@ class GEFParseResult:
         Provenance of the ``rf_pct`` column. ``MEASURED`` when the source GEF
         provided Rf directly (qty 4); ``COMPUTED`` when the parser derived it
         from qc and fs; ``None`` when the data has no Rf at all.
+    elevation_source : ElevationSource
+        Provenance of ``header.z``. Stamped by each parser based on which
+        kind of source produced the result — GEFParser stamps ``GEF``,
+        DovParser stamps ``DOV``. Defaults to ``NONE`` so a future
+        result type that doesn't yet carry an elevation surfaces as
+        "unknown source" rather than a silent fake. Debt #8.
 
     Notes
     -----
@@ -50,6 +57,7 @@ class GEFParseResult:
     data: pl.DataFrame
     issues: list[ValidationIssue] = field(default_factory=list)
     rf_source: DerivedValueSource | None = None
+    elevation_source: ElevationSource = ElevationSource.NONE
 
     @property
     def has_errors(self) -> bool:
