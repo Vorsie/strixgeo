@@ -1508,26 +1508,24 @@ Auto-update is especially important because future .gmproj format
 upgrades depend on every user reaching the build that introduced
 the upgrade path.
 
-### 12. Tamper / reverse-engineering hardening (low — pragmatic posture)
+### 12. Tamper / reverse-engineering hardening (low — pragmatic posture, residual)
 
-**What.** A determined reverse engineer will defeat any client-side
-license check. The goals here are modest:
+**What's still open.** The malformed-input audit pass landed: every
+DOV XML parser uses ``defusedxml`` (billion-laughs + external DTD
+guards); ``project:read-file`` and ``fs:read-file`` apply size caps
+before allocating Buffers; the API has its own body-size + GEF-upload
+caps. What's left is the licensing-side hardening tied to debt #10:
 
 * Defeat casual bypass (renamed exe, deleted license file).
-* Make file parsers safe against malformed input that could crash
-  the app or worse (path traversal, zip-slip if we ever bundle
-  archives, JSON parser DoS).
-* No anti-debug, no obfuscation, no DRM theatre — these annoy
-  paying users more than they slow attackers down.
+* Token store + verification on each launch (already in #10's scope).
+* No anti-debug, no obfuscation, no DRM theatre.
 
 **Why low priority.** Geotech engineers don't pirate software at
-scale. The .gmproj format is also not inherently sensitive — losing
+scale. The .strix format is also not inherently sensitive — losing
 the geometry of someone's site investigation isn't catastrophic the
 way leaking a movie pre-release is.
 
-**When.** Audit pass before v1.0 release: review all file-read
-paths (DOV XML, GEF, .gmproj, future imports) for malformed-input
-robustness. License check itself stays simple.
+**When.** Folds into debt #10's license-key work before paid release.
 
 ### 13. Marketing site + market-facing name (medium → blocking before paid release)
 
