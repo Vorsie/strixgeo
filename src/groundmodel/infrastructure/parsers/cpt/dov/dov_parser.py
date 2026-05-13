@@ -52,8 +52,10 @@ when expected paths are missing, so schema mismatches are immediately visible.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
-
+# defusedxml — guards against billion-laughs entity expansion +
+# external DTD fetches that stdlib ``xml.etree.ElementTree`` is
+# vulnerable to. Drop-in API replacement. See debt #12.
+import defusedxml.ElementTree as ET
 import polars as pl
 
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
