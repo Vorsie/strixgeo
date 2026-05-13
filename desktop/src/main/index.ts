@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, session, shell } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { readFileSync, statSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 
 import {
   buildContentSecurityPolicy,
@@ -43,6 +43,31 @@ function pathIsAuthorised(p: string): boolean {
 // ``.strix``.
 const PROJECT_FILE_EXTENSION = 'strix'
 const PROJECT_FILE_OPEN_EXTENSIONS = ['strix', 'gmproj']
+
+// File-size caps for the dialog-authorised read paths (debt #12).
+// The API has its own 200 MiB upload cap, but Electron's main process
+// reads the full bytes into a Buffer BEFORE handing them to the
+// renderer / API, so a multi-gigabyte file would OOM the main thread
+// regardless of any server-side limit. The caps below match the API's
+// upload limits where applicable and apply a smaller cap to project
+// files (typical .strix is a few MB; tens of MB for 500-CPT DOV
+// imports — 500 MiB is generous headroom for "we got carried away").
+const FS_READ_CAP_BYTES = 200 * 1024 * 1024 // mirrors API's _MAX_GEF_UPLOAD_BYTES
+const PROJECT_READ_CAP_BYTES = 500 * 1024 * 1024 // bundle JSON ceiling
+
+function assertFileSizeUnder(filePath: string, capBytes: number, label: string): void {
+  // Use ``statSync`` instead of letting ``readFileSync`` swallow the
+  // whole file — stat returns the on-disk size in O(1) so we can bail
+  // BEFORE allocating a Buffer.
+  const size = statSync(filePath).size
+  if (size > capBytes) {
+    throw new Error(
+      `${label} refused — file ${filePath} (${size} bytes) exceeds ` +
+        `the ${capBytes} byte cap. Files this large almost certainly ` +
+        'indicate a malformed input or a corrupt save.',
+    )
+  }
+}
 
 // Recent-projects list — capped so the menu doesn't explode and we don't
 // accidentally accumulate decade-old paths. List is ordered most-recent
@@ -401,6 +426,7 @@ ipcMain.handle('fs:read-file', (_event, filePath: string): Buffer => {
     // either way so the renderer surfaces "couldn't read file".
     throw new Error(`fs:read-file refused — path not authorised: ${filePath}`)
   }
+  assertFileSizeUnder(filePath, FS_READ_CAP_BYTES, 'fs:read-file')
   return readFileSync(filePath)
 })
 
@@ -444,6 +470,7 @@ ipcMain.handle('project:read-file', (_event, filePath: string): string => {
   if (!pathIsAuthorised(filePath)) {
     throw new Error(`project:read-file refused — path not authorised: ${filePath}`)
   }
+  assertFileSizeUnder(filePath, PROJECT_READ_CAP_BYTES, 'project:read-file')
   return readFileSync(filePath, 'utf-8')
 })
 
