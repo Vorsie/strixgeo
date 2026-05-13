@@ -86,13 +86,19 @@ interface Props {
   /** Click anywhere on the lithology strip to place a formation
    * contact at that depth. Caller (SectionPanel) opens the
    * formation picker pre-seeded with the (anchor, depth) tuple.
-   * When undefined, the strip stays inert. */
+   * When undefined, the strip stays inert.
+   *
+   * ``snapped`` flags whether the depth came from a stratigraphy
+   * boundary (vs. a free click). Drives the contact's
+   * ``source`` (``borehole_observation`` vs ``manual_pick``) and
+   * ``confidence`` (``high`` vs ``medium``) — debt #22 / #23. */
   onCommitDepth?: (anchor: {
     kind: 'borehole'
     boreholeId: string
     boreholeName: string
     depth_m: number
     elevationM: number
+    snapped: boolean
   }) => void
   /** When true, the click depth snaps to the nearest formal or
    * informal stratigraphy boundary on this borehole if one sits
@@ -164,21 +170,26 @@ export default function BoreholeColumn({
     return oneMetreDownPx === 0 ? 0 : (y - surfaceY) / oneMetreDownPx
   }
 
-  function snapDepth(rawDepth: number, rawY: number): number {
-    if (!snapToStratigraphy) return rawDepth
+  function snapDepth(
+    rawDepth: number,
+    rawY: number,
+  ): { depth: number; snapped: boolean } {
+    if (!snapToStratigraphy) return { depth: rawDepth, snapped: false }
     const candidates = collectSnapDepths(detail)
-    if (candidates.length === 0) return rawDepth
+    if (candidates.length === 0) return { depth: rawDepth, snapped: false }
     let bestDepth = rawDepth
     let bestPxDistance = SNAP_TOLERANCE_PX + 1
+    let bestSnapped = false
     for (const candDepth of candidates) {
       const candY = levelToScreen(surfaceElevationM - candDepth)
       const px = Math.abs(candY - rawY)
       if (px <= SNAP_TOLERANCE_PX && px < bestPxDistance) {
         bestPxDistance = px
         bestDepth = candDepth
+        bestSnapped = true
       }
     }
-    return bestDepth
+    return { depth: bestDepth, snapped: bestSnapped }
   }
 
   function clampedYFromEvent(e: React.MouseEvent<SVGRectElement>): number {
@@ -191,13 +202,14 @@ export default function BoreholeColumn({
     if (!onCommitDepth) return
     const clamped = clampedYFromEvent(e)
     const rawDepth = depthAtY(clamped)
-    const depth = snapDepth(rawDepth, clamped)
+    const { depth, snapped } = snapDepth(rawDepth, clamped)
     onCommitDepth({
       kind: 'borehole',
       boreholeId: detail.id,
       boreholeName: detail.name,
       depth_m: depth,
       elevationM: surfaceElevationM - depth,
+      snapped,
     })
   }
 
@@ -214,7 +226,7 @@ export default function BoreholeColumn({
   // Effective hover depth honours snap so the ghost line + readout
   // reflect what would commit on click.
   const hoverDepth =
-    cursorY === null ? null : snapDepth(depthAtY(cursorY), cursorY)
+    cursorY === null ? null : snapDepth(depthAtY(cursorY), cursorY).depth
   const hoverElevation =
     hoverDepth === null ? null : surfaceElevationM - hoverDepth
   const hoverRenderY =
