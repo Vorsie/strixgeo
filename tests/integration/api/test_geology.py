@@ -397,7 +397,10 @@ async def test_auto_populate_creates_contacts_from_formal_stratigraphy(
     db_session: AsyncSession,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
 ) -> None:
-    """Happy path: formal stratigraphy → contacts + auto-created formations."""
+    """Happy path: formal-only borehole → one contact PER layer, including
+    the topmost (top_m == 0). Formation gets the formal description in
+    BOTH name + regional_ref since there's no informal counterpart.
+    """
     from groundmodel.infrastructure.db.models.observation_layer_orm import (
         ObservationLayerOrm,
     )
@@ -408,9 +411,9 @@ async def test_auto_populate_creates_contacts_from_formal_stratigraphy(
     project, borehole = project_with_borehole
     model = await _create_model(async_client, project.id)
 
-    # Attach a FORMAL_STRATIGRAPHY observation with two layers. The
-    # first layer starts at the surface (top_m=0) so it should be
-    # skipped — only the second layer's top becomes a contact.
+    # FORMAL_STRATIGRAPHY observation with two layers — the topmost
+    # at top_m == 0 (surface) MUST be included now; it represents
+    # the top of the topmost formation.
     observation = ObservationOrm(
         id=uuid7(),
         borehole_id=borehole.id,
@@ -444,11 +447,139 @@ async def test_auto_populate_creates_contacts_from_formal_stratigraphy(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # Surface layer skipped, deep layer seeded one contact + the
-    # "Boom Formation" formation got auto-created.
+    # BOTH layers now seed a contact (top_m == 0 included). Two
+    # formations auto-created — one per layer description.
+    assert len(body["created_contact_ids"]) == 2
+    assert len(body["created_formation_ids"]) == 2
+    assert body["skipped_no_stratigraphy"] == 0
+
+
+async def test_auto_populate_pairs_formal_with_informal_split_into_name_regional_ref(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Borehole with BOTH streams: formal description goes into
+    regional_ref, informal description goes into name. Pairing is
+    by max-overlap of the depth intervals.
+    """
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    formal_obs = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="formal_stratigraphy",
+    )
+    informal_obs = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="informal_stratigraphy",
+    )
+    db_session.add_all([formal_obs, informal_obs])
+    await db_session.flush()
+    formal_layer = ObservationLayerOrm(
+        id=uuid7(),
+        observation_id=formal_obs.id,
+        top_m=2.0,
+        base_m=8.0,
+        description="HyEg - Lid van Egem",
+        layer_index=0,
+    )
+    informal_layer = ObservationLayerOrm(
+        id=uuid7(),
+        observation_id=informal_obs.id,
+        top_m=2.5,  # boundary differs slightly — the helper still pairs them by overlap
+        base_m=7.5,
+        description="Boom Klei",
+        layer_index=0,
+    )
+    db_session.add_all([formal_layer, informal_layer])
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    body = resp.json()
     assert len(body["created_contact_ids"]) == 1
     assert len(body["created_formation_ids"]) == 1
-    assert body["skipped_no_stratigraphy"] == 0
+
+    # Re-fetch the formation row to inspect the split fields.
+    list_resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations",
+    )
+    formations = list_resp.json()
+    assert len(formations) == 1
+    f = formations[0]
+    assert f["name"] == "Boom Klei"  # informal → name
+    assert f["regional_ref"] == "HyEg - Lid van Egem"  # formal → regional_ref
+
+
+async def test_auto_populate_reuses_formation_across_boreholes_by_regional_ref(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Two boreholes with the same formal stratigraphy code must
+    resolve to the SAME formation — regional_ref is the
+    cross-borehole stable key.
+    """
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole_a = project_with_borehole
+    # Build a second borehole on the same project.
+    borehole_b = BoreholeOrm(
+        id=uuid7(),
+        name="BH-2",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="BH-002",
+        location_x=150100.0,
+        location_y=200100.0,
+        epsg=31370,
+        total_depth_m=10.0,
+    )
+    db_session.add(borehole_b)
+    await db_session.flush()
+    for bh in (borehole_a, borehole_b):
+        obs = ObservationOrm(id=uuid7(), borehole_id=bh.id, observation_type="formal_stratigraphy")
+        db_session.add(obs)
+        await db_session.flush()
+        db_session.add(
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=obs.id,
+                top_m=0.0,
+                base_m=5.0,
+                description="HyEg - Lid van Egem",
+                layer_index=0,
+            )
+        )
+    await db_session.commit()
+
+    model = await _create_model(async_client, project.id)
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole_a.id), str(borehole_b.id)]},
+    )
+    body = resp.json()
+    # Two contacts (one per borehole), but ONE formation — both
+    # boreholes pointed at the same regional reference.
+    assert len(body["created_contact_ids"]) == 2
+    assert len(body["created_formation_ids"]) == 1
 
 
 async def test_auto_populate_is_idempotent_on_second_call(
