@@ -49,6 +49,18 @@ contextBridge.exposeInMainWorld('electron', {
   writeProjectFile: (filePath: string, contents: string): Promise<void> =>
     ipcRenderer.invoke('project:write-file', filePath, contents),
 
+  // Generic export save-dialog + binary write — used by the
+  // section DXF export (v1.0 MVP gate #5). Same path-authorisation
+  // pattern as the project file IPC.
+  showExportSaveDialog: (
+    defaultName: string,
+    filters: Electron.FileFilter[],
+  ): Promise<string | null> =>
+    ipcRenderer.invoke('export:save-dialog', defaultName, filters),
+
+  writeExportFile: (filePath: string, contents: ArrayBuffer): Promise<void> =>
+    ipcRenderer.invoke('export:write-file', filePath, contents),
+
   addRecentProject: (filePath: string, name: string): Promise<RecentProject[]> =>
     ipcRenderer.invoke('project:add-recent', filePath, name),
 
