@@ -48,6 +48,7 @@ import ContactsLayer from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import { useContactPicker } from './sections/useContactPicker'
+import { useFocusColumn } from './sections/useFocusColumn'
 import CptDataColumn from './sections/CptDataColumn'
 import {
   cptBandFullWidth,
@@ -581,84 +582,16 @@ export default function SectionPanel({
   // column (no DEM, no neighbours). Used for single-test boundary
   // editing without leaving the section view's existing pick / snap /
   // picker plumbing. Transient: not persisted to view_state because
-  // it's a momentary edit state, not a saved preference.
-  const [focusedColumn, setFocusedColumn] = useState<{
-    kind: 'cpt' | 'borehole'
-    id: string
-    name: string
-  } | null>(null)
-
-  // Focus enter/exit are event-driven rather than effect-driven.
-  // The previous useEffect on ``[focusedColumn]`` had to stale-read
-  // viewport + vex + placedColumns from closure (eslint-disabled) —
-  // exactly the pattern that bites in subtle ways. With the logic
-  // in plain useCallbacks we capture the current values through
-  // the React closure naturally; no eslint suppression needed
-  // (debt #21).
-  //
-  // The pre-focus snapshot only fires when entering from un-focused
-  // state — re-focusing column B while still in column A's focus
-  // keeps column A's original pre-focus framing as the restore
-  // target. Otherwise sub-focuses would lose the original viewport.
-  const preFocusViewportRef = useRef<Viewport | null>(null)
-  const preFocusVexRef = useRef<number | null>(null)
-
-  const enterFocus = useCallback(
-    (target: { kind: 'cpt' | 'borehole'; id: string; name: string }) => {
-      const col = placedColumns.find(
-        c => c.kind === target.kind && c.proj.item.id === target.id,
-      )
-      if (!col) return
-      // Only snapshot when not already in focus mode — protects
-      // against sub-focus chains overwriting the original framing.
-      if (preFocusViewportRef.current === null) {
-        preFocusViewportRef.current = viewport
-        preFocusVexRef.current = vex
-      }
-      const elevation = col.proj.item.elevation_m
-      // Narrowing via the discriminated PlacedColumn union — no
-      // cast needed (debt #28).
-      const depth =
-        col.kind === 'cpt'
-          ? col.proj.item.max_depth_m
-          : col.proj.item.total_depth_m
-      // Horizontal window — 40 m centred on the column's projected
-      // along-distance. Wide enough to give the column band
-      // breathing room, narrow enough that the test reads as the
-      // obvious subject.
-      const xHalf = 20
-      let newLevelMin = viewport.levelMin
-      let newLevelMax = viewport.levelMax
-      if (elevation !== null) {
-        const dEff = depth ?? 30
-        // 2 m headroom above the surface + 2 m below the bottom so
-        // the column caps don't sit flush against the plot edge.
-        newLevelMax = elevation + 2
-        newLevelMin = elevation - dEff - 2
-      }
-      setViewport({
-        xMin: col.proj.along - xHalf,
-        xMax: col.proj.along + xHalf,
-        levelMin: newLevelMin,
-        levelMax: newLevelMax,
-      })
-      setVex(1.0)
-      setFocusedColumn(target)
-    },
-    [placedColumns, viewport, vex],
+  // it's a momentary edit state, not a saved preference. The hook
+  // also owns the auto-zoom-on-entry / restore-on-exit snapshot.
+  // Debt #30.
+  const { focusedColumn, enterFocus, exitFocus } = useFocusColumn(
+    placedColumns,
+    viewport,
+    vex,
+    setViewport,
+    setVex,
   )
-
-  const exitFocus = useCallback(() => {
-    if (preFocusViewportRef.current !== null) {
-      setViewport(preFocusViewportRef.current)
-      preFocusViewportRef.current = null
-    }
-    if (preFocusVexRef.current !== null) {
-      setVex(preFocusVexRef.current)
-      preFocusVexRef.current = null
-    }
-    setFocusedColumn(null)
-  }, [])
 
   // Filter the layout pass to just the focused column when active.
   // Downstream warpAnchors, showLabelsByCptId, hideStickIds all read
