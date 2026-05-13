@@ -1273,7 +1273,8 @@ export default function App() {
   const handleToggleBoreholeInModel = useCallback(
     async (boreholeId: string, included: boolean): Promise<void> => {
       if (!project || !activeGeologicalModel) return
-      const current = new Set(activeGeologicalModel.excluded_borehole_ids)
+      const previousExcluded = activeGeologicalModel.excluded_borehole_ids
+      const current = new Set(previousExcluded)
       // ``included = true`` means the user wants this borehole IN
       // the model → remove from exclusion. ``false`` adds it.
       if (included) current.delete(boreholeId)
@@ -1288,6 +1289,35 @@ export default function App() {
         await api.geology.updateModel(project.id, activeGeologicalModel.id, {
           excluded_borehole_ids: nextExcluded,
         })
+        const projectId = project.id
+        const modelId = activeGeologicalModel.id
+        const beforeList = previousExcluded.slice()
+        const afterList = nextExcluded.slice()
+        undoStack.push({
+          description: included
+            ? 'Include borehole in model'
+            : 'Exclude borehole from model',
+          revert: async () => {
+            await api.geology.updateModel(projectId, modelId, {
+              excluded_borehole_ids: beforeList,
+            })
+            setActiveGeologicalModel(prev =>
+              prev === null
+                ? null
+                : { ...prev, excluded_borehole_ids: beforeList },
+            )
+          },
+          reapply: async () => {
+            await api.geology.updateModel(projectId, modelId, {
+              excluded_borehole_ids: afterList,
+            })
+            setActiveGeologicalModel(prev =>
+              prev === null
+                ? null
+                : { ...prev, excluded_borehole_ids: afterList },
+            )
+          },
+        })
       } catch (err) {
         log.error('geology', `updateModel exclude-borehole failed for ${boreholeId}`, err)
         // Roll back optimistic state on failure so the toggle
@@ -1295,11 +1325,11 @@ export default function App() {
         setActiveGeologicalModel(prev =>
           prev === null
             ? null
-            : { ...prev, excluded_borehole_ids: activeGeologicalModel.excluded_borehole_ids },
+            : { ...prev, excluded_borehole_ids: previousExcluded },
         )
       }
     },
-    [project, activeGeologicalModel],
+    [project, activeGeologicalModel, undoStack],
   )
 
   // Apply the project-local filter before anything user-visible reads
@@ -1440,6 +1470,11 @@ export default function App() {
   // re-fetching.
   const handlePatchCptElevation = useCallback(
     async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
+      // Snapshot pre-edit values from the list (always fresh) so undo
+      // can PATCH them back even if the user's been clicking around.
+      const before = cpts.find(c => c.id === id)
+      const beforeElev = before?.elevation_m ?? null
+      const beforeZ = before?.z_epsg ?? null
       const updated = await api.cpt.patchElevation(id, {
         elevation_m: elevationM,
         z_epsg: zEpsg,
@@ -1453,12 +1488,46 @@ export default function App() {
         ),
       )
       log.info('cpt', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
+      undoStack.push({
+        description: 'Edit CPT elevation',
+        revert: async () => {
+          const back = await api.cpt.patchElevation(id, {
+            elevation_m: beforeElev,
+            z_epsg: beforeZ,
+          })
+          setDetailMap(prev => new Map(prev).set(id, back))
+          setCpts(prev =>
+            prev.map(c =>
+              c.id === id
+                ? { ...c, elevation_m: back.elevation_m, z_epsg: back.z_epsg }
+                : c,
+            ),
+          )
+        },
+        reapply: async () => {
+          const fwd = await api.cpt.patchElevation(id, {
+            elevation_m: elevationM,
+            z_epsg: zEpsg,
+          })
+          setDetailMap(prev => new Map(prev).set(id, fwd))
+          setCpts(prev =>
+            prev.map(c =>
+              c.id === id
+                ? { ...c, elevation_m: fwd.elevation_m, z_epsg: fwd.z_epsg }
+                : c,
+            ),
+          )
+        },
+      })
     },
-    [],
+    [cpts, undoStack],
   )
 
   const handlePatchBoreholeElevation = useCallback(
     async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
+      const before = boreholes.find(b => b.id === id)
+      const beforeElev = before?.elevation_m ?? null
+      const beforeZ = before?.z_epsg ?? null
       const updated = await api.borehole.patchElevation(id, {
         elevation_m: elevationM,
         z_epsg: zEpsg,
@@ -1484,8 +1553,59 @@ export default function App() {
         return next
       })
       log.info('borehole', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
+      undoStack.push({
+        description: 'Edit borehole elevation',
+        revert: async () => {
+          const back = await api.borehole.patchElevation(id, {
+            elevation_m: beforeElev,
+            z_epsg: beforeZ,
+          })
+          setBoreholes(prev =>
+            prev.map(b =>
+              b.id === id
+                ? { ...b, elevation_m: back.elevation_m, z_epsg: back.z_epsg }
+                : b,
+            ),
+          )
+          setBoreholeDetailMap(prev => {
+            const existing = prev.get(id)
+            if (!existing) return prev
+            const next = new Map(prev)
+            next.set(id, {
+              ...existing,
+              elevation_m: back.elevation_m,
+              z_epsg: back.z_epsg,
+            })
+            return next
+          })
+        },
+        reapply: async () => {
+          const fwd = await api.borehole.patchElevation(id, {
+            elevation_m: elevationM,
+            z_epsg: zEpsg,
+          })
+          setBoreholes(prev =>
+            prev.map(b =>
+              b.id === id
+                ? { ...b, elevation_m: fwd.elevation_m, z_epsg: fwd.z_epsg }
+                : b,
+            ),
+          )
+          setBoreholeDetailMap(prev => {
+            const existing = prev.get(id)
+            if (!existing) return prev
+            const next = new Map(prev)
+            next.set(id, {
+              ...existing,
+              elevation_m: fwd.elevation_m,
+              z_epsg: fwd.z_epsg,
+            })
+            return next
+          })
+        },
+      })
     },
-    [],
+    [boreholes, undoStack],
   )
 
   // Re-importing or re-fetching a record is an explicit "make this visible
@@ -1855,14 +1975,15 @@ export default function App() {
       }
       const ordinal = sections.length + 1
       try {
-        const created = await api.section.create(project.id, {
+        const createPayload = {
           name: `Cross-section ${ordinal}`,
           epsg,
           start_x: sx,
           start_y: sy,
           end_x: ex,
           end_y: ey,
-        })
+        }
+        const created = await api.section.create(project.id, createPayload)
         setSections(prev => [...prev, created])
         setSelectedSectionId(created.id)
         // Manifest + session-imports update so the new section
@@ -1870,29 +1991,86 @@ export default function App() {
         // borehole import lifecycle).
         handleSectionCreated(created.id)
         log.success('section', `created ${created.name} from map draw`)
+        const projectId = project.id
+        let currentId = created.id
+        undoStack.push({
+          description: 'Create cross-section',
+          revert: async () => {
+            await api.section.delete(projectId, currentId)
+            setSections(prev => prev.filter(s => s.id !== currentId))
+            setSelectedSectionId(prev => (prev === currentId ? null : prev))
+          },
+          reapply: async () => {
+            const recreated = await api.section.create(projectId, createPayload)
+            currentId = recreated.id
+            setSections(prev => [...prev, recreated])
+            setSelectedSectionId(recreated.id)
+            handleSectionCreated(recreated.id)
+          },
+        })
       } catch (err) {
         log.error('section', 'create-from-draw failed', err)
         toast('error', 'Could not create the cross-section.')
       }
     },
-    [project, sections.length],
+    [project, sections.length, handleSectionCreated, undoStack],
   )
 
   const handleDeleteSection = useCallback(
     async (id: string) => {
       if (!project) return
       try {
+        // Snapshot the section so undo can re-POST an equivalent.
+        const snapshot = sections.find(s => s.id === id)
+        if (!snapshot) return
         await api.section.delete(project.id, id)
         setSections(prev => prev.filter(s => s.id !== id))
         if (selectedSectionId === id) setSelectedSectionId(null)
         handleSectionDeleted(id)
         log.info('section', `deleted ${id}`)
+        const projectId = project.id
+        const recreatePayload = {
+          name: snapshot.name,
+          description: snapshot.description,
+          epsg: snapshot.epsg,
+          start_x: snapshot.start_x,
+          start_y: snapshot.start_y,
+          end_x: snapshot.end_x,
+          end_y: snapshot.end_y,
+          projection_buffer_m: snapshot.projection_buffer_m,
+          vertical_exaggeration: snapshot.vertical_exaggeration,
+        }
+        let currentId: string | null = null
+        undoStack.push({
+          description: 'Delete cross-section',
+          revert: async () => {
+            const recreated = await api.section.create(projectId, recreatePayload)
+            currentId = recreated.id
+            setSections(prev => [...prev, recreated])
+            handleSectionCreated(recreated.id)
+          },
+          reapply: async () => {
+            if (!currentId) return
+            await api.section.delete(projectId, currentId)
+            const deletedId = currentId
+            setSections(prev => prev.filter(s => s.id !== deletedId))
+            setSelectedSectionId(prev => (prev === deletedId ? null : prev))
+            currentId = null
+          },
+        })
       } catch (err) {
         log.error('section', `delete ${id} failed`, err)
         toast('error', 'Could not delete the cross-section.')
       }
     },
-    [project, selectedSectionId, handleSectionDeleted],
+    [
+      project,
+      selectedSectionId,
+      handleSectionDeleted,
+      handleSectionCreated,
+      sections,
+      undoStack,
+    ],
   )
 
   // PATCH the currently-selected section. Used by the SectionPanel's
@@ -2343,6 +2521,7 @@ export default function App() {
           onFormationUpdated={handleFormationUpdated}
           onFormationDeleted={handleFormationDeleted}
           formationsRefreshSignal={formationsRefreshCounter}
+          pushUndoCommand={undoStack.push}
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
           activeModelName={activeGeologicalModel?.name ?? null}
           visibleBoreholes={visibleBoreholes}
