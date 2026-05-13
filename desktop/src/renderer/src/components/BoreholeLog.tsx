@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 
 import type {
@@ -21,6 +21,35 @@ import {
 import LabTestPanel from './LabTestPanel'
 import ElevationEditor from './ElevationEditor'
 import { verticalDatumShort } from '../utils/verticalDatum'
+import {
+  BASE_PX_PER_M,
+  DRILL_TRACK_WIDTH,
+  FIELD_LOG_SUB_WIDTH,
+  FIELD_LOG_TRACK_WIDTH,
+  HEADER_HEIGHT,
+  LITHOLOGY_TYPES,
+  M_TAW_AXIS_WIDTH,
+  OBS_TRACK_WIDTH_LITHOLOGY,
+  OBS_TRACK_WIDTH_STRATIGRAPHY,
+  SAMPLES_TRACK_WIDTH,
+  STRATIGRAPHY_TYPES,
+  SVG_X_PAD,
+  SVG_Y_PAD,
+  TRACK_GAP,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+} from './borelog/constants'
+import {
+  computeLayout,
+  formatMtaw,
+  humanizeObservationType,
+  pctForAmount,
+  PxPerMContext,
+  roundTo,
+  truncate,
+  usePxPerM,
+} from './borelog/utils'
 
 // PR 4b–4d — full-feature borelog modelled on DOV's Rapport BoorProfiel:
 //
@@ -39,70 +68,6 @@ import { verticalDatumShort } from '../utils/verticalDatum'
 // The canvas is one big SVG element so patterns, click-targets, and the
 // groundwater line all share the same coordinate space. Layout is computed
 // once via ``computeLayout`` so x-offsets stay aligned.
-
-// ---------------------------------------------------------------------------
-// Geometry constants
-// ---------------------------------------------------------------------------
-
-// Default depth scale: 60 pixels per metre. Zoomable at runtime —
-// BoreholeLog owns a ``zoomFactor`` state and broadcasts the effective
-// scale via ``PxPerMContext``. Sub-components consume the context and
-// re-render whenever the user clicks zoom-in / zoom-out / reset.
-const BASE_PX_PER_M = 60
-const ZOOM_MIN = 0.4
-const ZOOM_MAX = 4.0
-const ZOOM_STEP = 1.25
-const PxPerMContext = createContext<number>(BASE_PX_PER_M)
-function usePxPerM(): number {
-  return useContext(PxPerMContext)
-}
-// Per-track widths. Lithology tracks (geotechnical coding, coded
-// lithology, lithological description) carry a lot of per-layer text
-// (soil codes + admixtures) so they get the wider 150 px. Stratigraphy
-// tracks just hold short formation codes (``A`` / ``Q`` / ``HyEg``) per
-// layer — 150 px is wasteful, the column is mostly empty. 90 px gives
-// the borelog a more compact left-to-right footprint when 4–5
-// stratigraphy interpretations land alongside the lithology stream.
-const OBS_TRACK_WIDTH_LITHOLOGY = 150
-const OBS_TRACK_WIDTH_STRATIGRAPHY = 90
-const HEADER_HEIGHT = 72 // px — diagonal track headers
-const M_TAW_AXIS_WIDTH = 64
-const DRILL_TRACK_WIDTH = 90
-const FIELD_LOG_SUB_WIDTH = 36
-const FIELD_LOG_TRACK_WIDTH = FIELD_LOG_SUB_WIDTH * 3
-const SAMPLES_TRACK_WIDTH = 220
-const TRACK_GAP = 1
-const SVG_X_PAD = 16
-const SVG_Y_PAD = 8
-
-// Lithology streams render with soil patterns; stratigraphy streams use plain
-// labelled rectangles (formation codes A / Q / HyEg, no soil meaning).
-const LITHOLOGY_TYPES = new Set([
-  'coded_lithology',
-  'geotechnical_coding',
-])
-const STRATIGRAPHY_TYPES = new Set([
-  'formal_stratigraphy',
-  'informal_stratigraphy',
-  'quaternary_stratigraphy',
-  'hydrogeological_stratigraphy',
-  'informal_hydrogeological_stratigraphy',
-])
-// Free-text descriptions render as labelled rectangles too.
-// (lithological_description has free text but no soil codes.)
-
-// Stable display order — driller's record first, engineer's reinterpretation
-// next, then text descriptions, then the four stratigraphy flavours.
-const OBSERVATION_TYPE_ORDER = [
-  'coded_lithology',
-  'geotechnical_coding',
-  'lithological_description',
-  'formal_stratigraphy',
-  'informal_stratigraphy',
-  'quaternary_stratigraphy',
-  'hydrogeological_stratigraphy',
-  'informal_hydrogeological_stratigraphy',
-]
 
 // ---------------------------------------------------------------------------
 // Public component
@@ -411,108 +376,6 @@ export default function BoreholeLog({
 }
 
 // ---------------------------------------------------------------------------
-// Layout — single source of truth for x positions and dimensions
-// ---------------------------------------------------------------------------
-
-interface ObservationTrackLayout {
-  observation: ObservationResponse
-  x: number
-  width: number
-}
-
-function widthForObservationType(observationType: string): number {
-  return STRATIGRAPHY_TYPES.has(observationType)
-    ? OBS_TRACK_WIDTH_STRATIGRAPHY
-    : OBS_TRACK_WIDTH_LITHOLOGY
-}
-
-interface Layout {
-  totalWidth: number
-  totalHeight: number
-  totalDepth: number
-  canvasHeight: number
-  canvasLeft: number // x where the first track starts (for groundwater line)
-  canvasRight: number // x where the last track ends (for groundwater line)
-  observationTracks: ObservationTrackLayout[]
-  drillMethodX: number | null
-  fieldLogX: number | null
-  samplesX: number | null
-}
-
-function computeLayout(borehole: BoreholeDetailResponse, pxPerM: number): Layout {
-  // Observations to render — only those with at least one layer, in stable
-  // display order (driller's record first, engineer's next, then the
-  // stratigraphy flavours).
-  const observationsToShow = [...borehole.observations]
-    .filter(o => o.layers.length > 0)
-    .sort((a, b) => {
-      const ai = OBSERVATION_TYPE_ORDER.indexOf(a.observation_type)
-      const bi = OBSERVATION_TYPE_ORDER.indexOf(b.observation_type)
-      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
-    })
-
-  // Total depth: take the deepest extent across header + every layer + every
-  // drill segment + every sample so the canvas covers everything that needs
-  // drawing.
-  const candidates: number[] = [borehole.total_depth_m ?? 0]
-  for (const o of observationsToShow) {
-    for (const l of o.layers) candidates.push(l.base_m)
-  }
-  for (const s of borehole.drill_segments) candidates.push(s.base_m)
-  for (const sa of borehole.samples) candidates.push(sa.depth_base_m)
-  const totalDepth = Math.max(...candidates, 1)
-
-  const canvasHeight = totalDepth * pxPerM
-
-  // X cursor — start with mTAW axis (always reserved, even when elevation is
-  // null, so headers align consistently), then accumulate per-track widths.
-  let cursor = SVG_X_PAD + M_TAW_AXIS_WIDTH + TRACK_GAP
-  const canvasLeft = cursor
-
-  const observationTracks: ObservationTrackLayout[] = []
-  for (const o of observationsToShow) {
-    const width = widthForObservationType(o.observation_type)
-    observationTracks.push({ observation: o, x: cursor, width })
-    cursor += width + TRACK_GAP
-  }
-
-  let drillMethodX: number | null = null
-  if (borehole.drill_segments.length > 0) {
-    drillMethodX = cursor
-    cursor += DRILL_TRACK_WIDTH + TRACK_GAP
-  }
-
-  let fieldLogX: number | null = null
-  if (borehole.field_log_intervals.length > 0) {
-    fieldLogX = cursor
-    cursor += FIELD_LOG_TRACK_WIDTH + TRACK_GAP
-  }
-
-  let samplesX: number | null = null
-  if (borehole.samples.length > 0) {
-    samplesX = cursor
-    cursor += SAMPLES_TRACK_WIDTH + TRACK_GAP
-  }
-
-  const canvasRight = cursor - TRACK_GAP
-  const totalWidth = canvasRight + SVG_X_PAD
-  const totalHeight = SVG_Y_PAD + HEADER_HEIGHT + canvasHeight + SVG_Y_PAD
-
-  return {
-    totalWidth,
-    totalHeight,
-    totalDepth,
-    canvasHeight,
-    canvasLeft,
-    canvasRight,
-    observationTracks,
-    drillMethodX,
-    fieldLogX,
-    samplesX,
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Header strip (HTML)
 // ---------------------------------------------------------------------------
 
@@ -683,11 +546,6 @@ function MTawAxis({
         })}
     </g>
   )
-}
-
-function formatMtaw(lvl: number): string {
-  const sign = lvl >= 0 ? '+' : ''
-  return `${sign}${lvl.toFixed(2)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -1106,14 +964,6 @@ function mainLithologyFraction(
  *     ratios 5 : 10 : 15 = 1 : 2 : 3 are preserved, a ``veel`` strip
  *     is always 3× the width of a ``weinig`` strip in the same layer.
  */
-function pctForAmount(amount: string | null | undefined): number {
-  const a = (amount || '').toLowerCase()
-  if (a.includes('veel')) return 15
-  if (a.includes('matig')) return 10
-  if (a.includes('weinig')) return 5
-  return 5
-}
-
 // ---------------------------------------------------------------------------
 // Admixture chips — small colour swatches + text inside an observation layer
 // ---------------------------------------------------------------------------
@@ -1761,34 +1611,6 @@ function LegendChip({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function humanizeObservationType(t: string): string {
-  switch (t) {
-    case 'coded_lithology':
-      return 'Coded lithology'
-    case 'geotechnical_coding':
-      return 'Geotechnical coding'
-    case 'lithological_description':
-      return 'Lithological description'
-    case 'informal_stratigraphy':
-      return 'Informal stratigraphy'
-    case 'formal_stratigraphy':
-      return 'Formal stratigraphy'
-    case 'quaternary_stratigraphy':
-      return 'Quaternary stratigraphy'
-    case 'hydrogeological_stratigraphy':
-      return 'Hydrogeological stratigraphy'
-    case 'informal_hydrogeological_stratigraphy':
-      return 'Informal hydrogeological stratigraphy'
-    default:
-      return t
-  }
-}
-
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s
-  return s.slice(0, max - 1) + '…'
-}
-
 /**
  * Word-wrap an SVG text label inside a bounded rectangle.
  *
@@ -1882,10 +1704,5 @@ function WrappedText({
       ))}
     </text>
   )
-}
-
-function roundTo(value: number, decimals: number): number {
-  const factor = Math.pow(10, decimals)
-  return Math.round(value * factor) / factor
 }
 
