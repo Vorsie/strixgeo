@@ -44,6 +44,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
+  FormationContactBatchUpdateEntry,
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
@@ -88,6 +89,30 @@ interface Props {
    * irreversible per CLAUDE.md UX conventions; the native confirm
    * is the user-facing safety rail. */
   onDeleteContact?: (contactId: string) => Promise<void>
+  /** All-or-nothing batch commit. Fired on multi-drag or any drag
+   * that crosses to a different column (cross-anchor re-pick).
+   * When absent, cross-column drag is disabled and multi-selection
+   * drag falls back to N individual depth-only commits via
+   * ``onUpdateContactDepth`` — the safe degradation matches the
+   * read-only-vs-editable gating elsewhere in the layer. */
+  onBatchUpdateContacts?: (
+    updates: readonly FormationContactBatchUpdateEntry[],
+  ) => Promise<void>
+  /** Plot area X extents in SVG coords. Kept on the prop list for
+   * historical reasons + test backward-compat. The marquee
+   * background rect itself lives in SectionPanel now (paint-order
+   * fix: it must render BEFORE the columns or it steals their
+   * clicks) — these props are unused at runtime. */
+  plotLeft?: number
+  plotRight?: number
+  /** Marquee (box-select) state — controlled from SectionPanel so
+   * the background-capture rect can paint before the column glyphs
+   * without inheriting their click events. ``null`` ⇒ no active
+   * marquee. ContactsLayer renders the dashed preview rectangle
+   * from this state and, on mouseup, walks its layer index for
+   * hit-tests, then commits selections via ``onSetMarquee(null)``. */
+  marquee?: MarqueeState | null
+  onSetMarquee?: (next: MarqueeState | null) => void
   /** Snap-target depths per anchor id, used by the drag interaction
    * to mirror BoreholeColumn's snap-to-stratigraphy behaviour: when a
    * borehole anchor has candidates here, the dragged depth snaps to
@@ -193,7 +218,25 @@ interface PolylineVertex {
   sortKey: number
 }
 
+interface DragContact {
+  contactId: string
+  anchorId: string
+  anchorKind: 'cpt' | 'borehole'
+  originalDepthM: number
+  /** Source column's surfaceY in SVG coords — needed to derive Δm
+   * from the cursor delta when this contact wasn't the explicitly
+   * clicked one. */
+  sourceSurfaceY: number
+  sourcePxPerMetre: number
+  color: string
+  formationName: string
+}
+
 interface DragState {
+  /** The contact whose hit-strip received the mousedown. Drives the
+   * floating readout + the "primary" cursor-anchor point for the
+   * drag. Other selected contacts follow its Δm (and same target
+   * column when cross-column). */
   contactId: string
   anchorId: string
   anchorKind: 'cpt' | 'borehole'
@@ -201,18 +244,32 @@ interface DragState {
   pxPerMetre: number
   surfaceY: number
   startClientY: number
+  startClientX: number
   startSegY: number
-  /** Latest drag-derived depth (live during the drag, set by the
-   * document mousemove handler). Used to (a) re-render the segment +
-   * label, (b) override the corresponding polyline vertex's Y, and
-   * (c) feed the commit on mouseup. */
+  /** SVG element's left edge in client coords, cached at drag start
+   * so the per-frame mousemove handler doesn't re-walk DOM. Used to
+   * map cursor clientX → SVG-coord X for column hit-testing. */
+  svgLeft: number
+  /** Latest drag-derived depth on the PRIMARY contact (the one
+   * grabbed by the mousedown). When ``currentTargetCol`` is non-null
+   * the depth is computed against that column's surface; otherwise
+   * against the source column's surface. */
   currentDepthM: number
   /** Whether the latest currentDepthM came from a snap candidate.
    * Drives the contact's source / confidence on commit
    * (debt #22/#23). */
   currentSnapped: boolean
-  /** Cached display info to keep the floating readout self-contained
-   * without re-querying placedColumns. */
+  /** Target column when the cursor has crossed unambiguously into
+   * another column's attraction band. ``null`` ⇒ stay on source.
+   * Drives both the cross-column commit + the live preview render. */
+  currentTargetCol: PlacedColumn | null
+  /** Every contact carried by this drag (always includes the
+   * primary; size>1 only when the user grabbed a contact that was
+   * part of an existing multi-selection). Each non-primary contact
+   * follows the primary's Δm and target-column choice on commit. */
+  contactsInDrag: readonly DragContact[]
+  /** Cached display info for the primary contact's floating
+   * readout — unchanged across the drag. */
   color: string
   formationName: string
   segLeftX: number
@@ -220,6 +277,25 @@ interface DragState {
   labelX: number
   plotTop: number
   plotBottom: number
+}
+
+/** Marquee (box-select) state. clientX/Y captured at start; current
+ * follows the mouse. Render derives the SVG-coord rect from these
+ * plus the cached svgLeft / plotTop offset. ``additive`` is true
+ * when the user held Shift / Ctrl on the initial mousedown — the
+ * existing selection is preserved and the marquee adds to it.
+ *
+ * Exported so SectionPanel can own the state (the background-
+ * capture rect must paint before the column glyphs for SVG hit-test
+ * order, which means it lives in SectionPanel, not here). */
+export interface MarqueeState {
+  startClientX: number
+  startClientY: number
+  currentClientX: number
+  currentClientY: number
+  svgLeft: number
+  svgTop: number
+  additive: boolean
 }
 
 // Below this height (px) the layer is too small for a middle label
@@ -231,6 +307,16 @@ const APPROX_GLYPH_WIDTH_PX = 5
 // enough that the line is grabbable without precision aiming, narrow
 // enough that adjacent layers don't fight for the same pointer.
 const DRAG_HIT_HALF_HEIGHT_PX = 5
+// Cursor-X hysteresis (px) outside a column's visual band before the
+// drag re-anchors onto a different column. Tight enough that crossing
+// to a neighbouring column is intentional; loose enough that minor
+// jitter at the band edge doesn't flicker the target. Tuned against
+// typical column spacing on a real-world section (~30-80 px apart).
+const COLUMN_ATTRACTION_PX = 15
+// Below this drag distance the marquee / drag is treated as a click —
+// no commit, no state change. Mirrors the existing "zero-delta release"
+// no-op rule on the depth-only drag.
+const CLICK_TO_DRAG_THRESHOLD_PX = 3
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -254,6 +340,64 @@ function itemBottomDepth(col: PlacedColumn): number | null {
   return col.proj.item.total_depth_m
 }
 
+/** Find the column whose centre is closest to ``cursorSvgX``, but
+ * only if within the column's half-width plus the attraction
+ * hysteresis. ``null`` when the cursor is in dead space between
+ * columns. Used by both the cross-column drag (current target) and
+ * the marquee (no role — included for completeness). */
+function columnUnderCursor(
+  cursorSvgX: number,
+  placedColumns: readonly PlacedColumn[],
+): PlacedColumn | null {
+  let best: PlacedColumn | null = null
+  let bestDistance = Infinity
+  for (const col of placedColumns) {
+    const distance = Math.abs(cursorSvgX - col.nudgedX)
+    const reach = col.width / 2 + COLUMN_ATTRACTION_PX
+    if (distance <= reach && distance < bestDistance) {
+      bestDistance = distance
+      best = col
+    }
+  }
+  return best
+}
+
+/** Helper for the snap math when the active target column has a
+ * surface elevation. Mirrors the depth derivation in ``handleMove``
+ * but factored out so the value can be precomputed at drag start
+ * without duplicating the (cursorY - surfaceY) / pxPerMetre arithmetic. */
+function surfaceYForColumn(
+  col: PlacedColumn,
+  levelToScreen: (level: number) => number,
+): { surfaceY: number; pxPerMetre: number; surfaceElevationM: number | null } {
+  const item = col.proj.item as { elevation_m: number | null }
+  if (item.elevation_m === null) {
+    return { surfaceY: 0, pxPerMetre: 0, surfaceElevationM: null }
+  }
+  const surfaceY = levelToScreen(item.elevation_m)
+  // pxPerMetre derives from a 1m delta in level → screen Y.
+  const oneMetreDown = levelToScreen(item.elevation_m - 1)
+  const pxPerMetre = oneMetreDown - surfaceY
+  return {
+    surfaceY,
+    pxPerMetre,
+    surfaceElevationM: item.elevation_m,
+  }
+}
+
+/** Returns true when the keydown target is a text-input-like element
+ * — the section panel's selection shortcuts must not fight with the
+ * formation rename input, the search box, etc. Mirrors the pattern in
+ * Sidebar / BoreholeLog (CLAUDE.md notes that the three call sites
+ * will collapse into a shared hook on the third copy; ContactsLayer
+ * is now the third). */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  return target.isContentEditable
+}
+
 export default function ContactsLayer({
   contacts,
   formations,
@@ -264,9 +408,31 @@ export default function ContactsLayer({
   plotBottom,
   onUpdateContactDepth,
   onDeleteContact,
+  onBatchUpdateContacts,
+  marquee,
+  onSetMarquee,
   snapDepthsByAnchorId,
   getCptValuesAtDepth,
 }: Props): JSX.Element | null {
+  // ---- Selection model -------------------------------------------
+  // Component-local — selection is transient UI state, not a
+  // persisted decision. Resets on section close / unmount.
+  const [selection, setSelection] = useState<ReadonlySet<string>>(
+    new Set<string>(),
+  )
+  // Last contact that received a non-modified click — anchor for
+  // Shift-range selection within the same column.
+  const [lastSelectionContactId, setLastSelectionContactId] = useState<
+    string | null
+  >(null)
+  // setMarquee shim — calls the controlled prop when wired, no-ops
+  // otherwise so callers that don't wire box-select stay safe.
+  const setMarquee = useCallback(
+    (next: MarqueeState | null): void => {
+      onSetMarquee?.(next)
+    },
+    [onSetMarquee],
+  )
   // Stage A — data-classification pass. Produces ``LayerSlabData[]``
   // and ``PolylineVertexData[]`` from data + horizontal layout only.
   // Crucially excludes ``levelToScreen`` / ``plotTop`` / ``plotBottom``
@@ -502,6 +668,15 @@ export default function ContactsLayer({
   // bounding rect). Recomputing depth from start values keeps the
   // math drift-free as the cursor wanders far from the line.
   //
+  // Cross-column behaviour: handleMove walks ``placedColumns`` for the
+  // column under cursor X (with ``COLUMN_ATTRACTION_PX`` hysteresis)
+  // and stamps ``currentTargetCol`` in the drag state. Depth math
+  // switches to the target column's surfaceY / pxPerMetre — the cursor
+  // Y in SVG coords is reinterpreted against the new column's surface.
+  // On commit, the use case is decided by what changed:
+  //   * single contact, no anchor change   → ``onUpdateContactDepth``
+  //   * anything else (multi or re-anchor) → ``onBatchUpdateContacts``
+  //
   // Three defensive cancel paths cover the case where the user
   // releases the mouse OUTSIDE the browser viewport (``mouseup``
   // never reaches our document listener):
@@ -523,38 +698,122 @@ export default function ContactsLayer({
         cancel()
         return
       }
-      if (drag!.pxPerMetre === 0) return
-      const draggedSegY = drag!.startSegY + (e.clientY - drag!.startClientY)
-      const rawDepth = (draggedSegY - drag!.surfaceY) / drag!.pxPerMetre
-      // Depth ≥ 0 — contacts can't sit above the surface. No upper
-      // bound here: the user may want to push a contact past the
-      // test's recorded total depth if they're correcting a typo.
+      const d = drag!
+      if (d.pxPerMetre === 0) return
+      const cursorSvgX = e.clientX - d.svgLeft
+      // Walk placedColumns for the column under cursor X — null = the
+      // cursor's in dead space; keep the last known target (or source
+      // if we never moved off it). Re-anchor only fires when the cursor
+      // is unambiguously inside a different column's attraction band.
+      const hovered = columnUnderCursor(cursorSvgX, placedColumns)
+      const nextTargetCol =
+        hovered === null
+          ? d.currentTargetCol
+          : hovered.proj.item.id === d.anchorId
+            ? null
+            : hovered
+      // Per-column depth math. When re-anchoring, depth is computed
+      // against the target column's surface so the contact lands at
+      // the cursor's true SVG-Y position relative to that column.
+      let surfaceY = d.surfaceY
+      let pxPerMetre = d.pxPerMetre
+      let depthAnchorId = d.anchorId
+      if (nextTargetCol !== null) {
+        const target = surfaceYForColumn(nextTargetCol, levelToScreen)
+        if (target.surfaceElevationM !== null && target.pxPerMetre !== 0) {
+          surfaceY = target.surfaceY
+          pxPerMetre = target.pxPerMetre
+          depthAnchorId = nextTargetCol.proj.item.id
+        }
+      }
+      const draggedSegY = d.startSegY + (e.clientY - d.startClientY)
+      const rawDepth = (draggedSegY - surfaceY) / pxPerMetre
       const clamped = Math.max(0, rawDepth)
-      const { depth, snapped } = snapDepth(
-        clamped,
-        drag!.anchorId,
-        drag!.pxPerMetre,
-      )
+      const { depth, snapped } = snapDepth(clamped, depthAnchorId, pxPerMetre)
       setDrag(prev =>
         prev === null
           ? null
-          : { ...prev, currentDepthM: depth, currentSnapped: snapped },
+          : {
+              ...prev,
+              currentDepthM: depth,
+              currentSnapped: snapped,
+              currentTargetCol: nextTargetCol,
+            },
       )
     }
     function handleUp(): void {
       const final = drag
       setDrag(null)
-      if (!final || !onUpdateContactDepth) return
+      if (!final) return
       if (final.pxPerMetre === 0) return
-      // No-op commit when the depth didn't change (e.g. a click that
-      // never moved). Saves a server round-trip + spurious history.
-      const start = (final.startSegY - final.surfaceY) / final.pxPerMetre
-      if (Math.abs(final.currentDepthM - start) < 1e-6) return
-      void onUpdateContactDepth(
-        final.contactId,
-        final.currentDepthM,
-        final.currentSnapped,
+      // No-op commit when nothing changed — neither depth nor anchor.
+      const startDepth =
+        (final.startSegY - final.surfaceY) / final.pxPerMetre
+      const depthUnchanged = Math.abs(final.currentDepthM - startDepth) < 1e-6
+      const noAnchorChange = final.currentTargetCol === null
+      if (depthUnchanged && noAnchorChange && final.contactsInDrag.length === 1) {
+        return
+      }
+
+      // Decide the commit path:
+      //   * single contact, no anchor change → onUpdateContactDepth
+      //   * cross-column OR multi-contact    → onBatchUpdateContacts
+      const single = final.contactsInDrag.length === 1
+      if (single && noAnchorChange) {
+        if (!onUpdateContactDepth) return
+        void onUpdateContactDepth(
+          final.contactId,
+          final.currentDepthM,
+          final.currentSnapped,
+        )
+        return
+      }
+
+      if (!onBatchUpdateContacts) {
+        // Cross-column / multi-drag commit requested but no batch
+        // handler wired — fail silently rather than half-committing.
+        // The view re-renders at the original positions.
+        return
+      }
+
+      // Build batch entries. Each non-primary contact follows the
+      // primary's Δm and (when cross-column) the same target anchor.
+      const deltaM = final.currentDepthM - startDepth
+      const target = final.currentTargetCol
+      const updates: FormationContactBatchUpdateEntry[] = final.contactsInDrag.map(
+        c => {
+          const newDepth = Math.max(0, c.originalDepthM + deltaM)
+          const entry: FormationContactBatchUpdateEntry = {
+            contact_id: c.contactId,
+            depth_top_m: newDepth,
+            // Drag-source + confidence rule matches the create / depth-
+            // only paths (debt #22/#23). Snap state only applies to the
+            // primary contact's cursor target; the others inherit
+            // "manual_pick / medium" because they were translated, not
+            // explicitly placed.
+            source:
+              c.contactId === final.contactId && final.currentSnapped
+                ? 'borehole_observation'
+                : 'manual_pick',
+            confidence:
+              c.contactId === final.contactId && final.currentSnapped
+                ? 'high'
+                : 'medium',
+          }
+          if (target !== null) {
+            // Cross-column commit — every selected contact gets the
+            // SAME new anchor (the target column's investigation).
+            // Multi-anchor selections collapse to one target; this is
+            // intentional per the v1 spec (CLAUDE.md debt #44 close).
+            entry.borehole_id =
+              target.kind === 'borehole' ? target.proj.item.id : null
+            entry.cpt_id =
+              target.kind === 'cpt' ? target.proj.item.id : null
+          }
+          return entry
+        },
       )
+      void onBatchUpdateContacts(updates)
     }
     document.addEventListener('mousemove', handleMove)
     document.addEventListener('mouseup', handleUp)
@@ -564,7 +823,23 @@ export default function ContactsLayer({
       document.removeEventListener('mouseup', handleUp)
       window.removeEventListener('blur', cancel)
     }
-  }, [drag, snapDepth, onUpdateContactDepth])
+  }, [
+    drag,
+    snapDepth,
+    onUpdateContactDepth,
+    onBatchUpdateContacts,
+    placedColumns,
+    levelToScreen,
+  ])
+
+  // Indexed lookup of every rendered layer by contact id — used by
+  // startDrag to expand a multi-selection click into the full
+  // ``contactsInDrag`` set with each contact's source-column data.
+  const layerByContactId = useMemo(() => {
+    const out = new Map<string, RenderedLayer>()
+    for (const l of layers) out.set(l.contactId, l)
+    return out
+  }, [layers])
 
   const startDrag = useCallback(
     (layer: RenderedLayer, e: React.MouseEvent<SVGRectElement>) => {
@@ -574,6 +849,34 @@ export default function ContactsLayer({
       if (e.button !== 0) return
       e.preventDefault()
       e.stopPropagation()
+      const svgEl = e.currentTarget.ownerSVGElement
+      const svgLeft = svgEl?.getBoundingClientRect().left ?? 0
+      // Build the drag set. If the clicked contact is part of an
+      // existing multi-selection, drag the whole selection. Otherwise
+      // drag just the clicked contact AND replace selection with it.
+      const inSelection = selection.has(layer.contactId)
+      const targetIds = inSelection
+        ? Array.from(selection)
+        : [layer.contactId]
+      if (!inSelection) {
+        setSelection(new Set([layer.contactId]))
+        setLastSelectionContactId(layer.contactId)
+      }
+      const contactsInDrag: DragContact[] = []
+      for (const id of targetIds) {
+        const found = layerByContactId.get(id)
+        if (!found) continue
+        contactsInDrag.push({
+          contactId: found.contactId,
+          anchorId: found.anchorId,
+          anchorKind: found.anchorKind,
+          originalDepthM: found.originalDepthM,
+          sourceSurfaceY: found.surfaceY,
+          sourcePxPerMetre: found.pxPerMetre,
+          color: found.color,
+          formationName: found.formationName,
+        })
+      }
       setDrag({
         contactId: layer.contactId,
         anchorId: layer.anchorId,
@@ -582,12 +885,13 @@ export default function ContactsLayer({
         pxPerMetre: layer.pxPerMetre,
         surfaceY: layer.surfaceY,
         startClientY: e.clientY,
+        startClientX: e.clientX,
         startSegY: layer.segY,
+        svgLeft,
         currentDepthM: layer.originalDepthM,
-        // The drag starts at the contact's existing depth; the user
-        // hasn't moved yet, so we treat it as "not snapped" — only
-        // the act of dragging onto a candidate stamps it as such.
         currentSnapped: false,
+        currentTargetCol: null,
+        contactsInDrag,
         color: layer.color,
         formationName: layer.formationName,
         segLeftX: layer.segLeftX,
@@ -597,27 +901,253 @@ export default function ContactsLayer({
         plotBottom,
       })
     },
-    [onUpdateContactDepth, plotTop, plotBottom],
+    [
+      onUpdateContactDepth,
+      plotTop,
+      plotBottom,
+      selection,
+      layerByContactId,
+    ],
   )
 
-  if (layers.length === 0 && polylines.length === 0) return null
+  // ---- Modifier-click handlers (toggle / range select; no drag) -
+  // Ctrl/Cmd-Click toggles the clicked contact in/out of the
+  // selection. Does not start a drag — the contract is "modifier
+  // means update selection only" so a user can lasso a stack of
+  // contacts in one anchor without accidentally moving them.
+  const handleToggleSelection = useCallback(
+    (contactId: string) => {
+      setSelection(prev => {
+        const next = new Set(prev)
+        if (next.has(contactId)) next.delete(contactId)
+        else next.add(contactId)
+        return next
+      })
+      setLastSelectionContactId(contactId)
+    },
+    [],
+  )
 
-  // Per-render override: when a layer is the dragged one, replace
-  // its segY + label position with the drag's live depth.
+  // Shift-Click selects the depth-range between the LAST-clicked
+  // contact and this one, scoped to the same anchor. Range across
+  // anchors is ambiguous (whose depth order wins?) so we silently
+  // fall back to a plain replacement select when the anchors differ.
+  const handleRangeSelection = useCallback(
+    (layer: RenderedLayer) => {
+      const anchorContacts = layers
+        .filter(l => l.anchorId === layer.anchorId)
+        .sort((a, b) => a.originalDepthM - b.originalDepthM)
+      const last = lastSelectionContactId
+        ? anchorContacts.find(l => l.contactId === lastSelectionContactId)
+        : null
+      if (!last) {
+        // No prior anchor on this column → just select this one.
+        setSelection(new Set([layer.contactId]))
+        setLastSelectionContactId(layer.contactId)
+        return
+      }
+      const startIdx = anchorContacts.findIndex(
+        l => l.contactId === last.contactId,
+      )
+      const endIdx = anchorContacts.findIndex(
+        l => l.contactId === layer.contactId,
+      )
+      if (startIdx === -1 || endIdx === -1) return
+      const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
+      const rangeIds = anchorContacts.slice(lo, hi + 1).map(l => l.contactId)
+      setSelection(prev => {
+        const next = new Set(prev)
+        for (const id of rangeIds) next.add(id)
+        return next
+      })
+      // Do NOT update lastSelectionContactId — shift-clicking again
+      // should re-anchor against the ORIGINAL last-click, the standard
+      // file-explorer / Finder pattern.
+    },
+    [layers, lastSelectionContactId],
+  )
+
+  // Dispatch on the hit-strip mousedown. Modifier-clicks update
+  // selection only; plain clicks start a drag (which may carry the
+  // whole selection if the clicked contact was already in it).
+  const handleStripMouseDown = useCallback(
+    (layer: RenderedLayer, e: React.MouseEvent<SVGRectElement>) => {
+      if (e.button !== 0) return
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleToggleSelection(layer.contactId)
+        return
+      }
+      if (e.shiftKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleRangeSelection(layer)
+        return
+      }
+      // Plain click — the drag handler stops propagation + updates
+      // selection (or preserves the existing multi-selection if the
+      // clicked contact is part of it).
+      startDrag(layer, e)
+    },
+    [handleToggleSelection, handleRangeSelection, startDrag],
+  )
+
+  // ESC: cancel the active interaction. Priority order — drag,
+  // marquee, selection. Each ESC press peels one layer back.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key !== 'Escape') return
+      if (isTypingTarget(e.target)) return
+      if (drag !== null) {
+        setDrag(null)
+        return
+      }
+      if (marquee) {
+        setMarquee(null)
+        return
+      }
+      if (selection.size > 0) {
+        setSelection(new Set())
+        setLastSelectionContactId(null)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [drag, marquee, selection])
+
+  // ---- Marquee (box-select) effect --------------------------------
+  // Document-level mousemove/mouseup while the marquee is active.
+  // Mouseup picks every hit-strip whose centre falls inside the
+  // marquee rect and updates the selection (additive when the user
+  // held Shift/Ctrl on the initial mousedown, otherwise replace).
+  // Below-threshold movement counts as a plain background click and
+  // clears the selection. SectionPanel owns the marquee STATE; we
+  // own the hit-testing + selection update.
+  useEffect(() => {
+    if (!marquee) return
+    function cancel(): void {
+      setMarquee(null)
+    }
+    function handleMove(e: MouseEvent): void {
+      if (e.buttons === 0) {
+        cancel()
+        return
+      }
+      if (!marquee) return
+      setMarquee({
+        ...marquee,
+        currentClientX: e.clientX,
+        currentClientY: e.clientY,
+      })
+    }
+    function handleUp(): void {
+      const m = marquee
+      setMarquee(null)
+      if (!m) return
+      const dx = Math.abs(m.currentClientX - m.startClientX)
+      const dy = Math.abs(m.currentClientY - m.startClientY)
+      if (dx < CLICK_TO_DRAG_THRESHOLD_PX && dy < CLICK_TO_DRAG_THRESHOLD_PX) {
+        // Plain click — clear selection (additive click preserves).
+        if (!m.additive) {
+          setSelection(new Set())
+          setLastSelectionContactId(null)
+        }
+        return
+      }
+      // Convert client coords → SVG coords by subtracting the cached
+      // SVG bounding-rect offsets captured at mousedown.
+      const x1 = Math.min(m.startClientX, m.currentClientX) - m.svgLeft
+      const x2 = Math.max(m.startClientX, m.currentClientX) - m.svgLeft
+      const y1 = Math.min(m.startClientY, m.currentClientY) - m.svgTop
+      const y2 = Math.max(m.startClientY, m.currentClientY) - m.svgTop
+      const hits: string[] = []
+      for (const layer of layers) {
+        const layerLeft = layer.segLeftX
+        const layerRight = layer.segRightX
+        const layerTop = layer.segY - DRAG_HIT_HALF_HEIGHT_PX
+        const layerBottom = layer.segY + DRAG_HIT_HALF_HEIGHT_PX
+        if (
+          layerRight >= x1 &&
+          layerLeft <= x2 &&
+          layerBottom >= y1 &&
+          layerTop <= y2
+        ) {
+          hits.push(layer.contactId)
+        }
+      }
+      setSelection(prev => {
+        const next = m.additive ? new Set(prev) : new Set<string>()
+        for (const id of hits) next.add(id)
+        return next
+      })
+      if (hits.length > 0) setLastSelectionContactId(hits[hits.length - 1])
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    window.addEventListener('blur', cancel)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+      window.removeEventListener('blur', cancel)
+    }
+  }, [marquee, layers, setMarquee])
+
+  if (layers.length === 0 && polylines.length === 0) {
+    return null
+  }
+
+  // Per-render override: when a layer is part of the drag, replace
+  // its segY + (when re-anchoring) segLeftX/Right/labelX with the
+  // drag's live target. Each non-primary contact follows the
+  // primary's Δm and the primary's target column.
   function applyDragOverride(layer: RenderedLayer): RenderedLayer {
-    if (drag === null || drag.contactId !== layer.contactId) return layer
-    const newSegY = drag.surfaceY + drag.currentDepthM * drag.pxPerMetre
-    // Preserve the layer body extent — the dragged contact's bottom
-    // moves with the segment, but adjacent layers don't reshape
-    // until commit. Visually it's the "ghost" pattern from
-    // ContactPickBar: while dragging, the segment + label follow the
-    // cursor, neighbours stay put.
-    const bodyBottomY = layer.bodyBottomY
+    if (drag === null) return layer
+    const inDrag = drag.contactsInDrag.find(c => c.contactId === layer.contactId)
+    if (!inDrag) return layer
+    const isPrimary = layer.contactId === drag.contactId
+    // The primary contact's new depth is read straight from the drag
+    // state. Non-primary contacts follow the same Δm.
+    const startDepth = (drag.startSegY - drag.surfaceY) / drag.pxPerMetre
+    const deltaM = drag.currentDepthM - startDepth
+    const newDepthM = isPrimary
+      ? drag.currentDepthM
+      : Math.max(0, inDrag.originalDepthM + deltaM)
+    // Y coordinate: when re-anchoring, project against the target
+    // column's surface; otherwise project against this contact's
+    // source surface.
+    const target = drag.currentTargetCol
+    let newSurfaceY = inDrag.sourceSurfaceY
+    let newPxPerMetre = inDrag.sourcePxPerMetre
+    let newSegLeftX = layer.segLeftX
+    let newSegRightX = layer.segRightX
+    let newLabelX = layer.labelX
+    if (target !== null) {
+      const targetProj = surfaceYForColumn(target, levelToScreen)
+      if (
+        targetProj.surfaceElevationM !== null &&
+        targetProj.pxPerMetre !== 0
+      ) {
+        newSurfaceY = targetProj.surfaceY
+        newPxPerMetre = targetProj.pxPerMetre
+        const halfW = target.width / 2
+        newSegLeftX = target.nudgedX - halfW
+        newSegRightX = target.nudgedX + halfW
+        newLabelX = target.nudgedX
+      }
+    }
+    const newSegY = newSurfaceY + newDepthM * newPxPerMetre
     return {
       ...layer,
       segY: newSegY,
       bodyTopY: clamp(newSegY, plotTop, plotBottom),
-      bodyBottomY,
+      // bodyBottom is conceptually less meaningful during the drag
+      // (the "next-deeper contact" may also be moving) — clamp to
+      // plotBottom so the ghost slab doesn't blow off the edge.
+      bodyBottomY: layer.bodyBottomY,
+      segLeftX: newSegLeftX,
+      segRightX: newSegRightX,
+      labelX: newLabelX,
     }
   }
 
@@ -631,10 +1161,35 @@ export default function ContactsLayer({
           .map((v, i) => {
             // Live-override the dragged vertex's Y so the surface
             // line tracks the drag instead of snapping at commit.
-            const y =
-              drag !== null && drag.contactId === v.contactId
-                ? drag.surfaceY + drag.currentDepthM * drag.pxPerMetre
-                : v.screenY
+            // Works for every contact in the drag set, not just the
+            // primary — multi-drag previews stay coherent.
+            let y = v.screenY
+            if (drag !== null) {
+              const inDrag = drag.contactsInDrag.find(
+                c => c.contactId === v.contactId,
+              )
+              if (inDrag) {
+                const startDepth =
+                  (drag.startSegY - drag.surfaceY) / drag.pxPerMetre
+                const deltaM = drag.currentDepthM - startDepth
+                const newDepthM =
+                  v.contactId === drag.contactId
+                    ? drag.currentDepthM
+                    : Math.max(0, inDrag.originalDepthM + deltaM)
+                const target = drag.currentTargetCol
+                if (target !== null) {
+                  const tProj = surfaceYForColumn(target, levelToScreen)
+                  if (
+                    tProj.surfaceElevationM !== null &&
+                    tProj.pxPerMetre !== 0
+                  ) {
+                    y = tProj.surfaceY + newDepthM * tProj.pxPerMetre
+                  }
+                } else {
+                  y = inDrag.sourceSurfaceY + newDepthM * inDrag.sourcePxPerMetre
+                }
+              }
+            }
             return `${i === 0 ? 'M' : 'L'} ${v.screenX.toFixed(2)} ${y.toFixed(2)}`
           })
           .join(' ')
@@ -665,8 +1220,26 @@ export default function ContactsLayer({
         const labelWidth = layer.segRightX - layer.segLeftX
         const display = showLabel ? truncateToWidth(layer.formationName, labelWidth) : ''
         const isDragged = drag !== null && drag.contactId === layer.contactId
+        const isSelected = selection.has(layer.contactId)
         return (
           <g key={layer.key}>
+            {/* Selection halo — drawn under the top segment so the
+                segment colour stays unambiguous. Slate-blue accent
+                per CLAUDE.md Primer-mapped tokens. */}
+            {isSelected &&
+              layer.segY >= plotTop &&
+              layer.segY <= plotBottom && (
+                <line
+                  x1={layer.segLeftX - 2}
+                  x2={layer.segRightX + 2}
+                  y1={layer.segY}
+                  y2={layer.segY}
+                  stroke="#2563eb"
+                  strokeWidth={4}
+                  strokeOpacity={0.35}
+                  pointerEvents="none"
+                />
+              )}
             {/* Top segment — only when the top sits inside the plot
                 area, otherwise the layer extends off the top edge
                 and the segment would draw on the chrome. */}
@@ -713,7 +1286,7 @@ export default function ContactsLayer({
                   style={{ cursor: isDragged ? 'grabbing' : 'ns-resize' }}
                   onMouseDown={
                     onUpdateContactDepth
-                      ? e => startDrag(rawLayer, e)
+                      ? e => handleStripMouseDown(rawLayer, e)
                       : undefined
                   }
                   onContextMenu={
@@ -780,6 +1353,50 @@ export default function ContactsLayer({
           </g>
         )
       })()}
+
+      {/* Live marquee preview — drawn only when the user has moved
+          past the click-threshold so a plain background click never
+          flashes a rect. Dashed slate-blue stroke matches the
+          selection halo colour for visual coherence. */}
+      {marquee &&
+        (() => {
+          const dx = Math.abs(marquee.currentClientX - marquee.startClientX)
+          const dy = Math.abs(marquee.currentClientY - marquee.startClientY)
+          if (
+            dx < CLICK_TO_DRAG_THRESHOLD_PX &&
+            dy < CLICK_TO_DRAG_THRESHOLD_PX
+          ) {
+            return null
+          }
+          const x1 =
+            Math.min(marquee.startClientX, marquee.currentClientX) -
+            marquee.svgLeft
+          const x2 =
+            Math.max(marquee.startClientX, marquee.currentClientX) -
+            marquee.svgLeft
+          const y1 =
+            Math.min(marquee.startClientY, marquee.currentClientY) -
+            marquee.svgTop
+          const y2 =
+            Math.max(marquee.startClientY, marquee.currentClientY) -
+            marquee.svgTop
+          return (
+            <rect
+              x={x1}
+              y={y1}
+              width={x2 - x1}
+              height={y2 - y1}
+              fill="#2563eb"
+              fillOpacity={0.08}
+              stroke="#2563eb"
+              strokeWidth={1}
+              strokeOpacity={0.7}
+              strokeDasharray="4 3"
+              pointerEvents="none"
+              data-testid="contacts-marquee-preview"
+            />
+          )
+        })()}
     </g>
   )
 }
