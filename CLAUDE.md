@@ -1726,4 +1726,42 @@ routers already use a two-stage ``get_in_project_or_404`` pattern
 scaffolding must thread ``current_user`` through these routes
 before any token-gated call ships.
 
+### 44. Multi-select + drag-copy a contact stack between investigations (low — dogfooding feedback)
+
+**What.** Today a contact is bound to one anchor (CPT or borehole)
+and the API explicitly forbids re-anchoring: ``PATCH /contacts/{id}``
+docstring says "Anchor (borehole_id / cpt_id) NOT updatable —
+delete + recreate." During dogfooding the user asked for a power
+flow: select every contact under one investigation, drag-copy (or
+move) the whole stack onto a neighbouring investigation. Useful
+for (a) re-anchoring a misclick, (b) stamping a well-characterised
+borehole's interpretation onto a thin nearby CPT, (c) building a
+template stack.
+
+**Open design questions** (need real-use data before a build):
+
+* Copy or move? Both are valid; the user asked for "drag", which
+  reads as move, but a hold-modifier variant for copy would be
+  obvious to keep around.
+* Depth semantics — keep ``depth_top_m`` (user-picked relative to
+  surface) or shift to keep ``elevation_mTAW`` (so the stack
+  follows the geology, not the topography)? Different answer for
+  shallow vs deep formations.
+* Target-anchor conflict — overwrite if B already carries the same
+  formation, skip silently, or pop a per-conflict prompt?
+* Out-of-bounds — what if the source's deepest contact sits below
+  B's ``total_depth_m`` / ``max_depth_m``? Truncate, warn, allow?
+
+**Why deferred.** Backend immutability would have to relax (or a
+new batch-clone endpoint lands). The MVP gate doesn't need it —
+delete + re-pick (right-click → confirm, just shipped) covers
+"fix the misclick" already. The design questions above only get
+honest answers from real use; building the feature before that
+risks shipping the wrong defaults.
+
+**When to revisit.** After 3–4 more dogfooding sessions. If the
+user reaches for this 1× per session it's polish; if 10× per
+session it's MVP-blocking. The right place to confirm before
+building is the same 5–10 BE/NL validation calls already in the
+plan — "would you re-anchor stacks often?" is a one-question add.
 
