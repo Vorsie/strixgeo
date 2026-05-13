@@ -10,6 +10,7 @@ from sqlalchemy import Date, DateTime, Double, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.db.base import Base
 
 
@@ -54,6 +55,12 @@ class BoreholeOrm(Base):
     elevation_m: Mapped[float | None] = mapped_column(Double, nullable=True)
     epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
     z_epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Where ``elevation_m`` came from — see ``ElevationSource``. Mirrors
+    # the cpt column so refresh-on-duplicate on either side respects
+    # manual edits (debt #8).
+    elevation_source: Mapped[str] = mapped_column(
+        String(8), nullable=False, default=ElevationSource.NONE.value
+    )
 
     # PostGIS geometry in the source CRS (same SRID as epsg column).
     # spatial_index=False — the migration creates idx_borehole_location explicitly via USING GIST
