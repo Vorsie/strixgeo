@@ -990,6 +990,7 @@ export default function SectionPanel({
                     levelToScreen={levelToScreen}
                     onCommitDepth={onCreateContact ? handlePickBorehole : undefined}
                     snapToStratigraphy={snapToStratigraphy}
+                    showHoverReadout={focusedColumn !== null}
                   />
                 )
               })}
@@ -1001,7 +1002,7 @@ export default function SectionPanel({
                 via ``handlePickCpt`` which opens the formation
                 picker. Skipped when no contact-create callback is
                 wired (read-only test view). */}
-            {cptPlots !== null && onCreateContact &&
+            {cptPlots !== null && (onCreateContact || focusedColumn !== null) &&
               visibleColumns.map(col => {
                 if (col.kind !== 'cpt') return null
                 const item = col.proj.item as CptListItem
@@ -1039,7 +1040,7 @@ export default function SectionPanel({
                     bgTopY={bgTopY}
                     bgBottomY={bgBottomY}
                     levelToScreen={levelToScreen}
-                    onCommitDepth={handlePickCpt}
+                    onCommitDepth={onCreateContact ? handlePickCpt : undefined}
                   />
                 )
               })}
