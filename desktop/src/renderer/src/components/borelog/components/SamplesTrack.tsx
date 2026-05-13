@@ -1,0 +1,103 @@
+import type { ReactElement } from 'react'
+
+import type { SampleResponse } from '../../../api/client'
+import { LAB_TEST_ICONS } from '../labTestIcons'
+import { usePxPerM } from '../utils'
+
+/**
+ * Clickable samples column. Each sample is rendered as either a
+ * vertical bracket (interval samples) or a circular spot marker
+ * (point samples where ``depth_top == depth_base``), with the sample
+ * number on the left of the bracket and the lab-test family glyphs
+ * to its right.
+ *
+ * Selected samples get a soft blue highlight rectangle behind the
+ * marker; clicking a selected sample toggles back to ``null``.
+ *
+ * Even sample rows with no lab tests are clickable — the detail panel
+ * still surfaces sampling metadata (depth range, sample number,
+ * sampling method).
+ */
+export function SamplesTrack({
+  samples,
+  x,
+  y,
+  width,
+  selectedSampleId,
+  onSampleClick,
+}: {
+  samples: SampleResponse[]
+  x: number
+  y: number
+  width: number
+  selectedSampleId: string | null
+  onSampleClick: (id: string | null) => void
+}): ReactElement {
+  const PX_PER_M = usePxPerM()
+  return (
+    <g>
+      {samples.map(sample => {
+        const top = y + sample.depth_top_m * PX_PER_M
+        const bottom = y + sample.depth_base_m * PX_PER_M
+        const mid = (top + bottom) / 2
+        const isSpot = sample.depth_top_m === sample.depth_base_m
+        const selected = sample.id === selectedSampleId
+
+        const tests = LAB_TEST_ICONS.filter(icon => icon.hasOn(sample))
+        const hasAnyTest = tests.length > 0
+
+        return (
+          <g
+            key={sample.id}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onSampleClick(selected ? null : sample.id)}
+          >
+            <title>
+              {`${sample.sample_number ?? '(unnumbered)'}\n${sample.depth_top_m.toFixed(2)} – ${sample.depth_base_m.toFixed(2)} m\n${tests.length} lab test${tests.length !== 1 ? 's' : ''}`}
+            </title>
+
+            {selected && (
+              <rect
+                x={x + 1}
+                y={top - 2}
+                width={width - 2}
+                height={Math.max(bottom - top, 12) + 4}
+                fill="#dbeafe"
+                stroke="#3b82f6"
+                strokeWidth={1}
+                rx={2}
+              />
+            )}
+
+            {!isSpot ? (
+              <rect
+                x={x + 8}
+                y={top}
+                width={4}
+                height={bottom - top}
+                fill="#374151"
+                rx={1}
+              />
+            ) : (
+              <circle cx={x + 10} cy={mid} r={4} fill="#374151" />
+            )}
+
+            <text x={x + 18} y={mid + 3} fontSize={10} fill="#1f2937">
+              {sample.sample_number ?? '#?'}
+            </text>
+            {hasAnyTest && (
+              <text x={x + 50} y={mid + 4} fontSize={11} fill="#1f2937">
+                {tests.map(t => t.symbol).join(' ')}
+              </text>
+            )}
+            {!hasAnyTest && (
+              <text x={x + 50} y={mid + 3} fontSize={9} fill="#9ca3af" fontStyle="italic">
+                no tests
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </g>
+  )
+}
