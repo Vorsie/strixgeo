@@ -97,6 +97,7 @@ function renderLayer(
   excludedBoreholeIds?: ReadonlySet<string>,
   extras: {
     onUpdateContactDepth?: (id: string, depth: number) => Promise<void>
+    onDeleteContact?: (id: string) => Promise<void>
     snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
   } = {},
 ) {
@@ -111,6 +112,7 @@ function renderLayer(
         plotTop={0}
         plotBottom={50}
         onUpdateContactDepth={extras.onUpdateContactDepth}
+        onDeleteContact={extras.onDeleteContact}
         snapDepthsByAnchorId={extras.snapDepthsByAnchorId}
       />
     </svg>,
@@ -617,5 +619,83 @@ describe('ContactsLayer', () => {
     )
     expect(container.querySelector('path')?.getAttribute('stroke')).toBe('#aabbcc')
     expect(container.querySelector('line')?.getAttribute('stroke')).toBe('#aabbcc')
+  })
+
+  it('emits the hit-strip even when only onDeleteContact is wired', () => {
+    // Hit-strip presence gates the right-click handler — without it
+    // the contextmenu event has nowhere to fire. Broadening the gate
+    // from "drag-only" to "drag OR delete" is the behaviour change
+    // this test pins.
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1' })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onDeleteContact: vi.fn().mockResolvedValue(undefined) },
+    )
+    expect(
+      container.querySelectorAll('[data-testid="contact-drag-strip"]').length,
+    ).toBe(1)
+  })
+
+  it('right-click + confirm fires onDeleteContact with the contact id', () => {
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const contacts = [makeContact({ id: 'c-7', borehole_id: 'bh-1' })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onDeleteContact },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(onDeleteContact).toHaveBeenCalledTimes(1)
+    expect(onDeleteContact.mock.calls[0][0]).toBe('c-7')
+    confirmSpy.mockRestore()
+  })
+
+  it('right-click + cancel does NOT fire onDeleteContact', () => {
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const contacts = [makeContact({ id: 'c-7', borehole_id: 'bh-1' })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onDeleteContact },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(onDeleteContact).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('right-click is a no-op when onDeleteContact is absent', () => {
+    // Drag wired but no delete handler — confirm() must NEVER appear.
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1' })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth: vi.fn().mockResolvedValue(undefined) },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    expect(confirmSpy).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
   })
 })
