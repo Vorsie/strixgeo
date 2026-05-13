@@ -1555,26 +1555,6 @@ than no landing page.
 exports). Start collecting emails before announcing pricing — the
 list calibrates demand and the launch send is the conversion event.
 
-### 15. Cross-field invariants raise from domain dataclasses
-
-**What.** ``DrillSegment``, ``ObservationLayer``,
-``FieldLogInterval``, ``Sample`` all raise ``ValueError`` in
-``__post_init__`` for ``base_m <= top_m``. Data Integrity Rule §5
-(CLAUDE.md): cross-field invariants belong in the parser's
-``ValidationIssue`` list, not as ``raise`` in the domain
-dataclass. A malformed real-world DOV row with an inverted
-segment hard-crashes the import instead of flowing through as a
-flagged issue.
-
-**Why deferred.** DOV data is generally clean; the raise has not
-triggered in practice. Single-field non-negativity guards
-(``top_m >= 0``) are NOT in scope here — those are not
-cross-field.
-
-**When to revisit.** Before any non-DOV borehole source lands
-(BRO, manual import, BIM upload). Source data quality is unknown
-and a hard crash on first import is the wrong UX.
-
 ### 16. Mixed-CRS spatial-query guard absent
 
 **What.** The bundle format and the API both accept per-investigation
