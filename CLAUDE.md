@@ -1613,24 +1613,6 @@ coords to the render pass. Structural change to ``RenderedLayer``.
 contact section, or before any viewport tweening / animation
 lands.
 
-### 30. ``SectionPanel.tsx`` at ~1280 lines — split interactions into hooks (medium)
-
-**What.** ``SectionPanel.tsx`` re-crossed the split threshold this
-session (was 591 lines after the prior split; now ~1280). Three
-interaction modes added this session share no state with each
-other and could each live in a dedicated hook: ``useContactPicker``
-(~60 lines: pickContext + handlePickCpt / handlePickBorehole /
-handlePickerSelect), ``useFocusColumn`` (~100 lines: focusedColumn
-+ focus-viewport effect + visibleColumns filter),
-``useColumnContextMenu`` (~80 lines: contextMenu +
-handleColumnContextMenu + handleSvgContextMenu).
-
-**Why deferred.** Each hook reads from props or other hooks;
-extracting is mechanical but not zero-risk.
-
-**When to revisit.** Before the next interaction mode lands
-(surface-interpolation overlay editing, or free-draw formation
-boundaries).
 
 ### 33. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
 
