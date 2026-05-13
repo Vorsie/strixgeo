@@ -7,7 +7,30 @@ import {
   buildContentSecurityPolicy,
   decideExternalOpen,
   isInAppNavigation,
+  normalizePathForCompare,
 } from './security'
+
+// Authorised filesystem paths (debt #37). Populated by:
+//   * Every dialog.showOpen/showSave return value (the user just
+//     picked the file in a Windows / macOS file picker — that's
+//     their consent for us to read or write it).
+//   * The recent-projects list at startup (paths the user
+//     authorised in a prior session).
+// fs:read-file / project:read-file / project:write-file all
+// require the requested path to be in this set, defending against
+// an XSS-escalated renderer from issuing arbitrary
+// readFile('C:\\...\\AppData\\...\\key.db') calls.
+const authorisedPaths = new Set<string>()
+
+function authorisePath(p: string | null | undefined): void {
+  const norm = normalizePathForCompare(p)
+  if (norm !== null) authorisedPaths.add(norm)
+}
+
+function pathIsAuthorised(p: string): boolean {
+  const norm = normalizePathForCompare(p)
+  return norm !== null && authorisedPaths.has(norm)
+}
 
 // File extension for project files. Kept here (not imported from the
 // renderer) so the main process is build-self-contained — Electron's
@@ -328,7 +351,22 @@ function addRecentProject(path: string, name: string): RecentProject[] {
     ...existing,
   ].slice(0, RECENT_PROJECTS_MAX)
   writeRecentProjects(updated)
+  // Authorise both the freshly-added path and every other recent
+  // entry — the renderer's File → Open Recent path skips the
+  // dialog, so without this the read would be denied.
+  for (const r of updated) authorisePath(r.path)
   return updated
+}
+
+/**
+ * Bootstrap the authorised-paths set at app startup with every
+ * path in the recent-projects list. Without this, the user's first
+ * "Open Recent" click after launching the app would fail the
+ * authorisation check (the renderer skips the dialog → no fresh
+ * authorisation event).
+ */
+function bootstrapAuthorisedPaths(): void {
+  for (const r of readRecentProjects()) authorisePath(r.path)
 }
 
 
@@ -343,7 +381,11 @@ ipcMain.handle('dialog:open-file', async (_event, filters: Electron.FileFilter[]
     properties: ['openFile'],
     filters
   })
-  return result.canceled ? null : result.filePaths[0]
+  if (result.canceled) return null
+  // Path returned by the OS dialog → the user just authorised it.
+  // fs:read-file / project:read-file will check against this set.
+  authorisePath(result.filePaths[0])
+  return result.filePaths[0]
 })
 
 ipcMain.handle('dialog:open-files', async (_event, filters: Electron.FileFilter[]) => {
@@ -351,10 +393,19 @@ ipcMain.handle('dialog:open-files', async (_event, filters: Electron.FileFilter[
     properties: ['openFile', 'multiSelections'],
     filters
   })
-  return result.canceled ? [] : result.filePaths
+  if (result.canceled) return []
+  for (const p of result.filePaths) authorisePath(p)
+  return result.filePaths
 })
 
 ipcMain.handle('fs:read-file', (_event, filePath: string): Buffer => {
+  if (!pathIsAuthorised(filePath)) {
+    // Refuse rather than silently reading. The renderer that issued
+    // this call either has a bug (didn't go through the dialog) or
+    // is compromised (XSS trying to read AppData). Same error shape
+    // either way so the renderer surfaces "couldn't read file".
+    throw new Error(`fs:read-file refused — path not authorised: ${filePath}`)
+  }
   return readFileSync(filePath)
 })
 
@@ -375,7 +426,9 @@ ipcMain.handle('project:open-dialog', async () => {
       { name: 'All Files', extensions: ['*'] },
     ],
   })
-  return result.canceled ? null : result.filePaths[0]
+  if (result.canceled) return null
+  authorisePath(result.filePaths[0])
+  return result.filePaths[0]
 })
 
 ipcMain.handle(
@@ -385,17 +438,26 @@ ipcMain.handle(
       filters: [{ name: 'Strix Project', extensions: [PROJECT_FILE_EXTENSION] }],
       defaultPath: defaultName,
     })
-    return result.canceled ? null : result.filePath ?? null
+    if (result.canceled) return null
+    const path = result.filePath ?? null
+    authorisePath(path)
+    return path
   },
 )
 
 ipcMain.handle('project:read-file', (_event, filePath: string): string => {
+  if (!pathIsAuthorised(filePath)) {
+    throw new Error(`project:read-file refused — path not authorised: ${filePath}`)
+  }
   return readFileSync(filePath, 'utf-8')
 })
 
 ipcMain.handle(
   'project:write-file',
   (_event, filePath: string, contents: string): void => {
+    if (!pathIsAuthorised(filePath)) {
+      throw new Error(`project:write-file refused — path not authorised: ${filePath}`)
+    }
     writeFileSync(filePath, contents, 'utf-8')
   },
 )
@@ -457,6 +519,10 @@ ipcMain.handle('api:ready', async () => {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  // Pre-authorise every path in the recent-projects list — without
+  // this the first "Open Recent" click after launch would hit the
+  // path-validation in project:read-file and get refused (debt #37).
+  bootstrapAuthorisedPaths()
   startApi()
   createWindow()
 
