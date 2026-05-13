@@ -1630,26 +1630,6 @@ contacts. At that point ``FormationContact`` needs either
 ``geotechnical_unit_id`` FK or a separate ``GeotechnicalContact``
 entity. Design the anchor before Phase 5 export work begins.
 
-### 28. ``PlacedColumn.proj.item`` is a union — narrowed by casts everywhere (medium)
-
-**What.** ``PlacedColumn.proj`` is typed
-``ProjectedInvestigation<CptListItem | BoreholeListItem>``. Every
-per-kind access requires a cast (``col.proj.item as CptListItem``,
-etc.) — 8+ sites in ``SectionPanel.tsx``, more in
-``ContactsLayer.tsx``. Casts are locally correct (guarded by
-``col.kind === 'cpt'`` / ``'borehole'``) but not enforced by the
-type system.
-
-**Why deferred.** Fix is a refactor: narrow ``PlacedColumn`` to a
-discriminated union (``CptPlacedColumn | BoreholePlacedColumn``);
-touches the column builder + all consumers + sub-component prop
-types.
-
-**When to revisit.** Before the geological-model editor grows
-another ``PlacedColumn`` consumer (likely the formation-surface
-interpolation overlay). At three cast sites outside SectionPanel
-the structural type collapses.
-
 ### 29. ContactsLayer ``useMemo`` invalidates on every pan via ``levelToScreen`` dep (medium — perf)
 
 **What.** ``ContactsLayer`` lists ``levelToScreen`` in its main
