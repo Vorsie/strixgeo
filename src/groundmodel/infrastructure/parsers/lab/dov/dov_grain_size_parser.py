@@ -87,8 +87,12 @@ What the parser does NOT do
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from uuid import UUID
+
+# defusedxml — guards against billion-laughs entity expansion +
+# external DTD fetches that stdlib ``xml.etree.ElementTree`` is
+# vulnerable to. Drop-in API replacement. See debt #12.
+import defusedxml.ElementTree as ET
 
 from groundmodel.domain.models.lab.grain_size import GrainSize
 from groundmodel.infrastructure.parsers.cpt.validation.validation_issue import ValidationIssue
