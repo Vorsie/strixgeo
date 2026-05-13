@@ -42,6 +42,7 @@ import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import FormationPickerDialog from './interpretation/FormationPickerDialog'
 import BoreholeColumn from './sections/BoreholeColumn'
+import ColumnContextMenu from './sections/ColumnContextMenu'
 import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer from './sections/ContactsLayer'
 import CptDataColumn from './sections/CptDataColumn'
@@ -593,6 +594,79 @@ export default function SectionPanel({
     [pickContext, onCreateContact],
   )
 
+  // Focus mode — when set, the section renders only the named test's
+  // column (no DEM, no neighbours). Used for single-test boundary
+  // editing without leaving the section view's existing pick / snap /
+  // picker plumbing. Transient: not persisted to view_state because
+  // it's a momentary edit state, not a saved preference.
+  const [focusedColumn, setFocusedColumn] = useState<{
+    kind: 'cpt' | 'borehole'
+    id: string
+    name: string
+  } | null>(null)
+
+  // Context-menu state. Anchored to a container-local coordinate so
+  // the menu renders inside SectionPanel's relative wrapper.
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    kind: 'cpt' | 'borehole'
+    id: string
+    name: string
+  } | null>(null)
+
+  const handleColumnContextMenu = useCallback(
+    (
+      e: React.MouseEvent,
+      col: { kind: 'cpt' | 'borehole'; id: string; name: string },
+    ) => {
+      e.preventDefault()
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setContextMenu({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+        kind: col.kind,
+        id: col.id,
+        name: col.name,
+      })
+    },
+    [],
+  )
+
+  // Esc exits focus + dismisses any open context menu. Skip when the
+  // user is typing into an input so we don't steal text-editing Esc.
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent): void {
+      if (e.key !== 'Escape') return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      if (contextMenu !== null) setContextMenu(null)
+      else if (focusedColumn !== null) setFocusedColumn(null)
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [contextMenu, focusedColumn])
+
+  // Filter the layout pass to just the focused column when active.
+  // Downstream warpAnchors, showLabelsByCptId, hideStickIds all read
+  // through this so the focused view renders one column, centred on
+  // its existing nudgedX (the user can pan to recentre).
+  const visibleColumns = useMemo(() => {
+    if (focusedColumn === null) return placedColumns
+    return placedColumns.filter(
+      c => c.kind === focusedColumn.kind && c.proj.item.id === focusedColumn.id,
+    )
+  }, [placedColumns, focusedColumn])
+
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
   // nearest CPT neighbour on the cross-section is far enough away
@@ -605,7 +679,7 @@ export default function SectionPanel({
   // silently; the user can zoom in to spread them out.
   const showLabelsByCptId = useMemo(() => {
     const LABEL_MIN_SPACING_PX = 50
-    const cptCols = placedColumns.filter(c => c.kind === 'cpt')
+    const cptCols = visibleColumns.filter(c => c.kind === 'cpt')
     const m = new Map<string, boolean>()
     for (const col of cptCols) {
       let minDist = Infinity
@@ -617,7 +691,7 @@ export default function SectionPanel({
       m.set(col.proj.item.id, minDist >= LABEL_MIN_SPACING_PX)
     }
     return m
-  }, [placedColumns])
+  }, [visibleColumns])
 
   // Warped along-distance → screen X. The Spacing slider's lerp
   // moves each test from its true projected X toward its packed
@@ -634,10 +708,10 @@ export default function SectionPanel({
   // spacing=0, each test sits at its packed X and the function
   // interpolates the DEM through those.
   const warpAnchors = useMemo(() => {
-    return [...placedColumns]
+    return [...visibleColumns]
       .map(col => ({ along: col.proj.along, effX: col.nudgedX }))
       .sort((a, b) => a.along - b.along)
-  }, [placedColumns])
+  }, [visibleColumns])
 
   const warpedXToScreen = useCallback(
     (along: number): number => {
@@ -676,7 +750,7 @@ export default function SectionPanel({
   const hideStickIds = useMemo(() => {
     const s = new Set<string>()
     if (cptPlots !== null) {
-      for (const col of placedColumns) {
+      for (const col of visibleColumns) {
         if (col.kind !== 'cpt') continue
         const item = col.proj.item as CptListItem
         if (cptPlots.has(item.id) && item.elevation_m !== null) s.add(item.id)
@@ -687,14 +761,14 @@ export default function SectionPanel({
       // interpretation strip is actually showing. With zero channels
       // enabled BoreholeColumn renders nothing and the stick stays
       // as the column's only visual.
-      for (const col of placedColumns) {
+      for (const col of visibleColumns) {
         if (col.kind !== 'borehole') continue
         const item = col.proj.item as BoreholeListItem
         if (boreholeDetails.has(item.id) && item.elevation_m !== null) s.add(item.id)
       }
     }
     return s
-  }, [placedColumns, cptPlots, boreholeDetails, enabledBhChannels])
+  }, [visibleColumns, cptPlots, boreholeDetails, enabledBhChannels])
 
   // ---- Render --------------------------------------------------------
 
@@ -841,8 +915,10 @@ export default function SectionPanel({
                 investigation columns so the column caps + name
                 labels read cleanly on top — the surface line is
                 context, not the primary content. Breaks at NoData
-                samples (gaps outside DHMVII coverage). */}
-            {demSamples !== null && (
+                samples (gaps outside DHMVII coverage). Suppressed
+                in focus mode so the single visible column reads as
+                a standalone test view. */}
+            {demSamples !== null && focusedColumn === null && (
               <DemSurfaceLine
                 samples={demSamples}
                 // Use the warped x-mapping so the surface line
@@ -866,7 +942,7 @@ export default function SectionPanel({
                 it. Widths scale with horizontal zoom so curves stay
                 readable when the user zooms in. */}
             {cptPlots !== null &&
-              placedColumns.map(col => {
+              visibleColumns.map(col => {
                 if (col.kind !== 'cpt') return null
                 const item = col.proj.item as CptListItem
                 const plot = cptPlots.get(item.id)
@@ -896,7 +972,7 @@ export default function SectionPanel({
                 a strip. Drawn before InvestigationColumns so the
                 cap + name label overlays on top. */}
             {boreholeDetails !== null &&
-              placedColumns.map(col => {
+              visibleColumns.map(col => {
                 if (col.kind !== 'borehole') return null
                 const item = col.proj.item as BoreholeListItem
                 const detail = boreholeDetails.get(item.id)
@@ -926,7 +1002,7 @@ export default function SectionPanel({
                 picker. Skipped when no contact-create callback is
                 wired (read-only test view). */}
             {cptPlots !== null && onCreateContact &&
-              placedColumns.map(col => {
+              visibleColumns.map(col => {
                 if (col.kind !== 'cpt') return null
                 const item = col.proj.item as CptListItem
                 const plot = cptPlots.get(item.id)
@@ -974,7 +1050,7 @@ export default function SectionPanel({
                 diagonals so each column's true projected position
                 stays inspectable. */}
             <InvestigationColumns
-              columns={placedColumns}
+              columns={visibleColumns}
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
@@ -986,6 +1062,7 @@ export default function SectionPanel({
               // (likely behind a confirm prompt).
               onSelectCpt={undefined}
               onSelectBorehole={undefined}
+              onColumnContextMenu={handleColumnContextMenu}
               hideStickIds={hideStickIds}
             />
 
@@ -998,7 +1075,7 @@ export default function SectionPanel({
             <ContactsLayer
               contacts={contacts}
               formations={formations}
-              placedColumns={placedColumns}
+              placedColumns={visibleColumns}
               excludedBoreholeIds={
                 excludedBoreholeIds === undefined
                   ? undefined
@@ -1034,6 +1111,35 @@ export default function SectionPanel({
         {!size && (
           <div className="flex items-center justify-center h-full text-xs text-gray-400">
             Sizing canvas…
+          </div>
+        )}
+        {contextMenu !== null && (
+          <ColumnContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            name={contextMenu.name}
+            onFocus={() =>
+              setFocusedColumn({
+                kind: contextMenu.kind,
+                id: contextMenu.id,
+                name: contextMenu.name,
+              })
+            }
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+        {focusedColumn !== null && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-purple-600 text-white text-xs px-3 py-1.5 rounded-full shadow">
+            <span>Focus: {focusedColumn.name}</span>
+            <button
+              type="button"
+              className="hover:text-purple-200"
+              onClick={() => setFocusedColumn(null)}
+              title="Exit focus mode (Esc)"
+              aria-label="Exit focus mode"
+            >
+              ✕
+            </button>
           </div>
         )}
         <CanvasHints />
