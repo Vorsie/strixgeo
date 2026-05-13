@@ -691,6 +691,38 @@ export default function App() {
     [project, activeGeologicalModel],
   )
 
+  // Right-click → confirm → delete an existing contact. ContactsLayer
+  // pops the native confirm; we only land here on a user-confirmed
+  // destructive action, so no extra gate. Optimistically prune the
+  // local contacts list + the session-import id set so the overlay
+  // updates without a refetch and the discard-on-close flow doesn't
+  // try to re-delete an already-deleted row.
+  const handleDeleteContact = useCallback(
+    async (contactId: string): Promise<void> => {
+      if (!project || !activeGeologicalModel) return
+      log.debug('geology', `deleteContact entry id=${contactId}`)
+      try {
+        await api.geology.deleteContact(
+          project.id,
+          activeGeologicalModel.id,
+          contactId,
+        )
+        setContacts(prev => prev.filter(c => c.id !== contactId))
+        setSessionImportContactIds(prev => {
+          if (!prev.has(contactId)) return prev
+          const next = new Set(prev)
+          next.delete(contactId)
+          return next
+        })
+        log.success('geology', `deleteContact ok id=${contactId}`)
+      } catch (err) {
+        log.error('geology', `deleteContact failed id=${contactId}`, err)
+        toast('error', 'Could not delete the contact.')
+      }
+    },
+    [project, activeGeologicalModel, setSessionImportContactIds],
+  )
+
   // Export the section's drawn geological model to DXF. Owns the
   // full flow (fetch bytes → save dialog → file write) so the
   // SectionPanel + SectionHeader stay storage-agnostic. The button
@@ -1860,6 +1892,7 @@ export default function App() {
                 }
                 onCreateContact={handleCreateContact}
                 onUpdateContactDepth={handleUpdateContactDepth}
+                onDeleteContact={handleDeleteContact}
                 onCreateFormation={handleInlineCreateFormation}
                 onExportDxf={
                   activeGeologicalModel
