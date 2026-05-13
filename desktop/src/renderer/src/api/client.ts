@@ -248,9 +248,25 @@ export interface FormationContactCreatePayload {
 export interface FormationContactUpdatePayload {
   formation_id?: string | null
   depth_top_m?: number | null
+  // Anchor re-pick: BOTH fields must be present together when either
+  // changes (one of them null). The backend's XOR validator rejects
+  // partial anchor updates with a 422 — see CLAUDE.md API list.
+  borehole_id?: string | null
+  cpt_id?: string | null
   source?: ContactSource | null
   confidence?: ContactConfidence | null
   notes?: string | null
+}
+
+// One row in a batch-update payload. Inherits every optional field
+// from FormationContactUpdatePayload and adds the target id.
+export interface FormationContactBatchUpdateEntry
+  extends FormationContactUpdatePayload {
+  contact_id: string
+}
+
+export interface FormationContactBatchUpdateResponse {
+  contacts: FormationContactResponse[]
 }
 
 // Gap validator output — the editor surfaces these as soft warnings
@@ -949,6 +965,21 @@ export const api = {
       contactId: string,
     ): Promise<void> =>
       del(`/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`),
+
+    // All-or-nothing batch update for the multi-drag flow. The
+    // backend validates every entry's scope before mutating; a single
+    // miss returns 404 without committing any of the changes. Response
+    // contacts come back in the same order as ``updates`` so the
+    // caller can patch its local state by index.
+    updateContactsBatch: (
+      projectId: string,
+      modelId: string,
+      updates: readonly FormationContactBatchUpdateEntry[],
+    ): Promise<FormationContactBatchUpdateResponse> =>
+      put(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/batch`,
+        { updates },
+      ),
 
     // --- Gap validator (per borehole) -----------------------------
     validateBorehole: (
