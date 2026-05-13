@@ -1420,16 +1420,6 @@ devtools console; user-side crashes are invisible to us.
 
 **When.** Before any non-solo user.
 
-### 6. CI runner / `tsc` enforcement (low — partial)
-
-**What.** Local `pytest tests/unit` + desktop `npm test` now gate the
-git pre-commit hook (see Development Workflow). Still missing: a CI
-workflow that runs the same gate on push, and a `tsc --noEmit` step on
-the desktop side. Both become important the moment a second
-contributor lands.
-
-**When.** Before opening the repo to collaborators.
-
 ### 7. Backfill `dov_permkey` for legacy rows (low)
 
 **What.** Refresh-on-duplicate (resolved in an earlier PR) keys
