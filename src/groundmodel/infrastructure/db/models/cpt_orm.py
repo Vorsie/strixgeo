@@ -10,6 +10,7 @@ from sqlalchemy import DateTime, Double, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.db.base import Base
 
 
@@ -44,6 +45,15 @@ class CptOrm(Base):
     elevation_m: Mapped[float | None] = mapped_column(Double, nullable=True)
     epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
     z_epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Where ``elevation_m`` came from — see ``ElevationSource``. The
+    # refresh-on-duplicate import path checks this before overwriting
+    # an imported Z so manual edits survive re-imports (debt #8). The
+    # default mirrors the column's NOT NULL constraint at the DB layer
+    # and stamps "none" for new rows that don't explicitly set it
+    # (caller must set the right value before the row is non-trivial).
+    elevation_source: Mapped[str] = mapped_column(
+        String(8), nullable=False, default=ElevationSource.NONE.value
+    )
 
     # PostGIS geometry in the source CRS (same SRID as epsg column).
     # NULL when the GEF file has no usable EPSG code (NO_EPSG / NO_COORDINATES
