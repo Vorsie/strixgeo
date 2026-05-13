@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Minus, Plus, RotateCcw, X } from 'lucide-react'
+import { Download, Minus, Plus, RotateCcw, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
 import {
@@ -81,6 +81,7 @@ export default function SectionHeader({
   scaleH,
   scaleV,
   onReset,
+  onExportDxf,
 }: {
   section: CrossSectionResponse
   lengthM: number
@@ -130,6 +131,11 @@ export default function SectionHeader({
   scaleH: number
   scaleV: number
   onReset: () => void
+  /** Trigger the "Export DXF" flow — the caller owns the fetch +
+   * save-dialog + file-write. The button is hidden when this prop
+   * is omitted (no active geological model, or test-render mode
+   * without an export seam). */
+  onExportDxf?: () => Promise<void>
 }): JSX.Element {
   const sliderValue = Math.round(
     ((Math.log10(vex) - Math.log10(VEX_MIN)) /
@@ -147,6 +153,24 @@ export default function SectionHeader({
   useEffect(() => {
     setLocalBuffer(section.projection_buffer_m)
   }, [section.id, section.projection_buffer_m])
+
+  // Disable the Export DXF button while the request is in flight so
+  // double-clicks don't fire a second download. The caller owns
+  // user-facing error UI (toast in App.tsx); the catch here is
+  // defensive — if the caller forgets a try/catch we still want the
+  // button to return to its idle state instead of staying stuck.
+  const [exporting, setExporting] = useState(false)
+  async function handleExport(): Promise<void> {
+    if (!onExportDxf || exporting) return
+    setExporting(true)
+    try {
+      await onExportDxf()
+    } catch {
+      // Swallowed on purpose — see comment above.
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     // ``flex-wrap`` so the controls fall onto a second row in narrow
@@ -338,6 +362,19 @@ export default function SectionHeader({
         <RotateCcw size={11} />
         Reset
       </button>
+
+      {onExportDxf && (
+        <button
+          onClick={() => void handleExport()}
+          disabled={exporting}
+          className="flex items-center gap-1 px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Export the active model's layer geometry on this section to DXF (AutoCAD / Plaxis / D-Sheet)"
+          aria-label="Export DXF"
+        >
+          <Download size={11} />
+          {exporting ? 'Exporting…' : 'DXF'}
+        </button>
+      )}
 
       {onClose && (
         <button
