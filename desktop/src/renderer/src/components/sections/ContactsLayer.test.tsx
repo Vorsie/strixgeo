@@ -373,6 +373,63 @@ describe('ContactsLayer', () => {
     expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(10, 5)
   })
 
+  it('renders no drag hit-strip when the anchor borehole has null elevation (debt #31)', () => {
+    // The layer-build pass already skips anchors whose elevation_m
+    // is null (the column has no Y to lay out against), so the
+    // hit-strip must also be absent — pinning that so a future
+    // refactor doesn't surface a draggable line over a column
+    // that can't render the segment.
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-no-z', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-no-z', 100, null)],
+      undefined,
+      { onUpdateContactDepth },
+    )
+    expect(
+      container.querySelectorAll('[data-testid="contact-drag-strip"]').length,
+    ).toBe(0)
+  })
+
+  it('clamps committed depth to 0 when the drag goes above the surface (debt #31)', () => {
+    // A drag that pushes the cursor far above the contact's start
+    // Y would otherwise commit a negative depth (a contact sitting
+    // above the surface elevation, geologically meaningless). The
+    // Math.max(0, rawDepth) clamp in handleMove floors it to 0;
+    // this test pins the boundary.
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth },
+    )
+    const strip = container.querySelector('[data-testid="contact-drag-strip"]')!
+    fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
+    // Large negative clientY delta → rawDepth would go to -100, the
+    // clamp floors it to 0.
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: -100, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    // Surface contact — depth 0 exactly. ``toBeCloseTo(0, 5)`` to
+    // tolerate the float arithmetic but pin the boundary value.
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(0, 5)
+  })
+
   it('cancels the drag without committing on window blur (debt #17)', () => {
     // Simulates: user mousedowns → drags partway → switches apps
     // (window blurs) → comes back → mouses up.
