@@ -26,7 +26,6 @@
  *     numeric depth + offset without clicking.
  */
 
-import type { BoreholeListItem, CptListItem } from '../../api/client'
 import ColumnGlyph from './ColumnGlyph'
 import type { PlacedColumn } from './utils'
 
@@ -63,11 +62,13 @@ export default function InvestigationColumns({
   return (
     <g>
       {columns.map(col => {
-        const item = col.proj.item
-        const depth =
+        // PlacedColumn is a discriminated union (debt #28). Walking
+        // each branch lets TypeScript narrow ``col.proj.item`` to
+        // the right type without a cast.
+        const { item, depth } =
           col.kind === 'cpt'
-            ? (item as CptListItem).max_depth_m
-            : (item as BoreholeListItem).total_depth_m
+            ? { item: col.proj.item, depth: col.proj.item.max_depth_m }
+            : { item: col.proj.item, depth: col.proj.item.total_depth_m }
         const onClick =
           col.kind === 'cpt'
             ? onSelectCpt
