@@ -37,6 +37,7 @@ export default function InvestigationColumns({
   plotBottom,
   onSelectCpt,
   onSelectBorehole,
+  onColumnContextMenu,
   hideStickIds,
 }: {
   columns: PlacedColumn[]
@@ -45,6 +46,13 @@ export default function InvestigationColumns({
   plotBottom: number
   onSelectCpt: ((id: string) => void) | undefined
   onSelectBorehole: ((id: string) => void) | undefined
+  /** Right-click handler — receives the React event plus the column
+   * (kind + id + display name) so the caller can position a context
+   * menu and dispatch the chosen action against the right test. */
+  onColumnContextMenu?: (
+    e: React.MouseEvent,
+    column: { kind: 'cpt' | 'borehole'; id: string; name: string },
+  ) => void
   /** Set of investigation IDs that already have a data band rendered
    * (CPT plot or borelog lithology strip). For these the cap + body
    * line + tie-back diagonal are redundant — the band itself is the
@@ -68,6 +76,14 @@ export default function InvestigationColumns({
             : onSelectBorehole
               ? () => onSelectBorehole(item.id)
               : undefined
+        const onContextMenu = onColumnContextMenu
+          ? (e: React.MouseEvent) =>
+              onColumnContextMenu(e, {
+                kind: col.kind,
+                id: item.id,
+                name: item.name,
+              })
+          : undefined
         return (
           <ColumnGlyph
             key={`${col.kind}-${item.id}`}
@@ -82,6 +98,7 @@ export default function InvestigationColumns({
             plotTop={plotTop}
             plotBottom={plotBottom}
             onClick={onClick}
+            onContextMenu={onContextMenu}
             hideStick={hideStickIds?.has(item.id) ?? false}
           />
         )
