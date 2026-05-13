@@ -356,6 +356,8 @@ export default function SectionPanel({
     setBoreholeChannels,
     columnSpacing,
     setColumnSpacing,
+    snapToStratigraphy,
+    setSnapToStratigraphy,
     demSamples,
     cptPlots,
     projectedCpts,
@@ -388,6 +390,16 @@ export default function SectionPanel({
       }
     },
     [setBoreholeChannels, onPatch],
+  )
+
+  const handleSnapToStratigraphyChange = useCallback(
+    (next: boolean) => {
+      setSnapToStratigraphy(next)
+      if (onPatch) {
+        void onPatch({ view_state: { snap_to_stratigraphy: next } })
+      }
+    },
+    [setSnapToStratigraphy, onPatch],
   )
 
   // Spacing-slider commit. Same shape as channels — optimistic local
@@ -717,6 +729,8 @@ export default function SectionPanel({
         onChannelsChange={handleChannelsChange}
         boreholeChannels={boreholeChannels}
         onBoreholeChannelsChange={handleBoreholeChannelsChange}
+        snapToStratigraphy={snapToStratigraphy}
+        onSnapToStratigraphyChange={handleSnapToStratigraphyChange}
         columnSpacing={columnSpacing}
         onColumnSpacingChange={setColumnSpacing}
         onColumnSpacingCommit={onPatch ? handleSpacingCommit : undefined}
@@ -899,6 +913,7 @@ export default function SectionPanel({
                     plotBottom={MARGIN.top + plotHeight}
                     levelToScreen={levelToScreen}
                     onCommitDepth={onCreateContact ? handlePickBorehole : undefined}
+                    snapToStratigraphy={snapToStratigraphy}
                   />
                 )
               })}
