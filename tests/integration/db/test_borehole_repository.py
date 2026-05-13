@@ -527,6 +527,128 @@ async def test_save_persists_full_lab_test_battery(db_session: AsyncSession) -> 
     assert s.water_content_tests[0].content_pct == 180.0
 
 
+async def test_get_by_id_scoped_include_lab_tests(db_session: AsyncSession) -> None:
+    """``include_lab_tests`` loads only listed families; others stamp empty.
+
+    Debt #2 — verifies the scoped path:
+
+    * Requested families come back with their actual rows.
+    * Excluded families come back as ``[]`` (no ``MissingGreenlet``
+      lazy load when Pydantic walks the relationship).
+    * Always-loaded children (drill segments, observations) stay
+      intact.
+
+    The "default (None) loads everything" path is already covered by
+    ``test_save_persists_samples_with_lab_tests`` above, so we only
+    test the new scoped behaviour here.
+    """
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="include-scoped")
+    sample = SampleOrm(id=uuid7(), depth_top_m=1.0, depth_base_m=2.0)
+    sample.grain_sizes = [
+        GrainSizeOrm(
+            id=uuid7(),
+            diameters_mm=[0.063, 1.0],
+            pct_larger=[95.0, 5.0],
+            method="Zeving",
+            lime_removed=False,
+            organics_removed=False,
+        )
+    ]
+    sample.atterberg_limits_tests = [
+        AtterbergLimitsOrm(
+            id=uuid7(),
+            liquid_limit_pct=40.0,
+            plastic_limit_pct=20.0,
+            non_plastic=False,
+            method="Casagrande",
+        )
+    ]
+    sample.caco3_content_tests = [CaCO3ContentOrm(id=uuid7(), content_pct=10.0, method="C")]
+    sample.organic_content_tests = [OrganicContentOrm(id=uuid7(), carbon_pct=1.0, matter_pct=2.0)]
+    sample.water_content_tests = [WaterContentOrm(id=uuid7(), content_pct=25.0, method="Oven")]
+    bh.samples = [sample]
+
+    await repo.save(bh)
+    await db_session.commit()
+
+    # Scoped to two families — others stamp empty.
+    got = await repo.get_by_id(
+        bh.id,
+        include_lab_tests={"grain_sizes", "atterberg_limits_tests"},
+    )
+    assert got is not None
+    s = got.samples[0]
+    assert len(s.grain_sizes) == 1
+    assert len(s.atterberg_limits_tests) == 1
+    assert s.caco3_content_tests == []
+    assert s.organic_content_tests == []
+    assert s.water_content_tests == []
+    assert s.scalar_lab_tests == []
+    # Always-loaded children survive the scoped path.
+    assert isinstance(got.drill_segments, list)
+    assert isinstance(got.observations, list)
+
+
+async def test_get_by_id_empty_include_set_skips_all_lab_tests(
+    db_session: AsyncSession,
+) -> None:
+    """Empty ``include_lab_tests`` set loads zero families.
+
+    Distinct test (not bundled with the scoped-subset case) so the
+    session is fresh — re-querying the same borehole on the same
+    session after a stamping pass hits SQLAlchemy's identity map +
+    async greenlet trap. Production never does that (1:1 session per
+    request), but the test must isolate to avoid the false failure.
+    """
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="include-empty-set")
+    sample = SampleOrm(id=uuid7(), depth_top_m=1.0, depth_base_m=2.0)
+    sample.grain_sizes = [
+        GrainSizeOrm(
+            id=uuid7(),
+            diameters_mm=[0.5],
+            pct_larger=[50.0],
+            method="Zeving",
+            lime_removed=False,
+            organics_removed=False,
+        )
+    ]
+    bh.samples = [sample]
+    await repo.save(bh)
+    await db_session.commit()
+
+    got = await repo.get_by_id(bh.id, include_lab_tests=set())
+    assert got is not None
+    s = got.samples[0]
+    assert s.grain_sizes == []
+    assert s.atterberg_limits_tests == []
+    assert s.caco3_content_tests == []
+    assert s.organic_content_tests == []
+    assert s.water_content_tests == []
+    assert s.scalar_lab_tests == []
+
+
+async def test_get_by_id_rejects_unknown_lab_test_relationship(
+    db_session: AsyncSession,
+) -> None:
+    """Unknown relationship names raise ``ValueError`` before SQL runs.
+
+    Defensive: callers should validate input upstream (the router
+    does), but a hard error inside the repository is the loud failure
+    mode the API rule promises (debt #2).
+    """
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="include-unknown")
+    await repo.save(bh)
+    await db_session.commit()
+
+    import pytest
+
+    with pytest.raises(ValueError, match="Unknown lab-test relationship"):
+        await repo.get_by_id(bh.id, include_lab_tests={"made_up_family"})
+
+
 async def test_organic_content_independent_oc_om(db_session: AsyncSession) -> None:
     """Setting one of OC / OM does NOT auto-populate the other."""
     repo = BoreholeRepository(db_session)
