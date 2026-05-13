@@ -667,6 +667,50 @@ export default function SectionPanel({
     )
   }, [placedColumns, focusedColumn])
 
+  // SVG-level right-click handler. Acts as the wide-area fallback so
+  // the user can right-click anywhere within a column's VISUAL width
+  // (including the CPT data band + borehole lithology strips) to open
+  // the context menu — not just the narrow 14 px column-axis hit-box
+  // the ColumnGlyph rect covers. Hit-detection runs against the
+  // currently-visible placed columns; outside any column the
+  // browser's default menu is still suppressed (preventDefault always)
+  // and any open menu is dismissed.
+  const handleSvgContextMenu = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      e.preventDefault()
+      const containerRect = containerRef.current?.getBoundingClientRect()
+      const svgRect = e.currentTarget.getBoundingClientRect()
+      if (!containerRect) return
+      const svgLocalX = e.clientX - svgRect.left
+      let hit: { kind: 'cpt' | 'borehole'; id: string; name: string } | null = null
+      let bestDist = Number.POSITIVE_INFINITY
+      for (const col of visibleColumns) {
+        const halfW = col.width / 2
+        const dist = Math.abs(svgLocalX - col.nudgedX)
+        if (dist <= halfW && dist < bestDist) {
+          bestDist = dist
+          hit = {
+            kind: col.kind,
+            id: col.proj.item.id,
+            name: col.proj.item.name,
+          }
+        }
+      }
+      if (hit) {
+        setContextMenu({
+          x: e.clientX - containerRect.left,
+          y: e.clientY - containerRect.top,
+          kind: hit.kind,
+          id: hit.id,
+          name: hit.name,
+        })
+      } else {
+        setContextMenu(null)
+      }
+    },
+    [visibleColumns],
+  )
+
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
   // nearest CPT neighbour on the cross-section is far enough away
@@ -828,6 +872,7 @@ export default function SectionPanel({
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
             onDoubleClick={resetView}
+            onContextMenu={handleSvgContextMenu}
           >
             {/* Soil-code pattern defs — hoisted to a single ``<defs>``
                 so every BoreholeColumn renders into the same pattern
@@ -1185,7 +1230,7 @@ export default function SectionPanel({
 function CanvasHints(): JSX.Element {
   return (
     <div className="absolute bottom-2 left-2 z-10 text-[10px] text-gray-400 bg-white/80 px-1.5 py-0.5 rounded pointer-events-none">
-      Drag to pan · scroll to zoom · double-click to reset
+      Drag to pan · scroll to zoom · double-click to reset · right-click a column to focus
     </div>
   )
 }
