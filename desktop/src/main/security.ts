@@ -23,7 +23,40 @@
  * tests next to them, not in the implementation.
  */
 
+import { resolve, sep } from 'path'
+
 const API_PORT = 8765
+
+/**
+ * Canonicalises a filesystem path for membership checks in an
+ * "authorised paths" set (debt #37).
+ *
+ * Returns the absolute path with normalised separators, with
+ * trailing separator stripped, lowercased on win32 so the set
+ * lookup is case-insensitive (NTFS is case-insensitive by default).
+ * Returns ``null`` for inputs that can't be normalised (empty
+ * string, non-string).
+ *
+ * The function deliberately ``resolve()``s — ``"."`` / ``".."``
+ * segments collapse, so a renderer that tries
+ * ``project:write-file("C:\\authorised\\..\\..\\evil")`` cannot
+ * smuggle through with a path that looks safe by string match but
+ * resolves elsewhere.
+ */
+export function normalizePathForCompare(input: unknown): string | null {
+  if (typeof input !== 'string' || input.length === 0) return null
+  let resolved: string
+  try {
+    resolved = resolve(input)
+  } catch {
+    return null
+  }
+  // Strip trailing separator so "C:\\x" and "C:\\x\\" are the same.
+  const trimmed = resolved.endsWith(sep) && resolved.length > sep.length
+    ? resolved.slice(0, -sep.length)
+    : resolved
+  return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed
+}
 
 /**
  * Returns the Content-Security-Policy header value the main process
