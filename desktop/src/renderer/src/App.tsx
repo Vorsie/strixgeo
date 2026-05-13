@@ -692,12 +692,62 @@ export default function App() {
     [project, activeGeologicalModel],
   )
 
-  // All-or-nothing batch commit — fired by the section editor's
-  // multi-drag and cross-column re-anchor flows. Sends one PUT and
+  // Cross-column COPY commit — fired by plain-drag onto a different
+  // column. Each entry becomes a new contact at the target anchor;
+  // originals stay where they were. The "stamp my interpretation
+  // onto a nearby test" workflow that dogfooding identified as the
+  // dominant cross-column use case.
+  //
+  // Implementation: N parallel POSTs via the existing single-create
+  // endpoint. Acceptable for v1 (typical stack ≤6 contacts; partial-
+  // failure risk small in absolute terms). Promote to a dedicated
+  // ``POST /contacts/batch-create`` endpoint when failure rates
+  // start to bite.
+  const handleBatchCreateContacts = useCallback(
+    async (
+      creates: readonly import('./components/sections/ContactsLayer').ContactCopyPayload[],
+    ): Promise<void> => {
+      if (!project || !activeGeologicalModel) return
+      if (creates.length === 0) return
+      log.debug(
+        'geology',
+        `batchCreateContacts entry count=${creates.length}`,
+      )
+      try {
+        const created = await Promise.all(
+          creates.map(c =>
+            api.geology.createContact(project.id, activeGeologicalModel.id, c),
+          ),
+        )
+        setContacts(prev => [...prev, ...created])
+        addAllToSet(
+          setSessionImportContactIds,
+          created.map(c => c.id),
+        )
+        log.success(
+          'geology',
+          `batchCreateContacts ok count=${created.length}`,
+        )
+      } catch (err) {
+        // Partial failure leaves SOME contacts created and others
+        // missing. Logged loudly so the user can re-drag the missing
+        // ones. Future hardening: a real batch-create endpoint with
+        // single-transaction commit.
+        log.error('geology', 'batchCreateContacts failed (partial?)', err)
+        toast(
+          'error',
+          'Could not copy all contacts to the target — some may be missing.',
+        )
+      }
+    },
+    [project, activeGeologicalModel, setSessionImportContactIds],
+  )
+
+  // All-or-nothing batch UPDATE commit — fired by the section
+  // editor's same-column multi-drag (depth shift) and the explicit
+  // Alt+drag cross-column MOVE (re-anchor). Sends one PUT and
   // patches local state with the returned rows so the section
-  // overlay updates without a refetch. Used in two scenarios:
-  //   * single-contact cross-column drag (anchor changes)
-  //   * multi-selection drag (N contacts move together)
+  // overlay updates without a refetch.
   // The single-contact same-anchor depth-only drag still goes
   // through ``handleUpdateContactDepth`` to keep the existing PATCH
   // tests pinned and to avoid a server round-trip per pixel.
@@ -1935,6 +1985,7 @@ export default function App() {
                 onUpdateContactDepth={handleUpdateContactDepth}
                 onDeleteContact={handleDeleteContact}
                 onBatchUpdateContacts={handleBatchUpdateContacts}
+                onBatchCreateContacts={handleBatchCreateContacts}
                 onCreateFormation={handleInlineCreateFormation}
                 onExportDxf={
                   activeGeologicalModel
