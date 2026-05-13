@@ -1581,33 +1581,6 @@ than no landing page.
 exports). Start collecting emails before announcing pricing — the
 list calibrates demand and the launch send is the conversion event.
 
-### 14. Race-safe upsert on investigation_review (low)
-
-**What.** ``InvestigationReviewRepository.set_for_target`` is a
-SELECT-then-INSERT/UPDATE pattern. Two concurrent PUTs for the same
-``(target_kind, target_id)`` both pass the ``get_for_target() is
-None`` check, both ``add()``, then one commit raises
-``IntegrityError`` against ``uq_investigation_review_target``. The
-losing caller sees a 500.
-
-**Why deferred.** Solo-dev today never fires this race. A real fix
-needs ``INSERT ... ON CONFLICT DO UPDATE`` with pre-merged values, or
-a try/IntegrityError-rollback/retry loop — both are touchier than
-the rest of the upsert. Worth a focused session, not a side-effect
-of a quality pass.
-
-**Fix shape.** ``sqlalchemy.dialects.postgresql.insert(...)
-.on_conflict_do_update(index_elements=["target_kind", "target_id"],
-set_=...)``. Merge the patch with the current row's values
-client-side so the ``set_`` dict carries the full desired state
-(preserving the per-key None policy and transition-only
-``reviewed_at`` rule). Test with two concurrent ``asyncio.gather``
-calls hitting the same target.
-
-**When.** Before any rapid-fire UI control (e.g. a debounced slider
-that posts on every change) lands against this endpoint, or before
-multi-user editing of the same project lands.
-
 ### 15. Cross-field invariants raise from domain dataclasses
 
 **What.** ``DrillSegment``, ``ObservationLayer``,
