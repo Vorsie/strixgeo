@@ -201,11 +201,15 @@ export function useSectionData(
         log.debug('dem', `loaded ${res.samples.length} samples from ${res.source}`)
       })
       .catch(err => {
-        // Backend returns 400 when the section's CRS isn't mapped
-        // to a DEM source (anything outside EPSG:31370 today). Stay
-        // quiet — the section still renders cleanly, just without
-        // the surface line.
-        log.warn('dem', `sample failed for section ${section.id}`, err)
+        // Stay quiet — the section still renders cleanly without
+        // the surface line. Common causes:
+        //   * 400 — section CRS isn't mapped to a DEM source
+        //           (anything outside EPSG:31370 today)
+        //   * 502 — upstream DHMVII WCS unreachable / throttled
+        // Both are recoverable; demoted to debug so the console
+        // doesn't spam on every section open (Strict-mode double
+        // mount fires this twice per section in dev).
+        log.debug('dem', `sample failed for section ${section.id}`, err)
       })
     return () => {
       cancelled = true
