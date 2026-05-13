@@ -1,0 +1,86 @@
+# Strix CI — runs the same fast gate the local pre-commit hook
+# enforces, but on the GitHub side so the gate survives anyone
+# committing with ``--no-verify``. Mirrors the pre-commit hook's
+# strategy: skip-when-irrelevant + fail-fast on the cheap signal.
+#
+# Why a workflow this small for a solo dev: the moment a second
+# contributor (or a paid customer running off ``main``) lands,
+# the safety net has to live somewhere other than the author's
+# laptop. See debt #6 in CLAUDE.md "Known Architectural Debt".
+#
+# Two parallel jobs:
+#   * **python** — Python 3.11 + uv. Runs ``pytest tests/unit``.
+#   * **desktop** — Node 22 LTS (pinned per debt-resolved Node 22
+#     constraint). Runs ``npx tsc --noEmit`` + ``npm test``.
+#
+# Integration tests (``tests/integration/``) are skipped here —
+# they need a live Postgres + PostGIS stack which adds complexity
+# we don't yet need. Promote when the desktop side is ready for
+# end-to-end smoke runs.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Cancel queued runs from the same branch when a newer push lands —
+# saves CI minutes on rapid push cycles. The latest commit's run is
+# always the authoritative one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          # Pin uv major-minor so future breaking changes don't
+          # surprise CI. Bump explicitly when the local dev env
+          # moves.
+          version: "0.5"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit -q
+
+  desktop:
+    name: Desktop tsc + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          # Node 22 LTS is load-bearing — Node 24.15 segfaults on
+          # the vite/vitest static-ESM resolver path. CLAUDE.md
+          # § "Tech Stack" carries the full diagnosis.
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Run unit tests
+        run: npm test --silent
