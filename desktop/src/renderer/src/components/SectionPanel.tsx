@@ -46,6 +46,7 @@ import ColumnContextMenu from './sections/ColumnContextMenu'
 import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
+import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import CptDataColumn from './sections/CptDataColumn'
 import {
   cptBandFullWidth,
@@ -641,35 +642,6 @@ export default function SectionPanel({
     name: string
   } | null>(null)
 
-  // Context-menu state. Anchored to a container-local coordinate so
-  // the menu renders inside SectionPanel's relative wrapper.
-  const [contextMenu, setContextMenu] = useState<{
-    x: number
-    y: number
-    kind: 'cpt' | 'borehole'
-    id: string
-    name: string
-  } | null>(null)
-
-  const handleColumnContextMenu = useCallback(
-    (
-      e: React.MouseEvent,
-      col: { kind: 'cpt' | 'borehole'; id: string; name: string },
-    ) => {
-      e.preventDefault()
-      const rect = containerRef.current?.getBoundingClientRect()
-      if (!rect) return
-      setContextMenu({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-        kind: col.kind,
-        id: col.id,
-        name: col.name,
-      })
-    },
-    [],
-  )
-
   // Focus enter/exit are event-driven rather than effect-driven.
   // The previous useEffect on ``[focusedColumn]`` had to stale-read
   // viewport + vex + placedColumns from closure (eslint-disabled) —
@@ -742,8 +714,32 @@ export default function SectionPanel({
     setFocusedColumn(null)
   }, [])
 
+  // Filter the layout pass to just the focused column when active.
+  // Downstream warpAnchors, showLabelsByCptId, hideStickIds all read
+  // through this so the focused view renders one column, centred on
+  // its existing nudgedX (the user can pan to recentre).
+  const visibleColumns = useMemo(() => {
+    if (focusedColumn === null) return placedColumns
+    return placedColumns.filter(
+      c => c.kind === focusedColumn.kind && c.proj.item.id === focusedColumn.id,
+    )
+  }, [placedColumns, focusedColumn])
+
+  // Right-click context menu state + handlers — both the
+  // ColumnGlyph hit-box handler and the SVG-level catch-all
+  // fallback live in this hook (debt #30).
+  const {
+    contextMenu,
+    handleColumnContextMenu,
+    handleSvgContextMenu,
+    dismiss: dismissContextMenu,
+  } = useColumnContextMenu(visibleColumns, containerRef)
+
   // Esc exits focus + dismisses any open context menu. Skip when the
   // user is typing into an input so we don't steal text-editing Esc.
+  // Lives after the useColumnContextMenu call because the dep array
+  // references contextMenu + dismissContextMenu — TDZ would crash
+  // first render if this useEffect sat above the hook.
   useEffect(() => {
     function handleKey(e: KeyboardEvent): void {
       if (e.key !== 'Escape') return
@@ -757,24 +753,12 @@ export default function SectionPanel({
       ) {
         return
       }
-      if (contextMenu !== null) setContextMenu(null)
+      if (contextMenu !== null) dismissContextMenu()
       else if (focusedColumn !== null) exitFocus()
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [contextMenu, focusedColumn, exitFocus])
-
-  // Filter the layout pass to just the focused column when active.
-  // Downstream warpAnchors, showLabelsByCptId, hideStickIds all read
-  // through this so the focused view renders one column, centred on
-  // its existing nudgedX (the user can pan to recentre).
-  const visibleColumns = useMemo(() => {
-    if (focusedColumn === null) return placedColumns
-    return placedColumns.filter(
-      c => c.kind === focusedColumn.kind && c.proj.item.id === focusedColumn.id,
-    )
-  }, [placedColumns, focusedColumn])
-
+  }, [contextMenu, focusedColumn, exitFocus, dismissContextMenu])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -808,50 +792,6 @@ export default function SectionPanel({
     }
     return out
   }, [snapToStratigraphy, boreholeDetails])
-
-  // SVG-level right-click handler. Acts as the wide-area fallback so
-  // the user can right-click anywhere within a column's VISUAL width
-  // (including the CPT data band + borehole lithology strips) to open
-  // the context menu — not just the narrow 14 px column-axis hit-box
-  // the ColumnGlyph rect covers. Hit-detection runs against the
-  // currently-visible placed columns; outside any column the
-  // browser's default menu is still suppressed (preventDefault always)
-  // and any open menu is dismissed.
-  const handleSvgContextMenu = useCallback(
-    (e: React.MouseEvent<SVGSVGElement>) => {
-      e.preventDefault()
-      const containerRect = containerRef.current?.getBoundingClientRect()
-      const svgRect = e.currentTarget.getBoundingClientRect()
-      if (!containerRect) return
-      const svgLocalX = e.clientX - svgRect.left
-      let hit: { kind: 'cpt' | 'borehole'; id: string; name: string } | null = null
-      let bestDist = Number.POSITIVE_INFINITY
-      for (const col of visibleColumns) {
-        const halfW = col.width / 2
-        const dist = Math.abs(svgLocalX - col.nudgedX)
-        if (dist <= halfW && dist < bestDist) {
-          bestDist = dist
-          hit = {
-            kind: col.kind,
-            id: col.proj.item.id,
-            name: col.proj.item.name,
-          }
-        }
-      }
-      if (hit) {
-        setContextMenu({
-          x: e.clientX - containerRect.left,
-          y: e.clientY - containerRect.top,
-          kind: hit.kind,
-          id: hit.id,
-          name: hit.name,
-        })
-      } else {
-        setContextMenu(null)
-      }
-    },
-    [visibleColumns],
-  )
 
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
@@ -1316,7 +1256,7 @@ export default function SectionPanel({
                 name: contextMenu.name,
               })
             }
-            onClose={() => setContextMenu(null)}
+            onClose={dismissContextMenu}
           />
         )}
         {focusedColumn !== null && (
