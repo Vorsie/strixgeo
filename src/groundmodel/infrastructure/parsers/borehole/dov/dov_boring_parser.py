@@ -464,10 +464,28 @@ class DovBoringParser(GroundModelLogger):
                     )
                 )
                 continue
+            # Cross-field pre-check (debt #15 — invariant lives in the
+            # parser per Data Integrity §5, not in the dataclass).
+            if base <= top:
+                self.warning(
+                    f"DOV boring '{name}': drill segment with inverted "
+                    f"interval base={base} <= top={top} — skipping"
+                )
+                issues.append(
+                    _issue(
+                        ValidationLevel.WARNING,
+                        "INVALID_INTERVAL",
+                        f"DOV boring '{name}': drill segment {top}–{base}m: "
+                        f"base must be greater than top",
+                    )
+                )
+                continue
             try:
                 segments.append(DrillSegment(top_m=top, base_m=base, method=method))
                 self.trace(f"DOV boring '{name}': drill segment {top}–{base} m method={method!r}")
             except ValueError as exc:
+                # Remaining single-field guards (negativity, empty
+                # method) still raise from the dataclass; catch those.
                 self.warning(
                     f"DOV boring '{name}': invalid drill segment {top}–{base} {method!r}: {exc}"
                 )
@@ -522,6 +540,21 @@ class DovBoringParser(GroundModelLogger):
                             "INCOMPLETE_FIELD_LOG",
                             f"DOV boring '{name}': {kind.value} interval with "
                             f"missing field (van={top}, tot={base}, value={value!r})",
+                        )
+                    )
+                    continue
+                # Cross-field pre-check (debt #15).
+                if base <= top:
+                    self.warning(
+                        f"DOV boring '{name}': {kind.value} interval with "
+                        f"inverted bounds base={base} <= top={top} — skipping"
+                    )
+                    issues.append(
+                        _issue(
+                            ValidationLevel.WARNING,
+                            "INVALID_INTERVAL",
+                            f"DOV boring '{name}': {kind.value} {top}–{base}m: "
+                            f"base must be greater than top",
                         )
                     )
                     continue
