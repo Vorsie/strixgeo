@@ -22,6 +22,15 @@ dependencies = [
     "python-multipart>=0.0.27",
     "httpx[http2]>=0.27",
     "pyproj>=3.6",
+    # defusedxml — every DOV XML parser routes through this instead of
+    # stdlib ``xml.etree.ElementTree``. Stdlib ET is vulnerable to
+    # billion-laughs entity expansion + external DTD fetches; defusedxml
+    # is a drop-in API replacement with those guards on by default. DOV
+    # is a trusted source today, but a MITM serving a malicious response
+    # could still wedge an import — and the bundle-restore path could
+    # eventually load XML from a user-shared .gmproj where the recipient
+    # doesn't trust the sender. See debt #12.
+    "defusedxml>=0.7.1",
     # Pillow reads the GeoTIFF blobs we sample from DHMVII WCS for the
     # cross-section DEM ground-line. Chosen over tifffile + numpy
     # because it ships pre-built wheels everywhere, handles 32-bit
