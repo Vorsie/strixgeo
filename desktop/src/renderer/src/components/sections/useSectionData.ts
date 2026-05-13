@@ -50,6 +50,7 @@ import {
   readBoreholeChannels,
   readColumnSpacing,
   readCptChannels,
+  readSnapToStratigraphy,
   type BoreholeChannels,
   type CptChannels,
 } from './cptChannels'
@@ -82,6 +83,14 @@ export interface SectionData {
    * commit path to ``PATCH /sections/{id}`` so the choice rides the
    * .gmproj bundle on next save. */
   setColumnSpacing: (next: number) => void
+  /** When true, click-to-place on a borehole snaps the contact
+   * depth to the nearest formal/informal stratigraphy boundary
+   * within an 8 px tolerance. Reads from
+   * ``section.view_state.snap_to_stratigraphy``. */
+  snapToStratigraphy: boolean
+  /** Update the in-memory snap-toggle state. Same commit pattern as
+   * channel toggles. */
+  setSnapToStratigraphy: (next: boolean) => void
   /** DEM ground-surface samples along the section line. ``null``
    * while the request is in flight (or after an error — the
    * renderer simply skips the polyline). */
@@ -151,10 +160,14 @@ export function useSectionData(
   const [boreholeChannels, setBoreholeChannels] = useState<BoreholeChannels>(() =>
     readBoreholeChannels(section.view_state),
   )
+  const [snapToStratigraphy, setSnapToStratigraphy] = useState<boolean>(() =>
+    readSnapToStratigraphy(section.view_state),
+  )
   useEffect(() => {
     setCptChannels(readCptChannels(section.view_state))
     setColumnSpacing(readColumnSpacing(section.view_state))
     setBoreholeChannels(readBoreholeChannels(section.view_state))
+    setSnapToStratigraphy(readSnapToStratigraphy(section.view_state))
     // reason: we only want to re-read on section identity change,
     // not on every server-roundtrip update to view_state — see
     // the comment block above for the flicker rationale.
@@ -354,6 +367,8 @@ export function useSectionData(
     setBoreholeChannels,
     columnSpacing,
     setColumnSpacing,
+    snapToStratigraphy,
+    setSnapToStratigraphy,
     demSamples,
     cptPlots,
     projectedCpts,
