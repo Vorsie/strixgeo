@@ -143,6 +143,11 @@ interface Props {
     newDepthM: number,
     snapped: boolean,
   ) => Promise<void>
+  /** Right-click → confirm → delete a contact. Forwarded straight
+   * through to ContactsLayer; the picker / drag flows don't touch
+   * it. Caller deletes the row and prunes the local contacts
+   * state so the overlay updates without a refetch. */
+  onDeleteContact?: (contactId: string) => Promise<void>
   /** Inline-create a formation from the picker modal's "New
    * formation here" affordance. Returns the new row's id so the
    * picker can chain to a contact commit. */
@@ -168,6 +173,7 @@ export default function SectionPanel({
   excludedBoreholeIds,
   onCreateContact,
   onUpdateContactDepth,
+  onDeleteContact,
   onCreateFormation,
   onExportDxf,
   onSelectCpt,
@@ -1099,6 +1105,7 @@ export default function SectionPanel({
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
               onUpdateContactDepth={onUpdateContactDepth}
+              onDeleteContact={onDeleteContact}
               snapDepthsByAnchorId={snapDepthsByAnchorId}
               getCptValuesAtDepth={getCptValuesAtDepth}
             />
