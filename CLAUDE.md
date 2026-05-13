@@ -307,7 +307,7 @@ Strix/
 │   │   │   └── lab/           dov/dov_constants.py, dov_grain_size_parser.py,
 │   │   │                          grain_size_parse_result.py
 │   │   ├── exporters/         base_exporter.py, plaxis_exporter.py, ...
-│   │   ├── gis/               postgis_service.py
+│   │   ├── gis/               postgis_service.py, spatial_query.py
 │   │   ├── codelists/         data/ — authoritative DOV CSVs (hoofdnaam,
 │   │   │                              kleur, consistentie) + working-group XLSX
 │   │   └── rust/              groundmodel_core/ (Phase 4)
@@ -1550,24 +1550,6 @@ than no landing page.
 **When.** As soon as the v1.0 MVP gate is real (layer model +
 exports). Start collecting emails before announcing pricing — the
 list calibrates demand and the launch send is the conversion event.
-
-### 16. Mixed-CRS spatial-query guard absent
-
-**What.** The bundle format and the API both accept per-investigation
-EPSG. PostGIS spatial queries (bbox containment, proximity) on a
-mixed-CRS project silently compare geometries in different
-coordinate systems and return wrong results. The
-``_make_location(x, y, epsg)`` builder on bundle restore rebuilds
-``POINT(x y, SRID=epsg)`` correctly, but downstream queries don't
-ST_Transform to a common CRS.
-
-**Why deferred.** All real projects today are mono-CRS (Belgian
-Lambert72 from DOV). The issue surfaces only with multi-source
-imports.
-
-**When to revisit.** Before G3Dv3 import (Phase 5) lands — G3Dv3
-is Lambert72 but users may have RD New (28992) NL boreholes in
-the same project. Or before any project spans the BE/NL border.
 
 ### 25. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
 
