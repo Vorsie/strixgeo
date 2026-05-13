@@ -94,6 +94,7 @@ function renderLayer(
   contacts: FormationContactResponse[],
   formations: GeologicalFormationResponse[],
   placedColumns: PlacedColumn[],
+  excludedBoreholeIds?: ReadonlySet<string>,
 ) {
   return render(
     <svg>
@@ -101,6 +102,7 @@ function renderLayer(
         contacts={contacts}
         formations={formations}
         placedColumns={placedColumns}
+        excludedBoreholeIds={excludedBoreholeIds}
         levelToScreen={flipped}
         plotTop={0}
         plotBottom={50}
@@ -113,9 +115,25 @@ describe('ContactsLayer', () => {
   it('renders nothing when there are no contacts', () => {
     const { container } = renderLayer([], [makeFormation()], [makeBoreholePlaced('bh-1', 50)])
     expect(container.querySelector('path')).toBeNull()
+    expect(container.querySelector('line')).toBeNull()
   })
 
-  it('renders one polyline per formation across its contacts', () => {
+  it('emits no circle markers — dots replaced by horizontal top segments', () => {
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-2', depth_top_m: 5 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation()],
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
+    )
+    // No circles anywhere — the old per-contact dot was the user's
+    // specific complaint.
+    expect(container.querySelectorAll('circle').length).toBe(0)
+  })
+
+  it('renders one cross-column polyline per formation with ≥2 anchors', () => {
     const contacts = [
       makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
       makeContact({ id: 'c-2', borehole_id: 'bh-2', depth_top_m: 5 }),
@@ -126,30 +144,86 @@ describe('ContactsLayer', () => {
       [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
     )
     expect(container.querySelectorAll('path').length).toBe(1)
-    // Two vertex circles, one per contact.
-    expect(container.querySelectorAll('circle').length).toBe(2)
-    // Name label appears once per formation.
-    expect(container.querySelector('text')?.textContent).toBe('Boom Klei')
   })
 
-  it('separates polylines by formation', () => {
+  it('emits a horizontal segment at every contact top', () => {
     const contacts = [
-      makeContact({ id: 'c-1', formation_id: 'f-1', borehole_id: 'bh-1' }),
-      makeContact({ id: 'c-2', formation_id: 'f-2', borehole_id: 'bh-2' }),
-    ]
-    const formations = [
-      makeFormation({ id: 'f-1', name: 'Boom Klei', color: '#ff0000' }),
-      makeFormation({ id: 'f-2', name: 'Diest Zand', color: '#00ff00' }),
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-2', depth_top_m: 5 }),
     ]
     const { container } = renderLayer(
       contacts,
-      formations,
+      [makeFormation()],
       [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
     )
-    expect(container.querySelectorAll('path').length).toBe(2)
-    const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent)
-    expect(texts).toContain('Boom Klei')
-    expect(texts).toContain('Diest Zand')
+    // Two contacts → two top segments. Each line has y1 === y2.
+    const lines = Array.from(container.querySelectorAll('line'))
+    expect(lines.length).toBe(2)
+    for (const ln of lines) {
+      expect(ln.getAttribute('y1')).toBe(ln.getAttribute('y2'))
+    }
+  })
+
+  it('renders the formation name once per anchored layer', () => {
+    // Two boreholes, each carrying one contact (so each anchor
+    // gets one layer that extends to total_depth_m=30). Short
+    // formation name so the width-aware truncation budget at the
+    // fixture's column width (14 px) still emits the full string.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-2', depth_top_m: 5 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
+    )
+    const texts = Array.from(container.querySelectorAll('text'))
+    expect(texts.filter(t => t.textContent === 'X').length).toBe(2)
+  })
+
+  it('positions the layer name in the vertical middle of the layer', () => {
+    // Single contact at depth 3 on a borehole with
+    // total_depth_m=30. Layer spans [3, 30]. With surface=10 and
+    // flipped(level)=20-level, segment Y = flipped(10-3) = 13.
+    // Bottom level = 10-30 = -20 → Y = 40 (still inside plotBottom
+    // = 50, so no clamp). Middle = (13+40)/2 = 26.5.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+    )
+    const texts = Array.from(container.querySelectorAll('text'))
+    expect(texts.length).toBe(1)
+    expect(Number(texts[0].getAttribute('y'))).toBeCloseTo(26.5, 1)
+    expect(texts[0].getAttribute('x')).toBe('100')
+    expect(texts[0].getAttribute('text-anchor')).toBe('middle')
+  })
+
+  it('uses the next-deeper contact as the floor of the upper layer', () => {
+    // Two contacts on the same borehole at depths 2 and 16
+    // (total_depth_m=30 from fixture). Both layers stretch ≥
+    // LAYER_LABEL_MIN_HEIGHT_PX (=14 px) so both get a middle
+    // label. levelToScreen=flipped(level)=20-level → 1 px / m:
+    //   upper [2, 16] : top Y=12, bottom Y=26, mid=19
+    //   lower [16, 30]: top Y=26, bottom Y=40, mid=33
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 2 }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 16 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+    )
+    const texts = Array.from(container.querySelectorAll('text'))
+    expect(texts.length).toBe(2)
+    const ys = texts.map(t => Number(t.getAttribute('y'))).sort((a, b) => a - b)
+    expect(ys[0]).toBeCloseTo(19, 1)
+    expect(ys[1]).toBeCloseTo(33, 1)
   })
 
   it('skips contacts whose anchor borehole has no elevation', () => {
@@ -160,6 +234,7 @@ describe('ContactsLayer', () => {
       [makeBoreholePlaced('bh-no-z', 50, null)],
     )
     expect(container.querySelector('path')).toBeNull()
+    expect(container.querySelector('line')).toBeNull()
   })
 
   it('skips contacts anchored at boreholes excluded from the model', () => {
@@ -167,29 +242,19 @@ describe('ContactsLayer', () => {
       makeContact({ id: 'c-1', borehole_id: 'bh-keep' }),
       makeContact({ id: 'c-2', borehole_id: 'bh-skip' }),
     ]
-    const { container } = render(
-      <svg>
-        <ContactsLayer
-          contacts={contacts}
-          formations={[makeFormation()]}
-          placedColumns={[
-            makeBoreholePlaced('bh-keep', 50),
-            makeBoreholePlaced('bh-skip', 150),
-          ]}
-          excludedBoreholeIds={new Set(['bh-skip'])}
-          levelToScreen={flipped}
-          plotTop={0}
-          plotBottom={50}
-        />
-      </svg>,
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation()],
+      [makeBoreholePlaced('bh-keep', 50), makeBoreholePlaced('bh-skip', 150)],
+      new Set(['bh-skip']),
     )
-    // Only the bh-keep contact contributes a vertex; the polyline
-    // has a single anchor and so renders as a one-point path with
-    // a single circle marker.
-    expect(container.querySelectorAll('circle').length).toBe(1)
+    // Only the bh-keep contact contributes a top segment.
+    expect(container.querySelectorAll('line').length).toBe(1)
+    // No cross-column polyline either — only one vertex remains.
+    expect(container.querySelector('path')).toBeNull()
   })
 
-  it('uses the formation colour for the polyline stroke', () => {
+  it('uses the formation colour for both segment + polyline stroke', () => {
     const contacts = [
       makeContact({ id: 'c-1', borehole_id: 'bh-1' }),
       makeContact({ id: 'c-2', borehole_id: 'bh-2' }),
@@ -200,5 +265,6 @@ describe('ContactsLayer', () => {
       [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
     )
     expect(container.querySelector('path')?.getAttribute('stroke')).toBe('#aabbcc')
+    expect(container.querySelector('line')?.getAttribute('stroke')).toBe('#aabbcc')
   })
 })
