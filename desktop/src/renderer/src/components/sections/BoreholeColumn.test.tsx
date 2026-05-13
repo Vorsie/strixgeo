@@ -276,6 +276,10 @@ describe('BoreholeColumn — N-strip rendering', () => {
     fireEvent.click(findClickCaptureRect(container), { clientY: 4 })
     expect(onCommitDepth).toHaveBeenCalledTimes(1)
     expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(5, 5)
+    // The anchor must report snapped=true so the App handler can
+    // set source='borehole_observation' + confidence='high' (debt
+    // #22/#23).
+    expect(onCommitDepth.mock.calls[0][0].snapped).toBe(true)
   })
 
   it('does NOT snap when the click is outside the tolerance band (debt #32)', () => {
@@ -298,6 +302,7 @@ describe('BoreholeColumn — N-strip rendering', () => {
     fireEvent.click(findClickCaptureRect(container), { clientY: 25 })
     expect(onCommitDepth).toHaveBeenCalledTimes(1)
     expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(25, 5)
+    expect(onCommitDepth.mock.calls[0][0].snapped).toBe(false)
   })
 
   it('does NOT snap when snapToStratigraphy is off, even near a boundary (debt #32)', () => {
@@ -319,6 +324,7 @@ describe('BoreholeColumn — N-strip rendering', () => {
     fireEvent.click(findClickCaptureRect(container), { clientY: 4 })
     expect(onCommitDepth).toHaveBeenCalledTimes(1)
     expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(4, 5)
+    expect(onCommitDepth.mock.calls[0][0].snapped).toBe(false)
   })
 
   it('keeps slot positions stable when a borehole is missing the enabled stream', () => {
