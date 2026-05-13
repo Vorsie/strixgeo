@@ -4,10 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Strix</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    />
+    <!-- Leaflet CSS is imported locally from the npm package by
+         MapView.tsx (``import 'leaflet/dist/leaflet.css'``) — the
+         unpkg CDN link that used to live here was redundant + a
+         supply-chain hop a signed installer shouldn't carry
+         (security debt #36). -->
   </head>
   <body>
     <div id="root"></div>
