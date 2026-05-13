@@ -488,12 +488,29 @@ export function useProject(): UseProject {
         // actually displayed in this session, so writing it to disk
         // keeps the .strix truthful. The DB rows stay (DOV cache +
         // referential integrity preserved).
+        // Formations referenced by ANY model contact must ride along
+        // even when the manifest doesn't carry them — otherwise the
+        // contact lands in the file with a dangling formation_id and
+        // restore hits an FK violation on next open. This was a real
+        // data-loss bug shape: auto-populate created formations
+        // server-side, the user saved before the manifest fix, and
+        // the contacts ended up orphan-referencing missing formations.
+        const referencedFormationIds = new Set<string>()
+        for (const m of bundle.geological_models as Array<{
+          contacts?: Array<{ formation_id?: string }>
+        }>) {
+          for (const c of m.contacts ?? []) {
+            if (c.formation_id) referencedFormationIds.add(c.formation_id)
+          }
+        }
         const trimmedBundle = {
           ...bundle,
           cpts: bundle.cpts.filter(c => manifestCptIds.has(c.id)),
           boreholes: bundle.boreholes.filter(b => manifestBoreholeIds.has(b.id)),
-          geological_formations: bundle.geological_formations.filter(f =>
-            manifestFormationIds.has(f.id),
+          geological_formations: bundle.geological_formations.filter(
+            f =>
+              manifestFormationIds.has(f.id) ||
+              referencedFormationIds.has(f.id),
           ),
           cross_sections: bundle.cross_sections.filter(s =>
             manifestSectionIds.has(s.id),
