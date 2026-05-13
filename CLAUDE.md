@@ -1592,26 +1592,6 @@ contacts. At that point ``FormationContact`` needs either
 ``geotechnical_unit_id`` FK or a separate ``GeotechnicalContact``
 entity. Design the anchor before Phase 5 export work begins.
 
-### 29. ContactsLayer ``useMemo`` invalidates on every pan via ``levelToScreen`` dep (medium — perf)
-
-**What.** ``ContactsLayer`` lists ``levelToScreen`` in its main
-``useMemo`` dep array. ``levelToScreen`` is a ``useCallback`` in
-``SectionPanel`` keyed on ``[effLevelMax, scaleV]`` — both change
-on every vertical pan. The whole ``layers + polylines`` derivation
-(O(N × M) over columns × contacts) re-runs on every pan frame.
-Imperceptible at today's typical scale (~30 columns × 30
-contacts); becomes measurable at 500+ contacts on a tall section.
-
-**Why deferred.** Correct fix is to decouple the screen-Y
-computation from the data-geometry pass: compute anchor
-``depth_m`` + ``surfaceElevationM`` inside the memo, defer screen
-coords to the render pass. Structural change to ``RenderedLayer``.
-
-**When to revisit.** If pan stutter is reported on a real ≥ 200
-contact section, or before any viewport tweening / animation
-lands.
-
-
 ### 33. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
 
 **What.** CLAUDE.md "Distribution model" plans an installer that
