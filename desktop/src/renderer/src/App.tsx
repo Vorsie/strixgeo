@@ -451,16 +451,46 @@ export default function App() {
     setSessionImportBoreholeIds(new Set())
     setSessionImportFormationIds(new Set())
     setSessionImportSectionIds(new Set())
+    // Contacts aren't in the manifest (the geological_models bundle
+    // walks contacts as opaque dicts). On discard, the session's
+    // created contacts must be DB-deleted — otherwise the next
+    // project open re-fetches them from /geology/.../contacts and
+    // they reappear despite the "unsaved → lost" promise. Fire and
+    // forget; an individual DELETE failure just leaves the row
+    // orphaned in the DB (acceptable trade-off vs. a blocking
+    // discard).
+    if (
+      project &&
+      activeGeologicalModel &&
+      sessionImportContactIds.size > 0
+    ) {
+      const projectId = project.id
+      const modelId = activeGeologicalModel.id
+      const idsToDelete = Array.from(sessionImportContactIds)
+      for (const contactId of idsToDelete) {
+        void api.geology
+          .deleteContact(projectId, modelId, contactId)
+          .catch(err =>
+            log.error('geology', `discard deleteContact failed id=${contactId}`, err),
+          )
+      }
+      setContacts(prev => prev.filter(c => !sessionImportContactIds.has(c.id)))
+    }
+    setSessionImportContactIds(new Set())
   }, [
     sessionImportCptIds,
     sessionImportBoreholeIds,
     sessionImportFormationIds,
     sessionImportSectionIds,
+    sessionImportContactIds,
     removeFromManifest,
     setSessionImportCptIds,
     setSessionImportBoreholeIds,
     setSessionImportFormationIds,
     setSessionImportSectionIds,
+    setSessionImportContactIds,
+    project,
+    activeGeologicalModel,
   ])
 
   // Interpretation-pane callbacks. When the user creates / deletes a
@@ -572,6 +602,10 @@ export default function App() {
       formationId: string,
     ): Promise<void> => {
       if (!project || !activeGeologicalModel) return
+      log.debug(
+        'geology',
+        `createContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId}`,
+      )
       try {
         const created = await api.geology.createContact(
           project.id,
@@ -586,6 +620,10 @@ export default function App() {
         )
         setContacts(prev => [...prev, created])
         addAllToSet(setSessionImportContactIds, [created.id])
+        log.success(
+          'geology',
+          `createContact ok id=${created.id} depth=${created.depth_top_m.toFixed(3)}m`,
+        )
       } catch (err) {
         log.error('geology', 'createContact failed', err)
         toast('error', 'Could not place the formation contact.')
@@ -601,6 +639,10 @@ export default function App() {
   const handleUpdateContactDepth = useCallback(
     async (contactId: string, newDepthM: number): Promise<void> => {
       if (!project || !activeGeologicalModel) return
+      log.debug(
+        'geology',
+        `updateContactDepth entry id=${contactId} newDepth=${newDepthM.toFixed(3)}m`,
+      )
       try {
         const updated = await api.geology.updateContact(
           project.id,
@@ -609,6 +651,10 @@ export default function App() {
           { depth_top_m: newDepthM },
         )
         setContacts(prev => prev.map(c => (c.id === contactId ? updated : c)))
+        log.success(
+          'geology',
+          `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m`,
+        )
       } catch (err) {
         log.error('geology', 'updateContact failed', err)
         toast('error', 'Could not update the contact depth.')
