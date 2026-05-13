@@ -25,6 +25,7 @@
 import { useMemo, useRef, useState } from 'react'
 
 import type { CptPlotResponse } from '../../api/client'
+import HoverReadoutCard from './HoverReadoutCard'
 
 interface Props {
   plot: CptPlotResponse
@@ -46,8 +47,11 @@ interface Props {
   bgBottomY: number
   levelToScreen: (level: number) => number
   /** Fires when the user clicks at a depth. Caller opens the
-   * formation picker pre-seeded with the depth. */
-  onCommitDepth: (anchor: {
+   * formation picker pre-seeded with the depth. Optional so the bar
+   * can render in read-only hover-readout mode (focus view without
+   * an active geological model) — click does nothing in that case
+   * but hover still surfaces depth / mTAW / qc / Rf. */
+  onCommitDepth?: (anchor: {
     kind: 'cpt'
     cptId: string
     cptName: string
@@ -146,7 +150,7 @@ export default function ContactPickBar({
   }
 
   function handleClick(): void {
-    if (cursorY === null) return
+    if (cursorY === null || !onCommitDepth) return
     const depth = depthAtY(cursorY)
     onCommitDepth({
       kind: 'cpt',
@@ -182,10 +186,10 @@ export default function ContactPickBar({
         width={2 * halfWidth}
         height={bgBottomY - bgTopY}
         fill="transparent"
-        style={{ cursor: 'crosshair' }}
+        style={{ cursor: onCommitDepth ? 'crosshair' : 'default' }}
         onMouseMove={handleMove}
         onMouseLeave={handleLeave}
-        onClick={handleClick}
+        onClick={onCommitDepth ? handleClick : undefined}
       />
       {cursorY !== null && (
         <g pointerEvents="none">
@@ -203,81 +207,31 @@ export default function ContactPickBar({
             strokeDasharray="3 2"
           />
           {/* Readout label — right of the band when there's room,
-              otherwise to the left. Stays inside [plotTop,
-              plotBottom] so it never escapes the SVG. */}
-          <ContactPickReadout
+              otherwise the parent could flip it; for now we stay
+              right-only. The card clamps its own Y so it never
+              escapes the SVG. */}
+          <HoverReadoutCard
             x={rightX + 8}
             y={cursorY}
-            depth={depth ?? 0}
-            elevation={elevation ?? 0}
-            qc={qc}
-            rf={rf}
             plotTop={plotTop}
             plotBottom={plotBottom}
+            lines={[
+              { text: `depth ${(depth ?? 0).toFixed(2)} m` },
+              {
+                text: `${(elevation ?? 0) >= 0 ? '+' : ''}${(elevation ?? 0).toFixed(2)} m TAW`,
+              },
+              {
+                text: `qc ${qc === null ? '—' : `${qc.toFixed(2)} MPa`}`,
+                color: '#111827',
+              },
+              {
+                text: `Rf ${rf === null ? '—' : `${rf.toFixed(2)} %`}`,
+                color: '#b45309',
+              },
+            ]}
           />
         </g>
       )}
-    </g>
-  )
-}
-
-function ContactPickReadout({
-  x,
-  y,
-  depth,
-  elevation,
-  qc,
-  rf,
-  plotTop,
-  plotBottom,
-}: {
-  x: number
-  y: number
-  depth: number
-  elevation: number
-  qc: number | null
-  rf: number | null
-  plotTop: number
-  plotBottom: number
-}): JSX.Element {
-  // Card-style readout block — anchored to the cursor Y but
-  // clamped inside the plot area so it never paints over the
-  // axis chrome.
-  const cardHeight = 64
-  const halfH = cardHeight / 2
-  const cy = Math.max(plotTop + halfH, Math.min(plotBottom - halfH, y))
-  return (
-    <g>
-      <rect
-        x={x}
-        y={cy - halfH}
-        width={86}
-        height={cardHeight}
-        fill="#ffffff"
-        fillOpacity={0.95}
-        stroke="#dc2626"
-        strokeWidth={0.75}
-        rx={3}
-      />
-      <text x={x + 6} y={cy - halfH + 13} fontSize={9} fill="#374151">
-        depth {depth.toFixed(2)} m
-      </text>
-      <text x={x + 6} y={cy - halfH + 26} fontSize={9} fill="#374151">
-        {elevation >= 0 ? '+' : ''}
-        {elevation.toFixed(2)} m TAW
-      </text>
-      <text x={x + 6} y={cy - halfH + 41} fontSize={9} fill="#111827">
-        qc{' '}
-        <tspan fontWeight={500}>
-          {qc === null ? '—' : `${qc.toFixed(2)} MPa`}
-        </tspan>
-      </text>
-      <text x={x + 6} y={cy - halfH + 54} fontSize={9} fill="#b45309">
-        Rf{' '}
-        <tspan fontWeight={500}>
-          {rf === null ? '—' : `${rf.toFixed(2)} %`}
-        </tspan>
-      </text>
     </g>
   )
 }
