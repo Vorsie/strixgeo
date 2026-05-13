@@ -467,13 +467,39 @@ export default function App() {
   // formation or section via the pane, we update the manifest + the
   // session-imports set in lockstep so the dirty signal flips
   // immediately and the per-row amber visual lights up.
+  //
+  // Formations are also kept in App.formations state (consumed by
+  // SectionPanel's FormationPickerDialog + ContactsLayer), so each
+  // mutation triggers a re-fetch — that way a formation the user
+  // just created in the Ground model pane shows up in the picker
+  // the next time they click the section. One extra GET per
+  // mutation is cheap at typical project cardinality (dozens of
+  // formations); promote to a structured-callback shape if a
+  // benchmark says otherwise.
+  const refetchFormations = useCallback(() => {
+    if (!project) return
+    void api.geology
+      .listFormations(project.id)
+      .then(setFormations)
+      .catch(err => {
+        log.warn('geology', `listFormations refetch failed`, err)
+      })
+  }, [project])
+
   const handleFormationCreated = useCallback(
     (id: string) => {
       addToManifest('formation', [id])
       addAllToSet(setSessionImportFormationIds, [id])
+      refetchFormations()
     },
-    [addToManifest, setSessionImportFormationIds],
+    [addToManifest, setSessionImportFormationIds, refetchFormations],
   )
+  const handleFormationUpdated = useCallback(() => {
+    // No manifest / dirty change on update (the formation is already
+    // in the manifest); just resync the cached list so renames and
+    // recolour land in the picker + section overlay.
+    refetchFormations()
+  }, [refetchFormations])
   const handleFormationDeleted = useCallback(
     (id: string) => {
       removeFromManifest('formation', [id])
@@ -483,8 +509,9 @@ export default function App() {
         next.delete(id)
         return next
       })
+      refetchFormations()
     },
-    [removeFromManifest, setSessionImportFormationIds],
+    [removeFromManifest, setSessionImportFormationIds, refetchFormations],
   )
   const handleSectionCreated = useCallback(
     (id: string) => {
@@ -1648,6 +1675,7 @@ export default function App() {
           onDeleteSection={handleDeleteSection}
           canCreateSection={project.default_horizontal_epsg != null}
           onFormationCreated={handleFormationCreated}
+          onFormationUpdated={handleFormationUpdated}
           onFormationDeleted={handleFormationDeleted}
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
           activeModelName={activeGeologicalModel?.name ?? null}
