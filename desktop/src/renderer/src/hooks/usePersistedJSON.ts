@@ -30,10 +30,11 @@ export function usePersistedJSON<T>(
       return
     }
     setValue(loadInitial(storageKey, defaultValue, parse))
-    // ``defaultValue`` and ``parse`` are intentionally omitted — they
-    // should be stable across renders (callers typically inline
-    // literals or module-level functions). Re-running on their
-    // identity changes would loop forever for inline objects.
+    // reason: ``defaultValue`` and ``parse`` are intentionally omitted
+    // from the dep array — they should be stable across renders
+    // (callers typically inline literals or module-level functions),
+    // and re-running on their identity changes would loop forever
+    // for inline-object defaults.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey])
 
