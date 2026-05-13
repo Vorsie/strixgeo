@@ -942,6 +942,20 @@ PATCH  /projects/{pid}/sections/{sid}       Partial update. Post-update
                                             distinct-endpoints invariant
                                             re-checked at the API layer.
 DELETE /projects/{pid}/sections/{sid}       Delete a section.
+GET    /projects/{pid}/sections/{sid}/export/dxf
+                                            Stream the section's drawn
+                                            geological model as a DXF file
+                                            (v1.0 MVP gate #5). Query param
+                                            ``model_id`` selects which
+                                            geological model's contacts to
+                                            include. Per-formation polylines
+                                            + per-investigation columns +
+                                            title block. ``application/dxf``
+                                            body with a
+                                            ``Content-Disposition`` header
+                                            naming the section. 404 when the
+                                            section / model / project
+                                            resolution fails.
 
 GET    /projects/{pid}/reviews              List every per-(project,
                                             investigation) decision row
