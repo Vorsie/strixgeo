@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import text
 
 from groundmodel.api.routers import (
@@ -64,15 +65,37 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Ground Model Platform", version="0.1.0", lifespan=lifespan)
 
-# The API only ever binds to 127.0.0.1 and is accessed exclusively by the
-# local Electron renderer (Vite dev server at localhost:5173 in dev, file://
-# origin in production).  Allowing all origins is safe here — there is no
-# internet exposure.
+# The API binds to 127.0.0.1 only; the threat model that matters is NOT
+# network exposure (we have none) but cross-origin reads from other browser
+# tabs the user opens while Strix runs. With ``allow_origins=["*"]`` and no
+# auth, ``evil.com`` open in any tab could ``fetch("http://127.0.0.1:8765/
+# projects/")`` and exfiltrate every CPT/borehole geometry the user has
+# imported (often NDA / defence-adjacent per the privacy framing in
+# CLAUDE.md "Distribution model"). Pin to the Electron renderer's origins:
+#  * dev: vite serves the renderer on localhost:5173 (electron-vite default)
+#  * prod: BrowserWindow ``loadFile()`` serves from file://, which fetch
+#    reports as ``Origin: null`` per the file-scheme rules
+# A wildcard regex covers any random port vite picks if 5173 is taken.
+_ALLOWED_ORIGINS = ["null"]
+_ALLOWED_ORIGIN_REGEX = r"^http://localhost(?::\d+)?$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=_ALLOWED_ORIGIN_REGEX,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# DNS-rebinding defence: binding to 127.0.0.1 doesn't help when a malicious
+# DNS record (set up by a page the user visits) resolves
+# ``some-host.example`` to 127.0.0.1. The browser would then send
+# ``Host: some-host.example`` to our API, and CORSMiddleware's
+# same-origin-by-Host trick wouldn't catch it. TrustedHostMiddleware
+# rejects everything except documented loopback names.
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["127.0.0.1", "localhost"],
 )
 
 app.include_router(cpt.router)
