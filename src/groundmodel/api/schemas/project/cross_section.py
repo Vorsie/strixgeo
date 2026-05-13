@@ -9,6 +9,62 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class _StrictModel(BaseModel):
+    """Base for the section view_state sub-shapes (debt #24).
+
+    ``extra='forbid'`` is the load-bearing config — without it a
+    client shipping ``snap_to_stratigrahpy`` (typo, missing the
+    'g') would silently persist junk into the JSONB column. With
+    it, Pydantic returns 422 and the typo surfaces.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CptChannels(_StrictModel):
+    """Section CPT-channel toggles persisted into ``view_state``.
+
+    Mirrors the frontend's ``CptChannels`` interface in
+    ``desktop/src/renderer/src/components/sections/cptChannels.ts``.
+    Each field is optional so partial PATCH bodies can flip a
+    single toggle without round-tripping the whole bag.
+    """
+
+    qc: bool | None = None
+    rf: bool | None = None
+    fs: bool | None = None
+    u2: bool | None = None
+    # camelCase preserved verbatim from the JSON contract — the
+    # frontend interface uses ``qTotal`` and changing it here
+    # would break the bundle round-trip.
+    qTotal: bool | None = None  # noqa: N815 — JSON-contract field name
+
+
+class BoreholeChannels(_StrictModel):
+    """Section borehole-stream toggles persisted into ``view_state``."""
+
+    geotech: bool | None = None
+    formal_strat: bool | None = None
+    informal_strat: bool | None = None
+
+
+class SectionViewState(_StrictModel):
+    """Validated shape of the ``cross_section.view_state`` JSONB bag.
+
+    Used on the PATCH body so an unknown top-level key (typo, or a
+    forward-incompat key from a newer client) is rejected with a
+    422 instead of silently persisting. The DB column itself stays
+    ``JSONB`` (untyped) so a bundle restore can round-trip whatever
+    an older build saved; this gate only applies to live PATCH
+    bodies. See CLAUDE.md "Backwards Compatibility".
+    """
+
+    cpt_channels: CptChannels | None = None
+    borehole_channels: BoreholeChannels | None = None
+    column_spacing: float | None = Field(default=None, ge=0.0, le=1.0)
+    snap_to_stratigraphy: bool | None = None
+
+
 class CrossSectionCreateRequest(BaseModel):
     """Body of ``POST /projects/{id}/sections``.
 
@@ -82,7 +138,13 @@ class CrossSectionUpdateRequest(BaseModel):
     # merge so callers can patch individual toggle keys without
     # round-tripping the whole bag (mirrors the
     # ``PATCH /projects/{id}/view-state`` semantics).
-    view_state: dict[str, Any] | None = None
+    #
+    # Typed strictly for debt #24: unknown top-level keys (typos,
+    # forward-incompat keys from a newer client) get 422 instead of
+    # silent persistence into the JSONB column. The merge layer
+    # serialises via ``model_dump(exclude_none=True)`` to preserve
+    # the partial-update contract.
+    view_state: SectionViewState | None = None
 
 
 class CrossSectionResponse(BaseModel):
