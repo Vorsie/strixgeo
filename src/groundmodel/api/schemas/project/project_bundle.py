@@ -59,6 +59,21 @@ BUNDLE_FORMAT_VERSION = 3
 SUPPORTED_BUNDLE_VERSIONS: frozenset[int] = frozenset({BUNDLE_FORMAT_VERSION})
 
 
+# Per-array bounds for the restore body (debt #38). Calibrated well
+# above any plausible real-world project — a DOV-bbox import of 500
+# CPTs is the documented "large project" reference. The bounds defend
+# against a malicious / corrupted .strix shipping a 10⁷-entry array
+# that OOMs the API while it iterates. None of these will bind in
+# practice on legitimate user data.
+_MAX_CPTS_PER_BUNDLE = 10_000
+_MAX_BOREHOLES_PER_BUNDLE = 10_000
+_MAX_FORMATIONS_PER_BUNDLE = 5_000
+_MAX_GEOTECH_UNITS_PER_BUNDLE = 5_000
+_MAX_GEOLOGICAL_MODELS_PER_BUNDLE = 1_000
+_MAX_CROSS_SECTIONS_PER_BUNDLE = 1_000
+_MAX_INVESTIGATION_REVIEWS_PER_BUNDLE = 50_000
+
+
 class ProjectBundleRequest(BaseModel):
     """Body of ``POST /projects/{id}/restore``.
 
@@ -67,33 +82,59 @@ class ProjectBundleRequest(BaseModel):
     and must equal ``BUNDLE_FORMAT_VERSION`` — older files are rejected
     by the route handler with a 400 + "re-save from a current build"
     message.
+
+    Per-array ``max_length`` caps defend against malicious /
+    corrupted bundles (debt #38). The body-size middleware in
+    ``api/main.py`` caps the JSON envelope; these caps stop a payload
+    that fits the envelope budget but ships an N-billion entry list.
     """
 
     format_version: int = Field(ge=1)
     project: dict[str, Any]
-    cpts: list[dict[str, Any]] = Field(default_factory=list)
-    boreholes: list[dict[str, Any]] = Field(default_factory=list)
+    cpts: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_CPTS_PER_BUNDLE,
+    )
+    boreholes: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_BOREHOLES_PER_BUNDLE,
+    )
     # Per-project formation vocabulary — substrate entities the
     # geological model references.
-    geological_formations: list[dict[str, Any]] = Field(default_factory=list)
+    geological_formations: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_FORMATIONS_PER_BUNDLE,
+    )
     # Geotechnical subdivision of formations (v1.0 MVP gate). Flat
     # array — each row carries its own ``geological_formation_id``
     # so the restore is "formations first, then units" and a missing
     # parent surfaces as an FK error rather than a silent partial
     # load. Older bundles without this key restore cleanly (default
     # empty list).
-    geotechnical_units: list[dict[str, Any]] = Field(default_factory=list)
+    geotechnical_units: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_GEOTECH_UNITS_PER_BUNDLE,
+    )
     # Interpretation containers. Each carries its own ``contacts`` list
     # nested (formation top per investigation), mirroring how CPT
     # carries series and borehole carries observations / samples.
-    geological_models: list[dict[str, Any]] = Field(default_factory=list)
+    geological_models: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_GEOLOGICAL_MODELS_PER_BUNDLE,
+    )
     # Project-scoped cross-section definitions (the slice lines + view
     # preferences; polylines drawn on them land later with the editor).
-    cross_sections: list[dict[str, Any]] = Field(default_factory=list)
+    cross_sections: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_CROSS_SECTIONS_PER_BUNDLE,
+    )
     # Per-(project, investigation) decisions: review status / notes /
     # hidden flag. Polymorphic target_kind / target_id; see
     # InvestigationReviewOrm.
-    investigation_reviews: list[dict[str, Any]] = Field(default_factory=list)
+    investigation_reviews: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_INVESTIGATION_REVIEWS_PER_BUNDLE,
+    )
 
 
 class ProjectBundleResponse(BaseModel):
