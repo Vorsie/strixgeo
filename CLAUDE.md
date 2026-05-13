@@ -1352,10 +1352,14 @@ When a guide actively hurts UX or conflicts with domain need:
 | `Ctrl + wheel` | Zoom (vertical scale on borelog, depth axis on map) | Map + borelog |
 | `Ctrl + 0` | Reset zoom to 100 % | Borelog |
 | `Delete` / `Backspace` | Remove selection (project-local) | When ≥ 1 row checked |
-| `Click` on contact line | Replace selection + start drag (cursor position = new (column, depth)) | Section editor |
+| `Click` on contact line | Replace selection + start drag. Cursor on release = new (column, depth). | Section editor |
 | `Ctrl/Cmd + Click` on contact line | Toggle this contact in/out of selection (no drag) | Section editor |
 | `Shift + Click` on contact line | Range-select shallow→deep within the source anchor's contacts | Section editor |
-| `Click + drag` on section background | Marquee (box) select. `Shift`/`Ctrl` held = additive (preserves existing selection); otherwise replace. Plain background click clears selection. | Section editor |
+| `Drag` plain on section background | **Pan the viewport** (existing behaviour preserved) | Section editor |
+| `Shift + drag` on section background | Marquee (box) select. Always **additive** — preserves existing selection. To replace, ESC first then Shift+drag. | Section editor |
+| `Drag` cross-column on a contact (no Alt) | **COPY** — creates new contact(s) at the target anchor; originals stay where they were. The "stamp interpretation onto a nearby test" workflow. | Section editor |
+| `Alt + drag` cross-column on a contact | **MOVE** — re-anchors the existing contact(s) to the target column. Use to fix a misclicked anchor. | Section editor |
+| `Drag` same-column on a contact | Re-pick depth (single contact) or shift all selected depths (multi-select). | Section editor |
 | `Right-click` on contact line | Confirm → delete contact | Section editor |
 | `Ctrl/Cmd + A` | Select all | Future — list views |
 | `Ctrl/Cmd + F` | Filter / find | Future — list views |
@@ -1759,27 +1763,48 @@ routers already use a two-stage ``get_in_project_or_404`` pattern
 scaffolding must thread ``current_user`` through these routes
 before any token-gated call ships.
 
-### 44. Contact selection toolbox — RESOLVED in the same dogfooding session it was filed (2026-05-13)
+### 44. Contact selection toolbox — RESOLVED 2026-05-13, REFINED 2026-05-13
 
 Implemented the day after the debt was filed. Cross-column drag,
 Ctrl-toggle + Shift-range multi-select, box-marquee select,
 multi-drag with preserved Δm offsets, ESC peel, batch backend
-(``PUT /contacts/batch``) all shipped. The four design questions
-from the original entry got resolved as:
+(``PUT /contacts/batch``) all shipped. Refined within the same
+dogfooding session after the user hit two real friction points
+that broke initial design assumptions:
 
-* **Move, not copy.** "Drag = move" matches every other drag in
-  the section editor; copy-via-modifier deferred until a user
-  actually asks for it.
+* **Marquee vs pan conflict.** Original design: any plain drag on
+  background = marquee. But pan is also plain drag → the marquee
+  ate every pan attempt. Refined: marquee requires **Shift held**.
+  Plain drag falls through to pan. Convention matches Figma /
+  Plaxis Designer (navigation = default verb, selection = modifier
+  verb). Shift-launched marquee is always additive — to "replace
+  via marquee", ESC first then Shift-drag.
+* **Cross-column drag should COPY, not MOVE.** Original design
+  picked MOVE based on "drag = relocate" intuition. Real workflow
+  is "stamp my known-good interpretation from borehole-A onto thin
+  CPT-B nearby" — the user wants COPY. Refined: plain cross-column
+  drag = **COPY** (creates new contacts at target via N parallel
+  POSTs; originals stay). **Alt+drag = MOVE** (the original
+  re-anchor behaviour, opt-in). Same-column drag stays MOVE
+  (depth-only re-pick — copy makes no sense at same anchor).
+
+The remaining v1 simplifications stand:
+
 * **Cursor position.** Drop where the cursor releases — the section
-  view behaves like a 2D drawing surface. Same gesture works for
-  depth-only drag (vertical) and cross-column drag (horizontal).
-  Δm preserved across multi-selection so a stack moves rigidly.
-* **Multi-anchor selection collapses to one target column.** Drag
-  any selected contact; ALL selected end up on the dragged-to
-  column. Rare case; intentional v1 simplification.
+  view behaves like a 2D drawing surface.
+* **Multi-anchor selection collapses to one target column.** Rare
+  case; intentional v1 simplification.
 * **Out-of-bounds depths are allowed.** Contact rows simply record
   depth_top_m > investigation depth; the section renders them
   out of bounds. User can fix by re-picking or deleting.
+
+**Open follow-ups under this debt** (low priority, captured here so
+they don't get re-filed as new items):
+
+* COPY uses N parallel POSTs (Promise.all). Partial-failure leaves
+  some contacts created and others missing; the toast warns. Promote
+  to a real ``POST /contacts/batch-create`` endpoint with single-
+  transaction commit when failure rates start to bite.
 
 The entry stays in the debt list as historical record + design-
 rationale anchor for anyone reading the section editor code.
