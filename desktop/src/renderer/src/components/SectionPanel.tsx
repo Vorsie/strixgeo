@@ -233,13 +233,17 @@ export default function SectionPanel({
     setViewport(defaultViewport)
   }, [defaultViewport])
 
-  // Marquee (box-select) state lives here so the capture rect can
-  // paint BEFORE the column glyphs — otherwise it intercepts column
-  // clicks via SVG hit-test order. ContactsLayer handles the
-  // mousemove/mouseup, hit-test against its layer index, and the
-  // selection update; SectionPanel just owns "is there an active
-  // marquee, and what are its start coords."
+  // Marquee (box-select) state lives here so the SVG root's
+  // mousedown handler can decide between marquee (Shift held) and
+  // pan (plain). ContactsLayer handles the mousemove/mouseup, hit-
+  // test against its layer index, and the selection update;
+  // SectionPanel just owns "is there an active marquee, and what
+  // are its start coords."
   const [marquee, setMarquee] = useState<MarqueeState | null>(null)
+  // Selection reset counter — bumped on a plain (no-Shift) bg
+  // click that didn't move the mouse. ContactsLayer watches the
+  // counter and clears its selection on each tick. Click-to-clear.
+  const [selectionResetCounter, setSelectionResetCounter] = useState(0)
 
   const [vex, setVex] = useState<number>(section.vertical_exaggeration ?? VEX_DEFAULT)
   useEffect(() => {
@@ -287,6 +291,27 @@ export default function SectionPanel({
     // for a future context menu, middle-click stays for browser
     // autoscroll.
     if (e.button !== 0) return
+    // Shift held → start a marquee instead of a pan. Owning the
+    // dispatch on the SVG ROOT (vs the bg rect) means Shift+click
+    // ANYWHERE on the section — including on a column glyph — opens
+    // the marquee, satisfying the "shift+click on column = multi-
+    // select" requirement.
+    if (e.shiftKey && onBatchUpdateContacts) {
+      const svgEl = e.currentTarget
+      const rect = svgEl.getBoundingClientRect()
+      setMarquee({
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        currentClientX: e.clientX,
+        currentClientY: e.clientY,
+        svgLeft: rect.left,
+        svgTop: rect.top,
+        // Always additive — the user's selection grows.
+        additive: true,
+      })
+      // Don't start pan in parallel.
+      return
+    }
     const rect = e.currentTarget.getBoundingClientRect()
     panStart.current = {
       px: e.clientX - rect.left,
@@ -315,9 +340,25 @@ export default function SectionPanel({
     })
   }
 
-  function handleMouseUp(): void {
+  function handleMouseUp(e: React.MouseEvent<SVGSVGElement>): void {
+    const start = panStart.current
     panStart.current = null
     setIsPanning(false)
+    // Click-without-drag on the section background → clear the
+    // contact selection. Threshold mirrors the marquee's click-vs-
+    // drag dead-zone so a tiny mouse jitter doesn't cancel the
+    // clear. Skip when Shift is held (additive selection semantics)
+    // or when the click landed on an element that handles its own
+    // mousedown (hit-strips stopPropagation, columns route via
+    // onClick — neither triggers this clear path).
+    if (start === null) return
+    if (e.shiftKey) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const dx = Math.abs(e.clientX - rect.left - start.px)
+    const dy = Math.abs(e.clientY - rect.top - start.py)
+    if (dx < 3 && dy < 3) {
+      setSelectionResetCounter(c => c + 1)
+    }
   }
 
   // Wheel-zoom centred on the cursor — the world point under the
@@ -914,16 +955,11 @@ export default function SectionPanel({
 
             {/* Plot-area background — solid white over the tinted
                 container so the grid + axes read cleanly even when
-                a future overlay tints the canvas.
-                ALSO doubles as the box-marquee capture surface for
-                contact selection — mousedown here starts a marquee.
-                Paints BEFORE the columns so column clicks reach the
-                column glyphs first via SVG hit-test order; the
-                marquee logic itself lives in ContactsLayer (see
-                ``onSetMarquee`` wiring below). Disabled (no
-                onMouseDown) when ``onBatchUpdateContacts`` isn't
-                wired — keeps tests that don't opt into selection
-                free of background-mousedown side effects. */}
+                a future overlay tints the canvas. Marquee + pan
+                dispatch lives on the SVG root (see handleMouseDown
+                above) so this rect only needs to draw — its
+                mousedown bubbles up to the SVG and gets routed
+                there. */}
             <rect
               x={MARGIN.left}
               y={MARGIN.top}
@@ -931,36 +967,6 @@ export default function SectionPanel({
               height={plotHeight}
               fill="#fafafa"
               stroke="#e5e7eb"
-              onMouseDown={
-                onBatchUpdateContacts
-                  ? e => {
-                      if (e.button !== 0) return
-                      // Marquee only when Shift is held. Plain
-                      // left-drag falls through to the SVG's pan
-                      // handler — we mustn't stopPropagation here or
-                      // pan breaks. Ctrl/Cmd are deliberately NOT
-                      // honoured here so they stay free for system-
-                      // level shortcuts (Ctrl+S save, etc.).
-                      if (!e.shiftKey) return
-                      e.stopPropagation()
-                      const svgEl = e.currentTarget.ownerSVGElement
-                      const rect = svgEl?.getBoundingClientRect()
-                      setMarquee({
-                        startClientX: e.clientX,
-                        startClientY: e.clientY,
-                        currentClientX: e.clientX,
-                        currentClientY: e.clientY,
-                        svgLeft: rect?.left ?? 0,
-                        svgTop: rect?.top ?? 0,
-                        // Modifier-launched marquee is always additive
-                        // — preserves the existing selection. To
-                        // "replace via marquee", click bg first to
-                        // clear, then modifier-drag.
-                        additive: true,
-                      })
-                    }
-                  : undefined
-              }
               data-testid="section-marquee-bg"
             />
 
@@ -1203,6 +1209,7 @@ export default function SectionPanel({
               onBatchCreateContacts={onBatchCreateContacts}
               marquee={marquee}
               onSetMarquee={setMarquee}
+              selectionResetSignal={selectionResetCounter}
               snapDepthsByAnchorId={snapDepthsByAnchorId}
               getCptValuesAtDepth={getCptValuesAtDepth}
             />
