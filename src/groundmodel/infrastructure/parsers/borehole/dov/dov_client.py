@@ -34,7 +34,6 @@ Debugging:
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -44,7 +43,6 @@ from groundmodel.infrastructure.parsers.borehole.dov.borehole_wfs_row import Bor
 from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
     DOV_BORING_PROXY_URL_PREFIX,
     DOV_BORING_URL_PREFIX,
-    DOV_DOWNLOAD_PARALLELISM,
     DOV_VERTICAL_EPSG,
     DOV_WFS_BORINGEN_LAYER,
     DOV_WGS84_TO_LAMBERT72,
@@ -52,6 +50,9 @@ from groundmodel.infrastructure.parsers.borehole.dov.dov_constants import (
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_download import (
+    parallel_download_and_process,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
@@ -140,94 +141,23 @@ class DovBoreholeClient(GroundModelLogger):
             logger=self,
         )
         self.info(f"DOV WFS: {len(rows)} unique boreholes found in bbox")
-        if not rows:
-            return []
-
-        total = len(rows)
-        cache_state = "with cache" if self._cache is not None else "no cache"
-        self.info(
-            f"DOV: streaming download+process of {total} boring XMLs "
-            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel, {cache_state})"
+        # ``parallel_download_and_process`` expects a ``(row, xml_bytes)``
+        # callback; this client's existing ``ProcessFn`` is the legacy
+        # ``(xml_bytes, test_id)`` shape (kept stable because the
+        # orchestrator wires ``DovBoringParser().parse`` straight into it).
+        # A one-line lambda bridges the two without rippling the change
+        # outward.
+        return await parallel_download_and_process(
+            http=self._http,
+            cache=self._cache,
+            rows=rows,
+            xml_url_of=lambda r: r.xml_url,
+            permkey_of=lambda r: r.permkey,
+            process=lambda r, xml_bytes: process(xml_bytes, r.test_id),
+            label="DOV",
+            logger=self,
+            error_id_of=lambda r: f"'{r.test_id}'",
         )
-        sem = asyncio.Semaphore(DOV_DOWNLOAD_PARALLELISM)
-        # Mutable counter shared across tasks — asyncio is single-threaded so
-        # increments are atomic without a lock.
-        progress = {"done": 0, "hits": 0}
-        progress_step = max(50, total // 5)
-        tasks = [
-            self._download_and_process(row, process, sem, progress, total, progress_step)
-            for row in rows
-        ]
-        raw = await asyncio.gather(*tasks, return_exceptions=True)
-
-        out: list[tuple[BoreholeWfsRow, _T]] = []
-        for row, result in zip(rows, raw, strict=True):
-            if isinstance(result, BaseException):
-                self.error(
-                    f"DOV: download/process failed for '{row.test_id}'  "
-                    f"url={row.xml_url}  error={type(result).__name__}: {result}"
-                )
-            else:
-                out.append((row, result))
-
-        if self._cache is not None and progress["done"]:
-            hits = progress["hits"]
-            misses = progress["done"] - hits
-            pct = hits * 100 // progress["done"]
-            self.info(f"DOV cache: {hits} hits, {misses} misses ({pct}% hit rate)")
-        return out
-
-    async def _download_and_process(
-        self,
-        row: BoreholeWfsRow,
-        process: ProcessFn[_T],
-        sem: asyncio.Semaphore,
-        progress: dict[str, int],
-        total: int,
-        progress_step: int,
-    ) -> _T:
-        """Download (or read from cache), then run process synchronously.
-
-        Cache check happens BEFORE the semaphore acquire — file reads are
-        ~0.1 ms and cheaper than queueing on a contended import. On miss
-        the fresh bytes are written through to the cache so next import
-        skips the round-trip.
-        """
-        xml_bytes: bytes | None = None
-        from_cache = False
-
-        if self._cache is not None:
-            xml_bytes = self._cache.get(row.permkey)
-            from_cache = xml_bytes is not None
-
-        if xml_bytes is None:
-            async with sem:
-                try:
-                    resp = await self._http.get(row.xml_url)
-                except httpx.RequestError as exc:
-                    self.error(
-                        f"DOV: network error fetching '{row.test_id}' ({row.xml_url}): {exc}"
-                    )
-                    raise
-                if not resp.is_success:
-                    self.error(
-                        f"DOV: HTTP {resp.status_code} for '{row.test_id}'  "
-                        f"url={row.xml_url}  body={resp.text[:200]!r}"
-                    )
-                    resp.raise_for_status()
-                xml_bytes = resp.content
-            if self._cache is not None:
-                self._cache.put(row.permkey, xml_bytes)
-
-        # Process runs outside the semaphore — parse blocks the event loop
-        # briefly while the freed slot starts the next download.
-        result = process(xml_bytes, row.test_id)
-        progress["done"] += 1
-        if from_cache:
-            progress["hits"] += 1
-        if progress["done"] % progress_step == 0 or progress["done"] == total:
-            self.info(f"DOV progress: {progress['done']}/{total} downloaded+parsed")
-        return result
 
     # ------------------------------------------------------------------
     # WFS request layer (count + features). The recursive bbox-split lives
