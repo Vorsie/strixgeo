@@ -89,7 +89,18 @@ interface Props {
     depth_m: number
     elevationM: number
   }) => void
+  /** When true, the click depth snaps to the nearest formal or
+   * informal stratigraphy boundary on this borehole if one sits
+   * within ``SNAP_TOLERANCE_PX`` of the click Y. Off = free
+   * placement. */
+  snapToStratigraphy?: boolean
 }
+
+const SNAP_TOLERANCE_PX = 8
+const STRAT_OBS_TYPES_FOR_SNAP = new Set([
+  'formal_stratigraphy',
+  'informal_stratigraphy',
+])
 
 export default function BoreholeColumn({
   detail,
@@ -101,6 +112,7 @@ export default function BoreholeColumn({
   plotBottom,
   levelToScreen,
   onCommitDepth,
+  snapToStratigraphy = false,
 }: Props): JSX.Element | null {
   // Walk the channel list in display order, picking up the matching
   // observation (or null) per slot. We collect both the entry and
@@ -136,12 +148,46 @@ export default function BoreholeColumn({
     return oneMetreDownPx === 0 ? 0 : (y - surfaceY) / oneMetreDownPx
   }
 
+  // Build the snap candidates lazily — every formal / informal
+  // stratigraphy layer's top + base in this borehole, deduped.
+  // Each candidate is the depth in metres (not screen Y) so the
+  // snap math works at any zoom level without recomputing.
+  function snapDepthsFromObservations(): number[] {
+    const out = new Set<number>()
+    for (const obs of detail.observations) {
+      if (!STRAT_OBS_TYPES_FOR_SNAP.has(obs.observation_type)) continue
+      for (const layer of obs.layers) {
+        out.add(layer.top_m)
+        out.add(layer.base_m)
+      }
+    }
+    return Array.from(out)
+  }
+
+  function snapDepth(rawDepth: number, rawY: number): number {
+    if (!snapToStratigraphy) return rawDepth
+    const candidates = snapDepthsFromObservations()
+    if (candidates.length === 0) return rawDepth
+    let bestDepth = rawDepth
+    let bestPxDistance = SNAP_TOLERANCE_PX + 1
+    for (const candDepth of candidates) {
+      const candY = levelToScreen(surfaceElevationM - candDepth)
+      const px = Math.abs(candY - rawY)
+      if (px <= SNAP_TOLERANCE_PX && px < bestPxDistance) {
+        bestPxDistance = px
+        bestDepth = candDepth
+      }
+    }
+    return bestDepth
+  }
+
   function handleClick(e: React.MouseEvent<SVGRectElement>): void {
     if (!onCommitDepth) return
     const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect()
     const localY = e.clientY - rect.top + bandTopY
     const clamped = Math.max(bandTopY, Math.min(bandBottomY, localY))
-    const depth = depthAtY(clamped)
+    const rawDepth = depthAtY(clamped)
+    const depth = snapDepth(rawDepth, clamped)
     onCommitDepth({
       kind: 'borehole',
       boreholeId: detail.id,
