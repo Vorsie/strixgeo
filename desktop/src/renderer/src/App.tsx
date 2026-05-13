@@ -59,6 +59,12 @@ declare global {
       showProjectSaveDialog: (defaultName?: string) => Promise<string | null>
       readProjectFile: (filePath: string) => Promise<string>
       writeProjectFile: (filePath: string, contents: string) => Promise<void>
+      // Generic export save-dialog + binary write (v1.0 MVP gate #5).
+      showExportSaveDialog: (
+        defaultName: string,
+        filters: Electron.FileFilter[],
+      ) => Promise<string | null>
+      writeExportFile: (filePath: string, contents: ArrayBuffer) => Promise<void>
       addRecentProject: (filePath: string, name: string) => Promise<RecentProject[]>
       getRecentProjects: () => Promise<RecentProject[]>
       setWindowTitle: (title: string | null) => Promise<void>
@@ -683,6 +689,53 @@ export default function App() {
       }
     },
     [project, activeGeologicalModel],
+  )
+
+  // Export the section's drawn geological model to DXF. Owns the
+  // full flow (fetch bytes → save dialog → file write) so the
+  // SectionPanel + SectionHeader stay storage-agnostic. The button
+  // is hidden when no active geological model exists (v1.0 MVP #5).
+  const handleExportSectionDxf = useCallback(
+    async (
+      projectId: string,
+      sectionId: string,
+      sectionName: string,
+      modelId: string,
+    ): Promise<void> => {
+      log.info('section', `exportDxf start section=${sectionId} model=${modelId}`)
+      try {
+        // Suggest a filename based on the section name. Sanitise the
+        // same way the backend does so the proposed default matches
+        // what the user sees in the URL's Content-Disposition.
+        const safeName =
+          sectionName.replace(/[^A-Za-z0-9\- _]/g, '_').trim() || 'section'
+        const dialogPath = await window.electron.showExportSaveDialog(
+          `${safeName}.dxf`,
+          [
+            { name: 'AutoCAD DXF', extensions: ['dxf'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        )
+        if (dialogPath === null) {
+          log.debug('section', 'exportDxf cancelled at save dialog')
+          return
+        }
+        const bytes = await api.section.exportDxf(projectId, sectionId, modelId)
+        await window.electron.writeExportFile(dialogPath, bytes)
+        log.success(
+          'section',
+          `exportDxf ok section=${sectionId} bytes=${bytes.byteLength} path=${dialogPath}`,
+        )
+        toast('success', 'DXF exported.')
+      } catch (err) {
+        log.error('section', 'exportDxf failed', err)
+        toast(
+          'error',
+          err instanceof Error ? err.message : 'Could not export the DXF.',
+        )
+      }
+    },
+    [],
   )
 
   // Toggle whether a borehole anchors formation contacts in the
@@ -1808,6 +1861,17 @@ export default function App() {
                 onCreateContact={handleCreateContact}
                 onUpdateContactDepth={handleUpdateContactDepth}
                 onCreateFormation={handleInlineCreateFormation}
+                onExportDxf={
+                  activeGeologicalModel
+                    ? () =>
+                        handleExportSectionDxf(
+                          project.id,
+                          selectedSection.id,
+                          selectedSection.name,
+                          activeGeologicalModel.id,
+                        )
+                    : undefined
+                }
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
