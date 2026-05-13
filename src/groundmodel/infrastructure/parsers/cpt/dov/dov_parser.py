@@ -59,6 +59,7 @@ import defusedxml.ElementTree as ET
 import polars as pl
 
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
     DOV_GML_TAG_PREFIX,
     DOV_HORIZONTAL_EPSG,
@@ -141,12 +142,18 @@ class DovParser(GroundModelLogger):
             f"{len(data)} rows, x={header.x}, y={header.y}, z={header.z}, "
             f"a={header.net_area_ratio}"
         )
+        # Stamp DOV provenance when the row carries a Z; stamp NONE
+        # when it doesn't so the refresh-on-duplicate path can later
+        # populate an upstream Z without colliding with a "manual"
+        # default we never set. Debt #8.
+        elevation_source = ElevationSource.DOV if header.z is not None else ElevationSource.NONE
         return GEFParseResult(
             header=header,
             cpt_type=cpt_type,
             data=data,
             issues=issues,
             rf_source=rf_source,
+            elevation_source=elevation_source,
         )
 
     # ------------------------------------------------------------------
