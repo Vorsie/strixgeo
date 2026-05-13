@@ -47,7 +47,15 @@ class Sample:
     Raises
     ------
     ValueError
-        If ``depth_top_m`` is negative or ``depth_base_m < depth_top_m``.
+        If ``depth_top_m`` is negative.
+
+    Notes
+    -----
+    The cross-field invariant ``depth_base_m >= depth_top_m`` is
+    deliberately NOT enforced in the dataclass — per CLAUDE.md "Data
+    Integrity Rules §5" it belongs in the parser's
+    ``ValidationIssue`` list. Any future Sample parser pre-checks the
+    invariant and emits an issue rather than raising. Debt #15.
     """
 
     borehole_id: UUID
@@ -64,8 +72,3 @@ class Sample:
     def __post_init__(self) -> None:
         if self.depth_top_m < 0:
             raise ValueError(f"Sample.depth_top_m cannot be negative: {self.depth_top_m}")
-        if self.depth_base_m < self.depth_top_m:
-            raise ValueError(
-                f"Sample.depth_base_m must be >= depth_top_m: "
-                f"{self.depth_base_m} < {self.depth_top_m}"
-            )
