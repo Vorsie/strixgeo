@@ -24,19 +24,18 @@ Pipeline (mirrors DovInterpretationClient — count + recursive bbox split
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from typing import Any, TypeVar
 
 import httpx
 
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
-from groundmodel.infrastructure.parsers.dov.dov_common import (
-    DOV_DOWNLOAD_PARALLELISM,
-    DOV_WGS84_TO_LAMBERT72,
-)
+from groundmodel.infrastructure.parsers.dov.dov_common import DOV_WGS84_TO_LAMBERT72
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
+)
+from groundmodel.infrastructure.parsers.dov.dov_wfs_download import (
+    parallel_download_and_process,
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import last_path_segment
 from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
@@ -148,86 +147,17 @@ class DovGrainSizeClient(GroundModelLogger):
                 f"DOV grain-size WFS: filtered {before} → {len(rows)} rows by parent sample "
                 f"(limit set: {len(parent_permkeys)} samples)"
             )
-        if not rows:
-            return []
-
-        total = len(rows)
-        cache_state = "with cache" if self._cache is not None else "no cache"
-        self.info(
-            f"DOV grain-size: streaming download+process of {total} observation XMLs "
-            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel, {cache_state})"
+        return await parallel_download_and_process(
+            http=self._http,
+            cache=self._cache,
+            rows=rows,
+            xml_url_of=lambda r: r.xml_url,
+            permkey_of=lambda r: r.permkey,
+            process=process,
+            label="DOV grain-size",
+            logger=self,
+            error_id_of=lambda r: f"'{r.permkey}' (sample '{r.parent_sample_permkey}')",
         )
-        sem = asyncio.Semaphore(DOV_DOWNLOAD_PARALLELISM)
-        progress = {"done": 0, "hits": 0}
-        progress_step = max(50, total // 5)
-        tasks = [
-            self._download_and_process(row, process, sem, progress, total, progress_step)
-            for row in rows
-        ]
-        raw = await asyncio.gather(*tasks, return_exceptions=True)
-
-        out: list[tuple[GrainSizeWfsRow, _T]] = []
-        for row, result in zip(rows, raw, strict=True):
-            if isinstance(result, BaseException):
-                self.error(
-                    f"DOV grain-size: download/process failed for "
-                    f"'{row.permkey}' (sample '{row.parent_sample_permkey}')  "
-                    f"url={row.xml_url}  error={type(result).__name__}: {result}"
-                )
-            else:
-                out.append((row, result))
-
-        if self._cache is not None and progress["done"]:
-            hits = progress["hits"]
-            misses = progress["done"] - hits
-            pct = hits * 100 // progress["done"]
-            self.info(f"DOV grain-size cache: {hits} hits, {misses} misses ({pct}% hit rate)")
-        return out
-
-    async def _download_and_process(
-        self,
-        row: GrainSizeWfsRow,
-        process: ProcessFn[_T],
-        sem: asyncio.Semaphore,
-        progress: dict[str, int],
-        total: int,
-        progress_step: int,
-    ) -> _T:
-        """Download (or read from cache), then run process synchronously."""
-        xml_bytes: bytes | None = None
-        from_cache = False
-
-        if self._cache is not None:
-            xml_bytes = self._cache.get(row.permkey)
-            from_cache = xml_bytes is not None
-
-        if xml_bytes is None:
-            async with sem:
-                try:
-                    resp = await self._http.get(row.xml_url)
-                except httpx.RequestError as exc:
-                    self.error(
-                        f"DOV grain-size: network error fetching "
-                        f"'{row.permkey}' ({row.xml_url}): {exc}"
-                    )
-                    raise
-                if not resp.is_success:
-                    self.error(
-                        f"DOV grain-size: HTTP {resp.status_code} for "
-                        f"'{row.permkey}'  url={row.xml_url}  body={resp.text[:200]!r}"
-                    )
-                    resp.raise_for_status()
-                xml_bytes = resp.content
-            if self._cache is not None:
-                self._cache.put(row.permkey, xml_bytes)
-
-        result = process(row, xml_bytes)
-        progress["done"] += 1
-        if from_cache:
-            progress["hits"] += 1
-        if progress["done"] % progress_step == 0 or progress["done"] == total:
-            self.info(f"DOV grain-size progress: {progress['done']}/{total} downloaded+parsed")
-        return result
 
     # ------------------------------------------------------------------
     # WFS request layer (count + features). Recursive split is delegated
