@@ -75,26 +75,32 @@ async def sample_along_line(
                 end_y=end_y,
                 n_samples=n_samples,
             )
+    # User-facing detail stays category-only; the specific httpx
+    # exception + message lives in the server-side log (debt #43).
     except httpx.ConnectError as err:
+        logger.warning(f"DHMVII connect error: {type(err).__name__}: {err}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Cannot reach DHMVII: {err}",
+            detail="Cannot reach DHMVII",
         ) from err
     except httpx.TimeoutException as err:
+        logger.warning(f"DHMVII timeout: {type(err).__name__}: {err}")
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"DHMVII timed out: {err}",
+            detail="DHMVII timed out",
         ) from err
     except (httpx.HTTPStatusError, httpx.RequestError) as err:
+        logger.warning(f"DHMVII upstream error: {type(err).__name__}: {err}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"DHMVII responded with {type(err).__name__}: {err}",
+            detail="DHMVII responded with an error",
         ) from err
     except ValueError as err:
         # Malformed multipart from upstream — surface as 502, not 500.
+        logger.warning(f"DHMVII malformed multipart: {err}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(err),
+            detail="DHMVII returned a malformed response",
         ) from err
 
     return DemSampleLineResponse(
