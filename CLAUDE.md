@@ -1692,16 +1692,4 @@ routers already use a two-stage ``get_in_project_or_404`` pattern
 scaffolding must thread ``current_user`` through these routes
 before any token-gated call ships.
 
-### 42. No lint enforcement of the ``// reason:`` comment on ``eslint-disable react-hooks/exhaustive-deps`` (low)
-
-**What.** CLAUDE.md "Code Conventions" requires every
-``eslint-disable react-hooks/exhaustive-deps`` to be preceded by a
-``// reason: ...`` block (codified after the S7 infinite-render
-incident). The convention is documented; no lint rule enforces
-it. Reviewer trust gate, not a security boundary.
-
-**Why deferred.** Solo dev; review catches violations.
-
-**When to revisit.** Before opening the repo to collaborators
-(debt #6 trigger). Write a small custom ESLint rule.
 
