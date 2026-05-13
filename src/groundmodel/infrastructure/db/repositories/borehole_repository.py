@@ -1,10 +1,12 @@
 """Repository for Borehole persistence."""
 
+from collections.abc import Iterable
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -12,6 +14,20 @@ from groundmodel.infrastructure.db.models.observation_layer_orm import Observati
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+
+# Names of the lab-test relationships on ``SampleOrm`` — used by the
+# scoped ``get_by_id`` path (debt #2) to decide which selectinload
+# chains to attach and which to stamp with empty lists. Order is the
+# canonical display order so the route's query-parameter validation
+# can surface a stable "valid values" message.
+LAB_TEST_RELATIONSHIPS: tuple[str, ...] = (
+    "grain_sizes",
+    "atterberg_limits_tests",
+    "caco3_content_tests",
+    "organic_content_tests",
+    "water_content_tests",
+    "scalar_lab_tests",
+)
 
 
 class BoreholeRepository(GroundModelLogger):
@@ -48,7 +64,12 @@ class BoreholeRepository(GroundModelLogger):
             await self._session.flush()
             self.success(f"Borehole saved: {borehole.id} — {borehole.name}")
 
-    async def get_by_id(self, borehole_id: UUID) -> BoreholeOrm | None:
+    async def get_by_id(
+        self,
+        borehole_id: UUID,
+        *,
+        include_lab_tests: Iterable[str] | None = None,
+    ) -> BoreholeOrm | None:
         """Return a borehole with all of its child collections loaded, or ``None``.
 
         Loads the full borehole detail tree:
@@ -60,37 +81,91 @@ class BoreholeRepository(GroundModelLogger):
 
         Uses ``selectinload`` rather than ``joinedload`` so each collection
         comes back as one extra round-trip per type — keeps the parent row
-        small and avoids a Cartesian explosion. Total queries per call is
-        1 (parent) + 2 (drill segments + field log) + 3 (observation chain)
-        + 1 (samples) + 5 (one per lab test type) = 12 round-trips for a
+        small and avoids a Cartesian explosion. Default (``include_lab_tests
+        is None``) loads all six lab-test families = 12 round-trips for a
         fully-populated borehole. Each query receives the relevant parent ids
         in a single ``IN (...)``, so the count is constant in the borehole's
         size — a 100-sample borehole still issues 12 queries, not 100.
+
+        Parameters
+        ----------
+        borehole_id : UUID
+            Primary key.
+        include_lab_tests : Iterable[str] | None
+            When ``None`` (default), eager-load all six lab-test families —
+            preserves the existing full-tree behaviour. When an iterable of
+            relationship names (``"grain_sizes"``, ``"atterberg_limits_tests"``,
+            ...) is supplied, ONLY those families are loaded; the others
+            are stamped with empty lists via ``set_committed_value`` so
+            Pydantic's ``model_validate`` walk doesn't trigger a
+            ``MissingGreenlet`` lazy load from inside the attribute
+            extractor (async SQLAlchemy has no greenlet there).
+            Caller-side validation lives in the API router.
+
+        Returns
+        -------
+        BoreholeOrm | None
+            The borehole with its child tree, or ``None`` when the id
+            doesn't exist.
+
+        Raises
+        ------
+        ValueError
+            When ``include_lab_tests`` contains a name that isn't in
+            ``LAB_TEST_RELATIONSHIPS``. Defensive — callers should validate
+            input before reaching here, but a hard error beats a silent
+            mis-load.
         """
-        stmt = (
-            select(BoreholeOrm)
-            .where(BoreholeOrm.id == borehole_id)
-            .options(
-                selectinload(BoreholeOrm.drill_segments),
-                selectinload(BoreholeOrm.field_log_intervals),
-                selectinload(BoreholeOrm.observations)
-                .selectinload(ObservationOrm.layers)
-                .selectinload(ObservationLayerOrm.admixtures),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.grain_sizes),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.atterberg_limits_tests),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.caco3_content_tests),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.organic_content_tests),
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.water_content_tests),
-                # Phase C5 catch-all family. MUST be eager-loaded — Pydantic's
-                # ``model_validate(borehole)`` walks every collection on every
-                # SampleResponse, and a lazy load from inside Pydantic's
-                # attribute extractor fails with ``MissingGreenlet`` under
-                # async SQLAlchemy (no async context active there).
-                selectinload(BoreholeOrm.samples).selectinload(SampleOrm.scalar_lab_tests),
-            )
-        )
+        include_set: set[str] | None
+        if include_lab_tests is None:
+            include_set = None
+        else:
+            include_set = set(include_lab_tests)
+            unknown = include_set - set(LAB_TEST_RELATIONSHIPS)
+            if unknown:
+                raise ValueError(
+                    f"Unknown lab-test relationship(s): {sorted(unknown)!r}. "
+                    f"Valid: {LAB_TEST_RELATIONSHIPS!r}",
+                )
+
+        # Build the option list: always-loaded children + per-family
+        # selectinload only for the requested set. The samples selectinload
+        # itself is unconditional because every excluded family still needs
+        # a sample to hang off; without it ``set_committed_value`` would
+        # have nothing to stamp.
+        options = [
+            selectinload(BoreholeOrm.drill_segments),
+            selectinload(BoreholeOrm.field_log_intervals),
+            selectinload(BoreholeOrm.observations)
+            .selectinload(ObservationOrm.layers)
+            .selectinload(ObservationLayerOrm.admixtures),
+            selectinload(BoreholeOrm.samples),
+        ]
+        for rel_name in LAB_TEST_RELATIONSHIPS:
+            if include_set is None or rel_name in include_set:
+                options.append(
+                    selectinload(BoreholeOrm.samples).selectinload(getattr(SampleOrm, rel_name))
+                )
+
+        stmt = select(BoreholeOrm).where(BoreholeOrm.id == borehole_id).options(*options)
         result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        borehole = result.scalar_one_or_none()
+        if borehole is None:
+            return None
+
+        # For excluded families, stamp an empty list on every sample so
+        # Pydantic's ``model_validate`` sees ``[]`` rather than triggering
+        # a lazy load (which fails with ``MissingGreenlet`` under async
+        # SQLAlchemy because Pydantic's attribute walk runs without an
+        # active greenlet). ``set_committed_value`` writes the attribute
+        # WITHOUT marking the relationship dirty — no spurious UPDATE on
+        # the next flush.
+        if include_set is not None:
+            excluded = [r for r in LAB_TEST_RELATIONSHIPS if r not in include_set]
+            for sample in borehole.samples:
+                for rel_name in excluded:
+                    set_committed_value(sample, rel_name, [])
+        return borehole
 
     async def list_all(self, app_project_id: UUID | None = None) -> list[BoreholeOrm]:
         """Return all boreholes without loading children.
