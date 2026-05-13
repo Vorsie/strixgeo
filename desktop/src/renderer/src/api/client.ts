@@ -1047,5 +1047,26 @@ export const api = {
 
     delete: (projectId: string, sectionId: string): Promise<void> =>
       del(`/projects/${projectId}/sections/${sectionId}`),
+
+    // Download the section's DXF export as raw bytes. Returns the
+    // ``ArrayBuffer`` rather than parsing — callers pipe it straight
+    // to a file write (Electron save dialog → fs.writeFileSync).
+    // Throws on non-2xx; the 404 case (missing section / model)
+    // surfaces through the caller's toast.
+    exportDxf: async (
+      projectId: string,
+      sectionId: string,
+      modelId: string,
+    ): Promise<ArrayBuffer> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/sections/${sectionId}/export/dxf` +
+          `?model_id=${modelId}`,
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `Export failed (${res.status})`)
+      }
+      return res.arrayBuffer()
+    },
   },
 }
