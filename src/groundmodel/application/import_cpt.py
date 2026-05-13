@@ -190,6 +190,12 @@ class ImportCpt(GroundModelLogger):
             location_x=h.x,
             location_y=h.y,
             elevation_m=h.z,
+            # Provenance flag — see ``ElevationSource``. The parser
+            # already stamped GEF / DOV / NONE on the result; we
+            # forward it untouched so the refresh-on-duplicate path
+            # can later overwrite imported Z without clobbering
+            # manual edits (debt #8).
+            elevation_source=result.elevation_source.value,
             epsg=h.epsg,
             z_epsg=h.z_epsg,
             location=self._make_point(h),
