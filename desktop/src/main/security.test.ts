@@ -10,6 +10,7 @@ import {
   buildContentSecurityPolicy,
   decideExternalOpen,
   isInAppNavigation,
+  normalizePathForCompare,
 } from './security'
 
 describe('buildContentSecurityPolicy', () => {
@@ -90,6 +91,63 @@ describe('decideExternalOpen', () => {
   it('rejects empty / malformed URLs', () => {
     expect(decideExternalOpen('').external).toBe(false)
     expect(decideExternalOpen('not-a-url').external).toBe(false)
+  })
+})
+
+describe('normalizePathForCompare', () => {
+  const isWin = process.platform === 'win32'
+
+  it('returns null for non-strings + empty strings', () => {
+    expect(normalizePathForCompare('')).toBe(null)
+    expect(normalizePathForCompare(undefined)).toBe(null)
+    expect(normalizePathForCompare(null)).toBe(null)
+    expect(normalizePathForCompare(42)).toBe(null)
+  })
+
+  it('collapses .. segments so traversal-style strings are normalized', () => {
+    // The set membership check must treat "/authorised/../evil" the
+    // same as "/evil" so a renderer can't smuggle in an authorised-
+    // looking string that resolves outside the allowed set.
+    if (isWin) {
+      const a = normalizePathForCompare('C:\\authorised\\..\\evil')
+      const b = normalizePathForCompare('C:\\evil')
+      expect(a).toBe(b)
+    } else {
+      const a = normalizePathForCompare('/authorised/../evil')
+      const b = normalizePathForCompare('/evil')
+      expect(a).toBe(b)
+    }
+  })
+
+  it('is case-insensitive on win32 (NTFS default)', () => {
+    if (!isWin) return
+    const a = normalizePathForCompare('C:\\Users\\Project.strix')
+    const b = normalizePathForCompare('c:\\users\\project.strix')
+    expect(a).toBe(b)
+  })
+
+  it('strips trailing separators so "dir" and "dir/" match', () => {
+    if (isWin) {
+      expect(normalizePathForCompare('C:\\dir\\')).toBe(
+        normalizePathForCompare('C:\\dir'),
+      )
+    } else {
+      expect(normalizePathForCompare('/dir/')).toBe(
+        normalizePathForCompare('/dir'),
+      )
+    }
+  })
+
+  it('two different paths normalize to different values', () => {
+    if (isWin) {
+      expect(normalizePathForCompare('C:\\a')).not.toBe(
+        normalizePathForCompare('C:\\b'),
+      )
+    } else {
+      expect(normalizePathForCompare('/a')).not.toBe(
+        normalizePathForCompare('/b'),
+      )
+    }
   })
 })
 
