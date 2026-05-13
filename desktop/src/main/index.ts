@@ -484,6 +484,42 @@ ipcMain.handle(
   },
 )
 
+// Generic export-file save flow — used by the DXF section export
+// today; future Plaxis / D-Sheet exporters will share the same
+// dialog + write IPC pair. Caller supplies the dialog's filter +
+// suggested filename; the main process returns the chosen path and
+// writes the binary payload. Path authorisation flows through the
+// same set as the project-file IPC.
+ipcMain.handle(
+  'export:save-dialog',
+  async (
+    _event,
+    defaultName: string,
+    filters: Electron.FileFilter[],
+  ): Promise<string | null> => {
+    const result = await dialog.showSaveDialog({
+      filters,
+      defaultPath: defaultName,
+    })
+    if (result.canceled) return null
+    const path = result.filePath ?? null
+    authorisePath(path)
+    return path
+  },
+)
+
+ipcMain.handle(
+  'export:write-file',
+  (_event, filePath: string, contents: ArrayBuffer): void => {
+    if (!pathIsAuthorised(filePath)) {
+      throw new Error(
+        `export:write-file refused — path not authorised: ${filePath}`,
+      )
+    }
+    writeFileSync(filePath, Buffer.from(contents))
+  },
+)
+
 ipcMain.handle(
   'project:add-recent',
   (_event, filePath: string, name: string): RecentProject[] => {
