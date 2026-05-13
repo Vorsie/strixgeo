@@ -992,10 +992,37 @@ GET    /projects/{pid}/geology/models/{mid}/contacts
                                                     Sorted shallowest-first.
 PATCH  /projects/{pid}/geology/models/{mid}/contacts/{cid}
                                                     Update depth / formation /
-                                                    notes. Anchor (borehole_id
-                                                    / cpt_id) NOT updatable —
-                                                    delete + recreate.
+                                                    notes / anchor. Anchor
+                                                    (borehole_id + cpt_id) IS
+                                                    updatable — the section
+                                                    editor's drag-re-anchor
+                                                    flow uses it. BOTH anchor
+                                                    fields must be sent
+                                                    together when either
+                                                    changes (one of them
+                                                    null); partial anchor
+                                                    updates are 422 at the
+                                                    schema layer.
 DELETE /projects/{pid}/geology/models/{mid}/contacts/{cid}
+PUT    /projects/{pid}/geology/models/{mid}/contacts/batch
+                                                    All-or-nothing batch
+                                                    update for N contacts.
+                                                    Body: {updates: [{
+                                                    contact_id, depth_top_m?,
+                                                    borehole_id?, cpt_id?,
+                                                    source?, confidence?,
+                                                    notes?}]}. Same XOR rule
+                                                    per entry as the single
+                                                    PATCH. Used by the
+                                                    section editor's multi-
+                                                    drag + cross-column re-
+                                                    anchor flows; one
+                                                    transaction commits the
+                                                    whole list. Min 1 / max
+                                                    500 entries (422). Any
+                                                    contact missing or out
+                                                    of model scope → 404
+                                                    with no mutations.
 
 GET    /projects/{pid}/geology/models/{mid}/boreholes/{bid}/validate
                                                     No-gaps validator. Returns
@@ -1320,21 +1347,27 @@ When a guide actively hurts UX or conflicts with domain need:
 
 | Shortcut | Action | Scope |
 |---|---|---|
-| `Esc` | Close detail panel / cancel bbox draw / cancel modal | Global, when applicable |
+| `Esc` | Close detail panel / cancel bbox draw / cancel modal / cancel drag / cancel marquee / clear selection | Global, when applicable. On the section editor, ESC peels one interaction layer at a time (active drag → active marquee → active selection). |
 | `← / →` | Prev / next item in detail panel (samples, future CPTs) | When detail panel open |
 | `Ctrl + wheel` | Zoom (vertical scale on borelog, depth axis on map) | Map + borelog |
 | `Ctrl + 0` | Reset zoom to 100 % | Borelog |
 | `Delete` / `Backspace` | Remove selection (project-local) | When ≥ 1 row checked |
+| `Click` on contact line | Replace selection + start drag (cursor position = new (column, depth)) | Section editor |
+| `Ctrl/Cmd + Click` on contact line | Toggle this contact in/out of selection (no drag) | Section editor |
+| `Shift + Click` on contact line | Range-select shallow→deep within the source anchor's contacts | Section editor |
+| `Click + drag` on section background | Marquee (box) select. `Shift`/`Ctrl` held = additive (preserves existing selection); otherwise replace. Plain background click clears selection. | Section editor |
+| `Right-click` on contact line | Confirm → delete contact | Section editor |
 | `Ctrl/Cmd + A` | Select all | Future — list views |
 | `Ctrl/Cmd + F` | Filter / find | Future — list views |
 
 All shortcuts skip when an `<input>` / `<textarea>` / `<select>` /
 `contentEditable` element owns focus — a centralised `isTypingTarget`
 helper checks this before firing. The same helper is duplicated across
-the three components that listen today (Sidebar / BoreholeLog /
-LabTestPanel); collapsing into a shared `hooks/useGlobalShortcut.ts`
-when a fourth use lands per the project's "extract on the third
-copy" rule.
+the FOUR components that listen today (Sidebar / BoreholeLog /
+LabTestPanel / ContactsLayer); per CLAUDE.md's "extract on the third
+copy" rule it's now ripe — collapse into a shared
+`hooks/useGlobalShortcut.ts` (or just `utils/isTypingTarget.ts`) when
+the next debt sweep lands.
 
 ### Detail panels
 
@@ -1726,42 +1759,29 @@ routers already use a two-stage ``get_in_project_or_404`` pattern
 scaffolding must thread ``current_user`` through these routes
 before any token-gated call ships.
 
-### 44. Multi-select + drag-copy a contact stack between investigations (low — dogfooding feedback)
+### 44. Contact selection toolbox — RESOLVED in the same dogfooding session it was filed (2026-05-13)
 
-**What.** Today a contact is bound to one anchor (CPT or borehole)
-and the API explicitly forbids re-anchoring: ``PATCH /contacts/{id}``
-docstring says "Anchor (borehole_id / cpt_id) NOT updatable —
-delete + recreate." During dogfooding the user asked for a power
-flow: select every contact under one investigation, drag-copy (or
-move) the whole stack onto a neighbouring investigation. Useful
-for (a) re-anchoring a misclick, (b) stamping a well-characterised
-borehole's interpretation onto a thin nearby CPT, (c) building a
-template stack.
+Implemented the day after the debt was filed. Cross-column drag,
+Ctrl-toggle + Shift-range multi-select, box-marquee select,
+multi-drag with preserved Δm offsets, ESC peel, batch backend
+(``PUT /contacts/batch``) all shipped. The four design questions
+from the original entry got resolved as:
 
-**Open design questions** (need real-use data before a build):
+* **Move, not copy.** "Drag = move" matches every other drag in
+  the section editor; copy-via-modifier deferred until a user
+  actually asks for it.
+* **Cursor position.** Drop where the cursor releases — the section
+  view behaves like a 2D drawing surface. Same gesture works for
+  depth-only drag (vertical) and cross-column drag (horizontal).
+  Δm preserved across multi-selection so a stack moves rigidly.
+* **Multi-anchor selection collapses to one target column.** Drag
+  any selected contact; ALL selected end up on the dragged-to
+  column. Rare case; intentional v1 simplification.
+* **Out-of-bounds depths are allowed.** Contact rows simply record
+  depth_top_m > investigation depth; the section renders them
+  out of bounds. User can fix by re-picking or deleting.
 
-* Copy or move? Both are valid; the user asked for "drag", which
-  reads as move, but a hold-modifier variant for copy would be
-  obvious to keep around.
-* Depth semantics — keep ``depth_top_m`` (user-picked relative to
-  surface) or shift to keep ``elevation_mTAW`` (so the stack
-  follows the geology, not the topography)? Different answer for
-  shallow vs deep formations.
-* Target-anchor conflict — overwrite if B already carries the same
-  formation, skip silently, or pop a per-conflict prompt?
-* Out-of-bounds — what if the source's deepest contact sits below
-  B's ``total_depth_m`` / ``max_depth_m``? Truncate, warn, allow?
-
-**Why deferred.** Backend immutability would have to relax (or a
-new batch-clone endpoint lands). The MVP gate doesn't need it —
-delete + re-pick (right-click → confirm, just shipped) covers
-"fix the misclick" already. The design questions above only get
-honest answers from real use; building the feature before that
-risks shipping the wrong defaults.
-
-**When to revisit.** After 3–4 more dogfooding sessions. If the
-user reaches for this 1× per session it's polish; if 10× per
-session it's MVP-blocking. The right place to confirm before
-building is the same 5–10 BE/NL validation calls already in the
-plan — "would you re-anchor stacks often?" is a one-question add.
+The entry stays in the debt list as historical record + design-
+rationale anchor for anyone reading the section editor code.
+Strike-through is intentional — do not renumber after a fix.
 
