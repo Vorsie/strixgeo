@@ -44,6 +44,7 @@ export function BoreholeHeader({
           <ElevationEditor
             elevationM={borehole.elevation_m}
             zEpsg={borehole.z_epsg}
+            elevationSource={borehole.elevation_source}
             onSave={onElevationChange}
           />
         </div>
