@@ -31,12 +31,16 @@ if [ -n "$py_changed" ]; then
 fi
 
 if [ -n "$ts_changed" ]; then
-  echo "[pre-commit] Running desktop tsc + Vitest…"
+  echo "[pre-commit] Running desktop checks (eslint-reason + tsc + Vitest)…"
+  # eslint-reason — enforces CLAUDE.md's "every
+  # eslint-disable-next-line react-hooks/exhaustive-deps must carry a
+  # `// reason:` comment" rule. Cheapest of the three, runs first.
+  # Debt #42.
+  python scripts/check_eslint_reason.py
   # tsc --noEmit catches type errors before a green test suite can
   # mask them (vitest happily runs against ``any`` annotations and
-  # missing generic args; tsc doesn't). Runs first — it's faster
-  # than the test suite, so fail-fast on the cheap signal.
-  # Debt #6.
+  # missing generic args; tsc doesn't). Runs second — slower than
+  # the eslint-reason scan, faster than the test suite. Debt #6.
   (cd desktop && npx tsc --noEmit)
   (cd desktop && npm test --silent)
 fi
