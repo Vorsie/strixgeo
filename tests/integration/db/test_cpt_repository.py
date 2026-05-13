@@ -135,6 +135,47 @@ async def test_set_elevation_caller_zepsg_overrides_default(
     assert updated.z_epsg == 5709
 
 
+async def test_set_elevation_stamps_manual_provenance(
+    db_session: AsyncSession,
+) -> None:
+    """``set_elevation`` always stamps MANUAL when a value is set.
+
+    Debt #8 — pins the provenance stamp so a future refresh-on-
+    duplicate path that consults the column has a stable signal.
+    """
+    repo = CptRepository(db_session)
+    cpt = _cpt(test_id="stamp-manual")
+    cpt.elevation_source = "dov"  # imagine: row came from DOV import
+    await repo.save(cpt)
+    await db_session.commit()
+
+    updated = await repo.set_elevation(cpt.id, 12.0, 5710)
+    await db_session.commit()
+    assert updated is not None
+    assert updated.elevation_source == "manual"
+
+
+async def test_set_elevation_clear_resets_source_to_none(
+    db_session: AsyncSession,
+) -> None:
+    """Clearing the elevation flips the source back to NONE.
+
+    Debt #8 — clearing a manual edit moves the row back to "no Z
+    known" so every consumer sees a consistent (None, "none") pair.
+    """
+    repo = CptRepository(db_session)
+    cpt = _cpt(test_id="clear-source", elevation_m=4.0, z_epsg=5710)
+    cpt.elevation_source = "manual"
+    await repo.save(cpt)
+    await db_session.commit()
+
+    updated = await repo.set_elevation(cpt.id, None, None)
+    await db_session.commit()
+    assert updated is not None
+    assert updated.elevation_m is None
+    assert updated.elevation_source == "none"
+
+
 # ---------------------------------------------------------------------------
 # S7 — batched plot fetch via ``get_many_with_series``
 # ---------------------------------------------------------------------------
