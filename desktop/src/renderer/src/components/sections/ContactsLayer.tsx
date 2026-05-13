@@ -99,13 +99,58 @@ interface Props {
   ) => { qc: number | null; rf: number | null } | null
 }
 
-interface PolylineVertex {
+/** Data-only slab — output of the data-classification pass. Holds
+ * every fact needed to render a per-column layer block EXCEPT the
+ * screen Y coordinates, which depend on the viewport's vertical
+ * transform. Splitting the screen Y out lets the data memo stay
+ * cached across vertical pan / zoom (only ``levelToScreen`` changes
+ * there, not ``placedColumns`` or the data inputs) — see debt #29.
+ *
+ * ``bottomDepthM = null`` means "no known bottom" (deepest contact at
+ * an anchor with no recorded ``max_depth_m`` / ``total_depth_m``);
+ * the projection step renders that as "extends to ``plotBottom``".
+ */
+interface LayerSlabData {
   contactId: string
+  anchorId: string
+  anchorKind: 'cpt' | 'borehole'
+  formationId: string
+  formationName: string
+  color: string
+  topDepthM: number
+  bottomDepthM: number | null
+  surfaceElevationM: number
+  /** Horizontal extent + label X — these depend on ``placedColumns``
+   * (which itself can change on horizontal pan), so they live on the
+   * slab; the cheap projection in the render pass copies them
+   * through unchanged. */
+  segLeftX: number
+  segRightX: number
+  labelX: number
+}
+
+/** Data-only polyline vertex — output of the data-classification
+ * pass. Screen Y is computed in the projection step. */
+interface PolylineVertexData {
+  contactId: string
+  formationId: string
+  topDepthM: number
+  surfaceElevationM: number
   screenX: number
-  screenY: number
   sortKey: number
 }
 
+interface PolylineDataLine {
+  formationId: string
+  color: string
+  name: string
+  vertices: PolylineVertexData[]
+}
+
+/** Projected (screen-space) layer — output of the cheap render-time
+ * projection. Carries everything the renderer + drag handler need;
+ * the drag handler reads ``pxPerMetre`` / ``surfaceY`` / ``segY`` to
+ * compute live depth without re-walking ``placedColumns``. */
 interface RenderedLayer {
   key: string
   contactId: string
@@ -131,6 +176,14 @@ interface RenderedLayer {
   /** Original (un-dragged) depth, kept on the layer so the drag
    * commit can no-op when the user releases at the same depth. */
   originalDepthM: number
+}
+
+/** Projected polyline vertex — adds screen Y on top of the data form. */
+interface PolylineVertex {
+  contactId: string
+  screenX: number
+  screenY: number
+  sortKey: number
 }
 
 interface DragState {
@@ -206,144 +259,108 @@ export default function ContactsLayer({
   snapDepthsByAnchorId,
   getCptValuesAtDepth,
 }: Props): JSX.Element | null {
-  // Pre-index lookups + filter excluded boreholes once. Both render
-  // halves (polyline + per-column layers) consume the same set.
-  const { layers, polylines } = useMemo(() => {
+  // Stage A — data-classification pass. Produces ``LayerSlabData[]``
+  // and ``PolylineVertexData[]`` from data + horizontal layout only.
+  // Crucially excludes ``levelToScreen`` / ``plotTop`` / ``plotBottom``
+  // from the deps so vertical pan / zoom keeps this memo cached: only
+  // a horizontal pan, a contact edit, an exclusion-set toggle, or a
+  // formation rename invalidates the slab geometry. Debt #29.
+  //
+  // The previous implementation re-ran the full O(N×M) anchor match
+  // on every pan frame because ``levelToScreen`` was in the dep
+  // array. The new version (a) drops ``levelToScreen`` so vertical
+  // pan doesn't invalidate, and (b) pre-indexes ``contacts`` by
+  // anchor id so the inner loop is O(K) per column rather than O(M).
+  const { slabs, polylineData } = useMemo(() => {
     if (contacts.length === 0) {
-      return { layers: [], polylines: [] } as {
-        layers: RenderedLayer[]
-        polylines: {
-          formationId: string
-          color: string
-          name: string
-          vertices: PolylineVertex[]
-        }[]
-      }
+      return { slabs: [] as LayerSlabData[], polylineData: [] as PolylineDataLine[] }
     }
 
     const formationById = new Map<string, GeologicalFormationResponse>()
     for (const f of formations) formationById.set(f.id, f)
 
-    // First filter: only contacts whose anchor we can place AND
-    // whose anchor isn't excluded. The output is a per-anchor list
-    // sorted by depth ascending — the natural form for both render
-    // halves.
-    type AnchorContact = {
-      contact: FormationContactResponse
-      column: PlacedColumn
-      surfaceElevationM: number
+    // Pre-index contacts by anchor id so the per-column loop is O(K)
+    // (K = contacts at this anchor) rather than O(M) (M = all
+    // contacts in the project). On a 200-column / 500-contact project
+    // this drops the inner work from ~100k iterations per pan to
+    // ~500.
+    const contactsByAnchorId = new Map<string, FormationContactResponse[]>()
+    for (const c of contacts) {
+      const anchorId = c.borehole_id ?? c.cpt_id
+      if (!anchorId) continue
+      if (c.borehole_id && excludedBoreholeIds?.has(c.borehole_id)) continue
+      const bucket = contactsByAnchorId.get(anchorId)
+      if (bucket) {
+        bucket.push(c)
+      } else {
+        contactsByAnchorId.set(anchorId, [c])
+      }
     }
-    const byAnchor = new Map<string, AnchorContact[]>()
+
+    const slabsOut: LayerSlabData[] = []
+    // Polyline accumulator keyed by formation id; each entry collects
+    // vertices in any order, sorted left-to-right at the end.
+    type PolyAcc = { color: string; name: string; vertices: PolylineVertexData[] }
+    const byFormation = new Map<string, PolyAcc>()
+
     for (const col of placedColumns) {
       const item = col.proj.item as { id: string; elevation_m: number | null }
       if (item.elevation_m === null) continue
-      const colContacts: AnchorContact[] = []
-      for (const c of contacts) {
-        const anchorId = c.borehole_id ?? c.cpt_id
-        if (anchorId !== item.id) continue
-        if (c.borehole_id && excludedBoreholeIds?.has(c.borehole_id)) continue
-        colContacts.push({
-          contact: c,
-          column: col,
-          surfaceElevationM: item.elevation_m,
-        })
-      }
-      if (colContacts.length > 0) {
-        colContacts.sort((a, b) => a.contact.depth_top_m - b.contact.depth_top_m)
-        byAnchor.set(item.id, colContacts)
-      }
-    }
+      const colContacts = contactsByAnchorId.get(item.id)
+      if (!colContacts || colContacts.length === 0) continue
+      // Sort ascending by depth — the per-column slab loop assumes
+      // it; the polyline pass doesn't care but using the same order
+      // keeps memory access patterns contiguous.
+      const sorted = [...colContacts].sort((a, b) => a.depth_top_m - b.depth_top_m)
+      const surfaceElevationM = item.elevation_m
+      const bottomCap = itemBottomDepth(col)
+      const halfW = col.width / 2
 
-    // Pass 1: per-column layers. Each contact's layer extends to the
-    // next contact OR the investigation's bottom depth.
-    const layersOut: RenderedLayer[] = []
-    for (const colContacts of byAnchor.values()) {
-      for (let i = 0; i < colContacts.length; i += 1) {
-        const entry = colContacts[i]
-        const { contact, column, surfaceElevationM } = entry
+      for (let i = 0; i < sorted.length; i += 1) {
+        const contact = sorted[i]
         const formation = formationById.get(contact.formation_id)
         if (!formation) continue
         const topDepth = contact.depth_top_m
-        const nextDepth = colContacts[i + 1]?.contact.depth_top_m
-        const bottomCap = itemBottomDepth(column)
+        const nextDepth = sorted[i + 1]?.depth_top_m
         // bottomDepth: nearest-known lower bound. Fall-through order
         // matches geological convention — next pick wins, then the
-        // investigation's recorded bottom, finally the visible plot
-        // bottom so the deepest layer still renders something.
-        const bottomDepth =
-          nextDepth !== undefined ? nextDepth : bottomCap ?? Number.POSITIVE_INFINITY
-        const topLevel = surfaceElevationM - topDepth
-        const bottomLevel =
-          bottomDepth === Number.POSITIVE_INFINITY
-            ? Number.NEGATIVE_INFINITY
-            : surfaceElevationM - bottomDepth
-        const segY = levelToScreen(topLevel)
-        const bodyTopY = clamp(segY, plotTop, plotBottom)
-        const bodyBottomY =
-          bottomLevel === Number.NEGATIVE_INFINITY
-            ? plotBottom
-            : clamp(levelToScreen(bottomLevel), plotTop, plotBottom)
-        if (bodyBottomY < bodyTopY) continue
-        const halfW = column.width / 2
-        // px-per-metre derived from levelToScreen — deeper points map
-        // to larger Y in the flipped section transform. We need this
-        // both at render time (to draw the segment after a drag
-        // override) and in the drag move handler.
-        const pxPerMetre =
-          levelToScreen(surfaceElevationM - 1) - levelToScreen(surfaceElevationM)
-        const surfaceY = levelToScreen(surfaceElevationM)
-        layersOut.push({
-          key: `${column.proj.item.id}-${contact.id}`,
+        // investigation's recorded bottom, finally null (renders as
+        // "extends to plotBottom" in the projection step).
+        const bottomDepthM =
+          nextDepth !== undefined ? nextDepth : bottomCap ?? null
+        slabsOut.push({
           contactId: contact.id,
-          anchorId: column.proj.item.id,
-          anchorKind: column.kind,
+          anchorId: item.id,
+          anchorKind: col.kind,
           formationId: contact.formation_id,
           formationName: formation.name,
           color: formation.color,
-          segLeftX: column.nudgedX - halfW,
-          segRightX: column.nudgedX + halfW,
-          segY,
-          bodyTopY,
-          bodyBottomY,
-          labelX: column.nudgedX,
+          topDepthM: topDepth,
+          bottomDepthM,
           surfaceElevationM,
-          pxPerMetre,
-          surfaceY,
-          originalDepthM: topDepth,
+          segLeftX: col.nudgedX - halfW,
+          segRightX: col.nudgedX + halfW,
+          labelX: col.nudgedX,
         })
-      }
-    }
 
-    // Pass 2: cross-column polylines, one per formation. Same shape
-    // as before but without the dot markers — the per-column top
-    // segments already mark each anchor, dots would be redundant.
-    type PolyAcc = { color: string; name: string; vertices: PolylineVertex[] }
-    const byFormation = new Map<string, PolyAcc>()
-    for (const colContacts of byAnchor.values()) {
-      for (const entry of colContacts) {
-        const { contact, column, surfaceElevationM } = entry
-        const formation = formationById.get(contact.formation_id)
-        if (!formation) continue
-        const screenY = levelToScreen(surfaceElevationM - contact.depth_top_m)
-        if (screenY < plotTop || screenY > plotBottom) continue
+        // Same iteration also populates the polyline accumulator —
+        // saves a second walk of the sorted list.
         const acc =
           byFormation.get(contact.formation_id) ??
           ({ color: formation.color, name: formation.name, vertices: [] } as PolyAcc)
         acc.vertices.push({
           contactId: contact.id,
-          screenX: column.nudgedX,
-          screenY,
-          sortKey: column.nudgedX,
+          formationId: contact.formation_id,
+          topDepthM: topDepth,
+          surfaceElevationM,
+          screenX: col.nudgedX,
+          sortKey: col.nudgedX,
         })
         byFormation.set(contact.formation_id, acc)
       }
     }
-    const polylinesOut: {
-      formationId: string
-      color: string
-      name: string
-      vertices: PolylineVertex[]
-    }[] = []
+
+    const polylinesOut: PolylineDataLine[] = []
     for (const [formationId, acc] of byFormation) {
       acc.vertices.sort((a, b) => a.sortKey - b.sortKey)
       polylinesOut.push({
@@ -354,16 +371,86 @@ export default function ContactsLayer({
       })
     }
 
+    return { slabs: slabsOut, polylineData: polylinesOut }
+  }, [contacts, formations, placedColumns, excludedBoreholeIds])
+
+  // Stage B — cheap screen-space projection. O(N) per render with no
+  // allocation beyond the output arrays; runs on every pan / zoom but
+  // does no data classification work. Memoised on the vertical-axis
+  // inputs so React's reconciliation skips it when the data pass
+  // produced the same slabs and the viewport hasn't changed.
+  const { layers, polylines } = useMemo(() => {
+    const layersOut: RenderedLayer[] = []
+    for (const slab of slabs) {
+      const topLevel = slab.surfaceElevationM - slab.topDepthM
+      const segY = levelToScreen(topLevel)
+      const bodyTopY = clamp(segY, plotTop, plotBottom)
+      const bodyBottomY =
+        slab.bottomDepthM === null
+          ? plotBottom
+          : clamp(
+              levelToScreen(slab.surfaceElevationM - slab.bottomDepthM),
+              plotTop,
+              plotBottom,
+            )
+      if (bodyBottomY < bodyTopY) continue
+      // px-per-metre derived from levelToScreen — deeper points map
+      // to larger Y in the flipped section transform. Needed both at
+      // render time (to draw the segment after a drag override) and
+      // in the drag move handler.
+      const surfaceY = levelToScreen(slab.surfaceElevationM)
+      const pxPerMetre =
+        levelToScreen(slab.surfaceElevationM - 1) - surfaceY
+      layersOut.push({
+        key: `${slab.anchorId}-${slab.contactId}`,
+        contactId: slab.contactId,
+        anchorId: slab.anchorId,
+        anchorKind: slab.anchorKind,
+        formationId: slab.formationId,
+        formationName: slab.formationName,
+        color: slab.color,
+        segLeftX: slab.segLeftX,
+        segRightX: slab.segRightX,
+        segY,
+        bodyTopY,
+        bodyBottomY,
+        labelX: slab.labelX,
+        surfaceElevationM: slab.surfaceElevationM,
+        pxPerMetre,
+        surfaceY,
+        originalDepthM: slab.topDepthM,
+      })
+    }
+
+    const polylinesOut: {
+      formationId: string
+      color: string
+      name: string
+      vertices: PolylineVertex[]
+    }[] = []
+    for (const line of polylineData) {
+      const projected: PolylineVertex[] = []
+      for (const v of line.vertices) {
+        const screenY = levelToScreen(v.surfaceElevationM - v.topDepthM)
+        if (screenY < plotTop || screenY > plotBottom) continue
+        projected.push({
+          contactId: v.contactId,
+          screenX: v.screenX,
+          screenY,
+          sortKey: v.sortKey,
+        })
+      }
+      if (projected.length === 0) continue
+      polylinesOut.push({
+        formationId: line.formationId,
+        color: line.color,
+        name: line.name,
+        vertices: projected,
+      })
+    }
+
     return { layers: layersOut, polylines: polylinesOut }
-  }, [
-    contacts,
-    formations,
-    placedColumns,
-    excludedBoreholeIds,
-    levelToScreen,
-    plotTop,
-    plotBottom,
-  ])
+  }, [slabs, polylineData, levelToScreen, plotTop, plotBottom])
 
   // Drag state lives in the component so its update path is
   // explicit. Document-level mousemove + mouseup listeners attach
