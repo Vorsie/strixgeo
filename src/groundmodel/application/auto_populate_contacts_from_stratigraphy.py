@@ -1,17 +1,31 @@
 """Auto-populate FormationContact rows from a borehole's stratigraphy.
 
-The geological-model editor's "Apply stratigraphy" button funnels
-through this use case. For each borehole in scope:
+The geological-model editor's "Seed from stratigraphy" button
+funnels through this use case. Per borehole:
 
-* Find a FORMAL_STRATIGRAPHY observation first; fall through to
-  INFORMAL_STRATIGRAPHY only when no formal observation exists.
-* For each layer in the chosen observation with ``top_m > 0`` (the
-  surface itself is not a contact), find or auto-create a project
-  formation matching the layer's description string.
-* Create a FormationContact at that depth, linked to the source
-  observation + layer via ``observation_layer_id`` so re-running
-  the button is idempotent (an existing contact for that layer
-  short-circuits before any mutation).
+* Resolve both stratigraphy streams: FORMAL_STRATIGRAPHY (the
+  standardized regional classification, e.g. ``HyEg - Lid van
+  Egem``) and INFORMAL_STRATIGRAPHY (the engineer's working name,
+  e.g. ``Boom Klei``).
+* Walk the FORMAL stream as the primary layer source (formal is
+  the authoritative regional model). Fall through to walking the
+  INFORMAL stream only when the borehole carries no formal
+  observation.
+* For each primary layer (including the topmost — ``top_m == 0`` is
+  a valid contact, the top of the topmost formation), find a
+  counterpart in the OTHER stream by max-overlap of the two
+  intervals.
+* Build the formation with the split DOV convention:
+    name         = informal description (working name)
+    regional_ref = formal description   (regional reference)
+  Falling back to the primary stream's own description on whichever
+  field has no counterpart.
+* Match formations across boreholes by ``regional_ref`` when
+  present (stable cross-borehole key — same formal code = same
+  formation), falling back to ``name`` otherwise.
+* Create a FormationContact at the layer's top depth, linked to
+  the source observation + layer via ``observation_layer_id`` so
+  re-running the button is idempotent.
 
 The use case owns transaction discipline: one commit for the whole
 batch. A partial-failure (e.g. FK violation mid-loop) rolls
@@ -149,17 +163,20 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             if cid is not None
         }
 
-        # Pre-load every project formation. The (project_id, name)
-        # lookup is case-insensitive — DOV layer descriptions arrive
-        # in mixed case across imports, but two formations called
-        # "Boom" and "boom" should resolve to the same project
-        # formation when auto-populating.
+        # Pre-load every project formation. Two indices: a stable
+        # cross-borehole key (regional_ref — formal stratigraphy code)
+        # and a fallback name index for informal-only formations.
+        # Lookups are case-insensitive — DOV layer descriptions arrive
+        # in mixed case across imports.
         formations_stmt = select(GeologicalFormationOrm).where(
             GeologicalFormationOrm.app_project_id == project_id
         )
-        formations_by_lower_name: dict[str, GeologicalFormationOrm] = {
-            f.name.lower(): f
-            for f in (await self._session.execute(formations_stmt)).scalars().all()
+        existing_formations = list((await self._session.execute(formations_stmt)).scalars().all())
+        formations_by_regional_ref: dict[str, GeologicalFormationOrm] = {
+            f.regional_ref.lower(): f for f in existing_formations if f.regional_ref
+        }
+        formations_by_name: dict[str, GeologicalFormationOrm] = {
+            f.name.lower(): f for f in existing_formations
         }
         next_display_order = (
             await self._session.execute(
@@ -176,46 +193,83 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         skipped_no_stratigraphy = 0
 
         for borehole in boreholes:
-            # Per the spec: formal wins. Fall through to informal only
-            # when the borehole has NO formal stratigraphy observation.
-            chosen = self._choose_observation(borehole.observations)
-            if chosen is None:
+            # Resolve both streams. Formal is the authoritative regional
+            # source for layer boundaries when present; informal is
+            # walked only when no formal observation exists.
+            formal_obs = self._find_observation(
+                borehole.observations, ObservationType.FORMAL_STRATIGRAPHY
+            )
+            informal_obs = self._find_observation(
+                borehole.observations, ObservationType.INFORMAL_STRATIGRAPHY
+            )
+            if formal_obs is None and informal_obs is None:
                 skipped_no_stratigraphy += 1
                 self.debug(f"Borehole {borehole.id}: no stratigraphy observation, skipped")
                 continue
 
-            for layer in chosen.layers:
-                # Surface — not a contact (the formation's TOP is at
-                # the layer's top, and a layer starting at the
-                # ground surface has nothing to anchor against).
-                if layer.top_m <= 0.0:
+            primary_obs = formal_obs if formal_obs is not None else informal_obs
+            other_obs = informal_obs if formal_obs is not None else None
+            assert primary_obs is not None  # narrowed by the guard above
+            primary_is_formal = formal_obs is not None
+            other_layers = list(other_obs.layers) if other_obs is not None else []
+
+            for layer in primary_obs.layers:
+                # Negative depth is invalid (parser bug or corrupt
+                # source). top_m == 0 IS allowed — that's the topmost
+                # formation's top, which the user explicitly wants.
+                if layer.top_m < 0.0:
                     continue
                 if layer.id in used_layer_ids:
                     skipped_existing += 1
                     continue
-                description = (layer.description or "").strip()
-                if not description:
+                primary_desc = (layer.description or "").strip()
+                if not primary_desc:
                     skipped_unmatched += 1
                     self.debug(
                         f"Borehole {borehole.id} layer {layer.id}: empty description, skipped"
                     )
                     continue
 
-                # Find or create the matching formation. Case-insensitive
-                # match on the trimmed description string.
-                key = description.lower()
-                formation = formations_by_lower_name.get(key)
+                # Find counterpart layer in the other stream by max
+                # interval-overlap. Returns None when no other stream,
+                # or when no overlapping layer exists.
+                counterpart = self._best_overlap(layer.top_m, layer.base_m, other_layers)
+                counterpart_desc = (counterpart.description or "").strip() if counterpart else None
+
+                # DOV split: name = informal description, regional_ref
+                # = formal description. Each falls back to the primary
+                # stream's own description on whichever side has no
+                # counterpart.
+                if primary_is_formal:
+                    regional_ref: str | None = primary_desc
+                    name = counterpart_desc or primary_desc
+                else:
+                    regional_ref = None  # informal-only borehole
+                    name = primary_desc
+
+                # Find or create. regional_ref is the cross-borehole
+                # key when present (same formal code = same formation,
+                # even if a different borehole used a different working
+                # name). Falls back to the name index when no formal.
+                formation: GeologicalFormationOrm | None = None
+                if regional_ref:
+                    formation = formations_by_regional_ref.get(regional_ref.lower())
+                if formation is None:
+                    formation = formations_by_name.get(name.lower())
                 if formation is None:
                     formation = GeologicalFormationOrm(
                         id=uuid7(),
                         app_project_id=project_id,
-                        name=description,
-                        color=_palette_colour_for(description),
+                        name=name,
+                        regional_ref=regional_ref,
+                        color=_palette_colour_for(regional_ref or name),
                         display_order=next_display_order,
                     )
                     next_display_order += 1
                     self._session.add(formation)
-                    formations_by_lower_name[key] = formation
+                    if regional_ref:
+                        formations_by_regional_ref[regional_ref.lower()] = formation
+                    formations_by_name[name.lower()] = formation
                     created_formation_ids.append(formation.id)
 
                 contact = FormationContactOrm(
@@ -226,7 +280,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     depth_top_m=layer.top_m,
                     source="borehole_observation",
                     confidence="high",
-                    observation_id=chosen.id,
+                    observation_id=primary_obs.id,
                     observation_layer_id=layer.id,
                 )
                 self._session.add(contact)
@@ -251,23 +305,50 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         )
 
     @staticmethod
-    def _choose_observation(
+    def _find_observation(
         observations: Iterable[ObservationOrm],
+        kind: ObservationType,
     ) -> ObservationOrm | None:
-        """Pick the stratigraphy observation to use for a borehole.
+        """Return the first observation of ``kind`` on the borehole, or None.
 
-        Formal wins on conflict — if the borehole has BOTH a
-        FORMAL_STRATIGRAPHY and an INFORMAL_STRATIGRAPHY observation,
-        formal's layers seed the contacts and informal is ignored.
-        Falls through to informal only when no formal observation
-        exists. Returns ``None`` when neither stream is present.
+        A borehole's observations are unique per type in practice
+        (DOV doesn't ship two formal stratigraphy interpretations
+        for one boring), so "first match" is equivalent to "the
+        match" — the helper is just a one-liner factored out so
+        the use case body stays readable.
         """
-        formal: ObservationOrm | None = None
-        informal: ObservationOrm | None = None
         for obs in observations:
-            if obs.observation_type == ObservationType.FORMAL_STRATIGRAPHY.value:
-                formal = obs
-                break  # formal short-circuits — we don't need informal
-            if obs.observation_type == ObservationType.INFORMAL_STRATIGRAPHY.value:
-                informal = obs
-        return formal or informal
+            if obs.observation_type == kind.value:
+                return obs
+        return None
+
+    @staticmethod
+    def _best_overlap(
+        top_m: float,
+        base_m: float,
+        candidates: Iterable[object],
+    ) -> object | None:
+        """Find the candidate layer with the largest depth-interval overlap.
+
+        Used to pair a primary-stream layer with its counterpart in
+        the other stream (formal vs informal). Overlap is the
+        intersection length: ``max(0, min(b1, b2) - max(t1, t2))``.
+        Returns the candidate with max overlap; None when no
+        candidate overlaps at all (no informal layer covers this
+        depth range).
+
+        Type-erased to ``object`` because callers pass
+        ObservationLayerOrm rows with the same ``top_m`` / ``base_m``
+        / ``description`` columns; static typing here would force a
+        circular import for a one-line helper.
+        """
+        best: object | None = None
+        best_overlap = 0.0
+        for cand in candidates:
+            cand_top = float(getattr(cand, "top_m"))
+            cand_base = float(getattr(cand, "base_m"))
+            overlap = min(base_m, cand_base) - max(top_m, cand_top)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best = cand
+        return best
