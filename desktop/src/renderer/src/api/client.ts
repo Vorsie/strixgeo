@@ -269,6 +269,14 @@ export interface FormationContactBatchUpdateResponse {
   contacts: FormationContactResponse[]
 }
 
+export interface AutoPopulateFromStratigraphyResponse {
+  created_contact_ids: string[]
+  created_formation_ids: string[]
+  skipped_existing: number
+  skipped_unmatched: number
+  skipped_no_stratigraphy: number
+}
+
 // Gap validator output — the editor surfaces these as soft warnings
 // per borehole (missing surface contact, duplicate depth, contact
 // below test depth, etc.). Empty issues = clean stratigraphy.
@@ -979,6 +987,21 @@ export const api = {
       put(
         `/projects/${projectId}/geology/models/${modelId}/contacts/batch`,
         { updates },
+      ),
+
+    // Seed the model with contacts derived from each borehole's
+    // formal (or fall-through informal) stratigraphy observation.
+    // Idempotent — re-running with the same scope reports the
+    // dedup hits in ``skipped_existing``. Caller refreshes the local
+    // formations + contacts state from the returned counts.
+    autoPopulateFromStratigraphy: (
+      projectId: string,
+      modelId: string,
+      boreholeIds: readonly string[],
+    ): Promise<AutoPopulateFromStratigraphyResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
+        { borehole_ids: boreholeIds },
       ),
 
     // --- Gap validator (per borehole) -----------------------------
