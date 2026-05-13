@@ -182,25 +182,36 @@ async def import_cpt_dov(
             north=request.north,
             app_project_id=request.project_id,
         )
+    # On upstream failure, the user-facing ``detail`` carries only the
+    # category + (when safe) the upstream HTTP status. Library class
+    # names + exception messages are logged server-side so debugging
+    # stays possible without leaking dependency versions or internal
+    # topology to a future non-trusted caller (debt #43).
     except httpx.TimeoutException as exc:
+        logger.warning(f"DOV import timeout: {type(exc).__name__}: {exc}")
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"DOV did not respond in time ({exc.__class__.__name__})",
+            detail="DOV did not respond in time",
         ) from exc
     except httpx.ConnectError as exc:
+        logger.warning(f"DOV import connect error: {type(exc).__name__}: {exc}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Cannot reach DOV — check your internet connection",
         ) from exc
     except httpx.HTTPStatusError as exc:
+        logger.warning(
+            f"DOV import upstream {exc.response.status_code}: {type(exc).__name__}: {exc}",
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"DOV returned HTTP {exc.response.status_code}",
         ) from exc
     except httpx.RequestError as exc:
+        logger.warning(f"DOV import request error: {type(exc).__name__}: {exc}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"DOV request failed: {exc.__class__.__name__}: {exc}",
+            detail="DOV request failed",
         ) from exc
 
     return ImportDovResponse(
