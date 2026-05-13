@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -170,8 +171,19 @@ class CptRepository(GroundModelLogger):
         # default from the row's horizontal CRS.
         if elevation_m is None:
             cpt.z_epsg = None
+            # Clearing a manual edit moves the row back to "no Z known".
+            # We do NOT restore a previously-imported Z — debt #8 calls
+            # that out as a Phase 5 enhancement.
+            cpt.elevation_source = ElevationSource.NONE.value
         else:
             cpt.z_epsg = z_epsg if z_epsg is not None else default_vertical_epsg(cpt.epsg)
+            # Every set_elevation call stamps MANUAL — that's the entire
+            # point of the column, so refresh-on-duplicate paths don't
+            # later overwrite the user's correction (debt #8).
+            cpt.elevation_source = ElevationSource.MANUAL.value
         await self._session.flush()
-        self.success(f"CPT {cpt_id} elevation updated to {elevation_m} ({cpt.z_epsg})")
+        self.success(
+            f"CPT {cpt_id} elevation updated to {elevation_m} ({cpt.z_epsg}) "
+            f"source={cpt.elevation_source}"
+        )
         return cpt
