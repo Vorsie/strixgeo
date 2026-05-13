@@ -29,6 +29,8 @@
  * hover/select hooks for the geological editor.
  */
 
+import { useEffect, useState } from 'react'
+
 import type {
   BoreholeDetailResponse,
   ObservationResponse,
@@ -38,6 +40,7 @@ import {
   BOREHOLE_CHANNEL_OBSERVATION_TYPES,
   type BoreholeChannels,
 } from './cptChannels'
+import HoverReadoutCard from './HoverReadoutCard'
 
 // Which observation types render with patterned soil fills (DOV
 // codes drive the pattern) vs. solid card-style fills with a text
@@ -94,6 +97,13 @@ interface Props {
    * within ``SNAP_TOLERANCE_PX`` of the click Y. Off = free
    * placement. */
   snapToStratigraphy?: boolean
+  /** When true, hovering the click-capture overlay shows a small
+   * depth + mTAW readout that follows the cursor Y (ghost line +
+   * floating card). Used by section focus mode so the user can read
+   * depths off a single isolated borehole. The hit-box still
+   * renders even without ``onCommitDepth`` when this flag is on, so
+   * the readout is available outside the contact-pick flow. */
+  showHoverReadout?: boolean
 }
 
 const SNAP_TOLERANCE_PX = 8
@@ -113,7 +123,17 @@ export default function BoreholeColumn({
   levelToScreen,
   onCommitDepth,
   snapToStratigraphy = false,
+  showHoverReadout = false,
 }: Props): JSX.Element | null {
+  const [cursorY, setCursorY] = useState<number | null>(null)
+
+  // Clear hover state when focus mode flips off — without this the
+  // ghost line + card linger until the user moves over the band
+  // again. Cheap effect; only fires on showHoverReadout transitions.
+  useEffect(() => {
+    if (!showHoverReadout) setCursorY(null)
+  }, [showHoverReadout])
+
   // Walk the channel list in display order, picking up the matching
   // observation (or null) per slot. We collect both the entry and
   // the slot index so layout uses positional X offsets regardless of
@@ -181,11 +201,15 @@ export default function BoreholeColumn({
     return bestDepth
   }
 
-  function handleClick(e: React.MouseEvent<SVGRectElement>): void {
-    if (!onCommitDepth) return
+  function clampedYFromEvent(e: React.MouseEvent<SVGRectElement>): number {
     const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect()
     const localY = e.clientY - rect.top + bandTopY
-    const clamped = Math.max(bandTopY, Math.min(bandBottomY, localY))
+    return Math.max(bandTopY, Math.min(bandBottomY, localY))
+  }
+
+  function handleClick(e: React.MouseEvent<SVGRectElement>): void {
+    if (!onCommitDepth) return
+    const clamped = clampedYFromEvent(e)
     const rawDepth = depthAtY(clamped)
     const depth = snapDepth(rawDepth, clamped)
     onCommitDepth({
@@ -197,26 +221,84 @@ export default function BoreholeColumn({
     })
   }
 
+  function handleMouseMove(e: React.MouseEvent<SVGRectElement>): void {
+    if (!showHoverReadout) return
+    setCursorY(clampedYFromEvent(e))
+  }
+
+  function handleMouseLeave(): void {
+    if (!showHoverReadout) return
+    setCursorY(null)
+  }
+
+  // Effective hover depth honours snap so the ghost line + readout
+  // reflect what would commit on click.
+  const hoverDepth =
+    cursorY === null ? null : snapDepth(depthAtY(cursorY), cursorY)
+  const hoverElevation =
+    hoverDepth === null ? null : surfaceElevationM - hoverDepth
+  const hoverRenderY =
+    hoverDepth === null ? null : levelToScreen(surfaceElevationM - hoverDepth)
+
   return (
     <g pointerEvents="none">
-      {/* Click-capture overlay over the full band. Renders ABOVE
-          the layer rects (paint order is parent-then-children, so
-          this sibling sits visually behind subsequent siblings; but
-          ``pointer-events=auto`` on this rect means it catches the
-          click first inside the band area). Cursor switches to
-          crosshair while hovering so the affordance is obvious. */}
-      {onCommitDepth && bandBottomY - bandTopY > 0 && (
+      {/* Click + hover capture overlay over the full band. Renders
+          ABOVE the layer rects (paint order is parent-then-children,
+          so this sibling sits visually behind subsequent siblings;
+          but ``pointer-events=auto`` on this rect means it catches
+          events first inside the band area). The rect renders when
+          EITHER onCommitDepth is wired (the contact-pick flow) OR
+          showHoverReadout is on (focus mode without a model is
+          still allowed to show the readout). Crosshair cursor when
+          a click would commit; default when read-only. */}
+      {(onCommitDepth || showHoverReadout) && bandBottomY - bandTopY > 0 && (
         <rect
           x={bandLeftX}
           y={bandTopY}
           width={totalWidth}
           height={bandBottomY - bandTopY}
           fill="transparent"
-          style={{ cursor: 'crosshair' }}
+          style={{ cursor: onCommitDepth ? 'crosshair' : 'default' }}
           pointerEvents="auto"
-          onClick={handleClick}
+          onClick={onCommitDepth ? handleClick : undefined}
+          onMouseMove={showHoverReadout ? handleMouseMove : undefined}
+          onMouseLeave={showHoverReadout ? handleMouseLeave : undefined}
         />
       )}
+      {/* Hover readout — ghost line at the snapped cursor depth +
+          a 2-line card (depth, m TAW) to the right of the band.
+          Suppressed when the hit-box isn't capturing (no
+          showHoverReadout) or before the user has moved over the
+          band (cursorY === null). */}
+      {showHoverReadout && cursorY !== null && hoverDepth !== null &&
+        hoverElevation !== null && hoverRenderY !== null && (
+          <g pointerEvents="none">
+            <line
+              x1={bandLeftX - 6}
+              x2={bandLeftX + totalWidth + 6}
+              y1={hoverRenderY}
+              y2={hoverRenderY}
+              stroke="#dc2626"
+              strokeWidth={1}
+              strokeOpacity={0.85}
+              strokeDasharray="3 2"
+            />
+            <HoverReadoutCard
+              x={bandLeftX + totalWidth + 8}
+              y={hoverRenderY}
+              plotTop={plotTop}
+              plotBottom={plotBottom}
+              lines={[
+                { text: `depth ${hoverDepth.toFixed(2)} m` },
+                {
+                  text: `${hoverElevation >= 0 ? '+' : ''}${hoverElevation.toFixed(
+                    2,
+                  )} m TAW`,
+                },
+              ]}
+            />
+          </g>
+        )}
       {enabledSlots.map((slot, i) => {
         const stripLeftX = bandLeftX + i * stripWidth
         if (slot.obs === null || slot.obs.layers.length === 0) {
