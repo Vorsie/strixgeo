@@ -5,12 +5,12 @@ The router has already established scope (the contact's
 before this use case is called. The use case applies the patch,
 commits, and returns the refreshed row.
 
-The anchor (``borehole_id`` / ``cpt_id``) is intentionally NOT
-updatable — repointing a contact at a different investigation is
-rare and easy to do wrong; delete + create is the safer flow.
-Pydantic ``FormationContactUpdateRequest`` enforces this by simply
-not exposing the anchor fields, so the patch dict reaching this
-layer never carries them.
+The anchor (``borehole_id`` / ``cpt_id``) IS updatable — the
+section editor's drag-re-anchor flow PATCHes both anchor fields
+together (one with the new value, the other set to null) and the
+schema's XOR validator enforces invariant safety. The repository's
+``update_contact`` already setattrs whatever keys the patch dict
+carries, so anchor changes flow through without a use-case change.
 """
 
 from __future__ import annotations
