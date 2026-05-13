@@ -1380,8 +1380,9 @@ When a guide actively hurts UX or conflicts with domain need:
 | `Click` on contact line | Replace selection + start drag. Cursor on release = new (column, depth). | Section editor |
 | `Ctrl/Cmd + Click` on contact line | Toggle this contact in/out of selection (no drag) | Section editor |
 | `Shift + Click` on contact line | Range-select shallow→deep within the source anchor's contacts | Section editor |
-| `Drag` plain on section background | **Pan the viewport** (existing behaviour preserved) | Section editor |
-| `Shift + drag` on section background | Marquee (box) select. Always **additive** — preserves existing selection. To replace, ESC first then Shift+drag. | Section editor |
+| `Drag` plain on section (background or column) | **Pan the viewport** (existing behaviour preserved) | Section editor |
+| `Click` plain on section background (no drag) | Clear contact selection | Section editor |
+| `Shift + drag` ANYWHERE on the section (background OR column) | Marquee (box) select. Always **additive** — preserves existing selection. To replace, click bg to clear first, then Shift+drag. Marquee dispatch lives on the SVG root so Shift takes priority over the column's contact-pick handler. | Section editor |
 | `Drag` cross-column on a contact (no Alt) | **COPY** — creates new contact(s) at the target anchor; originals stay where they were. The "stamp interpretation onto a nearby test" workflow. | Section editor |
 | `Alt + drag` cross-column on a contact | **MOVE** — re-anchors the existing contact(s) to the target column. Use to fix a misclicked anchor. | Section editor |
 | `Drag` same-column on a contact | Re-pick depth (single contact) or shift all selected depths (multi-select). | Section editor |
@@ -1834,4 +1835,44 @@ they don't get re-filed as new items):
 The entry stays in the debt list as historical record + design-
 rationale anchor for anyone reading the section editor code.
 Strike-through is intentional — do not renumber after a fix.
+
+### 45. Undo/redo (Ctrl+Z) for geological model edits (medium — dogfooding ask 2026-05-13)
+
+**What.** No undo system today. Every contact create / delete /
+update / batch-create / batch-update / auto-populate is permanent
+the moment it commits. User asked for Ctrl+Z during a real
+dogfooding session — they want to revert a misclick or a wrong
+auto-populate without re-importing the project.
+
+**Scope shape.** Command pattern. Each mutation handler builds a
+``Command`` object with ``apply()`` + ``revert()``. App-level
+``useUndo()`` hook owns ``historyStack: Command[]`` +
+``redoStack: Command[]``. Ctrl+Z pops history → revert → push
+redo. Ctrl+Y / Shift+Ctrl+Z pops redo → apply → push history.
+Every existing mutation handler in ``App.tsx`` adds a command
+push after success.
+
+Commands needed (rough sketch):
+
+* ``CreateContactCommand`` — revert: DELETE the created id.
+* ``DeleteContactCommand`` — revert: POST a new contact with the
+  pre-delete payload (gets a new server id; updates remembered
+  refs in the redo stack).
+* ``UpdateContactDepthCommand`` — revert: PATCH back to the old
+  depth.
+* ``BatchUpdateContactsCommand`` — revert: PUT batch with the
+  pre-update snapshot.
+* ``BatchCreateContactsCommand`` — revert: DELETE every created id.
+* ``AutoPopulateCommand`` — revert: DELETE every created contact
+  + every created formation.
+
+**Why deferred.** Touches every mutation handler — ~1-2 days of
+careful work + tests. Better to ship as one coherent feature in
+its own session than to bolt onto the next bugfix sprint.
+
+**When to revisit.** Next session focused on contact-editor work,
+or sooner if dogfooding hits a real "I just lost an hour of
+picks" moment. The friction-list trigger is the same shape as
+the data-loss save bug from earlier (#44 sibling) — a real loss
+event makes this MUCH higher priority.
 
