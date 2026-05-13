@@ -3,7 +3,7 @@
 // cross-section. Each enabled interpretation channel gets its own
 // vertical strip (DOV "lengteprofiel" page-3 convention).
 
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import type {
@@ -81,6 +81,16 @@ function makeDetail(observations: ObservationResponse[]): BoreholeDetailResponse
 function renderColumn(
   detail: BoreholeDetailResponse,
   channels: Partial<BoreholeChannels> = {},
+  extras: {
+    showHoverReadout?: boolean
+    onCommitDepth?: (anchor: {
+      kind: 'borehole'
+      boreholeId: string
+      boreholeName: string
+      depth_m: number
+      elevationM: number
+    }) => void
+  } = {},
 ) {
   return render(
     <svg>
@@ -93,9 +103,22 @@ function renderColumn(
         plotTop={0}
         plotBottom={50}
         levelToScreen={flipped}
+        showHoverReadout={extras.showHoverReadout}
+        onCommitDepth={extras.onCommitDepth}
       />
     </svg>,
   )
+}
+
+function findClickCaptureRect(container: HTMLElement): SVGRectElement {
+  // The click+hover capture overlay is the rect with cursor styling
+  // (crosshair for pick mode, default for readout-only). It's the
+  // only rect with a non-empty ``style`` attribute.
+  const rect = Array.from(container.querySelectorAll('rect')).find(
+    r => r.getAttribute('style') && r.getAttribute('style')!.includes('cursor'),
+  )
+  if (!rect) throw new Error('No click/hover capture rect rendered')
+  return rect as unknown as SVGRectElement
 }
 
 describe('BoreholeColumn — N-strip rendering', () => {
@@ -163,6 +186,69 @@ describe('BoreholeColumn — N-strip rendering', () => {
     const rect = container.querySelector('rect')
     expect(rect?.getAttribute('y')).toBe('10')
     expect(rect?.getAttribute('height')).toBe('40')
+  })
+
+  it('renders no hover readout text when showHoverReadout is off (default)', () => {
+    const detail = makeDetail([
+      makeObservation('geotechnical_coding', [makeLayer({ id: 'l1', top_m: 0, base_m: 2 })]),
+    ])
+    const { container } = renderColumn(detail)
+    // No text elements at all — readout would emit two <text> nodes.
+    expect(container.querySelectorAll('text').length).toBe(0)
+  })
+
+  it('renders no hit-box at all when both onCommitDepth and showHoverReadout are off', () => {
+    const detail = makeDetail([
+      makeObservation('geotechnical_coding', [makeLayer({ id: 'l1', top_m: 0, base_m: 2 })]),
+    ])
+    const { container } = renderColumn(detail)
+    // No rect with a cursor style — only the layer rects exist.
+    const cursorRects = Array.from(container.querySelectorAll('rect')).filter(r =>
+      (r.getAttribute('style') ?? '').includes('cursor'),
+    )
+    expect(cursorRects.length).toBe(0)
+  })
+
+  it('renders a depth + mTAW readout after a mousemove when showHoverReadout is on', () => {
+    const detail = makeDetail([
+      makeObservation('geotechnical_coding', [makeLayer({ id: 'l1', top_m: 0, base_m: 5 })]),
+    ])
+    const { container } = renderColumn(detail, {}, { showHoverReadout: true })
+    // With the fixture: surface elevation 10 m, levelToScreen =
+    // 20 - level. surfaceY = 10. bandTopY = 10. A clientY of 5 maps
+    // to localY = 5 + 10 = 15 (mid-band), depth = 5 m, elevation
+    // = 10 - 5 = 5 m TAW.
+    fireEvent.mouseMove(findClickCaptureRect(container), { clientY: 5 })
+    const texts = Array.from(container.querySelectorAll('text')).map(t => t.textContent)
+    expect(texts).toContain('depth 5.00 m')
+    expect(texts).toContain('+5.00 m TAW')
+  })
+
+  it('hides the readout on mouseleave', () => {
+    const detail = makeDetail([
+      makeObservation('geotechnical_coding', [makeLayer({ id: 'l1', top_m: 0, base_m: 5 })]),
+    ])
+    const { container } = renderColumn(detail, {}, { showHoverReadout: true })
+    const hit = findClickCaptureRect(container)
+    fireEvent.mouseMove(hit, { clientY: 5 })
+    expect(container.querySelectorAll('text').length).toBeGreaterThan(0)
+    fireEvent.mouseLeave(hit)
+    expect(container.querySelectorAll('text').length).toBe(0)
+  })
+
+  it('renders the hit-box with crosshair cursor only when onCommitDepth is wired', () => {
+    const detail = makeDetail([
+      makeObservation('geotechnical_coding', [makeLayer({ id: 'l1', top_m: 0, base_m: 5 })]),
+    ])
+    // showHoverReadout=true only → default cursor (no commit on click).
+    const { container: readOnly } = renderColumn(detail, {}, { showHoverReadout: true })
+    expect(findClickCaptureRect(readOnly).getAttribute('style')).toContain('default')
+    // onCommitDepth wired → crosshair cursor.
+    const { container: pickable } = renderColumn(detail, {}, {
+      showHoverReadout: true,
+      onCommitDepth: () => {},
+    })
+    expect(findClickCaptureRect(pickable).getAttribute('style')).toContain('crosshair')
   })
 
   it('keeps slot positions stable when a borehole is missing the enabled stream', () => {
