@@ -268,6 +268,12 @@ export function useProject(): UseProject {
               cpts: parsed.cpts,
               boreholes: parsed.boreholes,
               geological_formations: parsed.geological_formations,
+              // geotechnical_units was added to the v3 schema after
+              // the initial restore wiring landed; omitting it here
+              // silently drops every saved unit on a 404→restore
+              // open. Backend defaults to empty list if missing,
+              // which is exactly the data-loss path we want to avoid.
+              geotechnical_units: parsed.geotechnical_units,
               geological_models: parsed.geological_models,
               cross_sections: parsed.cross_sections,
               investigation_reviews: parsed.investigation_reviews,
@@ -280,10 +286,24 @@ export function useProject(): UseProject {
             setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
             setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
             setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
+            // Sum contacts across every model so the log reports the
+            // true interpretation-row count, not just the model count
+            // (a model with 0 contacts is functionally empty).
+            const contactCount = parsed.geological_models.reduce(
+              (sum, m) => {
+                const contacts = (m as { contacts?: unknown }).contacts
+                return sum + (Array.isArray(contacts) ? contacts.length : 0)
+              },
+              0,
+            )
             log.info(
               'project',
               `restored ${restored.name} from ${path} ` +
                 `(+${parsed.cpts.length} CPTs, +${parsed.boreholes.length} boreholes, ` +
+                `+${parsed.geological_formations.length} formations, ` +
+                `+${parsed.geotechnical_units.length} geotech units, ` +
+                `+${parsed.geological_models.length} models ` +
+                `(+${contactCount} contacts), ` +
                 `+${parsed.cross_sections.length} sections, ` +
                 `+${parsed.investigation_reviews.length} reviews)`,
             )
@@ -437,21 +457,28 @@ export function useProject(): UseProject {
   // silent no-op), ``false`` on failure.
   const saveProject = useCallback(async (): Promise<boolean> => {
     if (project === null || filePath === null) return false
-    if (!dirty) {
-      // Already in sync. The Save action stays a soft no-op so the user
-      // can hit Ctrl+S compulsively without surprises.
-      return true
-    }
+    // Metadata PATCH is gated on the metadata-only ``dirty`` flag so
+    // we don't round-trip identical values to the API. The file write
+    // below is NOT gated — geological contacts / formations / models /
+    // sections are all mutated via separate API calls that never flip
+    // the metadata-dirty flag. Every Save MUST refetch the bundle and
+    // rewrite the file or those changes silently miss the disk and
+    // disappear on next open (a real user-reported data-loss bug).
     try {
-      const patch = fullPatchFrom(project)
-      const updated = await api.project.update(project.id, patch)
+      if (dirty) {
+        const patch = fullPatchFrom(project)
+        const updated = await api.project.update(project.id, patch)
+        setProject(updated)
+        setSaved(updated)
+      }
       try {
         // Fetch the full bundle (metadata + every CPT/series + every
-        // borehole tree) and write it to disk. The file is the user's
-        // anchor — re-opening it after a DB wipe must bring data back.
-        // Save is a relatively rare, user-initiated action so the extra
-        // round-trip and JSON-encoding cost (potentially MB for big
-        // projects) is acceptable.
+        // borehole tree + every interpretation row) and write it to
+        // disk. The file is the user's anchor — re-opening it after a
+        // DB wipe must bring data back. Save is a relatively rare,
+        // user-initiated action so the extra round-trip and JSON-
+        // encoding cost (potentially MB for big projects) is
+        // acceptable, even when nothing has changed since last save.
         const bundle = await api.project.bundle(project.id)
         // Trim every bundle-tracked top-level array to the in-memory
         // manifest before writing. The DB may carry rows from a
@@ -482,9 +509,7 @@ export function useProject(): UseProject {
         // DB is the source of truth.
         log.warn('project', 'file write after saveProject failed', err)
       }
-      setProject(updated)
-      setSaved(updated)
-      log.success('project', `saved ${updated.name}`)
+      log.success('project', `saved ${project.name}`)
       return true
     } catch (err) {
       log.error('project', 'saveProject failed', err)
