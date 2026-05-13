@@ -18,11 +18,53 @@
 import { useEffect, useState } from 'react'
 
 import type {
+  BoreholeDetailResponse,
   BoreholeListItem,
   CptListItem,
   CrossSectionResponse,
 } from '../../api/client'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
+
+// ---------------------------------------------------------------------------
+// Snap-to-stratigraphy helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Observation types whose layer top/base depths feed the snap-to-
+ * stratigraphy interaction. Sharing a single set across the click
+ * path (``BoreholeColumn``) and the drag path (``SectionPanel``'s
+ * ``snapDepthsByAnchorId`` builder) keeps the two consumers in
+ * sync; adding a third stratigraphy stream (e.g.
+ * ``quaternary_stratigraphy``) becomes a one-line change here.
+ */
+export const STRAT_OBS_TYPES_FOR_SNAP: ReadonlySet<string> = new Set([
+  'formal_stratigraphy',
+  'informal_stratigraphy',
+])
+
+/**
+ * Deduped layer-boundary depths from a single borehole's
+ * stratigraphy observations. The output is the snap-target set the
+ * editor uses for both single-test click placement (BoreholeColumn)
+ * and section-wide drag (ContactsLayer via SectionPanel's
+ * snapDepthsByAnchorId map).
+ *
+ * Returns layer top + base for every observation whose type is in
+ * ``STRAT_OBS_TYPES_FOR_SNAP``. Duplicates (e.g. stacked layers
+ * where base of N = top of N+1) collapse to a single entry. Empty
+ * observations or unrecognised types yield ``[]``.
+ */
+export function collectSnapDepths(detail: BoreholeDetailResponse): number[] {
+  const out = new Set<number>()
+  for (const obs of detail.observations) {
+    if (!STRAT_OBS_TYPES_FOR_SNAP.has(obs.observation_type)) continue
+    for (const layer of obs.layers) {
+      out.add(layer.top_m)
+      out.add(layer.base_m)
+    }
+  }
+  return Array.from(out)
+}
 
 // ---------------------------------------------------------------------------
 // Layout constants
