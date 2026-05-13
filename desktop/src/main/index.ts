@@ -1,7 +1,13 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, session, shell } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+
+import {
+  buildContentSecurityPolicy,
+  decideExternalOpen,
+  isInAppNavigation,
+} from './security'
 
 // File extension for project files. Kept here (not imported from the
 // renderer) so the main process is build-self-contained — Electron's
@@ -86,6 +92,24 @@ function stopApi(): void {
 // ---------------------------------------------------------------------------
 
 function createWindow(): void {
+  const isDev = !!process.env.ELECTRON_RENDERER_URL
+  const rendererBase = process.env.ELECTRON_RENDERER_URL ?? null
+
+  // Inject Content-Security-Policy at the response-header layer so
+  // it's enforced BEFORE page parse (a CSP meta tag in index.html
+  // can only stop loads after the parser hits it). Production CSP is
+  // strict (``script-src 'self'``); dev CSP allows Vite's HMR
+  // ``unsafe-eval``. Debt #36.
+  const csp = buildContentSecurityPolicy(isDev)
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    })
+  })
+
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -96,11 +120,42 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-    }
+      // Deny renderer access to obscure / dangerous webContents APIs
+      // (clipboard, full-screen on file:// pages, etc.). Hardens
+      // against the same XSS-as-RCE escalation #36 / #37 protect.
+      sandbox: true,
+    },
   })
   mainWindow = win
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
+  })
+
+  // Deny-by-default ``window.open`` — the renderer should never spawn
+  // a same-privileges Electron window. Trusted external URLs hand
+  // off to the OS browser via shell.openExternal. Debt #36.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const decision = decideExternalOpen(url)
+    if (decision.external) {
+      void shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+
+  // Block navigation to anywhere outside the renderer base URL.
+  // Without this, a malicious link in user-supplied content (a future
+  // formation ``description`` field, etc.) could redirect the
+  // top-level window to an attacker-controlled page that then has
+  // access to the same preload + IPC surface. Debt #36.
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!isInAppNavigation(url, rendererBase)) {
+      event.preventDefault()
+      // If the navigation looks like an external link the user
+      // clicked, hand it off to the OS browser instead — same UX
+      // as window.open above.
+      const decision = decideExternalOpen(url)
+      if (decision.external) void shell.openExternal(url)
+    }
   })
 
   win.setMenuBarVisibility(true)
