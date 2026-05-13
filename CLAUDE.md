@@ -1472,22 +1472,6 @@ fields (currently it only refreshes child collections). For solo dev
 on DOV-Belgium data, the current "manual edits survive re-imports
 because re-imports are no-ops on the parent" behaviour is acceptable.
 
-### 9. Vertical-CRS picker in elevation editor (low)
-
-**What.** The desktop ``ElevationEditor`` has no CRS picker — it sends
-``z_epsg = null`` and lets the backend default from the row's
-horizontal EPSG (``vertical_crs.default_vertical_epsg``). That's
-correct for DOV-Belgium and BRO-NL but not for cases where a user
-imports a Belgian-coordinate borehole but knows the elevation is in,
-say, ETRS89 (5730), or for a row whose horizontal EPSG is unmapped
-and the fallback (mTAW) would mis-label.
-
-**When.** The first time a user reports a wrong-datum mTAW label, OR
-when a non-Belgium-non-Netherlands source lands and forces multiple
-plausible defaults per horizontal CRS. The component contract already
-accepts ``zEpsg`` as a prop, so the picker is purely additive — drop a
-``<select>`` next to the input and pass the chosen value through.
-
 ### 10. License key + activation system (medium → blocking before paid release)
 
 **What.** No licensing today; anyone with the binary can run it.
