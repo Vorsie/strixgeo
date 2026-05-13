@@ -81,6 +81,10 @@ interface Props {
   onFormationCreated?: (id: string) => void
   /** Same shape, fired after a successful DELETE. */
   onFormationDeleted?: (id: string) => void
+  /** Fires after a successful PATCH (rename / recolour). App
+   * resyncs its cached formations list so SectionPanel's picker
+   * + ContactsLayer pick up the change without a reload. */
+  onFormationUpdated?: (id: string) => void
 }
 
 export default function InterpretationPane({
@@ -94,6 +98,7 @@ export default function InterpretationPane({
   onToggleBoreholeInModel,
   onFormationCreated,
   onFormationDeleted,
+  onFormationUpdated,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -188,13 +193,17 @@ export default function InterpretationPane({
         setFormations(prev =>
           sortFormations(prev.map(f => (f.id === updated.id ? updated : f))),
         )
+        // Resync App's cached formations so renames + recolours
+        // land in the section picker + ContactsLayer without a
+        // reload.
+        onFormationUpdated?.(updated.id)
         setDialogOpen(false)
         setEditing(null)
       } catch (err) {
         log.error('geology', 'updateFormation failed', err)
       }
     },
-    [projectId, editing],
+    [projectId, editing, onFormationUpdated],
   )
 
   // Walk every visible borehole's informal_stratigraphy observation
