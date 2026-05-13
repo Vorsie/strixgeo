@@ -1004,6 +1004,31 @@ PATCH  /projects/{pid}/geology/models/{mid}/contacts/{cid}
                                                     updates are 422 at the
                                                     schema layer.
 DELETE /projects/{pid}/geology/models/{mid}/contacts/{cid}
+POST   /projects/{pid}/geology/models/{mid}/contacts/auto-populate
+                                                    Seed the model with
+                                                    contacts derived from
+                                                    each borehole's
+                                                    stratigraphy observation
+                                                    (FORMAL_STRATIGRAPHY
+                                                    preferred, falls through
+                                                    to INFORMAL_STRATIGRAPHY
+                                                    only when no formal
+                                                    exists). Body:
+                                                    {borehole_ids:[uuid,...]}
+                                                    (1..500). Auto-creates
+                                                    formations whose name
+                                                    matches the layer
+                                                    description (case-
+                                                    insensitive); skips
+                                                    surface layers
+                                                    (top_m == 0); skips
+                                                    layers already used
+                                                    (idempotent via
+                                                    observation_layer_id).
+                                                    Returns created counts
+                                                    + ids + skip breakdown
+                                                    (existing / unmatched /
+                                                    no-stratigraphy).
 PUT    /projects/{pid}/geology/models/{mid}/contacts/batch
                                                     All-or-nothing batch
                                                     update for N contacts.
