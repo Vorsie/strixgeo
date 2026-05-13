@@ -25,6 +25,7 @@
 import { useMemo, useRef, useState } from 'react'
 
 import type { CptPlotResponse } from '../../api/client'
+import { lookupCptValueAtDepth } from './cptInterpolation'
 import HoverReadoutCard from './HoverReadoutCard'
 
 interface Props {
@@ -111,30 +112,7 @@ export default function ContactPickBar({
   }
 
   function lookupValue(depth: number, values: readonly (number | null)[]): number | null {
-    if (values.length === 0) return null
-    const depths = series.depths
-    if (depth <= depths[0]) {
-      const v = values[0]
-      return v ?? null
-    }
-    if (depth >= depths[depths.length - 1]) {
-      const v = values[values.length - 1]
-      return v ?? null
-    }
-    // Binary search would be faster, but typical CPT length (~100
-    // samples) makes a linear walk cheap enough and the code path
-    // is mouse-move hot. Walk from the front; bail at the bracket.
-    for (let i = 1; i < depths.length; i += 1) {
-      if (depths[i] >= depth) {
-        const v0 = values[i - 1]
-        const v1 = values[i]
-        if (v0 === null || v0 === undefined) return v1 ?? null
-        if (v1 === null || v1 === undefined) return v0
-        const frac = (depth - depths[i - 1]) / (depths[i] - depths[i - 1])
-        return v0 + frac * (v1 - v0)
-      }
-    }
-    return null
+    return lookupCptValueAtDepth(series.depths, values, depth)
   }
 
   function handleMove(e: React.MouseEvent<SVGRectElement>): void {
