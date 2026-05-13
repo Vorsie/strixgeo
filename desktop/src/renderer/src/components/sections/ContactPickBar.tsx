@@ -58,6 +58,11 @@ interface Props {
     cptName: string
     depth_m: number
     elevationM: number
+    /** CPT picks never snap to stratigraphy (no observation
+     * streams on a CPT), so this is always false — present so
+     * the caller's pick anchor union types line up with
+     * BoreholeColumn's anchor shape. Debt #22/#23. */
+    snapped: false
   }) => void
 }
 
@@ -136,6 +141,7 @@ export default function ContactPickBar({
       cptName,
       depth_m: depth,
       elevationM: surfaceElevationM - depth,
+      snapped: false,
     })
   }
 
