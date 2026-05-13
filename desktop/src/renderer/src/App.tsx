@@ -11,6 +11,7 @@ import type {
   CptResponse,
   CrossSectionResponse,
   FormationContactResponse,
+  GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalModelResponse,
 } from './api/client'
@@ -389,6 +390,13 @@ export default function App() {
   const [sessionImportSectionIds, setSessionImportSectionIds] = usePersistedSet(
     project ? `groundmodel.session_imports.${project.id}.section` : undefined,
   )
+  // Formation contacts created in this session. Drives the project-
+  // level dirty flag. Manifest-trim of nested model.contacts is
+  // deferred — bundle.geological_models passes through as opaque
+  // dicts, so contacts persist across save without further plumbing.
+  const [sessionImportContactIds, setSessionImportContactIds] = usePersistedSet(
+    project ? `groundmodel.session_imports.${project.id}.contact` : undefined,
+  )
 
   // Combined "is anything unsaved?" flag. Drives the sidebar / window-
   // title asterisks, the close-attempt branching, and the File → Save
@@ -398,7 +406,8 @@ export default function App() {
     sessionImportCptIds.size > 0 ||
     sessionImportBoreholeIds.size > 0 ||
     sessionImportFormationIds.size > 0 ||
-    sessionImportSectionIds.size > 0
+    sessionImportSectionIds.size > 0 ||
+    sessionImportContactIds.size > 0
 
   // saveProject orchestration — commits metadata then clears every
   // session-imports set so the project lands clean. Failure of any
@@ -410,6 +419,7 @@ export default function App() {
     setSessionImportBoreholeIds(new Set())
     setSessionImportFormationIds(new Set())
     setSessionImportSectionIds(new Set())
+    setSessionImportContactIds(new Set())
     return true
   }, [
     saveMetadata,
@@ -417,6 +427,7 @@ export default function App() {
     setSessionImportBoreholeIds,
     setSessionImportFormationIds,
     setSessionImportSectionIds,
+    setSessionImportContactIds,
   ])
 
   // Discard rollback — drops the session-imported IDs from the
@@ -493,6 +504,67 @@ export default function App() {
       })
     },
     [removeFromManifest, setSessionImportSectionIds],
+  )
+
+  // Inline formation create — fired from the formation picker
+  // modal's "+ New formation here" affordance during the click-to-
+  // place flow. Mirrors the InterpretationPane's handleCreate but
+  // routed through App so the new formation lands in App's state
+  // (SectionPanel needs it for the next contact placement) and
+  // also flips the project dirty.
+  const handleInlineCreateFormation = useCallback(
+    async (
+      payload: GeologicalFormationCreatePayload,
+    ): Promise<{ id: string } | null> => {
+      if (!project) return null
+      try {
+        const created = await api.geology.createFormation(project.id, payload)
+        setFormations(prev => [...prev, created])
+        handleFormationCreated(created.id)
+        return { id: created.id }
+      } catch (err) {
+        log.error('geology', 'inline createFormation failed', err)
+        return null
+      }
+    },
+    [project, handleFormationCreated],
+  )
+
+  // Create a formation contact at a specific depth on a specific
+  // investigation. Wired from SectionPanel — the user clicks on a
+  // borehole's lithology strip or commits a CPT's slider depth,
+  // picks a formation in the modal, and this fires with the
+  // (anchorKind, anchorId, depth, formation) tuple. The new
+  // contact lands in DB AND in App's contacts state so the
+  // ContactsLayer overlay updates without a refetch.
+  const handleCreateContact = useCallback(
+    async (
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      depth_m: number,
+      formationId: string,
+    ): Promise<void> => {
+      if (!project || !activeGeologicalModel) return
+      try {
+        const created = await api.geology.createContact(
+          project.id,
+          activeGeologicalModel.id,
+          {
+            formation_id: formationId,
+            depth_top_m: depth_m,
+            borehole_id: anchorKind === 'borehole' ? anchorId : null,
+            cpt_id: anchorKind === 'cpt' ? anchorId : null,
+            source: 'manual_pick',
+          },
+        )
+        setContacts(prev => [...prev, created])
+        addAllToSet(setSessionImportContactIds, [created.id])
+      } catch (err) {
+        log.error('geology', 'createContact failed', err)
+        toast('error', 'Could not place the formation contact.')
+      }
+    },
+    [project, activeGeologicalModel, setSessionImportContactIds],
   )
 
   // Toggle whether a borehole anchors formation contacts in the
@@ -1614,6 +1686,8 @@ export default function App() {
                 excludedBoreholeIds={
                   activeGeologicalModel?.excluded_borehole_ids ?? []
                 }
+                onCreateContact={handleCreateContact}
+                onCreateFormation={handleInlineCreateFormation}
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
