@@ -1435,38 +1435,34 @@ shape is well-defined: a one-off backfill that walks
 `dov_permkey` from a re-fetch of the parent's source XML or WFS row,
 and stamps the column. ~Half a day of work plus a careful run.
 
-### 8. Elevation provenance + audit (medium)
+### 8. Elevation provenance — rollback column (low, residual)
 
-**What.** ``PATCH /{cpt,borehole}/{id}/elevation`` blindly overwrites
-``elevation_m`` and ``z_epsg`` with no source-tag and no history. Today's
-re-import path skips parent-column refresh on duplicates (see
-``import_borehole_dov.py:201-213`` and ``import_cpt_dov.py:144-149``),
-so manual edits are accidentally protected — but the same logic also
-prevents a corrected upstream Z from ever landing. Two known gaps:
+**What landed.** ``elevation_source`` enum
+``{dov, gef, manual, none}`` now lives on ``cpt`` and ``borehole``.
+``set_elevation`` stamps ``MANUAL``; ``ImportCpt`` /
+``ImportCptDov`` / ``ImportBoreholeDov`` stamp ``GEF`` / ``DOV``
+/ ``NONE`` on initial insert. The column round-trips through the
+.strix bundle. The desktop ``ElevationEditor`` renders a tiny
+"(DOV)" / "(GEF)" / "(manual)" tag next to the Z value.
 
-1. **No rollback.** A typo overwrites the upstream Z; the user has to
-   remember the original to re-enter it. The "Clear" path returns the
-   row to ``NULL`` rather than restoring the imported value.
-2. **No source tag.** A reader of the DB can't tell whether
-   ``elevation_m`` came from DOV's ``Z_mTAW``, the GEF header, or a
-   manual edit — they all collapse into the same column.
+**What's open.** The optional ``elevation_m_source`` second column
+that holds the ORIGINAL upstream value so "Clear" can restore it
+instead of nulling the row. Today's Clear flow returns the row to
+the "no Z known" state, which is fine for a first paid release but
+doesn't undo a typo gracefully.
 
-**Fix shape.** Add ``elevation_source: enum {DOV, GEF, MANUAL, NONE}``
-on both ``cpt`` and ``borehole`` (Alembic migration). ``set_elevation``
-stamps ``MANUAL``. ``ImportBoreholeDov`` / ``ImportCptDov`` stamp
-``DOV`` / ``GEF`` on initial insert. The refresh path can then safely
-overwrite ``elevation_m`` only when ``elevation_source != MANUAL`` —
-unlocking proper refresh-on-duplicate for parent columns without
-clobbering user edits. Optional second column ``elevation_m_source``
-holds the original upstream value so "Clear" can restore it instead of
-nulling the row.
+**Why low priority.** The trigger condition for the rollback
+column hasn't fired yet — DOV is mono-source today, and the
+refresh-on-duplicate path still doesn't update parent columns
+(it only refreshes children). When the refresh-parent rule lands
+(needed when DOV publishes a corrected Z and we want to surface
+it without clobbering manual edits), that's the moment to add
+the rollback column at the same time.
 
-**When to revisit.** Before the platform accepts non-DOV inputs at
-scale (manual GEF imports become the dominant flow, or BRO integration
-lands), AND/OR when refresh-on-duplicate needs to update parent header
-fields (currently it only refreshes child collections). For solo dev
-on DOV-Belgium data, the current "manual edits survive re-imports
-because re-imports are no-ops on the parent" behaviour is acceptable.
+**When to revisit.** Pair with the refresh-on-duplicate-of-parent
+work; that's when consulting ``elevation_source`` actually starts
+to skip overwrites, and the rollback column closes the user-side
+asymmetry.
 
 ### 10. License key + activation system (medium → blocking before paid release)
 
