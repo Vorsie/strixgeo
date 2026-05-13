@@ -82,7 +82,10 @@ What the parser does NOT extract
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+# defusedxml — guards against billion-laughs entity expansion +
+# external DTD fetches that stdlib ``xml.etree.ElementTree`` is
+# vulnerable to. Drop-in API replacement. See debt #12.
+import defusedxml.ElementTree as ET
 
 from groundmodel.domain.models.borehole.borehole import Borehole
 from groundmodel.domain.models.borehole.drill_segment import DrillSegment
