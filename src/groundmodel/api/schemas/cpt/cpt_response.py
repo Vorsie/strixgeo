@@ -29,6 +29,11 @@ class CptResponse(BaseModel):
     z_epsg:
         Vertical CRS code for ``elevation_m`` (5710 = mTAW). None when
         ``elevation_m`` is also None.
+    elevation_source:
+        Where ``elevation_m`` came from — ``"dov"``, ``"gef"``,
+        ``"manual"``, or ``"none"``. The desktop frontend renders this
+        as a small provenance badge next to the Z value so engineers
+        can tell DOV-published Z from their own corrections (debt #8).
     pre_drill_m:
         Pre-drill depth in metres.  The CPT measurement starts below this.
     cone_area_ratio:
@@ -47,6 +52,7 @@ class CptResponse(BaseModel):
     epsg: int | None
     elevation_m: float | None
     z_epsg: int | None
+    elevation_source: str
     pre_drill_m: float
     cone_area_ratio: float | None
     max_depth_m: float | None
