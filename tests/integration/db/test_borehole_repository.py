@@ -767,3 +767,52 @@ async def test_set_elevation_returns_none_for_missing_id(
     """Patching a non-existent borehole returns None — handler maps to 404."""
     repo = BoreholeRepository(db_session)
     assert await repo.set_elevation(uuid7(), 5.0, 5710) is None
+
+
+async def test_set_elevation_stamps_manual_provenance(
+    db_session: AsyncSession,
+) -> None:
+    """``set_elevation`` always stamps MANUAL when a value is set.
+
+    Debt #8 — the source flag is the entire point of the column;
+    refresh-on-duplicate paths will consult it to decide whether to
+    overwrite an imported Z. The test pins the stamp so a future
+    refactor that drops it surfaces as a failure.
+    """
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="stamp-manual")
+    bh.elevation_m = 10.0
+    bh.z_epsg = 5710
+    bh.elevation_source = "dov"  # imagine: row was DOV-imported
+    await repo.save(bh)
+    await db_session.commit()
+
+    updated = await repo.set_elevation(bh.id, 12.5, 5710)
+    await db_session.commit()
+    assert updated is not None
+    assert updated.elevation_source == "manual"
+
+
+async def test_set_elevation_clear_resets_source_to_none(
+    db_session: AsyncSession,
+) -> None:
+    """Clearing the elevation flips the source back to NONE.
+
+    Debt #8 — when the user hits Clear we don't keep "manual" stamped
+    on a row whose Z is now null; the row is back to "no Z known"
+    and should surface that way through every consumer that reads
+    elevation_source.
+    """
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="clear-source")
+    bh.elevation_m = 8.0
+    bh.z_epsg = 5710
+    bh.elevation_source = "manual"
+    await repo.save(bh)
+    await db_session.commit()
+
+    updated = await repo.set_elevation(bh.id, None, None)
+    await db_session.commit()
+    assert updated is not None
+    assert updated.elevation_m is None
+    assert updated.elevation_source == "none"
