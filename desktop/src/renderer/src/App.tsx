@@ -594,6 +594,29 @@ export default function App() {
     [project, activeGeologicalModel, setSessionImportContactIds],
   )
 
+  // Re-pick an existing contact's depth — the commit handler for
+  // the drag interaction on the section's ContactsLayer. Updates the
+  // local contacts list optimistically on success so the polyline
+  // settles at the dragged Y without a refetch round-trip.
+  const handleUpdateContactDepth = useCallback(
+    async (contactId: string, newDepthM: number): Promise<void> => {
+      if (!project || !activeGeologicalModel) return
+      try {
+        const updated = await api.geology.updateContact(
+          project.id,
+          activeGeologicalModel.id,
+          contactId,
+          { depth_top_m: newDepthM },
+        )
+        setContacts(prev => prev.map(c => (c.id === contactId ? updated : c)))
+      } catch (err) {
+        log.error('geology', 'updateContact failed', err)
+        toast('error', 'Could not update the contact depth.')
+      }
+    },
+    [project, activeGeologicalModel],
+  )
+
   // Toggle whether a borehole anchors formation contacts in the
   // active geological model. The model's ``excluded_borehole_ids``
   // is the bundle-portable source of truth. Toggling fires
@@ -1715,6 +1738,7 @@ export default function App() {
                   activeGeologicalModel?.excluded_borehole_ids ?? []
                 }
                 onCreateContact={handleCreateContact}
+                onUpdateContactDepth={handleUpdateContactDepth}
                 onCreateFormation={handleInlineCreateFormation}
               />
             ) : view === 'map' || !hasSelection ? (
