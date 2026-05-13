@@ -169,3 +169,33 @@ export function isInAppNavigation(
   if (url.startsWith('file://')) return true
   return false
 }
+
+// Per-field length caps on recent-projects entries (debt #41). A
+// corrupted or hand-edited ``recent-projects.json`` could ship a
+// 100-MB ``name`` and freeze the menu rebuild. The values are well
+// above any plausible real project name / Windows path length.
+const RECENT_PROJECT_NAME_MAX_LEN = 200
+const RECENT_PROJECT_PATH_MAX_LEN = 1024
+const RECENT_PROJECT_ISO_MAX_LEN = 64
+
+/**
+ * Validates one entry from ``recent-projects.json`` (debt #41).
+ *
+ * Beyond type-shape (the existing ``isRecentProject``), also caps
+ * field lengths so a corrupted file can't blow up the menu render.
+ * Returns ``true`` for entries that should be kept; the caller
+ * filters the array.
+ */
+export function isValidRecentProjectEntry(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.path === 'string' &&
+    v.path.length > 0 &&
+    v.path.length <= RECENT_PROJECT_PATH_MAX_LEN &&
+    typeof v.name === 'string' &&
+    v.name.length <= RECENT_PROJECT_NAME_MAX_LEN &&
+    typeof v.lastOpened === 'string' &&
+    v.lastOpened.length <= RECENT_PROJECT_ISO_MAX_LEN
+  )
+}
