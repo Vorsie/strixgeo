@@ -155,6 +155,39 @@ class FormationContactResponse(BaseModel):
     updated_at: datetime
 
 
+class AutoPopulateFromStratigraphyRequest(BaseModel):
+    """Body of ``POST /projects/{pid}/geology/models/{mid}/contacts/auto-populate``.
+
+    Seeds the model with contacts derived from each borehole's
+    stratigraphy observation (formal preferred, falls through to
+    informal). Caller scopes the run by passing the borehole id
+    list — typically the boreholes projected onto the active
+    cross-section, but any subset of the project's boreholes is
+    valid. Idempotent: re-running with the same scope is a no-op
+    because every contact carries its source ``observation_layer_id``
+    and the use case skips layers already used.
+    """
+
+    borehole_ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
+class AutoPopulateFromStratigraphyResponse(BaseModel):
+    """Result counts + ids returned by the auto-populate endpoint.
+
+    ``skipped_existing`` covers idempotency hits (the layer already
+    seeded a contact); ``skipped_unmatched`` covers layers with an
+    empty description; ``skipped_no_stratigraphy`` covers boreholes
+    that don't carry a formal OR informal stratigraphy observation
+    at all.
+    """
+
+    created_contact_ids: list[UUID]
+    created_formation_ids: list[UUID]
+    skipped_existing: int
+    skipped_unmatched: int
+    skipped_no_stratigraphy: int
+
+
 class GapIssueResponse(BaseModel):
     """One item in the validate-no-gaps response."""
 
