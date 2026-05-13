@@ -765,6 +765,49 @@ describe('ContactsLayer', () => {
     expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(3)
   })
 
+  it('selectionResetSignal bump clears the active selection', () => {
+    // Pin the controlled-prop reset path used by SectionPanel's
+    // click-anywhere-to-clear flow. ContactsLayer's useEffect on
+    // the signal counter clears selection on each bump.
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1' })]
+    const { container, rerender } = render(
+      <svg>
+        <ContactsLayer
+          contacts={contacts}
+          formations={[makeFormation({ name: 'X' })]}
+          placedColumns={[makeBoreholePlaced('bh-1', 100)]}
+          levelToScreen={flipped}
+          plotTop={0}
+          plotBottom={50}
+          onUpdateContactDepth={vi.fn().mockResolvedValue(undefined)}
+          selectionResetSignal={0}
+        />
+      </svg>,
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    fireEvent.mouseDown(strip, { button: 0, ctrlKey: true })
+    expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(1)
+
+    // Bump the counter — ContactsLayer must clear its selection.
+    rerender(
+      <svg>
+        <ContactsLayer
+          contacts={contacts}
+          formations={[makeFormation({ name: 'X' })]}
+          placedColumns={[makeBoreholePlaced('bh-1', 100)]}
+          levelToScreen={flipped}
+          plotTop={0}
+          plotBottom={50}
+          onUpdateContactDepth={vi.fn().mockResolvedValue(undefined)}
+          selectionResetSignal={1}
+        />
+      </svg>,
+    )
+    expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(0)
+  })
+
   it('ESC clears the active selection when no drag is running', () => {
     const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1' })]
     const { container } = renderLayer(
