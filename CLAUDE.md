@@ -1645,71 +1645,6 @@ imports.
 is Lambert72 but users may have RD New (28992) NL boreholes in
 the same project. Or before any project spans the BE/NL border.
 
-### 17. Drag mouseup outside the browser window leaks document listeners (blocker bug)
-
-**What.** ``ContactsLayer.tsx`` attaches ``mousemove`` + ``mouseup``
-to ``document`` while ``drag !== null``. The cleanup function only
-runs when the effect re-runs (``drag`` / ``snapDepth`` /
-``onUpdateContactDepth`` change). If the user starts a drag, moves
-the pointer outside the browser window, and releases the mouse
-button there, the ``mouseup`` fires on OS chrome — never on the
-document — and the listener pair stays attached with a stale
-``drag`` closure indefinitely. Subsequent clicks would fire phantom
-commits at depths derived from the stale start coordinate.
-
-**Why deferred.** Caught in audit, not a daily occurrence in dev.
-Fix is small: also subscribe to ``visibilitychange`` / ``blur`` /
-``pointercancel`` and call ``setDrag(null)`` defensively.
-
-**When to revisit.** Before any user-facing testing of the drag
-flow.
-
-### 18. ``discardSessionImports`` drops contact session IDs without clearing them (bug)
-
-**What.** ``App.tsx`` ``discardSessionImports`` trims the manifest
-for CPTs / boreholes / formations / sections on close-without-save
-but ``sessionImportContactIds`` is never cleared. The set IS reset
-on save, not on discard. Contacts created in the session stay in
-``App.contacts`` state and re-render on the next open even though
-they're "session-only" data the user discarded. The companion
-``projectDirty`` flag also stays inconsistent on this path.
-
-**Why deferred.** Found in audit; live behaviour acceptable for
-solo dev because mid-session close-without-save is uncommon, but
-the discard semantics are broken on this path.
-
-**When to revisit.** Same commit that fixes #17 — both are quick
-fixes the editor needs before any user-facing testing.
-
-### 19. ``pxPerMetre === 0`` zero-guard missing in ContactsLayer drag ``handleMove`` (should-fix bug)
-
-**What.** ``ContactsLayer.handleMove`` computes
-``rawDepth = (draggedSegY - drag.surfaceY) / drag.pxPerMetre``.
-If the viewport collapses (VEX or resize at the wrong moment)
-``pxPerMetre`` can reach 0; the division yields ``±Infinity`` and
-the subsequent ``Math.max(0, Infinity)`` commits ``Infinity`` to
-the API on release. The ``snapDepth`` callback has a matching
-``if (pxPerMetre === 0) return rawDepth`` early-return, but
-``handleMove`` does not.
-
-**Why deferred.** Pathological case; never observed.
-
-**When to revisit.** Pair with #17 / #18 fix; one-line guard.
-
-### 20. DoD entry/exit logging missing on App contact handlers (should-fix)
-
-**What.** ``handleCreateContact`` and ``handleUpdateContactDepth``
-both fire API calls but log nothing on entry; success path also
-unlogged on ``handleUpdateContactDepth``. CLAUDE.md "Definition of
-Done §1" requires entry + exit logging on external calls.
-
-**Why deferred.** Console is quiet today; the missing INFO traces
-will bite the first time a user reports "I dragged a contact and
-it didn't move".
-
-**When to revisit.** Next session that touches App.tsx contact
-handlers.
-
 ### 21. Focus-zoom effect captures viewport mid-render-batch (low — theoretical race)
 
 **What.** ``SectionPanel`` focus-zoom ``useEffect`` deliberately
@@ -1892,18 +1827,19 @@ boundaries).
 
 ### 31. Drag interaction edge cases untested in ``ContactsLayer.test.tsx`` (low)
 
-**What.** Current 14 tests cover the happy drag path, zero-delta
-no-op, and snap. Three untested cases:
+**What.** The drag suite covers the happy path, zero-delta no-op,
+snap, blur cancellation, button-released-outside cancellation, and
+the pxPerMetre=0 collapsed-viewport guard. Two narrow edge cases
+remain untested:
 1. Drag when ``elevation_m`` is null on the anchor — hit-strip
-   should NOT render.
-2. ``pxPerMetre`` near zero (collapsed viewport) — ``snapDepth``
-   guards; ``handleMove`` does not (see #19).
-3. Contact depth committed at exactly ``depth_m = 0`` (surface
+   should NOT render (the layer-build pass already filters these
+   anchors out, but no test pins that the hit-strip is absent).
+2. Contact depth committed at exactly ``depth_m = 0`` (surface
    contact) — ``Math.max(0, rawDepth)`` clamp untested at its
    boundary.
 
-**Why deferred.** Guards exist (mostly — see #19); the missing
-tests are specification-insurance against future refactors.
+**Why deferred.** Guards exist for both; the missing tests are
+specification-insurance against future refactors.
 
 **When to revisit.** Before any drag ``handleMove`` refactor, or
 before promoting drag to a keyboard-accessible flow.
