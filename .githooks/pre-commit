@@ -31,7 +31,13 @@ if [ -n "$py_changed" ]; then
 fi
 
 if [ -n "$ts_changed" ]; then
-  echo "[pre-commit] Running desktop Vitest…"
+  echo "[pre-commit] Running desktop tsc + Vitest…"
+  # tsc --noEmit catches type errors before a green test suite can
+  # mask them (vitest happily runs against ``any`` annotations and
+  # missing generic args; tsc doesn't). Runs first — it's faster
+  # than the test suite, so fail-fast on the cheap signal.
+  # Debt #6.
+  (cd desktop && npx tsc --noEmit)
   (cd desktop && npm test --silent)
 fi
 
