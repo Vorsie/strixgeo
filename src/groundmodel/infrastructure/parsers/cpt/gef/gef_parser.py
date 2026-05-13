@@ -7,6 +7,7 @@ import re
 import polars as pl
 
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.infrastructure.parsers.cpt.gef.gef_constants import (
     MVAR_CONE_TYPE,
@@ -73,12 +74,18 @@ class GEFParser(GroundModelLogger):
             rf_source = DerivedValueSource.COMPUTED
 
         issues = self._validate(header, df, cpt_type)
+        # When the GEF file's ``#ZID=`` header provided an elevation we
+        # stamp ``GEF``; when it didn't, we stamp ``NONE`` so the row
+        # surfaces as "no Z known" through the same code path used by
+        # DOV imports that lack Z_mTAW. Debt #8.
+        elevation_source = ElevationSource.GEF if header.z is not None else ElevationSource.NONE
         result = GEFParseResult(
             header=header,
             cpt_type=cpt_type,
             data=df,
             issues=issues,
             rf_source=rf_source,
+            elevation_source=elevation_source,
         )
 
         n_issues = len(issues)
