@@ -32,6 +32,7 @@ import type {
   BoreholeListItem,
   CptListItem,
   CrossSectionResponse,
+  FormationContactBatchUpdateEntry,
   FormationContactResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
@@ -44,7 +45,7 @@ import FormationPickerDialog from './interpretation/FormationPickerDialog'
 import BoreholeColumn from './sections/BoreholeColumn'
 import ColumnContextMenu from './sections/ColumnContextMenu'
 import ContactPickBar from './sections/ContactPickBar'
-import ContactsLayer from './sections/ContactsLayer'
+import ContactsLayer, { type MarqueeState } from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
 import { useContactPicker } from './sections/useContactPicker'
@@ -148,6 +149,13 @@ interface Props {
    * it. Caller deletes the row and prunes the local contacts
    * state so the overlay updates without a refetch. */
   onDeleteContact?: (contactId: string) => Promise<void>
+  /** All-or-nothing batch update — fired by the section editor's
+   * multi-drag and cross-column re-anchor flows. Forwarded straight
+   * to ContactsLayer; the caller posts the batch and refreshes the
+   * local contacts state in one pass. */
+  onBatchUpdateContacts?: (
+    updates: readonly FormationContactBatchUpdateEntry[],
+  ) => Promise<void>
   /** Inline-create a formation from the picker modal's "New
    * formation here" affordance. Returns the new row's id so the
    * picker can chain to a contact commit. */
@@ -174,6 +182,7 @@ export default function SectionPanel({
   onCreateContact,
   onUpdateContactDepth,
   onDeleteContact,
+  onBatchUpdateContacts,
   onCreateFormation,
   onExportDxf,
   onSelectCpt,
@@ -203,6 +212,14 @@ export default function SectionPanel({
   useEffect(() => {
     setViewport(defaultViewport)
   }, [defaultViewport])
+
+  // Marquee (box-select) state lives here so the capture rect can
+  // paint BEFORE the column glyphs — otherwise it intercepts column
+  // clicks via SVG hit-test order. ContactsLayer handles the
+  // mousemove/mouseup, hit-test against its layer index, and the
+  // selection update; SectionPanel just owns "is there an active
+  // marquee, and what are its start coords."
+  const [marquee, setMarquee] = useState<MarqueeState | null>(null)
 
   const [vex, setVex] = useState<number>(section.vertical_exaggeration ?? VEX_DEFAULT)
   useEffect(() => {
@@ -861,7 +878,16 @@ export default function SectionPanel({
 
             {/* Plot-area background — solid white over the tinted
                 container so the grid + axes read cleanly even when
-                a future overlay tints the canvas. */}
+                a future overlay tints the canvas.
+                ALSO doubles as the box-marquee capture surface for
+                contact selection — mousedown here starts a marquee.
+                Paints BEFORE the columns so column clicks reach the
+                column glyphs first via SVG hit-test order; the
+                marquee logic itself lives in ContactsLayer (see
+                ``onSetMarquee`` wiring below). Disabled (no
+                onMouseDown) when ``onBatchUpdateContacts`` isn't
+                wired — keeps tests that don't opt into selection
+                free of background-mousedown side effects. */}
             <rect
               x={MARGIN.left}
               y={MARGIN.top}
@@ -869,6 +895,25 @@ export default function SectionPanel({
               height={plotHeight}
               fill="#fafafa"
               stroke="#e5e7eb"
+              onMouseDown={
+                onBatchUpdateContacts
+                  ? e => {
+                      if (e.button !== 0) return
+                      const svgEl = e.currentTarget.ownerSVGElement
+                      const rect = svgEl?.getBoundingClientRect()
+                      setMarquee({
+                        startClientX: e.clientX,
+                        startClientY: e.clientY,
+                        currentClientX: e.clientX,
+                        currentClientY: e.clientY,
+                        svgLeft: rect?.left ?? 0,
+                        svgTop: rect?.top ?? 0,
+                        additive: e.shiftKey || e.ctrlKey || e.metaKey,
+                      })
+                    }
+                  : undefined
+              }
+              data-testid="section-marquee-bg"
             />
 
             {/* Vertical gridlines + x-axis ticks (along-distance).
@@ -1106,6 +1151,9 @@ export default function SectionPanel({
               plotBottom={MARGIN.top + plotHeight}
               onUpdateContactDepth={onUpdateContactDepth}
               onDeleteContact={onDeleteContact}
+              onBatchUpdateContacts={onBatchUpdateContacts}
+              marquee={marquee}
+              onSetMarquee={setMarquee}
               snapDepthsByAnchorId={snapDepthsByAnchorId}
               getCptValuesAtDepth={getCptValuesAtDepth}
             />
