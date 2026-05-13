@@ -1849,128 +1849,13 @@ Plaxis version they run. Decide format target from the modal
 response. Implement exporter only after the version is named —
 format delta is non-trivial.
 
-### Items #35–#43 — 2026-05-13 security-reviewer audit pass
+### Items #40, #42 — 2026-05-13 security-reviewer audit pass (#35–#39, #41, #43 resolved)
 
-Aggregated from a periodic full security audit. The Strix threat
-model (local-first, single-user-per-DB, 127.0.0.1 backend,
-pre-revenue) gives most of these comfortable runway, but they
-convert sharply the day Strix ships a signed installer to a
-paying customer or accepts any network exposure. Severity is
-calibrated per the ``security-reviewer`` agent's spec: paying
-customer's lawyer = High/Critical, security researcher's
-blog post = Medium, next code reviewer = Low.
-
-### 35. CORS wildcard + missing TrustedHostMiddleware (CRITICAL)
-
-**What.** ``src/groundmodel/api/main.py:67-76`` registers
-``CORSMiddleware`` with ``allow_origins=["*"]``,
-``allow_methods=["*"]``, ``allow_headers=["*"]``. The comment
-("internet exposure is none") misstates the threat model — the
-attacker isn't on the internet, they're in any other browser tab
-the user opens while Strix runs. Attack: while Strix is running,
-the user visits ``evil.com`` in any browser; that page executes
-``fetch("http://127.0.0.1:8765/projects/")`` and reads the full
-project list, then walks ``GET /projects/{id}/bundle`` to
-exfiltrate every CPT/borehole geometry the user has imported
-(often NDA / defence-adjacent per CLAUDE.md's privacy note). With
-no auth shipped, the attacker doesn't even need credentials.
-Also missing: ``TrustedHostMiddleware`` (DNS rebinding bypasses
-the localhost-only listen).
-
-**Why deferred.** Never observed; pre-revenue; user-base of one.
-
-**When to revisit.** Before any paid release (debt #10/#11
-triggers). Fix is a 10-line change: pin ``allow_origins`` to the
-known Electron renderer origins (``http://localhost:5173`` for
-dev, ``app://./`` / ``file://`` for prod), and add
-``TrustedHostMiddleware(allowed_hosts=["127.0.0.1", "localhost"])``.
-
-### 36. Renderer missing CSP + window-open guard + unpkg CDN dependency (HIGH)
-
-**What.** Three related Electron-renderer hardening gaps:
-- ``desktop/src/renderer/index.html`` ships no
-  ``<meta http-equiv="Content-Security-Policy">``. The devtools
-  warning "Insecure Content-Security-Policy ... 'unsafe-eval'
-  enabled" is real.
-- ``desktop/src/main/index.ts:88-101`` BrowserWindow has no
-  ``webContents.setWindowOpenHandler`` and no ``will-navigate``
-  guard. Any in-renderer code calling ``window.open(url)`` or any
-  ``<a target="_blank">`` click on attacker-supplied content
-  opens in a new Electron window with the same privileges.
-- ``index.html:9`` loads Leaflet CSS from
-  ``https://unpkg.com/leaflet@1.9.4/dist/leaflet.css``. unpkg
-  compromise → injected CSS exfiltrating via background-image
-  URLs.
-- Leaflet renders OSM attribution via ``innerHTML``; missing
-  ``rel="noopener"`` on the OSM link.
-
-**Why deferred.** Renderer hosts first-party code only; no XSS
-observed. The unpkg path is convenience, not a hard requirement.
-
-**When to revisit.** Before debt #11 (signed installer). A signed
-binary loading third-party CSS from a CDN is a brand-damage
-supply-chain hop. Add a strict CSP (``default-src 'self'``,
-``connect-src`` whitelisted to ``127.0.0.1:8765`` + DOV/DEM
-endpoints, no ``unsafe-eval``), wire ``setWindowOpenHandler`` +
-``will-navigate`` deny-by-default, vendor Leaflet CSS locally.
-
-### 37. Electron IPC ``fs:read-file`` + ``project:write-file`` accept any path (HIGH)
-
-**What.** ``desktop/src/main/index.ts:302-304, 337-346`` exposed
-via ``preload/index.ts:36, 50``. The renderer can call
-``electron.readFile('C:\\...\\AppData\\Roaming\\Mozilla\\...\\key4.db')``
-and get raw bytes back, or
-``electron.writeProjectFile('C:\\...\\Startup\\evil.bat', '@echo …')``
-to a startup folder. The renderer is trusted today but the
-moment debt #36's CSP/window-open gap is breached this is the
-exploitation primitive that turns XSS into RCE.
-
-**Why deferred.** Renderer is first-party.
-
-**When to revisit.** Before debt #11. Restrict ``fs:read-file``
-to import-flow extensions (``.gef``/``.ags``/``.las``); restrict
-``project:write-file`` to paths that came from
-``dialog.showSaveDialog`` in the same session (tracked in a
-``Set<string>`` cleared on app quit). Mirror the security-reviewer
-agent's "every IPC handler that accepts a path string MUST
-validate against an allow-list" rule.
-
-### 38. ``POST /projects/{id}/restore`` bundle has no size/array/string bounds (medium)
-
-**What.** ``src/groundmodel/api/schemas/project/project_bundle.py``
-declares ``cpts``, ``boreholes``, etc. as untyped
-``list[dict[str, Any]]`` with no ``max_length``. A 2-GB JSON body,
-an array with 10⁷ entries, or a single ``notes`` field with a 1-GB
-string OOMs the API process. CLAUDE.md "DOV Import" notes typical
-projects weigh tens of MB for 500 CPTs; a malicious / corrupted
-.strix can ship orders of magnitude more. Plot-batch already does
-this right at ``_MAX_IDS = 500`` — same discipline needed here.
-
-**Why deferred.** Only the user's own files reach this endpoint
-today. No remote upload path.
-
-**When to revisit.** When ``Export project bundle`` (sharing a
-self-contained .strix file with another user) lands — that's the
-day a malicious bundle becomes possible. OR before any networked
-exposure of the API. Fix: starlette body-size middleware (cap
-256 MB initially; profile first), per-array ``max_length`` on
-``ProjectBundleRequest`` (10k CPTs / 10k boreholes / 5k
-formations bound), ``max_length=10_000`` on string columns.
-
-### 39. ``POST /cpt/import`` GEF upload has no size cap (medium)
-
-**What.** ``src/groundmodel/api/routers/cpt.py:91-95``
-``await file.read()`` slurps the full ``UploadFile`` into memory
-with no cap, then writes to ``tempfile``. A 5-GB "GEF" file OOMs
-the API. FastAPI's default has no size limit either.
-
-**Why deferred.** No remote upload path; the user is the only
-caller.
-
-**When to revisit.** Alongside #38 when shared-bundle lands, OR
-before any networked API exposure. Fix: stream-copy to tempfile
-with a byte counter, abort + return 413 past 200 MB. Mirror the
-same cap on the DOV pipeline's per-XML byte budget.
+The remaining audit findings — #35 CORS, #36 CSP+window-open+
+unpkg, #37 IPC paths, #38 bundle bounds, #39 GEF cap, #41
+recent-projects, #43 error messages — landed in the same session.
+Open items kept: #40 (auth threading, blocked by #10) + #42
+(ESLint reason-rule enforcement, project bigger than 30 min).
 
 ### 40. Project-by-id endpoints rely on "only caller is local user" (medium → day-1 of #10)
 
@@ -1989,20 +1874,6 @@ routers already use a two-stage ``get_in_project_or_404`` pattern
 scaffolding must thread ``current_user`` through these routes
 before any token-gated call ships.
 
-### 41. ``recent-projects.json`` parsed without schema enforcement (low)
-
-**What.** ``desktop/src/main/index.ts:238-249, 251-259``
-``isRecentProject`` type-checks ``path``, ``name``, ``lastOpened``
-but not lengths. A 100-MB malformed file blocks the menu rebuild.
-Practical impact low — the file lives in ``userData`` and only
-the user writes to it.
-
-**Why deferred.** Local-only; user is the only writer.
-
-**When to revisit.** Next time the recent-projects format
-changes (soft length cap: 1 KB per field, the existing 10-entry
-``RECENT_PROJECTS_MAX`` already bounds the outer array).
-
 ### 42. No lint enforcement of the ``// reason:`` comment on ``eslint-disable react-hooks/exhaustive-deps`` (low)
 
 **What.** CLAUDE.md "Code Conventions" requires every
@@ -2016,17 +1887,3 @@ it. Reviewer trust gate, not a security boundary.
 **When to revisit.** Before opening the repo to collaborators
 (debt #6 trigger). Write a small custom ESLint rule.
 
-### 43. Error responses leak library names + version snippets (low)
-
-**What.** ``cpt.py:163, 173, 178``, ``borehole.py:82, 92, 97``,
-``dem.py:81, 86, 91, 97``: ``detail=f"DOV request failed:
-{exc.__class__.__name__}: {exc}"`` is debug-friendly today; when
-the API ever fields a non-trusted caller it leaks dependency
-versions / internal type names / network topology.
-
-**Why deferred.** Useful in dev; no non-trusted callers.
-
-**When to revisit.** Before any networked exposure of the API
-(debt #11 installer + #35 CORS fix probably bundle the same
-hardening pass). Wrap user-facing details in a generic message;
-log the specifics server-side.
