@@ -356,6 +356,21 @@ class DovInterpretationParser(GroundModelLogger):
             admixtures = self._parse_admixtures(laag_elem)
             description = self._build_description(laag_elem)
 
+            # Cross-field pre-check (debt #15).
+            if base <= top:
+                self.warning(
+                    f"DOV interpretation '{name}' layer {layer_index}: "
+                    f"inverted interval base={base} <= top={top} — skipping"
+                )
+                issues.append(
+                    _issue(
+                        ValidationLevel.WARNING,
+                        "INVALID_INTERVAL",
+                        f"DOV interpretation '{name}' layer {layer_index} "
+                        f"({top}–{base}m): base must be greater than top",
+                    )
+                )
+                continue
             try:
                 layer = ObservationLayer(
                     observation_id=observation_id,
@@ -370,7 +385,7 @@ class DovInterpretationParser(GroundModelLogger):
             except ValueError as exc:
                 self.warning(
                     f"DOV interpretation '{name}' layer {layer_index}: "
-                    f"invalid interval {top}–{base}: {exc}"
+                    f"invalid layer fields {top}–{base}: {exc}"
                 )
                 issues.append(
                     _issue(
