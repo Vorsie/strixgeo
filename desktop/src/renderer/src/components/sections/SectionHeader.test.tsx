@@ -147,3 +147,65 @@ describe('SectionHeader Export DXF button', () => {
     expect(btn.disabled).toBe(false)
   })
 })
+
+describe('SectionHeader Seed from stratigraphy button', () => {
+  it('is absent when onAutoPopulateFromStratigraphy is not provided', () => {
+    render(<SectionHeader {...(_baseProps() as never)} />)
+    expect(
+      screen.queryByTestId('auto-populate-stratigraphy-button'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders when onAutoPopulateFromStratigraphy is wired', () => {
+    render(
+      <SectionHeader
+        {...(_baseProps() as never)}
+        onAutoPopulateFromStratigraphy={vi.fn().mockResolvedValue(undefined)}
+      />,
+    )
+    expect(
+      screen.getByTestId('auto-populate-stratigraphy-button'),
+    ).toBeInTheDocument()
+  })
+
+  it('calls the handler when clicked', async () => {
+    const onAuto = vi.fn().mockResolvedValue(undefined)
+    render(
+      <SectionHeader
+        {...(_baseProps() as never)}
+        onAutoPopulateFromStratigraphy={onAuto}
+      />,
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('auto-populate-stratigraphy-button'))
+    })
+    expect(onAuto).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables itself while seeding and re-enables on success', async () => {
+    let resolveSeed: (() => void) | null = null
+    const pending = new Promise<void>(resolve => {
+      resolveSeed = resolve
+    })
+    const onAuto = vi.fn().mockReturnValue(pending)
+    render(
+      <SectionHeader
+        {...(_baseProps() as never)}
+        onAutoPopulateFromStratigraphy={onAuto}
+      />,
+    )
+    const btn = screen.getByTestId(
+      'auto-populate-stratigraphy-button',
+    ) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    await act(async () => {
+      fireEvent.click(btn)
+    })
+    expect(btn.disabled).toBe(true)
+    await act(async () => {
+      resolveSeed?.()
+      await Promise.resolve()
+    })
+    expect(btn.disabled).toBe(false)
+  })
+})
