@@ -2098,3 +2098,327 @@ Resolved 2026-05-12. End-to-end channel-toggle persistence:
   background. 4 new frontend tests cover the default state, the
   persisted-state read on mount, the PATCH dispatch shape, and
   the optimistic re-render.
+
+### Items #41–#58 — surfaced by the 2026-05-13 four-agent audit pass
+
+Aggregated from a parallel run of ``senior-code-reviewer`` (recent
+diff review), ``system-architect`` (geological-model subsystem),
+``staff-engineer`` (implementation quality), and
+``product-strategy-advisor`` (v1.0 gate progress). Some are bugs
+flagged for an imminent fix commit, others are real debt with
+explicit revisit triggers. All carry the standard
+*what / why deferred / when to revisit* shape.
+
+### 41. Drag mouseup outside the browser window leaks document listeners (blocker bug)
+
+**What.** ``ContactsLayer.tsx`` attaches ``mousemove`` + ``mouseup``
+to ``document`` while ``drag !== null``. The cleanup function only
+runs when the effect re-runs (``drag`` / ``snapDepth`` /
+``onUpdateContactDepth`` change). If the user starts a drag, moves
+the pointer outside the browser window, and releases the mouse
+button there, the ``mouseup`` fires on OS chrome — never on the
+document — and the listener pair stays attached with a stale
+``drag`` closure indefinitely. Subsequent clicks would fire phantom
+commits at depths derived from the stale start coordinate.
+
+**Why deferred.** Caught in audit, not a daily occurrence in dev.
+Fix is small: also subscribe to ``visibilitychange`` / ``blur`` /
+``pointercancel`` and call ``setDrag(null)`` defensively.
+
+**When to revisit.** Before any user-facing testing of the drag
+flow.
+
+### 42. ``discardSessionImports`` drops contact session IDs without clearing them (bug)
+
+**What.** ``App.tsx`` ``discardSessionImports`` trims the manifest
+for CPTs / boreholes / formations / sections on close-without-save
+but ``sessionImportContactIds`` is never cleared. The set IS reset
+on save, not on discard. Contacts created in the session stay in
+``App.contacts`` state and re-render on the next open even though
+they're "session-only" data the user discarded. The companion
+``projectDirty`` flag also stays inconsistent on this path.
+
+**Why deferred.** Found in audit; live behaviour acceptable for
+solo dev because mid-session close-without-save is uncommon, but
+the discard semantics are broken on this path.
+
+**When to revisit.** Same commit that fixes #41 — both are quick
+fixes the editor needs before any user-facing testing.
+
+### 43. ``pxPerMetre === 0`` zero-guard missing in ContactsLayer drag ``handleMove`` (should-fix bug)
+
+**What.** ``ContactsLayer.handleMove`` computes
+``rawDepth = (draggedSegY - drag.surfaceY) / drag.pxPerMetre``.
+If the viewport collapses (VEX or resize at the wrong moment)
+``pxPerMetre`` can reach 0; the division yields ``±Infinity`` and
+the subsequent ``Math.max(0, Infinity)`` commits ``Infinity`` to
+the API on release. The ``snapDepth`` callback has a matching
+``if (pxPerMetre === 0) return rawDepth`` early-return, but
+``handleMove`` does not.
+
+**Why deferred.** Pathological case; never observed.
+
+**When to revisit.** Pair with #41 / #42 fix; one-line guard.
+
+### 44. DoD entry/exit logging missing on App contact handlers (should-fix)
+
+**What.** ``handleCreateContact`` and ``handleUpdateContactDepth``
+both fire API calls but log nothing on entry; success path also
+unlogged on ``handleUpdateContactDepth``. CLAUDE.md "Definition of
+Done §1" requires entry + exit logging on external calls.
+
+**Why deferred.** Console is quiet today; the missing INFO traces
+will bite the first time a user reports "I dragged a contact and
+it didn't move".
+
+**When to revisit.** Next session that touches App.tsx contact
+handlers.
+
+### 45. Focus-zoom effect captures viewport mid-render-batch (low — theoretical race)
+
+**What.** ``SectionPanel`` focus-zoom ``useEffect`` deliberately
+stale-reads ``viewport`` + ``vex`` + ``placedColumns`` on
+``focusedColumn`` transitions (eslint-disabled with a documented
+``reason:``). If ``focusedColumn`` flips during the same render
+batch as a pan, the captured snapshot can be the partially-updated
+viewport.
+
+**Why deferred.** Cannot reproduce in practice; clean fix is to
+capture the snapshot in a ``useLayoutEffect`` or via an
+event-handler-driven flow rather than a regular effect.
+
+**When to revisit.** If any user reports a "focus mode opened
+weird" symptom.
+
+### 46. ``FormationContact.confidence`` field stored but never set or rendered (low)
+
+**What.** ``confidence`` is a first-class column on the domain
+dataclass, ORM, Pydantic schema, and bundle. ``ContactsLayer.tsx``
+reserves "different stroke per confidence (high / medium / low)"
+as a deferred slice. Every contact ships with the schema default
+``"medium"`` — neither snap-placed contacts nor drag-repositioned
+contacts ever set it to anything else.
+
+**Why deferred.** MVP gate is geometry-first; confidence styling
+is a Phase 5 quality-of-life addition on top of a working editor.
+
+**When to revisit.** Before Phase 5 engineering interpretation
+(Robertson Ic) lands — Ic-derived contacts should ship
+``confidence = "high"`` automatically, distinguishing them from
+manually-placed ``"medium"`` picks. The field is already in the
+right place; only the setter + the stroke-dasharray render path
+are missing.
+
+### 47. ``FormationContact.source`` never refreshed on drag re-pick (low)
+
+**What.** ``handleUpdateContactDepth`` (App.tsx) PATCHes only
+``{depth_top_m}`` — leaves ``source`` whatever it was at creation.
+A contact placed by snap-to-stratigraphy (semantically
+``source = "borehole_observation"``) and then dragged to a free
+depth still reads as snap-sourced. Server-side
+``UpdateFormationContact`` accepts ``source`` in the request body;
+the frontend never sends it.
+
+**Why deferred.** Same trigger as #46 — no consumer reads
+``source`` for anything meaningful today.
+
+**When to revisit.** Same as #46 — when Ic-derived contacts land
+and source becomes load-bearing for distinguishing automated from
+manual picks.
+
+### 48. Section ``view_state`` keys are untyped + unconstrained (low)
+
+**What.** The section ``view_state`` JSONB column (debt #25) now
+carries four live keys: ``cpt_channels``, ``borehole_channels``,
+``column_spacing``, ``snap_to_stratigraphy``. Read/written via
+``read*`` helpers in ``cptChannels.ts``. No schema documents the
+valid keys; the server-side ``merge_view_state`` accepts any JSON
+key. A client shipping ``snap_to_stratigrahpy`` (typo) silently
+persists junk with no server-side rejection.
+
+**Why deferred.** Solo developer; no external clients; typos
+detectable in dev.
+
+**When to revisit.** Before any second client (mobile companion,
+future export preset) or before sections are ever shared
+cross-machine. Fix: define ``SectionViewState`` TypeScript +
+Pydantic type with exhaustive keys; validate on PATCH.
+
+### 49. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
+
+**What.** ``geotechnical_unit`` rows (debt #29 — formation → unit
+hierarchy) only surface in ``InterpretationPane``.
+``FormationContact`` carries ``formation_id`` only — no
+``geotechnical_unit_id``. The section editor and ``App.tsx`` never
+receive the units. Section view cannot distinguish "weathered
+crust of Boom Klei" from "undisturbed Boom Klei". Correct per MVP
+scope ("subdivision — structure only") but the contact model has
+no hook point for unit assignment.
+
+**Why deferred.** MVP gate defers per-unit parameters and per-unit
+visual distinction to Phase 5. Formation-level geometry is the
+export target for v1.0.
+
+**When to revisit.** When per-unit parameters land (Phase 5) and
+downstream exporters (Plaxis material library) need unit-level
+contacts. At that point ``FormationContact`` needs either
+``geotechnical_unit_id`` FK or a separate ``GeotechnicalContact``
+entity. Design the anchor before Phase 5 export work begins.
+
+### 50. ``SNAP_TOLERANCE_PX`` defined three times (low — one-line fix)
+
+**What.** The literal ``8`` is defined independently in
+``BoreholeColumn.tsx``, ``ContactsLayer.tsx``, and exported from
+``cptChannels.ts``. Triple-defined. CLAUDE.md "extract on the
+second copy" rule fires; we're at the third copy.
+
+**Why deferred.** The ``cptChannels.ts`` export already exists —
+a one-line import in both consumers.
+
+**When to revisit.** Before any drag/snap UX tuning session, or
+next time either file is touched.
+
+### 51. Snap-candidate collection duplicated across click + drag paths (low)
+
+**What.** ``BoreholeColumn.snapDepthsFromObservations`` (click
+path) and ``SectionPanel`` ``snapDepthsByAnchorId`` builder
+(drag path) both walk ``observations``, filter on
+``formal_stratigraphy`` / ``informal_stratigraphy``, and collect
+``layer.top_m`` + ``layer.base_m``. Same predicate, same result
+shape, two implementations.
+
+**Why deferred.** The two callers have different input shapes
+(one ``BoreholeDetail``, one ``Map<id, BoreholeDetail>``). Right
+home is ``sections/utils.ts`` as
+``collectSnapDepths(detail) -> number[]``.
+
+**When to revisit.** When a third observation type is added to
+the snap set (e.g. ``quaternary_stratigraphy``), OR next time
+``BoreholeColumn`` is touched.
+
+### 52. ``PlacedColumn.proj.item`` is a union — narrowed by casts everywhere (medium)
+
+**What.** ``PlacedColumn.proj`` is typed
+``ProjectedInvestigation<CptListItem | BoreholeListItem>``. Every
+per-kind access requires a cast (``col.proj.item as CptListItem``,
+etc.) — 8+ sites in ``SectionPanel.tsx``, more in
+``ContactsLayer.tsx``. Casts are locally correct (guarded by
+``col.kind === 'cpt'`` / ``'borehole'``) but not enforced by the
+type system.
+
+**Why deferred.** Fix is a refactor: narrow ``PlacedColumn`` to a
+discriminated union (``CptPlacedColumn | BoreholePlacedColumn``);
+touches the column builder + all consumers + sub-component prop
+types.
+
+**When to revisit.** Before the geological-model editor grows
+another ``PlacedColumn`` consumer (likely the formation-surface
+interpolation overlay). At three cast sites outside SectionPanel
+the structural type collapses.
+
+### 53. ContactsLayer ``useMemo`` invalidates on every pan via ``levelToScreen`` dep (medium — perf)
+
+**What.** ``ContactsLayer`` lists ``levelToScreen`` in its main
+``useMemo`` dep array. ``levelToScreen`` is a ``useCallback`` in
+``SectionPanel`` keyed on ``[effLevelMax, scaleV]`` — both change
+on every vertical pan. The whole ``layers + polylines`` derivation
+(O(N × M) over columns × contacts) re-runs on every pan frame.
+Imperceptible at today's typical scale (~30 columns × 30
+contacts); becomes measurable at 500+ contacts on a tall section.
+
+**Why deferred.** Correct fix is to decouple the screen-Y
+computation from the data-geometry pass: compute anchor
+``depth_m`` + ``surfaceElevationM`` inside the memo, defer screen
+coords to the render pass. Structural change to ``RenderedLayer``.
+
+**When to revisit.** If pan stutter is reported on a real ≥ 200
+contact section, or before any viewport tweening / animation
+lands.
+
+### 54. ``SectionPanel.tsx`` at ~1280 lines — split interactions into hooks (medium)
+
+**What.** ``SectionPanel.tsx`` re-crossed the split threshold this
+session (was 591 lines after debt #35; now ~1280). Three
+interaction modes added this session share no state with each
+other and could each live in a dedicated hook: ``useContactPicker``
+(~60 lines: pickContext + handlePickCpt / handlePickBorehole /
+handlePickerSelect), ``useFocusColumn`` (~100 lines: focusedColumn
++ focus-viewport effect + visibleColumns filter),
+``useColumnContextMenu`` (~80 lines: contextMenu +
+handleColumnContextMenu + handleSvgContextMenu).
+
+**Why deferred.** Each hook reads from props or other hooks;
+extracting is mechanical but not zero-risk.
+
+**When to revisit.** Before the next interaction mode lands
+(surface-interpolation overlay editing, or free-draw formation
+boundaries).
+
+### 55. Drag interaction edge cases untested in ``ContactsLayer.test.tsx`` (low)
+
+**What.** Current 14 tests cover the happy drag path, zero-delta
+no-op, and snap. Three untested cases:
+1. Drag when ``elevation_m`` is null on the anchor — hit-strip
+   should NOT render.
+2. ``pxPerMetre`` near zero (collapsed viewport) — ``snapDepth``
+   guards; ``handleMove`` does not (see #43).
+3. Contact depth committed at exactly ``depth_m = 0`` (surface
+   contact) — ``Math.max(0, rawDepth)`` clamp untested at its
+   boundary.
+
+**Why deferred.** Guards exist (mostly — see #43); the missing
+tests are specification-insurance against future refactors.
+
+**When to revisit.** Before any drag ``handleMove`` refactor, or
+before promoting drag to a keyboard-accessible flow.
+
+### 56. Snap-to-stratigraphy click path untested in BoreholeColumn (low)
+
+**What.** ``BoreholeColumn.tsx`` has a ``snapToStratigraphy`` prop,
+a ``STRAT_OBS_TYPES_FOR_SNAP`` constant, and a ``snapDepth``
+function. ``BoreholeColumn.test.tsx`` has no test that exercises
+the snap path (click near a layer boundary snaps; click far away
+stays free). ``snapDepthsFromObservations`` dedup behaviour is
+also untested.
+
+**Why deferred.** No regression risk today (code is new and the
+interaction is manual-only).
+
+**When to revisit.** When snap behaviour is tuned (tolerance, type
+set) or when ``snapDepthsFromObservations`` is extracted
+(see #51).
+
+### 57. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
+
+**What.** CLAUDE.md "Distribution model" plans an installer that
+bundles Postgres + PostGIS (the Plaxis pattern). No prototype
+exists. Failure modes are non-trivial for a solo dev: port
+conflict on ``localhost:5433``, Windows Defender quarantine of the
+Postgres binary, upgrade paths across Postgres major versions.
+Distribution risk that hits before any geotech engineer sees the
+UI.
+
+**Why deferred.** Not blocking development; current dev flow uses
+Docker Compose.
+
+**When to revisit.** Before approaching the first 5 validation
+engineers. Build a one-off prototype on a clean Windows machine
+without Docker. If the bundled path is fragile, the SQLite +
+SpatiaLite fallback (already called out in CLAUDE.md) becomes the
+real plan and is a non-trivial refactor. The decision belongs
+ahead of the first beta install.
+
+### 58. Plaxis target version unconfirmed (medium → blocking before exporter implementation)
+
+**What.** The Plaxis exporter (MVP gate item) needs a target file
+format. Plaxis 2D 2016+ uses ``.plxs``; older versions (still
+common in BE consultancies) use the legacy ``.geo`` / PLAXIS Input
+ASCII. Building for ``.plxs`` and shipping to a 2014-vintage
+paying customer is a support conversation before revenue.
+
+**Why deferred.** Cannot decide without market signal.
+
+**When to revisit.** Ask the first 5 validation contacts which
+Plaxis version they run. Decide format target from the modal
+response. Implement exporter only after the version is named —
+format delta is non-trivial.
