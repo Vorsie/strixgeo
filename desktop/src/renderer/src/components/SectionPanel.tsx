@@ -178,6 +178,13 @@ interface Props {
    * stays storage-agnostic. Omitting it (or there being no active
    * geological model) hides the button. */
   onExportDxf?: () => Promise<void>
+  /** Fire the "Seed from stratigraphy" header action. Receives the
+   * borehole IDs projected onto the active section (computed here
+   * from placedColumns); the handler scopes the auto-populate call
+   * to that list. Omitting it (or no active model) hides the button. */
+  onAutoPopulateFromStratigraphy?: (
+    boreholeIds: readonly string[],
+  ) => Promise<void>
 }
 
 export default function SectionPanel({
@@ -195,6 +202,7 @@ export default function SectionPanel({
   onDeleteContact,
   onBatchUpdateContacts,
   onBatchCreateContacts,
+  onAutoPopulateFromStratigraphy,
   onCreateFormation,
   onExportDxf,
   onSelectCpt,
@@ -858,6 +866,22 @@ export default function SectionPanel({
         scaleV={scaleV}
         onReset={resetView}
         onExportDxf={onExportDxf}
+        onAutoPopulateFromStratigraphy={
+          // Scope the action to boreholes on the active section
+          // only — CPTs are skipped (no stratigraphy observations
+          // there) and projects with hundreds of boreholes get a
+          // bounded request size. Hidden when no boreholes are on
+          // the section, since the action would no-op.
+          onAutoPopulateFromStratigraphy &&
+          placedColumns.some(c => c.kind === 'borehole')
+            ? () =>
+                onAutoPopulateFromStratigraphy(
+                  placedColumns
+                    .filter(c => c.kind === 'borehole')
+                    .map(c => c.proj.item.id),
+                )
+            : undefined
+        }
       />
 
       <div
