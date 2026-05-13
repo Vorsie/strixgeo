@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.formation_contact import (
+    AutoPopulateFromStratigraphyRequest,
+    AutoPopulateFromStratigraphyResponse,
     FormationContactBatchUpdateRequest,
     FormationContactBatchUpdateResponse,
     FormationContactCreateRequest,
@@ -39,6 +41,9 @@ from groundmodel.api.schemas.project.geotechnical_unit import (
     GeotechnicalUnitCreateRequest,
     GeotechnicalUnitResponse,
     GeotechnicalUnitUpdateRequest,
+)
+from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    AutoPopulateContactsFromStratigraphy,
 )
 from groundmodel.application.create_formation_contact import CreateFormationContact
 from groundmodel.application.delete_formation_contact import DeleteFormationContact
@@ -549,6 +554,50 @@ async def update_contacts_batch(
         )
     return FormationContactBatchUpdateResponse(
         contacts=[FormationContactResponse.model_validate(c) for c in updated]
+    )
+
+
+@router.post(
+    "/models/{model_id}/contacts/auto-populate",
+    response_model=AutoPopulateFromStratigraphyResponse,
+)
+async def auto_populate_from_stratigraphy(
+    project_id: UUID,
+    model_id: UUID,
+    request: AutoPopulateFromStratigraphyRequest,
+    session: AsyncSession = Depends(get_session),
+) -> AutoPopulateFromStratigraphyResponse:
+    """Seed the model with contacts derived from borehole stratigraphy.
+
+    Caller passes the borehole id list (typically the boreholes
+    projected onto the active cross-section). For each borehole the
+    use case prefers FORMAL_STRATIGRAPHY and falls through to
+    INFORMAL_STRATIGRAPHY only when no formal observation exists.
+    Layers are idempotent via ``observation_layer_id``; re-running
+    is a no-op. Auto-creates missing formations using the layer
+    description as the name + a hash-derived default colour.
+    """
+    # Model scope guard up-front — same shape as the batch update
+    # endpoint. Per-borehole project membership is also re-checked
+    # by the use case's IN-query so a hand-crafted payload with an
+    # out-of-project borehole id can't seed a contact.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+
+    outcome = await AutoPopulateContactsFromStratigraphy(session).execute(
+        project_id=project_id,
+        model_id=model_id,
+        borehole_ids=request.borehole_ids,
+    )
+    return AutoPopulateFromStratigraphyResponse(
+        created_contact_ids=outcome.created_contact_ids,
+        created_formation_ids=outcome.created_formation_ids,
+        skipped_existing=outcome.skipped_existing,
+        skipped_unmatched=outcome.skipped_unmatched,
+        skipped_no_stratigraphy=outcome.skipped_no_stratigraphy,
     )
 
 
