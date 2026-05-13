@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type {
   BoreholeListItem,
+  FormationContactBatchUpdateEntry,
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
@@ -98,7 +99,12 @@ function renderLayer(
   extras: {
     onUpdateContactDepth?: (id: string, depth: number) => Promise<void>
     onDeleteContact?: (id: string) => Promise<void>
+    onBatchUpdateContacts?: (
+      updates: readonly FormationContactBatchUpdateEntry[],
+    ) => Promise<void>
     snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
+    plotLeft?: number
+    plotRight?: number
   } = {},
 ) {
   return render(
@@ -113,6 +119,9 @@ function renderLayer(
         plotBottom={50}
         onUpdateContactDepth={extras.onUpdateContactDepth}
         onDeleteContact={extras.onDeleteContact}
+        onBatchUpdateContacts={extras.onBatchUpdateContacts}
+        plotLeft={extras.plotLeft}
+        plotRight={extras.plotRight}
         snapDepthsByAnchorId={extras.snapDepthsByAnchorId}
       />
     </svg>,
@@ -697,5 +706,192 @@ describe('ContactsLayer', () => {
     strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
     expect(confirmSpy).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
+  })
+
+  // -----------------------------------------------------------------
+  // Selection model: Ctrl-toggle, Shift-range, ESC-clear, halo render
+  // -----------------------------------------------------------------
+
+  it('Ctrl+Click toggles a contact in/out of selection without dragging', () => {
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1' })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+
+    // First Ctrl+Click adds to selection — halo (the slate-blue
+    // 4px-wide line under the segment) appears.
+    fireEvent.mouseDown(strip, { button: 0, ctrlKey: true })
+    expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(1)
+
+    // Drag handler was NOT invoked — modifier clicks update selection
+    // only.
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
+
+    // Second Ctrl+Click toggles back out.
+    fireEvent.mouseDown(strip, { button: 0, ctrlKey: true })
+    expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(0)
+  })
+
+  it('Shift+Click selects the depth-range within the same anchor', () => {
+    // Three contacts on borehole bh-1 at depths 2 / 5 / 9. Ctrl-click
+    // c-1, Shift-click c-3 → all three selected.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 2 }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5 }),
+      makeContact({ id: 'c-3', borehole_id: 'bh-1', depth_top_m: 9 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth: vi.fn().mockResolvedValue(undefined) },
+    )
+    const strips = container.querySelectorAll(
+      '[data-testid="contact-drag-strip"]',
+    )
+    fireEvent.mouseDown(strips[0], { button: 0, ctrlKey: true })
+    fireEvent.mouseDown(strips[2], { button: 0, shiftKey: true })
+    // All three halos.
+    expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(3)
+  })
+
+  it('ESC clears the active selection when no drag is running', () => {
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1' })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth: vi.fn().mockResolvedValue(undefined) },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    fireEvent.mouseDown(strip, { button: 0, ctrlKey: true })
+    expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(1)
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(0)
+  })
+
+  // -----------------------------------------------------------------
+  // Marquee (box-select) — only rendered when plotLeft/Right wired
+  // -----------------------------------------------------------------
+
+  it('renders no marquee preview when no marquee state is provided', () => {
+    // Marquee state is owned by SectionPanel — ContactsLayer renders
+    // the dashed preview rect only when ``marquee`` prop is set.
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1' })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      {
+        onUpdateContactDepth: vi.fn().mockResolvedValue(undefined),
+        onBatchUpdateContacts: vi.fn().mockResolvedValue(undefined),
+      },
+    )
+    expect(
+      container.querySelector('[data-testid="contacts-marquee-preview"]'),
+    ).toBeNull()
+  })
+
+  // -----------------------------------------------------------------
+  // Cross-column drag → onBatchUpdateContacts with new anchor
+  // -----------------------------------------------------------------
+
+  it('cross-column drag fires onBatchUpdateContacts with the target anchor', () => {
+    // Two columns: bh-1 at nudgedX=50, bh-2 at nudgedX=200. Drag c-1
+    // from bh-1 horizontally past the 15px hysteresis into bh-2's
+    // band. Commit should carry the new borehole_id.
+    const onBatch = vi.fn().mockResolvedValue(undefined)
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 200)],
+      undefined,
+      { onUpdateContactDepth, onBatchUpdateContacts: onBatch },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    fireEvent.mouseDown(strip, { button: 0, clientX: 50, clientY: 10 })
+    act(() => {
+      // Horizontal move: clientX 50 → 200 (right onto bh-2 column).
+      // Vertical stays so depth doesn't change.
+      document.dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: 200,
+          clientY: 10,
+          buttons: 1,
+        }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup'))
+    })
+
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
+    expect(onBatch).toHaveBeenCalledTimes(1)
+    const updates = onBatch.mock.calls[0][0]
+    expect(updates.length).toBe(1)
+    expect(updates[0].contact_id).toBe('c-1')
+    // The new anchor — drag was onto bh-2.
+    expect(updates[0].borehole_id).toBe('bh-2')
+    expect(updates[0].cpt_id).toBeNull()
+  })
+
+  it('same-column depth drag still routes through onUpdateContactDepth', () => {
+    // Single-contact, same-anchor drag preserves the existing PATCH
+    // path so the batch endpoint isn't called for what is a single
+    // depth tweak.
+    const onBatch = vi.fn().mockResolvedValue(undefined)
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth, onBatchUpdateContacts: onBatch },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    fireEvent.mouseDown(strip, { button: 0, clientX: 100, clientY: 10 })
+    act(() => {
+      // Vertical-only move — cursorX stays in source column.
+      document.dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: 100,
+          clientY: 20,
+          buttons: 1,
+        }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup'))
+    })
+
+    expect(onBatch).not.toHaveBeenCalled()
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
   })
 })
