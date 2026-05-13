@@ -182,6 +182,12 @@ export default function App() {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
   const [formations, setFormations] = useState<GeologicalFormationResponse[]>([])
+  // Refresh signal for InterpretationPane. The pane keeps its own
+  // formations cache; bumping this counter forces a refetch.
+  // Bumped after auto-populate from stratigraphy because the new
+  // formations land server-side, outside the pane's create-edit-
+  // delete flow.
+  const [formationsRefreshCounter, setFormationsRefreshCounter] = useState(0)
   const [contacts, setContacts] = useState<FormationContactResponse[]>([])
   // ``true`` while the user is two-click-drawing a section line on
   // the map. The Sidebar's "+ New cross-section" button enters this
@@ -854,6 +860,14 @@ export default function App() {
           setSessionImportContactIds,
           outcome.created_contact_ids,
         )
+        // Add new formations to the project manifest so the save
+        // flow's filter passes them through.
+        for (const id of outcome.created_formation_ids) {
+          addToManifest('formation', [id])
+        }
+        // Tell the InterpretationPane (separate state) to refetch
+        // — it doesn't observe App's formations cache directly.
+        setFormationsRefreshCounter(c => c + 1)
         const created = outcome.created_contact_ids.length
         const skipped =
           outcome.skipped_existing +
@@ -901,6 +915,7 @@ export default function App() {
       activeGeologicalModel,
       setSessionImportFormationIds,
       setSessionImportContactIds,
+      addToManifest,
     ],
   )
 
@@ -2034,6 +2049,7 @@ export default function App() {
           onFormationCreated={handleFormationCreated}
           onFormationUpdated={handleFormationUpdated}
           onFormationDeleted={handleFormationDeleted}
+          formationsRefreshSignal={formationsRefreshCounter}
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
           activeModelName={activeGeologicalModel?.name ?? null}
           visibleBoreholes={visibleBoreholes}
