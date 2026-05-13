@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Download, Minus, Plus, RotateCcw, X } from 'lucide-react'
+import { Download, Minus, Plus, RotateCcw, Wand2, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
 import {
@@ -82,6 +82,7 @@ export default function SectionHeader({
   scaleV,
   onReset,
   onExportDxf,
+  onAutoPopulateFromStratigraphy,
 }: {
   section: CrossSectionResponse
   lengthM: number
@@ -136,6 +137,11 @@ export default function SectionHeader({
    * is omitted (no active geological model, or test-render mode
    * without an export seam). */
   onExportDxf?: () => Promise<void>
+  /** Trigger the "Auto-populate from stratigraphy" flow — caller
+   * supplies the borehole IDs (scoped to the active section) when
+   * wiring. Button hidden when omitted (no active model, or no
+   * boreholes on the section). */
+  onAutoPopulateFromStratigraphy?: () => Promise<void>
 }): JSX.Element {
   const sliderValue = Math.round(
     ((Math.log10(vex) - Math.log10(VEX_MIN)) /
@@ -169,6 +175,23 @@ export default function SectionHeader({
       // Swallowed on purpose — see comment above.
     } finally {
       setExporting(false)
+    }
+  }
+
+  // Same disable-while-pending pattern as Export DXF. Auto-populate
+  // runs on the backend in one transaction; the round-trip is
+  // typically <1s for a section's worth of boreholes, but UI gating
+  // is cheap insurance against double-clicks.
+  const [autoPopulating, setAutoPopulating] = useState(false)
+  async function handleAutoPopulate(): Promise<void> {
+    if (!onAutoPopulateFromStratigraphy || autoPopulating) return
+    setAutoPopulating(true)
+    try {
+      await onAutoPopulateFromStratigraphy()
+    } catch {
+      // Caller owns user-facing error UI (toast in App.tsx).
+    } finally {
+      setAutoPopulating(false)
     }
   }
 
@@ -362,6 +385,20 @@ export default function SectionHeader({
         <RotateCcw size={11} />
         Reset
       </button>
+
+      {onAutoPopulateFromStratigraphy && (
+        <button
+          onClick={() => void handleAutoPopulate()}
+          disabled={autoPopulating}
+          className="flex items-center gap-1 px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Seed contacts on this section's boreholes from their formal stratigraphy (informal as fallback). Idempotent — re-running is a no-op."
+          aria-label="Auto-populate contacts from stratigraphy"
+          data-testid="auto-populate-stratigraphy-button"
+        >
+          <Wand2 size={11} />
+          {autoPopulating ? 'Seeding…' : 'Seed from stratigraphy'}
+        </button>
+      )}
 
       {onExportDxf && (
         <button
