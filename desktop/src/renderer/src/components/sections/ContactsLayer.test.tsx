@@ -306,7 +306,10 @@ describe('ContactsLayer', () => {
     // depth = 3 + 5 = 8.
     fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
     act(() => {
-      const ev = new MouseEvent('mousemove', { clientY: 5, bubbles: true })
+      // ``buttons: 1`` simulates the primary button still held —
+      // the new e.buttons === 0 cancel guard would otherwise abort
+      // the drag mid-move (debt #17 defensive cancel).
+      const ev = new MouseEvent('mousemove', { clientY: 5, buttons: 1, bubbles: true })
       document.dispatchEvent(ev)
     })
     act(() => {
@@ -359,13 +362,125 @@ describe('ContactsLayer', () => {
     const strip = container.querySelector('[data-testid="contact-drag-strip"]')!
     fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
     act(() => {
-      document.dispatchEvent(new MouseEvent('mousemove', { clientY: 5, bubbles: true }))
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 5, buttons: 1, bubbles: true }),
+      )
     })
     act(() => {
       document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
     })
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
     expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(10, 5)
+  })
+
+  it('cancels the drag without committing on window blur (debt #17)', () => {
+    // Simulates: user mousedowns → drags partway → switches apps
+    // (window blurs) → comes back → mouses up.
+    // The drag should be abandoned at the blur moment with no
+    // depth committed.
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth },
+    )
+    const strip = container.querySelector('[data-testid="contact-drag-strip"]')!
+    fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
+    // Move with button held so the cancel signal under test is
+    // unambiguously the blur, not the e.buttons === 0 guard.
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 5, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    // After blur, the mouseup handler is detached. Even if a
+    // mouseup arrives, no commit fires.
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
+  })
+
+  it('cancels the drag when the cursor returns with no button held (debt #17)', () => {
+    // Simulates: user mousedowns → drags out of the viewport →
+    // releases outside (mouseup never fires on document) → moves
+    // the cursor back in with buttons === 0. handleMove detects
+    // the missing button and abandons the drag.
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth },
+    )
+    const strip = container.querySelector('[data-testid="contact-drag-strip"]')!
+    fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
+    // Mousemove with buttons=0 → drag abandoned without commit.
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 5, buttons: 0, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
+  })
+
+  it('does not commit Infinity when pxPerMetre collapses to 0 (debt #19)', () => {
+    // Pathological collapsed viewport — levelToScreen returns a
+    // constant, so pxPerMetre = 0. The drag math would divide by
+    // zero and yield Infinity; the guards in handleMove + handleUp
+    // suppress the commit entirely.
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const constantLevelToScreen = (): number => 15
+    const { container } = render(
+      <svg>
+        <ContactsLayer
+          contacts={contacts}
+          formations={[makeFormation({ name: 'X' })]}
+          placedColumns={[makeBoreholePlaced('bh-1', 100)]}
+          levelToScreen={constantLevelToScreen}
+          plotTop={0}
+          plotBottom={50}
+          onUpdateContactDepth={onUpdateContactDepth}
+        />
+      </svg>,
+    )
+    const strip = container.querySelector('[data-testid="contact-drag-strip"]')
+    // pxPerMetre = 0 means bodyTop === bodyBottom for every layer;
+    // the layer still renders but the drag math is undefined. Guard
+    // either skips the strip render (no harm) OR catches the zero
+    // inside handleMove / handleUp before committing.
+    if (strip) {
+      fireEvent.mouseDown(strip, { clientY: 0, button: 0 })
+      // buttons: 1 so the cancel signal under test is the
+      // pxPerMetre === 0 guard, not the buttons-released guard.
+      act(() => {
+        document.dispatchEvent(
+          new MouseEvent('mousemove', { clientY: 10, buttons: 1, bubbles: true }),
+        )
+      })
+      act(() => {
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      })
+    }
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
   })
 
   it('uses the formation colour for both segment + polyline stroke', () => {
