@@ -29,7 +29,15 @@ class FieldLogInterval:
     Raises
     ------
     ValueError
-        If ``top_m`` is negative, ``base_m <= top_m``, or ``value`` is empty.
+        If ``top_m`` is negative or ``value`` is empty.
+
+    Notes
+    -----
+    The cross-field invariant ``base_m > top_m`` is deliberately NOT
+    enforced in the dataclass — per CLAUDE.md "Data Integrity Rules §5"
+    it belongs in the parser's ``ValidationIssue`` list.
+    ``DovBoringParser`` pre-checks it before constructing and emits an
+    ``INVALID_INTERVAL`` warning on inverted rows. Debt #15.
     """
 
     top_m: float
@@ -40,9 +48,5 @@ class FieldLogInterval:
     def __post_init__(self) -> None:
         if self.top_m < 0:
             raise ValueError(f"FieldLogInterval.top_m cannot be negative: {self.top_m}")
-        if self.base_m <= self.top_m:
-            raise ValueError(
-                f"FieldLogInterval.base_m must be greater than top_m: {self.base_m} <= {self.top_m}"
-            )
         if not self.value:
             raise ValueError("FieldLogInterval.value cannot be empty")
