@@ -49,6 +49,7 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
+import { SNAP_TOLERANCE_PX } from './cptChannels'
 import HoverReadoutCard from './HoverReadoutCard'
 import type { PlacedColumn } from './utils'
 
@@ -155,9 +156,6 @@ interface DragState {
 const LAYER_LABEL_MIN_HEIGHT_PX = 14
 // Avg glyph width at fontSize=9 — used by the truncation budget.
 const APPROX_GLYPH_WIDTH_PX = 5
-// Same threshold the BoreholeColumn click-to-place path uses; keeps
-// the click + drag affordances consistent on borehole anchors.
-const SNAP_TOLERANCE_PX = 8
 // Vertical hit-strip half-height (px) around each top segment — wide
 // enough that the line is grabbable without precision aiming, narrow
 // enough that adjacent layers don't fight for the same pointer.
