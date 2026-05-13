@@ -89,14 +89,30 @@ interface Props {
    * irreversible per CLAUDE.md UX conventions; the native confirm
    * is the user-facing safety rail. */
   onDeleteContact?: (contactId: string) => Promise<void>
-  /** All-or-nothing batch commit. Fired on multi-drag or any drag
-   * that crosses to a different column (cross-anchor re-pick).
+  /** All-or-nothing batch UPDATE commit. Used for:
+   *
+   * * Same-column multi-drag (every selected contact's depth shifts
+   *   by the primary's Δm).
+   * * Cross-column drag WITH the Alt key held — the explicit MOVE
+   *   (re-anchor) variant. Without Alt, cross-column drag goes
+   *   through ``onBatchCreateContacts`` instead (COPY by default).
+   *
    * When absent, cross-column drag is disabled and multi-selection
    * drag falls back to N individual depth-only commits via
-   * ``onUpdateContactDepth`` — the safe degradation matches the
-   * read-only-vs-editable gating elsewhere in the layer. */
+   * ``onUpdateContactDepth``. */
   onBatchUpdateContacts?: (
     updates: readonly FormationContactBatchUpdateEntry[],
+  ) => Promise<void>
+  /** COPY commit. Fired when the user drags one or more contacts
+   * across to a different column WITHOUT holding Alt. Each entry
+   * gets POSTed as a new contact at the target anchor; the source
+   * contacts stay where they were. Matches the "stamp my known-
+   * good interpretation onto a thin nearby CPT" workflow that
+   * dogfooding revealed as the dominant cross-column use case.
+   * When absent, cross-column plain-drag falls back to the MOVE
+   * (update) path so the feature degrades gracefully. */
+  onBatchCreateContacts?: (
+    creates: readonly ContactCopyPayload[],
   ) => Promise<void>
   /** Plot area X extents in SVG coords. Kept on the prop list for
    * historical reasons + test backward-compat. The marquee
@@ -220,6 +236,10 @@ interface PolylineVertex {
 
 interface DragContact {
   contactId: string
+  /** Formation the contact belongs to. Carried so the COPY path
+   * (cross-column plain drag) can POST new contacts with the
+   * correct formation_id without re-querying the contacts list. */
+  formationId: string
   anchorId: string
   anchorKind: 'cpt' | 'borehole'
   originalDepthM: number
@@ -230,6 +250,19 @@ interface DragContact {
   sourcePxPerMetre: number
   color: string
   formationName: string
+}
+
+/** Payload shape for one new contact in a copy-drag commit. Mirrors
+ * ``FormationContactCreatePayload`` minus the formation_id-required
+ * field. Caller (App.tsx) translates to N parallel POSTs and patches
+ * local contacts state with the returned rows. */
+export interface ContactCopyPayload {
+  formation_id: string
+  depth_top_m: number
+  borehole_id: string | null
+  cpt_id: string | null
+  source: 'borehole_observation' | 'manual_pick' | 'interpolated'
+  confidence: 'high' | 'medium' | 'low'
 }
 
 interface DragState {
@@ -409,6 +442,7 @@ export default function ContactsLayer({
   onUpdateContactDepth,
   onDeleteContact,
   onBatchUpdateContacts,
+  onBatchCreateContacts,
   marquee,
   onSetMarquee,
   snapDepthsByAnchorId,
@@ -741,7 +775,7 @@ export default function ContactsLayer({
             },
       )
     }
-    function handleUp(): void {
+    function handleUp(e: MouseEvent): void {
       const final = drag
       setDrag(null)
       if (!final) return
@@ -755,10 +789,21 @@ export default function ContactsLayer({
         return
       }
 
-      // Decide the commit path:
-      //   * single contact, no anchor change → onUpdateContactDepth
-      //   * cross-column OR multi-contact    → onBatchUpdateContacts
+      // Commit dispatch — three lanes, decided by anchor change +
+      // selection size + Alt key:
+      //   * Single contact, same column          → onUpdateContactDepth (PATCH)
+      //   * Same column, multi-contact           → onBatchUpdateContacts (depth shift)
+      //   * Cross-column, no Alt                 → onBatchCreateContacts (COPY — default)
+      //   * Cross-column, Alt held               → onBatchUpdateContacts (MOVE — opt-in)
+      // The Alt fallback to MOVE is the original behaviour from the
+      // first cross-column ship; COPY is the new default because
+      // dogfooding showed "stamp interpretation onto a nearby test"
+      // is the dominant cross-column workflow.
+      const deltaM = final.currentDepthM - startDepth
       const single = final.contactsInDrag.length === 1
+      const target = final.currentTargetCol
+      const altMove = e.altKey
+
       if (single && noAnchorChange) {
         if (!onUpdateContactDepth) return
         void onUpdateContactDepth(
@@ -769,28 +814,14 @@ export default function ContactsLayer({
         return
       }
 
-      if (!onBatchUpdateContacts) {
-        // Cross-column / multi-drag commit requested but no batch
-        // handler wired — fail silently rather than half-committing.
-        // The view re-renders at the original positions.
-        return
-      }
-
-      // Build batch entries. Each non-primary contact follows the
-      // primary's Δm and (when cross-column) the same target anchor.
-      const deltaM = final.currentDepthM - startDepth
-      const target = final.currentTargetCol
-      const updates: FormationContactBatchUpdateEntry[] = final.contactsInDrag.map(
-        c => {
-          const newDepth = Math.max(0, c.originalDepthM + deltaM)
-          const entry: FormationContactBatchUpdateEntry = {
+      // Same-column multi-drag — depth shift only, MOVE semantic
+      // (each contact's existing row gets a new depth).
+      if (target === null) {
+        if (!onBatchUpdateContacts) return
+        const updates: FormationContactBatchUpdateEntry[] =
+          final.contactsInDrag.map(c => ({
             contact_id: c.contactId,
-            depth_top_m: newDepth,
-            // Drag-source + confidence rule matches the create / depth-
-            // only paths (debt #22/#23). Snap state only applies to the
-            // primary contact's cursor target; the others inherit
-            // "manual_pick / medium" because they were translated, not
-            // explicitly placed.
+            depth_top_m: Math.max(0, c.originalDepthM + deltaM),
             source:
               c.contactId === final.contactId && final.currentSnapped
                 ? 'borehole_observation'
@@ -799,21 +830,73 @@ export default function ContactsLayer({
               c.contactId === final.contactId && final.currentSnapped
                 ? 'high'
                 : 'medium',
-          }
-          if (target !== null) {
-            // Cross-column commit — every selected contact gets the
-            // SAME new anchor (the target column's investigation).
-            // Multi-anchor selections collapse to one target; this is
-            // intentional per the v1 spec (CLAUDE.md debt #44 close).
-            entry.borehole_id =
-              target.kind === 'borehole' ? target.proj.item.id : null
-            entry.cpt_id =
-              target.kind === 'cpt' ? target.proj.item.id : null
-          }
-          return entry
-        },
-      )
-      void onBatchUpdateContacts(updates)
+          }))
+        void onBatchUpdateContacts(updates)
+        return
+      }
+
+      // Cross-column commit. Both COPY and MOVE land on the SAME
+      // target anchor for every selected contact (multi-source-anchor
+      // selections collapse to one target — v1 simplification).
+      const targetIsBorehole = target.kind === 'borehole'
+      const newAnchorBoreholeId = targetIsBorehole ? target.proj.item.id : null
+      const newAnchorCptId = targetIsBorehole ? null : target.proj.item.id
+
+      if (altMove) {
+        // ALT held → re-anchor the existing rows in place.
+        if (!onBatchUpdateContacts) return
+        const updates: FormationContactBatchUpdateEntry[] =
+          final.contactsInDrag.map(c => ({
+            contact_id: c.contactId,
+            depth_top_m: Math.max(0, c.originalDepthM + deltaM),
+            borehole_id: newAnchorBoreholeId,
+            cpt_id: newAnchorCptId,
+            source:
+              c.contactId === final.contactId && final.currentSnapped
+                ? 'borehole_observation'
+                : 'manual_pick',
+            confidence:
+              c.contactId === final.contactId && final.currentSnapped
+                ? 'high'
+                : 'medium',
+          }))
+        void onBatchUpdateContacts(updates)
+        return
+      }
+
+      // Default cross-column = COPY. Originals stay; new contacts
+      // POST'd at the target anchor with translated depths.
+      if (!onBatchCreateContacts) {
+        // Caller didn't wire COPY but DID wire MOVE — degrade
+        // gracefully to MOVE so the drag isn't a silent no-op.
+        if (!onBatchUpdateContacts) return
+        const updates: FormationContactBatchUpdateEntry[] =
+          final.contactsInDrag.map(c => ({
+            contact_id: c.contactId,
+            depth_top_m: Math.max(0, c.originalDepthM + deltaM),
+            borehole_id: newAnchorBoreholeId,
+            cpt_id: newAnchorCptId,
+            source: 'manual_pick',
+            confidence: 'medium',
+          }))
+        void onBatchUpdateContacts(updates)
+        return
+      }
+      const creates: ContactCopyPayload[] = final.contactsInDrag.map(c => ({
+        formation_id: c.formationId,
+        depth_top_m: Math.max(0, c.originalDepthM + deltaM),
+        borehole_id: newAnchorBoreholeId,
+        cpt_id: newAnchorCptId,
+        source:
+          c.contactId === final.contactId && final.currentSnapped
+            ? 'borehole_observation'
+            : 'manual_pick',
+        confidence:
+          c.contactId === final.contactId && final.currentSnapped
+            ? 'high'
+            : 'medium',
+      }))
+      void onBatchCreateContacts(creates)
     }
     document.addEventListener('mousemove', handleMove)
     document.addEventListener('mouseup', handleUp)
@@ -828,6 +911,7 @@ export default function ContactsLayer({
     snapDepth,
     onUpdateContactDepth,
     onBatchUpdateContacts,
+    onBatchCreateContacts,
     placedColumns,
     levelToScreen,
   ])
@@ -868,6 +952,7 @@ export default function ContactsLayer({
         if (!found) continue
         contactsInDrag.push({
           contactId: found.contactId,
+          formationId: found.formationId,
           anchorId: found.anchorId,
           anchorKind: found.anchorKind,
           originalDepthM: found.originalDepthM,
