@@ -18,6 +18,10 @@ export interface CptListItem {
   // "needs Z" badge without a per-row detail fetch.
   elevation_m: number | null
   z_epsg: number | null
+  // Provenance — ``"dov"`` / ``"gef"`` / ``"manual"`` / ``"none"``.
+  // Used by ElevationEditor to render a tiny "(DOV)" / "(manual)" tag
+  // next to the Z value (debt #8).
+  elevation_source: string
 }
 
 export interface CptResponse {
@@ -29,6 +33,7 @@ export interface CptResponse {
   epsg: number | null
   elevation_m: number | null
   z_epsg: number | null
+  elevation_source: string
   pre_drill_m: number
   cone_area_ratio: number | null
   max_depth_m: number | null
@@ -340,6 +345,10 @@ export interface BoreholeListItem {
   epsg: number | null
   elevation_m: number | null
   z_epsg: number | null
+  // Provenance — ``"dov"`` / ``"gef"`` / ``"manual"`` / ``"none"``
+  // (debt #8). Mirrors the API enum so the sidebar badge stays in
+  // sync with the backend.
+  elevation_source: string
   drill_method: string | null
   borehole_type: string | null
   total_depth_m: number | null
@@ -476,6 +485,9 @@ export interface BoreholeDetailResponse {
   epsg: number | null
   elevation_m: number | null
   z_epsg: number | null
+  // Provenance — ``"dov"`` / ``"gef"`` / ``"manual"`` / ``"none"``
+  // (debt #8). Threaded into BoreholeHeader → ElevationEditor.
+  elevation_source: string
   start_date: string | null
   drill_method: string | null
   borehole_type: string | null
