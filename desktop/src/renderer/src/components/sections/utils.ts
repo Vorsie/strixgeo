@@ -117,19 +117,37 @@ export interface Viewport {
 
 /** Input to the column collision-handling pass — natural screen X
  * plus the visible pixel width of the rendered glyph. */
-export interface PlacedColumnInput {
-  kind: 'cpt' | 'borehole'
-  proj: ProjectedInvestigation<CptListItem | BoreholeListItem>
+/** Discriminated-union input shape for ``nudgeColumns`` (debt #28).
+ *
+ * Splitting CPT vs borehole into separate branches lets every
+ * consumer narrow ``proj.item`` automatically via the ``kind``
+ * discriminant — no ``as CptListItem`` casts needed. The previous
+ * single-shape ``proj: ProjectedInvestigation<CptListItem |
+ * BoreholeListItem>`` forced ~10 cast sites across the section
+ * code; they're gone with the union.
+ */
+export interface CptPlacedColumnInput {
+  kind: 'cpt'
+  proj: ProjectedInvestigation<CptListItem>
   trueX: number
   width: number
 }
+export interface BoreholePlacedColumnInput {
+  kind: 'borehole'
+  proj: ProjectedInvestigation<BoreholeListItem>
+  trueX: number
+  width: number
+}
+export type PlacedColumnInput =
+  | CptPlacedColumnInput
+  | BoreholePlacedColumnInput
 
 /** Output of the column collision-handling pass — nudged X plus a
  * displacement flag the renderer uses to draw a tie-back diagonal
- * back to the true projected X. */
-export interface PlacedColumn {
-  kind: 'cpt' | 'borehole'
-  proj: ProjectedInvestigation<CptListItem | BoreholeListItem>
+ * back to the true projected X. Discriminated union by ``kind`` so
+ * consumers narrow ``proj.item`` without casts.
+ */
+interface PlacedColumnBase {
   /** Screen X where the column would naturally land. */
   trueX: number
   /** Screen X where the column actually renders after collision
@@ -143,6 +161,15 @@ export interface PlacedColumn {
    * pixel. Drives whether the tie-back diagonal renders. */
   displaced: boolean
 }
+export interface CptPlacedColumn extends PlacedColumnBase {
+  kind: 'cpt'
+  proj: ProjectedInvestigation<CptListItem>
+}
+export interface BoreholePlacedColumn extends PlacedColumnBase {
+  kind: 'borehole'
+  proj: ProjectedInvestigation<BoreholeListItem>
+}
+export type PlacedColumn = CptPlacedColumn | BoreholePlacedColumn
 
 // ---------------------------------------------------------------------------
 // Pure helpers
