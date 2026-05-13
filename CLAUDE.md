@@ -1619,42 +1619,6 @@ imports.
 is Lambert72 but users may have RD New (28992) NL boreholes in
 the same project. Or before any project spans the BE/NL border.
 
-### 22. ``FormationContact.confidence`` field stored but never set or rendered (low)
-
-**What.** ``confidence`` is a first-class column on the domain
-dataclass, ORM, Pydantic schema, and bundle. ``ContactsLayer.tsx``
-reserves "different stroke per confidence (high / medium / low)"
-as a deferred slice. Every contact ships with the schema default
-``"medium"`` — neither snap-placed contacts nor drag-repositioned
-contacts ever set it to anything else.
-
-**Why deferred.** MVP gate is geometry-first; confidence styling
-is a Phase 5 quality-of-life addition on top of a working editor.
-
-**When to revisit.** Before Phase 5 engineering interpretation
-(Robertson Ic) lands — Ic-derived contacts should ship
-``confidence = "high"`` automatically, distinguishing them from
-manually-placed ``"medium"`` picks. The field is already in the
-right place; only the setter + the stroke-dasharray render path
-are missing.
-
-### 23. ``FormationContact.source`` never refreshed on drag re-pick (low)
-
-**What.** ``handleUpdateContactDepth`` (App.tsx) PATCHes only
-``{depth_top_m}`` — leaves ``source`` whatever it was at creation.
-A contact placed by snap-to-stratigraphy (semantically
-``source = "borehole_observation"``) and then dragged to a free
-depth still reads as snap-sourced. Server-side
-``UpdateFormationContact`` accepts ``source`` in the request body;
-the frontend never sends it.
-
-**Why deferred.** Same trigger as #22 — no consumer reads
-``source`` for anything meaningful today.
-
-**When to revisit.** Same as #22 — when Ic-derived contacts land
-and source becomes load-bearing for distinguishing automated from
-manual picks.
-
 ### 25. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
 
 **What.** ``geotechnical_unit`` rows (formation → unit
