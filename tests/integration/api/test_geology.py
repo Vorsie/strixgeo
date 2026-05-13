@@ -388,6 +388,194 @@ async def test_batch_update_rejects_empty_payload(
 
 
 # ---------------------------------------------------------------------------
+# Auto-populate from stratigraphy — AutoPopulateContactsFromStratigraphy
+# ---------------------------------------------------------------------------
+
+
+async def test_auto_populate_creates_contacts_from_formal_stratigraphy(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Happy path: formal stratigraphy → contacts + auto-created formations."""
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    # Attach a FORMAL_STRATIGRAPHY observation with two layers. The
+    # first layer starts at the surface (top_m=0) so it should be
+    # skipped — only the second layer's top becomes a contact.
+    observation = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="formal_stratigraphy",
+    )
+    db_session.add(observation)
+    await db_session.flush()
+    layer_surface = ObservationLayerOrm(
+        id=uuid7(),
+        observation_id=observation.id,
+        top_m=0.0,
+        base_m=3.0,
+        description="Quartair",
+        layer_index=0,
+    )
+    layer_deep = ObservationLayerOrm(
+        id=uuid7(),
+        observation_id=observation.id,
+        top_m=3.0,
+        base_m=10.0,
+        description="Boom Formation",
+        layer_index=1,
+    )
+    db_session.add_all([layer_surface, layer_deep])
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Surface layer skipped, deep layer seeded one contact + the
+    # "Boom Formation" formation got auto-created.
+    assert len(body["created_contact_ids"]) == 1
+    assert len(body["created_formation_ids"]) == 1
+    assert body["skipped_no_stratigraphy"] == 0
+
+
+async def test_auto_populate_is_idempotent_on_second_call(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Re-running with the same scope = 0 new rows (layer-id dedup)."""
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    observation = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="formal_stratigraphy",
+    )
+    db_session.add(observation)
+    await db_session.flush()
+    layer = ObservationLayerOrm(
+        id=uuid7(),
+        observation_id=observation.id,
+        top_m=4.0,
+        base_m=8.0,
+        description="Diest Formation",
+        layer_index=0,
+    )
+    db_session.add(layer)
+    await db_session.commit()
+
+    first = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    assert first.json()["created_contact_ids"]
+
+    second = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    body = second.json()
+    assert body["created_contact_ids"] == []
+    assert body["created_formation_ids"] == []
+    assert body["skipped_existing"] == 1
+
+
+async def test_auto_populate_falls_through_to_informal_when_no_formal(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Borehole with only INFORMAL_STRATIGRAPHY still gets seeded."""
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+    observation = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="informal_stratigraphy",
+    )
+    db_session.add(observation)
+    await db_session.flush()
+    layer = ObservationLayerOrm(
+        id=uuid7(),
+        observation_id=observation.id,
+        top_m=2.5,
+        base_m=6.0,
+        description="Klei zandig",
+        layer_index=0,
+    )
+    db_session.add(layer)
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    body = resp.json()
+    assert len(body["created_contact_ids"]) == 1
+    assert body["skipped_no_stratigraphy"] == 0
+
+
+async def test_auto_populate_skips_borehole_without_stratigraphy(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """No formal OR informal observation → reports in skipped_no_stratigraphy."""
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    body = resp.json()
+    assert body["created_contact_ids"] == []
+    assert body["skipped_no_stratigraphy"] == 1
+
+
+async def test_auto_populate_rejects_empty_borehole_ids(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """min_length=1 — empty list is a 422 at the schema."""
+    project, _ = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": []},
+    )
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Contact delete — DeleteFormationContact use case
 # ---------------------------------------------------------------------------
 
