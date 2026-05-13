@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.schemas.borehole.borehole_detail_response import (
@@ -21,10 +21,25 @@ from groundmodel.api.schemas.borehole.import_borehole_dov_response import (
 from groundmodel.api.schemas.elevation_patch_request import ElevationPatchRequest
 from groundmodel.application.import_borehole_dov import ImportBoreholeDov
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
+    LAB_TEST_RELATIONSHIPS,
     BoreholeRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Friendly URL aliases for the ``?include=`` query param. The URL form
+# uses the short / domain-natural name (``grain_size``); the value is
+# the ORM relationship attribute name the repository expects. Adding a
+# typed lab-test family means appending one entry here AND one to
+# ``LAB_TEST_RELATIONSHIPS`` in the repository.
+LAB_TEST_INCLUDE_ALIASES: dict[str, str] = {
+    "grain_size": "grain_sizes",
+    "atterberg": "atterberg_limits_tests",
+    "caco3": "caco3_content_tests",
+    "organic": "organic_content_tests",
+    "water_content": "water_content_tests",
+    "scalar": "scalar_lab_tests",
+}
 
 # Module-level logger — routers are stateless functions, not classes.
 # See CLAUDE.md § Code Conventions for the rationale.
@@ -177,19 +192,35 @@ async def list_boreholes(
 @router.get("/{borehole_id}", response_model=BoreholeDetailResponse)
 async def get_borehole(
     borehole_id: UUID,
+    include: str | None = Query(
+        None,
+        description=(
+            "Comma-separated lab-test families to load on each sample. "
+            "Omitting the parameter loads every family (the original "
+            "always-load behaviour). Valid values: "
+            "``grain_size``, ``atterberg``, ``caco3``, ``organic``, "
+            "``water_content``, ``scalar``. Unrequested families come "
+            "back as empty lists, NOT omitted keys — the response "
+            "shape is unchanged so clients keep working unmodified "
+            "(debt #2)."
+        ),
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> BoreholeDetailResponse:
     """Retrieve full borehole detail (header + drill segments + field log + observations).
 
-    Phase C3 will extend the response to include samples and lab tests
-    once the sample-import pipeline lands; the repository already eager-
-    loads those collections, so this route only needs schema additions
-    when that work happens.
+    Default (no ``?include=``) returns the full tree — preserves the
+    pre-debt-#2 behaviour. Pass ``?include=grain_size,atterberg`` to
+    skip the four unrequested lab-test families' SELECT queries; the
+    JSON shape stays the same (skipped families render as ``[]``).
 
     Parameters
     ----------
-    borehole_id:
+    borehole_id : UUID
         Primary key of the borehole record.
+    include : str | None
+        Comma-separated lab-test family aliases — see the ``Query``
+        description above. Whitespace around entries is tolerated.
 
     Returns
     -------
@@ -199,16 +230,46 @@ async def get_borehole(
 
     Raises
     ------
+    HTTPException(400)
+        When ``include`` contains an alias that isn't in
+        ``LAB_TEST_INCLUDE_ALIASES``.
     HTTPException(404)
         When no borehole with that id exists.
     """
+    include_relationships: list[str] | None = None
+    if include is not None:
+        aliases = [token.strip() for token in include.split(",") if token.strip()]
+        unknown = [a for a in aliases if a not in LAB_TEST_INCLUDE_ALIASES]
+        if unknown:
+            valid = sorted(LAB_TEST_INCLUDE_ALIASES.keys())
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"Unknown include value(s): {unknown!r}. Valid: {valid!r}"),
+            )
+        include_relationships = [LAB_TEST_INCLUDE_ALIASES[a] for a in aliases]
+        logger.debug(
+            f"GET /borehole/{borehole_id} include={aliases} "
+            f"(→ relationships {include_relationships})"
+        )
+
     repo = BoreholeRepository(session)
-    borehole = await repo.get_by_id(borehole_id)
+    borehole = await repo.get_by_id(
+        borehole_id,
+        include_lab_tests=include_relationships,
+    )
     if borehole is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Borehole {borehole_id} not found",
         )
+    # Sanity check — the relationship-stamping path SHOULD have populated
+    # every excluded family with ``[]``. If a future refactor breaks the
+    # stamping, ``model_validate`` would silently lazy-load and crash
+    # under async with ``MissingGreenlet``; assertively reading the
+    # relationships keeps the failure mode loud.
+    assert sorted(LAB_TEST_INCLUDE_ALIASES.values()) == sorted(LAB_TEST_RELATIONSHIPS), (
+        "Router aliases drifted from repository relationships — update both lists together."
+    )
     return BoreholeDetailResponse.model_validate(borehole)
 
 
