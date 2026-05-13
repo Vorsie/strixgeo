@@ -38,6 +38,10 @@ class BoreholeDetailResponse(BaseModel):
     epsg: int | None
     elevation_m: float | None
     z_epsg: int | None
+    # Where ``elevation_m`` came from — ``"dov"`` / ``"gef"`` /
+    # ``"manual"`` / ``"none"``. Surfaced so the desktop ElevationEditor
+    # can render a provenance badge next to the Z value (debt #8).
+    elevation_source: str
     start_date: date | None
     drill_method: str | None
     borehole_type: str | None
