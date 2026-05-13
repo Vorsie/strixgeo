@@ -12,6 +12,7 @@ Units in DOV XML:
 import pytest
 
 from groundmodel.domain.value_objects.derived_value_source import DerivedValueSource
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 from groundmodel.infrastructure.parsers.cpt.gef.cpt_type import CPTType
 from groundmodel.shared.exceptions import ParseError
@@ -116,6 +117,21 @@ def test_header_coordinates_without_z():
     assert result.header.x == pytest.approx(200000.0)
     assert result.header.y == pytest.approx(200000.0)
     assert result.header.z is None
+
+
+def test_elevation_source_dov_when_z_present():
+    """Debt #8 — DOV imports stamp ``DOV`` when ``Z_mTAW`` (gml:pos z)
+    is present so the refresh-on-duplicate path can later overwrite
+    imported Z without clobbering manual edits."""
+    result = DovParser().parse(_xml(pos="218343.80 211622.90 51.15"))
+    assert result.elevation_source == ElevationSource.DOV
+
+
+def test_elevation_source_none_when_z_absent():
+    """Debt #8 — DOV row without Z stamps ``NONE`` so the row surfaces
+    through the same "needs Z" affordance as any other un-elevated row."""
+    result = DovParser().parse(_xml(pos="200000.0 200000.0"))
+    assert result.elevation_source == ElevationSource.NONE
 
 
 def test_header_identification():
