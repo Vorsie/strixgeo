@@ -200,6 +200,10 @@ export default function BoreholeColumn({
 
   function handleClick(e: React.MouseEvent<SVGRectElement>): void {
     if (!onCommitDepth) return
+    // Shift held → user wants the bg-marquee (multi-select). Bail
+    // without firing the contact picker so the click bubbles up to
+    // the section background's marquee mousedown handler.
+    if (e.shiftKey) return
     const clamped = clampedYFromEvent(e)
     const rawDepth = depthAtY(clamped)
     const { depth, snapped } = snapDepth(rawDepth, clamped)
