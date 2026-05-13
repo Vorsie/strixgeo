@@ -96,6 +96,7 @@ function yGhostRight(domain: [number, number]) {
 export default function CptChart({ plot, name, detail, onElevationChange }: Props) {
   const elevationM = detail?.elevation_m ?? null
   const zEpsg = detail?.z_epsg ?? null
+  const elevationSource = detail?.elevation_source ?? null
   const preDrillM  = detail?.pre_drill_m ?? 0
   const cptType    = detail?.cpt_type ?? ''
 
@@ -380,6 +381,7 @@ export default function CptChart({ plot, name, detail, onElevationChange }: Prop
             <ElevationEditor
               elevationM={elevationM}
               zEpsg={zEpsg}
+              elevationSource={elevationSource}
               onSave={onElevationChange}
             />
           ) : elevationM !== null ? (
