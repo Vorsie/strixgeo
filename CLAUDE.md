@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Commercial **ground model platform** — builds and manages the unified subsurface dataset for a project. Ingests CPT, borehole, lab, monitoring, DMT, pressuremeter, and geophysical data; derives parameters and statistics; exports to design tools (Plaxis, D-Sheet, GeoStudio, ...). Built for solo development; targets Electron + React desktop first, SaaS later.
+Commercial **ground model platform** — builds and manages the unified subsurface dataset for a project. Ingests CPT, borehole, lab, monitoring, DMT, pressuremeter, and geophysical data; derives parameters and statistics; exports to design tools (Plaxis, D-Stability, D-Sheet, GeoStudio, ...). Built for solo development; targets Electron + React desktop first, SaaS later.
 
 ---
 
@@ -19,7 +19,7 @@ This platform's job is to deliver a clean, validated **ground model + derived pa
 
 **Out of scope (forever):**
 - Geotechnical design calculations: bearing capacity, ULS/SLS verifications, settlement, slope stability, pile capacity, retaining-wall design
-- Anything that produces a value used directly in a design check — those calculations belong in the downstream design tool (Plaxis, D-Sheet, GeoStudio, ...)
+- Anything that produces a value used directly in a design check — those calculations belong in the downstream design tool (Plaxis, D-Stability, D-Sheet, GeoStudio, ...)
 - EC7 / Eurocode design rule application (we do not target EC7 design conformance)
 
 **Deferred to the final phase (preview implementations may exist earlier):**
@@ -758,7 +758,7 @@ Engineering interpretation (Robertson Ic, soil profiling, derived per-layer para
 | 2 | Electron + React desktop; project system; map; DOV chart; multi-file GEF + DOV bbox import + persistent XML cache ✓ |
 | 3 | Data sources expansion: borehole + samples + lab ✓ (monitoring / DMT / pressuremeter deferred to post-v1.0) |
 | **4 (v1.0 commercial MVP gate)** | **Geological model** (formations + surfaces); **geotechnical subdivision** (formations → units, structure only); **cross-sections** as the edit/view surface; **DXF + Plaxis exports** of the layer geometry. **G3Dv3 Flanders import** lands alongside or just after launch. The product is sellable here. Commercial-readiness work (license keys, signed installer, auto-update, marketing site) lives as separate debt items; it ships alongside the MVP feature gate, not before. |
-| 5 (post-v1.0) | Engineering interpretation: Robertson Ic (production), auto soil profiling, per-layer unit weights, derived parameters, statistics, Rust hotspots for batch compute. Additional data sources: monitoring (piezometer / inclinometer), DMT, pressuremeter. Additional exports: D-Sheet, GeoStudio, IFC. PDF reports. Optional SaaS layer with cloud sync over the .gmproj bundle. |
+| 5 (post-v1.0) | Engineering interpretation: Robertson Ic (production), auto soil profiling, per-layer unit weights, derived parameters, statistics, Rust hotspots for batch compute. Additional data sources: monitoring (piezometer / inclinometer), DMT, pressuremeter. Additional exports: D-Stability (`.stix` via GEOLib), D-Sheet, GeoStudio, IFC. PDF reports. Optional SaaS layer with cloud sync over the .gmproj bundle. |
 
 **Out of scope at every phase:** Eurocode (EC7) design calculations, bearing capacity, settlement, slope stability, pile/wall design. Those belong in the downstream tools we export to.
 
@@ -777,7 +777,27 @@ Rust will not help: API routing, DB queries, HTTP downloads — anything I/O-bou
 
 ## Export System
 
-See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4. **Exports are how engineering happens** — once the ground model + parameters + statistics are exported, all design checks (bearing capacity, settlement, slope stability, etc.) run in the destination tool. The platform itself does not perform those calculations.
+See `infrastructure/exporters/base_exporter.py` (`BaseExporter` ABC). Implement `PlaxisExporter`, `DStabilityExporter`, `GeoStudioExporter`, `DSheetExporter` in Phase 4 / early Phase 5. **Exports are how engineering happens** — once the ground model + parameters + statistics are exported, all design checks (bearing capacity, settlement, slope stability, etc.) run in the destination tool. The platform itself does not perform those calculations.
+
+**Implementation note — Deltares D-Series via GEOLib.** The Deltares
+D-Series (D-Stability `.stix`, D-Settlement `.sli`, D-Sheet Piling,
+D-Foundations, ...) all share a single Python wrapper:
+`pip install d-geolib` (MIT, actively maintained — v2.8.0 Sep 2025).
+GEOLib lets us build a `DStabilityModel` (soils + polygonal layers
++ phreatic line + loads) in memory and serialise to `.stix` purely
+in Python — no D-Stability install needed on the build machine.
+That makes the D-Series exporters near-zero marginal cost once the
+geometry contract is defined: one GEOLib call per target tool.
+The probabilistic side (Probabilistic Toolkit / PTK) consumes
+`.stix` downstream — Strix is the producer, PTK is not in our
+integration surface.
+
+**Plaxis is NOT a D-Series tool** — it's Bentley/PLAXIS BV, with
+its own remote-scripting API (`plxscripting`) that drives a
+running Plaxis instance, OR a direct `.plxs` / legacy `.geo` file
+write. GEOLib doesn't cover Plaxis. The PlaxisExporter is a
+separate effort from the GEOLib-backed exporters — see debt #34
+for the version-target decision that gates it.
 
 ---
 
@@ -1558,6 +1578,16 @@ than no landing page.
 **When.** As soon as the v1.0 MVP gate is real (layer model +
 exports). Start collecting emails before announcing pricing — the
 list calibrates demand and the launch send is the conversion event.
+
+**Naming collision to resolve.** "Strix" (our codename) sits one
+letter off "`.stix`" (Deltares D-Stability file extension). Same
+audience (BE/NL geotech), same tools shelf, and we will likely
+ship a `.stix` exporter via GEOLib. Engineers searching for
+"strix file" or "stix export" will confuse the two. Treat this as
+a hard constraint when picking the market-facing name — neither
+"Strix" nor any close phonetic variant survives this. Trademark +
+domain search needs to clear against both word marks AND the
+common-knowledge association with D-Stability files.
 
 ### 25. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
 
