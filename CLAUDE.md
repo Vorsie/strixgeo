@@ -1736,37 +1736,6 @@ contacts. At that point ``FormationContact`` needs either
 ``geotechnical_unit_id`` FK or a separate ``GeotechnicalContact``
 entity. Design the anchor before Phase 5 export work begins.
 
-### 26. ``SNAP_TOLERANCE_PX`` defined three times (low — one-line fix)
-
-**What.** The literal ``8`` is defined independently in
-``BoreholeColumn.tsx``, ``ContactsLayer.tsx``, and exported from
-``cptChannels.ts``. Triple-defined. CLAUDE.md "extract on the
-second copy" rule fires; we're at the third copy.
-
-**Why deferred.** The ``cptChannels.ts`` export already exists —
-a one-line import in both consumers.
-
-**When to revisit.** Before any drag/snap UX tuning session, or
-next time either file is touched.
-
-### 27. Snap-candidate collection duplicated across click + drag paths (low)
-
-**What.** ``BoreholeColumn.snapDepthsFromObservations`` (click
-path) and ``SectionPanel`` ``snapDepthsByAnchorId`` builder
-(drag path) both walk ``observations``, filter on
-``formal_stratigraphy`` / ``informal_stratigraphy``, and collect
-``layer.top_m`` + ``layer.base_m``. Same predicate, same result
-shape, two implementations.
-
-**Why deferred.** The two callers have different input shapes
-(one ``BoreholeDetail``, one ``Map<id, BoreholeDetail>``). Right
-home is ``sections/utils.ts`` as
-``collectSnapDepths(detail) -> number[]``.
-
-**When to revisit.** When a third observation type is added to
-the snap set (e.g. ``quaternary_stratigraphy``), OR next time
-``BoreholeColumn`` is touched.
-
 ### 28. ``PlacedColumn.proj.item`` is a union — narrowed by casts everywhere (medium)
 
 **What.** ``PlacedColumn.proj`` is typed
@@ -1843,22 +1812,6 @@ specification-insurance against future refactors.
 
 **When to revisit.** Before any drag ``handleMove`` refactor, or
 before promoting drag to a keyboard-accessible flow.
-
-### 32. Snap-to-stratigraphy click path untested in BoreholeColumn (low)
-
-**What.** ``BoreholeColumn.tsx`` has a ``snapToStratigraphy`` prop,
-a ``STRAT_OBS_TYPES_FOR_SNAP`` constant, and a ``snapDepth``
-function. ``BoreholeColumn.test.tsx`` has no test that exercises
-the snap path (click near a layer boundary snaps; click far away
-stays free). ``snapDepthsFromObservations`` dedup behaviour is
-also untested.
-
-**Why deferred.** No regression risk today (code is new and the
-interaction is manual-only).
-
-**When to revisit.** When snap behaviour is tuned (tolerance, type
-set) or when ``snapDepthsFromObservations`` is extracted
-(see #27).
 
 ### 33. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
 
