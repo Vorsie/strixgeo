@@ -58,13 +58,17 @@ jobs:
         run: uv run pytest tests/unit -q
 
   desktop:
-    name: Desktop tsc + tests
+    name: Desktop eslint-reason + tsc + tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: desktop
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        # Needed for the eslint-reason script that runs first.
+        # No deps beyond stdlib so no requirements install.
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Set up Node 22 LTS
         uses: actions/setup-node@v4
@@ -76,11 +80,17 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
-      - name: Install dependencies
+      - name: Check eslint-disable reason comments (debt #42)
+        run: python scripts/check_eslint_reason.py
+
+      - name: Install desktop dependencies
+        working-directory: desktop
         run: npm ci
 
       - name: Type-check
+        working-directory: desktop
         run: npx tsc --noEmit
 
       - name: Run unit tests
+        working-directory: desktop
         run: npm test --silent
