@@ -32,6 +32,47 @@ describe('ElevationEditor', () => {
     expect(screen.queryByText(/TAW|NAP/)).not.toBeInTheDocument()
   })
 
+  it('renders a provenance tag next to the Z value when source is set (debt #8)', () => {
+    render(
+      <ElevationEditor
+        elevationM={12.34}
+        zEpsg={5710}
+        elevationSource="dov"
+        onSave={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/\(DOV\)/)).toBeInTheDocument()
+  })
+
+  it('does not render a provenance tag when source is absent or "none"', () => {
+    const { rerender } = render(
+      <ElevationEditor elevationM={12.34} zEpsg={5710} onSave={vi.fn()} />,
+    )
+    expect(screen.queryByText(/\(DOV\)|\(GEF\)|\(manual\)/)).not.toBeInTheDocument()
+
+    rerender(
+      <ElevationEditor
+        elevationM={12.34}
+        zEpsg={5710}
+        elevationSource="none"
+        onSave={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/\(DOV\)|\(GEF\)|\(manual\)/)).not.toBeInTheDocument()
+  })
+
+  it('renders the "manual" tag for user-entered values', () => {
+    render(
+      <ElevationEditor
+        elevationM={8.0}
+        zEpsg={5710}
+        elevationSource="manual"
+        onSave={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/\(manual\)/)).toBeInTheDocument()
+  })
+
   it('saves a parsed numeric value via Enter (defaulting to mTAW)', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined)
     render(<ElevationEditor elevationM={null} zEpsg={null} onSave={onSave} />)
