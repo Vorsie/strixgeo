@@ -83,6 +83,7 @@ function renderColumn(
   channels: Partial<BoreholeChannels> = {},
   extras: {
     showHoverReadout?: boolean
+    snapToStratigraphy?: boolean
     onCommitDepth?: (anchor: {
       kind: 'borehole'
       boreholeId: string
@@ -104,6 +105,7 @@ function renderColumn(
         plotBottom={50}
         levelToScreen={flipped}
         showHoverReadout={extras.showHoverReadout}
+        snapToStratigraphy={extras.snapToStratigraphy}
         onCommitDepth={extras.onCommitDepth}
       />
     </svg>,
@@ -249,6 +251,74 @@ describe('BoreholeColumn — N-strip rendering', () => {
       onCommitDepth: () => {},
     })
     expect(findClickCaptureRect(pickable).getAttribute('style')).toContain('crosshair')
+  })
+
+  it('snaps the click depth to the nearest formal-stratigraphy boundary within tolerance (debt #32)', () => {
+    // Fixture: formal_stratigraphy layer [0, 5], total_depth_m=30
+    // so the band stretches over plotTop+10..plotTop+40. The
+    // candidates resolve to screen Y=10 (depth 0) and Y=15 (depth
+    // 5). A click at clientY=4 → localY=14 → raw depth=4 →
+    // distance to Y=15 is 1 px, well inside SNAP_TOLERANCE_PX=8.
+    // Snap target: depth 5.
+    const onCommitDepth = vi.fn()
+    const detail = {
+      ...makeDetail([
+        makeObservation('formal_stratigraphy', [
+          makeLayer({ id: 'f1', top_m: 0, base_m: 5 }),
+        ]),
+      ]),
+      total_depth_m: 30,
+    }
+    const { container } = renderColumn(detail, {}, {
+      snapToStratigraphy: true,
+      onCommitDepth,
+    })
+    fireEvent.click(findClickCaptureRect(container), { clientY: 4 })
+    expect(onCommitDepth).toHaveBeenCalledTimes(1)
+    expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(5, 5)
+  })
+
+  it('does NOT snap when the click is outside the tolerance band (debt #32)', () => {
+    const onCommitDepth = vi.fn()
+    const detail = {
+      ...makeDetail([
+        makeObservation('formal_stratigraphy', [
+          makeLayer({ id: 'f1', top_m: 0, base_m: 5 }),
+        ]),
+      ]),
+      total_depth_m: 30,
+    }
+    const { container } = renderColumn(detail, {}, {
+      snapToStratigraphy: true,
+      onCommitDepth,
+    })
+    // clientY=25 → localY=35 → depth=25. Distance to Y=10 is 25,
+    // to Y=15 is 20 — both well outside the 8-px tolerance. Free
+    // depth stays 25.
+    fireEvent.click(findClickCaptureRect(container), { clientY: 25 })
+    expect(onCommitDepth).toHaveBeenCalledTimes(1)
+    expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(25, 5)
+  })
+
+  it('does NOT snap when snapToStratigraphy is off, even near a boundary (debt #32)', () => {
+    const onCommitDepth = vi.fn()
+    const detail = {
+      ...makeDetail([
+        makeObservation('formal_stratigraphy', [
+          makeLayer({ id: 'f1', top_m: 0, base_m: 5 }),
+        ]),
+      ]),
+      total_depth_m: 30,
+    }
+    const { container } = renderColumn(detail, {}, {
+      snapToStratigraphy: false,
+      onCommitDepth,
+    })
+    // Same click as the snap test but the toggle is off — raw
+    // depth commits unchanged.
+    fireEvent.click(findClickCaptureRect(container), { clientY: 4 })
+    expect(onCommitDepth).toHaveBeenCalledTimes(1)
+    expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(4, 5)
   })
 
   it('keeps slot positions stable when a borehole is missing the enabled stream', () => {
