@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
@@ -249,10 +250,20 @@ class BoreholeRepository(GroundModelLogger):
         # the canonical pair for the row's horizontal EPSG.
         if elevation_m is None:
             borehole.z_epsg = None
+            # Clearing a manual edit moves the row back to "no Z known".
+            # We do NOT restore a previously-imported Z — debt #8 calls
+            # that out as a Phase 5 enhancement (``elevation_m_source``
+            # second column holding the original upstream value).
+            borehole.elevation_source = ElevationSource.NONE.value
         else:
             borehole.z_epsg = z_epsg if z_epsg is not None else default_vertical_epsg(borehole.epsg)
+            # Every set_elevation call stamps MANUAL — that's the entire
+            # point of the column, so refresh-on-duplicate paths don't
+            # later overwrite the user's correction (debt #8).
+            borehole.elevation_source = ElevationSource.MANUAL.value
         await self._session.flush()
         self.success(
-            f"Borehole {borehole_id} elevation updated to {elevation_m} ({borehole.z_epsg})"
+            f"Borehole {borehole_id} elevation updated to {elevation_m} ({borehole.z_epsg}) "
+            f"source={borehole.elevation_source}"
         )
         return borehole
