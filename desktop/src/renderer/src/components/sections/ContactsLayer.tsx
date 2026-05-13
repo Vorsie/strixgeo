@@ -72,8 +72,17 @@ interface Props {
   /** Fires on the drag's mouseup with the contact id and its new
    * depth_top_m. Caller PATCHes the contact and refreshes its local
    * contacts state. When absent the per-contact hit-strip stays
-   * unmounted — the lines are non-interactive in read-only mode. */
-  onUpdateContactDepth?: (contactId: string, newDepthM: number) => Promise<void>
+   * unmounted — the lines are non-interactive in read-only mode.
+   *
+   * ``snapped`` reports whether the final depth landed on a snap
+   * candidate (only relevant on borehole anchors with stratigraphy
+   * observations). Drives the contact's source / confidence
+   * update — debt #22/#23. */
+  onUpdateContactDepth?: (
+    contactId: string,
+    newDepthM: number,
+    snapped: boolean,
+  ) => Promise<void>
   /** Snap-target depths per anchor id, used by the drag interaction
    * to mirror BoreholeColumn's snap-to-stratigraphy behaviour: when a
    * borehole anchor has candidates here, the dragged depth snaps to
@@ -140,6 +149,10 @@ interface DragState {
    * label, (b) override the corresponding polyline vertex's Y, and
    * (c) feed the commit on mouseup. */
   currentDepthM: number
+  /** Whether the latest currentDepthM came from a snap candidate.
+   * Drives the contact's source / confidence on commit
+   * (debt #22/#23). */
+  currentSnapped: boolean
   /** Cached display info to keep the floating readout self-contained
    * without re-querying placedColumns. */
   color: string
@@ -362,20 +375,28 @@ export default function ContactsLayer({
   // no snap candidate within ``SNAP_TOLERANCE_PX`` or the anchor has
   // no candidates registered.
   const snapDepth = useCallback(
-    (rawDepth: number, anchorId: string, pxPerMetre: number): number => {
-      if (pxPerMetre === 0) return rawDepth
+    (
+      rawDepth: number,
+      anchorId: string,
+      pxPerMetre: number,
+    ): { depth: number; snapped: boolean } => {
+      if (pxPerMetre === 0) return { depth: rawDepth, snapped: false }
       const candidates = snapDepthsByAnchorId?.get(anchorId)
-      if (!candidates || candidates.length === 0) return rawDepth
+      if (!candidates || candidates.length === 0) {
+        return { depth: rawDepth, snapped: false }
+      }
       let bestDepth = rawDepth
       let bestPxDistance = SNAP_TOLERANCE_PX + 1
+      let bestSnapped = false
       for (const cand of candidates) {
         const px = Math.abs((cand - rawDepth) * pxPerMetre)
         if (px <= SNAP_TOLERANCE_PX && px < bestPxDistance) {
           bestPxDistance = px
           bestDepth = cand
+          bestSnapped = true
         }
       }
-      return bestDepth
+      return { depth: bestDepth, snapped: bestSnapped }
     },
     [snapDepthsByAnchorId],
   )
@@ -414,8 +435,16 @@ export default function ContactsLayer({
       // bound here: the user may want to push a contact past the
       // test's recorded total depth if they're correcting a typo.
       const clamped = Math.max(0, rawDepth)
-      const snapped = snapDepth(clamped, drag!.anchorId, drag!.pxPerMetre)
-      setDrag(prev => (prev === null ? null : { ...prev, currentDepthM: snapped }))
+      const { depth, snapped } = snapDepth(
+        clamped,
+        drag!.anchorId,
+        drag!.pxPerMetre,
+      )
+      setDrag(prev =>
+        prev === null
+          ? null
+          : { ...prev, currentDepthM: depth, currentSnapped: snapped },
+      )
     }
     function handleUp(): void {
       const final = drag
@@ -426,7 +455,11 @@ export default function ContactsLayer({
       // never moved). Saves a server round-trip + spurious history.
       const start = (final.startSegY - final.surfaceY) / final.pxPerMetre
       if (Math.abs(final.currentDepthM - start) < 1e-6) return
-      void onUpdateContactDepth(final.contactId, final.currentDepthM)
+      void onUpdateContactDepth(
+        final.contactId,
+        final.currentDepthM,
+        final.currentSnapped,
+      )
     }
     document.addEventListener('mousemove', handleMove)
     document.addEventListener('mouseup', handleUp)
@@ -456,6 +489,10 @@ export default function ContactsLayer({
         startClientY: e.clientY,
         startSegY: layer.segY,
         currentDepthM: layer.originalDepthM,
+        // The drag starts at the contact's existing depth; the user
+        // hasn't moved yet, so we treat it as "not snapped" — only
+        // the act of dragging onto a candidate stamps it as such.
+        currentSnapped: false,
         color: layer.color,
         formationName: layer.formationName,
         segLeftX: layer.segLeftX,
