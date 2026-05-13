@@ -33,13 +33,16 @@ import type {
   CptListItem,
   CrossSectionResponse,
   FormationContactResponse,
+  GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { nudgeColumns } from '../utils/columnLayout'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
+import FormationPickerDialog from './interpretation/FormationPickerDialog'
 import BoreholeColumn from './sections/BoreholeColumn'
+import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer from './sections/ContactsLayer'
 import CptDataColumn from './sections/CptDataColumn'
 import {
@@ -111,6 +114,21 @@ interface Props {
   /** Borehole IDs the active model excludes from contact rendering.
    * The ContactsLayer skips polyline vertices at these anchors. */
   excludedBoreholeIds?: readonly string[]
+  /** Click-to-place hook. Fires when the user picks a formation on
+   * the picker modal — caller (App) POSTs the contact and updates
+   * the contacts state. Omitting it leaves the section read-only. */
+  onCreateContact?: (
+    anchorKind: 'cpt' | 'borehole',
+    anchorId: string,
+    depth_m: number,
+    formationId: string,
+  ) => Promise<void>
+  /** Inline-create a formation from the picker modal's "New
+   * formation here" affordance. Returns the new row's id so the
+   * picker can chain to a contact commit. */
+  onCreateFormation?: (
+    payload: GeologicalFormationCreatePayload,
+  ) => Promise<{ id: string } | null>
 }
 
 export default function SectionPanel({
@@ -123,6 +141,8 @@ export default function SectionPanel({
   contacts = [],
   formations = [],
   excludedBoreholeIds,
+  onCreateContact,
+  onCreateFormation,
   onSelectCpt,
   onSelectBorehole,
 }: Props): JSX.Element {
@@ -498,6 +518,69 @@ export default function SectionPanel({
     enabledBhChannels,
   ])
 
+  // Click-to-place pick context. When non-null the FormationPicker
+  // modal is open; ``anchor`` carries the CPT/borehole + depth +
+  // elevation so the picker can show a confirmation subtitle. The
+  // modal closes by clearing this state (cancel) or by calling
+  // ``onCreateContact`` then clearing (commit).
+  const [pickContext, setPickContext] = useState<{
+    kind: 'cpt' | 'borehole'
+    anchorId: string
+    anchorName: string
+    depth_m: number
+    elevationM: number
+  } | null>(null)
+
+  const handlePickCpt = useCallback(
+    (anchor: {
+      kind: 'cpt'
+      cptId: string
+      cptName: string
+      depth_m: number
+      elevationM: number
+    }) => {
+      setPickContext({
+        kind: 'cpt',
+        anchorId: anchor.cptId,
+        anchorName: anchor.cptName,
+        depth_m: anchor.depth_m,
+        elevationM: anchor.elevationM,
+      })
+    },
+    [],
+  )
+  const handlePickBorehole = useCallback(
+    (anchor: {
+      kind: 'borehole'
+      boreholeId: string
+      boreholeName: string
+      depth_m: number
+      elevationM: number
+    }) => {
+      setPickContext({
+        kind: 'borehole',
+        anchorId: anchor.boreholeId,
+        anchorName: anchor.boreholeName,
+        depth_m: anchor.depth_m,
+        elevationM: anchor.elevationM,
+      })
+    },
+    [],
+  )
+  const handlePickerSelect = useCallback(
+    async (formationId: string): Promise<void> => {
+      if (!pickContext || !onCreateContact) return
+      await onCreateContact(
+        pickContext.kind,
+        pickContext.anchorId,
+        pickContext.depth_m,
+        formationId,
+      )
+      setPickContext(null)
+    },
+    [pickContext, onCreateContact],
+  )
+
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
   // nearest CPT neighbour on the cross-section is far enough away
@@ -815,6 +898,57 @@ export default function SectionPanel({
                     plotTop={MARGIN.top}
                     plotBottom={MARGIN.top + plotHeight}
                     levelToScreen={levelToScreen}
+                    onCommitDepth={onCreateContact ? handlePickBorehole : undefined}
+                  />
+                )
+              })}
+
+            {/* CPT contact-pick affordance. Renders an invisible
+                hover-capture overlay over each CPT's data band; on
+                mouse-move shows a ghost depth line + readout
+                (qc / Rf / depth / mTAW), on click commits the depth
+                via ``handlePickCpt`` which opens the formation
+                picker. Skipped when no contact-create callback is
+                wired (read-only test view). */}
+            {cptPlots !== null && onCreateContact &&
+              placedColumns.map(col => {
+                if (col.kind !== 'cpt') return null
+                const item = col.proj.item as CptListItem
+                const plot = cptPlots.get(item.id)
+                if (!plot || item.elevation_m === null) return null
+                // Re-derive the cap-clamped data extent the
+                // CptDataColumn uses so the pick area matches the
+                // band the user sees.
+                const surfaceY = levelToScreen(item.elevation_m)
+                const bottomDepth =
+                  plot.depths_m.length > 0
+                    ? plot.depths_m[plot.depths_m.length - 1]
+                    : 0
+                const dataBottomY = levelToScreen(item.elevation_m - bottomDepth)
+                const bgTopY = Math.max(
+                  MARGIN.top,
+                  Math.min(MARGIN.top + plotHeight, surfaceY),
+                )
+                const bgBottomY = Math.max(
+                  MARGIN.top,
+                  Math.min(MARGIN.top + plotHeight, dataBottomY),
+                )
+                return (
+                  <ContactPickBar
+                    key={`cpt-pick-${item.id}`}
+                    plot={plot}
+                    cptType={item.cpt_type}
+                    cptName={item.name}
+                    cptId={item.id}
+                    screenX={col.nudgedX}
+                    halfWidth={bandHalfWidth}
+                    surfaceElevationM={item.elevation_m}
+                    plotTop={MARGIN.top}
+                    plotBottom={MARGIN.top + plotHeight}
+                    bgTopY={bgTopY}
+                    bgBottomY={bgBottomY}
+                    levelToScreen={levelToScreen}
+                    onCommitDepth={handlePickCpt}
                   />
                 )
               })}
@@ -895,6 +1029,32 @@ export default function SectionPanel({
         xMin={viewport.xMin}
         xMax={viewport.xMax}
         onScrubTo={scrubTo}
+      />
+
+      {/* Formation picker — modal opens whenever a child fires
+          ``onCommitDepth`` (CPT click or borehole click). The
+          picker either selects an existing formation (POSTs the
+          contact via ``handlePickerSelect``) or kicks the user to
+          the inline-create dialog. */}
+      <FormationPickerDialog
+        open={pickContext !== null}
+        formations={formations}
+        anchor={
+          pickContext === null
+            ? null
+            : {
+                kind: pickContext.kind,
+                name: pickContext.anchorName,
+                depth_m: pickContext.depth_m,
+                elevationM: pickContext.elevationM,
+              }
+        }
+        onSelect={handlePickerSelect}
+        onCreateFormation={async payload => {
+          if (!onCreateFormation) return null
+          return onCreateFormation(payload)
+        }}
+        onCancel={() => setPickContext(null)}
       />
     </div>
   )
