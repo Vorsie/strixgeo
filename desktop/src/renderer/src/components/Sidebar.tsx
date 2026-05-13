@@ -111,6 +111,10 @@ interface Props {
    * the pane's own create-edit-delete flow). Threaded straight
    * through to ``InterpretationPane.refreshSignal``. */
   formationsRefreshSignal?: number
+  /** Push an UndoCommand onto the App-level undo stack. Threaded
+   * through to InterpretationPane so its formation create / edit /
+   * delete handlers participate in Ctrl+Z. */
+  pushUndoCommand?: (cmd: import('../hooks/useUndoStack').UndoCommand) => void
   /** Visible borehole IDs — used by the Interpretation pane's
    * "Populate from boreholes" affordance to walk every borehole's
    * stratigraphy observations and harvest formation names. */
@@ -268,6 +272,7 @@ export default function Sidebar({
   onFormationDeleted,
   onFormationUpdated,
   formationsRefreshSignal,
+  pushUndoCommand,
   visibleBoreholeIds,
   activeModelName,
   visibleBoreholes: panelBoreholes,
@@ -745,6 +750,7 @@ export default function Sidebar({
             onFormationDeleted={onFormationDeleted}
             onFormationUpdated={onFormationUpdated}
             refreshSignal={formationsRefreshSignal}
+            pushUndoCommand={pushUndoCommand}
           />
         )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
