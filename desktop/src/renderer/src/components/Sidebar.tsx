@@ -101,6 +101,10 @@ interface Props {
   /** Fires when the Interpretation pane successfully deletes a
    * formation. */
   onFormationDeleted?: (id: string) => void
+  /** Fires when an existing formation is renamed / recoloured. App
+   * uses this to resync the cached formations list so the section
+   * picker + ContactsLayer pick up the change. */
+  onFormationUpdated?: (id: string) => void
   /** Visible borehole IDs — used by the Interpretation pane's
    * "Populate from boreholes" affordance to walk every borehole's
    * stratigraphy observations and harvest formation names. */
@@ -256,6 +260,7 @@ export default function Sidebar({
   sessionImportSectionIds,
   onFormationCreated,
   onFormationDeleted,
+  onFormationUpdated,
   visibleBoreholeIds,
   activeModelName,
   visibleBoreholes: panelBoreholes,
@@ -731,6 +736,7 @@ export default function Sidebar({
             onToggleBoreholeInModel={onToggleBoreholeInModel}
             onFormationCreated={onFormationCreated}
             onFormationDeleted={onFormationDeleted}
+            onFormationUpdated={onFormationUpdated}
           />
         )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
