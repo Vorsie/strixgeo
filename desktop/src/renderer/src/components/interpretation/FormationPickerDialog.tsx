@@ -1,0 +1,183 @@
+/**
+ * Formation picker for the click-to-place contact workflow.
+ *
+ * Opens after the user picks a depth on a borehole or CPT in the
+ * cross-section. Lists every project formation with its colour +
+ * name + regional reference; clicking a row POSTs the contact
+ * back through ``onSelect`` and the modal closes. The subtitle
+ * surfaces the anchor + depth so the user can confirm what
+ * they're committing.
+ *
+ * v1 scope:
+ *   * Formation rows, scrollable list.
+ *   * Subtitle with anchor name + depth + elevation.
+ *   * "+ New formation here" escape hatch — opens the existing
+ *     ``FormationDialog`` in create mode pre-seeded with the
+ *     current depth so the user can introduce a formation without
+ *     leaving the flow.
+ *
+ * Deferred:
+ *   * Search/filter when project carries 30+ formations.
+ *   * Recent / pinned formations row.
+ */
+
+import { useState } from 'react'
+import { Plus } from 'lucide-react'
+
+import type {
+  GeologicalFormationCreatePayload,
+  GeologicalFormationResponse,
+} from '../../api/client'
+import Button from '../ui/Button'
+import Modal from '../ui/Modal'
+import FormationDialog from './FormationDialog'
+
+interface Props {
+  open: boolean
+  formations: readonly GeologicalFormationResponse[]
+  /** What we're placing the contact on — surfaces in the subtitle
+   * so the user knows the depth's reference frame. */
+  anchor: {
+    kind: 'cpt' | 'borehole'
+    name: string
+    depth_m: number
+    elevationM: number
+  } | null
+  /** Picked an existing formation — caller POSTs the contact. */
+  onSelect: (formationId: string) => Promise<void> | void
+  /** Inline create — caller POSTs the new formation, returns its
+   * id, then this dialog selects it immediately to chain the
+   * commit without a second click. */
+  onCreateFormation: (
+    payload: GeologicalFormationCreatePayload,
+  ) => Promise<{ id: string } | null>
+  onCancel: () => void
+}
+
+export default function FormationPickerDialog({
+  open,
+  formations,
+  anchor,
+  onSelect,
+  onCreateFormation,
+  onCancel,
+}: Props): JSX.Element | null {
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+
+  async function pick(formationId: string): Promise<void> {
+    if (busyId !== null) return
+    setBusyId(formationId)
+    try {
+      await onSelect(formationId)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleInlineCreate(
+    payload: GeologicalFormationCreatePayload,
+  ): Promise<void> {
+    const created = await onCreateFormation(payload)
+    setCreateDialogOpen(false)
+    if (created) await pick(created.id)
+  }
+
+  return (
+    <>
+      <Modal
+        open={open && !createDialogOpen}
+        onCancel={onCancel}
+        labelledBy="formation-picker-title"
+        busy={busyId !== null}
+        cardClassName="w-[28rem]"
+      >
+        <div className="p-5">
+          <h2
+            id="formation-picker-title"
+            className="text-base font-semibold text-gray-800 mb-1"
+          >
+            Top of which formation?
+          </h2>
+          {anchor && (
+            <p className="text-xs text-gray-500 mb-4">
+              On <span className="font-medium text-gray-700">{anchor.name}</span>{' '}
+              at depth {anchor.depth_m.toFixed(2)} m ({anchor.elevationM >= 0 ? '+' : ''}
+              {anchor.elevationM.toFixed(2)} m TAW)
+            </p>
+          )}
+
+          <div className="max-h-72 overflow-y-auto -mx-2 px-2">
+            {formations.length === 0 ? (
+              <div className="text-xs text-gray-500 italic px-1 py-3">
+                No formations defined yet — create one with the button below
+                or use <em>From boreholes</em> in the Ground model pane.
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {formations.map(f => (
+                  <li key={f.id}>
+                    <button
+                      onClick={() => void pick(f.id)}
+                      disabled={busyId !== null}
+                      className={[
+                        'w-full flex items-center gap-2 px-2 py-2 rounded text-left',
+                        'border border-gray-200 hover:border-blue-300 hover:bg-blue-50',
+                        'disabled:opacity-60 disabled:cursor-not-allowed transition-colors',
+                      ].join(' ')}
+                    >
+                      <span
+                        className="inline-block w-4 h-4 rounded border border-gray-300 shrink-0"
+                        style={{ backgroundColor: f.color }}
+                      />
+                      <span className="flex flex-col min-w-0">
+                        <span className="text-xs font-medium text-gray-800 truncate">
+                          {f.name}
+                        </span>
+                        {f.regional_ref && (
+                          <span className="text-[10px] text-gray-400 truncate">
+                            {f.regional_ref}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="flex justify-between items-center gap-2 mt-4 pt-3 border-t border-gray-100">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setCreateDialogOpen(true)}
+              disabled={busyId !== null}
+              title="Create a new formation and commit this contact in one step"
+            >
+              <Plus size={12} className="mr-1" />
+              New formation here
+            </Button>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={onCancel}
+              disabled={busyId !== null}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <FormationDialog
+        open={createDialogOpen}
+        initialValue={null}
+        onSubmit={async payload => {
+          await handleInlineCreate(payload as GeologicalFormationCreatePayload)
+        }}
+        onCancel={() => setCreateDialogOpen(false)}
+      />
+    </>
+  )
+}
