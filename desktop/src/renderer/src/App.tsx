@@ -600,13 +600,20 @@ export default function App() {
       anchorId: string,
       depth_m: number,
       formationId: string,
+      snapped: boolean,
     ): Promise<void> => {
       if (!project || !activeGeologicalModel) return
       log.debug(
         'geology',
-        `createContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId}`,
+        `createContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId} snapped=${snapped}`,
       )
       try {
+        // Snap-placed contacts: depth came from a stratigraphy
+        // observation boundary on the borehole, so source =
+        // 'borehole_observation' and confidence = 'high'.
+        // Free-placed: engineer's manual call, source = 'manual_pick',
+        // confidence stays at the schema default 'medium'.
+        // Debt #22 / #23.
         const created = await api.geology.createContact(
           project.id,
           activeGeologicalModel.id,
@@ -615,14 +622,15 @@ export default function App() {
             depth_top_m: depth_m,
             borehole_id: anchorKind === 'borehole' ? anchorId : null,
             cpt_id: anchorKind === 'cpt' ? anchorId : null,
-            source: 'manual_pick',
+            source: snapped ? 'borehole_observation' : 'manual_pick',
+            confidence: snapped ? 'high' : 'medium',
           },
         )
         setContacts(prev => [...prev, created])
         addAllToSet(setSessionImportContactIds, [created.id])
         log.success(
           'geology',
-          `createContact ok id=${created.id} depth=${created.depth_top_m.toFixed(3)}m`,
+          `createContact ok id=${created.id} depth=${created.depth_top_m.toFixed(3)}m source=${created.source}`,
         )
       } catch (err) {
         log.error('geology', 'createContact failed', err)
@@ -637,23 +645,37 @@ export default function App() {
   // local contacts list optimistically on success so the polyline
   // settles at the dragged Y without a refetch round-trip.
   const handleUpdateContactDepth = useCallback(
-    async (contactId: string, newDepthM: number): Promise<void> => {
+    async (
+      contactId: string,
+      newDepthM: number,
+      snapped: boolean,
+    ): Promise<void> => {
       if (!project || !activeGeologicalModel) return
       log.debug(
         'geology',
-        `updateContactDepth entry id=${contactId} newDepth=${newDepthM.toFixed(3)}m`,
+        `updateContactDepth entry id=${contactId} newDepth=${newDepthM.toFixed(3)}m snapped=${snapped}`,
       )
       try {
+        // Drag landed on a snap candidate → reclassify as
+        // borehole_observation / high. Drag landed freely → manual_pick
+        // / medium. Drag-update without snap context can't preserve a
+        // pre-existing 'interpolated' source, but #22/#23 are about
+        // capturing operator intent on each commit. Same rule as the
+        // create path.
         const updated = await api.geology.updateContact(
           project.id,
           activeGeologicalModel.id,
           contactId,
-          { depth_top_m: newDepthM },
+          {
+            depth_top_m: newDepthM,
+            source: snapped ? 'borehole_observation' : 'manual_pick',
+            confidence: snapped ? 'high' : 'medium',
+          },
         )
         setContacts(prev => prev.map(c => (c.id === contactId ? updated : c)))
         log.success(
           'geology',
-          `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m`,
+          `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m source=${updated.source}`,
         )
       } catch (err) {
         log.error('geology', 'updateContact failed', err)
