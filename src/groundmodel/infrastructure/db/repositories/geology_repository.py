@@ -401,6 +401,19 @@ class GeologyRepository(GroundModelLogger):
         self.info(f"Contact updated: {contact_id}")
         return contact
 
+    async def list_contacts_by_ids(self, contact_ids: list[UUID]) -> list[FormationContactOrm]:
+        """Load contacts by id in one IN-query.
+
+        Used by the batch-update use case for the all-or-nothing
+        scope check. Returns in arbitrary order — the caller indexes
+        by ``id`` (not by list position) when matching against the
+        request entries.
+        """
+        if not contact_ids:
+            return []
+        stmt = select(FormationContactOrm).where(FormationContactOrm.id.in_(contact_ids))
+        return list((await self._session.execute(stmt)).scalars().all())
+
     async def delete_contact(self, contact_id: UUID) -> bool:
         """Delete a contact. No cascading children — contacts are leaves."""
         contact = await self._session.get(FormationContactOrm, contact_id)
