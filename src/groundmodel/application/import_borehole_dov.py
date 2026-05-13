@@ -28,6 +28,7 @@ from groundmodel.application.import_interpretations_dov_result import (
 from groundmodel.application.import_samples_dov import ImportSamplesDov
 from groundmodel.application.import_samples_dov_result import ImportSamplesDovResult
 from groundmodel.domain.models.borehole.borehole import Borehole
+from groundmodel.domain.value_objects.elevation_source import ElevationSource
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
 from groundmodel.infrastructure.db.models.field_log_interval_orm import (
@@ -481,6 +482,15 @@ class ImportBoreholeDov(GroundModelLogger):
             location_x=bh.location_x,
             location_y=bh.location_y,
             elevation_m=bh.elevation_m,
+            # DOV imports always stamp the DOV source when Z_mTAW was
+            # present, NONE otherwise. The refresh-on-duplicate path
+            # checks this before overwriting an imported Z so manual
+            # edits survive re-imports (debt #8).
+            elevation_source=(
+                ElevationSource.DOV.value
+                if bh.elevation_m is not None
+                else ElevationSource.NONE.value
+            ),
             epsg=bh.epsg,
             z_epsg=bh.z_epsg,
             location=None,  # PostGIS point — wired in Phase C2 / when the GIS path lands
