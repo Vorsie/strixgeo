@@ -31,6 +31,13 @@ dependencies = [
     # eventually load XML from a user-shared .gmproj where the recipient
     # doesn't trust the sender. See debt #12.
     "defusedxml>=0.7.1",
+    # ezdxf — DXF writer for the section exporter (v1.0 MVP gate #5).
+    # Pure Python, no native deps, generates AutoCAD-compatible R2018
+    # output that Plaxis / D-Sheet / GeoStudio all import cleanly.
+    # Chosen over manual DXF text generation because the format is full
+    # of fiddly section headers / handles / colour-index lookups that
+    # ezdxf already handles correctly.
+    "ezdxf>=1.3",
     # Pillow reads the GeoTIFF blobs we sample from DHMVII WCS for the
     # cross-section DEM ground-line. Chosen over tifffile + numpy
     # because it ships pre-built wheels everywhere, handles 32-bit
