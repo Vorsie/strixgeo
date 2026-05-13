@@ -44,8 +44,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
-  BoreholeListItem,
-  CptListItem,
   FormationContactResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
@@ -187,11 +185,13 @@ function truncateToWidth(text: string, widthPx: number): string {
 }
 
 function itemBottomDepth(col: PlacedColumn): number | null {
-  const item = col.proj.item as CptListItem | BoreholeListItem
+  // PlacedColumn is a discriminated union by ``kind`` — TypeScript
+  // narrows col.proj.item to the right shape inside each branch,
+  // no cast needed (debt #28).
   if (col.kind === 'cpt') {
-    return (item as CptListItem).max_depth_m
+    return col.proj.item.max_depth_m
   }
-  return (item as BoreholeListItem).total_depth_m
+  return col.proj.item.total_depth_m
 }
 
 export default function ContactsLayer({
