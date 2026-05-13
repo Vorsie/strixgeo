@@ -43,6 +43,9 @@ class TestSampleValidation:
         with pytest.raises(ValueError, match="depth_top_m cannot be negative"):
             Sample(borehole_id=uuid4(), depth_top_m=-0.1, depth_base_m=1.0)
 
-    def test_base_below_top_rejected(self) -> None:
-        with pytest.raises(ValueError, match="must be >= depth_top_m"):
-            Sample(borehole_id=uuid4(), depth_top_m=2.0, depth_base_m=1.0)
+    def test_base_below_top_constructs_successfully(self) -> None:
+        # Cross-field invariant lives in the (future) Sample parser,
+        # not the dataclass — debt #15 + CLAUDE.md Data Integrity §5.
+        s = Sample(borehole_id=uuid4(), depth_top_m=2.0, depth_base_m=1.0)
+        assert s.depth_top_m == 2.0
+        assert s.depth_base_m == 1.0

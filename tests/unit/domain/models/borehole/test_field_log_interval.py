@@ -37,9 +37,27 @@ class TestFieldLogIntervalValidation:
         with pytest.raises(ValueError, match="top_m cannot be negative"):
             FieldLogInterval(top_m=-0.1, base_m=1.0, kind=FieldLogKind.COLOR, value="bruin")
 
-    def test_base_equal_top_rejected(self) -> None:
-        with pytest.raises(ValueError, match="must be greater than top_m"):
-            FieldLogInterval(top_m=1.0, base_m=1.0, kind=FieldLogKind.COLOR, value="bruin")
+    def test_base_equal_top_constructs_successfully(self) -> None:
+        # Cross-field invariant lives in the parser (debt #15);
+        # the dataclass accepts the equal-bounds row and the parser
+        # emits a ValidationIssue.
+        interval = FieldLogInterval(
+            top_m=1.0,
+            base_m=1.0,
+            kind=FieldLogKind.COLOR,
+            value="bruin",
+        )
+        assert interval.top_m == interval.base_m
+
+    def test_base_below_top_constructs_successfully(self) -> None:
+        interval = FieldLogInterval(
+            top_m=2.0,
+            base_m=1.0,
+            kind=FieldLogKind.COLOR,
+            value="bruin",
+        )
+        assert interval.top_m == 2.0
+        assert interval.base_m == 1.0
 
     def test_empty_value_rejected(self) -> None:
         with pytest.raises(ValueError, match="value cannot be empty"):

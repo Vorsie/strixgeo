@@ -56,9 +56,17 @@ class TestObservationLayerValidation:
         with pytest.raises(ValueError, match="top_m cannot be negative"):
             ObservationLayer(observation_id=uuid4(), top_m=-0.1, base_m=1.0)
 
-    def test_base_equal_top_rejected(self) -> None:
-        with pytest.raises(ValueError, match="must be greater than top_m"):
-            ObservationLayer(observation_id=uuid4(), top_m=1.0, base_m=1.0)
+    def test_base_equal_top_constructs_successfully(self) -> None:
+        # Cross-field invariant lives in the parser per debt #15 +
+        # CLAUDE.md Data Integrity §5 — DovInterpretationParser emits
+        # a ValidationIssue for inverted intervals before construction.
+        layer = ObservationLayer(observation_id=uuid4(), top_m=1.0, base_m=1.0)
+        assert layer.top_m == layer.base_m
+
+    def test_base_below_top_constructs_successfully(self) -> None:
+        layer = ObservationLayer(observation_id=uuid4(), top_m=2.0, base_m=1.0)
+        assert layer.top_m == 2.0
+        assert layer.base_m == 1.0
 
     def test_negative_layer_index_rejected(self) -> None:
         with pytest.raises(ValueError, match="layer_index cannot be negative"):
