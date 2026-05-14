@@ -17,6 +17,7 @@ import type {
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
+  FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalModelResponse,
@@ -247,6 +248,14 @@ export default function App() {
   // delete flow.
   const [formationsRefreshCounter, setFormationsRefreshCounter] = useState(0)
   const [contacts, setContacts] = useState<FormationContactResponse[]>([])
+  // Cached TIN surfaces for the active geological model, keyed by
+  // formation id. Recomputed server-side on every contact mutation
+  // (debt #11), so the desktop just refetches after each commit. The
+  // map shape is convenient because ContactsLayer's slice render
+  // looks up "is there a surface for formation X?" per-formation.
+  const [surfacesByFormationId, setSurfacesByFormationId] = useState<
+    ReadonlyMap<string, FormationSurfaceResponse>
+  >(new Map())
   // ``true`` while the user is two-click-drawing a section line on
   // the map. The Sidebar's "+ New cross-section" button enters this
   // mode; the MapView mounts a SectionLineDrawer that completes via
@@ -381,6 +390,7 @@ export default function App() {
       setActiveGeologicalModel(null)
       setFormations([])
       setContacts([])
+      setSurfacesByFormationId(new Map())
       return
     }
     let cancelled = false
@@ -407,22 +417,33 @@ export default function App() {
         if (cancelled) return
         setActiveGeologicalModel(active)
 
-        // Step 2: formations + contacts in parallel.
-        const [forms, conts] = await Promise.all([
+        // Step 2: formations + contacts + surfaces in parallel.
+        // Surfaces come from the per-mutation recompute cache; on a
+        // freshly opened bundle they may already be populated (the
+        // bundle round-trips them) so the section paints the slice on
+        // first render — no recompute round-trip required.
+        const [forms, conts, surfs] = await Promise.all([
           api.geology.listFormations(projectId),
           active === null
             ? Promise.resolve([] as FormationContactResponse[])
             : api.geology.listContacts(projectId, active.id),
+          active === null
+            ? Promise.resolve([] as FormationSurfaceResponse[])
+            : api.geology.listSurfaces(projectId, active.id),
         ])
         if (cancelled) return
         setFormations(forms)
         setContacts(conts)
+        const sm = new Map<string, FormationSurfaceResponse>()
+        for (const s of surfs) sm.set(s.formation_id, s)
+        setSurfacesByFormationId(sm)
       } catch (err) {
         log.warn('geology', `model bootstrap failed for ${project.id}`, err)
         if (!cancelled) {
           setActiveGeologicalModel(null)
           setFormations([])
           setContacts([])
+          setSurfacesByFormationId(new Map())
         }
       }
     })()
@@ -586,6 +607,46 @@ export default function App() {
         log.warn('geology', `listFormations refetch failed`, err)
       })
   }, [project])
+
+  // Refetch the per-formation TIN cache. Called after any contact
+  // mutation (create / update / delete / batch / auto-populate /
+  // dedupe) so the section's slice render tracks the new geometry.
+  // Backend recomputes synchronously inside each mutation handler
+  // (debt #11), so by the time we call this the cache is already
+  // current. Cheap: one GET per mutation, payload is bounded by
+  // (formations × triangles) which is tiny at v1 cardinality.
+  const refetchSurfaces = useCallback(() => {
+    if (!project || !activeGeologicalModel) return
+    void api.geology
+      .listSurfaces(project.id, activeGeologicalModel.id)
+      .then(surfs => {
+        const sm = new Map<string, FormationSurfaceResponse>()
+        for (const s of surfs) sm.set(s.formation_id, s)
+        setSurfacesByFormationId(sm)
+      })
+      .catch(err => {
+        log.warn('geology', `listSurfaces refetch failed`, err)
+      })
+  }, [project, activeGeologicalModel])
+
+  // Auto-refetch surfaces after any contact mutation. ``contacts``
+  // identity changes exactly once per mutation handler (each one
+  // calls setContacts), so this useEffect fires once per mutation
+  // without per-handler bookkeeping. The backend recomputes the TIN
+  // synchronously inside each mutation, so by the time we GET here
+  // the cache is current. Skips on the bootstrap-initial setContacts
+  // because the bootstrap already fetched surfaces in parallel.
+  const lastSurfaceRefetchContactsRef = useRef<readonly FormationContactResponse[] | null>(null)
+  useEffect(() => {
+    if (lastSurfaceRefetchContactsRef.current === null) {
+      // First observation — bootstrap already fetched. Just record.
+      lastSurfaceRefetchContactsRef.current = contacts
+      return
+    }
+    if (lastSurfaceRefetchContactsRef.current === contacts) return
+    lastSurfaceRefetchContactsRef.current = contacts
+    refetchSurfaces()
+  }, [contacts, refetchSurfaces])
 
   const handleFormationCreated = useCallback(
     (id: string) => {
@@ -2803,6 +2864,7 @@ export default function App() {
                 onSelectBorehole={handleSelectBorehole}
                 contacts={contacts}
                 formations={formations}
+                surfacesByFormationId={surfacesByFormationId}
                 excludedBoreholeIds={
                   activeGeologicalModel?.excluded_borehole_ids ?? []
                 }
