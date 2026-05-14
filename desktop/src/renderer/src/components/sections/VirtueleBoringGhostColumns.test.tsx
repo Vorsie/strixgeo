@@ -128,6 +128,7 @@ describe('VirtueleBoringGhostColumns', () => {
           plotTop={-100}
           plotBottom={100}
           bandHalfWidth={10}
+          maxDepthMBelowSurface={null}
         />
       </svg>,
     )
@@ -145,6 +146,7 @@ describe('VirtueleBoringGhostColumns', () => {
           plotTop={-100}
           plotBottom={100}
           bandHalfWidth={10}
+          maxDepthMBelowSurface={null}
         />
       </svg>,
     )
@@ -184,6 +186,7 @@ describe('VirtueleBoringGhostColumns', () => {
           plotTop={-100}
           plotBottom={100}
           bandHalfWidth={10}
+          maxDepthMBelowSurface={null}
         />
       </svg>,
     )
@@ -217,6 +220,68 @@ describe('VirtueleBoringGhostColumns', () => {
           plotTop={-100}
           plotBottom={100}
           bandHalfWidth={10}
+          maxDepthMBelowSurface={null}
+        />
+      </svg>,
+    )
+    expect(container.querySelectorAll('rect').length).toBe(1)
+  })
+
+  it('clips layers below the maxDepthMBelowSurface threshold', () => {
+    // surface elevation in prediction() is 5 mTAW. With a 10m cap
+    // the visible range is [5, -5]. Three layers:
+    //   8 → 0     fully visible (top above surface — still rendered)
+    //   0 → -8    crosses the -5 cap → clipped to 0 → -5
+    //   -8 → -20  entirely below the cap → omitted
+    const { container } = render(
+      <svg>
+        <VirtueleBoringGhostColumns
+          columns={[cptColumn(makeCpt('cpt-a'), 100)]}
+          activeModels={['g3dv3_F']}
+          predictionsByInvestigationId={new Map([
+            [
+              'cpt-a',
+              prediction('cpt-a', 'cpt', {
+                g3dv3_F: [
+                  { top: 8, base: 0, color: '#aaaaaa' },
+                  { top: 0, base: -8, color: '#bbbbbb' },
+                  { top: -8, base: -20, color: '#cccccc' },
+                ],
+              }),
+            ],
+          ])}
+          levelToScreen={flipLevel}
+          plotTop={-100}
+          plotBottom={100}
+          bandHalfWidth={10}
+          maxDepthMBelowSurface={10}
+        />
+      </svg>,
+    )
+    expect(container.querySelectorAll('rect').length).toBe(2)
+  })
+
+  it('renders without clipping when maxDepthMBelowSurface is null', () => {
+    const { container } = render(
+      <svg>
+        <VirtueleBoringGhostColumns
+          columns={[cptColumn(makeCpt('cpt-a'), 100)]}
+          activeModels={['g3dv3_F']}
+          predictionsByInvestigationId={new Map([
+            [
+              'cpt-a',
+              prediction('cpt-a', 'cpt', {
+                g3dv3_F: [
+                  { top: 8, base: -200, color: '#aaaaaa' },
+                ],
+              }),
+            ],
+          ])}
+          levelToScreen={flipLevel}
+          plotTop={-300}
+          plotBottom={300}
+          bandHalfWidth={10}
+          maxDepthMBelowSurface={null}
         />
       </svg>,
     )
@@ -241,6 +306,7 @@ describe('VirtueleBoringGhostColumns', () => {
           plotTop={-100}
           plotBottom={100}
           bandHalfWidth={10}
+          maxDepthMBelowSurface={null}
         />
       </svg>,
     )
