@@ -289,11 +289,14 @@ export interface DeduplicateContactsResponse {
  * one contact in the model — these are the ones the rebuild loop
  * visits. ``formations_rebuilt`` is the subset whose recomputed
  * checksum differed from the cached one (i.e. the cache write fired).
- * On a clean model both are 0.
+ * ``formations_reordered`` counts formations whose ``display_order``
+ * the server adjusted to match the data-derived age order. All three
+ * are 0 on a fully-aligned model.
  */
 export interface RebuildSurfacesResponse {
   formations_considered: number
   formations_rebuilt: number
+  formations_reordered?: number
 }
 
 /** API representation of a cached TIN surface — one per
