@@ -861,14 +861,27 @@ export default function ContactsLayer({
   // uses — so the bands stay correct even when display_order is
   // inverted from convention.
   //
-  // Pinch-out handling (the geologically correct behaviour): when
-  // the immediate-next-older formation has no data at some X — e.g.
-  // KoAa pinches out east of borehole BH-5 — the band's bottom
-  // at that X falls through to the NEXT older formation (KoRo).
-  // The fallback chain walks the full age-sorted older list before
-  // dropping to the data-extent floor. Without this, the Quartair
-  // band would truncate at KoAa's eastern edge and leave a visual
-  // gap where Quartair geologically continues onto KoRo.
+  // Geometry source = per-contact polyline (``polylines.vertices``),
+  // NOT the TIN slice (``slicedPolylines``). The TIN slice's
+  // X-extent is bounded by the formation's convex hull in (x, y),
+  // so on a section that runs out toward boreholes near the hull
+  // edge the slice may end before the section's last column —
+  // leaving the outer columns without a fill even though they have
+  // a contact for the formation. The contact polyline visits EVERY
+  // column with a contact regardless of TIN hull, so the fill
+  // covers them all. Visual cost: between contacts the fill uses
+  // straight-line interpolation rather than Delaunay-smooth, which
+  // is geologically honest (we don't really know the surface
+  // between picks). The crisp TIN slice line still paints on top.
+  //
+  // Pinch-out handling: when the immediate-next-older formation
+  // has no data at some X — e.g. KoAa pinches out east of
+  // borehole BH-5 — the band's bottom at that X falls through to
+  // the NEXT older formation (KoRo). The fallback chain walks the
+  // full age-sorted older list before dropping to the data-extent
+  // floor. Without this, the Quartair band would truncate at KoAa's
+  // eastern edge and leave a visual gap where Quartair geologically
+  // continues onto KoRo.
   //
   // The oldest formation's fill stops at ``dataExtentFloor`` — the
   // deepest CPT or borehole bottom — not at the visible plot floor.
@@ -878,8 +891,19 @@ export default function ContactsLayer({
   // Opacity is intentionally low (0.18 fresh / 0.08 stale) so the
   // qc curves + per-column glyphs underneath remain legible. The
   // top polylines paint on top at full opacity for crisp boundaries.
+  // ±20 m along-axis buffer applied to each formation's outer
+  // contact when building the fill band. Lets the coloured region
+  // "breathe" beyond the leftmost / rightmost test instead of
+  // clipping flush to the column glyphs — matches how a geologist
+  // would sketch a section by hand, where the unit clearly
+  // continues just past the last borehole.
+  const fillBufferPx = useMemo(() => {
+    if (!alongMToScreenX) return 0
+    return Math.abs(alongMToScreenX(20) - alongMToScreenX(0))
+  }, [alongMToScreenX])
+
   const formationFillBands = useMemo(() => {
-    if (slicedPolylines.length === 0) {
+    if (polylines.length === 0) {
       return [] as {
         formationId: string
         color: string
@@ -887,16 +911,38 @@ export default function ContactsLayer({
         isStale: boolean
       }[]
     }
+    // Project each per-contact polyline into the (x, y) screen
+    // tuples buildFillBand expects, sorted ascending by X so the
+    // helper can index into them safely. Pad ±fillBufferPx on the
+    // outer endpoints so the fill extends past the last contact
+    // (flat horizontal extrapolation — same Y as the endpoint).
+    const projected = polylines
+      .map(line => {
+        const points = line.vertices
+          .map(v => ({ x: v.screenX, y: v.screenY }))
+          .sort((a, b) => a.x - b.x)
+        if (points.length >= 2 && fillBufferPx > 0) {
+          const left = points[0]
+          const right = points[points.length - 1]
+          points.unshift({ x: left.x - fillBufferPx, y: left.y })
+          points.push({ x: right.x + fillBufferPx, y: right.y })
+        }
+        return {
+          formationId: line.formationId,
+          color: line.color,
+          points,
+          isStale:
+            surfacesByFormationId?.get(line.formationId)?.is_stale === true,
+        }
+      })
+      .filter(p => p.points.length >= 2)
     // Sort youngest-first by mean screen-Y. Screen-Y is inverted
     // (smaller Y = higher elevation = younger), so ascending Y
     // gives youngest first.
-    const annotated = slicedPolylines
-      .filter(s => s.screenPoints.length > 0)
-      .map(s => ({
-        line: s,
-        meanY:
-          s.screenPoints.reduce((acc, p) => acc + p.y, 0) /
-          s.screenPoints.length,
+    const annotated = projected
+      .map(p => ({
+        line: p,
+        meanY: p.points.reduce((acc, pt) => acc + pt.y, 0) / p.points.length,
       }))
       .sort((a, b) => a.meanY - b.meanY)
     const out: {
@@ -910,8 +956,8 @@ export default function ContactsLayer({
       // All formations older than this one, in age order
       // (immediate-next-older first) — fed to buildFillBand as the
       // pinch-out fallback chain.
-      const olders = annotated.slice(i + 1).map(a => a.line.screenPoints)
-      const d = buildFillBand(younger.screenPoints, olders, dataExtentFloor)
+      const olders = annotated.slice(i + 1).map(a => a.line.points)
+      const d = buildFillBand(younger.points, olders, dataExtentFloor)
       if (d === '') continue
       out.push({
         formationId: younger.formationId,
@@ -921,7 +967,7 @@ export default function ContactsLayer({
       })
     }
     return out
-  }, [slicedPolylines, dataExtentFloor])
+  }, [polylines, surfacesByFormationId, dataExtentFloor, fillBufferPx])
 
   // Drag state lives in the component so its update path is
   // explicit. Document-level mousemove + mouseup listeners attach
