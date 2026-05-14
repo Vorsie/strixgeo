@@ -602,3 +602,16 @@ pluggable "regional stratigraphic catalog" abstraction with
 two implementations on day one (NCS + BRO), not a hardcoded NCS
 lookup. Keeps the door open for international expansion without
 a rewrite.
+
+**Principle (user-confirmed 2026-05-14): stratigraphic ordering
+must be CORRECT AT CREATE TIME, not via a repair button.** A
+"Reorder by depth" or "Snap to NCS chart" button was discussed
+during dogfooding and rejected — it would be a permanent
+monument to a create-path bug. Today's depth-derived auto-populate
+shipped under this principle (fix the inversion, not bolt on
+a repair). NCS integration must follow the same rule: when the
+user runs auto-populate on a Belgian project, the resulting order
+should match the NCS chart with no extra clicks. The user can
+still manually drag-reorder for special cases (overturned beds,
+bespoke local naming) — that override is theirs, not the
+system's repair.
