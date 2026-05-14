@@ -1344,6 +1344,38 @@ export default function SectionPanel({
         onScrubTo={scrubTo}
       />
 
+      {/* Hidden-from-section restore footer — mirrors the Sidebar's
+          "N removed · restore all" pattern. Only renders when the
+          section has at least one excluded id; clicking the link
+          clears both arrays in a single PATCH so the columns
+          reappear on the next render. Reversible action's undo
+          surface. */}
+      {onPatch &&
+        (section.excluded_cpt_ids.length + section.excluded_borehole_ids.length) > 0 && (
+          <div
+            className="flex items-center justify-between px-3 py-1 text-[11px] text-gray-500 bg-gray-50 border-t border-gray-200"
+            data-testid="section-hidden-footer"
+          >
+            <span>
+              {section.excluded_cpt_ids.length + section.excluded_borehole_ids.length}{' '}
+              hidden from this section
+            </span>
+            <button
+              type="button"
+              className="text-blue-600 hover:text-blue-800 hover:underline"
+              onClick={() =>
+                void onPatch({
+                  excluded_cpt_ids: [],
+                  excluded_borehole_ids: [],
+                })
+              }
+              title="Restore every test hidden from this section. Their columns reappear on the next render."
+            >
+              restore all
+            </button>
+          </div>
+        )}
+
       {/* Formation picker — modal opens whenever a child fires
           ``onCommitDepth`` (CPT click or borehole click). The
           picker either selects an existing formation (POSTs the
