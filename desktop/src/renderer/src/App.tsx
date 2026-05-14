@@ -1364,6 +1364,49 @@ export default function App() {
     }
   }, [project, activeGeologicalModel])
 
+  // Manual escape hatch — force-recompute every formation's TIN
+  // cache. The auto-recompute hooks attached to every contact-
+  // mutating use case keep the cache fresh on the happy path; this
+  // covers the cases they don't (anchor elevation edited without a
+  // contact mutation, suspected stale checksum). Reversible — no
+  // confirmation modal.
+  const handleRebuildSurfaces = useCallback(async (): Promise<void> => {
+    if (!project || !activeGeologicalModel) return
+    log.debug('geology', `rebuildSurfaces entry model=${activeGeologicalModel.id}`)
+    try {
+      const result = await api.geology.rebuildSurfaces(
+        project.id,
+        activeGeologicalModel.id,
+      )
+      // Refetch the cache so the section view's slice render uses
+      // the freshly-computed TINs even when the checksum matched.
+      refetchSurfaces()
+      log.success(
+        'geology',
+        `rebuildSurfaces ok considered=${result.formations_considered} ` +
+          `rebuilt=${result.formations_rebuilt}`,
+      )
+      if (result.formations_considered === 0) {
+        toast('success', 'No formations with picks yet — nothing to rebuild.')
+      } else if (result.formations_rebuilt === 0) {
+        toast(
+          'success',
+          `Cache already in sync (${result.formations_considered} ` +
+            `formation${result.formations_considered === 1 ? '' : 's'} checked).`,
+        )
+      } else {
+        toast(
+          'success',
+          `Rebuilt ${result.formations_rebuilt} of ${result.formations_considered} ` +
+            `surface${result.formations_considered === 1 ? '' : 's'}.`,
+        )
+      }
+    } catch (err) {
+      log.error('geology', 'rebuildSurfaces failed', err)
+      toast('error', 'Could not rebuild surfaces — see console.')
+    }
+  }, [project, activeGeologicalModel, refetchSurfaces])
+
   // each section borehole's stratigraphy observation (formal
   // preferred, informal fallback). Backend creates contacts +
   // any missing formations in one transaction; we refresh local
@@ -2829,6 +2872,9 @@ export default function App() {
           pushUndoCommand={pushUndo}
           onDedupeContacts={
             activeGeologicalModel ? handleDedupeContacts : undefined
+          }
+          onRebuildSurfaces={
+            activeGeologicalModel ? handleRebuildSurfaces : undefined
           }
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
           activeModelName={activeGeologicalModel?.name ?? null}
