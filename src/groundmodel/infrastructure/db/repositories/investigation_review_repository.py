@@ -172,7 +172,16 @@ class InvestigationReviewRepository(GroundModelLogger):
                 "reviewed_at": stmt.excluded.reviewed_at,
             },
         )
-        result = await self._session.execute(stmt)
+        # ``populate_existing=True`` refreshes any identity-mapped
+        # instance from the RETURNING row. Without it, the pre-read
+        # ``row`` (loaded at line 121) stays in the identity map with
+        # stale attributes and ``result.scalar_one()`` hands back that
+        # same instance unchanged — callers then see the pre-call
+        # values for ``review_notes`` / ``is_hidden`` / ``reviewed_at``
+        # even though the DB row is correct. Surfaces under
+        # ``expire_on_commit=False`` (the conftest default + production
+        # default for an AsyncSession).
+        result = await self._session.execute(stmt, execution_options={"populate_existing": True})
         await self._session.flush()
         # ``returning(orm)`` gives back an OrmRow whose first column
         # is the ORM instance. ``scalar_one()`` extracts it.
