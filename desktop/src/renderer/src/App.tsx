@@ -1675,6 +1675,44 @@ export default function App() {
     [],
   )
 
+  // Export the geological model as a runnable Plaxis 3D Python
+  // script (plxscripting). Mirrors handleExportSectionDxf — fetch
+  // bytes → save dialog → file write. Hidden in the pane when no
+  // active model is wired (Phase 4 Plaxis export).
+  const handleExportModelPlaxis3d = useCallback(async (): Promise<void> => {
+    if (!project || !activeGeologicalModel) return
+    const projectId = project.id
+    const modelId = activeGeologicalModel.id
+    log.info('geology', `exportPlaxis3d start model=${modelId}`)
+    try {
+      const safeName = project.name.replace(/[^A-Za-z0-9\- _]/g, '_').trim() || 'project'
+      const dialogPath = await window.electron.showExportSaveDialog(
+        `${safeName}_plaxis3d.py`,
+        [
+          { name: 'Python Script', extensions: ['py'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      )
+      if (dialogPath === null) {
+        log.debug('geology', 'exportPlaxis3d cancelled at save dialog')
+        return
+      }
+      const bytes = await api.geology.exportPlaxis3d(projectId, modelId)
+      await window.electron.writeExportFile(dialogPath, bytes)
+      log.success(
+        'geology',
+        `exportPlaxis3d ok model=${modelId} bytes=${bytes.byteLength} path=${dialogPath}`,
+      )
+      toast('success', 'Plaxis 3D script exported.')
+    } catch (err) {
+      log.error('geology', 'exportPlaxis3d failed', err)
+      toast(
+        'error',
+        err instanceof Error ? err.message : 'Could not export the Plaxis script.',
+      )
+    }
+  }, [project, activeGeologicalModel])
+
   // Toggle whether a borehole anchors formation contacts in the
   // active geological model. The model's ``excluded_borehole_ids``
   // is the bundle-portable source of truth. Toggling fires
@@ -2955,6 +2993,9 @@ export default function App() {
           }
           onRebuildSurfaces={
             activeGeologicalModel ? handleRebuildSurfaces : undefined
+          }
+          onExportPlaxis3d={
+            activeGeologicalModel ? handleExportModelPlaxis3d : undefined
           }
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
           activeModelName={activeGeologicalModel?.name ?? null}
