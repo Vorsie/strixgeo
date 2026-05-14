@@ -1341,6 +1341,95 @@ async def test_dedupe_is_a_no_op_when_no_duplicates(
     assert body["removed_contact_ids"] == []
 
 
+async def test_rebuild_auto_reorders_display_order_by_per_anchor_depth(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Build auto-derives display_order from contact depths.
+
+    The user creates formations in their natural top-down workflow
+    order (Antropogeen first, then Quartair, then Aalbeke), giving
+    display_orders 0/1/2 in CREATION order. But contacts are placed
+    at depths 0.5 m / 3 m / 15 m respectively — Antropogeen IS the
+    youngest, so the natural creation order already matches the
+    desired age order in this fixture (display_order 0 = youngest).
+    To make the test non-trivial we then REVERSE the order so
+    Antropogeen carries the highest display_order; Build must
+    detect the mismatch and restore the data-driven order.
+    """
+    project, borehole = project_with_borehole
+    # Three formations in DELIBERATELY inverted display_order: the
+    # one that ends up being placed deepest (oldest) is created
+    # first → gets display_order=0 → would be labelled "oldest" by
+    # any convention; the shallowest goes last → display_order=2.
+    aalbeke = await _create_formation(async_client, project.id, name="Aalbeke")
+    quartair = await _create_formation(async_client, project.id, name="Quartair")
+    antropogeen = await _create_formation(async_client, project.id, name="Antropogeen")
+    model = await _create_model(async_client, project.id)
+    # Contacts placed at depths matching real geology — Antropogeen
+    # shallowest, Aalbeke deepest — but on display_order they're
+    # currently 2 / 1 / 0 respectively (inverted).
+    await _create_contact(
+        async_client, project.id, model["id"], antropogeen["id"], borehole.id, depth=0.5
+    )
+    await _create_contact(
+        async_client, project.id, model["id"], quartair["id"], borehole.id, depth=3.0
+    )
+    await _create_contact(
+        async_client, project.id, model["id"], aalbeke["id"], borehole.id, depth=15.0
+    )
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Creation order put them at 0/1/2; age order wants 2/1/0.
+    # The middle index (Quartair) coincides at 1 in both, so only
+    # the two endpoints move → reordered=2.
+    assert body["formations_reordered"] == 2
+
+    # Verify by re-fetching the formations — they should now be in
+    # age order: Antropogeen=0 (youngest), Quartair=1, Aalbeke=2.
+    list_resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations",
+    )
+    rows = {f["name"]: f for f in list_resp.json()}
+    assert rows["Antropogeen"]["display_order"] == 0
+    assert rows["Quartair"]["display_order"] == 1
+    assert rows["Aalbeke"]["display_order"] == 2
+
+
+async def test_rebuild_second_pass_no_op_when_order_already_matches(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """A second Build right after the first reports reordered=0 —
+    the auto-sort is idempotent once the order matches the data.
+    """
+    project, borehole = project_with_borehole
+    aalbeke = await _create_formation(async_client, project.id, name="Aalbeke")
+    antropogeen = await _create_formation(async_client, project.id, name="Antropogeen")
+    model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, model["id"], antropogeen["id"], borehole.id, depth=0.5
+    )
+    await _create_contact(
+        async_client, project.id, model["id"], aalbeke["id"], borehole.id, depth=15.0
+    )
+
+    # First Build aligns display_order.
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    # Second Build — already aligned, nothing should move.
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    body = resp.json()
+    assert body["formations_reordered"] == 0
+
+
 async def test_rebuild_surfaces_no_op_on_empty_model(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
