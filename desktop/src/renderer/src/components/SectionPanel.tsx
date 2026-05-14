@@ -37,6 +37,7 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
+  VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
 import { nudgeColumns } from '../utils/columnLayout'
@@ -62,6 +63,7 @@ import {
 } from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
+import VirtueleBoringGhostColumns from './sections/VirtueleBoringGhostColumns'
 import SectionHeader from './sections/SectionHeader'
 import SectionScrubBar from './sections/SectionScrubBar'
 import { useSectionData } from './sections/useSectionData'
@@ -199,6 +201,15 @@ interface Props {
   onAutoPopulateFromStratigraphy?: (
     boreholeIds: readonly string[],
   ) => Promise<void>
+  /** DOV Virtuele Boring overlay — informative-only ghost columns
+   * rendered next to each investigation. Empty array / undefined
+   * prop = no overlay. Up to two model codes are honoured (the UI
+   * provides two dropdowns); extras are silently truncated. */
+  virtueleBoringActiveModels?: readonly string[]
+  /** Per-investigation overlay payload — built by App.tsx from
+   * ``api.virtueleBoring.predictions`` and cached there across
+   * renders so toggling the section view doesn't refetch. */
+  virtueleBoringPredictions?: readonly VirtueleBoringInvestigationPrediction[]
 }
 
 export default function SectionPanel({
@@ -223,6 +234,8 @@ export default function SectionPanel({
   onExportDxf,
   onSelectCpt,
   onSelectBorehole,
+  virtueleBoringActiveModels,
+  virtueleBoringPredictions,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -685,6 +698,23 @@ export default function SectionPanel({
     columnSpacing,
     enabledBhChannels,
   ])
+
+  // Virtuele Boring overlay — index the predictions by
+  // investigation_id once per prop change so the SVG render walks a
+  // single Map lookup per column. Truncate active models to two; the
+  // UI only exposes two dropdown slots so anything beyond would
+  // overflow the ghost-column rail (each slot owns its own ghost).
+  const virtueleBoringActiveModelsClamped = useMemo<readonly string[]>(
+    () => (virtueleBoringActiveModels ?? []).slice(0, 2),
+    [virtueleBoringActiveModels],
+  )
+  const virtueleBoringPredictionsByInvestigationId = useMemo(() => {
+    const map = new Map<string, VirtueleBoringInvestigationPrediction>()
+    for (const pred of virtueleBoringPredictions ?? []) {
+      map.set(pred.investigation_id, pred)
+    }
+    return map
+  }, [virtueleBoringPredictions])
 
   // Click-to-place pick state + handlers. The hook owns the modal's
   // open / closed state and the create-on-select flow; the
@@ -1239,6 +1269,23 @@ export default function SectionPanel({
               onSelectBorehole={undefined}
               onColumnContextMenu={handleColumnContextMenu}
               hideStickIds={hideStickIds}
+            />
+
+            {/* DOV Virtuele Boring ghost columns — informative-only
+                overlay showing what DOV's 3D model predicts at each
+                investigation's (x, y). One slim column per active
+                model, faded so it reads as "DOV says…" rather than
+                ground truth. Engineers use it to inform manual
+                contact picks. Renders nothing when both dropdowns
+                are off or no predictions have been fetched. */}
+            <VirtueleBoringGhostColumns
+              columns={visibleColumns}
+              activeModels={virtueleBoringActiveModelsClamped}
+              predictionsByInvestigationId={virtueleBoringPredictionsByInvestigationId}
+              levelToScreen={levelToScreen}
+              plotTop={MARGIN.top}
+              plotBottom={MARGIN.top + plotHeight}
+              bandHalfWidth={bandHalfWidth}
             />
 
             {/* Geological-model formation contacts. Each formation
