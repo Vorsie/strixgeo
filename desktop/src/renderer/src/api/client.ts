@@ -788,6 +788,30 @@ export interface ElevationPatchBody {
   z_epsg?: number | null
 }
 
+// G3Dv3 stratigraphic catalog (Flanders). Returned by
+// ``GET /codelists/g3dv3``. Powers the FormationDialog autocomplete +
+// color autofill so engineers don't retype canonical names / RGB
+// codes on every project.
+export interface G3Dv3UnitResponse {
+  /** Numeric G3D code (e.g. ``"0206"`` for Diest). */
+  code: string
+  /** G3D abbreviation (e.g. ``"NE_Di"``, ``"Q_GtAb"``, ``"A"``). */
+  abbreviation: string
+  rank: 'formation' | 'member'
+  /** For members, the parent formation's abbreviation. */
+  parent_abbreviation: string | null
+  /** Dutch name (the primary user-facing label). */
+  name_nl: string
+  /** 0 = youngest (Antropogeen), increasing with age. */
+  age_rank: number
+  /** Prescribed RGB ``"#rrggbb"``; ``null`` for the rare unit with no row in the kleurcode table. */
+  color_hex: string | null
+}
+
+export interface G3Dv3CatalogResponse {
+  units: G3Dv3UnitResponse[]
+}
+
 export const api = {
   cpt: {
     list: (projectId?: string): Promise<CptListItem[]> =>
@@ -1277,5 +1301,12 @@ export const api = {
       }
       return res.arrayBuffer()
     },
+  },
+
+  // Codelists — static reference data shipped with the backend. Today
+  // serves only the G3Dv3 stratigraphic catalog; future codelists
+  // (BRO, multilingual labels) plug in here.
+  codelists: {
+    g3dv3: (): Promise<G3Dv3CatalogResponse> => get('/codelists/g3dv3'),
   },
 }
