@@ -318,17 +318,34 @@ export interface FormationSurfaceResponse {
 
 // Gap validator output — the editor surfaces these as soft warnings
 // per borehole (missing surface contact, duplicate depth, contact
-// below test depth, etc.). Empty issues = clean stratigraphy.
+// below test depth, etc.) AND cross-formation crossing kinds. Empty
+// issues = clean stratigraphy / no surface crossings.
 export interface GapIssueResponse {
   kind: string
   detail: string
   depth_m: number | null
   contact_ids: string[]
+  /** Populated for ``formation_crossing`` kind as
+   * ``[older_formation_id, younger_formation_id]``. Empty for
+   * per-borehole kinds. */
+  formation_ids: string[]
 }
 
 export interface GapValidationResponse {
   model_id: string
   borehole_id: string
+  issues: GapIssueResponse[]
+}
+
+/** Body returned by ``GET /projects/{pid}/geology/models/{mid}/validate/crossings``.
+ *
+ * Empty ``issues`` ⇒ no two formation surfaces violate the
+ * stratigraphic-order superposition rule. Each non-empty issue
+ * names the offending pair via ``formation_ids = [older_id,
+ * younger_id]`` and the worst Δ-elevation in ``depth_m``.
+ */
+export interface CrossingValidationResponse {
+  model_id: string
   issues: GapIssueResponse[]
 }
 
@@ -1130,6 +1147,17 @@ export const api = {
       get(
         `/projects/${projectId}/geology/models/${modelId}/boreholes/${boreholeId}/validate`,
       ),
+
+    // Cross-formation crossing validator — returns the list of
+    // ``formation_crossing`` issues for the model. Walks every
+    // cached TIN pair (older, younger) and looks for younger-below-
+    // older anywhere in the shared (x, y) footprint. Empty list ⇒
+    // every surface stack is geologically consistent.
+    validateCrossings: (
+      projectId: string,
+      modelId: string,
+    ): Promise<CrossingValidationResponse> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/validate/crossings`),
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
