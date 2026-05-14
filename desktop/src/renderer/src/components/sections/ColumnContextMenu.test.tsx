@@ -74,4 +74,39 @@ describe('ColumnContextMenu', () => {
     fireEvent.click(document.body)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('hides "Remove from this section" when onRemoveFromSection is omitted', () => {
+    render(
+      <ColumnContextMenu
+        x={0}
+        y={0}
+        name="CPT-42"
+        onFocus={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(
+      screen.queryByRole('menuitem', { name: /remove from this section/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('fires onRemoveFromSection then onClose when the item is clicked', () => {
+    const onRemoveFromSection = vi.fn()
+    const onClose = vi.fn()
+    render(
+      <ColumnContextMenu
+        x={0}
+        y={0}
+        name="CPT-42"
+        onFocus={vi.fn()}
+        onRemoveFromSection={onRemoveFromSection}
+        onClose={onClose}
+      />,
+    )
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: /remove from this section/i }),
+    )
+    expect(onRemoveFromSection).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
 })
