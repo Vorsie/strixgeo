@@ -570,32 +570,6 @@ must be CORRECT AT CREATE TIME, not via a repair button.** Today
 G3Dv3 makes this true for Flanders projects; the NL extension
 must follow the same rule.
 
-## 52. Section view_state PATCH returns 422 — regression detected 2026-05-14 (medium)
-
-**What.** Two pre-existing integration tests fail on develop:
-
-* ``test_patch_view_state_merges_top_level_keys``
-* ``test_patch_view_state_null_inside_dict_removes_key``
-
-Both ``PATCH /projects/{pid}/sections/{sid}`` with a
-``view_state`` body return 422 Unprocessable Entity. The schema
-should accept any dict shape; somewhere between the schema and
-the router the body validation tightened. Discovered while adding
-the excluded-ids tests in commit 3cbe02c.
-
-**Why deferred.** The user's dogfooding doesn't hit this path
-(channel toggles use a different code path). Surfaces only in
-the integration tests. The new excluded-ids PATCH works
-correctly — the regression is scoped to view_state.
-
-**When to revisit.** Before the next user-facing release. The
-view_state field carries persistent per-section UI preferences
-(CPT channels, scale lock, future toggles); a broken PATCH means
-those settings stop persisting across saves. Fix is likely
-single-character (Pydantic field re-typed as ``dict | None`` vs
-``Mapping[str, Any] | None`` or similar); ~30 minutes including
-re-enabling the existing tests.
-
 ## 51. Crossings banner — surface offending contacts + jump-to-section (medium — dogfooding ask 2026-05-14)
 
 **What.** Today's crossings banner reports
