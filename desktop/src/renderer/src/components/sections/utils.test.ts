@@ -13,7 +13,13 @@ import type {
   ObservationResponse,
 } from '../../api/client'
 import type { PlacedColumn } from './utils'
-import { STRAT_OBS_TYPES_FOR_SNAP, collectSnapDepths, columnsBetween } from './utils'
+import {
+  STRAT_OBS_TYPES_FOR_SNAP,
+  buildFillPolygon,
+  buildFloorFillPolygon,
+  collectSnapDepths,
+  columnsBetween,
+} from './utils'
 
 function placedAt(x: number, id: string): PlacedColumn {
   // Minimal PlacedColumn fixture — only ``trueX`` and ``proj.item.id``
@@ -204,5 +210,84 @@ describe('columnsBetween — shift+drag paint-through gesture', () => {
     // float drift re-including it.
     const cols = [placedAt(0.00001, 'A'), placedAt(50, 'B'), placedAt(100, 'F')]
     expect(columnsBetween(0, 100, cols).map(c => c.proj.item.id)).toEqual(['B', 'F'])
+  })
+})
+
+describe('buildFillPolygon — colored band between two formation tops', () => {
+  it('returns a closed M..Z path covering the X overlap', () => {
+    const top = [
+      { x: 0, y: 10 },
+      { x: 100, y: 12 },
+    ]
+    const bottom = [
+      { x: 0, y: 20 },
+      { x: 100, y: 22 },
+    ]
+    const d = buildFillPolygon(top, bottom)
+    // Forward along top, reversed along bottom, closes with Z.
+    // Path starts at (0, 10), traverses to (100, 12), drops to
+    // bottom at (100, 22), reverses to (0, 20), closes.
+    expect(d.startsWith('M 0.00 10.00')).toBe(true)
+    expect(d).toContain('L 100.00 12.00')
+    expect(d).toContain('L 100.00 22.00')
+    expect(d).toContain('L 0.00 20.00')
+    expect(d.trimEnd().endsWith('Z')).toBe(true)
+  })
+
+  it('returns empty string when polylines do not overlap in X', () => {
+    const top = [
+      { x: 0, y: 10 },
+      { x: 50, y: 11 },
+    ]
+    const bottom = [
+      { x: 100, y: 20 },
+      { x: 200, y: 22 },
+    ]
+    expect(buildFillPolygon(top, bottom)).toBe('')
+  })
+
+  it('clips to the overlapping X range when domains differ', () => {
+    // top spans 0..100, bottom spans 30..150. Overlap = 30..100.
+    const top = [
+      { x: 0, y: 10 },
+      { x: 100, y: 12 },
+    ]
+    const bottom = [
+      { x: 30, y: 20 },
+      { x: 150, y: 24 },
+    ]
+    const d = buildFillPolygon(top, bottom)
+    expect(d.startsWith('M 30.00')).toBe(true)
+    // The clipped top at x=30: interpolated linearly (0,10)→(100,12)
+    // gives y = 10 + 0.3 * (12-10) = 10.6.
+    expect(d).toContain('M 30.00 10.60')
+    // The polygon ends along the bottom; should NOT extend past
+    // x=100 (top's right edge).
+    expect(d).not.toContain('L 150.00')
+  })
+
+  it('returns empty string when either polyline is empty', () => {
+    expect(buildFillPolygon([], [{ x: 0, y: 0 }])).toBe('')
+    expect(buildFillPolygon([{ x: 0, y: 0 }], [])).toBe('')
+  })
+})
+
+describe('buildFloorFillPolygon — oldest formation extends down to plotBottom', () => {
+  it('closes the polygon at the section floor', () => {
+    const top = [
+      { x: 0, y: 10 },
+      { x: 100, y: 12 },
+    ]
+    const d = buildFloorFillPolygon(top, 50)
+    expect(d.startsWith('M 0.00 10.00')).toBe(true)
+    expect(d).toContain('L 100.00 12.00')
+    // Bottom edge runs along plotBottom (50) from right to left.
+    expect(d).toContain('L 100.00 50.00')
+    expect(d).toContain('L 0.00 50.00')
+    expect(d.trimEnd().endsWith('Z')).toBe(true)
+  })
+
+  it('returns empty for an empty top polyline', () => {
+    expect(buildFloorFillPolygon([], 50)).toBe('')
   })
 })
