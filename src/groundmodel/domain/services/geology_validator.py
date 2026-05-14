@@ -27,8 +27,8 @@ repository's loader) maps ORM rows to ``ContactDepth`` /
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from groundmodel.domain.services.tin_surface import TinSurface, evaluate_tin_at
@@ -59,12 +59,23 @@ class FormationSurfaceInput:
     stratigraphic order (lower = older — drives the "younger should
     sit above" rule), and the cached TIN. The validator never
     recomputes the TIN; it consumes whatever the cache holds.
+
+    The optional ``contact_lookup`` maps each TIN vertex back to the
+    formation_contact row that produced it, so a detected crossing
+    can surface "which picks are wrong" rather than just "these two
+    formations intersect". Key = ``(round(x_m, 2), round(y_m, 2))``
+    (cm precision — enough to disambiguate any realistic survey
+    grid; matches the same rounding used to build the map upstream
+    in the application layer). When empty, crossings still get
+    detected but ``GapIssue.contact_ids`` stays empty (graceful
+    degradation — the banner remains non-clickable).
     """
 
     formation_id: UUID
     name: str
     display_order: int
     surface: TinSurface
+    contact_lookup: Mapping[tuple[float, float], UUID] = field(default_factory=dict)
 
 
 class GeologyValidator(GroundModelLogger):
@@ -282,6 +293,12 @@ class GeologyValidator(GroundModelLogger):
                 else:
                     older, younger = b, a
                 worst_delta = 0.0
+                # Collect the contact_ids of every vertex that triggered
+                # a violation, in insertion order. dict-of-None gives us
+                # an order-preserving set keyed by UUID. Both passes
+                # feed the same collector so the banner can highlight
+                # picks from BOTH sides of the crossing pair at once.
+                offending_contacts: dict[UUID, None] = {}
                 # Sample younger's vertices against older's TIN.
                 for vx, vy, vz_y in younger.surface.vertices:
                     vz_o = evaluate_tin_at(older.surface, vx, vy)
@@ -290,8 +307,12 @@ class GeologyValidator(GroundModelLogger):
                     # Younger BELOW older = violation. delta is positive
                     # metres of overlap.
                     delta = vz_o - vz_y
-                    if delta > self.CROSSING_TOLERANCE_M and delta > worst_delta:
-                        worst_delta = delta
+                    if delta > self.CROSSING_TOLERANCE_M:
+                        if delta > worst_delta:
+                            worst_delta = delta
+                        cid = younger.contact_lookup.get((round(vx, 2), round(vy, 2)))
+                        if cid is not None:
+                            offending_contacts[cid] = None
                 # Symmetric pass: older's vertices against younger's TIN.
                 # Catches crossings where younger has no vertex over
                 # older's footprint but older has one over younger's.
@@ -300,8 +321,12 @@ class GeologyValidator(GroundModelLogger):
                     if vz_y is None:
                         continue
                     delta = vz_o - vz_y
-                    if delta > self.CROSSING_TOLERANCE_M and delta > worst_delta:
-                        worst_delta = delta
+                    if delta > self.CROSSING_TOLERANCE_M:
+                        if delta > worst_delta:
+                            worst_delta = delta
+                        cid = older.contact_lookup.get((round(vx, 2), round(vy, 2)))
+                        if cid is not None:
+                            offending_contacts[cid] = None
                 if worst_delta > 0.0:
                     issues.append(
                         GapIssue(
@@ -312,6 +337,7 @@ class GeologyValidator(GroundModelLogger):
                                 "violates stratigraphic superposition."
                             ),
                             depth_m=worst_delta,
+                            contact_ids=tuple(offending_contacts.keys()),
                             formation_ids=(older.formation_id, younger.formation_id),
                         )
                     )
