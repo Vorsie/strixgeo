@@ -18,9 +18,6 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.recompute_formation_surface import (
-    RecomputeFormationSurface,
-)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -50,15 +47,14 @@ class DeleteFormationContact(GroundModelLogger):
             outcomes as 204.
         """
         self.info(f"Deleting formation contact: {contact_id}")
-        # Capture the (model, formation) before the delete so the
-        # post-delete recompute can refresh the right surface row.
-        # No row → no recompute; delete + recompute both no-op.
+        # Capture the (model, formation) before the delete so we know
+        # which surface row to flip stale. No row → no flip needed
+        # (the surface either doesn't exist or already has no source).
         pre = await self._session.get(FormationContactOrm, contact_id)
         ok = await self._repo.delete_contact(contact_id)
         if ok and pre is not None:
-            await RecomputeFormationSurface(self._session).execute(
-                model_id=pre.model_id, formation_id=pre.formation_id
-            )
+            # On-click build pivot: mark stale rather than recompute.
+            await self._repo.mark_surfaces_stale([(pre.model_id, pre.formation_id)])
         await self._session.commit()
         if ok:
             self.success(f"Formation contact deleted: {contact_id}")
