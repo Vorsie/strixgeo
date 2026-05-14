@@ -14,6 +14,7 @@ exit / success-or-warning logging.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
@@ -426,6 +427,60 @@ class GeologyRepository(GroundModelLogger):
         """
         stmt = select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model_id)
         return list((await self._session.execute(stmt)).scalars().all())
+
+    async def mark_surfaces_stale(
+        self,
+        pairs: Iterable[tuple[UUID, UUID]],
+    ) -> int:
+        """Flip ``is_stale=True`` on the listed (model_id, formation_id) surfaces.
+
+        Cheap bulk path used by every contact-mutating use case in the
+        on-click build pivot: a contact PATCH that affects formation
+        F in model M flips F's surface row to stale rather than
+        triggering Delaunay. The user clicks Build to materialise.
+
+        Pairs that don't have a corresponding surface row are silently
+        ignored — a formation with no built TIN can't go stale.
+
+        Parameters
+        ----------
+        pairs : Iterable[tuple[UUID, UUID]]
+            ``(model_id, formation_id)`` tuples. Re-anchor mutations
+            (a contact moving from formation A to formation B) pass
+            both pairs; same-formation edits pass one.
+
+        Returns
+        -------
+        int
+            Number of surface rows actually updated. Useful for logs;
+            a return of 0 means the affected formations had no built
+            TIN to mark stale (still legal — no-op).
+        """
+        unique = list({(m, f) for m, f in pairs})
+        if not unique:
+            return 0
+        # Single UPDATE with an IN-list per model_id keeps this O(1)
+        # round-trips. For v1 cardinality (≤ 2 pairs per mutation) the
+        # complexity is irrelevant; the API is shaped for the future
+        # batch-update path that may pass dozens.
+        total = 0
+        # Group by model_id so the WHERE clause stays cheap.
+        by_model: dict[UUID, list[UUID]] = {}
+        for model_id, formation_id in unique:
+            by_model.setdefault(model_id, []).append(formation_id)
+        for model_id, formation_ids in by_model.items():
+            result = await self._session.execute(
+                update(FormationSurfaceOrm)
+                .where(
+                    FormationSurfaceOrm.model_id == model_id,
+                    FormationSurfaceOrm.formation_id.in_(formation_ids),
+                )
+                .values(is_stale=True)
+            )
+            total += result.rowcount or 0
+        if total:
+            self.debug(f"mark_surfaces_stale: flipped {total} row(s) across {len(unique)} pair(s)")
+        return total
 
     async def delete_contact(self, contact_id: UUID) -> bool:
         """Delete a contact. No cascading children — contacts are leaves."""
