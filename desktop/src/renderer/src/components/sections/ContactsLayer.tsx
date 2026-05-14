@@ -630,6 +630,15 @@ export default function ContactsLayer({
         vertices: acc.vertices,
       })
     }
+    // Stratigraphic order = age axis. Lower display_order = older
+    // formation; sort ASCENDING so older paints first and younger
+    // formations render ON TOP. Ties + unknown formations sink to
+    // the back (defensive — formationById should always have it).
+    polylinesOut.sort(
+      (a, b) =>
+        (formationById.get(a.formationId)?.display_order ?? Number.MAX_SAFE_INTEGER) -
+        (formationById.get(b.formationId)?.display_order ?? Number.MAX_SAFE_INTEGER),
+    )
 
     return { slabs: slabsOut, polylineData: polylinesOut }
   }, [contacts, formations, placedColumns, excludedBoreholeIds])
@@ -741,16 +750,19 @@ export default function ContactsLayer({
       name: string
       d: string
     }[] = []
-    const formationMeta = new Map<string, { color: string; name: string }>()
+    // Iterate ``polylineData`` rather than the ``surfacesByFormationId``
+    // Map — polylineData is already sorted by stratigraphic order
+    // (display_order ASC), so older formations land first in ``out``
+    // and younger ones paint on top. Iterating the Map directly would
+    // give us insertion order from the API response, which doesn't
+    // respect the age axis.
     for (const line of polylineData) {
-      formationMeta.set(line.formationId, { color: line.color, name: line.name })
-    }
-    for (const [formationId, surface] of surfacesByFormationId) {
-      if (surface.triangles.length === 0) continue
+      const surface = surfacesByFormationId.get(line.formationId)
+      if (!surface || surface.triangles.length === 0) continue
       const points = sliceTin(surface, sectionLine)
       if (points.length < 2) continue
-      const meta = formationMeta.get(formationId)
-      if (!meta) continue
+      const meta = { color: line.color, name: line.name }
+      const formationId = line.formationId
       // Project each (alongM, elevationM) into screen space; clip
       // segments that leave the plot area in Y so we don't paint over
       // the chrome. We render as a single path with M/L commands;
@@ -1435,6 +1447,7 @@ export default function ContactsLayer({
             strokeDasharray="4 3"
             fill="none"
             pointerEvents="none"
+            data-testid={`formation-polyline-${line.formationId}`}
           />
         )
       })}
