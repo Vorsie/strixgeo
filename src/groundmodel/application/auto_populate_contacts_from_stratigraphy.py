@@ -146,21 +146,34 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         )
         boreholes = list((await self._session.execute(bh_stmt)).scalars().all())
 
-        # Pre-load every existing contact in the model so the
-        # ``observation_layer_id`` dedup check is O(1) per layer.
-        used_layer_ids: set[UUID] = {
-            cid
-            for cid in (
+        # Pre-load every existing contact in the model so the dedup
+        # checks are O(1) per layer. Two indices needed:
+        #
+        # * ``used_layer_ids``: skip layers we've already auto-populated
+        #   from (idempotency on observation_layer_id).
+        # * ``occupied_anchor_formation``: skip layers whose
+        #   (anchor, formation) tuple already has a contact, regardless
+        #   of source. This is the "user overrides are absolute" rule —
+        #   if the engineer manually placed a Boom Klei contact on
+        #   borehole-X, re-running auto-populate must NOT add a second
+        #   one alongside it. Same protection if the contact came from
+        #   a previous auto-populate that the user then dragged or
+        #   overwrote — the existence of the (anchor, formation) tuple
+        #   wins, no matter how it got there.
+        contact_rows = list(
+            (
                 await self._session.execute(
-                    select(FormationContactOrm.observation_layer_id).where(
-                        FormationContactOrm.model_id == model_id,
-                        FormationContactOrm.observation_layer_id.is_not(None),
-                    )
+                    select(
+                        FormationContactOrm.observation_layer_id,
+                        FormationContactOrm.borehole_id,
+                        FormationContactOrm.formation_id,
+                    ).where(FormationContactOrm.model_id == model_id)
                 )
-            )
-            .scalars()
-            .all()
-            if cid is not None
+            ).all()
+        )
+        used_layer_ids: set[UUID] = {row[0] for row in contact_rows if row[0] is not None}
+        occupied_anchor_formation: set[tuple[UUID, UUID]] = {
+            (row[1], row[2]) for row in contact_rows if row[1] is not None
         }
 
         # Pre-load every project formation. Two indices: a stable
@@ -272,6 +285,21 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     formations_by_name[name.lower()] = formation
                     created_formation_ids.append(formation.id)
 
+                # USER OVERRIDES ARE ABSOLUTE — if a contact already
+                # exists for this (borehole, formation) pair (whether
+                # the user placed it manually, dragged an old auto-pick
+                # to a different depth, or it survives from a previous
+                # auto-populate), do NOT create a second one alongside
+                # it. The user's existing pick wins.
+                anchor_formation_key = (borehole.id, formation.id)
+                if anchor_formation_key in occupied_anchor_formation:
+                    skipped_existing += 1
+                    self.debug(
+                        f"Borehole {borehole.id} formation {formation.id}: "
+                        f"existing contact preserved, layer auto-create skipped"
+                    )
+                    continue
+
                 contact = FormationContactOrm(
                     id=uuid7(),
                     model_id=model_id,
@@ -285,6 +313,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 )
                 self._session.add(contact)
                 used_layer_ids.add(layer.id)
+                occupied_anchor_formation.add(anchor_formation_key)
                 created_contact_ids.append(contact.id)
 
         await self._session.commit()
