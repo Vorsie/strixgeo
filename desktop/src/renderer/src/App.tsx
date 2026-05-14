@@ -888,66 +888,207 @@ export default function App() {
         'geology',
         `batchCreateContacts entry count=${creates.length}`,
       )
-      try {
-        const created = await Promise.all(
-          creates.map(c =>
-            api.geology.createContact(project.id, activeGeologicalModel.id, c),
-          ),
-        )
+      const projectId = project.id
+      const modelId = activeGeologicalModel.id
+
+      // Per-entry result: either a fresh POST (newly-created) OR a
+      // PATCH of an already-existing (target_borehole, formation)
+      // contact whose pre-PATCH state we snapshot for undo. The COPY
+      // workflow's intent on collision is "stamp the source's depth
+      // onto the target" — so a 409 from the new uniqueness rule
+      // becomes a "move existing to here" instead of a hard failure.
+      type CreatedItem = { kind: 'created'; row: FormationContactResponse }
+      type PatchedItem = {
+        kind: 'patched'
+        before: FormationContactResponse
+        after: FormationContactResponse
+      }
+      const created: FormationContactResponse[] = []
+      const patched: PatchedItem[] = []
+      let failed = 0
+      const settled = await Promise.allSettled(
+        creates.map(c =>
+          api.geology
+            .createContact(projectId, modelId, c)
+            .then<CreatedItem>(row => ({ kind: 'created', row })),
+        ),
+      )
+      // Walk results sequentially so PATCHes for 409s issue in order
+      // (avoids ordering surprises in the local contacts state on
+      // multi-collision drags).
+      for (let i = 0; i < settled.length; i += 1) {
+        const result = settled[i]
+        if (result.status === 'fulfilled') {
+          created.push(result.value.row)
+          continue
+        }
+        const err = result.reason
+        if (err instanceof DuplicateContactError) {
+          // 409: target already has a contact for this formation.
+          // PATCH it to the new depth (the "stamp on target" intent).
+          const before = contacts.find(c => c.id === err.existingContactId)
+          if (!before) {
+            // Defensive: existing contact id not in our local cache —
+            // refetch would slow the path; skip this entry, count as
+            // failed.
+            failed += 1
+            log.warning(
+              'geology',
+              `batchCreateContacts 409 but existing id ${err.existingContactId} not in local cache, skipped`,
+            )
+            continue
+          }
+          const payload = creates[i]
+          try {
+            const after = await api.geology.updateContact(
+              projectId,
+              modelId,
+              err.existingContactId,
+              {
+                depth_top_m: payload.depth_top_m,
+                source: payload.source,
+                confidence: payload.confidence,
+              },
+            )
+            patched.push({ kind: 'patched', before, after })
+          } catch (patchErr) {
+            failed += 1
+            log.error(
+              'geology',
+              `batchCreateContacts PATCH-on-409 failed for existing ${err.existingContactId}`,
+              patchErr,
+            )
+          }
+          continue
+        }
+        // Non-409 failure (network down, validation error, etc.) —
+        // count + log, keep going so the rest of the batch still
+        // commits whatever it can.
+        failed += 1
+        log.error('geology', 'batchCreateContacts entry failed', err)
+      }
+
+      // Apply local-state changes from BOTH lanes at once.
+      if (created.length > 0) {
         setContacts(prev => [...prev, ...created])
         addAllToSet(
           setSessionImportContactIds,
           created.map(c => c.id),
         )
-        log.success(
-          'geology',
-          `batchCreateContacts ok count=${created.length}`,
+      }
+      if (patched.length > 0) {
+        const byId = new Map(patched.map(p => [p.after.id, p.after]))
+        setContacts(prev => prev.map(c => byId.get(c.id) ?? c))
+      }
+      const total = created.length + patched.length
+      log.success(
+        'geology',
+        `batchCreateContacts ok created=${created.length} ` +
+          `moved-existing=${patched.length} failed=${failed}`,
+      )
+      if (total === 0) {
+        toast(
+          'error',
+          'Could not copy any contacts to the target — see console for details.',
         )
-        // Undo: delete every created id. Redo: re-POST every
-        // payload (gets new server ids; the closure tracks the
-        // current id set so undo always targets the latest set).
-        const projectId = project.id
-        const modelId = activeGeologicalModel.id
-        const payloads = creates.slice()
-        let currentIds = created.map(c => c.id)
-        pushUndo({
-          description: `Copy ${created.length} contact(s)`,
-          revert: async () => {
-            await Promise.all(
-              currentIds.map(id =>
-                api.geology.deleteContact(projectId, modelId, id),
-              ),
+        return
+      }
+      if (failed > 0) {
+        toast(
+          'error',
+          `Copied ${total} contact(s); ${failed} failed — some may be missing.`,
+        )
+      }
+
+      // Undo: revert BOTH lanes — DELETE everything we created, PATCH
+      // everything we moved back to its pre-move state. Redo replays
+      // the same shape (re-POSTs the creates with fresh ids,
+      // re-PATCHes the moves to the post state).
+      let currentCreatedIds = created.map(c => c.id)
+      const createdPayloads = creates.slice()
+      const patchedSnapshots = patched.slice()
+      pushUndo({
+        description:
+          patched.length > 0
+            ? `Copy ${created.length}, move ${patched.length} contact(s)`
+            : `Copy ${created.length} contact(s)`,
+        revert: async () => {
+          await Promise.all(
+            currentCreatedIds.map(id =>
+              api.geology.deleteContact(projectId, modelId, id),
+            ),
+          )
+          const deleted = new Set(currentCreatedIds)
+          setContacts(prev => prev.filter(c => !deleted.has(c.id)))
+          // PATCH each "moved" contact back to its pre-move state.
+          // Run in parallel; per-(model, anchor, formation)
+          // uniqueness can't be violated here because we're shrinking
+          // toward the previous state.
+          await Promise.all(
+            patchedSnapshots.map(p =>
+              api.geology
+                .updateContact(projectId, modelId, p.after.id, {
+                  depth_top_m: p.before.depth_top_m,
+                  source: p.before.source,
+                  confidence: p.before.confidence,
+                })
+                .then(reverted => {
+                  setContacts(prev =>
+                    prev.map(c => (c.id === reverted.id ? reverted : c)),
+                  )
+                }),
+            ),
+          )
+        },
+        reapply: async () => {
+          // POST fresh creates — capture new server ids for the
+          // next revert.
+          const recreated: FormationContactResponse[] = []
+          // We may NOT 409 this time around (the previous revert
+          // deleted them), so a plain POST is safe.
+          for (let j = 0; j < createdPayloads.length; j += 1) {
+            const r = await api.geology.createContact(
+              projectId,
+              modelId,
+              createdPayloads[j],
             )
-            const deleted = new Set(currentIds)
-            setContacts(prev => prev.filter(c => !deleted.has(c.id)))
-          },
-          reapply: async () => {
-            const recreated = await Promise.all(
-              payloads.map(p =>
-                api.geology.createContact(projectId, modelId, p),
-              ),
-            )
-            currentIds = recreated.map(c => c.id)
+            recreated.push(r)
+          }
+          currentCreatedIds = recreated.map(c => c.id)
+          if (recreated.length > 0) {
             setContacts(prev => [...prev, ...recreated])
             addAllToSet(
               setSessionImportContactIds,
               recreated.map(c => c.id),
             )
-          },
-        })
-      } catch (err) {
-        // Partial failure leaves SOME contacts created and others
-        // missing. Logged loudly so the user can re-drag the missing
-        // ones. Future hardening: a real batch-create endpoint with
-        // single-transaction commit.
-        log.error('geology', 'batchCreateContacts failed (partial?)', err)
-        toast(
-          'error',
-          'Could not copy all contacts to the target — some may be missing.',
-        )
-      }
+          }
+          // PATCH each previously-moved contact back to the
+          // post-move state.
+          await Promise.all(
+            patchedSnapshots.map(p =>
+              api.geology
+                .updateContact(projectId, modelId, p.after.id, {
+                  depth_top_m: p.after.depth_top_m,
+                  source: p.after.source,
+                  confidence: p.after.confidence,
+                })
+                .then(reapplied => {
+                  setContacts(prev =>
+                    prev.map(c => (c.id === reapplied.id ? reapplied : c)),
+                  )
+                }),
+            ),
+          )
+        },
+      })
     },
-    [project, activeGeologicalModel, setSessionImportContactIds, pushUndo],
+    [
+      project,
+      activeGeologicalModel,
+      setSessionImportContactIds,
+      pushUndo,
+      contacts,
+    ],
   )
 
   // All-or-nothing batch UPDATE commit — fired by the section
