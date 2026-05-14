@@ -25,6 +25,7 @@ from groundmodel.api.schemas.project.formation_contact import (
     FormationContactCreateRequest,
     FormationContactResponse,
     FormationContactUpdateRequest,
+    FormationSurfaceResponse,
     GapIssueResponse,
     GapValidationResponse,
 )
@@ -658,6 +659,31 @@ async def dedupe_existing_contacts(
         duplicates_removed=outcome.duplicates_removed,
         removed_contact_ids=outcome.removed_contact_ids,
     )
+
+
+@router.get(
+    "/models/{model_id}/surfaces",
+    response_model=list[FormationSurfaceResponse],
+)
+async def list_model_surfaces(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> list[FormationSurfaceResponse]:
+    """Return every cached TIN surface in this model.
+
+    The section-view consumer fetches this once on section load,
+    indexes by formation_id, and slices each surface against the
+    section line for off-line-pick-aware polylines.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    repo = GeologyRepository(session)
+    rows = await repo.list_surfaces(model_id)
+    return [FormationSurfaceResponse.model_validate(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
