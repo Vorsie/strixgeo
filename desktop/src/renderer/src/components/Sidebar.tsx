@@ -130,6 +130,10 @@ interface Props {
   /** Refresh signal for the crossings banner — App bumps after every
    * contact mutation so the banner re-runs the validator. */
   crossingsRefreshSignal?: number
+  /** Count of cached surfaces whose source contacts have changed
+   * since the last Build (on-click build pivot). Drives the
+   * "N unbuilt edits" badge on the Build button in the pane. */
+  staleSurfaceCount?: number
   /** Visible borehole IDs — used by the Interpretation pane's
    * "Populate from boreholes" affordance to walk every borehole's
    * stratigraphy observations and harvest formation names. */
@@ -292,6 +296,7 @@ export default function Sidebar({
   onRebuildSurfaces,
   activeModelId,
   crossingsRefreshSignal,
+  staleSurfaceCount,
   visibleBoreholeIds,
   activeModelName,
   visibleBoreholes: panelBoreholes,
@@ -771,6 +776,7 @@ export default function Sidebar({
             onFormationUpdated={onFormationUpdated}
             refreshSignal={formationsRefreshSignal}
             crossingsRefreshSignal={crossingsRefreshSignal}
+            staleSurfaceCount={staleSurfaceCount}
             pushUndoCommand={pushUndoCommand}
             onDedupeContacts={onDedupeContacts}
             onRebuildSurfaces={onRebuildSurfaces}
