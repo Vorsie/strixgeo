@@ -238,6 +238,11 @@ class FormationSurfaceResponse(BaseModel):
     vertices: list[list[float]]
     triangles: list[list[int]]
     source_contact_count: int
+    # On-click build pivot: True when the cached TIN no longer
+    # reflects the current contacts (a mutation flipped this since the
+    # last build). The section consumer renders stale surfaces with a
+    # demoted style (faded + dashed) until the user clicks Build.
+    is_stale: bool = False
     created_at: datetime
     updated_at: datetime
 
