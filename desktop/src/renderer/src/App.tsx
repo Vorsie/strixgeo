@@ -41,7 +41,9 @@ import {
 import {
   VIRTUELE_BORING_VIEW_STATE_KEY,
   activeOverlayModels,
+  readPaneVisibility,
   readVirtueleBoringOverlay,
+  writePaneVisibility,
 } from './utils/virtueleBoringOverlay'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
@@ -3020,8 +3022,12 @@ export default function App() {
     }
   }, [project?.id, virtueleBoringActiveModels])
 
-  const handleChangeVirtueleBoringModels = useCallback(
-    async (next: { modelA: string | null; modelB: string | null }) => {
+  const handleChangeVirtueleBoringPicker = useCallback(
+    async (next: {
+      modelA: string | null
+      modelB: string | null
+      maxDepthM: number | null
+    }) => {
       const ok = await applyViewStatePatch({ [VIRTUELE_BORING_VIEW_STATE_KEY]: next })
       if (!ok) {
         toast('error', 'Could not save the virtuele-boring overlay setting.')
@@ -3029,6 +3035,41 @@ export default function App() {
     },
     [applyViewStatePatch],
   )
+
+  // Per-pane visibility — localStorage-backed (per-user UI chrome).
+  // Each pane keeps its own boolean so the user can show DOV on the
+  // section view while keeping it off in the detail panes, or vice
+  // versa. State seeded from localStorage on project change.
+  const projectIdForOverlay = project?.id ?? null
+  const [showOverlayOnSection, setShowOverlayOnSection] = useState(true)
+  const [showOverlayOnCpt, setShowOverlayOnCpt] = useState(false)
+  const [showOverlayOnBorehole, setShowOverlayOnBorehole] = useState(false)
+  useEffect(() => {
+    setShowOverlayOnSection(readPaneVisibility(projectIdForOverlay, 'section'))
+    setShowOverlayOnCpt(readPaneVisibility(projectIdForOverlay, 'cpt'))
+    setShowOverlayOnBorehole(readPaneVisibility(projectIdForOverlay, 'borehole'))
+  }, [projectIdForOverlay])
+  const handleSetShowOverlay = useCallback(
+    (pane: 'section' | 'cpt' | 'borehole', next: boolean) => {
+      writePaneVisibility(projectIdForOverlay, pane, next)
+      if (pane === 'section') setShowOverlayOnSection(next)
+      else if (pane === 'cpt') setShowOverlayOnCpt(next)
+      else setShowOverlayOnBorehole(next)
+    },
+    [projectIdForOverlay],
+  )
+
+  // Index predictions by investigation id once at the App level so
+  // both the section view (looking up each visible column) and the
+  // detail panes (looking up the one selected investigation) hit a
+  // single Map lookup.
+  const virtueleBoringPredictionByInvestigationId = useMemo(() => {
+    const map = new Map<string, VirtueleBoringInvestigationPrediction>()
+    for (const pred of virtueleBoringPredictions) {
+      map.set(pred.investigation_id, pred)
+    }
+    return map
+  }, [virtueleBoringPredictions])
 
   // Resolve the currently-selected section from id + list. Lives here
   // (above the early-return ladder) so the hook count stays stable
@@ -3189,12 +3230,6 @@ export default function App() {
             activeGeologicalModel?.excluded_borehole_ids ?? []
           }
           onToggleBoreholeInModel={handleToggleBoreholeInModel}
-          virtueleBoringModelA={virtueleBoringOverlay.modelA}
-          virtueleBoringModelB={virtueleBoringOverlay.modelB}
-          virtueleBoringPredictions={virtueleBoringPredictions}
-          virtueleBoringLoading={virtueleBoringLoading}
-          virtueleBoringSkippedCount={virtueleBoringSkippedCount}
-          onChangeVirtueleBoringModels={handleChangeVirtueleBoringModels}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
@@ -3251,6 +3286,14 @@ export default function App() {
                 }
                 virtueleBoringActiveModels={virtueleBoringActiveModels}
                 virtueleBoringPredictions={virtueleBoringPredictions}
+                virtueleBoringModelA={virtueleBoringOverlay.modelA}
+                virtueleBoringModelB={virtueleBoringOverlay.modelB}
+                virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
+                virtueleBoringShowOnSection={showOverlayOnSection}
+                onChangeVirtueleBoringPicker={handleChangeVirtueleBoringPicker}
+                onChangeVirtueleBoringShowOnSection={next =>
+                  handleSetShowOverlay('section', next)
+                }
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
@@ -3290,6 +3333,15 @@ export default function App() {
                   onElevationChange={(elevationM, zEpsg) =>
                     handlePatchBoreholeElevation(selectedBoreholeId, elevationM, zEpsg)
                   }
+                  virtueleBoringPrediction={
+                    virtueleBoringPredictionByInvestigationId.get(selectedBoreholeId) ?? null
+                  }
+                  virtueleBoringActiveModels={virtueleBoringActiveModels}
+                  virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
+                  virtueleBoringVisible={showOverlayOnBorehole}
+                  onToggleVirtueleBoringVisible={() =>
+                    handleSetShowOverlay('borehole', !showOverlayOnBorehole)
+                  }
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-sm text-gray-400">
@@ -3304,6 +3356,15 @@ export default function App() {
                     detail={detailMap.get(selectedId!)}
                     onElevationChange={(elevationM, zEpsg) =>
                       handlePatchCptElevation(selectedId!, elevationM, zEpsg)
+                    }
+                    virtueleBoringPrediction={
+                      virtueleBoringPredictionByInvestigationId.get(selectedId!) ?? null
+                    }
+                    virtueleBoringActiveModels={virtueleBoringActiveModels}
+                    virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
+                    virtueleBoringVisible={showOverlayOnCpt}
+                    onToggleVirtueleBoringVisible={() =>
+                      handleSetShowOverlay('cpt', !showOverlayOnCpt)
                     }
                   />
                 : <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading chart…</div>
