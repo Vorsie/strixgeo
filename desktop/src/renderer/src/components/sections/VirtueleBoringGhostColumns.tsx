@@ -34,23 +34,38 @@ import type {
   VirtueleBoringInvestigationPrediction,
   VirtueleBoringLayer,
 } from '../../api/client'
+import {
+  maxCharsForWidth,
+  maxLinesForHeight,
+  wrapLabelToLines,
+} from '../../utils/labelWrap'
 import type { PlacedColumn } from './utils'
 
 // Visual constants. Wide enough to fit a short label like "Fm Boom"
 // or "A0100"; narrow enough that two side-by-side ghosts don't
-// double the column footprint on the section view.
-const GHOST_COLUMN_WIDTH_PX = 44
-const GHOST_COLUMN_GAP_PX = 4
+// double the column footprint on the section view. Exported so the
+// SectionPanel's nudge layout can fold the ghost rail width into
+// each column's visualWidth for collision avoidance.
+export const GHOST_COLUMN_WIDTH_PX = 44
+export const GHOST_COLUMN_GAP_PX = 4
+export const GHOST_GAP_FROM_BAND_PX = 6
 const GHOST_OPACITY = 0.55
-// The data band already sits ±bandHalfWidth around nudgedX. Anchor
-// the first ghost ``GAP`` pixels past the band's right edge.
-const GHOST_GAP_FROM_BAND_PX = 6
-// Inline-label minimum height — fonts at 9px can't read at 8px
-// height. Below this threshold we fall back to tooltip-only.
-const LABEL_MIN_HEIGHT_PX = 12
 const LABEL_FONT_SIZE = 9
-const HEADER_HEIGHT_PX = 12
 const HEADER_FONT_SIZE = 8
+
+/**
+ * Compute the horizontal footprint (in px) of the ghost rail for a
+ * given number of active models. Returns 0 when nothing is active so
+ * callers can skip the collision-padding branch entirely.
+ */
+export function virtueleBoringGhostRailWidth(activeModelCount: number): number {
+  if (activeModelCount <= 0) return 0
+  return (
+    GHOST_GAP_FROM_BAND_PX +
+    activeModelCount * GHOST_COLUMN_WIDTH_PX +
+    Math.max(0, activeModelCount - 1) * GHOST_COLUMN_GAP_PX
+  )
+}
 
 export interface VirtueleBoringGhostColumnsProps {
   /** Same placement that ``InvestigationColumns`` renders against —
@@ -204,7 +219,13 @@ function VirtueleBoringGhostLayer({
   const fill = layer.color_hex ?? '#9ca3af'
   const label = layer.beschrijving || layer.name
   const tooltip = `${label}: ${layer.top_m_taw.toFixed(2)} → ${layer.base_m_taw.toFixed(2)} mTAW (${layer.thickness_m.toFixed(2)} m)`
-  const showInlineLabel = height >= LABEL_MIN_HEIGHT_PX && label.length > 0
+  // Wrap the label across as many lines as fit in the rect. Falls
+  // back to tooltip-only when the rect is too thin for even one
+  // line — never renders a partial-letter clipped label.
+  const maxLines = maxLinesForHeight(height, LABEL_FONT_SIZE)
+  const lines = maxLines > 0
+    ? wrapLabelToLines(label, maxCharsForWidth(width, LABEL_FONT_SIZE), maxLines)
+    : []
   return (
     <g>
       <rect
@@ -220,40 +241,63 @@ function VirtueleBoringGhostLayer({
       >
         <title>{tooltip}</title>
       </rect>
-      {showInlineLabel && (
-        <text
-          x={left + width / 2}
-          y={topY + height / 2 + LABEL_FONT_SIZE / 3}
-          textAnchor="middle"
+      {lines.length > 0 && (
+        <MultiLineLabel
+          lines={lines}
+          centerX={left + width / 2}
+          rectTopY={topY}
+          rectHeight={height}
           fontSize={LABEL_FONT_SIZE}
-          // Black text on faded coloured backgrounds reads better
-          // than the inverse — most DOV colours are saturated
-          // medium-tone, and we never see a near-black fill.
-          fill="#111827"
-          style={{ pointerEvents: 'none' }}
-        >
-          {truncateForWidth(label, width)}
-          <title>{tooltip}</title>
-        </text>
+          tooltip={tooltip}
+        />
       )}
     </g>
   )
 }
 
 /**
- * Truncate ``label`` so it fits inside the ghost column width
- * (approximate — SVG doesn't measure text without a layout pass).
- * Falls back to a 6-char-and-ellipsis approximation tuned for the
- * 44 px column + 9 px font: typical labels (``Fm Boom``,
- * ``Antropogeen``, ``Quartair``) fit unmodified; longer ones get
- * clipped.
+ * Render a vertically-centred multi-line label inside a ghost rect.
+ * Uses SVG ``<tspan>`` for each line so the renderer doesn't need
+ * to measure text widths per render — the line array carries the
+ * exact wrap our character-budget heuristic produced.
  */
-function truncateForWidth(label: string, width: number): string {
-  // 9 px font ≈ 5 px per character at the upper bound for non-narrow
-  // glyphs (lowercase letters average less). 44 px / 5 ≈ 8 chars
-  // safely; allow 10 for typical mixed-case labels with thinner
-  // glyphs ("Fm Gent", "Antropogeen").
-  const maxChars = Math.max(4, Math.floor((width - 4) / 4.5))
-  if (label.length <= maxChars) return label
-  return label.slice(0, maxChars - 1) + '…'
+function MultiLineLabel({
+  lines,
+  centerX,
+  rectTopY,
+  rectHeight,
+  fontSize,
+  tooltip,
+}: {
+  lines: readonly string[]
+  centerX: number
+  rectTopY: number
+  rectHeight: number
+  fontSize: number
+  tooltip: string
+}): JSX.Element {
+  const lineHeight = fontSize * 1.15
+  // Centre the multi-line block vertically inside the rect:
+  // first baseline = rect centre minus half the block height plus
+  // the font's typical ascender (≈ 0.75 × fontSize).
+  const blockHeight = lineHeight * lines.length
+  const firstBaselineY =
+    rectTopY + rectHeight / 2 - blockHeight / 2 + fontSize * 0.8
+  return (
+    <text
+      x={centerX}
+      y={firstBaselineY}
+      textAnchor="middle"
+      fontSize={fontSize}
+      fill="#111827"
+      style={{ pointerEvents: 'none' }}
+    >
+      {lines.map((line, i) => (
+        <tspan key={i} x={centerX} dy={i === 0 ? 0 : lineHeight}>
+          {line}
+        </tspan>
+      ))}
+      <title>{tooltip}</title>
+    </text>
+  )
 }
