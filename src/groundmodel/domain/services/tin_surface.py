@@ -224,6 +224,63 @@ class SlicePoint:
     elevation_m: float
 
 
+def evaluate_tin_at(surface: TinSurface, x: float, y: float) -> float | None:
+    """Interpolate the surface's elevation at a horizontal point.
+
+    Walks the triangles, finds the one whose horizontal projection
+    contains ``(x, y)``, and returns the barycentric-interpolated
+    elevation. Returns ``None`` when the point sits outside every
+    triangle (the surface doesn't cover that location) or when the
+    surface has no triangles.
+
+    Parameters
+    ----------
+    surface : TinSurface
+    x, y : float
+        Horizontal coordinates in the surface's CRS.
+
+    Returns
+    -------
+    float | None
+        Interpolated elevation at ``(x, y)``, or ``None`` when the
+        point is outside the TIN's footprint.
+
+    Notes
+    -----
+    Used by the cross-formation crossing validator to compare two
+    surfaces' elevations at the same (x, y). Cost is O(triangles)
+    per call — acceptable for v1 cardinality (<200 contacts per
+    formation, <20 formations per project). When this becomes a
+    bottleneck, swap for a pre-built KD-tree of triangle centroids
+    or a triangle-walk via ``scipy.spatial.Delaunay.find_simplex``.
+    """
+    if not surface.triangles:
+        return None
+    for ia, ib, ic in surface.triangles:
+        ax, ay, az = surface.vertices[ia]
+        bx, by, bz = surface.vertices[ib]
+        cx, cy, cz = surface.vertices[ic]
+        # Barycentric coordinates relative to triangle (a, b, c).
+        # Reference: any standard computational-geometry text — uses
+        # the signed area ratios. Numerically stable for non-
+        # degenerate triangles; degenerate ones are filtered upstream
+        # by Delaunay.
+        denom = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if denom == 0.0:
+            continue
+        w_a = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / denom
+        w_b = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / denom
+        w_c = 1.0 - w_a - w_b
+        # Allow points exactly on an edge (weight == 0). Tolerance is
+        # zero — Delaunay produces non-overlapping triangles, so any
+        # point exactly on a shared edge will only match one triangle
+        # within numerical noise; even if it matches both, both yield
+        # the same interpolated z.
+        if w_a >= 0.0 and w_b >= 0.0 and w_c >= 0.0:
+            return w_a * az + w_b * bz + w_c * cz
+    return None
+
+
 def slice_tin(surface: TinSurface, line: SectionLine2D) -> list[SlicePoint]:
     """Cut the TIN with a vertical plane along ``line`` and return the polyline.
 
