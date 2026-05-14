@@ -1,0 +1,168 @@
+"""Virtuele Boring (DOV overlay) API routes.
+
+Two endpoints behind one router:
+
+* ``GET /dov/virtuele-boring/lagenmodellen`` — proxies DOV's model
+  catalogue. Project-independent, no DB read; the desktop client
+  hits this once per session to populate its model-picker dropdown.
+* ``GET /projects/{project_id}/virtuele-boring/predictions`` —
+  per-project overlay payload. Loads every CPT + borehole in the
+  project, fans out one doorprik call per (investigation, model)
+  pair, returns the aggregated predictions.
+
+Errors mirror the DEM router's pattern (debt #43): category-only
+detail to the user, full upstream context in the server log.
+"""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from groundmodel.api.schemas.virtuele_boring import (
+    VirtueleBoringInvestigationResponse,
+    VirtueleBoringLagenmodelEntry,
+    VirtueleBoringLayerResponse,
+    VirtueleBoringPredictionsResponse,
+)
+from groundmodel.application.fetch_virtuele_boring_predictions import (
+    FetchVirtueleBoringPredictions,
+)
+from groundmodel.infrastructure.db.session import get_session
+from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
+from groundmodel.infrastructure.parsers.dov.virtuele_boring_client import (
+    VirtueleBoringClient,
+    VirtueleBoringFetchError,
+)
+from groundmodel.shared.logging.logger_factory import LoggerFactory
+
+# Module-level logger — routers are stateless functions, not classes.
+logger = LoggerFactory.get_logger(__name__)
+
+# Two separate APIRouter instances since the URL prefixes differ
+# (project-scoped vs DOV-global). Both expose the same Virtuele
+# Boring concept so they share a tag for OpenAPI grouping.
+catalog_router = APIRouter(prefix="/dov/virtuele-boring", tags=["virtuele-boring"])
+project_router = APIRouter(
+    prefix="/projects/{project_id}/virtuele-boring", tags=["virtuele-boring"]
+)
+
+
+# Maximum models per request — guards against an accidentally
+# unbounded ?models= list. Two dropdowns in the UI means the
+# realistic ceiling is 2; we leave headroom for future surfaces
+# that may want to compare more variants side-by-side.
+_MAX_MODELS_PER_REQUEST = 12
+
+
+@catalog_router.get("/lagenmodellen", response_model=list[VirtueleBoringLagenmodelEntry])
+async def list_lagenmodellen() -> list[VirtueleBoringLagenmodelEntry]:
+    """Return the list of DOV lagenmodels the Virtuele Boring server exposes.
+
+    Live passthrough — DOV's catalog is small (12 entries today) and
+    cheap to fetch. The desktop client caches the result for the
+    session so the dropdown opens without delay after the first call.
+    """
+    async with make_dov_async_client() as http:
+        try:
+            catalog = await VirtueleBoringClient(http).fetch_lagenmodel_catalog()
+        except VirtueleBoringFetchError as err:
+            logger.warning(f"Virtuele Boring catalog fetch failed: HTTP {err.status_code}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Cannot reach Virtuele Boring catalog",
+            ) from err
+        except httpx.ConnectError as err:
+            logger.warning(f"Virtuele Boring connect error: {type(err).__name__}: {err}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Cannot reach Virtuele Boring",
+            ) from err
+        except httpx.TimeoutException as err:
+            logger.warning(f"Virtuele Boring timeout: {type(err).__name__}: {err}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Virtuele Boring timed out",
+            ) from err
+
+    return [
+        VirtueleBoringLagenmodelEntry(
+            code=str(entry.get("code", "")),
+            beschrijving=str(entry.get("beschrijving", "")),
+            resoluties=[int(r) for r in entry.get("resoluties", []) if isinstance(r, (int, float))],
+        )
+        for entry in catalog
+        if entry.get("code")
+    ]
+
+
+@project_router.get("/predictions", response_model=VirtueleBoringPredictionsResponse)
+async def fetch_predictions(
+    project_id: UUID,
+    models: str = Query(
+        ...,
+        description=(
+            "Comma-separated DOV lagenmodel codes (e.g. 'g3dv3_F,hcovv2_H'). "
+            "At least one required, max 12."
+        ),
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> VirtueleBoringPredictionsResponse:
+    """Return overlay predictions for every investigation in a project.
+
+    For each CPT + borehole with Lambert-72 (EPSG:31370) coordinates,
+    fetches one doorprik call per requested model. Investigations
+    outside Lambert 72 are counted in ``skipped_count`` but not
+    listed in ``predictions`` (no rendering target for them).
+
+    A per-investigation per-model fetch failure is logged at WARNING
+    on the server and surfaces as a missing key in
+    ``predictions_by_model`` — the rest of the sweep still returns.
+    """
+    requested = [m.strip() for m in models.split(",") if m.strip()]
+    if not requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one model code is required.",
+        )
+    if len(requested) > _MAX_MODELS_PER_REQUEST:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Too many models requested (max {_MAX_MODELS_PER_REQUEST}).",
+        )
+
+    use_case = FetchVirtueleBoringPredictions(session)
+    result = await use_case.execute(project_id, requested)
+
+    return VirtueleBoringPredictionsResponse(
+        models=result.models,
+        skipped_count=result.skipped_count,
+        predictions=[
+            VirtueleBoringInvestigationResponse(
+                investigation_kind=p.investigation_kind,
+                investigation_id=p.investigation_id,
+                name=p.name,
+                elevation_m_taw=p.elevation_m_taw,
+                predictions_by_model={
+                    model_code: [
+                        VirtueleBoringLayerResponse(
+                            code=layer.code,
+                            name=layer.name,
+                            beschrijving=layer.beschrijving,
+                            top_m_taw=layer.top_m_taw,
+                            base_m_taw=layer.base_m_taw,
+                            thickness_m=layer.thickness_m,
+                            color_hex=layer.color_hex,
+                            ncs_link=layer.ncs_link,
+                        )
+                        for layer in layers
+                    ]
+                    for model_code, layers in p.predictions_by_model.items()
+                },
+            )
+            for p in result.predictions
+        ],
+    )
