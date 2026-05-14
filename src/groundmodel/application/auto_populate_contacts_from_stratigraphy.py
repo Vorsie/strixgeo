@@ -43,6 +43,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid6 import uuid7
 
+from groundmodel.application.recompute_formation_surface import (
+    RecomputeFormationSurface,
+)
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -201,6 +204,10 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
 
         created_contact_ids: list[UUID] = []
         created_formation_ids: list[UUID] = []
+        # Tracks every formation that received a new contact in this
+        # run. Used to scope the post-batch surface recompute to just
+        # the affected pairs (no point recomputing untouched formations).
+        touched_formations: set[UUID] = set()
         skipped_existing = 0
         skipped_unmatched = 0
         skipped_no_stratigraphy = 0
@@ -314,8 +321,16 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 self._session.add(contact)
                 used_layer_ids.add(layer.id)
                 occupied_anchor_formation.add(anchor_formation_key)
+                touched_formations.add(formation.id)
                 created_contact_ids.append(contact.id)
 
+        # Refresh the TIN cache for every formation the auto-populate
+        # actually touched. ``execute_many`` dedups so each pair runs
+        # one Delaunay call regardless of how many contacts seeded it.
+        await self._session.flush()
+        await RecomputeFormationSurface(self._session).execute_many(
+            (model_id, fid) for fid in touched_formations
+        )
         await self._session.commit()
         self.success(
             f"Auto-populate done: model={model_id} "
