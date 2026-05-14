@@ -710,6 +710,7 @@ async def rebuild_model_surfaces(
     return RebuildSurfacesResponse(
         formations_considered=outcome.formations_considered,
         formations_rebuilt=outcome.formations_rebuilt,
+        formations_reordered=outcome.formations_reordered,
     )
 
 
