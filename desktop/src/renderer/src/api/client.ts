@@ -283,6 +283,19 @@ export interface DeduplicateContactsResponse {
   removed_contact_ids: string[]
 }
 
+/** Result of ``POST /projects/{pid}/geology/models/{mid}/surfaces/rebuild``.
+ *
+ * ``formations_considered`` counts the formations that have at least
+ * one contact in the model — these are the ones the rebuild loop
+ * visits. ``formations_rebuilt`` is the subset whose recomputed
+ * checksum differed from the cached one (i.e. the cache write fired).
+ * On a clean model both are 0.
+ */
+export interface RebuildSurfacesResponse {
+  formations_considered: number
+  formations_rebuilt: number
+}
+
 /** API representation of a cached TIN surface — one per
  * (model, formation). Section view fetches these to render slice-
  * derived polylines (off-line picks contribute via their triangle).
@@ -1091,6 +1104,20 @@ export const api = {
     ): Promise<DeduplicateContactsResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/dedupe`,
+        {},
+      ),
+
+    // Manual escape hatch — force-recompute every formation's TIN
+    // cache in this model. Auto-recompute hooks keep the cache in
+    // sync on the happy path; click this when something bypassed
+    // them (anchor elevation edited without a contact mutation,
+    // bundle restored, suspected stale checksum). Idempotent.
+    rebuildSurfaces: (
+      projectId: string,
+      modelId: string,
+    ): Promise<RebuildSurfacesResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/surfaces/rebuild`,
         {},
       ),
 
