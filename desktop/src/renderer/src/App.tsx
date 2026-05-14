@@ -1259,6 +1259,50 @@ export default function App() {
   )
 
   // Auto-populate the active model with contacts derived from
+  // One-shot cleanup for legacy duplicate (anchor, formation)
+  // contacts left over from auto-populate runs that predated the
+  // per-anchor uniqueness rule. Backend keeps one survivor per
+  // group + deletes the rest; we refresh local contacts state +
+  // toast the count. NOT in the undo stack — this is an explicit
+  // "clean up old data" action with a confirmation dialog, not
+  // an interactive edit.
+  const handleDedupeContacts = useCallback(async (): Promise<number> => {
+    if (!project || !activeGeologicalModel) return 0
+    log.debug('geology', `dedupeContacts entry model=${activeGeologicalModel.id}`)
+    try {
+      const result = await api.geology.dedupeContacts(
+        project.id,
+        activeGeologicalModel.id,
+      )
+      // Refresh contacts so deleted rows leave the section view.
+      const conts = await api.geology.listContacts(
+        project.id,
+        activeGeologicalModel.id,
+      )
+      setContacts(conts)
+      log.success(
+        'geology',
+        `dedupeContacts ok inspected=${result.inspected_groups} removed=${result.duplicates_removed}`,
+      )
+      if (result.duplicates_removed === 0) {
+        toast('success', 'Already clean — no duplicates found.')
+      } else {
+        toast(
+          'success',
+          `Removed ${result.duplicates_removed} duplicate ` +
+            `contact${result.duplicates_removed === 1 ? '' : 's'} ` +
+            `across ${result.inspected_groups} (anchor, formation) ` +
+            `pair${result.inspected_groups === 1 ? '' : 's'}.`,
+        )
+      }
+      return result.duplicates_removed
+    } catch (err) {
+      log.error('geology', 'dedupeContacts failed', err)
+      toast('error', 'Could not run the cleanup — see console.')
+      return 0
+    }
+  }, [project, activeGeologicalModel])
+
   // each section borehole's stratigraphy observation (formal
   // preferred, informal fallback). Backend creates contacts +
   // any missing formations in one transaction; we refresh local
@@ -2722,6 +2766,9 @@ export default function App() {
           onFormationDeleted={handleFormationDeleted}
           formationsRefreshSignal={formationsRefreshCounter}
           pushUndoCommand={pushUndo}
+          onDedupeContacts={
+            activeGeologicalModel ? handleDedupeContacts : undefined
+          }
           visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
           activeModelName={activeGeologicalModel?.name ?? null}
           visibleBoreholes={visibleBoreholes}
