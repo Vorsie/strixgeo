@@ -2,9 +2,16 @@
  * Right-click context menu for an investigation column on the
  * cross-section.
  *
- * v1 carries a single action: "Focus this test" — enters the
- * section's focus mode, hiding every other column so the user can
- * edit formation boundaries on the picked test in isolation.
+ * Actions:
+ *
+ *   * "Focus this test" — enters the section's focus mode, hiding
+ *     every other column so the user can edit formation boundaries
+ *     on the picked test in isolation.
+ *   * "Remove from this section" — adds the column's id to the
+ *     section's excluded_{cpt,borehole}_ids list. Reversible
+ *     (project-local hide, the test stays in the project + on the
+ *     map). Per UX conventions no confirmation dialog; the
+ *     "N hidden · restore all" footer is the undo path.
  *
  * The menu is positioned absolutely inside SectionPanel's relative
  * container; coordinates come from the original ``onContextMenu``
@@ -25,6 +32,11 @@ interface Props {
   name: string
   /** Fired when the user picks "Focus this test". */
   onFocus: () => void
+  /** Fired when the user picks "Remove from this section". When
+   * omitted (test harness, read-only mounts) the menu item is
+   * hidden — the action is only meaningful when the parent owns
+   * a PATCH path back to the section row. */
+  onRemoveFromSection?: () => void
   /** Fired when the user clicks anywhere outside the menu, or
    * presses Esc. */
   onClose: () => void
@@ -35,6 +47,7 @@ export default function ColumnContextMenu({
   y,
   name,
   onFocus,
+  onRemoveFromSection,
   onClose,
 }: Props): JSX.Element {
   useEffect(() => {
@@ -54,7 +67,7 @@ export default function ColumnContextMenu({
 
   return (
     <div
-      className="absolute z-30 min-w-[180px] bg-white border border-gray-300 shadow-md rounded text-sm"
+      className="absolute z-30 min-w-[200px] bg-white border border-gray-300 shadow-md rounded text-sm"
       style={{ left: x, top: y }}
       // Stop our own clicks from bubbling to the document-level
       // dismisser; only clicks elsewhere should close the menu.
@@ -76,6 +89,19 @@ export default function ColumnContextMenu({
       >
         Focus this test
       </button>
+      {onRemoveFromSection && (
+        <button
+          type="button"
+          className="block w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 border-t border-gray-100"
+          onClick={() => {
+            onRemoveFromSection()
+            onClose()
+          }}
+          role="menuitem"
+        >
+          Remove from this section
+        </button>
+      )}
     </div>
   )
 }
