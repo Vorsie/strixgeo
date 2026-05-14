@@ -372,12 +372,46 @@ Package manager: **UV** (installed globally via winget). The `.venv` and `uv.loc
 ```
 uv sync --group dev              # first-time setup or after pulling
 uv run pytest tests/unit         # fast, no Docker needed
-uv run pytest tests/integration  # requires docker-compose up
+.\scripts\run-integration-tests.ps1   # integration suite (sets DATABASE_URL + runs alembic)
 uv run pytest tests/e2e          # requires full stack running
 uv run ruff check src tests      # lint
 uv run ruff format src tests     # format
 uv run mypy src                  # type check
 ```
+
+**Integration tests run against a sibling DB, never the dev DB.**
+``tests/integration/conftest.py`` TRUNCATEs every project-scoped
+table at the start and end of every test, so running it against
+``groundmodel`` (the dev DB) wipes whatever is imported. The repo
+ships a separate ``groundmodel_integration`` DB on the same
+dockerised Postgres instance + a wrapper script at
+``scripts/run-integration-tests.ps1`` that points ``DATABASE_URL``
+at it and runs ``alembic upgrade head`` first. A
+``pytest_collection_modifyitems`` guard in the integration conftest
+refuses to run if ``DATABASE_URL`` does not end in ``_integration``
+or ``_test``, so a forgotten env var fails loudly instead of
+silently destroying state. Usage:
+
+```
+.\scripts\run-integration-tests.ps1                     # full suite
+.\scripts\run-integration-tests.ps1 -q                  # quiet
+.\scripts\run-integration-tests.ps1 tests/integration/api/test_cross_section.py
+```
+
+One-time bootstrap (already done; recreate after a docker volume
+wipe with these three commands):
+
+```
+docker exec strix-db-1 psql -U groundmodel -d groundmodel `
+  -c "CREATE DATABASE groundmodel_integration;"
+docker exec strix-db-1 psql -U groundmodel -d groundmodel_integration `
+  -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+.\scripts\run-integration-tests.ps1 --collect-only       # triggers migrations
+```
+
+Alembic honours ``DATABASE_URL`` when set (see
+``src/groundmodel/infrastructure/db/migrations/env.py``), so the
+wrapper script's env override carries through to migrations cleanly.
 
 **Pre-commit rules — apply to every Python file before staging:**
 
