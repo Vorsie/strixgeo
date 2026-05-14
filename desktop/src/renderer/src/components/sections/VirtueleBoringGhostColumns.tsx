@@ -1,26 +1,33 @@
 /**
- * Slim "ghost" columns rendered next to each investigation on the
- * section view, showing DOV Virtuele Boring predictions at the
- * investigation's (x, y). Informative overlay only — never contributes
- * to ``FormationContact`` placement, never gates Build. Engineers use
- * it to inform their manual contact picks ("DOV thinks Boom starts at
- * mTAW −14 here").
+ * Slim labelled "ghost" columns rendered next to each investigation
+ * on the section view, showing DOV Virtuele Boring predictions at
+ * the investigation's (x, y). Informative overlay only — never
+ * contributes to ``FormationContact`` placement, never gates Build.
+ * Engineers use it to inform their manual contact picks ("DOV thinks
+ * Boom starts at mTAW -14 here").
  *
  * Layout per investigation:
  *
  *   [own column / data band]   [model A ghost]   [model B ghost]
  *
- * Each ghost column is a fixed-width vertical stack of coloured
- * rectangles — one per layer present at the point, drawn between
+ * Each ghost column is a vertical stack of coloured rectangles —
+ * one per layer present at the point, drawn between
  * ``levelToScreen(top_m_taw)`` and ``levelToScreen(base_m_taw)``.
  * Layer colour comes from DOV's ``dovlayercolor`` (a stable per-unit
- * RGB shipped inline in the doorprik response).
+ * RGB shipped inline in the doorprik response). Each rect carries
+ * an inline text label when the rect is tall enough; otherwise the
+ * label lives in the native ``<title>`` tooltip on hover. The
+ * column header (just above the rect stack) labels the active
+ * model code so two side-by-side ghosts are distinguishable.
  *
- * Each rect carries a native ``<title>`` tooltip with the layer name
- * + top/base elevations so hover gives the exact numbers without a
- * second panel. Opacity stays low (0.5) so the ghost reads as
- * "DOV predicts" rather than "this is the truth" — the engineer's
- * own picks still own visual priority.
+ * Vertical clipping: the caller passes ``maxDepthMBelowSurface`` so
+ * layers below the investigation's surface elevation minus that
+ * depth get hidden / clipped. ``null`` = no clip (render the full
+ * DOV column).
+ *
+ * Visual identity: opacity 0.55 + a thin stroke so the ghost reads
+ * as "DOV predicts" rather than ground truth. The engineer's own
+ * picks still own visual priority.
  */
 
 import type {
@@ -29,18 +36,21 @@ import type {
 } from '../../api/client'
 import type { PlacedColumn } from './utils'
 
-// Visual constants. Narrow + faded so the ghost reads as supplementary
-// information, not the main investigation column. Two ghosts (model
-// A + model B) per investigation = up to 30px of horizontal real
-// estate next to each column — fits comfortably within the typical
-// column spacing without crowding.
-const GHOST_COLUMN_WIDTH_PX = 12
-const GHOST_COLUMN_GAP_PX = 3
+// Visual constants. Wide enough to fit a short label like "Fm Boom"
+// or "A0100"; narrow enough that two side-by-side ghosts don't
+// double the column footprint on the section view.
+const GHOST_COLUMN_WIDTH_PX = 44
+const GHOST_COLUMN_GAP_PX = 4
 const GHOST_OPACITY = 0.55
-// Half-band hop — the existing CPT / borehole data band sits ±bandHalfWidth
-// from nudgedX. We anchor the first ghost ``GAP`` pixels right of the
-// band's right edge.
-const GHOST_GAP_FROM_BAND_PX = 4
+// The data band already sits ±bandHalfWidth around nudgedX. Anchor
+// the first ghost ``GAP`` pixels past the band's right edge.
+const GHOST_GAP_FROM_BAND_PX = 6
+// Inline-label minimum height — fonts at 9px can't read at 8px
+// height. Below this threshold we fall back to tooltip-only.
+const LABEL_MIN_HEIGHT_PX = 12
+const LABEL_FONT_SIZE = 9
+const HEADER_HEIGHT_PX = 12
+const HEADER_FONT_SIZE = 8
 
 export interface VirtueleBoringGhostColumnsProps {
   /** Same placement that ``InvestigationColumns`` renders against —
@@ -50,22 +60,22 @@ export interface VirtueleBoringGhostColumnsProps {
    * Empty array short-circuits to a no-op render — keeps the
    * SectionPanel call site simple. */
   activeModels: readonly string[]
-  /** Per-investigation predictions, keyed by investigation_id. The
-   * map comes from the App's project-wide fetch and is cached there
-   * so toggle off/on doesn't re-fetch. */
+  /** Per-investigation predictions, keyed by investigation_id. */
   predictionsByInvestigationId: ReadonlyMap<string, VirtueleBoringInvestigationPrediction>
-  /** mTAW elevation → screen Y. Same transform every other layer
-   * uses; lets the ghost layers line up with the DEM polyline and
-   * the formation contact lines pixel-for-pixel. */
+  /** mTAW elevation → screen Y. */
   levelToScreen: (level: number) => number
-  /** Visible plot Y bounds — passed in to clamp each layer's rect so
-   * a layer extending far below the data view doesn't paint outside
-   * the plot frame. */
+  /** Visible plot Y bounds — used to clamp each layer's rect so a
+   * layer extending far below / above the data view doesn't paint
+   * outside the plot frame. */
   plotTop: number
   plotBottom: number
-  /** Half-width of the data band each investigation already renders.
-   * Used to position the first ghost to the right of that band. */
+  /** Half-width of the data band each investigation already renders. */
   bandHalfWidth: number
+  /** Vertical clip in metres below each investigation's surface
+   * elevation. Layers entirely below ``elevation_m - maxDepth`` are
+   * omitted; layers crossing the boundary are clipped at it.
+   * ``null`` = no clip (render the full DOV column). */
+  maxDepthMBelowSurface: number | null
 }
 
 export default function VirtueleBoringGhostColumns({
@@ -76,19 +86,23 @@ export default function VirtueleBoringGhostColumns({
   plotTop,
   plotBottom,
   bandHalfWidth,
+  maxDepthMBelowSurface,
 }: VirtueleBoringGhostColumnsProps): JSX.Element | null {
   if (activeModels.length === 0 || predictionsByInvestigationId.size === 0) return null
 
   return (
     <g data-testid="virtuele-boring-ghosts">
       {columns.map(col => {
-        const investigationId =
-          col.kind === 'cpt' ? col.proj.item.id : col.proj.item.id
+        const investigationId = col.proj.item.id
         const pred = predictionsByInvestigationId.get(investigationId)
         if (!pred) return null
-        // Place ghosts to the right of the data band. First ghost
-        // starts at nudgedX + bandHalfWidth + gap; each subsequent
-        // ghost shifts right by ghost-width + ghost-gap.
+        // Compute the absolute mTAW depth cap once per investigation
+        // so every layer rendered for it shares the same lower bound.
+        const surfaceElevation = pred.elevation_m_taw
+        const depthCapMTaw =
+          maxDepthMBelowSurface !== null && surfaceElevation !== null
+            ? surfaceElevation - maxDepthMBelowSurface
+            : null
         const baseLeft = col.nudgedX + bandHalfWidth + GHOST_GAP_FROM_BAND_PX
         return activeModels.map((modelCode, modelIdx) => {
           const layers = pred.predictions_by_model[modelCode]
@@ -100,6 +114,12 @@ export default function VirtueleBoringGhostColumns({
               key={`${col.kind}-${investigationId}-${modelCode}`}
               data-testid={`vb-ghost-${investigationId}-${modelCode}`}
             >
+              <GhostColumnHeader
+                left={left}
+                width={GHOST_COLUMN_WIDTH_PX}
+                bottomY={plotTop}
+                modelCode={modelCode}
+              />
               {layers.map(layer => (
                 <VirtueleBoringGhostLayer
                   key={`${layer.code}-${layer.top_m_taw}`}
@@ -109,6 +129,7 @@ export default function VirtueleBoringGhostColumns({
                   levelToScreen={levelToScreen}
                   plotTop={plotTop}
                   plotBottom={plotBottom}
+                  depthCapMTaw={depthCapMTaw}
                 />
               ))}
             </g>
@@ -119,6 +140,36 @@ export default function VirtueleBoringGhostColumns({
   )
 }
 
+function GhostColumnHeader({
+  left,
+  width,
+  bottomY,
+  modelCode,
+}: {
+  left: number
+  width: number
+  bottomY: number
+  modelCode: string
+}): JSX.Element {
+  // Mount above the plot, with the baseline ending just at plotTop
+  // so the header reads as "this column = X" without intruding on
+  // the level axis. Truncate by SVG ellipsis-equivalent (just
+  // visible width) — DOV's model codes are short ("g3dv3_F", 7
+  // chars) so this is rarely needed.
+  return (
+    <text
+      x={left + width / 2}
+      y={bottomY - 3}
+      textAnchor="middle"
+      fontSize={HEADER_FONT_SIZE}
+      fill="#6b7280"
+      style={{ pointerEvents: 'none' }}
+    >
+      {modelCode}
+    </text>
+  )
+}
+
 function VirtueleBoringGhostLayer({
   layer,
   left,
@@ -126,6 +177,7 @@ function VirtueleBoringGhostLayer({
   levelToScreen,
   plotTop,
   plotBottom,
+  depthCapMTaw,
 }: {
   layer: VirtueleBoringLayer
   left: number
@@ -133,31 +185,75 @@ function VirtueleBoringGhostLayer({
   levelToScreen: (level: number) => number
   plotTop: number
   plotBottom: number
+  depthCapMTaw: number | null
 }): JSX.Element | null {
+  // Apply the per-investigation depth cap before clipping to plot
+  // bounds — drops layers entirely below the cap and clips those
+  // that straddle it.
+  let effectiveBase = layer.base_m_taw
+  if (depthCapMTaw !== null) {
+    if (layer.top_m_taw <= depthCapMTaw) return null
+    if (layer.base_m_taw < depthCapMTaw) effectiveBase = depthCapMTaw
+  }
   // Top is the higher elevation → lower Y on screen. ``base`` is the
   // lower elevation → higher Y.
   const topY = Math.max(plotTop, Math.min(plotBottom, levelToScreen(layer.top_m_taw)))
-  const baseY = Math.max(plotTop, Math.min(plotBottom, levelToScreen(layer.base_m_taw)))
+  const baseY = Math.max(plotTop, Math.min(plotBottom, levelToScreen(effectiveBase)))
   const height = baseY - topY
-  // Zero-height layers (vanishingly thin in this VEX) wouldn't read
-  // anyway and crash the SVG when rx > height. Skip them.
   if (height <= 0.5) return null
   const fill = layer.color_hex ?? '#9ca3af'
+  const label = layer.beschrijving || layer.name
+  const tooltip = `${label}: ${layer.top_m_taw.toFixed(2)} → ${layer.base_m_taw.toFixed(2)} mTAW (${layer.thickness_m.toFixed(2)} m)`
+  const showInlineLabel = height >= LABEL_MIN_HEIGHT_PX && label.length > 0
   return (
-    <rect
-      x={left}
-      y={topY}
-      width={width}
-      height={height}
-      fill={fill}
-      fillOpacity={GHOST_OPACITY}
-      stroke={fill}
-      strokeOpacity={0.7}
-      strokeWidth={0.5}
-    >
-      <title>
-        {`${layer.beschrijving || layer.name}: ${layer.top_m_taw.toFixed(2)} → ${layer.base_m_taw.toFixed(2)} mTAW (${layer.thickness_m.toFixed(2)} m)`}
-      </title>
-    </rect>
+    <g>
+      <rect
+        x={left}
+        y={topY}
+        width={width}
+        height={height}
+        fill={fill}
+        fillOpacity={GHOST_OPACITY}
+        stroke={fill}
+        strokeOpacity={0.75}
+        strokeWidth={0.5}
+      >
+        <title>{tooltip}</title>
+      </rect>
+      {showInlineLabel && (
+        <text
+          x={left + width / 2}
+          y={topY + height / 2 + LABEL_FONT_SIZE / 3}
+          textAnchor="middle"
+          fontSize={LABEL_FONT_SIZE}
+          // Black text on faded coloured backgrounds reads better
+          // than the inverse — most DOV colours are saturated
+          // medium-tone, and we never see a near-black fill.
+          fill="#111827"
+          style={{ pointerEvents: 'none' }}
+        >
+          {truncateForWidth(label, width)}
+          <title>{tooltip}</title>
+        </text>
+      )}
+    </g>
   )
+}
+
+/**
+ * Truncate ``label`` so it fits inside the ghost column width
+ * (approximate — SVG doesn't measure text without a layout pass).
+ * Falls back to a 6-char-and-ellipsis approximation tuned for the
+ * 44 px column + 9 px font: typical labels (``Fm Boom``,
+ * ``Antropogeen``, ``Quartair``) fit unmodified; longer ones get
+ * clipped.
+ */
+function truncateForWidth(label: string, width: number): string {
+  // 9 px font ≈ 5 px per character at the upper bound for non-narrow
+  // glyphs (lowercase letters average less). 44 px / 5 ≈ 8 chars
+  // safely; allow 10 for typical mixed-case labels with thinner
+  // glyphs ("Fm Gent", "Antropogeen").
+  const maxChars = Math.max(4, Math.floor((width - 4) / 4.5))
+  if (label.length <= maxChars) return label
+  return label.slice(0, maxChars - 1) + '…'
 }
