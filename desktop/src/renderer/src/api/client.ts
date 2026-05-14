@@ -305,6 +305,12 @@ export interface FormationSurfaceResponse {
   model_id: string
   formation_id: string
   method: string
+  /** On-click build pivot: True when the cached TIN no longer
+   * reflects the current contacts. Section view renders stale
+   * surfaces faded + dashed; click Build to refresh. Optional in
+   * the type (older bundles / older builds may not carry it) but
+   * the backend always emits it as of the on-click pivot. */
+  is_stale?: boolean
   /** ``[x_m, y_m, elevation_m]`` triples in the project's
    * horizontal CRS + the formation's vertical datum. */
   vertices: [number, number, number][]
@@ -1132,9 +1138,10 @@ export const api = {
     rebuildSurfaces: (
       projectId: string,
       modelId: string,
+      method: 'tin' = 'tin',
     ): Promise<RebuildSurfacesResponse> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/surfaces/rebuild`,
+        `/projects/${projectId}/geology/models/${modelId}/surfaces/rebuild?method=${method}`,
         {},
       ),
 
