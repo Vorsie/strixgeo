@@ -201,6 +201,20 @@ class DeduplicateContactsResponse(BaseModel):
     removed_contact_ids: list[UUID]
 
 
+class RebuildSurfacesResponse(BaseModel):
+    """Result of ``POST /projects/{pid}/geology/models/{mid}/surfaces/rebuild``.
+
+    ``formations_considered`` counts the formations that have at
+    least one contact in this model — these are the ones the rebuild
+    loop visits. ``formations_rebuilt`` is the subset whose
+    recomputed checksum differed from the cached one (i.e. the cache
+    write fired). On a clean model both are 0.
+    """
+
+    formations_considered: int
+    formations_rebuilt: int
+
+
 class FormationSurfaceResponse(BaseModel):
     """API representation of a cached TIN per (model, formation).
 
