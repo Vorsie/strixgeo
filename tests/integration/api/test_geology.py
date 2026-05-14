@@ -1042,6 +1042,8 @@ async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
     """
     from datetime import datetime, timedelta, timezone
 
+    from sqlalchemy import text as _sql
+
     from groundmodel.infrastructure.db.models.formation_contact_orm import (
         FormationContactOrm as FCO,
     )
@@ -1049,9 +1051,15 @@ async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
     project, borehole = project_with_borehole
     formation = await _create_formation(async_client, project.id)
     model = await _create_model(async_client, project.id)
-    # Insert 3 duplicates directly (bypasses the new uniqueness check
-    # at the API layer; this mirrors the legacy data shape we want
-    # to clean up).
+    # Insert 3 duplicates directly. The dedupe endpoint exists to
+    # clean up legacy pre-migration data — fresh DBs running migration
+    # c9f4e72a3811 cannot create this shape anymore (partial unique
+    # index rejects it). Temporarily drop the index to stage the
+    # legacy-shape fixture, then restore it so the assertion runs
+    # against the same constraint set production code sees.
+    await db_session.execute(
+        _sql("DROP INDEX IF EXISTS uq_formation_contact_model_formation_borehole")
+    )
     now = datetime.now(UTC)
     auto_old = FCO(
         id=uuid7(),
@@ -1095,6 +1103,16 @@ async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
     body = resp.json()
     assert body["inspected_groups"] == 1
     assert body["duplicates_removed"] == 2
+    # Restore the unique index for the rest of the session. Dedupe
+    # has left one survivor per (model, formation, anchor), so the
+    # CREATE INDEX no longer collides.
+    await db_session.execute(
+        _sql(
+            "CREATE UNIQUE INDEX uq_formation_contact_model_formation_borehole "
+            "ON formation_contact (model_id, formation_id, borehole_id) "
+            "WHERE borehole_id IS NOT NULL"
+        )
+    )
 
     # Survivor must be the manual_pick (priority 1 wins over the two
     # borehole_observation rows regardless of timestamp).
