@@ -45,7 +45,6 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalFormationUpdatePayload,
-  VirtueleBoringInvestigationPrediction,
 } from '../../api/client'
 import { hashHexColor } from '../../utils/hashColor'
 import { log } from '../../utils/log'
@@ -53,7 +52,6 @@ import Button from '../ui/Button'
 import DirtyAsterisk from '../ui/DirtyAsterisk'
 import Modal from '../ui/Modal'
 import FormationDialog from './FormationDialog'
-import VirtueleBoringSection from './VirtueleBoringSection'
 
 interface Props {
   projectId: string | null
@@ -145,23 +143,6 @@ interface Props {
    * the issue with a ring + pulse. Omitted in test-harness mounts
    * → the banner stays read-only. */
   onFocusContacts?: (contactIds: readonly string[]) => void
-  /** Currently picked Virtuele Boring model in slot A (or null). */
-  virtueleBoringModelA?: string | null
-  /** Currently picked Virtuele Boring model in slot B (or null). */
-  virtueleBoringModelB?: string | null
-  /** Per-investigation overlay payload — same data feeds the section
-   * view's ghost columns. Empty array OR null = "no fetch dispatched
-   * yet"; the section component shows a "pick a model" hint instead. */
-  virtueleBoringPredictions?: readonly VirtueleBoringInvestigationPrediction[] | null
-  /** Loading flag for the predictions fetch. */
-  virtueleBoringLoading?: boolean
-  /** Investigations skipped because their CRS isn't EPSG:31370. */
-  virtueleBoringSkippedCount?: number
-  /** Slot mutator — the App persists the pair to
-   * ``view_state.virtuele_boring`` and refetches predictions. */
-  onChangeVirtueleBoringModels?: (
-    next: { modelA: string | null; modelB: string | null },
-  ) => void
 }
 
 export default function InterpretationPane({
@@ -185,12 +166,6 @@ export default function InterpretationPane({
   crossingsRefreshSignal,
   staleSurfaceCount,
   onFocusContacts,
-  virtueleBoringModelA = null,
-  virtueleBoringModelB = null,
-  virtueleBoringPredictions = null,
-  virtueleBoringLoading = false,
-  virtueleBoringSkippedCount = 0,
-  onChangeVirtueleBoringModels,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -1140,21 +1115,6 @@ export default function InterpretationPane({
             </ul>
           )}
         </div>
-      )}
-
-      {/* DOV Virtuele Boring overlay picker — two dropdowns drive
-          the section view's ghost columns; the per-investigation
-          list below shows predicted layers for each active model.
-          Informative-only, no contacts are placed. */}
-      {onChangeVirtueleBoringModels && (
-        <VirtueleBoringSection
-          modelA={virtueleBoringModelA}
-          modelB={virtueleBoringModelB}
-          predictions={virtueleBoringPredictions ?? []}
-          predictionsLoading={virtueleBoringLoading}
-          skippedCount={virtueleBoringSkippedCount}
-          onChange={onChangeVirtueleBoringModels}
-        />
       )}
 
       <FormationDialog
