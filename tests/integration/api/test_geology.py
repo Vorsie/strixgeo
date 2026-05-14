@@ -1282,6 +1282,60 @@ async def test_rebuild_clears_is_stale_flag(
     assert rows[0]["is_stale"] is False
 
 
+async def test_rebuild_clears_is_stale_on_orphan_surface_with_no_contacts(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Deleting the last contact leaves an orphan stale surface that
+    Build must still clear — otherwise the 'N unbuilt edits' badge
+    sticks forever.
+
+    Flow:
+    1. Create one contact → Build → surface row, is_stale=False.
+    2. Delete the contact (mark_surfaces_stale flips is_stale=True
+       but the contact-only formation_ids query in the next Build
+       would skip this formation since it has 0 contacts left).
+    3. Click Build again → the orphan-stale path picks the formation
+       up, recompute produces an empty TIN, is_stale flips back to
+       False.
+    """
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    contact = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+    # First build materialises the surface.
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    # Delete the only contact — surface goes stale, contact count = 0.
+    del_resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/{contact['id']}",
+    )
+    assert del_resp.status_code in (200, 204)
+    rows = (
+        await async_client.get(
+            f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+        )
+    ).json()
+    assert len(rows) == 1
+    assert rows[0]["is_stale"] is True
+
+    # Build the orphan stale formation → is_stale clears even though
+    # the formation has zero contacts now.
+    rebuild = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert rebuild.status_code == 200
+    rows = (
+        await async_client.get(
+            f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+        )
+    ).json()
+    assert rows[0]["is_stale"] is False
+
+
 async def test_rebuild_method_param_rejects_unknown_method(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
