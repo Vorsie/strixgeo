@@ -767,7 +767,12 @@ describe('ContactsLayer', () => {
       '[data-testid="contact-drag-strip"]',
     )
     fireEvent.mouseDown(strips[0], { button: 0, ctrlKey: true })
+    // Shift+mousedown now starts a deferred drag (shiftHeld) so the
+    // shift+click vs shift+drag gestures can share a modifier. The
+    // range-select fires on mouseup IF the press wasn't a drag — so
+    // we also need a mouseup with no intervening movement.
     fireEvent.mouseDown(strips[2], { button: 0, shiftKey: true })
+    fireEvent.mouseUp(document, { button: 0 })
     // All three halos.
     expect(container.querySelectorAll('line[stroke="#2563eb"]').length).toBe(3)
   })
@@ -960,6 +965,89 @@ describe('ContactsLayer', () => {
     const updates = onUpdate.mock.calls[0][0]
     expect(updates[0].contact_id).toBe('c-1')
     expect(updates[0].borehole_id).toBe('bh-2')
+  })
+
+  it('Shift+drag paints the source contact onto every column passed over', () => {
+    // Six columns at nudgedX 50 / 100 / 150 / 200 / 250 / 300.
+    // Source contact lives on bh-1 (50); user shift-drags rightward
+    // past bh-2 / bh-3 / bh-4 / bh-5 into bh-6's band. Paint-through
+    // stamps the source contact's depth onto bh-2..bh-6 (source bh-1
+    // excluded — it already carries the contact). Drop Y is ignored;
+    // every stamp uses the source's ORIGINAL depth.
+    const onCreate = vi.fn().mockResolvedValue(undefined)
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({
+        id: 'c-1',
+        borehole_id: 'bh-1',
+        depth_top_m: 3,
+        formation_id: 'f-X',
+      }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ id: 'f-X', name: 'X' })],
+      [
+        makeBoreholePlaced('bh-1', 50),
+        makeBoreholePlaced('bh-2', 100),
+        makeBoreholePlaced('bh-3', 150),
+        makeBoreholePlaced('bh-4', 200),
+        makeBoreholePlaced('bh-5', 250),
+        makeBoreholePlaced('bh-6', 300),
+      ],
+      undefined,
+      {
+        onUpdateContactDepth,
+        onBatchUpdateContacts: onUpdate,
+        onBatchCreateContacts: onCreate,
+      },
+    )
+    const strip = container.querySelector(
+      '[data-testid="contact-drag-strip"]',
+    )!
+    // Shift+mousedown at the source column, drag to a Y unrelated to
+    // any sensible depth to confirm drop Y is ignored, mouseup over
+    // bh-6's band.
+    fireEvent.mouseDown(strip, {
+      button: 0,
+      shiftKey: true,
+      clientX: 50,
+      clientY: 10,
+    })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', {
+          clientX: 300,
+          clientY: 200,
+          buttons: 1,
+          shiftKey: true,
+        }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { shiftKey: true }))
+    })
+
+    expect(onUpdateContactDepth).not.toHaveBeenCalled()
+    expect(onUpdate).not.toHaveBeenCalled()
+    expect(onCreate).toHaveBeenCalledTimes(1)
+    const creates = onCreate.mock.calls[0][0]
+    // Five stamps: bh-2..bh-6, source bh-1 excluded.
+    expect(creates.length).toBe(5)
+    expect(creates.map((c: ContactCopyPayload) => c.borehole_id)).toEqual([
+      'bh-2',
+      'bh-3',
+      'bh-4',
+      'bh-5',
+      'bh-6',
+    ])
+    // Every stamp at the SOURCE's depth (3 m), drop Y ignored.
+    for (const c of creates) {
+      expect(c.depth_top_m).toBe(3)
+      expect(c.formation_id).toBe('f-X')
+      expect(c.cpt_id).toBeNull()
+    }
   })
 
   it('cross-column drag degrades to MOVE when only onBatchUpdateContacts is wired', () => {
