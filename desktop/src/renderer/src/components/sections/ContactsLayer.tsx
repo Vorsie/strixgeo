@@ -52,7 +52,7 @@ import type {
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import HoverReadoutCard from './HoverReadoutCard'
-import type { PlacedColumn } from './utils'
+import { columnsBetween, type PlacedColumn } from './utils'
 
 interface Props {
   contacts: readonly FormationContactResponse[]
@@ -331,6 +331,13 @@ interface DragState {
    * part of an existing multi-selection). Each non-primary contact
    * follows the primary's Δm and target-column choice on commit. */
   contactsInDrag: readonly DragContact[]
+  /** Shift modifier captured at mousedown. Two interpretations:
+   * (a) no mouse movement before mouseup → user actually meant
+   *     shift+click → fire the deferred range-select on the source
+   *     contact; (b) drag traversed multiple columns → paint-through:
+   *     duplicate the source contact's depth onto every intermediate
+   *     column from source to drop. */
+  shiftHeld: boolean
   /** Cached display info for the primary contact's floating
    * readout — unchanged across the drag. */
   color: string
@@ -845,6 +852,48 @@ export default function ContactsLayer({
     [snapDepthsByAnchorId],
   )
 
+  // Shift-Click selects the depth-range between the LAST-clicked
+  // contact and this one, scoped to the same anchor. Range across
+  // anchors is ambiguous (whose depth order wins?) so we silently
+  // fall back to a plain replacement select when the anchors differ.
+  // Hoisted above the drag useEffect so the shift+click-without-
+  // movement path inside handleUp can fire range-select on commit
+  // — see the shiftHeld branch in that handler.
+  const handleRangeSelection = useCallback(
+    (layer: RenderedLayer) => {
+      const anchorContacts = layers
+        .filter(l => l.anchorId === layer.anchorId)
+        .sort((a, b) => a.originalDepthM - b.originalDepthM)
+      const last = lastSelectionContactId
+        ? anchorContacts.find(l => l.contactId === lastSelectionContactId)
+        : null
+      if (!last) {
+        // No prior anchor on this column → just select this one.
+        setSelection(new Set([layer.contactId]))
+        setLastSelectionContactId(layer.contactId)
+        return
+      }
+      const startIdx = anchorContacts.findIndex(
+        l => l.contactId === last.contactId,
+      )
+      const endIdx = anchorContacts.findIndex(
+        l => l.contactId === layer.contactId,
+      )
+      if (startIdx === -1 || endIdx === -1) return
+      const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
+      const rangeIds = anchorContacts.slice(lo, hi + 1).map(l => l.contactId)
+      setSelection(prev => {
+        const next = new Set(prev)
+        for (const id of rangeIds) next.add(id)
+        return next
+      })
+      // Do NOT update lastSelectionContactId — shift-clicking again
+      // should re-anchor against the ORIGINAL last-click, the standard
+      // file-explorer / Finder pattern.
+    },
+    [layers, lastSelectionContactId],
+  )
+
   // Document-level move/up while a drag is active. clientY delta
   // converts to a Y delta in SVG space (the SVG is in a relative
   // container; absolute scale is 1:1 so we don't need to walk the
@@ -934,6 +983,15 @@ export default function ContactsLayer({
         (final.startSegY - final.surfaceY) / final.pxPerMetre
       const depthUnchanged = Math.abs(final.currentDepthM - startDepth) < 1e-6
       const noAnchorChange = final.currentTargetCol === null
+
+      // Shift+mousedown without any movement = the user actually
+      // meant the existing shift+click range-select gesture; fire it
+      // now that we know the press wasn't a drag.
+      if (final.shiftHeld && depthUnchanged && noAnchorChange) {
+        const sourceLayer = layers.find(l => l.contactId === final.contactId)
+        if (sourceLayer) handleRangeSelection(sourceLayer)
+        return
+      }
       if (depthUnchanged && noAnchorChange && final.contactsInDrag.length === 1) {
         return
       }
@@ -952,6 +1010,47 @@ export default function ContactsLayer({
       const single = final.contactsInDrag.length === 1
       const target = final.currentTargetCol
       const altMove = e.altKey
+
+      // Shift+drag cross-column = PAINT-THROUGH: duplicate each
+      // dragged contact at its ORIGINAL depth onto every column
+      // between the source and the drop (drop included, source
+      // excluded — source already carries the contact). Drop Y is
+      // intentionally ignored: the gesture says "stamp this contact
+      // on every test the cursor crossed", not "move it to a new
+      // depth". Existing 409→PATCH path in handleBatchCreateContacts
+      // means colliding (formation, anchor) tuples get overwritten,
+      // matching the user's-will-is-absolute semantic.
+      if (final.shiftHeld && target !== null) {
+        if (!onBatchCreateContacts) return
+        const sourceCol = placedColumns.find(
+          c =>
+            c.proj.item.id === final.anchorId && c.kind === final.anchorKind,
+        )
+        if (!sourceCol) return
+        const stamps = columnsBetween(
+          sourceCol.trueX,
+          target.trueX,
+          placedColumns,
+        )
+        const creates: ContactCopyPayload[] = []
+        for (const col of stamps) {
+          const isBorehole = col.kind === 'borehole'
+          for (const c of final.contactsInDrag) {
+            creates.push({
+              formation_id: c.formationId,
+              depth_top_m: c.originalDepthM,
+              borehole_id: isBorehole ? col.proj.item.id : null,
+              cpt_id: isBorehole ? null : col.proj.item.id,
+              source: 'manual_pick',
+              confidence: 'medium',
+            })
+          }
+        }
+        if (creates.length > 0) {
+          void onBatchCreateContacts(creates)
+        }
+        return
+      }
 
       if (single && noAnchorChange) {
         if (!onUpdateContactDepth) return
@@ -1063,6 +1162,8 @@ export default function ContactsLayer({
     onBatchCreateContacts,
     placedColumns,
     levelToScreen,
+    layers,
+    handleRangeSelection,
   ])
 
   // Indexed lookup of every rendered layer by contact id — used by
@@ -1075,7 +1176,11 @@ export default function ContactsLayer({
   }, [layers])
 
   const startDrag = useCallback(
-    (layer: RenderedLayer, e: React.MouseEvent<SVGRectElement>) => {
+    (
+      layer: RenderedLayer,
+      e: React.MouseEvent<SVGRectElement>,
+      shiftHeld: boolean,
+    ) => {
       if (!onUpdateContactDepth) return
       // Only the left button starts a drag — right-click is reserved
       // for the section's column context menu.
@@ -1091,7 +1196,12 @@ export default function ContactsLayer({
       const targetIds = inSelection
         ? Array.from(selection)
         : [layer.contactId]
-      if (!inSelection) {
+      // Shift gestures (range-select OR paint-through) must NOT
+      // mutate selection here — range-select needs the pre-existing
+      // anchor to compute the range, paint-through doesn't care about
+      // selection at all. Both fire from handleUp once the click vs
+      // drag intent is resolved.
+      if (!inSelection && !shiftHeld) {
         setSelection(new Set([layer.contactId]))
         setLastSelectionContactId(layer.contactId)
       }
@@ -1126,6 +1236,7 @@ export default function ContactsLayer({
         currentSnapped: false,
         currentTargetCol: null,
         contactsInDrag,
+        shiftHeld,
         color: layer.color,
         formationName: layer.formationName,
         segLeftX: layer.segLeftX,
@@ -1162,44 +1273,6 @@ export default function ContactsLayer({
     [],
   )
 
-  // Shift-Click selects the depth-range between the LAST-clicked
-  // contact and this one, scoped to the same anchor. Range across
-  // anchors is ambiguous (whose depth order wins?) so we silently
-  // fall back to a plain replacement select when the anchors differ.
-  const handleRangeSelection = useCallback(
-    (layer: RenderedLayer) => {
-      const anchorContacts = layers
-        .filter(l => l.anchorId === layer.anchorId)
-        .sort((a, b) => a.originalDepthM - b.originalDepthM)
-      const last = lastSelectionContactId
-        ? anchorContacts.find(l => l.contactId === lastSelectionContactId)
-        : null
-      if (!last) {
-        // No prior anchor on this column → just select this one.
-        setSelection(new Set([layer.contactId]))
-        setLastSelectionContactId(layer.contactId)
-        return
-      }
-      const startIdx = anchorContacts.findIndex(
-        l => l.contactId === last.contactId,
-      )
-      const endIdx = anchorContacts.findIndex(
-        l => l.contactId === layer.contactId,
-      )
-      if (startIdx === -1 || endIdx === -1) return
-      const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
-      const rangeIds = anchorContacts.slice(lo, hi + 1).map(l => l.contactId)
-      setSelection(prev => {
-        const next = new Set(prev)
-        for (const id of rangeIds) next.add(id)
-        return next
-      })
-      // Do NOT update lastSelectionContactId — shift-clicking again
-      // should re-anchor against the ORIGINAL last-click, the standard
-      // file-explorer / Finder pattern.
-    },
-    [layers, lastSelectionContactId],
-  )
 
   // Dispatch on the hit-strip mousedown. Modifier-clicks update
   // selection only; plain clicks start a drag (which may carry the
@@ -1214,17 +1287,22 @@ export default function ContactsLayer({
         return
       }
       if (e.shiftKey) {
-        e.preventDefault()
-        e.stopPropagation()
-        handleRangeSelection(layer)
+        // Defer the click-vs-drag decision: start a tentative drag
+        // with shiftHeld=true so handleUp can route by what actually
+        // happened — no movement = shift+click range-select, movement
+        // across columns = paint-through duplicate of the source
+        // contact onto every column passed over. Both gestures live
+        // on the same modifier; the threshold check inside handleUp
+        // (depthUnchanged && noAnchorChange) disambiguates.
+        startDrag(layer, e, true)
         return
       }
       // Plain click — the drag handler stops propagation + updates
       // selection (or preserves the existing multi-selection if the
       // clicked contact is part of it).
-      startDrag(layer, e)
+      startDrag(layer, e, false)
     },
-    [handleToggleSelection, handleRangeSelection, startDrag],
+    [handleToggleSelection, startDrag],
   )
 
   // ESC: cancel the active interaction. Priority order — drag,
