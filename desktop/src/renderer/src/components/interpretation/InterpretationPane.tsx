@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronRight,
   Drill,
+  GripVertical,
   Layers,
   Plus,
   RefreshCw,
@@ -156,6 +157,15 @@ export default function InterpretationPane({
   const [dedupeBusy, setDedupeBusy] = useState(false)
   const [pendingDedupe, setPendingDedupe] = useState(false)
   const [rebuildBusy, setRebuildBusy] = useState(false)
+  // Drag-to-reorder state. ``draggedId`` is the formation being
+  // dragged; ``dragOverId`` is the row the cursor is hovering over,
+  // null when we're at the end-of-list drop zone, undefined when no
+  // dragover at all. Lower ``display_order`` = older formation per
+  // the geological superposition convention; reorder updates renumber
+  // 0..N-1 in the new visual order.
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | 'end' | null>(null)
+  const [reorderBusy, setReorderBusy] = useState(false)
 
   async function handleDedupe(): Promise<void> {
     if (!onDedupeContacts || dedupeBusy) return
@@ -177,6 +187,90 @@ export default function InterpretationPane({
       setRebuildBusy(false)
     }
   }
+
+  // Commit a drag-reorder by renumbering ``visibleFormations`` in the
+  // new order. ``targetId`` is the row the dragged formation lands
+  // BEFORE, or 'end' when dropped past the last row. We renumber every
+  // formation 0..N-1 in the new order and PATCH each row whose
+  // display_order actually changed (typically a contiguous run between
+  // the source and target indices). Optimistic local update first;
+  // on any PATCH failure we refetch from the server to converge.
+  const reorderFormations = useCallback(
+    async (sourceId: string, targetId: string | 'end') => {
+      if (!projectId || sourceId === targetId) return
+      setReorderBusy(true)
+      // Derive the visible list inline rather than reading the memoised
+      // ``visibleFormations`` — that constant is declared further down
+      // the component body, so closing over it would TDZ at the deps
+      // line. Inputs are the same: ``formations`` filtered by the
+      // manifest gate when one is wired.
+      const previous =
+        manifestFormationIds === undefined
+          ? formations
+          : formations.filter(f => manifestFormationIds.has(f.id))
+      const sourceIndex = previous.findIndex(f => f.id === sourceId)
+      if (sourceIndex < 0) {
+        setReorderBusy(false)
+        return
+      }
+      const without = previous.filter(f => f.id !== sourceId)
+      const insertAt =
+        targetId === 'end' ? without.length : without.findIndex(f => f.id === targetId)
+      if (insertAt < 0) {
+        setReorderBusy(false)
+        return
+      }
+      const reordered = [
+        ...without.slice(0, insertAt),
+        previous[sourceIndex],
+        ...without.slice(insertAt),
+      ]
+      // Compute the changed set BEFORE the optimistic update so
+      // an aborted reorder (no actual position change) doesn't fire
+      // PATCHes.
+      const changes = reordered
+        .map((f, i) => ({ id: f.id, oldOrder: f.display_order, newOrder: i }))
+        .filter(c => c.oldOrder !== c.newOrder)
+      if (changes.length === 0) {
+        setReorderBusy(false)
+        return
+      }
+      // Optimistic local update — visual snap before the network round-trip.
+      setFormations(prev => {
+        const byId = new Map(reordered.map((f, i) => [f.id, i]))
+        return sortFormations(
+          prev.map(f => {
+            const idx = byId.get(f.id)
+            return idx === undefined ? f : { ...f, display_order: idx }
+          }),
+        )
+      })
+      try {
+        await Promise.all(
+          changes.map(c =>
+            api.geology.updateFormation(projectId, c.id, {
+              display_order: c.newOrder,
+            }),
+          ),
+        )
+        for (const c of changes) onFormationUpdated?.(c.id)
+        log.success('geology', `reorderFormations ok updates=${changes.length}`)
+      } catch (err) {
+        log.error('geology', 'reorderFormations failed — refetching', err)
+        // Best-effort refetch on partial failure so local state matches
+        // the server. The UI snaps back to whatever survived.
+        try {
+          const rows = await api.geology.listFormations(projectId)
+          setFormations(sortFormations(rows))
+        } catch (refetchErr) {
+          log.warn('geology', 'reorderFormations refetch failed', refetchErr)
+        }
+      } finally {
+        setReorderBusy(false)
+      }
+    },
+    [projectId, formations, manifestFormationIds, onFormationUpdated],
+  )
 
   // Reload formations on project change. Failures stay quiet — an
   // empty list is the right fallback (the engineer sees the
@@ -643,13 +737,59 @@ export default function InterpretationPane({
               key={f.id}
               formation={f}
               unsaved={sessionImportFormationIds?.has(f.id) ?? false}
+              isDragging={draggedId === f.id}
+              isDragOver={dragOverId === f.id && draggedId !== null && draggedId !== f.id}
+              reorderBusy={reorderBusy}
               onEdit={() => {
                 setEditing(f)
                 setDialogOpen(true)
               }}
               onDelete={() => setPendingDelete(f)}
+              onDragStart={() => setDraggedId(f.id)}
+              onDragOver={() => setDragOverId(f.id)}
+              onDragLeave={() => {
+                // Only clear when the cursor leaves to a non-row area.
+                // The dragenter on the next row will set its own id; we
+                // just need to make sure a stale id doesn't linger.
+                setDragOverId(prev => (prev === f.id ? null : prev))
+              }}
+              onDrop={() => {
+                if (draggedId && draggedId !== f.id) {
+                  void reorderFormations(draggedId, f.id)
+                }
+                setDraggedId(null)
+                setDragOverId(null)
+              }}
+              onDragEnd={() => {
+                setDraggedId(null)
+                setDragOverId(null)
+              }}
             />
           ))}
+          {draggedId !== null && (
+            // End-of-list drop zone — only visible while a drag is in
+            // progress, so it doesn't clutter the resting list. Drop
+            // here to push the dragged formation to the bottom (=
+            // youngest in the stratigraphic order).
+            <li
+              onDragOver={e => {
+                e.preventDefault()
+                setDragOverId('end')
+              }}
+              onDrop={() => {
+                if (draggedId) void reorderFormations(draggedId, 'end')
+                setDraggedId(null)
+                setDragOverId(null)
+              }}
+              className={[
+                'h-3 mx-2 rounded-sm border-t-2 border-dashed transition-colors',
+                dragOverId === 'end'
+                  ? 'border-blue-500'
+                  : 'border-gray-300',
+              ].join(' ')}
+              aria-label="Drop here to place at end (youngest)"
+            />
+          )}
         </ul>
       )}
 
@@ -810,23 +950,72 @@ export default function InterpretationPane({
 function FormationRow({
   formation,
   unsaved,
+  isDragging,
+  isDragOver,
+  reorderBusy,
   onEdit,
   onDelete,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }: {
   formation: GeologicalFormationResponse
   unsaved: boolean
+  isDragging: boolean
+  isDragOver: boolean
+  reorderBusy: boolean
   onEdit: () => void
   onDelete: () => void
+  onDragStart: () => void
+  onDragOver: () => void
+  onDragLeave: () => void
+  onDrop: () => void
+  onDragEnd: () => void
 }): JSX.Element {
   return (
     <li
+      onDragOver={e => {
+        // ``preventDefault`` is required to mark the row as a drop
+        // target; without it the browser fires no drop event.
+        e.preventDefault()
+        onDragOver()
+      }}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       className={[
         'group flex items-center gap-2 px-2 py-1.5 rounded transition-colors',
-        unsaved
-          ? 'border-l-4 border-l-amber-500 bg-amber-100/70 hover:bg-amber-100/90'
-          : 'border-l-2 border-l-transparent hover:bg-gray-50',
+        // Insertion indicator — thin top border in accent blue when
+        // the cursor hovers this row during a drag (= "drop to insert
+        // here, before this row"). Replaces the resting border-l so
+        // the layout doesn't shift.
+        isDragOver
+          ? 'border-t-2 border-t-blue-500 border-l-2 border-l-transparent'
+          : unsaved
+            ? 'border-l-4 border-l-amber-500 bg-amber-100/70 hover:bg-amber-100/90'
+            : 'border-l-2 border-l-transparent hover:bg-gray-50',
+        isDragging ? 'opacity-40' : '',
       ].join(' ')}
     >
+      <button
+        type="button"
+        draggable={!reorderBusy}
+        onDragStart={e => {
+          // Without text/plain payload Firefox refuses to start the
+          // drag at all; the value is unused — we read state for the
+          // dragged id.
+          e.dataTransfer.setData('text/plain', formation.id)
+          e.dataTransfer.effectAllowed = 'move'
+          onDragStart()
+        }}
+        onDragEnd={onDragEnd}
+        title="Drag to reorder (lower = older)"
+        className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 shrink-0 -ml-1 px-0.5"
+        aria-label={`Drag to reorder ${formation.name}`}
+      >
+        <GripVertical size={12} />
+      </button>
       <span
         className="inline-block w-3.5 h-3.5 rounded border border-gray-300 shrink-0"
         style={{ backgroundColor: formation.color }}
