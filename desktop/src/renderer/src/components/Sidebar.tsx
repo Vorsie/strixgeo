@@ -119,6 +119,17 @@ interface Props {
    * contacts state. Resolves with the duplicates-removed count
    * for the toast in the pane. */
   onDedupeContacts?: () => Promise<number>
+  /** Manual rebuild of every cached TIN surface in the active model.
+   * Threaded straight through to InterpretationPane for the
+   * "Rebuild surfaces" button next to Dedupe. */
+  onRebuildSurfaces?: () => Promise<void>
+  /** Active geological model id — InterpretationPane needs it to
+   * fetch the crossings validator result for its banner. ``null``
+   * when the project has no active model (the banner stays hidden). */
+  activeModelId?: string | null
+  /** Refresh signal for the crossings banner — App bumps after every
+   * contact mutation so the banner re-runs the validator. */
+  crossingsRefreshSignal?: number
   /** Visible borehole IDs — used by the Interpretation pane's
    * "Populate from boreholes" affordance to walk every borehole's
    * stratigraphy observations and harvest formation names. */
@@ -278,6 +289,9 @@ export default function Sidebar({
   formationsRefreshSignal,
   pushUndoCommand,
   onDedupeContacts,
+  onRebuildSurfaces,
+  activeModelId,
+  crossingsRefreshSignal,
   visibleBoreholeIds,
   activeModelName,
   visibleBoreholes: panelBoreholes,
@@ -748,6 +762,7 @@ export default function Sidebar({
             sessionImportFormationIds={sessionImportFormationIds}
             boreholeIds={visibleBoreholeIds}
             activeModelName={activeModelName}
+            activeModelId={activeModelId}
             modelBoreholes={panelBoreholes ?? []}
             excludedBoreholeIds={excludedBoreholeIds}
             onToggleBoreholeInModel={onToggleBoreholeInModel}
@@ -755,8 +770,10 @@ export default function Sidebar({
             onFormationDeleted={onFormationDeleted}
             onFormationUpdated={onFormationUpdated}
             refreshSignal={formationsRefreshSignal}
+            crossingsRefreshSignal={crossingsRefreshSignal}
             pushUndoCommand={pushUndoCommand}
             onDedupeContacts={onDedupeContacts}
+            onRebuildSurfaces={onRebuildSurfaces}
           />
         )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
