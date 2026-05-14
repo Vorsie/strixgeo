@@ -920,16 +920,36 @@ export default function ContactsLayer({
         isStale: boolean
       }[]
     }
-    // Project each per-contact polyline into the (x, y) screen
+    // Prefer the TIN-slice polyline (which incorporates off-section
+    // anchors via Delaunay triangulation) over the connect-the-dots
+    // polyline for the fill-band geometry. Otherwise the rendered
+    // surface line (TIN slice) and the fill bottom (connect-the-dots
+    // through on-section picks only) diverge laterally — leaving an
+    // unfilled wedge between a younger formation's fill bottom and the
+    // older formation's visible surface where the TIN dips below the
+    // straight inter-pick interpolation. Connect-the-dots stays as
+    // the fallback when no cached surface is wired.
+    const slicedByFormationId = new Map<
+      string,
+      readonly { x: number; y: number }[]
+    >()
+    for (const s of slicedPolylines) {
+      slicedByFormationId.set(s.formationId, s.screenPoints)
+    }
+    // Project each per-formation polyline into the (x, y) screen
     // tuples buildFillBand expects, sorted ascending by X so the
     // helper can index into them safely. Pad ±fillBufferPx on the
     // outer endpoints so the fill extends past the last contact
     // (flat horizontal extrapolation — same Y as the endpoint).
     const projected = polylines
       .map(line => {
-        const points = line.vertices
-          .map(v => ({ x: v.screenX, y: v.screenY }))
-          .sort((a, b) => a.x - b.x)
+        const sliced = slicedByFormationId.get(line.formationId)
+        const points =
+          sliced && sliced.length >= 2
+            ? [...sliced].sort((a, b) => a.x - b.x)
+            : line.vertices
+                .map(v => ({ x: v.screenX, y: v.screenY }))
+                .sort((a, b) => a.x - b.x)
         if (points.length >= 2 && fillBufferPx > 0) {
           const left = points[0]
           const right = points[points.length - 1]
@@ -976,7 +996,13 @@ export default function ContactsLayer({
       })
     }
     return out
-  }, [polylines, surfacesByFormationId, dataExtentFloor, fillBufferPx])
+  }, [
+    polylines,
+    slicedPolylines,
+    surfacesByFormationId,
+    dataExtentFloor,
+    fillBufferPx,
+  ])
 
   // Drag state lives in the component so its update path is
   // explicit. Document-level mousemove + mouseup listeners attach
