@@ -5,7 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, Double, ForeignKey, Index, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Double,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -45,6 +55,29 @@ class FormationContactOrm(Base):
         ),
         Index("idx_formation_contact_model_borehole", "model_id", "borehole_id"),
         Index("idx_formation_contact_model_formation", "model_id", "formation_id"),
+        # Partial unique indexes enforce the "one formation top per
+        # investigation" invariant at the DB layer. One per anchor
+        # flavour because borehole_id and cpt_id form an XOR pair —
+        # a single full unique index can't express "unique when this
+        # one column is non-null". Defeats the application-layer race
+        # in CreateFormationContact (parallel POSTs sliding past the
+        # scalar_one_or_none check).
+        Index(
+            "uq_formation_contact_model_formation_borehole",
+            "model_id",
+            "formation_id",
+            "borehole_id",
+            unique=True,
+            postgresql_where=text("borehole_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_formation_contact_model_formation_cpt",
+            "model_id",
+            "formation_id",
+            "cpt_id",
+            unique=True,
+            postgresql_where=text("cpt_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
