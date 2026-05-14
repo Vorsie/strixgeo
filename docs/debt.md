@@ -409,3 +409,33 @@ discoverability beats minimalism for this audience.
 have walked through the app on real projects + given friction-list
 feedback. Pre-validation overhauls cost a week and rebuild the
 wrong thing.
+
+## 47. App.tsx smoke / mount test (medium — TDZ regression caught only in dogfooding 2026-05-14)
+
+**What.** App.tsx is ~2,900 lines of state + effects + callbacks.
+TypeScript + the existing per-component vitest suite caught zero
+of the TDZ runtime crashes that have hit the user mid-dogfooding
+(2026-05-13 contact-selection toolbox; 2026-05-14 saveProject
+auto-build). CLAUDE.md already flags the rule:
+
+> Add a top-level smoke test (`render(<App />)`) when the
+> component crosses the threshold where mental tracking gets
+> unreliable.
+
+We're past that threshold. Need a single ``App.smoke.test.tsx``
+that mounts ``<App />`` end-to-end with stubs for window.electron,
+the api wrappers, leaflet's window.L globals, and the persistence
+layer. The test asserts only that mount completes without throwing
+— catching TDZ + unmocked-global crashes is the whole point.
+
+**Why deferred.** Mock surface is non-trivial: ~10
+window.electron methods, ~30 api.* methods, leaflet bootstrap,
+useProject's file-system bridge. Probably half a day of careful
+mock setup. Not a 30-minute job; better to ship as one focused
+session than bolt onto a bugfix sprint.
+
+**When to revisit.** Before the first paid release — every TDZ
+shipped to a paying customer is a "the app crashed on launch"
+support call we don't want. Also: any time a third TDZ class of
+crash slips past tsc + per-component tests, file the smoke test
+as the next session's first priority.
