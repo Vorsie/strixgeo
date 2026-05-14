@@ -99,9 +99,12 @@ younger formations render visually on top — the geological
 superposition rule. Reorder lives in InterpretationPane via
 drag-and-drop; the drag-end commit renumbers every visible
 formation 0..N-1 (compact) and PATCHes only the rows whose index
-actually changed. Future work (debt #14, crossing validator) uses
-this ordering to flag "younger formation drops below older" as a
-violation.
+actually changed. The crossing validator
+(``GET /geology/models/{mid}/validate/crossings``) consumes this
+ordering: it samples each pair of cached TIN surfaces and flags any
+(x, y) where the younger formation dips below the older. Results
+surface in InterpretationPane as an amber "N surface crossings
+detected" banner; refetched on every contact mutation.
 
 ### v1.0 commercial MVP gate
 
