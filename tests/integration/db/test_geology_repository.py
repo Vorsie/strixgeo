@@ -433,17 +433,23 @@ async def test_validate_no_gaps_flags_contact_below_test(
     """A contact deeper than the borehole's test depth is flagged."""
     project, borehole = await _make_project_with_borehole(db_session, total_depth_m=5.0)
     repo = GeologyRepository(db_session)
-    f = await repo.create_formation(project.id, name="F", color="#aaa")
+    # Two formations because the (model, formation, borehole) triple
+    # is uniquely indexed — two tops of the SAME formation on one
+    # borehole is geologically impossible. The validator's
+    # ``contact_below_test`` check is per-contact, not per-formation,
+    # so the assertion still exercises the same branch.
+    f_top = await repo.create_formation(project.id, name="F-top", color="#aaa")
+    f_below = await repo.create_formation(project.id, name="F-below", color="#bbb")
     model = await repo.create_model(project.id, name="M")
     await repo.create_contact(
         model_id=model.id,
-        formation_id=f.id,
+        formation_id=f_top.id,
         borehole_id=borehole.id,
         depth_top_m=0.0,
     )
     await repo.create_contact(
         model_id=model.id,
-        formation_id=f.id,
+        formation_id=f_below.id,
         borehole_id=borehole.id,
         depth_top_m=99.0,  # well below the 5 m test depth
     )
