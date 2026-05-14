@@ -156,6 +156,19 @@ interface Props {
   /** Toggle a borehole in / out of the active model. The Interpretation
    * pane calls this on checkbox change. App PATCHes the model. */
   onToggleBoreholeInModel?: (boreholeId: string, included: boolean) => void | Promise<void>
+  /** Currently picked Virtuele Boring model in slot A (or null). */
+  virtueleBoringModelA?: string | null
+  /** Currently picked Virtuele Boring model in slot B (or null). */
+  virtueleBoringModelB?: string | null
+  /** Per-investigation Virtuele Boring overlay payload. Threaded
+   * through to InterpretationPane for its per-investigation list. */
+  virtueleBoringPredictions?: readonly import('../api/client').VirtueleBoringInvestigationPrediction[] | null
+  virtueleBoringLoading?: boolean
+  virtueleBoringSkippedCount?: number
+  /** Slot mutator — App persists to view_state + refetches. */
+  onChangeVirtueleBoringModels?: (
+    next: { modelA: string | null; modelB: string | null },
+  ) => void
   // Map-layer visibility (kept from the previous turn) — still drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
@@ -308,6 +321,12 @@ export default function Sidebar({
   visibleBoreholes: panelBoreholes,
   excludedBoreholeIds,
   onToggleBoreholeInModel,
+  virtueleBoringModelA = null,
+  virtueleBoringModelB = null,
+  virtueleBoringPredictions = null,
+  virtueleBoringLoading = false,
+  virtueleBoringSkippedCount = 0,
+  onChangeVirtueleBoringModels,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -839,6 +858,12 @@ export default function Sidebar({
             pushUndoCommand={pushUndoCommand}
             onDedupeContacts={onDedupeContacts}
             onRebuildSurfaces={onRebuildSurfaces}
+            virtueleBoringModelA={virtueleBoringModelA}
+            virtueleBoringModelB={virtueleBoringModelB}
+            virtueleBoringPredictions={virtueleBoringPredictions}
+            virtueleBoringLoading={virtueleBoringLoading}
+            virtueleBoringSkippedCount={virtueleBoringSkippedCount}
+            onChangeVirtueleBoringModels={onChangeVirtueleBoringModels}
           />
         )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
