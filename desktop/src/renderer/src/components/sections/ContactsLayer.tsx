@@ -553,12 +553,20 @@ export default function ContactsLayer({
         // "extends to plotBottom" in the projection step).
         const bottomDepthM =
           nextDepth !== undefined ? nextDepth : bottomCap ?? null
+        // Display label: prefer regional_ref (DOV formal stratigraphy
+        // code, e.g. "HyEg - Lid van Egem") over name (informal
+        // working name like "Boom Klei"). The formal code is more
+        // standardized + cross-borehole consistent, which makes the
+        // section view easier to scan when you're zoomed out and
+        // labels overlap. Falls back to name when no formal code is
+        // recorded (informal-only boreholes).
+        const displayLabel = formation.regional_ref ?? formation.name
         slabsOut.push({
           contactId: contact.id,
           anchorId: item.id,
           anchorKind: col.kind,
           formationId: contact.formation_id,
-          formationName: formation.name,
+          formationName: displayLabel,
           color: formation.color,
           topDepthM: topDepth,
           bottomDepthM,
@@ -572,7 +580,7 @@ export default function ContactsLayer({
         // saves a second walk of the sorted list.
         const acc =
           byFormation.get(contact.formation_id) ??
-          ({ color: formation.color, name: formation.name, vertices: [] } as PolyAcc)
+          ({ color: formation.color, name: displayLabel, vertices: [] } as PolyAcc)
         acc.vertices.push({
           contactId: contact.id,
           formationId: contact.formation_id,
