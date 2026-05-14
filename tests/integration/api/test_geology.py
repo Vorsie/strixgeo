@@ -895,17 +895,15 @@ async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
     assert rows[0]["source"] == "manual_pick"
 
 
-async def test_list_surfaces_returns_recomputed_tin_after_contact_mutation(
+async def test_create_contact_does_not_auto_build_surface(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
-    db_session: AsyncSession,
 ) -> None:
-    """Creating a contact triggers the recompute hook → the surface
-    cache is populated → GET /surfaces returns the cached TIN.
+    """On-click build pivot: per-contact mutations no longer recompute.
 
-    With <3 contacts the TIN has no triangles (geological minimum
-    not met), but the row + vertices DO exist so the section
-    consumer can render dots.
+    Creating a contact flips ``is_stale=True`` on any existing surface
+    row but does NOT create a new surface row. ``GET /surfaces`` still
+    returns the empty list because no Build has run.
     """
     project, borehole = project_with_borehole
     formation = await _create_formation(async_client, project.id)
@@ -918,10 +916,39 @@ async def test_list_surfaces_returns_recomputed_tin_after_contact_mutation(
     assert resp.status_code == 200
     assert resp.json() == []
 
-    # Create one contact → recompute fires → surface row exists.
+    # Create one contact → no auto-build → still no surface rows.
     await _create_contact(
         async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
     )
+
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_build_after_contact_create_materialises_surface(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Click Build → ``GET /surfaces`` returns the cached TIN row.
+
+    With <3 contacts the TIN has no triangles (geological minimum
+    not met), but the row exists with is_stale=False so the section
+    consumer knows the cache is fresh.
+    """
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+    # Build.
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200, resp.text
 
     resp = await async_client.get(
         f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
@@ -934,14 +961,113 @@ async def test_list_surfaces_returns_recomputed_tin_after_contact_mutation(
     assert surface["model_id"] == model["id"]
     assert surface["method"] == "tin"
     assert surface["triangles"] == []
-    # The fixture's borehole has no ``elevation_m`` set, so the
-    # recompute service drops its contact from the TIN payload
-    # (can't compute elevation_m without surface_elevation - depth).
-    # Surface row exists but with empty vertices — the section
-    # consumer renders nothing for this formation, which is the
-    # right behaviour for "no Z known on the only anchor."
+    # Fixture borehole has no elevation_m → TIN drops the contact.
+    # The row exists; that's what proves Build wrote the cache.
     assert surface["vertices"] == []
     assert surface["source_contact_count"] == 0
+    assert surface["is_stale"] is False
+
+
+async def test_contact_mutation_flips_existing_surface_to_stale(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """After a Build, the next contact mutation marks the surface stale.
+
+    Build creates the surface row with is_stale=False. A subsequent
+    contact PATCH on the same formation MUST flip is_stale=True (no
+    recompute). ``GET /surfaces`` reflects the flag so the frontend
+    can demote-render the slice.
+    """
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    contact = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    # Sanity: just-built surface is fresh.
+    rows = (
+        await async_client.get(
+            f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+        )
+    ).json()
+    assert rows[0]["is_stale"] is False
+
+    # PATCH the contact's depth → mutation handler flips stale.
+    resp = await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/{contact['id']}",
+        json={"depth_top_m": 3.5},
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = (
+        await async_client.get(
+            f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+        )
+    ).json()
+    assert len(rows) == 1
+    assert rows[0]["is_stale"] is True
+
+
+async def test_rebuild_clears_is_stale_flag(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Click Build → previously-stale surface flips back to is_stale=False."""
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    contact = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+    # First build → fresh surface row.
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    # Mutate via PATCH (CREATE would 409 on duplicate).
+    await async_client.patch(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/{contact['id']}",
+        json={"depth_top_m": 3.5},
+    )
+    # Pre-rebuild assertion: stale.
+    rows = (
+        await async_client.get(
+            f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+        )
+    ).json()
+    assert rows[0]["is_stale"] is True
+
+    # Build clears it.
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    rows = (
+        await async_client.get(
+            f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+        )
+    ).json()
+    assert rows[0]["is_stale"] is False
+
+
+async def test_rebuild_method_param_rejects_unknown_method(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """``?method=kriging`` returns 422 today — only TIN is wired in v1.
+
+    Pins the contract: the param exists for forward-compat, but the
+    pattern enforcement keeps unknown methods out of the dispatch
+    path. The day kriging lands, this test updates to allow it.
+    """
+    project, _ = project_with_borehole
+    model = await _create_model(async_client, project.id)
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild?method=kriging",
+    )
+    assert resp.status_code == 422
 
 
 async def test_list_surfaces_404_when_model_belongs_to_another_project(
@@ -1002,16 +1128,15 @@ async def test_rebuild_surfaces_no_op_on_empty_model(
     assert body["formations_rebuilt"] == 0
 
 
-async def test_rebuild_surfaces_no_op_when_cache_in_sync(
+async def test_rebuild_surfaces_after_first_create_writes_one_row(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
 ) -> None:
-    """Auto-recompute kept the cache fresh → manual rebuild is a no-op.
+    """First Build after a contact create materialises the cache.
 
-    Creating a contact fires the recompute hook in the same use case;
-    the cache row is up-to-date the moment we'd click Rebuild. The
-    checksum short-circuit means ``formations_rebuilt == 0`` even
-    though ``formations_considered == 1``.
+    On-click build pivot: the create handler doesn't auto-recompute,
+    so the first Build sees a formation with no cached row and writes
+    one. ``formations_rebuilt == 1``.
     """
     project, borehole = project_with_borehole
     formation = await _create_formation(async_client, project.id)
@@ -1024,6 +1149,35 @@ async def test_rebuild_surfaces_no_op_when_cache_in_sync(
         f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
     )
     assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["formations_considered"] == 1
+    assert body["formations_rebuilt"] == 1
+
+
+async def test_rebuild_surfaces_idempotent_when_no_changes(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """A second Build with no intervening contact mutation is a no-op.
+
+    Checksum short-circuit kicks in: nothing about the geometry
+    changed, the row's already not stale, ``formations_rebuilt == 0``.
+    """
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+    # First build materialises.
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    # Second build = idempotent no-op.
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200
     body = resp.json()
     assert body["formations_considered"] == 1
     assert body["formations_rebuilt"] == 0
@@ -1332,6 +1486,12 @@ async def test_validate_crossings_flags_younger_below_older(
     await _create_contact(async_client, project.id, model["id"], younger["id"], bh_a.id, depth=1.0)
     await _create_contact(async_client, project.id, model["id"], younger["id"], bh_b.id, depth=1.0)
     await _create_contact(async_client, project.id, model["id"], younger["id"], bh_c.id, depth=9.0)
+
+    # On-click build pivot: contacts don't auto-build the cache. Run
+    # Build explicitly so the validator has TINs to compare.
+    await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
 
     resp = await async_client.get(
         f"/projects/{project.id}/geology/models/{model['id']}/validate/crossings",
