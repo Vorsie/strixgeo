@@ -1032,4 +1032,32 @@ describe('ContactsLayer', () => {
     expect(onBatch).not.toHaveBeenCalled()
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
   })
+
+  it('paints formation polylines in stratigraphic order — older first, younger on top', () => {
+    // Two formations: F-old (display_order=0) and F-young (display_order=10).
+    // Each has contacts on two boreholes so both render as polylines.
+    // Geological superposition: older paints first, younger paints last
+    // (= visible on top in SVG paint order). DOM order is paint order,
+    // so querySelectorAll returns them in render sequence.
+    const formations = [
+      makeFormation({ id: 'f-young', name: 'Young', color: '#0000ff', display_order: 10 }),
+      makeFormation({ id: 'f-old', name: 'Old', color: '#ff0000', display_order: 0 }),
+    ]
+    const contacts = [
+      makeContact({ id: 'c-y1', borehole_id: 'bh-1', formation_id: 'f-young', depth_top_m: 1 }),
+      makeContact({ id: 'c-y2', borehole_id: 'bh-2', formation_id: 'f-young', depth_top_m: 1.5 }),
+      makeContact({ id: 'c-o1', borehole_id: 'bh-1', formation_id: 'f-old', depth_top_m: 5 }),
+      makeContact({ id: 'c-o2', borehole_id: 'bh-2', formation_id: 'f-old', depth_top_m: 6 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
+    )
+    const paths = container.querySelectorAll('[data-testid^="formation-polyline-"]')
+    expect(paths.length).toBe(2)
+    // Older first, younger last.
+    expect(paths[0].getAttribute('data-testid')).toBe('formation-polyline-f-old')
+    expect(paths[1].getAttribute('data-testid')).toBe('formation-polyline-f-young')
+  })
 })
