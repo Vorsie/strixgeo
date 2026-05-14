@@ -29,6 +29,9 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.recompute_formation_surface import (
+    RecomputeFormationSurface,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -91,6 +94,10 @@ class DeduplicateFormationContacts(GroundModelLogger):
             groups[(anchor, c.formation_id)].append(c)
 
         removed_ids: list[UUID] = []
+        # (model_id, formation_id) pairs that lost ≥1 contact in this
+        # dedupe pass — their TIN cache needs a refresh post-commit
+        # so the section view's slice query lands on current geometry.
+        touched_pairs: set[tuple[UUID, UUID]] = set()
         for key, members in groups.items():
             if len(members) <= 1:
                 continue
@@ -102,11 +109,14 @@ class DeduplicateFormationContacts(GroundModelLogger):
             self.debug(f"Group {key}: kept {survivor.id}, dropping {[str(c.id) for c in losers]}")
             for loser in losers:
                 removed_ids.append(loser.id)
+            touched_pairs.add((model_id, key[1]))
 
         if removed_ids:
             await self._session.execute(
                 delete(FormationContactOrm).where(FormationContactOrm.id.in_(removed_ids))
             )
+            await self._session.flush()
+            await RecomputeFormationSurface(self._session).execute_many(touched_pairs)
             await self._session.commit()
         else:
             # Nothing to do — no commit needed (no mutations).
