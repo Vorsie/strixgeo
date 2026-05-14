@@ -1,11 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
+import { Database } from 'lucide-react'
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ReferenceArea, ResponsiveContainer,
 } from 'recharts'
-import type { CptPlotResponse, CptResponse } from '../api/client'
+import type {
+  CptPlotResponse,
+  CptResponse,
+  VirtueleBoringInvestigationPrediction,
+} from '../api/client'
 import ElevationEditor from './ElevationEditor'
 import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
+import VirtueleBoringDepthColumn from './VirtueleBoringDepthColumn'
 
 interface Props {
   plot:   CptPlotResponse
@@ -17,6 +23,18 @@ interface Props {
   // ``zEpsg`` carries the user's pick from the editor's datum dropdown
   // (mTAW / NAP), or ``null`` when the value is being cleared.
   onElevationChange?: (elevationM: number | null, zEpsg: number | null) => Promise<void>
+  // DOV Virtuele Boring overlay — informative-only ghost column to
+  // the right of the data panels. The overlay is hidden by default
+  // here (per-pane visibility lives in localStorage); the header
+  // button toggles it. All four props must be present for the
+  // overlay to render — when the App can't supply predictions yet
+  // (no models picked, project CRS isn't 31370, …) the button stays
+  // disabled.
+  virtueleBoringPrediction?: VirtueleBoringInvestigationPrediction | null
+  virtueleBoringActiveModels?: readonly string[]
+  virtueleBoringMaxDepthM?: number | null
+  virtueleBoringVisible?: boolean
+  onToggleVirtueleBoringVisible?: () => void
 }
 
 // ── DOV standard axis ranges ────────────────────────────────────────────────
@@ -93,7 +111,17 @@ function yGhostRight(domain: [number, number]) {
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-export default function CptChart({ plot, name, detail, onElevationChange }: Props) {
+export default function CptChart({
+  plot,
+  name,
+  detail,
+  onElevationChange,
+  virtueleBoringPrediction = null,
+  virtueleBoringActiveModels = [],
+  virtueleBoringMaxDepthM = null,
+  virtueleBoringVisible = false,
+  onToggleVirtueleBoringVisible,
+}: Props) {
   const elevationM = detail?.elevation_m ?? null
   const zEpsg = detail?.z_epsg ?? null
   const elevationSource = detail?.elevation_source ?? null
@@ -434,6 +462,36 @@ export default function CptChart({ plot, name, detail, onElevationChange }: Prop
               onClick={() => setZoomDomain([0, maxDepth])}
             >Reset</button>
           )}
+          {/* DOV Virtuele Boring overlay toggle. Disabled when the
+              section pane's picker hasn't armed any model (no
+              predictions to render) — gives the user a visual
+              breadcrumb pointing back at the section pane. */}
+          {onToggleVirtueleBoringVisible !== undefined && (
+            <button
+              onClick={onToggleVirtueleBoringVisible}
+              disabled={virtueleBoringActiveModels.length === 0}
+              aria-pressed={virtueleBoringVisible}
+              aria-label="Toggle DOV Virtuele Boring overlay"
+              title={
+                virtueleBoringActiveModels.length === 0
+                  ? 'Pick a DOV model in the section pane first to enable this overlay'
+                  : virtueleBoringVisible
+                    ? 'Hide DOV Virtuele Boring overlay'
+                    : 'Show DOV Virtuele Boring overlay'
+              }
+              className={
+                'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
+                (virtueleBoringActiveModels.length === 0
+                  ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                  : virtueleBoringVisible
+                    ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+                    : 'border-gray-200 text-gray-500 hover:bg-gray-100')
+              }
+            >
+              <Database size={11} />
+              DOV
+            </button>
+          )}
         </div>
       </div>
 
@@ -491,6 +549,25 @@ export default function CptChart({ plot, name, detail, onElevationChange }: Prop
             </ResponsiveContainer>
             <IcZoneLabelsOverlay />
           </div>
+        )}
+
+        {/* DOV Virtuele Boring depth overlay — renders only when
+            the user toggled it on in this pane AND the section
+            pane's picker has armed at least one model. topMargin /
+            bottomMargin approximate the recharts top-axis +
+            bottom-axis space so y=0 lines up with the data tracks'
+            depth=0 within ~5 px; exact alignment isn't required
+            because the overlay is informative-only. */}
+        {virtueleBoringVisible && virtueleBoringActiveModels.length > 0 && (
+          <VirtueleBoringDepthColumn
+            prediction={virtueleBoringPrediction}
+            activeModels={virtueleBoringActiveModels}
+            depthDomain={zoomDomain}
+            surfaceElevationM={elevationM}
+            maxDepthMBelowSurface={virtueleBoringMaxDepthM}
+            topMarginPx={topM + 22}
+            bottomMarginPx={botM + 22}
+          />
         )}
       </div>
     </div>
