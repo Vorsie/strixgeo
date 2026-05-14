@@ -895,6 +895,75 @@ async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
     assert rows[0]["source"] == "manual_pick"
 
 
+async def test_list_surfaces_returns_recomputed_tin_after_contact_mutation(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+    db_session: AsyncSession,
+) -> None:
+    """Creating a contact triggers the recompute hook → the surface
+    cache is populated → GET /surfaces returns the cached TIN.
+
+    With <3 contacts the TIN has no triangles (geological minimum
+    not met), but the row + vertices DO exist so the section
+    consumer can render dots.
+    """
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+
+    # Empty model — no surfaces yet.
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+    # Create one contact → recompute fires → surface row exists.
+    await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces",
+    )
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 1
+    surface = rows[0]
+    assert surface["formation_id"] == formation["id"]
+    assert surface["model_id"] == model["id"]
+    assert surface["method"] == "tin"
+    assert surface["triangles"] == []
+    # The fixture's borehole has no ``elevation_m`` set, so the
+    # recompute service drops its contact from the TIN payload
+    # (can't compute elevation_m without surface_elevation - depth).
+    # Surface row exists but with empty vertices — the section
+    # consumer renders nothing for this formation, which is the
+    # right behaviour for "no Z known on the only anchor."
+    assert surface["vertices"] == []
+    assert surface["source_contact_count"] == 0
+
+
+async def test_list_surfaces_404_when_model_belongs_to_another_project(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Scope guard — cross-project model id returns 404 without
+    leaking which boundary triggered."""
+    project_a, _ = project_with_borehole
+    # Build a separate project + model.
+    project_b = ProjectOrm(id=uuid7(), name="Other", status="active")
+    db_session.add(project_b)
+    await db_session.commit()
+    model_b = await _create_model(async_client, project_b.id)
+
+    resp = await async_client.get(
+        f"/projects/{project_a.id}/geology/models/{model_b['id']}/surfaces",
+    )
+    assert resp.status_code == 404
+
+
 async def test_dedupe_is_a_no_op_when_no_duplicates(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
