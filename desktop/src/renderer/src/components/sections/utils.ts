@@ -175,6 +175,48 @@ export type PlacedColumn = CptPlacedColumn | BoreholePlacedColumn
 // Pure helpers
 // ---------------------------------------------------------------------------
 
+/** Return every placed column whose X (along-axis) lies strictly
+ * between ``sourceX`` and ``targetX``, plus the column at ``targetX``
+ * itself. The source column is excluded — it already carries the
+ * contact being painted, so re-stamping it would be a no-op (or worse,
+ * an overwrite to the same value).
+ *
+ * Used by the shift+drag "paint through" gesture: pulling a contact
+ * from test A over B / C / D / E onto F duplicates the source contact
+ * onto B, C, D, E and F at the source's own depth. Direction-agnostic
+ * — a leftward drag returns the same set as a rightward drag with the
+ * endpoints swapped.
+ *
+ * @param sourceX along-axis X of the drag's anchor column (excluded
+ *                from the result)
+ * @param targetX along-axis X of the drop column (included in the
+ *                result; assumed non-null at call time)
+ * @param columns the full placed-column set for the section
+ * @returns columns sorted by ``trueX`` in source→target order, target
+ *          included, source excluded
+ */
+export function columnsBetween(
+  sourceX: number,
+  targetX: number,
+  columns: readonly PlacedColumn[],
+): PlacedColumn[] {
+  // Half-pixel epsilon so floating-point drift on the source's
+  // cached X doesn't accidentally re-include the source itself.
+  const EPS = 0.5
+  const matches = columns.filter(c => {
+    if (sourceX <= targetX) {
+      // Rightward drag: drop SOURCE (at sourceX), keep target (at targetX).
+      return c.trueX > sourceX + EPS && c.trueX <= targetX + EPS
+    }
+    // Leftward drag: keep target (at targetX), drop SOURCE (at sourceX).
+    return c.trueX >= targetX - EPS && c.trueX < sourceX - EPS
+  })
+  matches.sort((a, b) =>
+    sourceX <= targetX ? a.trueX - b.trueX : b.trueX - a.trueX,
+  )
+  return matches
+}
+
 /** Euclidean length of the section line, computed once from
  * endpoints. */
 export function sectionLengthM(section: CrossSectionResponse): number {
