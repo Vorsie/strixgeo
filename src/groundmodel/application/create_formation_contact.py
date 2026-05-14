@@ -26,9 +26,6 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.recompute_formation_surface import (
-    RecomputeFormationSurface,
-)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -155,12 +152,11 @@ class CreateFormationContact(GroundModelLogger):
             observation_layer_id=observation_layer_id,
             notes=notes,
         )
-        # Refresh the cached TIN for this (model, formation) pair so
-        # the section view's slice query lands on current geometry.
-        # In-transaction; commits below alongside the new contact.
-        await RecomputeFormationSurface(self._session).execute(
-            model_id=model_id, formation_id=formation_id
-        )
+        # On-click build pivot: per-contact mutations no longer trigger
+        # Delaunay. Flag the surface stale so the section view renders
+        # it dashed + faded; user clicks Build to materialise. Cheap
+        # one-row UPDATE (no-op when no surface row exists yet).
+        await self._repo.mark_surfaces_stale([(model_id, formation_id)])
         await self._session.commit()
         await self._session.refresh(contact)
         self.success(f"Formation contact created: {contact.id}")
