@@ -439,3 +439,84 @@ shipped to a paying customer is a "the app crashed on launch"
 support call we don't want. Also: any time a third TDZ class of
 crash slips past tsc + per-component tests, file the smoke test
 as the next session's first priority.
+
+**Escalation when the smoke test alone isn't enough.** If a fourth
+TDZ-class crash slips past the smoke test (or a new dev / future
+session can no longer trace ``saveProject``-shaped flows in one
+read), promote this item to "split App.tsx into custom hooks":
+
+* Extract ``useGeologicalModel`` — owns ``surfacesByFormationId``,
+  ``formationsRefreshCounter``, ``crossingsRefreshCounter``,
+  ``activeGeologicalModel``, ``staleSurfaceCount``, and the
+  ``saveProject`` auto-build sequence (the tightest cohesive
+  cluster the latest TDZ exposed).
+* Extract ``useProjectLifecycle`` — owns ``saveProject``,
+  ``openProject``, ``closeProject``, ``recentProjects``.
+* Leave App.tsx as the coordinator that renders, not the place
+  that computes.
+
+Don't do the split pre-trigger — restructuring 2,900 lines is
+a multi-day refactor with its own bug surface.
+
+## 48. Bundle vertices / triangles size cap (low — coworker-distribution trigger)
+
+**What.** ``restore_project_bundle`` deserialises FormationSurface
+JSONB ``vertices`` and ``triangles`` blobs straight from the .strix
+file with no upper bound. SQLAlchemy passes them to PostgreSQL's
+JSONB serialiser which accepts arbitrarily large arrays. At v1
+cardinality (typical TIN: a few KB) this is a non-issue, but a
+malicious or accidentally-oversized bundle could OOM the asyncio
+process or balloon the DB row size.
+
+**Why deferred.** Today's distribution path is single-user local
+(the user crafted the bundle on their own machine). The fallout
+of a malformed bundle is "I can't open my own file", not RCE or
+data theft. Acceptable for v1.
+
+**When to revisit.** When the coworker-distribution path lands
+(see ``project_coworker_distribution.md`` memory). At that point
+the bundle source is no longer fully trusted. Add upper-bound
+checks at the restore boundary:
+
+* ``source_contact_count`` > 50_000 → reject the surface (force
+  is_stale=True, skip vertices/triangles restore).
+* ``len(vertices)`` and ``len(triangles)`` capped at e.g. 200_000
+  each (covers any realistic Phase 5 kriging surface comfortably).
+* Total bundle size pre-parse cap (electron preload's
+  read-file path can enforce this once before the API ever sees
+  the payload).
+
+Folds into debt #12 (tamper hardening) — same trigger, same
+review pass.
+
+## 49. Crossings validator — suppress / qualify when surfaces are stale (low — UX consistency)
+
+**What.** The crossings validator runs against the cached TIN.
+Post on-click build pivot, the cache can be stale during iterative
+editing (per-contact mutations only flip ``is_stale=True``;
+Delaunay only re-runs on Build). The banner ("N surface crossings
+detected") was a confident statement; commit 43f3864 added an
+"as of last build — click Build to refresh" suffix when stale,
+which is the short-term honesty fix.
+
+The longer-term option is to suppress the validator fetch entirely
+when ``staleSurfaceCount > 0`` and instead show "Build the model
+to validate crossings." That is cleaner UX (no qualified amber
+warnings about possibly-out-of-date geometry) but requires:
+
+* Threading ``staleSurfaceCount`` into the crossings useEffect so
+  the fetch is gated on freshness.
+* A second banner state ("validation pending build") with its own
+  copy + visual.
+* Re-running the fetch automatically on the rebuild-success
+  callback.
+
+**Why deferred.** The suffix is sufficient for v1 — engineers
+know "as of last build" means "click Build to refresh." Cost of
+the cleaner UX is non-trivial (state management + new banner
+state) for a marginal clarity win.
+
+**When to revisit.** First time a real user reports being misled
+by the qualified banner ("I rebuilt and the crossing went away
+— was the warning real?"), or when the crossings validator gets
+extended with more issue kinds where staleness matters more.
