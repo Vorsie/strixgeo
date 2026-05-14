@@ -636,7 +636,11 @@ export default function App() {
   // synchronously inside each mutation, so by the time we GET here
   // the cache is current. Skips on the bootstrap-initial setContacts
   // because the bootstrap already fetched surfaces in parallel.
+  // Same trigger bumps the crossings refresh signal so the
+  // InterpretationPane's validator banner re-runs whenever picks
+  // change.
   const lastSurfaceRefetchContactsRef = useRef<readonly FormationContactResponse[] | null>(null)
+  const [crossingsRefreshCounter, setCrossingsRefreshCounter] = useState(0)
   useEffect(() => {
     if (lastSurfaceRefetchContactsRef.current === null) {
       // First observation — bootstrap already fetched. Just record.
@@ -646,6 +650,7 @@ export default function App() {
     if (lastSurfaceRefetchContactsRef.current === contacts) return
     lastSurfaceRefetchContactsRef.current = contacts
     refetchSurfaces()
+    setCrossingsRefreshCounter(c => c + 1)
   }, [contacts, refetchSurfaces])
 
   const handleFormationCreated = useCallback(
@@ -2869,6 +2874,8 @@ export default function App() {
           onFormationUpdated={handleFormationUpdated}
           onFormationDeleted={handleFormationDeleted}
           formationsRefreshSignal={formationsRefreshCounter}
+          crossingsRefreshSignal={crossingsRefreshCounter}
+          activeModelId={activeGeologicalModel?.id ?? null}
           pushUndoCommand={pushUndo}
           onDedupeContacts={
             activeGeologicalModel ? handleDedupeContacts : undefined
