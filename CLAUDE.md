@@ -956,7 +956,19 @@ See [docs/debt.md](docs/debt.md) for the full backlog. Format conventions stay h
 
 * Items are bigger than a quick fix, smaller than a phase.
 * When an item is resolved, **delete it from this list** — implementation history lives in commits on `develop`, not in the debt file.
-* Numbers stay stable through a debt-fixing campaign (do not renumber after each fix); explicit cleanup passes compact them (last done 2026-05-13).
-* Each open item carries three fields: **What** / **Why deferred** / **When to revisit**. The trigger condition ("when 5000 samples per borehole becomes typical", "before any non-solo user", "day-1 of debt #10") is the most important field — without it, debt items live forever.
+* Numbers stay stable through a debt-fixing campaign (do not renumber after each fix); explicit cleanup passes compact them (last done 2026-05-14 — renumbered + priority-sorted, 21 open items, 1 resolved anchor moved out of the numbered list).
+* Each open item carries three fields: **What** / **Why deferred** / **When to revisit**. The trigger condition ("when 5000 samples per borehole becomes typical", "before any non-solo user", "day-1 of debt #3") is the most important field — without it, debt items live forever.
 
-Currently open: #1 (WFS base class), #3 (parameter-slug), #5 (telemetry), #7 (permkey backfill), #8 (elevation rollback), #10 (license keys), #11 (installer + signing), #12 (tamper hardening), #13 (marketing site + name), #25 (geotech units in section editor), #33 (bundled Postgres), #34 (Plaxis target version), #40 (auth on by-id endpoints), #44 (resolved — kept as design rationale anchor), #45 (Ctrl+Z undo), #46 (Sidebar UI overhaul), #47 (App.tsx → custom hooks split; smoke test shipped), #48 (bundle size caps), #49 (crossings suppress-when-stale), #50 (NL / multilingual extension of the regional stratigraphy catalog — Flanders/G3Dv3 covered), #51 (crossings banner → focus offending contacts), #53 (Virtuele Boring API for CPT-only projects).
+Order is strict priority — top-of-list = highest. Currently open in priority order:
+
+**Tier A — Phase 4 engineering blocker:** #1 (Plaxis target version).
+
+**Tier B — Commercial launch gates, pre-paid-revenue:** #2 (bundled Postgres), #3 (license keys), #4 (auth on by-id endpoints; sub of #3), #5 (tamper hardening; sub of #3), #6 (installer + code signing + auto-update), #7 (marketing site + market-facing name).
+
+**Tier C — Dogfooding asks, current Phase 4 friction:** #8 (Ctrl+Z undo), #9 (crossings banner → focus offending contacts), #10 (Virtuele Boring API for CPT-only projects).
+
+**Tier D — Post-launch / Phase 5:** #11 (NL / multilingual stratigraphy catalog), #12 (App.tsx → custom hooks split; smoke test shipped), #13 (geotech units in section editor), #14 (Sidebar UI overhaul).
+
+**Tier E — Lower technical debt:** #15 (WFS client base class), #16 (telemetry / crash reporting), #17 (permkey backfill), #18 (crossings validator suppress-when-stale), #19 (bundle vertices / triangles size cap), #20 (ScalarLabTest parameter-slug), #21 (elevation rollback column).
+
+**Resolved anchor (outside numbered list):** Contact selection toolbox — kept for design rationale only.
