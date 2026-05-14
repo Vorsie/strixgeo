@@ -25,6 +25,7 @@ short-circuit as the auto-recompute path. A clean model is a no-op
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -34,8 +35,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.application.recompute_formation_surface import (
     RecomputeFormationSurface,
 )
+from groundmodel.domain.services.formation_age_order import infer_age_order
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
+)
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
+from groundmodel.infrastructure.db.models.geological_model_orm import (
+    GeologicalModelOrm,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -46,6 +54,7 @@ class RebuildOutcome:
 
     formations_considered: int
     formations_rebuilt: int
+    formations_reordered: int = 0
 
 
 class RebuildModelSurfaces(GroundModelLogger):
@@ -96,12 +105,109 @@ class RebuildModelSurfaces(GroundModelLogger):
 
         recompute = RecomputeFormationSurface(self._session)
         rebuilt = await recompute.execute_many((model_id, fid) for fid in formation_ids)
-        if rebuilt:
+        # Auto-derive formation age order from the data the user just
+        # built against. This corrects display_order when natural
+        # top-down creation order doesn't match geological age — the
+        # same fix the engineer would otherwise apply manually by
+        # dragging in InterpretationPane.
+        reordered = await self._reorder_by_age(model_id)
+        if rebuilt or reordered:
             await self._session.commit()
         self.success(
-            f"rebuild surfaces: model={model_id} considered={len(formation_ids)} rebuilt={rebuilt}"
+            f"rebuild surfaces: model={model_id} considered={len(formation_ids)} "
+            f"rebuilt={rebuilt} reordered={reordered}"
         )
         return RebuildOutcome(
             formations_considered=len(formation_ids),
             formations_rebuilt=rebuilt,
+            formations_reordered=reordered,
         )
+
+    async def _reorder_by_age(self, model_id: UUID) -> int:
+        """Re-sort ``display_order`` from per-investigation contact depths.
+
+        Each anchor with ≥2 contacts gives a local "younger on top"
+        partial order; aggregating across anchors and toposorting
+        yields a globally consistent youngest-first sequence. Orphan
+        formations (no contacts in this model) keep their relative
+        position from the current ``display_order``. Final
+        assignment compacts to 0..N-1 across every project formation,
+        mirroring the drag-end reorder convention documented in
+        CLAUDE.md ("display_order is the age axis").
+
+        Returns
+        -------
+        int
+            Number of formations whose ``display_order`` actually
+            changed. ``0`` means the current order already matched
+            the data — common after the first build.
+        """
+        # Load every contact on this model with anchor + depth.
+        rows = (
+            await self._session.execute(
+                select(
+                    FormationContactOrm.formation_id,
+                    FormationContactOrm.borehole_id,
+                    FormationContactOrm.cpt_id,
+                    FormationContactOrm.depth_top_m,
+                ).where(FormationContactOrm.model_id == model_id)
+            )
+        ).all()
+        if not rows:
+            return 0
+
+        contacts_by_anchor: dict[UUID, list[tuple[float, UUID]]] = defaultdict(list)
+        with_contacts: set[UUID] = set()
+        for fid, bh_id, cpt_id, depth in rows:
+            anchor = bh_id or cpt_id
+            if anchor is None:
+                continue
+            contacts_by_anchor[anchor].append((depth, fid))
+            with_contacts.add(fid)
+
+        # Find the model's project so we can include orphan formations
+        # (those without any contact in this model) in the final
+        # ordering — they keep their existing display_order's relative
+        # position rather than getting reshuffled by the algorithm.
+        project_id = (
+            await self._session.execute(
+                select(GeologicalModelOrm.app_project_id).where(GeologicalModelOrm.id == model_id)
+            )
+        ).scalar_one()
+        all_formations = list(
+            (
+                await self._session.execute(
+                    select(GeologicalFormationOrm).where(
+                        GeologicalFormationOrm.app_project_id == project_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not all_formations:
+            return 0
+
+        # Algorithm orders the contact-bearing formations by data;
+        # orphans append in their current display_order so a manual
+        # drag-reorder on an unplaced formation survives Build.
+        age_ordered = infer_age_order(
+            contacts_by_anchor=contacts_by_anchor,
+            all_formation_ids=list(with_contacts),
+        )
+        orphans = sorted(
+            (f for f in all_formations if f.id not in with_contacts),
+            key=lambda f: f.display_order,
+        )
+        final_order: list[UUID] = age_ordered + [f.id for f in orphans]
+        new_order_by_fid = {fid: i for i, fid in enumerate(final_order)}
+
+        changed = 0
+        for f in all_formations:
+            target = new_order_by_fid.get(f.id)
+            if target is None:
+                continue
+            if f.display_order != target:
+                f.display_order = target
+                changed += 1
+        return changed
