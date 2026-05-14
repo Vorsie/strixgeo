@@ -299,6 +299,36 @@ POST   /projects/{pid}/geology/models/{mid}/surfaces/rebuild?method=tin
                                                     both are 0. 404 when the
                                                     model isn't in this
                                                     project.
+GET    /projects/{pid}/geology/models/{mid}/export/plaxis3d
+                                                    Export the geological
+                                                    model as a runnable
+                                                    Plaxis 3D plxscripting
+                                                    Python script (v1.0
+                                                    MVP gate; Plaxis target
+                                                    decided 2026-05-14).
+                                                    Emits one soilmat
+                                                    (Mohr-Coulomb placeholder)
+                                                    per formation, one
+                                                    global soillayer in
+                                                    stratigraphic order
+                                                    (display_order DESC =
+                                                    youngest first = Plaxis
+                                                    layer 0), one borehole
+                                                    per investigation with
+                                                    elevation, and a
+                                                    setsoillayerlevel call
+                                                    per (borehole, layer).
+                                                    Investigations without
+                                                    elevation_m are dropped
+                                                    upstream of the script
+                                                    with a logged warning.
+                                                    ``text/x-python`` body
+                                                    with a
+                                                    ``Content-Disposition``
+                                                    header naming the
+                                                    project. 404 when the
+                                                    model / project
+                                                    resolution fails.
 
 POST   /projects/{pid}/sections             Create a cross-section (line
                                             endpoints + projection buffer
