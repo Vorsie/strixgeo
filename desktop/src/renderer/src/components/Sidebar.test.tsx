@@ -143,6 +143,65 @@ describe('Sidebar — multi-select + bulk remove', () => {
     expect(screen.getByText(/1 selected/i)).toBeInTheDocument()
   })
 
+  it('shift-click on a checkbox selects the visible range from the last plain click', () => {
+    const onRemoveCpts = vi.fn()
+    renderSidebar({
+      cpts: [
+        makeCpt({ id: 'a', name: 'CPT-A' }),
+        makeCpt({ id: 'b', name: 'CPT-B' }),
+        makeCpt({ id: 'c', name: 'CPT-C' }),
+        makeCpt({ id: 'd', name: 'CPT-D' }),
+      ],
+      onRemoveCpts,
+    })
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    // Plain click on row A anchors the range.
+    fireEvent.click(checkboxes[0])
+    // Shift-click on row C extends [A..C] = A, B, C.
+    fireEvent.click(checkboxes[2], { shiftKey: true })
+
+    expect(screen.getByText(/3 selected/i)).toBeInTheDocument()
+
+    const bar = screen.getByText(/3 selected/i).parentElement!
+    fireEvent.click(within(bar).getByText(/^Remove$/i))
+    expect(new Set(onRemoveCpts.mock.calls[0][0])).toEqual(new Set(['a', 'b', 'c']))
+  })
+
+  it('shift-click on an unchecked anchor mirrors-deselects across the range', () => {
+    renderSidebar({
+      cpts: [
+        makeCpt({ id: 'a', name: 'CPT-A' }),
+        makeCpt({ id: 'b', name: 'CPT-B' }),
+        makeCpt({ id: 'c', name: 'CPT-C' }),
+      ],
+    })
+    const checkboxes = screen.getAllByRole('checkbox')
+    // Check all three via the Select-all button to set a known state.
+    fireEvent.click(screen.getByText(/select all/i))
+    expect(screen.getByText(/3 selected/i)).toBeInTheDocument()
+    // Plain-click row A: toggles A off, re-anchors there (A unchecked).
+    fireEvent.click(checkboxes[0])
+    expect(screen.getByText(/2 selected/i)).toBeInTheDocument()
+    // Shift-click row C: mirrors A's unchecked state across [A..C] →
+    // every row in the range becomes unchecked.
+    fireEvent.click(checkboxes[2], { shiftKey: true })
+    expect(screen.queryByText(/selected/i)).not.toBeInTheDocument()
+  })
+
+  it('shift-click with no prior anchor behaves like a plain toggle', () => {
+    renderSidebar({
+      cpts: [
+        makeCpt({ id: 'a', name: 'CPT-A' }),
+        makeCpt({ id: 'b', name: 'CPT-B' }),
+      ],
+    })
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[1], { shiftKey: true })
+    // Just the one row; no range to extend from.
+    expect(screen.getByText(/1 selected/i)).toBeInTheDocument()
+  })
+
   it('clicking Remove in the bulk bar fires onRemoveCpts with the selection set', () => {
     const onRemoveCpts = vi.fn()
     renderSidebar({
