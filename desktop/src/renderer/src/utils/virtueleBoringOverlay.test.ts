@@ -3,8 +3,10 @@ import {
   DEFAULT_VIRTUELE_BORING_OVERLAY,
   VIRTUELE_BORING_MAX_DEPTH_MAX_M,
   activeOverlayModels,
+  readPaneModelOverride,
   readPaneVisibility,
   readVirtueleBoringOverlay,
+  writePaneModelOverride,
   writePaneVisibility,
 } from './virtueleBoringOverlay'
 
@@ -130,5 +132,42 @@ describe('per-pane visibility (localStorage)', () => {
     writePaneVisibility('proj-B', 'cpt', false)
     expect(readPaneVisibility('proj-A', 'cpt')).toBe(true)
     expect(readPaneVisibility('proj-B', 'cpt')).toBe(false)
+  })
+})
+
+describe('per-pane model override (localStorage)', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+  afterEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('defaults to empty string (follow section)', () => {
+    expect(readPaneModelOverride('proj-1', 'cpt')).toBe('')
+    expect(readPaneModelOverride('proj-1', 'borehole')).toBe('')
+  })
+
+  it('round-trips an override model code through localStorage', () => {
+    writePaneModelOverride('proj-1', 'cpt', 'hcovv2_H')
+    expect(readPaneModelOverride('proj-1', 'cpt')).toBe('hcovv2_H')
+  })
+
+  it('empty string clears the override', () => {
+    writePaneModelOverride('proj-1', 'borehole', 'g3dv3_F')
+    writePaneModelOverride('proj-1', 'borehole', '')
+    expect(readPaneModelOverride('proj-1', 'borehole')).toBe('')
+  })
+
+  it('falls back to empty when project id is null', () => {
+    writePaneModelOverride('proj-1', 'cpt', 'g3dv3_F')
+    expect(readPaneModelOverride(null, 'cpt')).toBe('')
+  })
+
+  it('overrides for cpt + borehole panes are independent', () => {
+    writePaneModelOverride('proj-1', 'cpt', 'g3dv3_F')
+    writePaneModelOverride('proj-1', 'borehole', 'hcovv2_H')
+    expect(readPaneModelOverride('proj-1', 'cpt')).toBe('g3dv3_F')
+    expect(readPaneModelOverride('proj-1', 'borehole')).toBe('hcovv2_H')
   })
 })
