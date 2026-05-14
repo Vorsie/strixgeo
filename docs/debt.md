@@ -520,3 +520,85 @@ state) for a marginal clarity win.
 by the qualified banner ("I rebuilt and the crossing went away
 — was the warning real?"), or when the crossings validator gets
 extended with more issue kinds where staleness matters more.
+
+## 50. Canonical regional stratigraphy catalog (NCS / BRO) for ordering + colors + names (high — architectural answer for stratigraphy)
+
+**What.** Today's depth-derived `display_order` in auto-populate
+(see ``auto_populate_contacts_from_stratigraphy.py`` post-walk
+sort) is a heuristic — it works because depth aligns with age in
+normal Belgian stratigraphy (Steno's superposition). It breaks for
+faulted zones, overturned beds, repeated glaciotectonic sequences,
+and anywhere the user has informal layer names.
+
+The authoritative source is the Belgian National Commission for
+Stratigraphy chart (https://ncs.naturalsciences.be/infosearch/).
+Each formation has a canonical age, prescribed color, multilingual
+names (NL/FR/EN), and a description. NL has the equivalent BRO /
+TNO Dutch stratigraphic chart.
+
+Wire as a 3-tier ordering source:
+
+| Priority | Source | Coverage | Confidence |
+|---|---|---|---|
+| 1 | NCS / BRO age | BE+NL named formations | Authoritative |
+| 2 | G3Dv3 stacking | Flanders mapped formations | Authoritative-regional |
+| 3 | Depth-derived mean | Anything (informal, foreign) | Heuristic (today) |
+
+**Wins beyond ordering** when this lands:
+
+* Standard formation **colours** — engineer picks "Ieper" → it
+  gets the prescribed yellow from the NCS chart automatically.
+* **Multilingual labels** — "Boom Klei" / "Argile de Boom" /
+  "Boom Clay" depending on user locale (Strix targets BE bilingual
+  + NL + future international).
+* Formation **descriptions** auto-fill the ``description`` column
+  on first creation.
+* **Stronger crossings validation**: the validator can flag "user
+  placed Antropogeen below Ieper — NCS says that's geologically
+  impossible" with authoritative language, not depth-derived
+  heuristic.
+* **Formation autocomplete** in the manual create dialog (typing
+  "Boom" → suggests "Boom Klei" with the formal regional_ref +
+  color pre-filled).
+
+**Four implementation options** (pick when revisiting):
+
+* **A. Hardcoded curated catalog.** Python dict in
+  ``infrastructure/codelists/ncs_belgian_stratigraphy.py`` with
+  the ~50-100 most common Belgian formations. Update manually
+  when NCS publishes changes. Cheapest start; manual maintenance.
+* **B. Scraped catalog cached in repo.** One-time scrape of the
+  NCS site → JSON file shipped with the app. Refresh script in
+  ``scripts/``. CI re-scrapes periodically. Best balance of
+  freshness + simplicity.
+* **C. Live API query.** If NCS exposes an API, hit it on import.
+  Cache responses locally. Slower, network-dependent, fragile.
+  Worst fit for the local-first commercial model.
+* **D. G3Dv3 import covers it.** When the user imports G3Dv3
+  (post-v1.0 Flanders feature), formations land with the right
+  order baked in. NCS becomes a fallback for non-G3Dv3 projects.
+  Folds the work into the G3Dv3 import.
+
+**Why deferred.** The depth-derived heuristic shipped today
+covers the dogfooding bug (Antropogeen-as-oldest) and works for
+~95% of normal Belgian sites. NCS integration is multi-week
+effort: catalog scraping (or curation), schema for ages + colors
++ multilingual names, code-paths in auto-populate / manual
+create / validator, locale machinery for the labels.
+
+**When to revisit.** Two natural triggers:
+
+1. **G3Dv3 import session** (CLAUDE.md Phase 4 launch-adjacent):
+   the regional_ref → age mapping is half the work for NCS, so
+   land them together.
+2. **First user complaint that depth-derived ordering got it
+   wrong on a real project** (faulted site, overturned bed,
+   repeated sequence). Single complaint = file as P1 because it
+   means the heuristic's accuracy assumption broke.
+
+Architectural note: NCS is BE-only. NL has its own catalog
+(TNO / BRO). The interface this debt produces should be a
+pluggable "regional stratigraphic catalog" abstraction with
+two implementations on day one (NCS + BRO), not a hardcoded NCS
+lookup. Keeps the door open for international expansion without
+a rewrite.
