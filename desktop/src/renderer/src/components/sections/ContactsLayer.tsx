@@ -742,6 +742,7 @@ export default function ContactsLayer({
         color: string
         name: string
         d: string
+        isStale: boolean
       }[]
     }
     const out: {
@@ -749,6 +750,7 @@ export default function ContactsLayer({
       color: string
       name: string
       d: string
+      isStale: boolean
     }[] = []
     // Iterate ``polylineData`` rather than the ``surfacesByFormationId``
     // Map — polylineData is already sorted by stratigraphic order
@@ -780,7 +782,13 @@ export default function ContactsLayer({
         pendingMove = false
       }
       if (path === '') continue
-      out.push({ formationId, color: meta.color, name: meta.name, d: path })
+      out.push({
+        formationId,
+        color: meta.color,
+        name: meta.name,
+        d: path,
+        isStale: surface.is_stale === true,
+      })
     }
     return out
   }, [
@@ -1385,15 +1393,21 @@ export default function ContactsLayer({
           fallback — the user sees at a glance which formations have a
           full surface vs. which are still 2-pick tie-lines. */}
       {slicedPolylines.map(line => (
+        // On-click build pivot: stale TINs render dashed + faded so
+        // the engineer can see "this is your last build, refresh to
+        // update". Distinct from the connect-the-dots fallback (also
+        // dashed but with a longer pattern + different opacity).
         <path
           key={`slice-${line.formationId}`}
           d={line.d}
           stroke={line.color}
           strokeWidth={1.25}
-          strokeOpacity={0.7}
+          strokeOpacity={line.isStale ? 0.35 : 0.7}
+          strokeDasharray={line.isStale ? '6 3' : undefined}
           fill="none"
           pointerEvents="none"
           data-testid={`formation-surface-${line.formationId}`}
+          data-stale={line.isStale ? 'true' : undefined}
         />
       ))}
       {/* Cross-column polylines (formation surfaces). Drawn first so
