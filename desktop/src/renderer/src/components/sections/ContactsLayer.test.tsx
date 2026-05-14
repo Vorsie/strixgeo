@@ -8,6 +8,7 @@ import type {
   BoreholeListItem,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
+  FormationSurfaceResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
 import type { ContactCopyPayload } from './ContactsLayer'
@@ -107,6 +108,9 @@ function renderLayer(
       creates: readonly ContactCopyPayload[],
     ) => Promise<void>
     snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
+    surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+    sectionLine?: { startX: number; startY: number; endX: number; endY: number }
+    alongMToScreenX?: (alongM: number) => number
   } = {},
 ) {
   return render(
@@ -124,6 +128,9 @@ function renderLayer(
         onBatchUpdateContacts={extras.onBatchUpdateContacts}
         onBatchCreateContacts={extras.onBatchCreateContacts}
         snapDepthsByAnchorId={extras.snapDepthsByAnchorId}
+        surfacesByFormationId={extras.surfacesByFormationId}
+        sectionLine={extras.sectionLine}
+        alongMToScreenX={extras.alongMToScreenX}
       />
     </svg>,
   )
@@ -1031,6 +1038,107 @@ describe('ContactsLayer', () => {
 
     expect(onBatch).not.toHaveBeenCalled()
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders fresh slice-of-TIN solid + opacity 0.7', () => {
+    // Three contacts on three boreholes — enough for a Delaunay
+    // triangle. Surface is fresh (is_stale=false). Section cuts
+    // horizontally through y=0; alongMToScreenX is identity for the
+    // test.
+    const formation = makeFormation({ id: 'f', color: '#ff0000' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 1 }),
+    ]
+    const surface: FormationSurfaceResponse = {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 9],
+        [100, -2, 9],
+        [50, 5, 9],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: false,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+    const surfacesByFormationId = new Map<string, FormationSurfaceResponse>([
+      ['f', surface],
+    ])
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [
+        makeBoreholePlaced('bh-1', 0),
+        makeBoreholePlaced('bh-2', 100),
+        makeBoreholePlaced('bh-3', 50),
+      ],
+      undefined,
+      {
+        surfacesByFormationId,
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+      },
+    )
+    const slice = container.querySelector('[data-testid="formation-surface-f"]')
+    expect(slice).not.toBeNull()
+    expect(slice!.getAttribute('stroke-opacity')).toBe('0.7')
+    expect(slice!.getAttribute('stroke-dasharray')).toBeNull()
+    expect(slice!.getAttribute('data-stale')).toBeNull()
+  })
+
+  it('renders stale slice-of-TIN dashed + opacity 0.35', () => {
+    // Same setup but is_stale=true → demoted style.
+    const formation = makeFormation({ id: 'f', color: '#ff0000' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 1 }),
+    ]
+    const surface: FormationSurfaceResponse = {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 9],
+        [100, -2, 9],
+        [50, 5, 9],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: true,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+    const surfacesByFormationId = new Map<string, FormationSurfaceResponse>([
+      ['f', surface],
+    ])
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [
+        makeBoreholePlaced('bh-1', 0),
+        makeBoreholePlaced('bh-2', 100),
+        makeBoreholePlaced('bh-3', 50),
+      ],
+      undefined,
+      {
+        surfacesByFormationId,
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+      },
+    )
+    const slice = container.querySelector('[data-testid="formation-surface-f"]')
+    expect(slice).not.toBeNull()
+    expect(slice!.getAttribute('stroke-opacity')).toBe('0.35')
+    expect(slice!.getAttribute('stroke-dasharray')).toBe('6 3')
+    expect(slice!.getAttribute('data-stale')).toBe('true')
   })
 
   it('paints formation polylines in stratigraphic order — older first, younger on top', () => {
