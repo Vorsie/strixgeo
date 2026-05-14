@@ -31,6 +31,9 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
+from groundmodel.infrastructure.db.models.formation_surface_orm import (
+    FormationSurfaceOrm,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -412,6 +415,16 @@ class GeologyRepository(GroundModelLogger):
         if not contact_ids:
             return []
         stmt = select(FormationContactOrm).where(FormationContactOrm.id.in_(contact_ids))
+        return list((await self._session.execute(stmt)).scalars().all())
+
+    async def list_surfaces(self, model_id: UUID) -> list[FormationSurfaceOrm]:
+        """List every cached TIN surface for the model.
+
+        Used by the section-view consumer to fetch all formations'
+        slice-ready geometry in one round trip. Order is arbitrary;
+        the renderer indexes by formation_id.
+        """
+        stmt = select(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model_id)
         return list((await self._session.execute(stmt)).scalars().all())
 
     async def delete_contact(self, contact_id: UUID) -> bool:
