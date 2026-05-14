@@ -45,7 +45,10 @@ from groundmodel.api.schemas.project.geotechnical_unit import (
 from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
     AutoPopulateContactsFromStratigraphy,
 )
-from groundmodel.application.create_formation_contact import CreateFormationContact
+from groundmodel.application.create_formation_contact import (
+    CreateFormationContact,
+    DuplicateContactError,
+)
 from groundmodel.application.delete_formation_contact import DeleteFormationContact
 from groundmodel.application.update_formation_contact import UpdateFormationContact
 from groundmodel.application.update_formation_contacts_batch import (
@@ -409,6 +412,24 @@ async def create_contact(
             observation_layer_id=request.observation_layer_id,
             notes=request.notes,
         )
+    except DuplicateContactError as err:
+        # 409 Conflict + the existing contact id in the response body
+        # so the frontend can surface "an X contact already exists on
+        # this borehole" and offer a "move it here" action via PATCH
+        # rather than asking the user to manually find + delete the
+        # duplicate.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "duplicate_contact",
+                "message": (
+                    "A contact for this formation already exists on this "
+                    "investigation. Drag the existing one to move it, or "
+                    "delete it first."
+                ),
+                "existing_contact_id": str(err.existing_contact_id),
+            },
+        ) from err
     except ValueError as err:
         # Defence-in-depth ValueError from the repository's XOR check
         # — Pydantic should have already rejected this at the 422
