@@ -504,7 +504,29 @@ export default function App() {
   // saveProject orchestration — commits metadata then clears every
   // session-imports set so the project lands clean. Failure of any
   // step leaves the dirty flag intact for retry.
+  //
+  // On-click build pivot: auto-fire ``Build model`` before the
+  // metadata save so the .strix bundle round-trips a fresh cache,
+  // not yesterday's geometry. Build failures DO NOT block save —
+  // the user's work must always persist; we just toast the failure.
   const saveProject = useCallback(async (): Promise<boolean> => {
+    if (project && activeGeologicalModel) {
+      try {
+        await api.geology.rebuildSurfaces(project.id, activeGeologicalModel.id)
+        // Refetch surfaces so the in-memory state matches the freshly
+        // committed cache; the bundle write below reads ``project``
+        // (which doesn't carry surfaces) but the Section view reflects
+        // the new state immediately.
+        refetchSurfaces()
+        log.success('geology', 'auto-build before save: ok')
+      } catch (err) {
+        log.warn('geology', 'auto-build before save failed — saving anyway', err)
+        toast(
+          'error',
+          'Could not build the model before saving — file saved with the previous build.',
+        )
+      }
+    }
     const ok = await saveMetadata()
     if (!ok) return false
     setSessionImportCptIds(new Set())
@@ -514,6 +536,9 @@ export default function App() {
     setSessionImportContactIds(new Set())
     return true
   }, [
+    project,
+    activeGeologicalModel,
+    refetchSurfaces,
     saveMetadata,
     setSessionImportCptIds,
     setSessionImportBoreholeIds,
