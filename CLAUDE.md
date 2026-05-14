@@ -106,6 +106,22 @@ ordering: it samples each pair of cached TIN surfaces and flags any
 surface in InterpretationPane as an amber "N surface crossings
 detected" banner; refetched on every contact mutation.
 
+**On-click build — the user controls when surfaces compute.** Per-
+contact mutations (Create / Update / Delete / Batch update) DO NOT
+auto-run Delaunay; they flip ``formation_surface.is_stale = True``
+on the affected (model, formation) row. Only ``POST /geology/models/
+{mid}/surfaces/rebuild`` (the InterpretationPane "Build model"
+button + auto-fire on File → Save) clears the flag by re-running
+the recompute. The section view renders stale TINs at opacity 0.35
++ dashed ``6 3`` so the engineer sees "this is your last build,
+refresh to update." Distinct from the connect-the-dots fallback
+(dashed ``4 3``, opacity 0.55) and from fresh TIN (solid 0.7).
+Auto-recompute IS retained on the explicit "do a thing" actions
+(Auto-populate from boreholes, Dedupe) — they're build-shaped
+intents, not iterative edits. The ``method`` query param scaffolds
+for kriging / RBF / GemPy in Phase 5; v1 enforces ``method=tin``
+via regex.
+
 ### v1.0 commercial MVP gate
 
 The product is "sellable" the moment a geotech engineer can do this
@@ -907,4 +923,4 @@ See [docs/debt.md](docs/debt.md) for the full backlog. Format conventions stay h
 * Numbers stay stable through a debt-fixing campaign (do not renumber after each fix); explicit cleanup passes compact them (last done 2026-05-13).
 * Each open item carries three fields: **What** / **Why deferred** / **When to revisit**. The trigger condition ("when 5000 samples per borehole becomes typical", "before any non-solo user", "day-1 of debt #10") is the most important field — without it, debt items live forever.
 
-Currently open: #1 (WFS base class), #3 (parameter-slug), #5 (telemetry), #7 (permkey backfill), #8 (elevation rollback), #10 (license keys), #11 (installer + signing), #12 (tamper hardening), #13 (marketing site + name), #25 (geotech units in section editor), #33 (bundled Postgres), #34 (Plaxis target version), #40 (auth on by-id endpoints), #44 (resolved — kept as design rationale anchor), #45 (Ctrl+Z undo).
+Currently open: #1 (WFS base class), #3 (parameter-slug), #5 (telemetry), #7 (permkey backfill), #8 (elevation rollback), #10 (license keys), #11 (installer + signing), #12 (tamper hardening), #13 (marketing site + name), #25 (geotech units in section editor), #33 (bundled Postgres), #34 (Plaxis target version), #40 (auth on by-id endpoints), #44 (resolved — kept as design rationale anchor), #45 (Ctrl+Z undo), #46 (Sidebar UI overhaul).
