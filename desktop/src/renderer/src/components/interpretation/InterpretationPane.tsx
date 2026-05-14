@@ -24,7 +24,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Drill, Layers, Plus, Sparkles, Trash2 } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Drill,
+  Layers,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+} from 'lucide-react'
 
 import { api } from '../../api/client'
 import type {
@@ -101,6 +110,11 @@ interface Props {
    * Resolves with the duplicates-removed count for the toast.
    * Hidden when omitted (test-harness mounts). */
   onDedupeContacts?: () => Promise<number>
+  /** Force-recompute every formation's TIN cache in the active model.
+   * Caller (App) calls the rebuild API + refetches surfaces. Hidden
+   * when omitted (test-harness mounts). Reversible action — no
+   * confirmation modal; the rebuild only writes derived state. */
+  onRebuildSurfaces?: () => Promise<void>
 }
 
 export default function InterpretationPane({
@@ -118,6 +132,7 @@ export default function InterpretationPane({
   refreshSignal,
   pushUndoCommand,
   onDedupeContacts,
+  onRebuildSurfaces,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -140,6 +155,7 @@ export default function InterpretationPane({
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [dedupeBusy, setDedupeBusy] = useState(false)
   const [pendingDedupe, setPendingDedupe] = useState(false)
+  const [rebuildBusy, setRebuildBusy] = useState(false)
 
   async function handleDedupe(): Promise<void> {
     if (!onDedupeContacts || dedupeBusy) return
@@ -149,6 +165,16 @@ export default function InterpretationPane({
     } finally {
       setDedupeBusy(false)
       setPendingDedupe(false)
+    }
+  }
+
+  async function handleRebuildSurfaces(): Promise<void> {
+    if (!onRebuildSurfaces || rebuildBusy) return
+    setRebuildBusy(true)
+    try {
+      await onRebuildSurfaces()
+    } finally {
+      setRebuildBusy(false)
     }
   }
 
@@ -565,6 +591,18 @@ export default function InterpretationPane({
             >
               <Sparkles size={12} className="mr-1" />
               {dedupeBusy ? 'Cleaning…' : 'Dedupe'}
+            </Button>
+          )}
+          {onRebuildSurfaces && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleRebuildSurfaces()}
+              disabled={rebuildBusy}
+              title="Force-recompute every formation surface in this model. Use after editing an investigation's elevation, restoring a project, or whenever the section view's slice render looks out of date."
+            >
+              <RefreshCw size={12} className="mr-1" />
+              {rebuildBusy ? 'Rebuilding…' : 'Rebuild surfaces'}
             </Button>
           )}
           <Button
