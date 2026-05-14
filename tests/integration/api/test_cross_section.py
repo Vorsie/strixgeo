@@ -65,13 +65,13 @@ async def test_patch_view_state_merges_top_level_keys(
 
     first = await async_client.patch(
         f"/projects/{project.id}/sections/{section['id']}",
-        json={"view_state": {"vex_lock": False}},
+        json={"view_state": {"snap_to_stratigraphy": False}},
     )
     assert first.status_code == 200
     # Sibling cpt_channels from the create call must still be present.
     assert first.json()["view_state"] == {
         "cpt_channels": {"qc": True},
-        "vex_lock": False,
+        "snap_to_stratigraphy": False,
     }
 
 
@@ -82,17 +82,36 @@ async def test_patch_view_state_null_inside_dict_removes_key(
     section = await _create_section(
         async_client,
         project.id,
-        view_state={"cpt_channels": {"qc": True}, "vex_lock": True},
+        view_state={"cpt_channels": {"qc": True}, "snap_to_stratigraphy": True},
     )
 
     resp = await async_client.patch(
         f"/projects/{project.id}/sections/{section['id']}",
-        json={"view_state": {"vex_lock": None}},
+        json={"view_state": {"snap_to_stratigraphy": None}},
     )
     assert resp.status_code == 200
     state = resp.json()["view_state"]
-    assert "vex_lock" not in state
+    assert "snap_to_stratigraphy" not in state
     assert state["cpt_channels"] == {"qc": True}
+
+
+async def test_patch_view_state_unknown_top_level_key_is_422(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """Unknown view_state keys are rejected at the HTTP boundary (debt #24).
+
+    Sister to the unit-level pin in
+    ``tests/unit/api/test_section_view_state.py``; this one walks the
+    full request path so a future relaxation of the router schema
+    surfaces here too. Use a real schema key (e.g.
+    ``snap_to_stratigraphy``) when verifying merge semantics.
+    """
+    section = await _create_section(async_client, project.id)
+    resp = await async_client.patch(
+        f"/projects/{project.id}/sections/{section['id']}",
+        json={"view_state": {"not_a_real_key": True}},
+    )
+    assert resp.status_code == 422
 
 
 async def test_patch_view_state_empty_dict_clears_the_bag(
