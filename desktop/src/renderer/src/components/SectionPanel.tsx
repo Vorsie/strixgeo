@@ -63,7 +63,9 @@ import {
 } from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
-import VirtueleBoringGhostColumns from './sections/VirtueleBoringGhostColumns'
+import VirtueleBoringGhostColumns, {
+  virtueleBoringGhostRailWidth,
+} from './sections/VirtueleBoringGhostColumns'
 import VirtueleBoringStrip from './sections/VirtueleBoringStrip'
 import SectionHeader from './sections/SectionHeader'
 import SectionScrubBar from './sections/SectionScrubBar'
@@ -613,6 +615,21 @@ export default function SectionPanel({
     [boreholeChannels],
   )
 
+  // Ghost-rail footprint per column when the Virtuele Boring
+  // overlay is showing on this pane. Each column carries this extra
+  // width into the nudge pass so neighbouring columns don't sit on
+  // top of the ghosts to their right. Reads as 0 when the overlay
+  // is off — keeps the no-overlay layout pixel-identical to before.
+  const virtueleBoringActiveModelsForLayout = useMemo<readonly string[]>(
+    () => (virtueleBoringActiveModels ?? []).slice(0, 2),
+    [virtueleBoringActiveModels],
+  )
+  const ghostFootprintForLayout =
+    virtueleBoringShowOnSection &&
+    virtueleBoringActiveModelsForLayout.length > 0
+      ? virtueleBoringGhostRailWidth(virtueleBoringActiveModelsForLayout.length)
+      : 0
+
   const placedColumns = useMemo<PlacedColumn[]>(() => {
     // ``columnSpacing`` lerps between two layouts, both collision-safe:
     //
@@ -644,6 +661,13 @@ export default function SectionPanel({
       trueX: number
       visualWidth: number
     }
+    // The ghost rail extends to the right of each column's data
+    // band. Adding the same footprint to every column's visualWidth
+    // means the nudge pass guarantees: column[i+1].left_edge >=
+    // column[i].band_right + ghostFootprint + edgeGap, which is the
+    // condition for the ghosts NOT to overlap column[i+1]'s band.
+    // The extra is symmetric (both sides) for nudge math symmetry —
+    // a small over-spacing on the leftmost column is acceptable.
     const rawItems: (RawCpt | RawBh)[] = [
       ...projectedCpts.map((proj): RawCpt => {
         const trackW = cptPlots?.has(proj.item.id)
@@ -653,7 +677,7 @@ export default function SectionPanel({
           kind: 'cpt',
           proj,
           trueX: xToScreen(proj.along),
-          visualWidth: BARE_COLUMN_WIDTH_PX + trackW,
+          visualWidth: BARE_COLUMN_WIDTH_PX + trackW + ghostFootprintForLayout,
         }
       }),
       ...projectedBoreholes.map((proj): RawBh => {
@@ -664,7 +688,7 @@ export default function SectionPanel({
           kind: 'borehole',
           proj,
           trueX: xToScreen(proj.along),
-          visualWidth: BARE_COLUMN_WIDTH_PX + stripsW,
+          visualWidth: BARE_COLUMN_WIDTH_PX + stripsW + ghostFootprintForLayout,
         }
       }),
     ]
@@ -720,6 +744,7 @@ export default function SectionPanel({
     bandHalfWidth,
     columnSpacing,
     enabledBhChannels,
+    ghostFootprintForLayout,
   ])
 
   // Virtuele Boring overlay — index the predictions by
