@@ -87,6 +87,8 @@ declare global {
       onMenuProjectSaveAs: (cb: () => void) => () => void
       onMenuProjectClose: (cb: () => void) => () => void
       onMenuProjectOpenRecent: (cb: (path: string) => void) => () => void
+      onMenuEditUndo: (cb: () => void) => () => void
+      onMenuEditRedo: (cb: () => void) => () => void
     }
   }
 }
@@ -204,6 +206,20 @@ export default function App() {
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
+  }, [doUndo, doRedo])
+
+  // Subscribe to the Edit-menu IPC signals. The menu's keyboard
+  // accelerators are display-only (registerAccelerator: false in
+  // main/index.ts) so the document keydown listener above still owns
+  // the actual keystroke; these handlers route the menu *click* path.
+  useEffect(() => {
+    const offs = [
+      window.electron.onMenuEditUndo(() => void doUndo()),
+      window.electron.onMenuEditRedo(() => void doRedo()),
+    ]
+    return () => {
+      for (const off of offs) off()
+    }
   }, [doUndo, doRedo])
 
   const [ready, setReady] = useState(false)
