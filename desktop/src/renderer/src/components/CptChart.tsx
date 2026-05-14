@@ -12,6 +12,7 @@ import type {
 import ElevationEditor from './ElevationEditor'
 import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
 import VirtueleBoringDepthColumn from './VirtueleBoringDepthColumn'
+import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 
 interface Props {
   plot:   CptPlotResponse
@@ -31,10 +32,19 @@ interface Props {
   // (no models picked, project CRS isn't 31370, …) the button stays
   // disabled.
   virtueleBoringPrediction?: VirtueleBoringInvestigationPrediction | null
+  // The effective model list for THIS pane — already resolved by
+  // App.tsx (override > section pick). The CptChart renders one
+  // ghost column per entry.
   virtueleBoringActiveModels?: readonly string[]
   virtueleBoringMaxDepthM?: number | null
   virtueleBoringVisible?: boolean
   onToggleVirtueleBoringVisible?: () => void
+  // Per-pane model override. Empty string = "follow section";
+  // a specific code = render only that model regardless of the
+  // section pane's selection. The dropdown next to the DOV button
+  // exposes this control to the engineer.
+  virtueleBoringOverrideModel?: string
+  onChangeVirtueleBoringOverrideModel?: (next: string) => void
 }
 
 // ── DOV standard axis ranges ────────────────────────────────────────────────
@@ -121,7 +131,16 @@ export default function CptChart({
   virtueleBoringMaxDepthM = null,
   virtueleBoringVisible = false,
   onToggleVirtueleBoringVisible,
+  virtueleBoringOverrideModel = '',
+  onChangeVirtueleBoringOverrideModel,
 }: Props) {
+  // Lazy-load the catalogue when the model dropdown is present —
+  // most CPT detail views never need it (engineers leaving overlays
+  // off). Cached at module scope so the section pane's strip and
+  // this dropdown share one fetch per session.
+  const catalog = useVirtueleBoringCatalog(
+    onChangeVirtueleBoringOverrideModel !== undefined,
+  )
   const elevationM = detail?.elevation_m ?? null
   const zEpsg = detail?.z_epsg ?? null
   const elevationSource = detail?.elevation_source ?? null
@@ -462,35 +481,57 @@ export default function CptChart({
               onClick={() => setZoomDomain([0, maxDepth])}
             >Reset</button>
           )}
-          {/* DOV Virtuele Boring overlay toggle. Disabled when the
-              section pane's picker hasn't armed any model (no
-              predictions to render) — gives the user a visual
-              breadcrumb pointing back at the section pane. */}
+          {/* DOV Virtuele Boring overlay toggle + override picker.
+              The button flips visibility; the dropdown picks which
+              model THIS pane shows. "Follow section" inherits the
+              section pane's modelA/modelB; a specific model code
+              renders only that one regardless of the section's
+              selection — useful for comparing a CPT against
+              hydrogeology while the section pane shows formations. */}
           {onToggleVirtueleBoringVisible !== undefined && (
-            <button
-              onClick={onToggleVirtueleBoringVisible}
-              disabled={virtueleBoringActiveModels.length === 0}
-              aria-pressed={virtueleBoringVisible}
-              aria-label="Toggle DOV Virtuele Boring overlay"
-              title={
-                virtueleBoringActiveModels.length === 0
-                  ? 'Pick a DOV model in the section pane first to enable this overlay'
-                  : virtueleBoringVisible
-                    ? 'Hide DOV Virtuele Boring overlay'
-                    : 'Show DOV Virtuele Boring overlay'
-              }
-              className={
-                'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
-                (virtueleBoringActiveModels.length === 0
-                  ? 'border-gray-200 text-gray-300 cursor-not-allowed'
-                  : virtueleBoringVisible
-                    ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
-                    : 'border-gray-200 text-gray-500 hover:bg-gray-100')
-              }
-            >
-              <Database size={11} />
-              DOV
-            </button>
+            <>
+              <button
+                onClick={onToggleVirtueleBoringVisible}
+                disabled={virtueleBoringActiveModels.length === 0}
+                aria-pressed={virtueleBoringVisible}
+                aria-label="Toggle DOV Virtuele Boring overlay"
+                title={
+                  virtueleBoringActiveModels.length === 0
+                    ? 'Pick a DOV model in the dropdown or the section pane to enable this overlay'
+                    : virtueleBoringVisible
+                      ? 'Hide DOV Virtuele Boring overlay'
+                      : 'Show DOV Virtuele Boring overlay'
+                }
+                className={
+                  'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
+                  (virtueleBoringActiveModels.length === 0
+                    ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                    : virtueleBoringVisible
+                      ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-100')
+                }
+              >
+                <Database size={11} />
+                DOV
+              </button>
+              {onChangeVirtueleBoringOverrideModel !== undefined && (
+                <select
+                  value={virtueleBoringOverrideModel}
+                  onChange={e => onChangeVirtueleBoringOverrideModel(e.target.value)}
+                  disabled={catalog === null}
+                  title="Override which DOV model this pane shows"
+                  aria-label="DOV overlay model for this pane"
+                  className="h-6 px-1 border border-gray-200 rounded text-[10px] bg-white text-gray-700 max-w-[160px]"
+                >
+                  <option value="">Follow section</option>
+                  {(catalog ?? []).map(entry => (
+                    <option key={entry.code} value={entry.code}>
+                      {entry.beschrijving}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </>
           )}
         </div>
       </div>
