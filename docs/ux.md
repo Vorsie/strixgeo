@@ -1,0 +1,191 @@
+# UX Conventions
+
+The desktop UI is built against a **layered stack of style guides**, in
+order of precedence when they disagree:
+
+1. **WCAG 2.2 — level AA**, the non-negotiable accessibility floor.
+   4.5 : 1 contrast for body text, 3 : 1 for large text and UI
+   components, visible focus rings on every keyboard-reachable
+   element, 44 × 44 px minimum hit-target on touchable surfaces, full
+   keyboard reachability, no information conveyed by colour alone.
+2. **Apple HIG** for desktop interaction conventions. The most useful
+   chapters for this app: Modality / Sheets / Popovers / Sidebars /
+   Inspectors / Keyboard Shortcuts. Treats Esc as the universal
+   dismiss key, ⌘0 / Ctrl+0 as zoom-reset, ⌘W / Ctrl+W as close pane.
+3. **GitHub Primer** for visual tokens + dark-mode strategy. Two
+   surface levels (page, card), accent (blue) reserved for primary
+   action / selection, danger (red) reserved for destructive intent,
+   muted greys for secondary chrome. We map these onto Tailwind
+   utility classes (mostly `slate-*` / `gray-*` / `blue-*` /
+   `red-*`); when Primer says "use accent.primary" we read that as
+   `blue-600` light / `blue-400` dark.
+4. **Tailwind UI / Catalyst** for code-level pattern lifts when a
+   component shape exists there.
+5. **Domain conventions** (ISO 14688-1 soil patterns, DOV PDF report
+   layout) override every general guide above for the borelog and
+   anything geotechnical-domain-specific. Generic UI (sidebars,
+   dialogs, panels) follows the layered defaults strictly.
+
+## Override rule
+
+When a guide actively hurts UX or conflicts with domain need:
+
+* Override at the smallest scope possible (one component, never the
+  whole app theme).
+* Document **why** in a header comment near the override, citing the
+  guide rule it bypasses.
+* Domain convention beats general convention; general convention beats
+  personal taste. "I think it looks better" is not a documented
+  reason — find which higher principle the guide rule is failing in
+  this case (e.g. "ISO 14688-1 mandates dotted fill for sand, which
+  Primer's solid-fill cards fight against — overriding").
+
+## Selection
+
+* **Click row body** — select / open detail (single-select).
+* **Hover-X icon** — single-row remove (project-local; never DB delete).
+* **Checkbox** — multi-select, always visible left of the row icon
+  (NOT hover-only — discoverability beats clean-row aesthetics for
+  power users curating large lists).
+* **Bulk action bar** — appears at the top of the list when ≥ 1 row
+  is checked; format: `N selected · [Action] · Clear`.
+* **Tab switch resets selection** — checkboxes in a different tab
+  refer to different items; carrying selection across is misleading.
+
+## Keyboard shortcuts
+
+| Shortcut | Action | Scope |
+|---|---|---|
+| `Esc` | Close detail panel / cancel bbox draw / cancel modal / cancel drag / cancel marquee / clear selection | Global, when applicable. On the section editor, ESC peels one interaction layer at a time (active drag → active marquee → active selection). |
+| `← / →` | Prev / next item in detail panel (samples, future CPTs) | When detail panel open |
+| `Ctrl + wheel` | Zoom (vertical scale on borelog, depth axis on map) | Map + borelog |
+| `Ctrl + 0` | Reset zoom to 100 % | Borelog |
+| `Delete` / `Backspace` | Remove selection (project-local) | When ≥ 1 row checked |
+| `Click` on contact line | Replace selection + start drag. Cursor on release = new (column, depth). | Section editor |
+| `Ctrl/Cmd + Click` on contact line | Toggle this contact in/out of selection (no drag) | Section editor |
+| `Shift + Click` on contact line | Range-select shallow→deep within the source anchor's contacts | Section editor |
+| `Drag` plain on section (background or column) | **Pan the viewport** (existing behaviour preserved) | Section editor |
+| `Click` plain on section background (no drag) | Clear contact selection | Section editor |
+| `Shift + drag` ANYWHERE on the section (background OR column) | Marquee (box) select. Always **additive** — preserves existing selection. To replace, click bg to clear first, then Shift+drag. Marquee dispatch lives on the SVG root so Shift takes priority over the column's contact-pick handler. | Section editor |
+| `Drag` cross-column on a contact (no Alt) | **COPY** — creates new contact(s) at the target anchor; originals stay where they were. The "stamp interpretation onto a nearby test" workflow. | Section editor |
+| `Alt + drag` cross-column on a contact | **MOVE** — re-anchors the existing contact(s) to the target column. Use to fix a misclicked anchor. | Section editor |
+| `Drag` same-column on a contact | Re-pick depth (single contact) or shift all selected depths (multi-select). | Section editor |
+| `Right-click` on contact line | Confirm → delete contact | Section editor |
+| `Ctrl/Cmd + A` | Select all | Future — list views |
+| `Ctrl/Cmd + F` | Filter / find | Future — list views |
+
+All shortcuts skip when an `<input>` / `<textarea>` / `<select>` /
+`contentEditable` element owns focus — a centralised `isTypingTarget`
+helper checks this before firing. The same helper is duplicated across
+the FOUR components that listen today (Sidebar / BoreholeLog /
+LabTestPanel / ContactsLayer); per CLAUDE.md's "extract on the third
+copy" rule it's now ripe — collapse into a shared
+`hooks/useGlobalShortcut.ts` (or just `utils/isTypingTarget.ts`) when
+the next debt sweep lands.
+
+## Detail panels
+
+* **Push-mode**, NOT overlay. The panel is a flex sibling that pushes
+  the main view to a narrower width, so the user can interact with
+  both. Apple HIG calls this an Inspector.
+* **420 px fixed width** — wide enough for tables and small charts,
+  narrow enough not to dominate.
+* **Header** = title + nav (prev / next / close). **Body** = scrolls
+  independently. **No sticky footer** — actions live in-place.
+* **Close**: X button OR `Esc` key. Both must be wired.
+* **Open via single-click** of the source item. No double-click.
+* **Don't trap focus** — the panel coexists with the main view, so
+  unlike a modal it must NOT trap keyboard focus. (HIG: Inspectors
+  are non-modal.)
+
+## Map
+
+* **Shape encodes source kind, colour encodes property within kind.**
+  ● Circle = CPT, ■ Square = Borehole. Within each kind, colour comes
+  from the active filter axis (CPT type / drill method / borehole
+  type). This satisfies WCAG "no info by colour alone".
+* **Layout** (Leaflet defaults): zoom controls top-left, fit-to-data
+  below them. Layer-control dropdown top-right (Option B — only one
+  category expanded at a time). Legend bottom-right, mirrors marker
+  shapes (circle vs. square).
+* **Bbox draw**: drag a rectangle in crosshair mode; `Esc` cancels.
+* **Tooltip on hover** = name + key fact; click = select + fly-to at
+  zoom 17.
+* **Hidden vs. removed**: layer-control hides per type (visual filter
+  only); sidebar removes per ID (project-local persisted).
+
+## Borelog
+
+* **Vertical depth axis, top → down.** Domain convention; ISO 14688-1
+  / DOV PDF style.
+* **Lithology patterns** from ``soilPatterns.tsx`` — fine sand =
+  small dots, clay = 45° hatching, glauconite = green V-chevrons,
+  etc. Override of Primer because Primer doesn't ship soil patterns.
+* **Zoom**: `Ctrl + wheel` adjusts vertical scale. `Ctrl + 0` resets.
+  Wheel without `Ctrl` scrolls vertically as expected.
+* **Selecting a sample auto-centers** its depth in the visible
+  viewport (smooth scroll). Re-zooming keeps the sample centered.
+* **Hidden / type-filtered rows** in the sidebar are still visible at
+  `opacity-40`, partitioned to the bottom of the list — they're
+  demoted, not removed. `Hidden (N)` separator with `EyeOff` icon.
+
+## Destructive actions
+
+The desktop UI distinguishes **reversible** from **irreversible**
+actions:
+
+* **Reversible** (project-local hide, sort change, theme switch) —
+  fire immediately, no confirmation. Provide an undo path: the
+  sidebar's `N removed · restore all` link is the canonical example.
+* **Irreversible** (DB delete, file delete, project delete, sending
+  external requests) — require an explicit confirmation dialog.
+  Default-focus on Cancel, not the destructive action. Match the
+  destructive button copy to the action ("Delete" / "Discard" /
+  "Remove permanently") — never just "OK".
+
+The desktop frontend currently has **no irreversible actions** — the
+old `DELETE /cpt/{id}` flow was removed in favour of project-local
+hide. If you add one, the convention says: confirmation dialog
+required.
+
+## Dark mode
+
+* **Strategy**: `darkMode: 'class'` in Tailwind. The `useTheme` hook
+  toggles a `dark` class on `<html>`. Three modes:
+    1. `system` (default) — follows `prefers-color-scheme` and
+       responds live when the OS preference changes.
+    2. `light` — explicit override, persisted to
+       `localStorage["groundmodel.theme"]`.
+    3. `dark`  — same.
+* **Token mapping**: every component MUST author colours as `dark:`
+  variants when introduced. Migrating existing components to dark is
+  a separate pass; new components write light + dark from day one.
+* **Test contrast** in both modes — Primer's dark palette already
+  hits WCAG AA against the recommended dark-surface backgrounds, but
+  custom hues (soil patterns, marker fill colours derived from
+  `hashColor`) need to be re-checked when displayed on a dark
+  background.
+
+## Translation & persistence
+
+* **Translate at the presentation boundary, never at ingest** —
+  domain stores raw DOV tokens; `desktop/src/renderer/src/utils/`
+  hosts lookup tables (e.g. `soilColors.ts`, `labTestLabels.ts`).
+* **Show the source token as a `title` tooltip** on every translated
+  label so domain experts can verify the mapping without leaving the
+  UI.
+* **Persist user preferences in localStorage** with project-scoped
+  keys: `groundmodel.<area>.<projectId>.<kind>`. The `usePersistedSet`
+  hook is the canonical pattern for project-scoped sets.
+
+## Loading + error feedback
+
+* **Async actions** — disable the trigger button while pending,
+  show a spinner inside it; do NOT show a full-screen loader unless
+  the action blocks all interaction (rare).
+* **Toast notifications** for completion (success / error) of
+  user-initiated bulk actions. Keep concise: 1 line, dismiss on
+  click + auto-dismiss after 4 s.
+* **Inline validation** for forms; never use a toast or alert box
+  for "field X is invalid".
+* **Empty states** — text + icon (Lucide), never just blank.
