@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  Download,
   Drill,
   GripVertical,
   Layers,
@@ -118,6 +119,11 @@ interface Props {
    * when omitted (test-harness mounts). Reversible action — no
    * confirmation modal; the rebuild only writes derived state. */
   onRebuildSurfaces?: () => Promise<void>
+  /** Export the active geological model as a runnable Plaxis 3D
+   * plxscripting Python script. Caller (App) owns the fetch → save
+   * dialog → file write flow. Hidden when omitted or when no
+   * active model is wired. */
+  onExportPlaxis3d?: () => Promise<void>
   /** Active geological model id — required to fetch the crossings
    * validator result for the banner. Banner stays hidden when null. */
   activeModelId?: string | null
@@ -148,6 +154,7 @@ export default function InterpretationPane({
   pushUndoCommand,
   onDedupeContacts,
   onRebuildSurfaces,
+  onExportPlaxis3d,
   activeModelId,
   crossingsRefreshSignal,
   staleSurfaceCount,
@@ -174,6 +181,7 @@ export default function InterpretationPane({
   const [dedupeBusy, setDedupeBusy] = useState(false)
   const [pendingDedupe, setPendingDedupe] = useState(false)
   const [rebuildBusy, setRebuildBusy] = useState(false)
+  const [exportPlaxisBusy, setExportPlaxisBusy] = useState(false)
   // Drag-to-reorder state. ``draggedId`` is the formation being
   // dragged; ``dragOverId`` is the row the cursor is hovering over,
   // null when we're at the end-of-list drop zone, undefined when no
@@ -206,6 +214,16 @@ export default function InterpretationPane({
       await onRebuildSurfaces()
     } finally {
       setRebuildBusy(false)
+    }
+  }
+
+  async function handleExportPlaxis3d(): Promise<void> {
+    if (!onExportPlaxis3d || exportPlaxisBusy) return
+    setExportPlaxisBusy(true)
+    try {
+      await onExportPlaxis3d()
+    } finally {
+      setExportPlaxisBusy(false)
     }
   }
 
@@ -782,6 +800,29 @@ export default function InterpretationPane({
       {populateResult && (
         <div className="text-[11px] text-gray-500 italic leading-snug">
           {populateResult}
+        </div>
+      )}
+
+      {/* Exports — model-wide outputs. Separate row from the model-
+          mutation buttons above so future DXF / GeoStudio / D-Series
+          targets can join without crowding Build / Add. Hidden when
+          no active model is wired. */}
+      {onExportPlaxis3d && (
+        <div className="flex flex-wrap items-center gap-1 border-t border-gray-100 pt-2">
+          <span className="text-[10px] uppercase tracking-wide text-gray-400">
+            Export
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void handleExportPlaxis3d()}
+            disabled={exportPlaxisBusy}
+            title="Generate a runnable plxscripting Python script that builds this geological model inside Plaxis 3D (2018+). Materials are placeholders — set parameters in Plaxis after import."
+            className="ml-auto"
+          >
+            <Download size={12} className="mr-1" />
+            {exportPlaxisBusy ? 'Exporting…' : 'Plaxis 3D'}
+          </Button>
         </div>
       )}
 
