@@ -41,8 +41,10 @@ import {
 import {
   VIRTUELE_BORING_VIEW_STATE_KEY,
   activeOverlayModels,
+  readPaneModelOverride,
   readPaneVisibility,
   readVirtueleBoringOverlay,
+  writePaneModelOverride,
   writePaneVisibility,
 } from './utils/virtueleBoringOverlay'
 import Toolbar from './components/Toolbar'
@@ -2973,9 +2975,56 @@ export default function App() {
     () => readVirtueleBoringOverlay(project?.view_state),
     [project?.view_state],
   )
-  const virtueleBoringActiveModels = useMemo(
+  const virtueleBoringSectionModels = useMemo(
     () => activeOverlayModels(virtueleBoringOverlay),
     [virtueleBoringOverlay],
+  )
+  // Per-pane model overrides — empty string = follow section,
+  // any other string = render only that model in the detail pane.
+  // Seeded from localStorage on project change.
+  const [cptVirtueleBoringOverride, setCptVirtueleBoringOverride] = useState('')
+  const [boreholeVirtueleBoringOverride, setBoreholeVirtueleBoringOverride] =
+    useState('')
+  // Union of every requested model across all panes — drives the
+  // predictions fetch. Without this, a detail-pane override for
+  // hcovv2_S wouldn't have data to render (App fetches section's
+  // models only otherwise). De-dup preserves the first occurrence
+  // so section codes stay ahead of override-only codes.
+  const virtueleBoringActiveModels = useMemo(() => {
+    const out: string[] = []
+    const seen = new Set<string>()
+    const add = (code: string): void => {
+      if (code && !seen.has(code)) {
+        seen.add(code)
+        out.push(code)
+      }
+    }
+    for (const m of virtueleBoringSectionModels) add(m)
+    if (cptVirtueleBoringOverride) add(cptVirtueleBoringOverride)
+    if (boreholeVirtueleBoringOverride) add(boreholeVirtueleBoringOverride)
+    return out
+  }, [
+    virtueleBoringSectionModels,
+    cptVirtueleBoringOverride,
+    boreholeVirtueleBoringOverride,
+  ])
+  // Effective models per pane — what each pane actually renders.
+  // Override (when set) wins; otherwise the pane inherits the
+  // section pane's pick. The section pane itself never has an
+  // override — it IS the source.
+  const cptEffectiveModels = useMemo<readonly string[]>(
+    () =>
+      cptVirtueleBoringOverride
+        ? [cptVirtueleBoringOverride]
+        : virtueleBoringSectionModels,
+    [cptVirtueleBoringOverride, virtueleBoringSectionModels],
+  )
+  const boreholeEffectiveModels = useMemo<readonly string[]>(
+    () =>
+      boreholeVirtueleBoringOverride
+        ? [boreholeVirtueleBoringOverride]
+        : virtueleBoringSectionModels,
+    [boreholeVirtueleBoringOverride, virtueleBoringSectionModels],
   )
   const [virtueleBoringPredictions, setVirtueleBoringPredictions] = useState<
     VirtueleBoringInvestigationPrediction[]
@@ -3048,7 +3097,21 @@ export default function App() {
     setShowOverlayOnSection(readPaneVisibility(projectIdForOverlay, 'section'))
     setShowOverlayOnCpt(readPaneVisibility(projectIdForOverlay, 'cpt'))
     setShowOverlayOnBorehole(readPaneVisibility(projectIdForOverlay, 'borehole'))
+    setCptVirtueleBoringOverride(
+      readPaneModelOverride(projectIdForOverlay, 'cpt'),
+    )
+    setBoreholeVirtueleBoringOverride(
+      readPaneModelOverride(projectIdForOverlay, 'borehole'),
+    )
   }, [projectIdForOverlay])
+  const handleSetOverlayOverride = useCallback(
+    (pane: 'cpt' | 'borehole', next: string) => {
+      writePaneModelOverride(projectIdForOverlay, pane, next)
+      if (pane === 'cpt') setCptVirtueleBoringOverride(next)
+      else setBoreholeVirtueleBoringOverride(next)
+    },
+    [projectIdForOverlay],
+  )
   const handleSetShowOverlay = useCallback(
     (pane: 'section' | 'cpt' | 'borehole', next: boolean) => {
       writePaneVisibility(projectIdForOverlay, pane, next)
@@ -3284,7 +3347,7 @@ export default function App() {
                         )
                     : undefined
                 }
-                virtueleBoringActiveModels={virtueleBoringActiveModels}
+                virtueleBoringActiveModels={virtueleBoringSectionModels}
                 virtueleBoringPredictions={virtueleBoringPredictions}
                 virtueleBoringModelA={virtueleBoringOverlay.modelA}
                 virtueleBoringModelB={virtueleBoringOverlay.modelB}
@@ -3336,11 +3399,15 @@ export default function App() {
                   virtueleBoringPrediction={
                     virtueleBoringPredictionByInvestigationId.get(selectedBoreholeId) ?? null
                   }
-                  virtueleBoringActiveModels={virtueleBoringActiveModels}
+                  virtueleBoringActiveModels={boreholeEffectiveModels}
                   virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
                   virtueleBoringVisible={showOverlayOnBorehole}
                   onToggleVirtueleBoringVisible={() =>
                     handleSetShowOverlay('borehole', !showOverlayOnBorehole)
+                  }
+                  virtueleBoringOverrideModel={boreholeVirtueleBoringOverride}
+                  onChangeVirtueleBoringOverrideModel={next =>
+                    handleSetOverlayOverride('borehole', next)
                   }
                 />
               ) : (
@@ -3360,11 +3427,15 @@ export default function App() {
                     virtueleBoringPrediction={
                       virtueleBoringPredictionByInvestigationId.get(selectedId!) ?? null
                     }
-                    virtueleBoringActiveModels={virtueleBoringActiveModels}
+                    virtueleBoringActiveModels={cptEffectiveModels}
                     virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
                     virtueleBoringVisible={showOverlayOnCpt}
                     onToggleVirtueleBoringVisible={() =>
                       handleSetShowOverlay('cpt', !showOverlayOnCpt)
+                    }
+                    virtueleBoringOverrideModel={cptVirtueleBoringOverride}
+                    onChangeVirtueleBoringOverrideModel={next =>
+                      handleSetOverlayOverride('cpt', next)
                     }
                   />
                 : <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading chart…</div>
