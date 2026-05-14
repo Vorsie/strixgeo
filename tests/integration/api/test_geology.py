@@ -985,6 +985,122 @@ async def test_dedupe_is_a_no_op_when_no_duplicates(
     assert body["removed_contact_ids"] == []
 
 
+async def test_rebuild_surfaces_no_op_on_empty_model(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Model with zero contacts → considered=0 rebuilt=0, no error."""
+    project, _ = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["formations_considered"] == 0
+    assert body["formations_rebuilt"] == 0
+
+
+async def test_rebuild_surfaces_no_op_when_cache_in_sync(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Auto-recompute kept the cache fresh → manual rebuild is a no-op.
+
+    Creating a contact fires the recompute hook in the same use case;
+    the cache row is up-to-date the moment we'd click Rebuild. The
+    checksum short-circuit means ``formations_rebuilt == 0`` even
+    though ``formations_considered == 1``.
+    """
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["formations_considered"] == 1
+    assert body["formations_rebuilt"] == 0
+
+
+async def test_rebuild_surfaces_recomputes_when_cache_is_stale(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Corrupt the cached checksum → manual rebuild detects drift and writes.
+
+    The user-facing trigger condition is the same: an anchor's
+    elevation changed without a corresponding contact mutation, or
+    the cache somehow drifted. Here we simulate by blanking the
+    checksum directly so the next recompute sees a mismatch.
+    """
+    from sqlalchemy import select, update
+
+    from groundmodel.infrastructure.db.models.formation_surface_orm import (
+        FormationSurfaceOrm,
+    )
+
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+
+    # Force a cache mismatch by clobbering the stored checksum. The
+    # recompute path treats anything that doesn't equal the freshly-
+    # computed hash as stale, so the upsert will fire.
+    await db_session.execute(
+        update(FormationSurfaceOrm)
+        .where(FormationSurfaceOrm.formation_id == UUID(formation["id"]))
+        .values(source_contact_checksum=b"stale")
+    )
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["formations_considered"] == 1
+    assert body["formations_rebuilt"] == 1
+
+    # Confirm the new checksum landed (no longer == b"stale").
+    row = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(
+                FormationSurfaceOrm.formation_id == UUID(formation["id"])
+            )
+        )
+    ).scalar_one()
+    assert row.source_contact_checksum != b"stale"
+
+
+async def test_rebuild_surfaces_404_when_model_belongs_to_another_project(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Scope guard — cross-project model id returns 404."""
+    project_a, _ = project_with_borehole
+    project_b = ProjectOrm(id=uuid7(), name="Other", status="active")
+    db_session.add(project_b)
+    await db_session.commit()
+    model_b = await _create_model(async_client, project_b.id)
+
+    resp = await async_client.post(
+        f"/projects/{project_a.id}/geology/models/{model_b['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 404
+
+
 async def test_create_contact_allows_same_formation_on_different_anchors(
     async_client: AsyncClient,
     db_session: AsyncSession,
