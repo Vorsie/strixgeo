@@ -20,9 +20,6 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.recompute_formation_surface import (
-    RecomputeFormationSurface,
-)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -64,13 +61,10 @@ class UpdateFormationContact(GroundModelLogger):
             race). The router maps ``None`` to a 404.
         """
         self.info(f"Updating formation contact: {contact_id} ({len(patch)} field(s))")
-        # Capture the pre-update (model, formation) so the recompute
-        # below can refresh the OLD formation's surface when the
-        # patch flips formation_id. The drag-re-anchor flow can also
-        # cross formations indirectly (a contact moves to a borehole
-        # whose neighbour-set differs); but those patches keep the
-        # same formation_id, so one recompute on that formation
-        # suffices.
+        # Capture the pre-update (model, formation) so we know whether
+        # the patch crossed formations — re-anchor mutations need to
+        # mark BOTH the old and new formation surfaces stale. Within-
+        # formation edits only mark one.
         pre = await self._session.get(FormationContactOrm, contact_id)
         if pre is None:
             self.warning(f"Formation contact vanished pre-update: {contact_id}")
@@ -81,14 +75,14 @@ class UpdateFormationContact(GroundModelLogger):
         if updated is None:
             self.warning(f"Formation contact vanished mid-update: {contact_id}")
             return None
-        # Always recompute the post-update formation (depth / anchor /
-        # source changes all affect the surface). Additionally
-        # recompute the pre-update formation when the patch flipped
-        # formation_id — that surface lost a contact.
-        recompute = RecomputeFormationSurface(self._session)
-        await recompute.execute(model_id=updated.model_id, formation_id=updated.formation_id)
+        # On-click build pivot: mark stale rather than recompute. The
+        # post-update formation is always affected; the pre-update
+        # formation is also affected when the patch flipped formation_id
+        # (that surface just lost a contact).
+        pairs: list[tuple[UUID, UUID]] = [(updated.model_id, updated.formation_id)]
         if old_model_id == updated.model_id and old_formation_id != updated.formation_id:
-            await recompute.execute(model_id=old_model_id, formation_id=old_formation_id)
+            pairs.append((old_model_id, old_formation_id))
+        await self._repo.mark_surfaces_stale(pairs)
         await self._session.commit()
         await self._session.refresh(updated)
         self.success(f"Formation contact updated: {contact_id}")
