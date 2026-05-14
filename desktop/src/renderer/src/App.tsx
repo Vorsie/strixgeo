@@ -1010,66 +1010,77 @@ export default function App() {
       const created: FormationContactResponse[] = []
       const patched: PatchedItem[] = []
       let failed = 0
-      const settled = await Promise.allSettled(
-        creates.map(c =>
-          api.geology
-            .createContact(projectId, modelId, c)
-            .then<CreatedItem>(row => ({ kind: 'created', row })),
-        ),
+      // Local index of "everything currently in the model on the
+      // server side" — seeded from React state, then live-updated
+      // as this batch progresses. Authoritative for in-batch 409
+      // PATCH lookups: a row created earlier in this loop hasn't
+      // landed in React state yet (we flush ``setContacts`` at the
+      // end), so checking ``contacts`` alone would miss it.
+      const idIndex = new Map<string, FormationContactResponse>(
+        contacts.map(c => [c.id, c]),
       )
-      // Walk results sequentially so PATCHes for 409s issue in order
-      // (avoids ordering surprises in the local contacts state on
-      // multi-collision drags).
-      for (let i = 0; i < settled.length; i += 1) {
-        const result = settled[i]
-        if (result.status === 'fulfilled') {
-          created.push(result.value.row)
-          continue
-        }
-        const err = result.reason
-        if (err instanceof DuplicateContactError) {
-          // 409: target already has a contact for this formation.
-          // PATCH it to the new depth (the "stamp on target" intent).
-          const before = contacts.find(c => c.id === err.existingContactId)
-          if (!before) {
-            // Defensive: existing contact id not in our local cache —
-            // refetch would slow the path; skip this entry, count as
-            // failed.
-            failed += 1
-            log.warning(
-              'geology',
-              `batchCreateContacts 409 but existing id ${err.existingContactId} not in local cache, skipped`,
-            )
+      // Sequential, NOT parallel. Two source CPTs landing on one
+      // target produces N picks for the same (formation, anchor)
+      // triple; the backend's uniqueness check is application-layer
+      // (no DB unique index — see create_formation_contact.py), so
+      // parallel POSTs race and each transaction sees "no existing"
+      // → all of them insert. Serialising lets the second POST for
+      // a given triple hit a real 409 and fall into the PATCH path,
+      // which IS the "stamp the source's depth onto the target"
+      // semantic. Throughput trade-off is negligible at copy-shape
+      // batch sizes (~10 rows worst case).
+      for (let i = 0; i < creates.length; i += 1) {
+        const payload = creates[i]
+        try {
+          const row = await api.geology.createContact(projectId, modelId, payload)
+          created.push(row)
+          idIndex.set(row.id, row)
+        } catch (err) {
+          if (err instanceof DuplicateContactError) {
+            // 409: target already has a contact for this formation
+            // (either pre-existing OR just inserted earlier in this
+            // same batch). PATCH it to the new depth — "stamp on
+            // target" semantic, latest-copy-wins.
+            const before = idIndex.get(err.existingContactId)
+            if (!before) {
+              // Defensive: existing contact id missing from both the
+              // server-state cache and the in-batch index. Refetch
+              // would slow the path; skip + count.
+              failed += 1
+              log.warning(
+                'geology',
+                `batchCreateContacts 409 but existing id ${err.existingContactId} not in local cache, skipped`,
+              )
+              continue
+            }
+            try {
+              const after = await api.geology.updateContact(
+                projectId,
+                modelId,
+                err.existingContactId,
+                {
+                  depth_top_m: payload.depth_top_m,
+                  source: payload.source,
+                  confidence: payload.confidence,
+                },
+              )
+              patched.push({ kind: 'patched', before, after })
+              idIndex.set(after.id, after)
+            } catch (patchErr) {
+              failed += 1
+              log.error(
+                'geology',
+                `batchCreateContacts PATCH-on-409 failed for existing ${err.existingContactId}`,
+                patchErr,
+              )
+            }
             continue
           }
-          const payload = creates[i]
-          try {
-            const after = await api.geology.updateContact(
-              projectId,
-              modelId,
-              err.existingContactId,
-              {
-                depth_top_m: payload.depth_top_m,
-                source: payload.source,
-                confidence: payload.confidence,
-              },
-            )
-            patched.push({ kind: 'patched', before, after })
-          } catch (patchErr) {
-            failed += 1
-            log.error(
-              'geology',
-              `batchCreateContacts PATCH-on-409 failed for existing ${err.existingContactId}`,
-              patchErr,
-            )
-          }
-          continue
+          // Non-409 failure (network, validation, etc.) — count +
+          // log, keep going so the rest of the batch still commits.
+          failed += 1
+          log.error('geology', 'batchCreateContacts entry failed', err)
         }
-        // Non-409 failure (network down, validation error, etc.) —
-        // count + log, keep going so the rest of the batch still
-        // commits whatever it can.
-        failed += 1
-        log.error('geology', 'batchCreateContacts entry failed', err)
       }
 
       // Apply local-state changes from BOTH lanes at once.
