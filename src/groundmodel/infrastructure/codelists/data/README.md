@@ -20,6 +20,7 @@ distribution received 2026-05.
 | `g3dv3_modeleenheden.xlsx`          |  113 | G3Dv3 model unit table — formation + member codes, abbreviations, Dutch names, H3D hydrogeology codes. Source for `g3dv3_units.json`. | Re-fetch when DOV publishes a new G3Dv3 revision. |
 | `g3dv3_kleurcode_rgb.xlsx`          |  133 | G3Dv3 prescribed colors — RGB per formation/member. Source for `g3dv3_units.json`. | Same refresh trigger. |
 | `g3dv3_units.json`                  |  117 | Joined catalog: code, abbreviation, rank, parent, Dutch name, **age_rank**, color hex, H3D codes. Consumed by `infrastructure/codelists/g3dv3_catalog.py`. | Single source of truth for stratigraphic ordering + canonical colors on Belgian projects. Used by auto-populate to set `display_order` (invert: lower display_order = older). |
+| `g3dv3_aliases.json`                |    2 | Historical / alternative formation names → canonical G3Dv3 name_nl (e.g. `Ieper` / `Ieperiaan` → `Kortrijk`). Loaded by `G3Dv3Catalog` and used as a name-lookup fallback. | Grows as DOV borehole campaigns under older frameworks surface labels that don't match modern G3Dv3 nomenclature. One JSON line per alias, no code change needed. |
 
 ## G3Dv3 catalog rebuild
 
