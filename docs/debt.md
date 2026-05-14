@@ -365,3 +365,47 @@ or sooner if dogfooding hits a real "I just lost an hour of
 picks" moment. The friction-list trigger is the same shape as
 the data-loss save bug from earlier (#44 sibling) — a real loss
 event makes this MUCH higher priority.
+
+## 46. Sidebar UI overhaul (medium — dogfooding ask 2026-05-14)
+
+**What.** The Sidebar's Tests / Visualisation / Interpretation
+category-tab structure is getting busy. The InterpretationPane's
+action area in particular hit a real overflow bug during
+dogfooding: 4-5 buttons (Build / From boreholes / Dedupe / Add /
+future imports) didn't fit horizontally on a narrow sidebar so
+the user had to pan-right to see them. Patched immediately by
+moving Build to its own primary row (commit 97f5434), but the
+deeper IA needs a proper rethink before the v1.0 launch.
+
+**Four real options to evaluate** when the time comes:
+
+* **A. Top-of-screen action bar** (AutoCAD / Plaxis pattern). Per-
+  tab horizontal toolbar at the top of the main content area;
+  Sidebar becomes pure navigation + lists. More horizontal space
+  for action labels; another piece of chrome.
+* **B. Right Inspector panel** (Photoshop / Figma). Section view +
+  map fullscreen, Sidebar narrows to nav-icons-only, right edge
+  hosts a collapsible Properties panel that shows section
+  properties / active model / formations + actions. Bigger
+  refactor; matches engineering-software conventions.
+* **C. Top tabs + persistent right-rail** (gINT / D-Series). Flat
+  tab bar across the top; main content fills the screen; slim
+  right rail for context-sensitive properties. Loses count badges
+  unless tabs are decorated.
+* **D. First-run gold-path overlay** (onboarding tutorial). Keep
+  current layout; first project triggers an overlay walking
+  Import → Define formations → Place contacts → Build model →
+  Export. Behind a "?" after dismissal. Cheap; doesn't restructure
+  anything; helps demo flow.
+
+**Why deferred.** Pre-validation. The dogfooding friction
+(missing Build button) was solvable with a small layout patch
+(commit 97f5434); the broader overhaul should follow user input,
+not solo-dev intuition. gINT and D-Series both ship busy UIs
+that engineers tolerate because they're discoverable —
+discoverability beats minimalism for this audience.
+
+**When to revisit.** After the first 5 BE/NL geotech engineers
+have walked through the app on real projects + given friction-list
+feedback. Pre-validation overhauls cost a week and rebuild the
+wrong thing.
