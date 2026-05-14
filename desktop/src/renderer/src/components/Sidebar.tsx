@@ -332,7 +332,16 @@ export default function Sidebar({
   // changes — the checkbox ids in one tab don't make sense in the
   // other, and keeping the set around just leads to "ghost" selections.
   const [selectedForRemoval, setSelectedForRemoval] = useState<Set<string>>(new Set())
-  useEffect(() => setSelectedForRemoval(new Set()), [activeTab])
+  // Anchor for shift-click range select — the id of the last plain
+  // (non-shift) checkbox click in the active tab. Shift-clicks pivot
+  // around this anchor and do NOT move it, so a sequence of shift-
+  // clicks all extend from the same starting point (Finder / Gmail
+  // semantics). Cleared with the selection on tab change.
+  const [rangeAnchorId, setRangeAnchorId] = useState<string | null>(null)
+  useEffect(() => {
+    setSelectedForRemoval(new Set())
+    setRangeAnchorId(null)
+  }, [activeTab])
 
   // Substring search on row names. Ephemeral — resets when the user
   // switches tabs (CPT search and Borehole search are independent
@@ -444,6 +453,49 @@ export default function Sidebar({
       else next.add(id)
       return next
     })
+    setRangeAnchorId(id)
+  }
+
+  /** Handle a checkbox click — shift+click extends the selection
+   *  range from the anchor (last plain-clicked checkbox) to ``id``,
+   *  mirroring the anchor's current checked state across the range
+   *  (so it both shift-selects and shift-deselects). Plain click
+   *  falls through to ``toggleSelection`` and re-anchors here. */
+  function handleCheckboxClick(id: string, shiftKey: boolean): void {
+    if (!shiftKey || rangeAnchorId === null || rangeAnchorId === id) {
+      toggleSelection(id)
+      return
+    }
+    // Combined rendered order for the active tab — visible rows first,
+    // then hidden. The Hidden separator is purely visual; shift-click
+    // spans it to match what the user sees on screen.
+    const orderedIds =
+      activeTab === 'cpt'
+        ? [...cptVisible, ...cptHidden].map(c => c.id)
+        : activeTab === 'borehole'
+          ? [...bhVisible, ...bhHidden].map(b => b.id)
+          : []
+    const anchorIdx = orderedIds.indexOf(rangeAnchorId)
+    const targetIdx = orderedIds.indexOf(id)
+    // Either endpoint missing (filter/search dropped one) → fall back
+    // to plain toggle so the gesture never silently no-ops.
+    if (anchorIdx === -1 || targetIdx === -1) {
+      toggleSelection(id)
+      return
+    }
+    const [from, to] =
+      anchorIdx <= targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx]
+    setSelectedForRemoval(prev => {
+      const next = new Set(prev)
+      const mirrorChecked = prev.has(rangeAnchorId)
+      for (let i = from; i <= to; i++) {
+        const rid = orderedIds[i]
+        if (mirrorChecked) next.add(rid)
+        else next.delete(rid)
+      }
+      return next
+    })
+    // Anchor stays put — sequential shift-clicks pivot around it.
   }
 
   function clearSelection(): void {
@@ -688,7 +740,7 @@ export default function Sidebar({
                   hidden={false}
                   unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
-                  onToggleCheck={() => toggleSelection(c.id)}
+                  onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
                   onClick={() => onSelectCpt(c.id)}
                   onRemove={() => onRemoveCpts([c.id])}
                 />
@@ -702,7 +754,7 @@ export default function Sidebar({
                   hidden
                   unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
-                  onToggleCheck={() => toggleSelection(c.id)}
+                  onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
                   onClick={() => onSelectCpt(c.id)}
                   onRemove={() => onRemoveCpts([c.id])}
                 />
@@ -728,7 +780,7 @@ export default function Sidebar({
                   hidden={false}
                   unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
-                  onToggleCheck={() => toggleSelection(b.id)}
+                  onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
                   onClick={() => onSelectBorehole(b.id)}
                   onRemove={() => onRemoveBoreholes([b.id])}
                 />
@@ -742,7 +794,7 @@ export default function Sidebar({
                   hidden
                   unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
-                  onToggleCheck={() => toggleSelection(b.id)}
+                  onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
                   onClick={() => onSelectBorehole(b.id)}
                   onRemove={() => onRemoveBoreholes([b.id])}
                 />
@@ -913,7 +965,9 @@ function CptRow({
   hidden: boolean
   unsaved: boolean
   checked: boolean
-  onToggleCheck: () => void
+  // Receives the click's ``shiftKey`` so the parent can extend the
+  // selection range from the last plain-clicked anchor.
+  onToggleCheck: (shiftKey: boolean) => void
   onClick: () => void
   onRemove: () => void
 }) {
@@ -946,8 +1000,15 @@ function CptRow({
       <input
         type="checkbox"
         checked={checked}
-        onChange={onToggleCheck}
-        onClick={e => e.stopPropagation()}
+        // onClick carries the shiftKey modifier; onChange is a no-op
+        // to keep the controlled-input warning quiet. The parent's
+        // setState in onToggleCheck drives the next render's
+        // ``checked``, so the visible state stays in sync.
+        onChange={() => {}}
+        onClick={e => {
+          e.stopPropagation()
+          onToggleCheck(e.shiftKey)
+        }}
         className="ml-2 cursor-pointer"
       />
       <button onClick={onClick} className="flex-1 text-left px-2 py-2 pr-7 min-w-0">
@@ -1002,7 +1063,9 @@ function BoreholeRow({
   hidden: boolean
   unsaved: boolean
   checked: boolean
-  onToggleCheck: () => void
+  // Receives the click's ``shiftKey`` so the parent can extend the
+  // selection range from the last plain-clicked anchor.
+  onToggleCheck: (shiftKey: boolean) => void
   onClick: () => void
   onRemove: () => void
 }) {
@@ -1037,8 +1100,11 @@ function BoreholeRow({
       <input
         type="checkbox"
         checked={checked}
-        onChange={onToggleCheck}
-        onClick={e => e.stopPropagation()}
+        onChange={() => {}}
+        onClick={e => {
+          e.stopPropagation()
+          onToggleCheck(e.shiftKey)
+        }}
         className="ml-2 cursor-pointer"
       />
       <button onClick={onClick} className="flex-1 text-left px-2 py-2 pr-7 min-w-0">
