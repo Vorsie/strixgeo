@@ -15,8 +15,7 @@ import type {
 import type { PlacedColumn } from './utils'
 import {
   STRAT_OBS_TYPES_FOR_SNAP,
-  buildFillPolygon,
-  buildFloorFillPolygon,
+  buildFillBand,
   collectSnapDepths,
   columnsBetween,
 } from './utils'
@@ -213,81 +212,83 @@ describe('columnsBetween — shift+drag paint-through gesture', () => {
   })
 })
 
-describe('buildFillPolygon — colored band between two formation tops', () => {
-  it('returns a closed M..Z path covering the X overlap', () => {
+describe('buildFillBand — coloured band with pinch-out + floor handling', () => {
+  it('builds a closed band between top and the single older polyline', () => {
     const top = [
       { x: 0, y: 10 },
       { x: 100, y: 12 },
     ]
-    const bottom = [
+    const older = [
       { x: 0, y: 20 },
       { x: 100, y: 22 },
     ]
-    const d = buildFillPolygon(top, bottom)
-    // Forward along top, reversed along bottom, closes with Z.
-    // Path starts at (0, 10), traverses to (100, 12), drops to
-    // bottom at (100, 22), reverses to (0, 20), closes.
+    const d = buildFillBand(top, [older], /* floor */ 999)
     expect(d.startsWith('M 0.00 10.00')).toBe(true)
     expect(d).toContain('L 100.00 12.00')
+    // Bottom edge uses the older's interpolated Y, not the floor —
+    // older covers the whole top range.
     expect(d).toContain('L 100.00 22.00')
     expect(d).toContain('L 0.00 20.00')
+    expect(d).not.toContain('999')
     expect(d.trimEnd().endsWith('Z')).toBe(true)
   })
 
-  it('returns empty string when polylines do not overlap in X', () => {
-    const top = [
-      { x: 0, y: 10 },
-      { x: 50, y: 11 },
-    ]
-    const bottom = [
-      { x: 100, y: 20 },
-      { x: 200, y: 22 },
-    ]
-    expect(buildFillPolygon(top, bottom)).toBe('')
-  })
-
-  it('clips to the overlapping X range when domains differ', () => {
-    // top spans 0..100, bottom spans 30..150. Overlap = 30..100.
+  it('falls through to next-older when immediate-next pinches out', () => {
+    // top spans 0..100; KoAa (immediate next) only exists 0..50;
+    // KoRo (next-next) covers 0..100. Band's bottom should follow
+    // KoAa where it's defined, then drop to KoRo where KoAa is absent.
     const top = [
       { x: 0, y: 10 },
       { x: 100, y: 12 },
     ]
-    const bottom = [
-      { x: 30, y: 20 },
-      { x: 150, y: 24 },
+    const koaa = [
+      { x: 0, y: 18 },
+      { x: 50, y: 19 },
     ]
-    const d = buildFillPolygon(top, bottom)
-    expect(d.startsWith('M 30.00')).toBe(true)
-    // The clipped top at x=30: interpolated linearly (0,10)→(100,12)
-    // gives y = 10 + 0.3 * (12-10) = 10.6.
-    expect(d).toContain('M 30.00 10.60')
-    // The polygon ends along the bottom; should NOT extend past
-    // x=100 (top's right edge).
-    expect(d).not.toContain('L 150.00')
+    const koro = [
+      { x: 0, y: 25 },
+      { x: 100, y: 27 },
+    ]
+    const d = buildFillBand(top, [koaa, koro], 999)
+    // At x=50 (KoAa's edge), bottom = KoAa's y (19).
+    expect(d).toContain('L 50.00 19.00')
+    // At x=100 (KoAa absent), bottom = KoRo's interpolated y (27).
+    expect(d).toContain('L 100.00 27.00')
+    // Floor is never reached here — both olders cover x=100.
+    expect(d).not.toContain('999')
   })
 
-  it('returns empty string when either polyline is empty', () => {
-    expect(buildFillPolygon([], [{ x: 0, y: 0 }])).toBe('')
-    expect(buildFillPolygon([{ x: 0, y: 0 }], [])).toBe('')
-  })
-})
-
-describe('buildFloorFillPolygon — oldest formation extends down to plotBottom', () => {
-  it('closes the polygon at the section floor', () => {
+  it('drops to the floor when no older covers an X position', () => {
     const top = [
       { x: 0, y: 10 },
       { x: 100, y: 12 },
     ]
-    const d = buildFloorFillPolygon(top, 50)
+    // Single older covers only the left half — pinches out by x=50.
+    const older = [
+      { x: 0, y: 20 },
+      { x: 40, y: 22 },
+    ]
+    const d = buildFillBand(top, [older], /* floor */ 80)
+    // Where older is defined (x=0, x=40), bottom = older's y.
+    expect(d).toContain('L 40.00 22.00')
+    // Where older is absent (x=100), bottom = floor.
+    expect(d).toContain('L 100.00 80.00')
+  })
+
+  it('uses the floor everywhere when olders is empty (oldest formation)', () => {
+    const top = [
+      { x: 0, y: 10 },
+      { x: 100, y: 12 },
+    ]
+    const d = buildFillBand(top, [], /* floor */ 50)
     expect(d.startsWith('M 0.00 10.00')).toBe(true)
     expect(d).toContain('L 100.00 12.00')
-    // Bottom edge runs along plotBottom (50) from right to left.
     expect(d).toContain('L 100.00 50.00')
     expect(d).toContain('L 0.00 50.00')
     expect(d.trimEnd().endsWith('Z')).toBe(true)
   })
 
-  it('returns empty for an empty top polyline', () => {
-    expect(buildFloorFillPolygon([], 50)).toBe('')
+  it('returns empty string when the top polyline is empty', () => {
+    expect(buildFillBand([], [[{ x: 0, y: 0 }]], 50)).toBe('')
   })
 })
