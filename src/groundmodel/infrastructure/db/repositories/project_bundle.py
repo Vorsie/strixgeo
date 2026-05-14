@@ -84,9 +84,13 @@ logger = LoggerFactory.get_logger(__name__)
 def _to_json(value: Any) -> Any:
     """Convert a DB-side value to a JSON-friendly form.
 
-    UUIDs / dates / datetimes become ISO strings; arrays of those convert
-    element-wise. Floats / ints / strings / None / lists-of-those pass
-    through unchanged.
+    UUIDs / dates / datetimes become ISO strings; bytes columns become
+    lowercase hex strings (LargeBinary columns like
+    ``formation_surface.source_contact_checksum`` are random-byte
+    digests that don't round-trip through JSON as raw strings —
+    pydantic raises ``invalid utf-8 sequence`` the moment a non-ASCII
+    byte appears). Arrays convert element-wise. Floats / ints /
+    strings / None / lists-of-those pass through unchanged.
     """
     if isinstance(value, UUID):
         return str(value)
@@ -94,6 +98,8 @@ def _to_json(value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, date):
         return value.isoformat()
+    if isinstance(value, bytes | bytearray | memoryview):
+        return bytes(value).hex()
     if isinstance(value, list):
         return [_to_json(v) for v in value]
     return value
@@ -103,9 +109,10 @@ def _from_json(value: Any, python_type: type[Any] | None) -> Any:
     """Reverse of ``_to_json`` — parse JSON back to the DB-side Python type.
 
     The ``python_type`` hint comes from the column's ``type.python_type``
-    (e.g. ``UUID`` for ``PG_UUID``, ``date`` for ``Date``). When the
-    value is ``None`` or the type doesn't need parsing (str / int /
-    float / list of those) we return it unchanged.
+    (e.g. ``UUID`` for ``PG_UUID``, ``date`` for ``Date``, ``bytes`` for
+    ``LargeBinary``). When the value is ``None`` or the type doesn't
+    need parsing (str / int / float / list of those) we return it
+    unchanged.
     """
     if value is None:
         return None
@@ -115,6 +122,8 @@ def _from_json(value: Any, python_type: type[Any] | None) -> Any:
         return datetime.fromisoformat(value)
     if python_type is date and isinstance(value, str):
         return date.fromisoformat(value)
+    if python_type is bytes and isinstance(value, str):
+        return bytes.fromhex(value)
     return value
 
 
