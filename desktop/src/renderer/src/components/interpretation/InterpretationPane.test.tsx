@@ -384,6 +384,80 @@ describe('InterpretationPane', () => {
     expect(screen.queryByTestId('crossings-banner')).not.toBeInTheDocument()
   })
 
+  it('clicking a crossings banner item fires onFocusContacts with the issue contact_ids', async () => {
+    // Crossings banner becomes clickable once the validator populates
+    // contact_ids (debt #9). The click handler hands the full list to
+    // App.tsx which resolves which section to open + dispatches the
+    // ring + pulse intent to ContactsLayer.
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'older', name: 'Older', display_order: 0 }),
+      makeFormation({ id: 'younger', name: 'Younger', display_order: 10 }),
+    ])
+    ;(api.geology.validateCrossings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      model_id: 'M',
+      issues: [
+        {
+          kind: 'formation_crossing',
+          detail: "Younger sits below Older by 3 m",
+          depth_m: 3,
+          contact_ids: ['c1', 'c2'],
+          formation_ids: ['older', 'younger'],
+        },
+      ],
+    })
+    const onFocusContacts = vi.fn()
+    render(
+      <InterpretationPane
+        projectId="P"
+        activeModelId="M"
+        onFocusContacts={onFocusContacts}
+      />,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('crossings-banner')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('crossings-banner-item'))
+    expect(onFocusContacts).toHaveBeenCalledTimes(1)
+    expect(onFocusContacts).toHaveBeenCalledWith(['c1', 'c2'])
+  })
+
+  it('crossings banner items stay non-clickable when the validator emits empty contact_ids', async () => {
+    // Backwards-compat path: if the validator (older build, edge data)
+    // returns no contact_ids the banner still surfaces the text but
+    // doesn't render a button. Avoids dead clicks that fire a no-op
+    // toast.
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'a' }),
+    ])
+    ;(api.geology.validateCrossings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      model_id: 'M',
+      issues: [
+        {
+          kind: 'formation_crossing',
+          detail: 'Crossing with no provenance',
+          depth_m: 1,
+          contact_ids: [],
+          formation_ids: ['a', 'b'],
+        },
+      ],
+    })
+    const onFocusContacts = vi.fn()
+    render(
+      <InterpretationPane
+        projectId="P"
+        activeModelId="M"
+        onFocusContacts={onFocusContacts}
+      />,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('crossings-banner')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('crossings-banner-item')).not.toBeInTheDocument()
+    expect(onFocusContacts).not.toHaveBeenCalled()
+  })
+
   it('skips the crossings call when no active model is wired', async () => {
     const { api } = await import('../../api/client')
     ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([])
