@@ -66,6 +66,10 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "psycopg2-binary>=2.9",
+    # openpyxl — only used by scripts/build_g3dv3_catalog.py to rebuild
+    # the G3Dv3 stratigraphic catalog JSON from the DOV xlsx sources.
+    # Not a runtime dep; the JSON is consumed at runtime.
+    "openpyxl>=3.1",
 ]
 
 [tool.setuptools.packages.find]
