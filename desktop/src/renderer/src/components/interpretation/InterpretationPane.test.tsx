@@ -1,6 +1,6 @@
 // Smoke tests for InterpretationPane v1 — formations list + state.
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { GeologicalFormationResponse } from '../../api/client'
@@ -55,6 +55,7 @@ function makeFormation(
 beforeEach(async () => {
   const { api } = await import('../../api/client')
   ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockReset()
+  ;(api.geology.updateFormation as ReturnType<typeof vi.fn>).mockReset()
 })
 
 afterEach(() => {
@@ -116,5 +117,85 @@ describe('InterpretationPane', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Add/i })).toBeInTheDocument()
     })
+  })
+
+  it('drag-reordering a formation PATCHes display_order for moved rows', async () => {
+    // Three formations in stratigraphic order [A, B, C]. Drag A onto C →
+    // new visual order [B, C, A]. Both A (was 0, now 2) AND B (was 1,
+    // now 0) move; C stays put because shifting it doesn't change its
+    // index after the source is removed and inserted before. Wait —
+    // let me re-derive: starting [A:0, B:1, C:2]. Remove A → [B, C].
+    // Insert A before C at index 1 → [B, A, C]. So new order is
+    // [B:0, A:1, C:2]. A moved (0→1), B moved (1→0), C stayed (2→2).
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'a', name: 'A', display_order: 0 }),
+      makeFormation({ id: 'b', name: 'B', display_order: 1 }),
+      makeFormation({ id: 'c', name: 'C', display_order: 2 }),
+    ])
+    const updateFormation = api.geology.updateFormation as ReturnType<typeof vi.fn>
+    updateFormation.mockResolvedValue(makeFormation({ id: 'a' }))
+
+    const { container } = render(<InterpretationPane projectId="P" />)
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+
+    const aRow = screen.getByText('A').closest('li') as HTMLElement
+    const cRow = screen.getByText('C').closest('li') as HTMLElement
+    const aHandle = aRow.querySelector(
+      'button[aria-label^="Drag to reorder"]',
+    ) as HTMLElement
+
+    // HTML5 drag-and-drop dispatch — vitest jsdom needs explicit
+    // dataTransfer mocks because jsdom doesn't implement the API.
+    const dataTransfer = {
+      setData: vi.fn(),
+      getData: vi.fn(() => 'a'),
+      effectAllowed: 'move',
+    }
+    fireEvent.dragStart(aHandle, { dataTransfer })
+    fireEvent.dragOver(cRow, { dataTransfer })
+    fireEvent.drop(cRow, { dataTransfer })
+
+    await waitFor(() => {
+      expect(updateFormation).toHaveBeenCalled()
+    })
+    // Two PATCHes — one for A (moved 0→1), one for B (moved 1→0). C
+    // stayed put after the splice so it isn't re-PATCHed.
+    expect(updateFormation).toHaveBeenCalledTimes(2)
+    const calls = updateFormation.mock.calls.map(c => ({
+      id: c[1] as string,
+      order: (c[2] as { display_order: number }).display_order,
+    }))
+    expect(calls).toContainEqual({ id: 'a', order: 1 })
+    expect(calls).toContainEqual({ id: 'b', order: 0 })
+    expect(container).toBeTruthy()
+  })
+
+  it('drag-reorder is a no-op when source equals target', async () => {
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'a', name: 'A', display_order: 0 }),
+      makeFormation({ id: 'b', name: 'B', display_order: 1 }),
+    ])
+    const updateFormation = api.geology.updateFormation as ReturnType<typeof vi.fn>
+
+    render(<InterpretationPane projectId="P" />)
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+
+    const aRow = screen.getByText('A').closest('li') as HTMLElement
+    const aHandle = aRow.querySelector(
+      'button[aria-label^="Drag to reorder"]',
+    ) as HTMLElement
+    const dataTransfer = {
+      setData: vi.fn(),
+      getData: vi.fn(() => 'a'),
+      effectAllowed: 'move',
+    }
+    fireEvent.dragStart(aHandle, { dataTransfer })
+    fireEvent.dragOver(aRow, { dataTransfer })
+    fireEvent.drop(aRow, { dataTransfer })
+
+    // Drop on self: handler short-circuits before touching the API.
+    expect(updateFormation).not.toHaveBeenCalled()
   })
 })
