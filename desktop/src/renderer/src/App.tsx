@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import L from 'leaflet'
-import { api, setBaseUrl, DuplicateCptError } from './api/client'
+import {
+  api,
+  setBaseUrl,
+  DuplicateContactError,
+  DuplicateCptError,
+} from './api/client'
 import type {
   BoreholeAxis,
   BoreholeDetailResponse,
@@ -653,6 +658,20 @@ export default function App() {
     [project, handleFormationCreated],
   )
 
+  // Forward-ref to ``handleUpdateContactDepth`` (defined below).
+  // Used by ``handleCreateContact``'s 409 (duplicate) recovery path
+  // to "move the existing contact instead of creating a duplicate"
+  // without a TDZ violation in the dep array. The ref's ``.current``
+  // is rewired on every render to the latest stable callback.
+  const handleUpdateContactDepthRef = useRef<
+    | ((
+        contactId: string,
+        newDepthM: number,
+        snapped: boolean,
+      ) => Promise<void>)
+    | null
+  >(null)
+
   // Create a formation contact at a specific depth on a specific
   // investigation. Wired from SectionPanel — the user clicks on a
   // borehole's lithology strip or commits a CPT's slider depth,
@@ -725,6 +744,28 @@ export default function App() {
           },
         })
       } catch (err) {
+        // 409 = a contact for this (borehole, formation) already
+        // exists. Backend returns the existing id in detail.existing_contact_id;
+        // we treat the click as "move that one to the new depth"
+        // rather than refusing — the user clearly wants Boom Klei
+        // at the depth they just clicked, and the geological rule
+        // is one top per formation per borehole. PATCH the existing
+        // contact's depth to the new location.
+        const existingId =
+          err instanceof DuplicateContactError ? err.existingContactId : null
+        if (existingId) {
+          log.info(
+            'geology',
+            `createContact 409 — moving existing ${existingId} to ${depth_m.toFixed(3)}m instead`,
+          )
+          try {
+            await handleUpdateContactDepthRef.current?.(existingId, depth_m, snapped)
+          } catch (moveErr) {
+            log.error('geology', 'duplicate-contact move failed', moveErr)
+            toast('error', 'Could not move the existing contact to the new depth.')
+          }
+          return
+        }
         log.error('geology', 'createContact failed', err)
         toast('error', 'Could not place the formation contact.')
       }
@@ -819,6 +860,12 @@ export default function App() {
     },
     [project, activeGeologicalModel, contacts, pushUndo],
   )
+
+  // Wire the forward-ref now that ``handleUpdateContactDepth`` exists.
+  // Re-runs each render to keep the ref pointing at the latest stable
+  // closure — handleCreateContact's 409 recovery reads via the ref so
+  // it can call back into this handler without a TDZ violation.
+  handleUpdateContactDepthRef.current = handleUpdateContactDepth
 
   // Cross-column COPY commit — fired by plain-drag onto a different
   // column. Each entry becomes a new contact at the target anchor;
