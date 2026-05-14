@@ -24,6 +24,11 @@ from groundmodel.domain.services.geology_validator import (
 )
 from groundmodel.domain.services.tin_surface import TinSurface
 from groundmodel.domain.value_objects.gap_issue import GapIssue
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import (
+    FormationContactOrm,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -46,10 +51,12 @@ class ValidateModelCrossings(GroundModelLogger):
         """Return the list of formation_crossing issues for the model.
 
         Loads the cached TIN surfaces, joins each to its formation's
-        display_order + name, then delegates to the pure-domain
-        validator. Surfaces with no triangles (1-2 contacts, all
-        collinear) are filtered upstream by the validator and
-        contribute no pairs.
+        display_order + name, builds a per-formation
+        ``(x, y) → contact_id`` lookup from the live contact rows so
+        the validator can name the offending picks, then delegates to
+        the pure-domain validator. Surfaces with no triangles (1-2
+        contacts, all collinear) are filtered upstream by the
+        validator and contribute no pairs.
         """
         self.info(f"validate_model_crossings: model={model_id}")
         surface_rows = await self._repo.list_surfaces(model_id)
@@ -74,6 +81,61 @@ class ValidateModelCrossings(GroundModelLogger):
             .all()
         }
 
+        # Build per-formation (x, y) → contact_id lookup. This is what
+        # lets the banner name the offending picks: a crossing detected
+        # at vertex (vx, vy) of formation F maps back to the contact
+        # whose anchor sits at (vx, vy) for F.
+        #
+        # One query per concern: contacts for all formations at once,
+        # then a single IN-query each for borehole + cpt anchors. The
+        # ORM doesn't carry a `borehole`/`cpt` relationship on
+        # FormationContactOrm (debt #9 review: nullable XOR makes the
+        # relationship pair awkward; explicit IN-queries stay clear).
+        contact_rows: list[FormationContactOrm] = []
+        for fid in formation_ids:
+            contact_rows.extend(await self._repo.list_contacts(model_id, formation_id=fid))
+        borehole_ids = {c.borehole_id for c in contact_rows if c.borehole_id is not None}
+        cpt_ids = {c.cpt_id for c in contact_rows if c.cpt_id is not None}
+        boreholes_by_id: dict[UUID, BoreholeOrm] = (
+            {
+                b.id: b
+                for b in (
+                    await self._session.execute(
+                        select(BoreholeOrm).where(BoreholeOrm.id.in_(borehole_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            }
+            if borehole_ids
+            else {}
+        )
+        cpts_by_id: dict[UUID, CptOrm] = (
+            {
+                c.id: c
+                for c in (await self._session.execute(select(CptOrm).where(CptOrm.id.in_(cpt_ids))))
+                .scalars()
+                .all()
+            }
+            if cpt_ids
+            else {}
+        )
+        # Mirror the same (x, y) rounding the validator uses to key
+        # the lookup — cm precision (2 decimals) is enough to
+        # disambiguate any realistic survey grid without false
+        # collisions on noise.
+        lookup_by_formation: dict[UUID, dict[tuple[float, float], UUID]] = {}
+        for c in contact_rows:
+            anchor: BoreholeOrm | CptOrm | None = None
+            if c.borehole_id is not None:
+                anchor = boreholes_by_id.get(c.borehole_id)
+            elif c.cpt_id is not None:
+                anchor = cpts_by_id.get(c.cpt_id)
+            if anchor is None or anchor.location_x is None or anchor.location_y is None:
+                continue
+            key = (round(anchor.location_x, 2), round(anchor.location_y, 2))
+            lookup_by_formation.setdefault(c.formation_id, {})[key] = c.id
+
         inputs: list[FormationSurfaceInput] = []
         for s in surface_rows:
             f = formations_by_id.get(s.formation_id)
@@ -93,6 +155,7 @@ class ValidateModelCrossings(GroundModelLogger):
                     name=f.name,
                     display_order=f.display_order,
                     surface=TinSurface(vertices=vertices, triangles=triangles),
+                    contact_lookup=lookup_by_formation.get(f.id, {}),
                 )
             )
 
