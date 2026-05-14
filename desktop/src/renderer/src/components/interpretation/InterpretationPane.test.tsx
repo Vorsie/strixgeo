@@ -172,6 +172,123 @@ describe('InterpretationPane', () => {
     expect(container).toBeTruthy()
   })
 
+  it('renders Build model badge with N unbuilt edits when staleSurfaceCount > 0', async () => {
+    // On-click build pivot: the primary "Build model" button shows
+    // "Build model · N unbuilt edit(s)" when the cache is stale.
+    // Without staleSurfaceCount the badge stays plain.
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'a' }),
+    ])
+
+    const onRebuildSurfaces = vi.fn().mockResolvedValue(undefined)
+    const { rerender } = render(
+      <InterpretationPane
+        projectId="P"
+        activeModelId="M"
+        onRebuildSurfaces={onRebuildSurfaces}
+        staleSurfaceCount={0}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('Boom Klei')).toBeInTheDocument())
+    // Plain label, no badge.
+    expect(screen.getByRole('button', { name: /^Build model$/i })).toBeInTheDocument()
+    expect(screen.queryByText(/unbuilt edit/i)).not.toBeInTheDocument()
+
+    // Bump to 1 → singular badge.
+    rerender(
+      <InterpretationPane
+        projectId="P"
+        activeModelId="M"
+        onRebuildSurfaces={onRebuildSurfaces}
+        staleSurfaceCount={1}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /Build model · 1 unbuilt edit$/i }),
+    ).toBeInTheDocument()
+
+    // Bump to 3 → plural badge.
+    rerender(
+      <InterpretationPane
+        projectId="P"
+        activeModelId="M"
+        onRebuildSurfaces={onRebuildSurfaces}
+        staleSurfaceCount={3}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /Build model · 3 unbuilt edits$/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('crossings banner appends "as of last build" suffix when surfaces are stale', async () => {
+    // The validator runs against the cached TIN. When staleSurfaceCount
+    // > 0 the result is qualified — copy must say so explicitly so the
+    // engineer doesn't trust a stale validation result.
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'older', name: 'Older', display_order: 0 }),
+      makeFormation({ id: 'younger', name: 'Younger', display_order: 10 }),
+    ])
+    ;(api.geology.validateCrossings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      model_id: 'M',
+      issues: [
+        {
+          kind: 'formation_crossing',
+          detail: "Younger sits below Older by 3 m",
+          depth_m: 3,
+          contact_ids: [],
+          formation_ids: ['older', 'younger'],
+        },
+      ],
+    })
+
+    render(
+      <InterpretationPane
+        projectId="P"
+        activeModelId="M"
+        staleSurfaceCount={2}
+      />,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('crossings-banner')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/as of last build/i)).toBeInTheDocument()
+    expect(screen.getByText(/click Build to refresh/i)).toBeInTheDocument()
+  })
+
+  it('crossings banner has no "as of last build" suffix when surfaces are fresh', async () => {
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'a' }),
+    ])
+    ;(api.geology.validateCrossings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      model_id: 'M',
+      issues: [
+        {
+          kind: 'formation_crossing',
+          detail: "Crossing detail",
+          depth_m: 1,
+          contact_ids: [],
+          formation_ids: ['a', 'b'],
+        },
+      ],
+    })
+
+    render(
+      <InterpretationPane
+        projectId="P"
+        activeModelId="M"
+        staleSurfaceCount={0}
+      />,
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('crossings-banner')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/as of last build/i)).not.toBeInTheDocument()
+  })
+
   it('renders crossings banner when the validator returns issues', async () => {
     const { api } = await import('../../api/client')
     ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
