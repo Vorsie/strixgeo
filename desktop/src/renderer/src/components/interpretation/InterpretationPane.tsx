@@ -25,6 +25,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Drill,
@@ -39,6 +40,7 @@ import {
 import { api } from '../../api/client'
 import type {
   BoreholeListItem,
+  GapIssueResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalFormationUpdatePayload,
@@ -116,6 +118,13 @@ interface Props {
    * when omitted (test-harness mounts). Reversible action — no
    * confirmation modal; the rebuild only writes derived state. */
   onRebuildSurfaces?: () => Promise<void>
+  /** Active geological model id — required to fetch the crossings
+   * validator result for the banner. Banner stays hidden when null. */
+  activeModelId?: string | null
+  /** Refresh signal — App bumps after every contact mutation so the
+   * banner re-runs the crossings validator. Opaque integer; only the
+   * change matters. */
+  crossingsRefreshSignal?: number
 }
 
 export default function InterpretationPane({
@@ -134,6 +143,8 @@ export default function InterpretationPane({
   pushUndoCommand,
   onDedupeContacts,
   onRebuildSurfaces,
+  activeModelId,
+  crossingsRefreshSignal,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -166,6 +177,10 @@ export default function InterpretationPane({
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | 'end' | null>(null)
   const [reorderBusy, setReorderBusy] = useState(false)
+  // Cross-formation crossing-validator results — refetched whenever
+  // the contacts identity changes (App bumps ``crossingsRefreshSignal``).
+  // Empty list = no crossings; non-empty surfaces as a banner.
+  const [crossingIssues, setCrossingIssues] = useState<readonly GapIssueResponse[]>([])
 
   async function handleDedupe(): Promise<void> {
     if (!onDedupeContacts || dedupeBusy) return
@@ -303,6 +318,31 @@ export default function InterpretationPane({
     // (e.g. auto-populate from stratigraphy) that bypass the
     // pane's own create-edit-delete flow.
   }, [projectId, refreshSignal])
+
+  // Crossings validator — fetch when an active model is wired and
+  // re-fetch whenever the contacts identity changes (App bumps
+  // ``crossingsRefreshSignal`` on every contact mutation). Failures
+  // stay quiet — an empty banner is better than a console spam loop.
+  useEffect(() => {
+    if (!projectId || !activeModelId) {
+      setCrossingIssues([])
+      return
+    }
+    let cancelled = false
+    api.geology
+      .validateCrossings(projectId, activeModelId)
+      .then(resp => {
+        if (cancelled) return
+        setCrossingIssues(resp.issues)
+      })
+      .catch(err => {
+        log.warn('geology', `validateCrossings failed for ${activeModelId}`, err)
+        if (!cancelled) setCrossingIssues([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId, activeModelId, crossingsRefreshSignal])
 
   // Manifest gate — formations in the DB but NOT in the manifest
   // are treated as "unsaved from a previous session" (a kill
@@ -717,6 +757,34 @@ export default function InterpretationPane({
       {populateResult && (
         <div className="text-[11px] text-gray-500 italic leading-snug">
           {populateResult}
+        </div>
+      )}
+
+      {crossingIssues.length > 0 && (
+        // Geological superposition violation — younger formation
+        // surface dips below an older one somewhere. Amber not red:
+        // it's a soft warning the engineer should investigate, not a
+        // hard error that blocks save.
+        <div
+          className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900"
+          role="alert"
+          aria-label="Surface crossing warnings"
+          data-testid="crossings-banner"
+        >
+          <div className="flex items-center gap-1.5 font-medium">
+            <AlertTriangle size={12} />
+            <span>
+              {crossingIssues.length} surface crossing
+              {crossingIssues.length === 1 ? '' : 's'} detected
+            </span>
+          </div>
+          <ul className="mt-1 ml-5 list-disc space-y-0.5">
+            {crossingIssues.map((issue, idx) => (
+              <li key={`${issue.formation_ids.join('-')}-${idx}`}>
+                {issue.detail}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
