@@ -204,6 +204,15 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
 
         created_contact_ids: list[UUID] = []
         created_formation_ids: list[UUID] = []
+        # O(1) membership check for the post-walk depth-based reorder
+        # (parallels created_formation_ids; the list keeps insertion
+        # order for the response payload).
+        created_formation_ids_set: set[UUID] = set()
+        # Per newly-created formation, the list of contact top-depths
+        # observed during this run. Used post-walk to assign
+        # display_order so deepest-top = lowest order = oldest, per
+        # the "Modelling hierarchy" convention in CLAUDE.md.
+        new_formation_top_depths: dict[UUID, list[float]] = {}
         # Tracks every formation that received a new contact in this
         # run. Used to scope the post-batch surface recompute to just
         # the affected pairs (no point recomputing untouched formations).
@@ -291,6 +300,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                         formations_by_regional_ref[regional_ref.lower()] = formation
                     formations_by_name[name.lower()] = formation
                     created_formation_ids.append(formation.id)
+                    created_formation_ids_set.add(formation.id)
 
                 # USER OVERRIDES ARE ABSOLUTE — if a contact already
                 # exists for this (borehole, formation) pair (whether
@@ -323,6 +333,40 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 occupied_anchor_formation.add(anchor_formation_key)
                 touched_formations.add(formation.id)
                 created_contact_ids.append(contact.id)
+                # Track for the post-walk depth-based reorder of newly-
+                # created formations (see below). Existing formations
+                # keep whatever display_order the user gave them; only
+                # the ones we just created get sorted by depth.
+                if formation.id in created_formation_ids_set:
+                    new_formation_top_depths.setdefault(formation.id, []).append(layer.top_m)
+
+        # Newly-created formations were assigned display_order in
+        # encounter order (top-down through each borehole = youngest-
+        # first). Per CLAUDE.md "Modelling hierarchy", lower
+        # display_order = OLDER formation, so we'd be inverting the
+        # geological superposition convention. Re-sort the just-created
+        # formations by mean top-depth DESCENDING (deepest top = oldest
+        # = lowest display_order) and reassign their display_orders
+        # within the contiguous range they occupy. Existing project
+        # formations stay where they were.
+        if new_formation_top_depths:
+            base_order = next_display_order - len(new_formation_top_depths)
+            mean_depth = {
+                fid: sum(depths) / len(depths) for fid, depths in new_formation_top_depths.items()
+            }
+            sorted_new_fids = sorted(mean_depth, key=lambda fid: mean_depth[fid], reverse=True)
+            new_orders = {fid: base_order + i for i, fid in enumerate(sorted_new_fids)}
+            # Apply via setattr on the in-session ORM rows (they're
+            # still in the unit-of-work). One UPDATE per row at flush
+            # time; for v1 cardinality (≤ ~30 new formations per run)
+            # this is trivial.
+            for f in self._session.new:
+                if isinstance(f, GeologicalFormationOrm) and f.id in new_orders:
+                    f.display_order = new_orders[f.id]
+            self.debug(
+                f"Auto-populate: re-sorted {len(sorted_new_fids)} new formation(s) "
+                f"by mean top-depth (deepest first)"
+            )
 
         # Refresh the TIN cache for every formation the auto-populate
         # actually touched. ``execute_many`` dedups so each pair runs
