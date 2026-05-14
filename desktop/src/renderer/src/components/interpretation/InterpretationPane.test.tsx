@@ -29,6 +29,7 @@ vi.mock('../../api/client', async () => {
         updateContact: vi.fn(),
         deleteContact: vi.fn(),
         validateBorehole: vi.fn(),
+        validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
       },
     },
   }
@@ -169,6 +170,62 @@ describe('InterpretationPane', () => {
     expect(calls).toContainEqual({ id: 'a', order: 1 })
     expect(calls).toContainEqual({ id: 'b', order: 0 })
     expect(container).toBeTruthy()
+  })
+
+  it('renders crossings banner when the validator returns issues', async () => {
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'older', name: 'Older', display_order: 0 }),
+      makeFormation({ id: 'younger', name: 'Younger', display_order: 10 }),
+    ])
+    ;(api.geology.validateCrossings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      model_id: 'M',
+      issues: [
+        {
+          kind: 'formation_crossing',
+          detail:
+            "Younger formation 'Younger' sits below older 'Older' by up to 3.21 m — violates stratigraphic superposition.",
+          depth_m: 3.21,
+          contact_ids: [],
+          formation_ids: ['older', 'younger'],
+        },
+      ],
+    })
+
+    render(<InterpretationPane projectId="P" activeModelId="M" />)
+    await waitFor(() => {
+      expect(screen.getByTestId('crossings-banner')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/1 surface crossing detected/i)).toBeInTheDocument()
+    expect(screen.getByText(/violates stratigraphic superposition/i)).toBeInTheDocument()
+  })
+
+  it('hides the crossings banner when the validator returns no issues', async () => {
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'a' }),
+    ])
+    ;(api.geology.validateCrossings as ReturnType<typeof vi.fn>).mockResolvedValue({
+      model_id: 'M',
+      issues: [],
+    })
+    render(<InterpretationPane projectId="P" activeModelId="M" />)
+    await waitFor(() => {
+      expect(screen.getByText('Boom Klei')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('crossings-banner')).not.toBeInTheDocument()
+  })
+
+  it('skips the crossings call when no active model is wired', async () => {
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    const validateCrossings = api.geology.validateCrossings as ReturnType<typeof vi.fn>
+    validateCrossings.mockClear()
+    render(<InterpretationPane projectId="P" activeModelId={null} />)
+    await waitFor(() => {
+      expect(screen.getByText(/No formations yet/i)).toBeInTheDocument()
+    })
+    expect(validateCrossings).not.toHaveBeenCalled()
   })
 
   it('drag-reorder is a no-op when source equals target', async () => {
