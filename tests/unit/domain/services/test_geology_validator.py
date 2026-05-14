@@ -12,8 +12,10 @@ from uuid6 import uuid7
 
 from groundmodel.domain.services.geology_validator import (
     ContactDepth,
+    FormationSurfaceInput,
     GeologyValidator,
 )
+from groundmodel.domain.services.tin_surface import TinSurface
 
 
 def _contact(depth_m: float) -> ContactDepth:
@@ -100,3 +102,190 @@ def test_issue_carries_contact_id_for_editor_highlight() -> None:
     issues = GeologyValidator().validate_no_gaps([bad], borehole_total_depth_m=10.0)
     surface = next(i for i in issues if i.kind == "missing_surface_contact")
     assert surface.contact_ids == (bad.id,)
+
+
+# ---------------------------------------------------------------------------
+# validate_no_crossings — cross-formation superposition rule
+# ---------------------------------------------------------------------------
+
+
+def _surface(
+    name: str,
+    display_order: int,
+    vertices: list[tuple[float, float, float]],
+    triangles: list[tuple[int, int, int]],
+) -> FormationSurfaceInput:
+    """Build a FormationSurfaceInput with a fresh formation_id."""
+    return FormationSurfaceInput(
+        formation_id=uuid7(),
+        name=name,
+        display_order=display_order,
+        surface=TinSurface(vertices=vertices, triangles=triangles),
+    )
+
+
+# A single triangle covering the unit square — used as a base for
+# stacking-test fixtures.
+_UNIT_TRIANGLES: list[tuple[int, int, int]] = [(0, 1, 2)]
+
+
+def test_no_crossings_when_younger_sits_above_older_everywhere() -> None:
+    """The geological happy path — younger formation's surface is
+    everywhere above the older formation's surface within the shared
+    footprint. Zero issues.
+    """
+    older = _surface(
+        "Older",
+        display_order=0,
+        vertices=[(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (5.0, 10.0, 0.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    younger = _surface(
+        "Younger",
+        display_order=10,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    issues = GeologyValidator().validate_no_crossings([older, younger])
+    assert issues == []
+
+
+def test_crossing_flagged_when_younger_dips_below_older() -> None:
+    """Younger formation's vertex sits below older's interpolated
+    elevation at the same (x, y) — superposition violated. One
+    ``formation_crossing`` issue with the worst-delta in depth_m.
+    """
+    older = _surface(
+        "Older",
+        display_order=0,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    # Younger's middle vertex is at z=2 — that's 3 m BELOW older's
+    # interpolated z=5 at the same (x, y).
+    younger = _surface(
+        "Younger",
+        display_order=10,
+        vertices=[(0.0, 0.0, 8.0), (10.0, 0.0, 8.0), (5.0, 10.0, 2.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    issues = GeologyValidator().validate_no_crossings([older, younger])
+    assert [i.kind for i in issues] == ["formation_crossing"]
+    issue = issues[0]
+    assert issue.formation_ids == (older.formation_id, younger.formation_id)
+    assert issue.depth_m is not None
+    assert issue.depth_m >= 3.0 - 1e-6
+
+
+def test_crossing_uses_stratigraphic_order_regardless_of_input_order() -> None:
+    """Pair (younger, older) and (older, younger) produce the same issue —
+    the validator orients by display_order, not input position.
+    """
+    older = _surface(
+        "Older",
+        display_order=0,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    younger = _surface(
+        "Younger",
+        display_order=10,
+        vertices=[(0.0, 0.0, 8.0), (10.0, 0.0, 8.0), (5.0, 10.0, 2.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    forwards = GeologyValidator().validate_no_crossings([older, younger])
+    reversed_ = GeologyValidator().validate_no_crossings([younger, older])
+    assert len(forwards) == 1
+    assert len(reversed_) == 1
+    assert forwards[0].formation_ids == reversed_[0].formation_ids
+
+
+def test_no_crossing_when_surfaces_dont_overlap_in_xy() -> None:
+    """Two formations with disjoint (x, y) footprints can't cross —
+    every sample point falls outside the other's TIN.
+    """
+    far_east = _surface(
+        "Older",
+        display_order=0,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    far_west = _surface(
+        "Younger",
+        display_order=10,
+        vertices=[
+            (1000.0, 1000.0, 0.0),
+            (1010.0, 1000.0, 0.0),
+            (1005.0, 1010.0, 0.0),
+        ],
+        triangles=_UNIT_TRIANGLES,
+    )
+    issues = GeologyValidator().validate_no_crossings([far_east, far_west])
+    assert issues == []
+
+
+def test_sub_centimetre_overlap_within_tolerance_is_not_a_crossing() -> None:
+    """Younger 5 mm below older counts as touching, not crossing —
+    interpolation noise + survey accuracy don't justify a violation.
+    """
+    older = _surface(
+        "Older",
+        display_order=0,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    younger = _surface(
+        "Younger",
+        display_order=10,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 4.995)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    issues = GeologyValidator().validate_no_crossings([older, younger])
+    assert issues == []
+
+
+def test_equal_display_order_pairs_are_skipped() -> None:
+    """Two formations with the SAME display_order have no defined
+    superposition relationship — the validator skips the pair silently
+    rather than guessing which is older.
+    """
+    a = _surface(
+        "A",
+        display_order=5,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    b = _surface(
+        "B",
+        display_order=5,  # same as A
+        vertices=[(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (5.0, 10.0, 0.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    issues = GeologyValidator().validate_no_crossings([a, b])
+    assert issues == []
+
+
+def test_surface_without_triangles_is_skipped() -> None:
+    """A formation with only 1-2 contacts has no surface to cross
+    — skip the pair rather than raise.
+    """
+    real = _surface(
+        "Real",
+        display_order=0,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    incomplete = _surface(
+        "Incomplete",
+        display_order=10,
+        vertices=[(0.0, 0.0, 0.0), (10.0, 0.0, 0.0)],  # 2 points, no triangles
+        triangles=[],
+    )
+    issues = GeologyValidator().validate_no_crossings([real, incomplete])
+    assert issues == []
+
+
+def test_empty_input_returns_empty_list() -> None:
+    """No formations → nothing to compare → empty list."""
+    issues = GeologyValidator().validate_no_crossings([])
+    assert issues == []
