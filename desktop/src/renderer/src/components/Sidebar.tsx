@@ -134,6 +134,11 @@ interface Props {
    * since the last Build (on-click build pivot). Drives the
    * "N unbuilt edits" badge on the Build button in the pane. */
   staleSurfaceCount?: number
+  /** Click handler for an item in the crossings banner — threaded
+   * through to InterpretationPane. App.tsx maps the clicked
+   * contact_ids to a section that contains one of the anchors and
+   * fires the focus highlight in ContactsLayer (debt #9). */
+  onFocusContacts?: (contactIds: readonly string[]) => void
   /** Visible borehole IDs — used by the Interpretation pane's
    * "Populate from boreholes" affordance to walk every borehole's
    * stratigraphy observations and harvest formation names. */
@@ -297,6 +302,7 @@ export default function Sidebar({
   activeModelId,
   crossingsRefreshSignal,
   staleSurfaceCount,
+  onFocusContacts,
   visibleBoreholeIds,
   activeModelName,
   visibleBoreholes: panelBoreholes,
@@ -829,6 +835,7 @@ export default function Sidebar({
             refreshSignal={formationsRefreshSignal}
             crossingsRefreshSignal={crossingsRefreshSignal}
             staleSurfaceCount={staleSurfaceCount}
+            onFocusContacts={onFocusContacts}
             pushUndoCommand={pushUndoCommand}
             onDedupeContacts={onDedupeContacts}
             onRebuildSurfaces={onRebuildSurfaces}
