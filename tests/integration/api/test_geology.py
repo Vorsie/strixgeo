@@ -1242,6 +1242,129 @@ async def test_validate_no_gaps_wrong_project_returns_404(
     assert resp.status_code == 404
 
 
+async def test_validate_crossings_empty_model_returns_no_issues(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Model with no contacts has no surfaces → no crossings to flag."""
+    project, _ = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{model['id']}/validate/crossings",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["model_id"] == model["id"]
+    assert body["issues"] == []
+
+
+async def test_validate_crossings_flags_younger_below_older(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Younger formation's TIN dips below older's at a shared (x, y) →
+    one ``formation_crossing`` issue.
+
+    Setup:
+    * 3 boreholes at (0,0), (10,0), (5,10) — all with surface elevation 10 m.
+    * 'Older' formation (display_order=0): contacts at depth 5 m on all three
+      → TIN sits at z=5 across the triangle.
+    * 'Younger' formation (display_order=10): contacts at depth 1, 1, 9 m
+      → TIN at z=9, 9, 1 — middle vertex 4 m BELOW older.
+    """
+    project, _ = project_with_borehole
+
+    bh_b = BoreholeOrm(
+        id=uuid7(),
+        name="BH-B",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="BH-B",
+        location_x=10.0,
+        location_y=0.0,
+        epsg=31370,
+        elevation_m=10.0,
+        total_depth_m=20.0,
+    )
+    bh_c = BoreholeOrm(
+        id=uuid7(),
+        name="BH-C",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="BH-C",
+        location_x=5.0,
+        location_y=10.0,
+        epsg=31370,
+        elevation_m=10.0,
+        total_depth_m=20.0,
+    )
+    bh_a = BoreholeOrm(
+        id=uuid7(),
+        name="BH-A",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="BH-A",
+        location_x=0.0,
+        location_y=0.0,
+        epsg=31370,
+        elevation_m=10.0,
+        total_depth_m=20.0,
+    )
+    db_session.add_all([bh_a, bh_b, bh_c])
+    await db_session.commit()
+
+    older = await _create_formation(async_client, project.id, name="Older")
+    younger = await _create_formation(async_client, project.id, name="Younger")
+    # Bump younger's display_order so the validator orients pairs.
+    await async_client.patch(
+        f"/projects/{project.id}/geology/formations/{younger['id']}",
+        json={"display_order": 10},
+    )
+    model = await _create_model(async_client, project.id)
+
+    # Older sits at z = 10 - 5 = 5 m across all three anchors.
+    for bh in (bh_a, bh_b, bh_c):
+        await _create_contact(async_client, project.id, model["id"], older["id"], bh.id, depth=5.0)
+    # Younger: BH-A and BH-B at depth 1 (z=9); BH-C at depth 9 (z=1).
+    # Older z=5 at BH-C → younger 4 m below older = clear crossing.
+    await _create_contact(async_client, project.id, model["id"], younger["id"], bh_a.id, depth=1.0)
+    await _create_contact(async_client, project.id, model["id"], younger["id"], bh_b.id, depth=1.0)
+    await _create_contact(async_client, project.id, model["id"], younger["id"], bh_c.id, depth=9.0)
+
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{model['id']}/validate/crossings",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    issues = body["issues"]
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue["kind"] == "formation_crossing"
+    assert issue["formation_ids"] == [older["id"], younger["id"]]
+    assert issue["depth_m"] is not None
+    assert issue["depth_m"] >= 3.0  # at least 3 m of "wrong way" overlap
+
+
+async def test_validate_crossings_404_when_model_belongs_to_another_project(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Scope guard — cross-project model id returns 404."""
+    project_a, _ = project_with_borehole
+    project_b = ProjectOrm(id=uuid7(), name="Other", status="active")
+    db_session.add(project_b)
+    await db_session.commit()
+    model_b = await _create_model(async_client, project_b.id)
+
+    resp = await async_client.get(
+        f"/projects/{project_a.id}/geology/models/{model_b['id']}/validate/crossings",
+    )
+    assert resp.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Small helpers — wrap repetitive POSTs that every test needs.
 # ---------------------------------------------------------------------------
