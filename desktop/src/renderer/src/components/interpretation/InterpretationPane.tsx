@@ -96,6 +96,11 @@ interface Props {
    * successful create / update / delete here. Optional so test-
    * harness mounts work without an undo provider. */
   pushUndoCommand?: (cmd: import('../../hooks/useUndoStack').UndoCommand) => void
+  /** Fire the one-shot dedupe of legacy duplicate contacts.
+   * Caller (App) calls the dedupe API + refreshes local state.
+   * Resolves with the duplicates-removed count for the toast.
+   * Hidden when omitted (test-harness mounts). */
+  onDedupeContacts?: () => Promise<number>
 }
 
 export default function InterpretationPane({
@@ -112,6 +117,7 @@ export default function InterpretationPane({
   onFormationUpdated,
   refreshSignal,
   pushUndoCommand,
+  onDedupeContacts,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -132,6 +138,19 @@ export default function InterpretationPane({
     null,
   )
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [dedupeBusy, setDedupeBusy] = useState(false)
+  const [pendingDedupe, setPendingDedupe] = useState(false)
+
+  async function handleDedupe(): Promise<void> {
+    if (!onDedupeContacts || dedupeBusy) return
+    setDedupeBusy(true)
+    try {
+      await onDedupeContacts()
+    } finally {
+      setDedupeBusy(false)
+      setPendingDedupe(false)
+    }
+  }
 
   // Reload formations on project change. Failures stay quiet — an
   // empty list is the right fallback (the engineer sees the
@@ -536,6 +555,18 @@ export default function InterpretationPane({
             <Sparkles size={12} className="mr-1" />
             {populateBusy ? 'Working…' : 'From boreholes'}
           </Button>
+          {onDedupeContacts && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setPendingDedupe(true)}
+              disabled={dedupeBusy}
+              title="One-shot cleanup: removes duplicate (anchor, formation) contacts left over from before the per-anchor uniqueness rule landed. Keeps the manual pick / most-recent row in each duplicate group."
+            >
+              <Sparkles size={12} className="mr-1" />
+              {dedupeBusy ? 'Cleaning…' : 'Dedupe'}
+            </Button>
+          )}
           <Button
             variant="secondary"
             size="sm"
@@ -689,6 +720,47 @@ export default function InterpretationPane({
               disabled={deleteBusy}
             >
               Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
+      <Modal
+        open={pendingDedupe}
+        onCancel={() => setPendingDedupe(false)}
+        labelledBy="dedupe-contacts-title"
+        busy={dedupeBusy}
+      >
+        <div className="p-5">
+          <h2
+            id="dedupe-contacts-title"
+            className="text-base font-semibold text-gray-800 mb-2"
+          >
+            Clean up duplicate contacts?
+          </h2>
+          <p className="text-xs text-gray-600 mb-4">
+            Walks every (borehole, formation) pair on the active model
+            and keeps ONE contact per pair. Survivor priority: manual
+            picks beat auto-derived; rows with provenance beat rows
+            without; most recent breaks ties. Idempotent — re-running
+            on a clean model removes nothing. Counts surface in a
+            toast.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => setPendingDedupe(false)}
+              disabled={dedupeBusy}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              onClick={() => void handleDedupe()}
+              disabled={dedupeBusy}
+            >
+              Dedupe
             </Button>
           </div>
         </div>
