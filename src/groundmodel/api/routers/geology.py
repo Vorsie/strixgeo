@@ -19,6 +19,7 @@ from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.formation_contact import (
     AutoPopulateFromStratigraphyRequest,
     AutoPopulateFromStratigraphyResponse,
+    CrossingValidationResponse,
     DeduplicateContactsResponse,
     FormationContactBatchUpdateRequest,
     FormationContactBatchUpdateResponse,
@@ -64,6 +65,7 @@ from groundmodel.application.update_formation_contacts_batch import (
 from groundmodel.application.validate_borehole_stratigraphy import (
     ValidateBoreholeStratigraphy,
 )
+from groundmodel.application.validate_model_crossings import ValidateModelCrossings
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -752,6 +754,44 @@ async def validate_no_gaps(
                 detail=i.detail,
                 depth_m=i.depth_m,
                 contact_ids=list(i.contact_ids),
+                formation_ids=list(i.formation_ids),
+            )
+            for i in issues
+        ],
+    )
+
+
+@router.get(
+    "/models/{model_id}/validate/crossings",
+    response_model=CrossingValidationResponse,
+)
+async def validate_no_crossings(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> CrossingValidationResponse:
+    """Check that no two formation surfaces violate stratigraphic order.
+
+    Walks every cached TIN in the model and looks for pairs where the
+    younger formation's surface dips below the older's anywhere in the
+    shared (x, y) footprint — a violation of the geological
+    superposition rule. Returns the list of ``formation_crossing``
+    issues; empty list ⇒ all surfaces stack consistently. Editor
+    surfaces these as inline warnings.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
+    )
+    issues = await ValidateModelCrossings(session).execute(model_id)
+    return CrossingValidationResponse(
+        model_id=model_id,
+        issues=[
+            GapIssueResponse(
+                kind=i.kind,
+                detail=i.detail,
+                depth_m=i.depth_m,
+                contact_ids=list(i.contact_ids),
+                formation_ids=list(i.formation_ids),
             )
             for i in issues
         ],
