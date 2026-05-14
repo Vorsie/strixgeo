@@ -115,6 +115,10 @@ interface Props {
    * through to InterpretationPane so its formation create / edit /
    * delete handlers participate in Ctrl+Z. */
   pushUndoCommand?: (cmd: import('../hooks/useUndoStack').UndoCommand) => void
+  /** One-shot dedupe handler — App calls the API + refreshes
+   * contacts state. Resolves with the duplicates-removed count
+   * for the toast in the pane. */
+  onDedupeContacts?: () => Promise<number>
   /** Visible borehole IDs — used by the Interpretation pane's
    * "Populate from boreholes" affordance to walk every borehole's
    * stratigraphy observations and harvest formation names. */
@@ -273,6 +277,7 @@ export default function Sidebar({
   onFormationUpdated,
   formationsRefreshSignal,
   pushUndoCommand,
+  onDedupeContacts,
   visibleBoreholeIds,
   activeModelName,
   visibleBoreholes: panelBoreholes,
@@ -751,6 +756,7 @@ export default function Sidebar({
             onFormationUpdated={onFormationUpdated}
             refreshSignal={formationsRefreshSignal}
             pushUndoCommand={pushUndoCommand}
+            onDedupeContacts={onDedupeContacts}
           />
         )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
