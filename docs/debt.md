@@ -615,3 +615,45 @@ should match the NCS chart with no extra clicks. The user can
 still manually drag-reorder for special cases (overturned beds,
 bespoke local naming) — that override is theirs, not the
 system's repair.
+
+## 51. Crossings banner — surface offending contacts + jump-to-section (medium — dogfooding ask 2026-05-14)
+
+**What.** Today's crossings banner reports
+"Younger 'Antropogeen' sits below older 'Boom Klei' by 3.2 m"
+in plain text. The user has to mentally translate that to
+"which boreholes? which depths? which contacts to fix?" and
+hunt them down in the section view themselves. Each issue should
+expose:
+
+* The list of OFFENDING contact rows (the specific picks where
+  the crossing was detected — vertices of one TIN that sat below
+  the other's interpolated elevation).
+* A click target that opens the relevant cross-section, scrolls
+  to the borehole/CPT column carrying the contact, and highlights
+  it visually (selection ring + amber pulse).
+
+**Why deferred.** Today's `validate_no_crossings` records
+``formation_ids`` (the offending pair) but NOT contact_ids of the
+specific picks that triggered the violation. Adding that requires:
+
+* Track the contact_id of each TIN vertex (currently the cache
+  carries (x, y, elevation) but no provenance pointer to the
+  contact that produced it). Either thread contact_id through
+  ContactPoint3D → TinSurface vertices, or post-detect via a
+  reverse-lookup (find contacts at this (x, y) on this formation).
+* Extend GapIssue with ``contact_ids: tuple[UUID, ...]`` for the
+  crossing kind (already supported per the value-object shape).
+* Frontend: clickable banner items that drive a "focus contact"
+  intent into App.tsx, which in turn picks the section that
+  contains the contact's anchor (or creates one if none exists)
+  and dispatches a scroll/highlight action to ContactsLayer.
+
+**Wins beyond UX clarity:** dovetails with debt #45 (undo/redo)
+and #44 (selection toolbox) — same "highlight a contact in the
+section view" primitive could be the underlying intent for both.
+
+**When to revisit.** Pair with the "selection toolbox" follow-on
+work (debt #44 already lists open follow-ups) — they share the
+section-jump-and-highlight infrastructure. Or after the first
+real user reports being unable to find the offending contact
+without trial-and-error in the section view.
