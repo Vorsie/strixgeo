@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import { Database, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 
-import type { BoreholeDetailResponse } from '../api/client'
+import type {
+  BoreholeDetailResponse,
+  VirtueleBoringInvestigationPrediction,
+  VirtueleBoringLayer,
+} from '../api/client'
 import { SoilPatterns } from '../utils/soilPatterns'
 import { isTypingTarget } from '../utils/keyboard'
 import LabTestPanel from './LabTestPanel'
@@ -64,11 +68,34 @@ interface Props {
   // user's pick from the editor's datum dropdown (mTAW / NAP); it's
   // ``null`` when the value is being cleared.
   onElevationChange?: (elevationM: number | null, zEpsg: number | null) => Promise<void>
+  // DOV Virtuele Boring overlay — informative-only ghost columns
+  // rendered to the right of the existing tracks inside the same
+  // SVG (so they scroll together). The toggle button in the toolbar
+  // flips the per-pane visibility; the picker (model selection +
+  // depth) lives on the section pane.
+  virtueleBoringPrediction?: VirtueleBoringInvestigationPrediction | null
+  virtueleBoringActiveModels?: readonly string[]
+  virtueleBoringMaxDepthM?: number | null
+  virtueleBoringVisible?: boolean
+  onToggleVirtueleBoringVisible?: () => void
 }
+
+// Per-model ghost-column width inside the borelog. Same vocabulary
+// as the section view + CPT depth column for visual consistency.
+const VB_COLUMN_WIDTH = 50
+const VB_COLUMN_GAP = 4
+const VB_GAP_FROM_TRACKS = 8
+const VB_LABEL_MIN_HEIGHT = 12
+const VB_LABEL_FONT_SIZE = 9
 
 export default function BoreholeLog({
   borehole,
   onElevationChange,
+  virtueleBoringPrediction = null,
+  virtueleBoringActiveModels = [],
+  virtueleBoringMaxDepthM = null,
+  virtueleBoringVisible = false,
+  onToggleVirtueleBoringVisible,
 }: Props): React.ReactElement {
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
 
@@ -79,6 +106,20 @@ export default function BoreholeLog({
   const pxPerM = BASE_PX_PER_M * zoomFactor
 
   const layout = useMemo(() => computeLayout(borehole, pxPerM), [borehole, pxPerM])
+
+  // Width of the DOV Virtuele Boring ghost-column rail rendered to
+  // the right of the borelog's normal tracks. Zero when the overlay
+  // is off or no models are armed; otherwise one slim column per
+  // active model with a small gap between them.
+  const overlayShows =
+    virtueleBoringVisible && virtueleBoringActiveModels.length > 0
+  const vbRailWidth = overlayShows
+    ? VB_GAP_FROM_TRACKS +
+      virtueleBoringActiveModels.length * VB_COLUMN_WIDTH +
+      Math.max(0, virtueleBoringActiveModels.length - 1) * VB_COLUMN_GAP
+    : 0
+  const vbRailLeftX = layout.totalWidth - SVG_X_PAD + VB_GAP_FROM_TRACKS
+  const svgWidth = layout.totalWidth + vbRailWidth
 
   const selectedSample =
     selectedSampleId != null
@@ -187,6 +228,36 @@ export default function BoreholeLog({
         <span className="text-gray-400 ml-1 tabular-nums">
           {(zoomFactor * 100).toFixed(0)}%
         </span>
+        {/* DOV Virtuele Boring overlay toggle. Disabled when the
+            section pane hasn't armed a model yet — pressing it then
+            would be a no-op, and the disabled state breadcrumbs the
+            user back to the section pane's picker. */}
+        {onToggleVirtueleBoringVisible !== undefined && (
+          <button
+            onClick={onToggleVirtueleBoringVisible}
+            disabled={virtueleBoringActiveModels.length === 0}
+            aria-pressed={virtueleBoringVisible}
+            aria-label="Toggle DOV Virtuele Boring overlay"
+            title={
+              virtueleBoringActiveModels.length === 0
+                ? 'Pick a DOV model in the section pane first to enable this overlay'
+                : virtueleBoringVisible
+                  ? 'Hide DOV Virtuele Boring overlay'
+                  : 'Show DOV Virtuele Boring overlay'
+            }
+            className={
+              'flex items-center gap-1 ml-auto px-2 h-6 rounded border text-[10px] transition-colors ' +
+              (virtueleBoringActiveModels.length === 0
+                ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                : virtueleBoringVisible
+                  ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+                  : 'border-gray-200 text-gray-500 hover:bg-gray-100')
+            }
+          >
+            <Database size={11} />
+            DOV
+          </button>
+        )}
       </div>
 
       {/* Horizontal split: borelog (flex-1, scrolls) + lab panel (fixed
@@ -199,7 +270,7 @@ export default function BoreholeLog({
       <div className="flex-1 flex flex-row overflow-hidden">
         <div ref={scrollContainerRef} className="flex-1 overflow-auto">
           <svg
-            width={layout.totalWidth}
+            width={svgWidth}
             height={layout.totalHeight}
             className="block"
           >
@@ -333,6 +404,23 @@ export default function BoreholeLog({
               y={SVG_Y_PAD + HEADER_HEIGHT}
             />
           )}
+
+          {/* DOV Virtuele Boring ghost rail — slim labelled columns
+              rendered next to the borelog's tracks, sharing the
+              same depth-pixel scale (pxPerM) so layers align with
+              the lithology / sample tracks pixel-for-pixel. */}
+          {overlayShows && (
+            <VirtueleBoringBorelogRail
+              prediction={virtueleBoringPrediction}
+              activeModels={virtueleBoringActiveModels}
+              surfaceElevationM={borehole.elevation_m ?? null}
+              maxDepthMBelowSurface={virtueleBoringMaxDepthM}
+              leftX={vbRailLeftX}
+              topY={SVG_Y_PAD + HEADER_HEIGHT}
+              pxPerM={pxPerM}
+              totalDepthM={layout.totalDepth}
+            />
+          )}
           </svg>
         </div>
 
@@ -354,5 +442,144 @@ export default function BoreholeLog({
       <Legend borehole={borehole} />
     </div>
     </PxPerMContext.Provider>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// VirtueleBoringBorelogRail — informative-only DOV overlay rendered
+// inside the borelog SVG so it scrolls with the rest of the tracks.
+// ---------------------------------------------------------------------------
+
+function VirtueleBoringBorelogRail({
+  prediction,
+  activeModels,
+  surfaceElevationM,
+  maxDepthMBelowSurface,
+  leftX,
+  topY,
+  pxPerM,
+  totalDepthM,
+}: {
+  prediction: VirtueleBoringInvestigationPrediction | null
+  activeModels: readonly string[]
+  surfaceElevationM: number | null
+  maxDepthMBelowSurface: number | null
+  leftX: number
+  topY: number
+  pxPerM: number
+  totalDepthM: number
+}): JSX.Element | null {
+  if (!prediction || surfaceElevationM === null) {
+    return (
+      <text x={leftX} y={topY + 12} fontSize={9} fill="#9ca3af">
+        no data
+      </text>
+    )
+  }
+  return (
+    <g data-testid="virtuele-boring-borelog-rail">
+      {activeModels.map((modelCode, modelIdx) => {
+        const layers = prediction.predictions_by_model[modelCode]
+        if (!layers || layers.length === 0) return null
+        const left = leftX + modelIdx * (VB_COLUMN_WIDTH + VB_COLUMN_GAP)
+        return (
+          <g key={modelCode} data-testid={`vb-rail-${modelCode}`}>
+            <text
+              x={left + VB_COLUMN_WIDTH / 2}
+              y={topY - 4}
+              textAnchor="middle"
+              fontSize={9}
+              fill="#6b7280"
+            >
+              {modelCode}
+            </text>
+            {layers.map(layer => (
+              <BorelogRailLayer
+                key={`${layer.code}-${layer.top_m_taw}`}
+                layer={layer}
+                left={left}
+                width={VB_COLUMN_WIDTH}
+                surfaceElevationM={surfaceElevationM}
+                topY={topY}
+                pxPerM={pxPerM}
+                totalDepthM={totalDepthM}
+                maxDepthMBelowSurface={maxDepthMBelowSurface}
+              />
+            ))}
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
+function BorelogRailLayer({
+  layer,
+  left,
+  width,
+  surfaceElevationM,
+  topY,
+  pxPerM,
+  totalDepthM,
+  maxDepthMBelowSurface,
+}: {
+  layer: VirtueleBoringLayer
+  left: number
+  width: number
+  surfaceElevationM: number
+  topY: number
+  pxPerM: number
+  totalDepthM: number
+  maxDepthMBelowSurface: number | null
+}): JSX.Element | null {
+  const layerDepthTop = Math.max(0, surfaceElevationM - layer.top_m_taw)
+  let layerDepthBase = surfaceElevationM - layer.base_m_taw
+  if (maxDepthMBelowSurface !== null && layerDepthTop >= maxDepthMBelowSurface) {
+    return null
+  }
+  if (maxDepthMBelowSurface !== null && layerDepthBase > maxDepthMBelowSurface) {
+    layerDepthBase = maxDepthMBelowSurface
+  }
+  // Clip to the borelog's total depth so a much-deeper DOV layer
+  // doesn't paint below the lithology tracks.
+  if (layerDepthBase > totalDepthM) layerDepthBase = totalDepthM
+  if (layerDepthBase <= 0 || layerDepthTop >= totalDepthM) return null
+  const yTop = topY + layerDepthTop * pxPerM
+  const yBase = topY + layerDepthBase * pxPerM
+  const height = yBase - yTop
+  if (height <= 0.3) return null
+  const fill = layer.color_hex ?? '#9ca3af'
+  const label = layer.beschrijving || layer.name
+  const tooltip = `${label}: ${layer.top_m_taw.toFixed(2)} → ${layer.base_m_taw.toFixed(2)} mTAW (${layer.thickness_m.toFixed(2)} m)`
+  const showInlineLabel = height >= VB_LABEL_MIN_HEIGHT && label.length > 0
+  return (
+    <g>
+      <rect
+        x={left}
+        y={yTop}
+        width={width}
+        height={height}
+        fill={fill}
+        fillOpacity={0.55}
+        stroke={fill}
+        strokeOpacity={0.75}
+        strokeWidth={0.5}
+      >
+        <title>{tooltip}</title>
+      </rect>
+      {showInlineLabel && (
+        <text
+          x={left + width / 2}
+          y={yTop + height / 2 + VB_LABEL_FONT_SIZE / 3}
+          textAnchor="middle"
+          fontSize={VB_LABEL_FONT_SIZE}
+          fill="#111827"
+          style={{ pointerEvents: 'none' }}
+        >
+          {label.length > 10 ? label.slice(0, 9) + '…' : label}
+          <title>{tooltip}</title>
+        </text>
+      )}
+    </g>
   )
 }
