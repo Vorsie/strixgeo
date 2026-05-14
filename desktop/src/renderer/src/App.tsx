@@ -2876,6 +2876,14 @@ export default function App() {
           formationsRefreshSignal={formationsRefreshCounter}
           crossingsRefreshSignal={crossingsRefreshCounter}
           activeModelId={activeGeologicalModel?.id ?? null}
+          staleSurfaceCount={
+            // On-click build pivot: how many cached surfaces no
+            // longer reflect the current contacts. Drives the
+            // "N unbuilt edits" badge on the Build button.
+            Array.from(surfacesByFormationId.values()).filter(
+              s => s.is_stale === true,
+            ).length
+          }
           pushUndoCommand={pushUndo}
           onDedupeContacts={
             activeGeologicalModel ? handleDedupeContacts : undefined
