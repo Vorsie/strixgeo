@@ -22,9 +22,6 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from groundmodel.application.recompute_formation_surface import (
-    RecomputeFormationSurface,
-)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -118,9 +115,10 @@ class UpdateFormationContactsBatch(GroundModelLogger):
         for contact in by_id.values():
             affected.add((contact.model_id, contact.formation_id))
 
-        # Single recompute pass per unique pair — N=100 contacts in
-        # one formation = ONE Delaunay call, not 100.
-        await RecomputeFormationSurface(self._session).execute_many(affected)
+        # On-click build pivot: mark each affected (model, formation)
+        # surface stale rather than recompute. Single bulk UPDATE
+        # regardless of N contacts touched — cheap.
+        await self._repo.mark_surfaces_stale(affected)
 
         await self._session.commit()
         for contact in by_id.values():
@@ -128,6 +126,6 @@ class UpdateFormationContactsBatch(GroundModelLogger):
 
         self.success(
             f"Batch contact update committed: model={model_id} "
-            f"count={len(entries)} surfaces_touched={len(affected)}"
+            f"count={len(entries)} surfaces_marked_stale={len(affected)}"
         )
         return [by_id[cid] for cid in contact_ids]
