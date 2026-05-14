@@ -294,6 +294,53 @@ export default function InterpretationPane({
         )
         for (const c of changes) onFormationUpdated?.(c.id)
         log.success('geology', `reorderFormations ok updates=${changes.length}`)
+        // Undo: PATCH each changed formation back to its old display_order
+        // + restore the local list to match. Reapply re-runs the same
+        // forward PATCHes. Captured by value so a later create / delete
+        // doesn't perturb the snapshot.
+        const snapshot = changes.slice()
+        const pid = projectId
+        pushUndoCommand?.({
+          description: `Reorder ${snapshot.length} formation${snapshot.length === 1 ? '' : 's'}`,
+          revert: async () => {
+            await Promise.all(
+              snapshot.map(c =>
+                api.geology.updateFormation(pid, c.id, {
+                  display_order: c.oldOrder,
+                }),
+              ),
+            )
+            setFormations(prev => {
+              const byId = new Map(snapshot.map(c => [c.id, c.oldOrder]))
+              return sortFormations(
+                prev.map(f => {
+                  const ord = byId.get(f.id)
+                  return ord === undefined ? f : { ...f, display_order: ord }
+                }),
+              )
+            })
+            for (const c of snapshot) onFormationUpdated?.(c.id)
+          },
+          reapply: async () => {
+            await Promise.all(
+              snapshot.map(c =>
+                api.geology.updateFormation(pid, c.id, {
+                  display_order: c.newOrder,
+                }),
+              ),
+            )
+            setFormations(prev => {
+              const byId = new Map(snapshot.map(c => [c.id, c.newOrder]))
+              return sortFormations(
+                prev.map(f => {
+                  const ord = byId.get(f.id)
+                  return ord === undefined ? f : { ...f, display_order: ord }
+                }),
+              )
+            })
+            for (const c of snapshot) onFormationUpdated?.(c.id)
+          },
+        })
       } catch (err) {
         log.error('geology', 'reorderFormations failed — refetching', err)
         // Best-effort refetch on partial failure so local state matches
@@ -308,7 +355,7 @@ export default function InterpretationPane({
         setReorderBusy(false)
       }
     },
-    [projectId, formations, manifestFormationIds, onFormationUpdated],
+    [projectId, formations, manifestFormationIds, onFormationUpdated, pushUndoCommand],
   )
 
   // Reload formations on project change. Failures stay quiet — an
@@ -614,19 +661,54 @@ export default function InterpretationPane({
       // Create them sequentially so a failure mid-loop leaves us
       // with a consistent optimistic state.
       let createdCount = 0
+      // Track each successful create so a single undo can roll back
+      // the entire bulk run. We need the payload (for reapply) and
+      // the latest server id (for revert / next-reapply's delete).
+      const bulkEntries: {
+        payload: GeologicalFormationCreatePayload
+        currentId: string
+      }[] = []
       for (const { name, regional_ref } of toCreate) {
+        const payload: GeologicalFormationCreatePayload = {
+          name,
+          color: hashHexColor(name),
+          regional_ref,
+        }
         try {
-          const created = await api.geology.createFormation(projectId, {
-            name,
-            color: hashHexColor(name),
-            regional_ref,
-          })
+          const created = await api.geology.createFormation(projectId, payload)
           setFormations(prev => sortFormations([...prev, created]))
           onFormationCreated?.(created.id)
           createdCount += 1
+          bulkEntries.push({ payload, currentId: created.id })
         } catch (err) {
           log.error('geology', `createFormation('${name}') failed`, err)
         }
+      }
+      // Undo: DELETE every formation created by this bulk run. Reapply
+      // re-POSTs each payload and refreshes the captured id list so the
+      // next revert targets the freshly-created server rows.
+      if (bulkEntries.length > 0) {
+        const pid = projectId
+        pushUndoCommand?.({
+          description: `Add ${bulkEntries.length} formation${bulkEntries.length === 1 ? '' : 's'} from boreholes`,
+          revert: async () => {
+            const deletedIds = bulkEntries.map(e => e.currentId)
+            await Promise.all(
+              deletedIds.map(id => api.geology.deleteFormation(pid, id)),
+            )
+            const removed = new Set(deletedIds)
+            setFormations(prev => prev.filter(f => !removed.has(f.id)))
+            for (const id of deletedIds) onFormationDeleted?.(id)
+          },
+          reapply: async () => {
+            for (const entry of bulkEntries) {
+              const created = await api.geology.createFormation(pid, entry.payload)
+              entry.currentId = created.id
+              setFormations(prev => sortFormations([...prev, created]))
+              onFormationCreated?.(created.id)
+            }
+          },
+        })
       }
       const scanned = ids.length - failed
       const summary =
@@ -642,7 +724,16 @@ export default function InterpretationPane({
     } finally {
       setPopulateBusy(false)
     }
-  }, [projectId, populateBusy, boreholeIds, excludedSet, visibleFormations, onFormationCreated])
+  }, [
+    projectId,
+    populateBusy,
+    boreholeIds,
+    excludedSet,
+    visibleFormations,
+    onFormationCreated,
+    onFormationDeleted,
+    pushUndoCommand,
+  ])
 
   const handleDelete = useCallback(async () => {
     if (!projectId || !pendingDelete) return
