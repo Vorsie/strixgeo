@@ -172,6 +172,57 @@ describe('InterpretationPane', () => {
     expect(container).toBeTruthy()
   })
 
+  it('drag-reorder pushes an undo command whose revert PATCHes back to old orders', async () => {
+    // Same drag as the previous test ([A,B,C] → drop A onto C → [B,A,C]).
+    // After the forward PATCHes succeed, the component pushes an
+    // UndoCommand. Invoking ``revert()`` must PATCH each moved row
+    // back to its pre-reorder display_order.
+    const { api } = await import('../../api/client')
+    ;(api.geology.listFormations as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeFormation({ id: 'a', name: 'A', display_order: 0 }),
+      makeFormation({ id: 'b', name: 'B', display_order: 1 }),
+      makeFormation({ id: 'c', name: 'C', display_order: 2 }),
+    ])
+    const updateFormation = api.geology.updateFormation as ReturnType<typeof vi.fn>
+    updateFormation.mockResolvedValue(makeFormation({ id: 'a' }))
+    const pushUndoCommand = vi.fn()
+
+    render(<InterpretationPane projectId="P" pushUndoCommand={pushUndoCommand} />)
+    await waitFor(() => expect(screen.getByText('A')).toBeInTheDocument())
+
+    const aRow = screen.getByText('A').closest('li') as HTMLElement
+    const cRow = screen.getByText('C').closest('li') as HTMLElement
+    const aHandle = aRow.querySelector(
+      'button[aria-label^="Drag to reorder"]',
+    ) as HTMLElement
+    const dataTransfer = {
+      setData: vi.fn(),
+      getData: vi.fn(() => 'a'),
+      effectAllowed: 'move',
+    }
+    fireEvent.dragStart(aHandle, { dataTransfer })
+    fireEvent.dragOver(cRow, { dataTransfer })
+    fireEvent.drop(cRow, { dataTransfer })
+
+    await waitFor(() => expect(pushUndoCommand).toHaveBeenCalled())
+    const cmd = pushUndoCommand.mock.calls[0][0]
+    expect(cmd.description).toMatch(/Reorder 2 formations/)
+
+    // Drain the forward PATCHes from the spy so revert's calls are
+    // the only thing left to inspect.
+    updateFormation.mockClear()
+    await cmd.revert()
+    const reverts = updateFormation.mock.calls.map(c => ({
+      id: c[1] as string,
+      order: (c[2] as { display_order: number }).display_order,
+    }))
+    // A was 0→1 forward, so revert sends 1→0.
+    // B was 1→0 forward, so revert sends 0→1.
+    expect(reverts).toContainEqual({ id: 'a', order: 0 })
+    expect(reverts).toContainEqual({ id: 'b', order: 1 })
+    expect(reverts).toHaveLength(2)
+  })
+
   it('renders Build model badge with N unbuilt edits when staleSurfaceCount > 0', async () => {
     // On-click build pivot: the primary "Build model" button shows
     // "Build model · N unbuilt edit(s)" when the cache is stale.
