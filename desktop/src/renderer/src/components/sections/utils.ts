@@ -217,86 +217,103 @@ export function columnsBetween(
   return matches
 }
 
-/** Stitch two top polylines into a closed fill polygon for the
- * geological band between them. ``top`` is the younger formation's
- * top (drawn forward), ``bottom`` is the older formation's top
- * (drawn reversed). The polygon spans only the X overlap of the two
- * polylines — outside that range the band is undefined and we don't
- * fill anything.
- *
- * Per-point interpolation along each polyline lets the polygon
- * follow the actual top geometry even when the two surfaces have
- * different anchor sets. Mismatched X domains are handled by
- * clipping to ``[max(top.x0, bottom.x0), min(top.xN, bottom.xN)]``.
- *
- * @param top    polyline of (x, y) screen coords for the younger
- *               formation's top, sorted by ``x`` ascending
- * @param bottom polyline of (x, y) screen coords for the older
- *               formation's top, sorted by ``x`` ascending
- * @returns an SVG path string ``"M ... Z"``; empty string when the
- *          two polylines don't overlap in X
- */
-export function buildFillPolygon(
-  top: readonly { x: number; y: number }[],
-  bottom: readonly { x: number; y: number }[],
-): string {
-  if (top.length === 0 || bottom.length === 0) return ''
-  const xMin = Math.max(top[0].x, bottom[0].x)
-  const xMax = Math.min(top[top.length - 1].x, bottom[bottom.length - 1].x)
-  if (xMin >= xMax) return ''
-  // Sample at every X position from EITHER polyline within
-  // [xMin, xMax], plus the endpoints. The union keeps the polygon
-  // tight against both top and bottom geometries.
-  const xSet = new Set<number>([xMin, xMax])
-  for (const p of top) if (p.x > xMin && p.x < xMax) xSet.add(p.x)
-  for (const p of bottom) if (p.x > xMin && p.x < xMax) xSet.add(p.x)
-  const xs = Array.from(xSet).sort((a, b) => a - b)
-  const interp = (poly: readonly { x: number; y: number }[], x: number): number => {
-    // Caller guarantees x is within the polyline's range here.
-    for (let i = 0; i < poly.length - 1; i++) {
-      const a = poly[i]
-      const b = poly[i + 1]
-      if (x >= a.x && x <= b.x) {
-        const t = b.x === a.x ? 0 : (x - a.x) / (b.x - a.x)
-        return a.y + t * (b.y - a.y)
-      }
+/** Linear interpolation of a polyline's ``y`` at horizontal position
+ * ``x``. Returns ``null`` when ``x`` is outside the polyline's range
+ * — letting callers distinguish "the polyline isn't defined here"
+ * (e.g. a pinched-out formation) from "the polyline is defined and
+ * y is the value below". Polyline must be sorted ascending by ``x``. */
+function _interpolatePolylineY(
+  poly: readonly { x: number; y: number }[],
+  x: number,
+): number | null {
+  if (poly.length === 0) return null
+  if (x < poly[0].x || x > poly[poly.length - 1].x) return null
+  for (let i = 0; i < poly.length - 1; i++) {
+    const a = poly[i]
+    const b = poly[i + 1]
+    if (x >= a.x && x <= b.x) {
+      const t = b.x === a.x ? 0 : (x - a.x) / (b.x - a.x)
+      return a.y + t * (b.y - a.y)
     }
-    return poly[poly.length - 1].y
   }
-  let path = ''
-  // Forward along the top.
-  for (let i = 0; i < xs.length; i++) {
-    const x = xs[i]
-    const y = interp(top, x)
-    path += `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)} `
-  }
-  // Reverse along the bottom — closes the polygon.
-  for (let i = xs.length - 1; i >= 0; i--) {
-    const x = xs[i]
-    const y = interp(bottom, x)
-    path += `L ${x.toFixed(2)} ${y.toFixed(2)} `
-  }
-  path += 'Z'
-  return path
+  return poly[poly.length - 1].y
 }
 
-/** Build the fill polygon for the oldest formation — bottom edge is
- * the section's plot floor (``plotBottom``). Visualises "below this
- * surface, formation continues as far as the section reaches". */
-export function buildFloorFillPolygon(
+/** Build a closed fill polygon for one geological band on the
+ * section.
+ *
+ * The band's TOP is the formation's own slice polyline (younger end).
+ * The band's BOTTOM at each X comes from the FIRST older formation
+ * (walking ``olders`` in age order, immediate-next first) whose
+ * polyline is defined at that X. When no older formation has data at
+ * X — either the formation is the oldest in the column, OR every
+ * older has pinched out there — the band drops to ``floor`` (a
+ * horizontal cap; pass the deepest investigation's screen-Y to
+ * stop the fill at the section's known-data depth).
+ *
+ * Why the multi-older fallback matters: a formation can pinch out
+ * laterally (no contacts in some boreholes). When KoAa disappears
+ * in the middle of a section, Quartair must sit directly on KoRo
+ * there — the band needs to skip the absent intermediate and reach
+ * the next-existing older. Without this, the Quartair band would
+ * truncate at KoAa's eastern edge and leave a visual gap where
+ * Quartair geologically continues onto KoRo.
+ *
+ * @param top    polyline of (x, y) screen coords for the formation's
+ *               own top, sorted ascending by ``x``
+ * @param olders polylines of every formation older than this one, in
+ *               age order (immediate-next-older first). May be empty
+ *               (oldest formation in the column).
+ * @param floor  fallback screen-Y when no older formation has data
+ *               at an X position — typically the deepest investigation
+ *               bottom in the section. Constant across X.
+ * @returns an SVG path string ``"M ... Z"``; empty string when the
+ *          top polyline is empty.
+ */
+export function buildFillBand(
   top: readonly { x: number; y: number }[],
-  plotBottom: number,
+  olders: readonly (readonly { x: number; y: number }[])[],
+  floor: number,
 ): string {
   if (top.length === 0) return ''
-  const xMin = top[0].x
-  const xMax = top[top.length - 1].x
-  let path = ''
-  for (let i = 0; i < top.length; i++) {
-    const p = top[i]
-    path += `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)} `
+  const topMinX = top[0].x
+  const topMaxX = top[top.length - 1].x
+  // Sample at every X position from the top polyline AND every X
+  // position from any older polyline that falls inside the top's
+  // domain (so pinch-out edges land on real vertices, not
+  // interpolated approximations).
+  const xSet = new Set<number>([topMinX, topMaxX])
+  for (const p of top) xSet.add(p.x)
+  for (const older of olders) {
+    for (const p of older) {
+      if (p.x >= topMinX && p.x <= topMaxX) xSet.add(p.x)
+    }
   }
-  path += `L ${xMax.toFixed(2)} ${plotBottom.toFixed(2)} `
-  path += `L ${xMin.toFixed(2)} ${plotBottom.toFixed(2)} Z`
+  const xs = Array.from(xSet).sort((a, b) => a - b)
+  let path = ''
+  // Top edge — forward along the formation's own slice.
+  for (let i = 0; i < xs.length; i++) {
+    const x = xs[i]
+    const y = _interpolatePolylineY(top, x)
+    if (y === null) continue
+    path += `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)} `
+  }
+  // Bottom edge — reversed. At each X, the bottom is the first
+  // older formation that's defined there, or the floor.
+  for (let i = xs.length - 1; i >= 0; i--) {
+    const x = xs[i]
+    let bottomY: number | null = null
+    for (const older of olders) {
+      const y = _interpolatePolylineY(older, x)
+      if (y !== null) {
+        bottomY = y
+        break
+      }
+    }
+    if (bottomY === null) bottomY = floor
+    path += `L ${x.toFixed(2)} ${bottomY.toFixed(2)} `
+  }
+  path += 'Z'
   return path
 }
 
