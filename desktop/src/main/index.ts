@@ -305,6 +305,27 @@ function buildMenu(win: BrowserWindow): void {
       ]
     },
     {
+      label: 'Edit',
+      submenu: [
+        {
+          label: 'Undo',
+          // ``registerAccelerator: false`` shows the shortcut in the
+          // menu label but lets the renderer's document keydown handler
+          // own the actual keystroke — that handler already gates on
+          // ``isTypingTarget`` so text inputs keep their native undo.
+          accelerator: 'CmdOrCtrl+Z',
+          registerAccelerator: false,
+          click: () => win.webContents.send('menu:edit-undo'),
+        },
+        {
+          label: 'Redo',
+          accelerator: 'CmdOrCtrl+Shift+Z',
+          registerAccelerator: false,
+          click: () => win.webContents.send('menu:edit-redo'),
+        },
+      ]
+    },
+    {
       label: 'View',
       submenu: [
         { role: 'reload' },
