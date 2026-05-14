@@ -22,6 +22,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.recompute_formation_surface import (
+    RecomputeFormationSurface,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -90,6 +93,16 @@ class UpdateFormationContactsBatch(GroundModelLogger):
                 )
                 return None
 
+        # Capture pre-update (formation_id) per contact so the
+        # post-batch recompute can target the OLD formation when the
+        # batch flipped formation_id on a row (rare today; the
+        # frontend's batch path doesn't change formation, but
+        # defensive against future callers).
+        affected: set[tuple] = set()  # (model_id, formation_id) tuples
+        for cid in contact_ids:
+            contact = by_id[cid]
+            affected.add((contact.model_id, contact.formation_id))
+
         # Scope clean — apply every patch via setattr. The session
         # carries the loaded rows already so no per-entry round trip.
         for cid, patch in entries:
@@ -98,9 +111,23 @@ class UpdateFormationContactsBatch(GroundModelLogger):
                 setattr(contact, key, value)
 
         await self._session.flush()
+
+        # Add the post-update (model, formation) pairs to the
+        # affected set so a formation_id flip recomputes BOTH old +
+        # new surfaces.
+        for contact in by_id.values():
+            affected.add((contact.model_id, contact.formation_id))
+
+        # Single recompute pass per unique pair — N=100 contacts in
+        # one formation = ONE Delaunay call, not 100.
+        await RecomputeFormationSurface(self._session).execute_many(affected)
+
         await self._session.commit()
         for contact in by_id.values():
             await self._session.refresh(contact)
 
-        self.success(f"Batch contact update committed: model={model_id} count={len(entries)}")
+        self.success(
+            f"Batch contact update committed: model={model_id} "
+            f"count={len(entries)} surfaces_touched={len(affected)}"
+        )
         return [by_id[cid] for cid in contact_ids]
