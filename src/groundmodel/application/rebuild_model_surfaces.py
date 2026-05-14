@@ -39,6 +39,9 @@ from groundmodel.domain.services.formation_age_order import infer_age_order
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
+from groundmodel.infrastructure.db.models.formation_surface_orm import (
+    FormationSurfaceOrm,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -87,7 +90,7 @@ class RebuildModelSurfaces(GroundModelLogger):
             cache write fired).
         """
         self.info(f"rebuild surfaces: model={model_id}")
-        formation_ids = list(
+        contact_fids = set(
             (
                 await self._session.execute(
                     select(FormationContactOrm.formation_id)
@@ -98,6 +101,24 @@ class RebuildModelSurfaces(GroundModelLogger):
             .scalars()
             .all()
         )
+        # Orphan stale surfaces: a formation whose last contact was
+        # deleted leaves the surface row behind with is_stale=True from
+        # the delete's mark_surfaces_stale call. The contact-only query
+        # above misses it, so the rebuild would never clear the flag and
+        # the "N unbuilt edits" badge sticks forever. Pick those up so
+        # one Build click reaches a clean state.
+        stale_orphan_fids = set(
+            (
+                await self._session.execute(
+                    select(FormationSurfaceOrm.formation_id)
+                    .where(FormationSurfaceOrm.model_id == model_id)
+                    .where(FormationSurfaceOrm.is_stale.is_(True))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        formation_ids = list(contact_fids | stale_orphan_fids)
 
         if not formation_ids:
             self.info(f"rebuild surfaces: model={model_id} no contacts → no-op")
