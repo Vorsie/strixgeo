@@ -7,12 +7,24 @@ inside ``db/conftest.py``) so both the database-direct tests under
 truncate-between-tests behaviour. Promoted to this level on the
 second copy (debt #22) per the project's "extract on second use"
 rule.
+
+Safety guard
+------------
+The ``db_session`` fixture TRUNCATEs every project-scoped table at
+the start AND end of every test. Pointing it at the dev DB
+(``groundmodel``) destroys whatever the user has imported.
+``pytest_collection_modifyitems`` below refuses to collect any
+integration test unless ``DATABASE_URL`` points at a DB whose name
+ends in ``_integration`` or ``_test``. To run the integration suite,
+either set ``DATABASE_URL`` in the shell or use
+``scripts/run-integration-tests.ps1`` which sets it for you.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -21,6 +33,35 @@ from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.shared.config import settings
+
+# DB-name suffixes that mark a throwaway test database. The guard below
+# rejects collection if settings.database_url ends in anything else, so
+# a stray ``uv run pytest tests/integration`` against the dev DB never
+# silently TRUNCATEs the user's work.
+_ALLOWED_DB_SUFFIXES = ("_integration", "_test")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Refuse to collect integration tests against a non-test DB.
+
+    Raised here (not in a fixture) so the failure is visible BEFORE
+    any test body runs — fixture-level guards trip only once the
+    truncate has already executed on the first test.
+    """
+    url = settings.database_url
+    # Strip the optional ``?param=value`` suffix some env strings carry.
+    db_name = url.rsplit("/", 1)[-1].split("?", 1)[0]
+    if not db_name.endswith(_ALLOWED_DB_SUFFIXES):
+        pytest.exit(
+            "Integration tests refuse to run against DB "
+            f"{db_name!r} — it does not end in {_ALLOWED_DB_SUFFIXES}. "
+            "Set DATABASE_URL to a throwaway test database before "
+            "running integration tests (see "
+            "scripts/run-integration-tests.ps1 + CLAUDE.md "
+            "'Development Workflow').",
+            returncode=2,
+        )
+
 
 # Tables that get wiped before AND after every test.
 #
