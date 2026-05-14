@@ -1,18 +1,27 @@
 """Alembic migration environment — online (asyncio) and offline migration modes."""
+
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from groundmodel.infrastructure.db.base import Base
-
 # Import all ORM models so their tables are registered on Base.metadata before autogenerate.
 import groundmodel.infrastructure.db.models  # noqa: F401
+from groundmodel.infrastructure.db.base import Base
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Honour DATABASE_URL when present — matches groundmodel.shared.config.Settings
+# precedence so `DATABASE_URL=... alembic upgrade head` migrates the DB the
+# rest of the stack is talking to (notably the integration-test DB, which has
+# a different name from the dev DB on the same Postgres instance).
+_url_override = os.environ.get("DATABASE_URL")
+if _url_override:
+    config.set_main_option("sqlalchemy.url", _url_override)
 
 target_metadata = Base.metadata
 
