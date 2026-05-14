@@ -226,6 +226,36 @@ GET    /projects/{pid}/geology/models/{mid}/surfaces
                                                     .strix paints the slice
                                                     on first render without
                                                     a recompute.
+POST   /projects/{pid}/geology/models/{mid}/surfaces/rebuild
+                                                    Manual escape hatch —
+                                                    force-recompute every
+                                                    formation's TIN cache
+                                                    in this model. Empty
+                                                    body. Auto-recompute
+                                                    hooks keep the cache in
+                                                    sync on the happy path;
+                                                    click this when the
+                                                    cache may have drifted
+                                                    (anchor elevation
+                                                    edited without a
+                                                    contact mutation,
+                                                    bundle restored,
+                                                    suspected stale
+                                                    checksum). Idempotent
+                                                    — every formation runs
+                                                    through the same
+                                                    checksum short-circuit
+                                                    as the auto-recompute
+                                                    path. Response:
+                                                    ``{formations_considered,
+                                                    formations_rebuilt}``
+                                                    — the second is the
+                                                    subset whose cache
+                                                    write actually fired.
+                                                    On a clean model both
+                                                    are 0. 404 when the
+                                                    model isn't in this
+                                                    project.
 
 POST   /projects/{pid}/sections             Create a cross-section (line
                                             endpoints + projection buffer
