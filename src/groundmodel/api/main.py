@@ -13,6 +13,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from groundmodel.api.routers import (
     borehole,
+    codelists,
     cpt,
     cross_section,
     dem,
@@ -186,3 +187,4 @@ app.include_router(geology.router)
 app.include_router(cross_section.router)
 app.include_router(investigation_review.router)
 app.include_router(dem.router)
+app.include_router(codelists.router)
