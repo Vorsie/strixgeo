@@ -339,8 +339,10 @@ Strix/
 │   │   │                          grain_size_parse_result.py
 │   │   ├── exporters/         base_exporter.py, plaxis_exporter.py, ...
 │   │   ├── gis/               postgis_service.py, spatial_query.py
-│   │   ├── codelists/         data/ — authoritative DOV CSVs (hoofdnaam,
-│   │   │                              kleur, consistentie) + working-group XLSX
+│   │   ├── codelists/         g3dv3_catalog.py — Flanders stratigraphy
+│   │   │                      lookup; data/ has the DOV CSVs (hoofdnaam,
+│   │   │                      kleur, consistentie), G3Dv3 xlsx sources +
+│   │   │                      generated g3dv3_units.json + g3dv3_aliases.json
 │   │   └── rust/              groundmodel_core/ (Phase 4)
 │   ├── api/
 │   │   ├── routers/           cpt.py, borehole.py, jobs.py
@@ -923,4 +925,4 @@ See [docs/debt.md](docs/debt.md) for the full backlog. Format conventions stay h
 * Numbers stay stable through a debt-fixing campaign (do not renumber after each fix); explicit cleanup passes compact them (last done 2026-05-13).
 * Each open item carries three fields: **What** / **Why deferred** / **When to revisit**. The trigger condition ("when 5000 samples per borehole becomes typical", "before any non-solo user", "day-1 of debt #10") is the most important field — without it, debt items live forever.
 
-Currently open: #1 (WFS base class), #3 (parameter-slug), #5 (telemetry), #7 (permkey backfill), #8 (elevation rollback), #10 (license keys), #11 (installer + signing), #12 (tamper hardening), #13 (marketing site + name), #25 (geotech units in section editor), #33 (bundled Postgres), #34 (Plaxis target version), #40 (auth on by-id endpoints), #44 (resolved — kept as design rationale anchor), #45 (Ctrl+Z undo), #46 (Sidebar UI overhaul), #47 (App smoke test + future App.tsx hook split), #48 (bundle size caps), #49 (crossings suppress-when-stale), #50 (NCS / BRO regional stratigraphy catalog), #51 (crossings banner → focus offending contacts), #52 (section view_state PATCH 422 regression).
+Currently open: #1 (WFS base class), #3 (parameter-slug), #5 (telemetry), #7 (permkey backfill), #8 (elevation rollback), #10 (license keys), #11 (installer + signing), #12 (tamper hardening), #13 (marketing site + name), #25 (geotech units in section editor), #33 (bundled Postgres), #34 (Plaxis target version), #40 (auth on by-id endpoints), #44 (resolved — kept as design rationale anchor), #45 (Ctrl+Z undo), #46 (Sidebar UI overhaul), #47 (App smoke test + future App.tsx hook split), #48 (bundle size caps), #49 (crossings suppress-when-stale), #50 (NL / multilingual extension of the regional stratigraphy catalog — Flanders/G3Dv3 covered), #51 (crossings banner → focus offending contacts), #52 (section view_state PATCH 422 regression), #53 (Virtuele Boring API for CPT-only projects).
