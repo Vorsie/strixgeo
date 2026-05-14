@@ -12,7 +12,25 @@ import type {
   BoreholeDetailResponse,
   ObservationResponse,
 } from '../../api/client'
-import { STRAT_OBS_TYPES_FOR_SNAP, collectSnapDepths } from './utils'
+import type { PlacedColumn } from './utils'
+import { STRAT_OBS_TYPES_FOR_SNAP, collectSnapDepths, columnsBetween } from './utils'
+
+function placedAt(x: number, id: string): PlacedColumn {
+  // Minimal PlacedColumn fixture — only ``trueX`` and ``proj.item.id``
+  // matter for ``columnsBetween`` selection + ordering.
+  return {
+    kind: 'cpt',
+    trueX: x,
+    nudgedX: x,
+    width: 20,
+    displaced: false,
+    proj: {
+      item: { id } as any,
+      along: x,
+      offset: 0,
+    } as any,
+  } as PlacedColumn
+}
 
 function makeObs(
   observation_type: string,
@@ -143,5 +161,48 @@ describe('collectSnapDepths', () => {
     ])
     // Only the formal_stratigraphy [2, 4] should contribute.
     expect(collectSnapDepths(detail).sort((a, b) => a - b)).toEqual([2, 4])
+  })
+})
+
+describe('columnsBetween — shift+drag paint-through gesture', () => {
+  it('returns intermediates + target when dragging left-to-right', () => {
+    const cols = [
+      placedAt(0, 'A'),
+      placedAt(20, 'B'),
+      placedAt(40, 'C'),
+      placedAt(60, 'D'),
+      placedAt(80, 'E'),
+      placedAt(100, 'F'),
+    ]
+    // Drag from A (0) to F (100) — B, C, D, E in between, F at the
+    // drop. Source A excluded (it already carries the contact).
+    const result = columnsBetween(0, 100, cols)
+    expect(result.map(c => c.proj.item.id)).toEqual(['B', 'C', 'D', 'E', 'F'])
+  })
+
+  it('returns intermediates + target when dragging right-to-left', () => {
+    const cols = [
+      placedAt(0, 'A'),
+      placedAt(20, 'B'),
+      placedAt(40, 'C'),
+      placedAt(60, 'D'),
+    ]
+    // Drag from D (60) leftward to A (0) — order follows source→target.
+    const result = columnsBetween(60, 0, cols)
+    expect(result.map(c => c.proj.item.id)).toEqual(['C', 'B', 'A'])
+  })
+
+  it('returns only the target when no columns sit between source and target', () => {
+    const cols = [placedAt(0, 'A'), placedAt(20, 'B'), placedAt(80, 'F')]
+    // A → B adjacent: nothing between them; B is the drop and is included.
+    expect(columnsBetween(0, 20, cols).map(c => c.proj.item.id)).toEqual(['B'])
+  })
+
+  it('excludes the source even when float drift would put it inside the band', () => {
+    // sourceX comes from drag-start cached position; a column whose
+    // trueX equals sourceX is the source itself. EPS guards against
+    // float drift re-including it.
+    const cols = [placedAt(0.00001, 'A'), placedAt(50, 'B'), placedAt(100, 'F')]
+    expect(columnsBetween(0, 100, cols).map(c => c.proj.item.id)).toEqual(['B', 'F'])
   })
 })
