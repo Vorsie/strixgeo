@@ -277,6 +277,12 @@ export interface AutoPopulateFromStratigraphyResponse {
   skipped_no_stratigraphy: number
 }
 
+export interface DeduplicateContactsResponse {
+  inspected_groups: number
+  duplicates_removed: number
+  removed_contact_ids: string[]
+}
+
 // Gap validator output — the editor surfaces these as soft warnings
 // per borehole (missing surface contact, duplicate depth, contact
 // below test depth, etc.). Empty issues = clean stratigraphy.
@@ -1041,6 +1047,21 @@ export const api = {
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
         { borehole_ids: boreholeIds },
+      ),
+
+    // One-shot cleanup for legacy duplicates (pre-uniqueness rule).
+    // Walks every (model, anchor, formation) group with N>1 contacts
+    // and prunes all but the highest-priority survivor (manual_pick
+    // beats auto-derived; provenance beats no-provenance; most
+    // recent breaks ties). Idempotent — running on a clean model
+    // returns 0 removed.
+    dedupeContacts: (
+      projectId: string,
+      modelId: string,
+    ): Promise<DeduplicateContactsResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/dedupe`,
+        {},
       ),
 
     // --- Gap validator (per borehole) -----------------------------
