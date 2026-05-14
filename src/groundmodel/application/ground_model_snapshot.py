@@ -70,14 +70,53 @@ class LayerGeometry:
 
 
 @dataclass(frozen=True)
+class FormationDisplay:
+    """Display metadata for one geological formation referenced in
+    the snapshot's layer rows.
+
+    Carried alongside the layers so exporters don't need a second
+    lookup against the ``geological_formation`` table to know each
+    formation's stratigraphic order or display colour. Only
+    formations that have at least one ``LayerGeometry`` row in
+    ``layers`` are included — exporters never emit "empty"
+    materials.
+
+    Attributes
+    ----------
+    name : str
+        Display name (e.g. ``"Boom Klei"``). Matches the
+        ``formation_name`` on every ``LayerGeometry`` row that
+        belongs to this formation.
+    code : str | None
+        Short stable code (e.g. ``"BmK"``). Same value as on the
+        layer rows. Optional in v1; downstream tools that key off
+        codes (Plaxis material library) fall back to ``name``.
+    display_order : int
+        Stratigraphic-age axis. Lower = older (deeper in the
+        column). Exporters that emit a globally ordered layer
+        stack (Plaxis 3D's borehole+soillayer model) sort
+        DESCENDING by this so the youngest formation lands as
+        Plaxis layer 0 (topmost in the soil column).
+    color : str
+        Hex colour string (e.g. ``"#ff8800"``). DXF / map exporters
+        map this to their nearest palette entry; Plaxis ignores it.
+    """
+
+    name: str
+    code: str | None
+    display_order: int
+    color: str
+
+
+@dataclass(frozen=True)
 class GroundModelSnapshot:
     """Materialised geological-model + investigation geometry for one project.
 
     Consumed by every concrete exporter via the
     ``BaseExporter.export`` ABC method. The application layer
     produces the snapshot in one place
-    (``application/build_ground_model_snapshot.py``, future) so
-    each exporter sees a consistent shape.
+    (``application/build_ground_model_snapshot.py``) so each
+    exporter sees a consistent shape.
 
     Attributes
     ----------
@@ -95,9 +134,15 @@ class GroundModelSnapshot:
         Per-investigation, per-formation layer rows. Order is
         not significant — exporters that need sorting (top-down,
         along-section) sort locally.
+    formations : list[FormationDisplay]
+        Display metadata for every formation present in
+        ``layers``. Carries the stratigraphic order Plaxis 3D and
+        other globally-ordered exporters need. Empty when no
+        layers are present.
     """
 
     project_id: UUID
     project_name: str
     crs_epsg: int
     layers: list[LayerGeometry] = field(default_factory=list)
+    formations: list[FormationDisplay] = field(default_factory=list)
