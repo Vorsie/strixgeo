@@ -388,6 +388,33 @@ PATCH  /projects/{pid}/view-state           Shallow-merge a patch dict
                                             sets, …). ``null`` for a
                                             key removes it. Returns
                                             the full ProjectResponse.
+
+GET    /dov/virtuele-boring/lagenmodellen   List DOV's available
+                                            Virtuele Boring layered
+                                            models (12 today: g3dv3_F,
+                                            g3dv3_L, hcovv2_H/S/B,
+                                            OMAv1.1, …). Each entry:
+                                            ``{code, beschrijving,
+                                            resoluties}``. Live
+                                            passthrough — desktop
+                                            client caches per session.
+GET    /projects/{pid}/virtuele-boring/predictions?models=A,B
+                                            Per-investigation overlay
+                                            payload: for each CPT +
+                                            borehole in EPSG:31370,
+                                            fetches one ``doorprik``
+                                            call per requested model
+                                            (max 12). Returns
+                                            ``{models, predictions[],
+                                            skipped_count}``. Each
+                                            prediction carries
+                                            ``predictions_by_model``
+                                            keyed by the requested
+                                            model codes (missing key
+                                            = per-call failure for
+                                            that pair, surfaced in
+                                            server log). Informative-
+                                            only — no rows persisted.
 ```
 
 409 Conflict on duplicate import (same GEF project_id + test_id within the same app project) — response body includes `cpt_id` of the existing record so the client can auto-load it.
