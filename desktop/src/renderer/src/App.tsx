@@ -21,6 +21,7 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalModelResponse,
+  VirtueleBoringInvestigationPrediction,
 } from './api/client'
 import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
@@ -37,6 +38,11 @@ import {
   readDemOverlay,
   type DemOverlayState,
 } from './utils/demSources'
+import {
+  VIRTUELE_BORING_VIEW_STATE_KEY,
+  activeOverlayModels,
+  readVirtueleBoringOverlay,
+} from './utils/virtueleBoringOverlay'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
@@ -2950,6 +2956,80 @@ export default function App() {
     [applyViewStatePatch],
   )
 
+  // ---------------------------------------------------------------------------
+  // DOV Virtuele Boring overlay state
+  // ---------------------------------------------------------------------------
+  //
+  // Slot pair (modelA / modelB) lives in ``project.view_state.virtuele_boring``
+  // and round-trips via the .gmproj bundle. Per-investigation
+  // predictions are NOT persisted (they're a derived view; would
+  // bloat the file with throwaway data); we refetch when either the
+  // active project or the active models change. Both ghost columns
+  // on the section view AND the InterpretationPane list consume
+  // ``virtueleBoringPredictions`` so one fetch feeds both surfaces.
+  const virtueleBoringOverlay = useMemo(
+    () => readVirtueleBoringOverlay(project?.view_state),
+    [project?.view_state],
+  )
+  const virtueleBoringActiveModels = useMemo(
+    () => activeOverlayModels(virtueleBoringOverlay),
+    [virtueleBoringOverlay],
+  )
+  const [virtueleBoringPredictions, setVirtueleBoringPredictions] = useState<
+    VirtueleBoringInvestigationPrediction[]
+  >([])
+  const [virtueleBoringLoading, setVirtueleBoringLoading] = useState(false)
+  const [virtueleBoringSkippedCount, setVirtueleBoringSkippedCount] = useState(0)
+
+  useEffect(() => {
+    // No project / no active models → keep the predictions empty so
+    // the section view's ghost column overlay no-ops.
+    const projectId = project?.id
+    if (!projectId || virtueleBoringActiveModels.length === 0) {
+      setVirtueleBoringPredictions([])
+      setVirtueleBoringSkippedCount(0)
+      return
+    }
+    let cancelled = false
+    setVirtueleBoringLoading(true)
+    void (async () => {
+      try {
+        const result = await api.virtueleBoring.predictions(
+          projectId,
+          virtueleBoringActiveModels,
+        )
+        if (cancelled) return
+        setVirtueleBoringPredictions(result.predictions)
+        setVirtueleBoringSkippedCount(result.skipped_count)
+      } catch (err) {
+        if (cancelled) return
+        // A failure here demotes the overlay to "off" visually — the
+        // user keeps the rest of the app working. We don't toast on
+        // every transient DOV blip; the section view + pane both
+        // render their own "no predictions yet" copy.
+        setVirtueleBoringPredictions([])
+        setVirtueleBoringSkippedCount(0)
+        // eslint-disable-next-line no-console
+        console.warn('[ui WARN App] virtuele boring predictions fetch failed', err)
+      } finally {
+        if (!cancelled) setVirtueleBoringLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [project?.id, virtueleBoringActiveModels])
+
+  const handleChangeVirtueleBoringModels = useCallback(
+    async (next: { modelA: string | null; modelB: string | null }) => {
+      const ok = await applyViewStatePatch({ [VIRTUELE_BORING_VIEW_STATE_KEY]: next })
+      if (!ok) {
+        toast('error', 'Could not save the virtuele-boring overlay setting.')
+      }
+    },
+    [applyViewStatePatch],
+  )
+
   // Resolve the currently-selected section from id + list. Lives here
   // (above the early-return ladder) so the hook count stays stable
   // across renders — same Rules-of-Hooks constraint that put the DEM
@@ -3109,6 +3189,12 @@ export default function App() {
             activeGeologicalModel?.excluded_borehole_ids ?? []
           }
           onToggleBoreholeInModel={handleToggleBoreholeInModel}
+          virtueleBoringModelA={virtueleBoringOverlay.modelA}
+          virtueleBoringModelB={virtueleBoringOverlay.modelB}
+          virtueleBoringPredictions={virtueleBoringPredictions}
+          virtueleBoringLoading={virtueleBoringLoading}
+          virtueleBoringSkippedCount={virtueleBoringSkippedCount}
+          onChangeVirtueleBoringModels={handleChangeVirtueleBoringModels}
         />
 
         <main className="flex flex-col flex-1 overflow-hidden">
@@ -3163,6 +3249,8 @@ export default function App() {
                         )
                     : undefined
                 }
+                virtueleBoringActiveModels={virtueleBoringActiveModels}
+                virtueleBoringPredictions={virtueleBoringPredictions}
               />
             ) : view === 'map' || !hasSelection ? (
               <MapView
