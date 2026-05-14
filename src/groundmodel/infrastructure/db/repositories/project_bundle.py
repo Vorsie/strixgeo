@@ -51,6 +51,9 @@ from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.formation_surface_orm import (
+    FormationSurfaceOrm,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -275,7 +278,10 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
     models_stmt = (
         select(GeologicalModelOrm)
         .where(GeologicalModelOrm.app_project_id == project.id)
-        .options(selectinload(GeologicalModelOrm.contacts))
+        .options(
+            selectinload(GeologicalModelOrm.contacts),
+            selectinload(GeologicalModelOrm.surfaces),
+        )
     )
     sections_stmt = select(CrossSectionOrm).where(CrossSectionOrm.app_project_id == project.id)
     reviews_stmt = select(InvestigationReviewOrm).where(
@@ -313,14 +319,21 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
 
 
 def _geological_model_to_dict(model: GeologicalModelOrm) -> dict[str, Any]:
-    """Serialise a geological model with its formation contacts nested.
+    """Serialise a geological model with its formation contacts +
+    cached TIN surfaces nested.
 
     Mirrors the rest of the bundle's nesting convention — child rows
     live under their parent (CPT.series, borehole.observations[]) — so
     restore is a single-level walk per top-level array.
+
+    The cached surfaces ride along so opening a .strix on a fresh DB
+    doesn't pay the recompute cost up front. The next contact mutation
+    refreshes the cache anyway, but for a freshly-opened project the
+    section view's slice query lands on already-computed geometry.
     """
     payload = _column_to_json(model, _SKIP_COLUMNS)
     payload["contacts"] = [_column_to_json(c, _SKIP_COLUMNS | {"model_id"}) for c in model.contacts]
+    payload["surfaces"] = [_column_to_json(s, _SKIP_COLUMNS | {"model_id"}) for s in model.surfaces]
     return payload
 
 
@@ -675,6 +688,25 @@ async def restore_project_bundle(
                 FormationContactOrm(**_apply_json_to_kwargs(FormationContactOrm, c))
             )
         model.contacts = valid_contacts
+        # Cached TIN surfaces ride along under each model in v3+
+        # bundles. Older v3 saves (pre-surface-cache landing)
+        # have no ``surfaces`` key — default to empty list, which
+        # the next contact mutation refreshes via the recompute
+        # hook. Skip surfaces whose formation_id isn't in the
+        # restored set (mirror the orphan-contact tolerance).
+        surfaces_payload = m_payload.get("surfaces") or []
+        valid_surfaces: list[FormationSurfaceOrm] = []
+        for s in surfaces_payload:
+            fid_raw = s.get("formation_id")
+            if fid_raw is None:
+                continue
+            fid = UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw
+            if fid not in valid_formation_ids:
+                continue
+            valid_surfaces.append(
+                FormationSurfaceOrm(**_apply_json_to_kwargs(FormationSurfaceOrm, s))
+            )
+        model.surfaces = valid_surfaces
         session.add(model)
         new_models += 1
         new_contacts += len(valid_contacts)
