@@ -2474,6 +2474,8 @@ export default function App() {
       projection_buffer_m?: number
       vertical_exaggeration?: number
       view_state?: Record<string, unknown>
+      excluded_cpt_ids?: string[]
+      excluded_borehole_ids?: string[]
     }) => {
       if (!project || !selectedSectionId) return
       try {
