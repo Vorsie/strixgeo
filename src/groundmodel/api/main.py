@@ -21,6 +21,7 @@ from groundmodel.api.routers import (
     investigation_review,
     jobs,
     project,
+    virtuele_boring,
 )
 from groundmodel.infrastructure.db.session import engine
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -188,3 +189,5 @@ app.include_router(cross_section.router)
 app.include_router(investigation_review.router)
 app.include_router(dem.router)
 app.include_router(codelists.router)
+app.include_router(virtuele_boring.catalog_router)
+app.include_router(virtuele_boring.project_router)
