@@ -836,6 +836,22 @@ guarantees a clean round-trip. The PlaxisExporter is a separate
 effort from the GEOLib-backed exporters; targets the same
 geometry contract.
 
+**Plaxis 3D exporter — what it emits (shipped 2026-05-14).** A
+self-contained `.py` script that connects to a running Plaxis 3D
+via its Remote Scripting Server (`plxscripting.easy.new_server`),
+clears the project, creates one Mohr-Coulomb-placeholder `soilmat`
+per formation (Identification only, parameters blank — Phase 5
+fills them), creates one global `soillayer` per formation in
+stratigraphic order (display_order DESC → Plaxis layer 0 =
+topmost = youngest), creates one `borehole` per investigation
+with a known surface elevation, and calls `g_i.setsoillayerlevel`
+per (borehole, layer) with the contact's absolute z. Formations
+absent at a borehole emit a zero-thickness layer (top z inherits
+the next-deeper present formation's top z). Endpoint:
+`GET /projects/{pid}/geology/models/{mid}/export/plaxis3d`.
+Plaxis 2D per-section exporter is a Phase 4 follow-on; same data
+shape with investigations projected onto the section line.
+
 ---
 
 ## API Endpoints
