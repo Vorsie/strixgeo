@@ -812,6 +812,48 @@ export interface G3Dv3CatalogResponse {
   units: G3Dv3UnitResponse[]
 }
 
+// ---------------------------------------------------------------------------
+// Virtuele Boring (DOV synthetic-borehole overlays) — informative-only
+// per-investigation predictions from DOV's 3D models. Two surfaces:
+//   * /dov/virtuele-boring/lagenmodellen — the model picker catalogue
+//   * /projects/{id}/virtuele-boring/predictions — per-investigation
+//     overlay payload (one ghost-column source per (investigation, model))
+// See CLAUDE.md "Known Architectural Debt" #10 for the design rationale.
+// ---------------------------------------------------------------------------
+
+export interface VirtueleBoringLagenmodelEntry {
+  code: string
+  beschrijving: string
+  resoluties: number[]
+}
+
+export interface VirtueleBoringLayer {
+  code: string
+  name: string
+  beschrijving: string
+  top_m_taw: number
+  base_m_taw: number
+  thickness_m: number
+  color_hex: string | null
+  ncs_link: string | null
+}
+
+export interface VirtueleBoringInvestigationPrediction {
+  investigation_kind: 'cpt' | 'borehole'
+  investigation_id: string
+  name: string
+  elevation_m_taw: number | null
+  /** Keyed by the model codes the caller requested. Missing keys mean
+   * the per-call fetch failed for that (investigation, model) pair. */
+  predictions_by_model: Record<string, VirtueleBoringLayer[]>
+}
+
+export interface VirtueleBoringPredictionsResponse {
+  models: string[]
+  predictions: VirtueleBoringInvestigationPrediction[]
+  skipped_count: number
+}
+
 export const api = {
   cpt: {
     list: (projectId?: string): Promise<CptListItem[]> =>
@@ -1327,5 +1369,21 @@ export const api = {
   // (BRO, multilingual labels) plug in here.
   codelists: {
     g3dv3: (): Promise<G3Dv3CatalogResponse> => get('/codelists/g3dv3'),
+  },
+
+  // Virtuele Boring — DOV synthetic-borehole overlays (informative
+  // only — no contacts are persisted). Two surfaces: the model
+  // picker catalogue and the per-project predictions sweep.
+  virtueleBoring: {
+    lagenmodellen: (): Promise<VirtueleBoringLagenmodelEntry[]> =>
+      get('/dov/virtuele-boring/lagenmodellen'),
+
+    predictions: (
+      projectId: string,
+      models: string[],
+    ): Promise<VirtueleBoringPredictionsResponse> => {
+      const q = new URLSearchParams({ models: models.join(',') })
+      return get(`/projects/${projectId}/virtuele-boring/predictions?${q.toString()}`)
+    },
   },
 }
