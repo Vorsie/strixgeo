@@ -102,6 +102,8 @@ interface Props {
     projection_buffer_m?: number
     vertical_exaggeration?: number
     view_state?: Record<string, unknown>
+    excluded_cpt_ids?: string[]
+    excluded_borehole_ids?: string[]
   }) => Promise<void>
   /** Close the section view — typically clears the parent's
    * selectedSectionId so the App's render branch flips back to the
@@ -728,6 +730,30 @@ export default function SectionPanel({
     dismiss: dismissContextMenu,
   } = useColumnContextMenu(visibleColumns, containerRef)
 
+  // Remove-from-section handler — appends the column's id to the
+  // section's excluded_{cpt,borehole}_ids list and PATCHes. The
+  // backend's section projection already filters by these arrays,
+  // so the column disappears on the next render. Reversible (the
+  // test stays in the project + on the map); per UX rules no
+  // confirmation dialog. Returns the next list shape locally to
+  // avoid a refetch round-trip — App's PATCH handler replaces the
+  // section state with the server's response anyway.
+  const handleRemoveFromSection = useCallback(
+    (kind: 'cpt' | 'borehole', id: string) => {
+      if (!onPatch) return
+      if (kind === 'cpt') {
+        const next = Array.from(new Set([...section.excluded_cpt_ids, id]))
+        void onPatch({ excluded_cpt_ids: next })
+      } else {
+        const next = Array.from(
+          new Set([...section.excluded_borehole_ids, id]),
+        )
+        void onPatch({ excluded_borehole_ids: next })
+      }
+    },
+    [onPatch, section.excluded_cpt_ids, section.excluded_borehole_ids],
+  )
+
   // Esc exits focus + dismisses any open context menu. Skip when the
   // user is typing into an input so we don't steal text-editing Esc.
   // Lives after the useColumnContextMenu call because the dep array
@@ -1284,6 +1310,12 @@ export default function SectionPanel({
                 id: contextMenu.id,
                 name: contextMenu.name,
               })
+            }
+            onRemoveFromSection={
+              onPatch
+                ? () =>
+                    handleRemoveFromSection(contextMenu.kind, contextMenu.id)
+                : undefined
             }
             onClose={dismissContextMenu}
           />
