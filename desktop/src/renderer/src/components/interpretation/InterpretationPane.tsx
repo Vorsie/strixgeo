@@ -801,6 +801,16 @@ export default function InterpretationPane({
             <span>
               {crossingIssues.length} surface crossing
               {crossingIssues.length === 1 ? '' : 's'} detected
+              {/* On-click build pivot: the validator runs against the
+                  cached TIN. With staleSurfaceCount > 0, the cache no
+                  longer reflects the current contacts — so the result
+                  is qualified. Click Build to refresh the validator. */}
+              {staleSurfaceCount && staleSurfaceCount > 0 ? (
+                <span className="font-normal italic">
+                  {' '}
+                  (as of last build — click Build to refresh)
+                </span>
+              ) : null}
             </span>
           </div>
           <ul className="mt-1 ml-5 list-disc space-y-0.5">
