@@ -175,3 +175,67 @@ export function writePaneVisibility(
     // mode failures. The in-memory state stays consistent.
   }
 }
+
+// ---------------------------------------------------------------------------
+// Per-pane model override — picks a single specific model for the
+// detail pane regardless of what the section pane has armed.
+//
+// State machine:
+//
+//   * Empty string in localStorage = "follow section" (default). The
+//     pane renders whatever the section pane's modelA + modelB show.
+//   * A specific model code = override active. The pane renders ONLY
+//     that one ghost column, ignoring the section's selection.
+//
+// Lets the engineer compare a CPT log against (say) hydrogeology
+// while the section pane is focused on formation tops. The detail
+// panes' DOV button is enabled when an effective model exists —
+// either the override OR at least one section slot.
+// ---------------------------------------------------------------------------
+
+function paneModelStorageKey(
+  projectId: string | null,
+  pane: VirtueleBoringPane,
+): string | null {
+  if (!projectId) return null
+  return `virtuele_boring_model.${projectId}.${pane}`
+}
+
+/**
+ * Read the active model override for a detail pane. Empty string
+ * (the default) means "follow section"; the caller treats that as
+ * ``null`` and uses the section's modelA / modelB instead.
+ */
+export function readPaneModelOverride(
+  projectId: string | null,
+  pane: VirtueleBoringPane,
+): string {
+  const key = paneModelStorageKey(projectId, pane)
+  if (!key || typeof window === 'undefined') return ''
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (typeof raw === 'string') return raw
+  } catch {
+    // Same fallback as the visibility reader.
+  }
+  return ''
+}
+
+/**
+ * Persist a pane's model override. Empty string clears the override
+ * (back to "follow section"). No-ops when project id is missing or
+ * localStorage isn't writable.
+ */
+export function writePaneModelOverride(
+  projectId: string | null,
+  pane: VirtueleBoringPane,
+  next: string,
+): void {
+  const key = paneModelStorageKey(projectId, pane)
+  if (!key || typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, next)
+  } catch {
+    // Silently ignore quota / private mode failures.
+  }
+}
