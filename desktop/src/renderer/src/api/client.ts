@@ -643,6 +643,19 @@ export class DuplicateCptError extends Error {
   }
 }
 
+/** Thrown when POST /contacts hits the (model, anchor, formation)
+ * uniqueness rule. Carries the existing contact id so callers can
+ * route to a "move existing" PATCH instead of surfacing an opaque
+ * error to the user. */
+export class DuplicateContactError extends Error {
+  existingContactId: string
+  constructor(existingContactId: string) {
+    super('A contact for this formation already exists on this investigation')
+    this.name = 'DuplicateContactError'
+    this.existingContactId = existingContactId
+  }
+}
+
 let _base = 'http://127.0.0.1:8765'
 
 export function setBaseUrl(url: string): void {
@@ -949,12 +962,38 @@ export const api = {
       )
     },
 
-    createContact: (
+    createContact: async (
       projectId: string,
       modelId: string,
       body: FormationContactCreatePayload,
-    ): Promise<FormationContactResponse> =>
-      post(`/projects/${projectId}/geology/models/${modelId}/contacts`, body),
+    ): Promise<FormationContactResponse> => {
+      // Inline-handled instead of routing through the generic ``post``
+      // helper because we need to surface the 409 ``existing_contact_id``
+      // as a typed DuplicateContactError so the caller can route to a
+      // "move existing" PATCH instead of an opaque toast.
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/contacts`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        if (
+          res.status === 409 &&
+          detail.detail?.code === 'duplicate_contact' &&
+          typeof detail.detail.existing_contact_id === 'string'
+        ) {
+          throw new DuplicateContactError(detail.detail.existing_contact_id)
+        }
+        throw new Error(
+          detail.detail?.message ?? detail.detail ?? `Create contact failed: ${res.status}`,
+        )
+      }
+      return res.json()
+    },
 
     updateContact: (
       projectId: string,
