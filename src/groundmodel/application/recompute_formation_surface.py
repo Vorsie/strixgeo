@@ -158,6 +158,19 @@ class RecomputeFormationSurface(GroundModelLogger):
         ).scalar_one_or_none()
 
         if existing is not None and existing.source_contact_checksum == new_checksum:
+            # Geometry unchanged — but the row may still be stale if a
+            # mutation flipped is_stale=True without a net change in
+            # contacts (e.g. PATCH that round-trips to the same depth).
+            # Clear the flag so the user's Build click does what they
+            # expect: "the model is now fresh."
+            if existing.is_stale:
+                existing.is_stale = False
+                await self._session.flush()
+                self.debug(
+                    f"recompute no-op (geometry) but cleared stale flag: "
+                    f"model={model_id} formation={formation_id}"
+                )
+                return True
             self.debug(
                 f"recompute no-op: model={model_id} formation={formation_id} checksum unchanged"
             )
@@ -171,6 +184,10 @@ class RecomputeFormationSurface(GroundModelLogger):
         # Upsert via Postgres ON CONFLICT on the (model, formation)
         # unique constraint — one round-trip whether the row exists
         # or not. PG-specific but we're already PG-only.
+        # ``is_stale=False`` on every successful upsert — this is the
+        # only path that clears the on-click-build staleness flag. The
+        # mutation handlers flip True; only RecomputeFormationSurface
+        # flips it back.
         stmt = pg_insert(FormationSurfaceOrm).values(
             id=uuid7() if existing is None else existing.id,
             model_id=model_id,
@@ -180,6 +197,7 @@ class RecomputeFormationSurface(GroundModelLogger):
             triangles=triangles_payload,
             source_contact_count=len(points),
             source_contact_checksum=new_checksum,
+            is_stale=False,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_formation_surface_model_formation",
@@ -189,6 +207,7 @@ class RecomputeFormationSurface(GroundModelLogger):
                 triangles=triangles_payload,
                 source_contact_count=len(points),
                 source_contact_checksum=new_checksum,
+                is_stale=False,
             ),
         )
         await self._session.execute(stmt)
