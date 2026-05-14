@@ -136,6 +136,13 @@ interface Props {
    * badge on the Build button. Undefined when the surface state
    * isn't wired (test harness). */
   staleSurfaceCount?: number
+  /** Click handler for a crossing banner item — when the user
+   * clicks a row in the amber crossings list, the App-level
+   * coordinator opens (or stays on) a section that contains one of
+   * the offending contact's anchor, then highlights every contact in
+   * the issue with a ring + pulse. Omitted in test-harness mounts
+   * → the banner stays read-only. */
+  onFocusContacts?: (contactIds: readonly string[]) => void
 }
 
 export default function InterpretationPane({
@@ -158,6 +165,7 @@ export default function InterpretationPane({
   activeModelId,
   crossingsRefreshSignal,
   staleSurfaceCount,
+  onFocusContacts,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -946,11 +954,31 @@ export default function InterpretationPane({
             </span>
           </div>
           <ul className="mt-1 ml-5 list-disc space-y-0.5">
-            {crossingIssues.map((issue, idx) => (
-              <li key={`${issue.formation_ids.join('-')}-${idx}`}>
-                {issue.detail}
-              </li>
-            ))}
+            {crossingIssues.map((issue, idx) => {
+              // Banner items become clickable once the validator
+              // names the offending contacts (debt #9). Without
+              // contact_ids the row stays inert — the issue text is
+              // still informative, just non-navigable.
+              const hasContacts = issue.contact_ids.length > 0
+              const canFocus = hasContacts && onFocusContacts !== undefined
+              return (
+                <li key={`${issue.formation_ids.join('-')}-${idx}`}>
+                  {canFocus ? (
+                    <button
+                      type="button"
+                      className="w-full cursor-pointer rounded px-1 py-0.5 text-left hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      onClick={() => onFocusContacts(issue.contact_ids)}
+                      title="Open the cross-section containing one of the offending contacts and highlight every pick involved."
+                      data-testid="crossings-banner-item"
+                    >
+                      {issue.detail}
+                    </button>
+                  ) : (
+                    issue.detail
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}
