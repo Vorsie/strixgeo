@@ -674,7 +674,7 @@ async def rebuild_model_surfaces(
     model_id: UUID,
     method: str = Query(
         "tin",
-        regex="^tin$",
+        pattern="^tin$",
         description=(
             "Surface interpolation method. v1.0 ships TIN only; the "
             "param scaffolds for kriging / RBF / GemPy in Phase 5+ "
