@@ -2957,8 +2957,8 @@ export default function App() {
               <SectionPanel
                 section={selectedSection}
                 zEpsg={project.default_vertical_epsg}
-                cpts={cpts}
-                boreholes={boreholes}
+                cpts={visibleCpts}
+                boreholes={visibleBoreholes}
                 onPatch={handlePatchSelectedSection}
                 onClose={() => setSelectedSectionId(null)}
                 onSelectCpt={handleSelect}
