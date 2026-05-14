@@ -47,6 +47,7 @@ from groundmodel.application.recompute_formation_surface import (
     RecomputeFormationSurface,
 )
 from groundmodel.domain.value_objects.observation_type import ObservationType
+from groundmodel.infrastructure.codelists.g3dv3_catalog import get_catalog
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
@@ -344,17 +345,57 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         # encounter order (top-down through each borehole = youngest-
         # first). Per CLAUDE.md "Modelling hierarchy", lower
         # display_order = OLDER formation, so we'd be inverting the
-        # geological superposition convention. Re-sort the just-created
-        # formations by mean top-depth DESCENDING (deepest top = oldest
-        # = lowest display_order) and reassign their display_orders
-        # within the contiguous range they occupy. Existing project
-        # formations stay where they were.
+        # geological superposition convention.
+        #
+        # Reorder strategy is all-or-nothing per batch:
+        #
+        # * If EVERY newly-created formation resolves in the G3Dv3
+        #   catalog (by name or regional_ref, alias-aware), assign
+        #   display_order from the authoritative age_rank. This is
+        #   location-independent — comparing two Belgian formations
+        #   answers the "older or younger?" question the same way on
+        #   either side of Flanders.
+        # * Otherwise (any unknowns in the batch), fall back to the
+        #   depth-derived heuristic so all new formations share a
+        #   single consistent ordering space. Mixing G3Dv3 ages with
+        #   depth-derived ranks gives inconsistent results when the
+        #   two disagree, so we don't try.
+        #
+        # Existing project formations stay where they were either way.
         if new_formation_top_depths:
             base_order = next_display_order - len(new_formation_top_depths)
-            mean_depth = {
-                fid: sum(depths) / len(depths) for fid, depths in new_formation_top_depths.items()
+            catalog = get_catalog()
+            formation_by_id: dict[UUID, GeologicalFormationOrm] = {
+                f.id: f
+                for f in self._session.new
+                if isinstance(f, GeologicalFormationOrm) and f.id in new_formation_top_depths
             }
-            sorted_new_fids = sorted(mean_depth, key=lambda fid: mean_depth[fid], reverse=True)
+            g3d_age_ranks: dict[UUID, int] = {}
+            for fid, formation in formation_by_id.items():
+                unit = catalog.lookup_by_name(formation.name)
+                if unit is None and formation.regional_ref:
+                    unit = catalog.lookup_by_name(formation.regional_ref)
+                if unit is not None:
+                    g3d_age_ranks[fid] = unit.age_rank
+
+            if g3d_age_ranks and len(g3d_age_ranks) == len(new_formation_top_depths):
+                # Higher age_rank = older = lower display_order, so sort
+                # by age_rank DESCENDING (oldest first).
+                sorted_new_fids = sorted(
+                    g3d_age_ranks, key=lambda fid: g3d_age_ranks[fid], reverse=True
+                )
+                ordering_source = "G3Dv3 age"
+            else:
+                mean_depth = {
+                    fid: sum(depths) / len(depths)
+                    for fid, depths in new_formation_top_depths.items()
+                }
+                sorted_new_fids = sorted(mean_depth, key=lambda fid: mean_depth[fid], reverse=True)
+                ordering_source = (
+                    f"mean depth (G3Dv3 covered "
+                    f"{len(g3d_age_ranks)}/{len(new_formation_top_depths)})"
+                )
+
             new_orders = {fid: base_order + i for i, fid in enumerate(sorted_new_fids)}
             # Apply via setattr on the in-session ORM rows (they're
             # still in the unit-of-work). One UPDATE per row at flush
@@ -365,7 +406,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     f.display_order = new_orders[f.id]
             self.debug(
                 f"Auto-populate: re-sorted {len(sorted_new_fids)} new formation(s) "
-                f"by mean top-depth (deepest first)"
+                f"by {ordering_source} (oldest first)"
             )
 
         # Refresh the TIN cache for every formation the auto-populate
