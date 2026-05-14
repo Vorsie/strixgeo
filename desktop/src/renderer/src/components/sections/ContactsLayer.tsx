@@ -46,8 +46,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
+  FormationSurfaceResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
+import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import HoverReadoutCard from './HoverReadoutCard'
 import type { PlacedColumn } from './utils'
@@ -151,6 +153,28 @@ interface Props {
     cptId: string,
     depthM: number,
   ) => { qc: number | null; rf: number | null } | null
+  /** Cached TIN surfaces keyed by formation id. When a formation has
+   * a surface with at least one triangle, the polyline render uses a
+   * slice-of-TIN against the section line — off-line picks contribute
+   * via their triangle, which the connect-the-dots fallback can't do.
+   * Formations without a surface (or with empty triangles when their
+   * picks are all collinear) keep the existing connect-the-dots
+   * render — gives the user something to look at while the geology
+   * is sparse. */
+  surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /** Section-line endpoints in the project's horizontal CRS. The
+   * slice projects each TIN vertex against this line, so its
+   * coordinate frame must match the surface vertices' frame. Both
+   * sides today use the project's default horizontal EPSG (Lambert72
+   * / RDNew). When absent the slice render is skipped (graceful
+   * degradation; falls back to connect-the-dots everywhere). */
+  sectionLine?: SectionLine2D
+  /** Maps an along-section distance in metres to screen X. The
+   * SectionPanel-owned ``warpedXToScreen`` is the typical caller; a
+   * raw ``xToScreen`` works too for tests. The slice's ``alongM`` is
+   * in the same metric frame as ``PlacedColumn.proj.along``, so the
+   * same transform applies. */
+  alongMToScreenX?: (alongM: number) => number
 }
 
 /** Data-only slab — output of the data-classification pass. Holds
@@ -454,6 +478,9 @@ export default function ContactsLayer({
   selectionResetSignal,
   snapDepthsByAnchorId,
   getCptValuesAtDepth,
+  surfacesByFormationId,
+  sectionLine,
+  alongMToScreenX,
 }: Props): JSX.Element | null {
   // ---- Selection model -------------------------------------------
   // Component-local — selection is transient UI state, not a
@@ -684,6 +711,83 @@ export default function ContactsLayer({
 
     return { layers: layersOut, polylines: polylinesOut }
   }, [slabs, polylineData, levelToScreen, plotTop, plotBottom])
+
+  // Slice-of-TIN polylines. One per formation that (a) has a cached
+  // surface with triangles and (b) the caller has wired both
+  // ``sectionLine`` and ``alongMToScreenX``. Off-line picks contribute
+  // via their triangle's intersection with the section plane, so a
+  // borehole 50 m off-section still shapes the surface line — the
+  // payoff vs. the connect-the-dots fallback (which only "knew" about
+  // picks projected straight-down onto the line).
+  //
+  // Formations rendered here are EXCLUDED from the connect-the-dots
+  // polylines render below to avoid double-painting. Drag previews
+  // intentionally don't redraw the slice live — surfaces auto-
+  // recompute on commit, so the slice snaps into place as soon as the
+  // PATCH lands. The connect-the-dots fallback retains the live
+  // preview because that's the only render available for sparse data.
+  const slicedPolylines = useMemo(() => {
+    if (!surfacesByFormationId || !sectionLine || !alongMToScreenX) {
+      return [] as {
+        formationId: string
+        color: string
+        name: string
+        d: string
+      }[]
+    }
+    const out: {
+      formationId: string
+      color: string
+      name: string
+      d: string
+    }[] = []
+    const formationMeta = new Map<string, { color: string; name: string }>()
+    for (const line of polylineData) {
+      formationMeta.set(line.formationId, { color: line.color, name: line.name })
+    }
+    for (const [formationId, surface] of surfacesByFormationId) {
+      if (surface.triangles.length === 0) continue
+      const points = sliceTin(surface, sectionLine)
+      if (points.length < 2) continue
+      const meta = formationMeta.get(formationId)
+      if (!meta) continue
+      // Project each (alongM, elevationM) into screen space; clip
+      // segments that leave the plot area in Y so we don't paint over
+      // the chrome. We render as a single path with M/L commands;
+      // out-of-range vertices break the path with a fresh M.
+      let path = ''
+      let pendingMove = true
+      for (const p of points) {
+        const x = alongMToScreenX(p.alongM)
+        const y = levelToScreen(p.elevationM)
+        if (y < plotTop || y > plotBottom) {
+          pendingMove = true
+          continue
+        }
+        path += `${pendingMove ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)} `
+        pendingMove = false
+      }
+      if (path === '') continue
+      out.push({ formationId, color: meta.color, name: meta.name, d: path })
+    }
+    return out
+  }, [
+    surfacesByFormationId,
+    sectionLine,
+    alongMToScreenX,
+    polylineData,
+    levelToScreen,
+    plotTop,
+    plotBottom,
+  ])
+
+  // Set of formation ids that have a slice rendered. The connect-the-
+  // dots polylines render below skips these to avoid double-painting.
+  const slicedFormationIds = useMemo(() => {
+    const out = new Set<string>()
+    for (const line of slicedPolylines) out.add(line.formationId)
+    return out
+  }, [slicedPolylines])
 
   // Drag state lives in the component so its update path is
   // explicit. Document-level mousemove + mouseup listeners attach
@@ -1263,10 +1367,28 @@ export default function ContactsLayer({
 
   return (
     <g>
+      {/* Slice-of-TIN polylines. Drawn first (under everything else)
+          so the per-column tops + name labels paint on top. Solid
+          stroke distinguishes them from the dashed connect-the-dots
+          fallback — the user sees at a glance which formations have a
+          full surface vs. which are still 2-pick tie-lines. */}
+      {slicedPolylines.map(line => (
+        <path
+          key={`slice-${line.formationId}`}
+          d={line.d}
+          stroke={line.color}
+          strokeWidth={1.25}
+          strokeOpacity={0.7}
+          fill="none"
+          pointerEvents="none"
+          data-testid={`formation-surface-${line.formationId}`}
+        />
+      ))}
       {/* Cross-column polylines (formation surfaces). Drawn first so
           the per-column top segments + name labels paint on top. */}
       {polylines.map(line => {
         if (line.vertices.length < 2) return null
+        if (slicedFormationIds.has(line.formationId)) return null
         const path = line.vertices
           .map((v, i) => {
             // Live-override the dragged vertex's Y so the surface
