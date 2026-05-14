@@ -1059,6 +1059,31 @@ GET    /projects/{pid}/geology/models/{mid}/boreholes/{bid}/validate
                                                     contact_below_test,
                                                     no_contacts.
 
+GET    /projects/{pid}/geology/models/{mid}/surfaces
+                                                    List the cached TIN
+                                                    formation surfaces for
+                                                    the model. One row per
+                                                    formation that has at
+                                                    least one anchor with a
+                                                    known elevation; the
+                                                    cache refreshes server-
+                                                    side after every contact
+                                                    mutation (create / update
+                                                    / delete / batch / auto-
+                                                    populate / dedupe).
+                                                    Vertices are
+                                                    [x, y, elevation] in the
+                                                    project's horizontal CRS;
+                                                    triangles are integer
+                                                    triplets indexing
+                                                    vertices. Empty list when
+                                                    nothing has been picked.
+                                                    Bundle round-trips the
+                                                    cache so re-opening a
+                                                    .strix paints the slice
+                                                    on first render without
+                                                    a recompute.
+
 POST   /projects/{pid}/sections             Create a cross-section (line
                                             endpoints + projection buffer
                                             + view prefs). 422 when the
