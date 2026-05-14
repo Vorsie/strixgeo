@@ -695,7 +695,19 @@ async def restore_project_bundle(
         # hook. Skip surfaces whose formation_id isn't in the
         # restored set (mirror the orphan-contact tolerance).
         surfaces_payload = m_payload.get("surfaces") or []
+        # Pre-count contacts per formation in this model so the
+        # restored surface's claimed ``source_contact_count`` can be
+        # sanity-checked against reality. A mismatch is the cheap
+        # cross-bundle staleness signal — we don't need full checksum
+        # recompute (which would require reloading anchors); a contact
+        # count drift already proves the surface is out of date.
+        contacts_per_formation: dict[UUID, int] = {}
+        for c in valid_contacts:
+            contacts_per_formation[c.formation_id] = (
+                contacts_per_formation.get(c.formation_id, 0) + 1
+            )
         valid_surfaces: list[FormationSurfaceOrm] = []
+        forced_stale = 0
         for s in surfaces_payload:
             fid_raw = s.get("formation_id")
             if fid_raw is None:
@@ -703,8 +715,24 @@ async def restore_project_bundle(
             fid = UUID(fid_raw) if isinstance(fid_raw, str) else fid_raw
             if fid not in valid_formation_ids:
                 continue
-            valid_surfaces.append(
-                FormationSurfaceOrm(**_apply_json_to_kwargs(FormationSurfaceOrm, s))
+            kwargs = _apply_json_to_kwargs(FormationSurfaceOrm, s)
+            # Bundle may have been saved before the ``is_stale``
+            # column existed (older v3 saves) — default to False
+            # via the column server-default. For bundles that DO
+            # carry the field, trust it unless the contact count
+            # disagrees with what we just restored — in that case
+            # force is_stale=True. The user clicks Build to refresh.
+            actual = contacts_per_formation.get(fid, 0)
+            claimed = kwargs.get("source_contact_count")
+            if claimed is not None and claimed != actual:
+                kwargs["is_stale"] = True
+                forced_stale += 1
+            valid_surfaces.append(FormationSurfaceOrm(**kwargs))
+        if forced_stale:
+            logger.info(
+                f"restore_project_bundle({project_id}): forced is_stale=True on "
+                f"{forced_stale} surface(s) — restored contact count drifted from "
+                f"saved source_contact_count"
             )
         model.surfaces = valid_surfaces
         session.add(model)
