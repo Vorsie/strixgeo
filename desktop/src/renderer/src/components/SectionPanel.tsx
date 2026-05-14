@@ -64,6 +64,7 @@ import {
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
 import VirtueleBoringGhostColumns from './sections/VirtueleBoringGhostColumns'
+import VirtueleBoringStrip from './sections/VirtueleBoringStrip'
 import SectionHeader from './sections/SectionHeader'
 import SectionScrubBar from './sections/SectionScrubBar'
 import { useSectionData } from './sections/useSectionData'
@@ -210,6 +211,22 @@ interface Props {
    * ``api.virtueleBoring.predictions`` and cached there across
    * renders so toggling the section view doesn't refetch. */
   virtueleBoringPredictions?: readonly VirtueleBoringInvestigationPrediction[]
+  /** Picker state, owned by App.tsx (round-trips via project
+   * view_state). The overlay strip mounts at the top of the section
+   * pane and writes through these props. */
+  virtueleBoringModelA?: string | null
+  virtueleBoringModelB?: string | null
+  virtueleBoringMaxDepthM?: number | null
+  /** Per-pane visibility flag (localStorage-backed in App). When
+   * false, the ghost columns hide but the picker stays expanded so
+   * the user can flip it back on without losing state. */
+  virtueleBoringShowOnSection?: boolean
+  onChangeVirtueleBoringPicker?: (next: {
+    modelA: string | null
+    modelB: string | null
+    maxDepthM: number | null
+  }) => void
+  onChangeVirtueleBoringShowOnSection?: (next: boolean) => void
 }
 
 export default function SectionPanel({
@@ -236,6 +253,12 @@ export default function SectionPanel({
   onSelectBorehole,
   virtueleBoringActiveModels,
   virtueleBoringPredictions,
+  virtueleBoringModelA = null,
+  virtueleBoringModelB = null,
+  virtueleBoringMaxDepthM = null,
+  virtueleBoringShowOnSection = true,
+  onChangeVirtueleBoringPicker,
+  onChangeVirtueleBoringShowOnSection,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -716,6 +739,52 @@ export default function SectionPanel({
     return map
   }, [virtueleBoringPredictions])
 
+  // Pan the viewport so the focused contact's column lands near
+  // the centre of the visible window. Fires when the App's
+  // crossings-banner click flow sets focusedContactIds; without
+  // this the contact's highlight ring would fire off-screen if the
+  // user had zoomed in elsewhere. We only pan horizontally so
+  // vertical zoom is preserved (the engineer's framing of "what
+  // depths am I looking at" stays intact). Setting xMin/xMax keeps
+  // the current width — we centre by translation only.
+  //
+  // The effect's body only runs on the transition empty → non-empty
+  // so a repeated click on the same banner item (focusedContactIds
+  // identity changes but content stays) doesn't re-pan; a banner
+  // *click* always re-fires the parent's setFocusedContactIds with
+  // a fresh array, so the dep on the identity is enough.
+  const focusedContactsLastRef = useRef<readonly string[] | null>(null)
+  useEffect(() => {
+    if (!focusedContactIds || focusedContactIds.length === 0) {
+      focusedContactsLastRef.current = null
+      return
+    }
+    if (focusedContactsLastRef.current === focusedContactIds) return
+    focusedContactsLastRef.current = focusedContactIds
+    // Resolve each focused contact's anchor id, then find the
+    // matching placed column to read its projected along-distance.
+    const focusedSet = new Set(focusedContactIds)
+    const targetAlongs: number[] = []
+    for (const contact of contacts) {
+      if (!focusedSet.has(contact.id)) continue
+      const anchorId = contact.borehole_id ?? contact.cpt_id ?? null
+      if (!anchorId) continue
+      const col = placedColumns.find(c => c.proj.item.id === anchorId)
+      if (col) targetAlongs.push(col.proj.along)
+    }
+    if (targetAlongs.length === 0) return
+    const targetAlong =
+      targetAlongs.reduce((a, b) => a + b, 0) / targetAlongs.length
+    setViewport(prev => {
+      const halfWidth = (prev.xMax - prev.xMin) / 2
+      return {
+        ...prev,
+        xMin: targetAlong - halfWidth,
+        xMax: targetAlong + halfWidth,
+      }
+    })
+  }, [focusedContactIds, contacts, placedColumns])
+
   // Click-to-place pick state + handlers. The hook owns the modal's
   // open / closed state and the create-on-select flow; the
   // ColumnGlyph + ContactPickBar + BoreholeColumn click handlers
@@ -1011,6 +1080,21 @@ export default function SectionPanel({
         }
       />
 
+      {/* DOV Virtuele Boring overlay controls — picker dropdowns +
+          depth + per-pane show toggle. Sits directly under the
+          SectionHeader so the engineer can flip on the overlay
+          without leaving the section view. */}
+      {onChangeVirtueleBoringPicker && onChangeVirtueleBoringShowOnSection && (
+        <VirtueleBoringStrip
+          modelA={virtueleBoringModelA}
+          modelB={virtueleBoringModelB}
+          maxDepthM={virtueleBoringMaxDepthM}
+          showOnSection={virtueleBoringShowOnSection}
+          onChangePicker={onChangeVirtueleBoringPicker}
+          onChangeShowOnSection={onChangeVirtueleBoringShowOnSection}
+        />
+      )}
+
       <div
         ref={containerRef}
         className="relative flex-1 overflow-hidden select-none"
@@ -1273,20 +1357,24 @@ export default function SectionPanel({
 
             {/* DOV Virtuele Boring ghost columns — informative-only
                 overlay showing what DOV's 3D model predicts at each
-                investigation's (x, y). One slim column per active
-                model, faded so it reads as "DOV says…" rather than
-                ground truth. Engineers use it to inform manual
-                contact picks. Renders nothing when both dropdowns
-                are off or no predictions have been fetched. */}
-            <VirtueleBoringGhostColumns
-              columns={visibleColumns}
-              activeModels={virtueleBoringActiveModelsClamped}
-              predictionsByInvestigationId={virtueleBoringPredictionsByInvestigationId}
-              levelToScreen={levelToScreen}
-              plotTop={MARGIN.top}
-              plotBottom={MARGIN.top + plotHeight}
-              bandHalfWidth={bandHalfWidth}
-            />
+                investigation's (x, y). One labelled column per
+                active model, faded so it reads as "DOV says…"
+                rather than ground truth. Engineers use it to inform
+                manual contact picks. Renders nothing when both
+                dropdowns are off, no predictions have been fetched,
+                or the user toggled visibility off on this pane. */}
+            {virtueleBoringShowOnSection && (
+              <VirtueleBoringGhostColumns
+                columns={visibleColumns}
+                activeModels={virtueleBoringActiveModelsClamped}
+                predictionsByInvestigationId={virtueleBoringPredictionsByInvestigationId}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                bandHalfWidth={bandHalfWidth}
+                maxDepthMBelowSurface={virtueleBoringMaxDepthM}
+              />
+            )}
 
             {/* Geological-model formation contacts. Each formation
                 with ≥1 contact in this section renders as a
