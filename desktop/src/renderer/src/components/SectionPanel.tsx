@@ -34,6 +34,7 @@ import type {
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
+  FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
 } from '../api/client'
@@ -124,6 +125,12 @@ interface Props {
   /** Borehole IDs the active model excludes from contact rendering.
    * The ContactsLayer skips polyline vertices at these anchors. */
   excludedBoreholeIds?: readonly string[]
+  /** Cached TIN surfaces for the active geological model, keyed by
+   * formation id. Forwarded straight to ContactsLayer; when present
+   * the surface line renders as a slice-of-TIN against the section
+   * line so off-line picks contribute properly. Absent → connect-the-
+   * dots fallback in ContactsLayer (still works for sparse data). */
+  surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
   /** Click-to-place hook. Fires when the user picks a formation on
    * the picker modal — caller (App) POSTs the contact and updates
    * the contacts state. Omitting it leaves the section read-only.
@@ -197,6 +204,7 @@ export default function SectionPanel({
   contacts = [],
   formations = [],
   excludedBoreholeIds,
+  surfacesByFormationId,
   onCreateContact,
   onUpdateContactDepth,
   onDeleteContact,
@@ -1228,6 +1236,14 @@ export default function SectionPanel({
               selectionResetSignal={selectionResetCounter}
               snapDepthsByAnchorId={snapDepthsByAnchorId}
               getCptValuesAtDepth={getCptValuesAtDepth}
+              surfacesByFormationId={surfacesByFormationId}
+              sectionLine={{
+                startX: section.start_x,
+                startY: section.start_y,
+                endX: section.end_x,
+                endY: section.end_y,
+              }}
+              alongMToScreenX={warpedXToScreen}
             />
 
             {/* Axis labels. */}
