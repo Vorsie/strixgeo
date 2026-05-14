@@ -125,6 +125,11 @@ interface Props {
    * banner re-runs the crossings validator. Opaque integer; only the
    * change matters. */
   crossingsRefreshSignal?: number
+  /** Count of formations whose cached surface is stale (contacts
+   * mutated since the last Build). Drives the "N unbuilt edits"
+   * badge on the Build button. Undefined when the surface state
+   * isn't wired (test harness). */
+  staleSurfaceCount?: number
 }
 
 export default function InterpretationPane({
@@ -145,6 +150,7 @@ export default function InterpretationPane({
   onRebuildSurfaces,
   activeModelId,
   crossingsRefreshSignal,
+  staleSurfaceCount,
 }: Props): JSX.Element {
   const [populateBusy, setPopulateBusy] = useState(false)
   const [populateResult, setPopulateResult] = useState<string | null>(null)
@@ -686,72 +692,91 @@ export default function InterpretationPane({
 
   return (
     <div className="flex flex-col gap-3 px-3 py-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex flex-col gap-0.5 text-gray-700 min-w-0">
-          <div className="flex items-center gap-2">
-            <Layers size={14} className="text-amber-700" />
-            <span className="text-xs font-medium">Formations</span>
-            <span className="text-[10px] text-gray-400 tabular-nums">
-              {visibleFormations.length}
-            </span>
-          </div>
-          {activeModelName && (
-            <div
-              className="text-[10px] text-gray-400 pl-5 truncate"
-              title="Active geological model — every formation pick belongs to this model"
-            >
-              Model: <span className="text-gray-600">{activeModelName}</span>
-            </div>
-          )}
+      {/* Header row — identity only. Action buttons live below in a
+          two-row layout (primary Build + secondary actions) so the
+          horizontal overflow on a narrow sidebar doesn't hide the
+          rare buttons behind a scroll. */}
+      <div className="flex flex-col gap-0.5 text-gray-700 min-w-0">
+        <div className="flex items-center gap-2">
+          <Layers size={14} className="text-amber-700" />
+          <span className="text-xs font-medium">Formations</span>
+          <span className="text-[10px] text-gray-400 tabular-nums">
+            {visibleFormations.length}
+          </span>
         </div>
-        <div className="flex items-center gap-1">
+        {activeModelName && (
+          <div
+            className="text-[10px] text-gray-400 pl-5 truncate"
+            title="Active geological model — every formation pick belongs to this model"
+          >
+            Model: <span className="text-gray-600">{activeModelName}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Primary action — Build model. Full-width primary blue.
+          On-click build pivot: this is now the ONLY way the cached
+          TIN refreshes (per-contact mutations flip surfaces stale).
+          Stale badge surfaces "N unbuilt edits" so the engineer
+          knows the section view is showing yesterday's geometry. */}
+      {onRebuildSurfaces && (
+        <Button
+          variant="primary"
+          size="md"
+          onClick={() => void handleRebuildSurfaces()}
+          disabled={rebuildBusy}
+          title="Compute the geological surfaces (TIN) from the current contacts. Run this after editing picks; the section view paints the slice once it's built."
+          className="w-full justify-center"
+        >
+          <RefreshCw size={14} className="mr-1.5" />
+          {rebuildBusy
+            ? 'Building…'
+            : staleSurfaceCount && staleSurfaceCount > 0
+              ? `Build model · ${staleSurfaceCount} unbuilt edit${staleSurfaceCount === 1 ? '' : 's'}`
+              : 'Build model'}
+        </Button>
+      )}
+
+      {/* Secondary actions — narrower buttons, wrap when the pane
+          is narrow. Order: rare (From boreholes / Dedupe) on the
+          left, frequent (Add) on the right so it sits in the
+          easy-to-hit corner. */}
+      <div className="flex flex-wrap items-center gap-1">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void handlePopulateFromBoreholes()}
+          disabled={populateBusy || (boreholeIds?.length ?? 0) === 0}
+          title="Walk every borehole's stratigraphy observations and create a formation per unique name (deduped against existing). Auto-coloured. Manual add/edit/delete still works."
+        >
+          <Sparkles size={12} className="mr-1" />
+          {populateBusy ? 'Working…' : 'From boreholes'}
+        </Button>
+        {onDedupeContacts && (
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => void handlePopulateFromBoreholes()}
-            disabled={populateBusy || (boreholeIds?.length ?? 0) === 0}
-            title="Walk every borehole's stratigraphy observations and create a formation per unique name (deduped against existing). Auto-coloured. Manual add/edit/delete still works."
+            onClick={() => setPendingDedupe(true)}
+            disabled={dedupeBusy}
+            title="One-shot cleanup: removes duplicate (anchor, formation) contacts left over from before the per-anchor uniqueness rule landed. Keeps the manual pick / most-recent row in each duplicate group."
           >
             <Sparkles size={12} className="mr-1" />
-            {populateBusy ? 'Working…' : 'From boreholes'}
+            {dedupeBusy ? 'Cleaning…' : 'Dedupe'}
           </Button>
-          {onDedupeContacts && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setPendingDedupe(true)}
-              disabled={dedupeBusy}
-              title="One-shot cleanup: removes duplicate (anchor, formation) contacts left over from before the per-anchor uniqueness rule landed. Keeps the manual pick / most-recent row in each duplicate group."
-            >
-              <Sparkles size={12} className="mr-1" />
-              {dedupeBusy ? 'Cleaning…' : 'Dedupe'}
-            </Button>
-          )}
-          {onRebuildSurfaces && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void handleRebuildSurfaces()}
-              disabled={rebuildBusy}
-              title="Force-recompute every formation surface in this model. Use after editing an investigation's elevation, restoring a project, or whenever the section view's slice render looks out of date."
-            >
-              <RefreshCw size={12} className="mr-1" />
-              {rebuildBusy ? 'Rebuilding…' : 'Rebuild surfaces'}
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              setEditing(null)
-              setDialogOpen(true)
-            }}
-            title="Add a new formation to this project"
-          >
-            <Plus size={12} className="mr-1" />
-            Add
-          </Button>
-        </div>
+        )}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            setEditing(null)
+            setDialogOpen(true)
+          }}
+          title="Add a new formation to this project"
+          className="ml-auto"
+        >
+          <Plus size={12} className="mr-1" />
+          Add
+        </Button>
       </div>
 
       {populateResult && (
@@ -793,8 +818,9 @@ export default function InterpretationPane({
       )}
       {!loading && visibleFormations.length === 0 && (
         <div className="text-[11px] text-gray-500 leading-snug">
-          No formations yet. Add a substrate unit (e.g. <em>Boom Klei</em>) and
-          the geological model editor lights up next.
+          No formations yet. Add a substrate unit (e.g. <em>Boom Klei</em>),
+          place contacts on a cross-section, then click <strong>Build model</strong>{' '}
+          to compute the surfaces.
         </div>
       )}
 
