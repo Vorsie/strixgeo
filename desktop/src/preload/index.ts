@@ -92,4 +92,14 @@ contextBridge.exposeInMainWorld('electron', {
   onMenuProjectClose: (cb: () => void) => onMenuEvent('menu:project-close', cb),
   onMenuProjectOpenRecent: (cb: (path: string) => void) =>
     onMenuEvent('menu:project-open-recent', cb as (...a: unknown[]) => void),
+
+  // Edit-menu signals. The renderer-side document keydown handler
+  // is the authoritative source for the actual Ctrl+Z / Ctrl+Shift+Z
+  // keystrokes (it gates on ``isTypingTarget`` so text inputs keep
+  // their native undo). The menu items declare the accelerator for
+  // the visible label only (``registerAccelerator: false`` on main's
+  // side) and route through these IPC handlers when the user clicks
+  // the menu item itself.
+  onMenuEditUndo: (cb: () => void) => onMenuEvent('menu:edit-undo', cb),
+  onMenuEditRedo: (cb: () => void) => onMenuEvent('menu:edit-redo', cb),
 })
