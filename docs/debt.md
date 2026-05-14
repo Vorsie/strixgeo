@@ -521,100 +521,54 @@ by the qualified banner ("I rebuilt and the crossing went away
 — was the warning real?"), or when the crossings validator gets
 extended with more issue kinds where staleness matters more.
 
-## 50. Canonical regional stratigraphy catalog (NCS / BRO) for ordering + colors + names (high — architectural answer for stratigraphy)
+## 50. Pluggable regional stratigraphy catalog for NL / international (medium — Flanders covered, NL open)
 
-**What.** Today's depth-derived `display_order` in auto-populate
-(see ``auto_populate_contacts_from_stratigraphy.py`` post-walk
-sort) is a heuristic — it works because depth aligns with age in
-normal Belgian stratigraphy (Steno's superposition). It breaks for
-faulted zones, overturned beds, repeated glaciotectonic sequences,
-and anywhere the user has informal layer names.
+**What.** G3Dv3 (shipped 2026-05-14) closes the Flanders side of
+the canonical-stratigraphy question: ``infrastructure/codelists/
+g3dv3_catalog.py`` resolves every named G3Dv3 formation / member
+to a Dutch name, age_rank, color, and H3D code, with a JSON alias
+map (``data/g3dv3_aliases.json``) bridging historical names
+(Ieper / Ieperiaan → Kortrijk). Auto-populate uses age_rank when
+every newly-created formation resolves in the catalog and falls
+back to depth-derived ordering otherwise.
 
-The authoritative source is the Belgian National Commission for
-Stratigraphy chart (https://ncs.naturalsciences.be/infosearch/).
-Each formation has a canonical age, prescribed color, multilingual
-names (NL/FR/EN), and a description. NL has the equivalent BRO /
-TNO Dutch stratigraphic chart.
+The open question: **NL** (BRO / TNO Dutch stratigraphic chart),
+**FR/EN multilingual labels** for the BE bilingual market, and
+the interface that lets a project carry a "regional catalog"
+preference. Today's code hard-codes G3Dv3 — switching to BRO for
+a NL project, or showing French/English names for a BE
+francophone user, requires either a sibling catalog file +
+loader, or a small abstraction over both.
 
-Wire as a 3-tier ordering source:
+**Why deferred.** Flanders is the v1.0 launch market and is fully
+covered. NL expansion is a Phase 5+ direction (see CLAUDE.md
+"Commercial Direction") — adding a catalog before there's a NL
+customer is premature.
 
-| Priority | Source | Coverage | Confidence |
-|---|---|---|---|
-| 1 | NCS / BRO age | BE+NL named formations | Authoritative |
-| 2 | G3Dv3 stacking | Flanders mapped formations | Authoritative-regional |
-| 3 | Depth-derived mean | Anything (informal, foreign) | Heuristic (today) |
+**When to revisit.**
 
-**Wins beyond ordering** when this lands:
+1. **First NL pilot user** lands and reports formations from BRO
+   not resolving.
+2. **Multilingual UI work** kicks off — the catalog needs FR/EN
+   name columns alongside name_nl.
+3. **A second catalog file appears** (BRO export) — the third
+   case for the "regional stratigraphic catalog" abstraction
+   (per the rule of three).
 
-* Standard formation **colours** — engineer picks "Ieper" → it
-  gets the prescribed yellow from the NCS chart automatically.
-* **Multilingual labels** — "Boom Klei" / "Argile de Boom" /
-  "Boom Clay" depending on user locale (Strix targets BE bilingual
-  + NL + future international).
-* Formation **descriptions** auto-fill the ``description`` column
-  on first creation.
-* **Stronger crossings validation**: the validator can flag "user
-  placed Antropogeen below Ieper — NCS says that's geologically
-  impossible" with authoritative language, not depth-derived
-  heuristic.
-* **Formation autocomplete** in the manual create dialog (typing
-  "Boom" → suggests "Boom Klei" with the formal regional_ref +
-  color pre-filled).
-
-**Four implementation options** (pick when revisiting):
-
-* **A. Hardcoded curated catalog.** Python dict in
-  ``infrastructure/codelists/ncs_belgian_stratigraphy.py`` with
-  the ~50-100 most common Belgian formations. Update manually
-  when NCS publishes changes. Cheapest start; manual maintenance.
-* **B. Scraped catalog cached in repo.** One-time scrape of the
-  NCS site → JSON file shipped with the app. Refresh script in
-  ``scripts/``. CI re-scrapes periodically. Best balance of
-  freshness + simplicity.
-* **C. Live API query.** If NCS exposes an API, hit it on import.
-  Cache responses locally. Slower, network-dependent, fragile.
-  Worst fit for the local-first commercial model.
-* **D. G3Dv3 import covers it.** When the user imports G3Dv3
-  (post-v1.0 Flanders feature), formations land with the right
-  order baked in. NCS becomes a fallback for non-G3Dv3 projects.
-  Folds the work into the G3Dv3 import.
-
-**Why deferred.** The depth-derived heuristic shipped today
-covers the dogfooding bug (Antropogeen-as-oldest) and works for
-~95% of normal Belgian sites. NCS integration is multi-week
-effort: catalog scraping (or curation), schema for ages + colors
-+ multilingual names, code-paths in auto-populate / manual
-create / validator, locale machinery for the labels.
-
-**When to revisit.** Two natural triggers:
-
-1. **G3Dv3 import session** (CLAUDE.md Phase 4 launch-adjacent):
-   the regional_ref → age mapping is half the work for NCS, so
-   land them together.
-2. **First user complaint that depth-derived ordering got it
-   wrong on a real project** (faulted site, overturned bed,
-   repeated sequence). Single complaint = file as P1 because it
-   means the heuristic's accuracy assumption broke.
-
-Architectural note: NCS is BE-only. NL has its own catalog
-(TNO / BRO). The interface this debt produces should be a
-pluggable "regional stratigraphic catalog" abstraction with
-two implementations on day one (NCS + BRO), not a hardcoded NCS
-lookup. Keeps the door open for international expansion without
-a rewrite.
+**Implementation sketch when revisiting.** Add
+``data/bro_units.json`` alongside G3Dv3. Refactor
+``G3Dv3Catalog`` → ``RegionalCatalog`` with a constructor that
+takes a catalog file path. Project metadata gains a
+``regional_catalog`` field (default: ``"g3dv3"``). Consumers
+(auto-populate, manual-create autocomplete) resolve the catalog
+from the project's preference. ``name_nl`` becomes
+``name_by_locale: dict[str, str]`` when the FR/EN need lands —
+data migration is one-time on the existing JSON.
 
 **Principle (user-confirmed 2026-05-14): stratigraphic ordering
-must be CORRECT AT CREATE TIME, not via a repair button.** A
-"Reorder by depth" or "Snap to NCS chart" button was discussed
-during dogfooding and rejected — it would be a permanent
-monument to a create-path bug. Today's depth-derived auto-populate
-shipped under this principle (fix the inversion, not bolt on
-a repair). NCS integration must follow the same rule: when the
-user runs auto-populate on a Belgian project, the resulting order
-should match the NCS chart with no extra clicks. The user can
-still manually drag-reorder for special cases (overturned beds,
-bespoke local naming) — that override is theirs, not the
-system's repair.
+must be CORRECT AT CREATE TIME, not via a repair button.** Today
+G3Dv3 makes this true for Flanders projects; the NL extension
+must follow the same rule.
 
 ## 52. Section view_state PATCH returns 422 — regression detected 2026-05-14 (medium)
 
