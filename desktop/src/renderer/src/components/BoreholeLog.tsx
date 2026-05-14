@@ -6,7 +6,13 @@ import type {
   VirtueleBoringInvestigationPrediction,
   VirtueleBoringLayer,
 } from '../api/client'
+import {
+  maxCharsForWidth,
+  maxLinesForHeight,
+  wrapLabelToLines,
+} from '../utils/labelWrap'
 import { SoilPatterns } from '../utils/soilPatterns'
+import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import { isTypingTarget } from '../utils/keyboard'
 import LabTestPanel from './LabTestPanel'
 import {
@@ -74,10 +80,15 @@ interface Props {
   // flips the per-pane visibility; the picker (model selection +
   // depth) lives on the section pane.
   virtueleBoringPrediction?: VirtueleBoringInvestigationPrediction | null
+  // Effective model list for this pane — App.tsx resolves the
+  // override-vs-section pick before passing here.
   virtueleBoringActiveModels?: readonly string[]
   virtueleBoringMaxDepthM?: number | null
   virtueleBoringVisible?: boolean
   onToggleVirtueleBoringVisible?: () => void
+  // Per-pane model override. "" = follow section.
+  virtueleBoringOverrideModel?: string
+  onChangeVirtueleBoringOverrideModel?: (next: string) => void
 }
 
 // Per-model ghost-column width inside the borelog. Same vocabulary
@@ -85,7 +96,6 @@ interface Props {
 const VB_COLUMN_WIDTH = 50
 const VB_COLUMN_GAP = 4
 const VB_GAP_FROM_TRACKS = 8
-const VB_LABEL_MIN_HEIGHT = 12
 const VB_LABEL_FONT_SIZE = 9
 
 export default function BoreholeLog({
@@ -96,7 +106,12 @@ export default function BoreholeLog({
   virtueleBoringMaxDepthM = null,
   virtueleBoringVisible = false,
   onToggleVirtueleBoringVisible,
+  virtueleBoringOverrideModel = '',
+  onChangeVirtueleBoringOverrideModel,
 }: Props): React.ReactElement {
+  const virtueleBoringCatalog = useVirtueleBoringCatalog(
+    onChangeVirtueleBoringOverrideModel !== undefined,
+  )
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null)
 
   // Vertical zoom — broadcast via PxPerMContext so deeply nested track
@@ -228,35 +243,54 @@ export default function BoreholeLog({
         <span className="text-gray-400 ml-1 tabular-nums">
           {(zoomFactor * 100).toFixed(0)}%
         </span>
-        {/* DOV Virtuele Boring overlay toggle. Disabled when the
-            section pane hasn't armed a model yet — pressing it then
-            would be a no-op, and the disabled state breadcrumbs the
-            user back to the section pane's picker. */}
+        {/* DOV overlay toggle + override picker. The button flips
+            visibility; the dropdown selects which model THIS pane
+            shows ("Follow section" inherits modelA/modelB; a
+            specific code renders only that one). */}
         {onToggleVirtueleBoringVisible !== undefined && (
-          <button
-            onClick={onToggleVirtueleBoringVisible}
-            disabled={virtueleBoringActiveModels.length === 0}
-            aria-pressed={virtueleBoringVisible}
-            aria-label="Toggle DOV Virtuele Boring overlay"
-            title={
-              virtueleBoringActiveModels.length === 0
-                ? 'Pick a DOV model in the section pane first to enable this overlay'
-                : virtueleBoringVisible
-                  ? 'Hide DOV Virtuele Boring overlay'
-                  : 'Show DOV Virtuele Boring overlay'
-            }
-            className={
-              'flex items-center gap-1 ml-auto px-2 h-6 rounded border text-[10px] transition-colors ' +
-              (virtueleBoringActiveModels.length === 0
-                ? 'border-gray-200 text-gray-300 cursor-not-allowed'
-                : virtueleBoringVisible
-                  ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
-                  : 'border-gray-200 text-gray-500 hover:bg-gray-100')
-            }
-          >
-            <Database size={11} />
-            DOV
-          </button>
+          <div className="flex items-center gap-1 ml-auto">
+            <button
+              onClick={onToggleVirtueleBoringVisible}
+              disabled={virtueleBoringActiveModels.length === 0}
+              aria-pressed={virtueleBoringVisible}
+              aria-label="Toggle DOV Virtuele Boring overlay"
+              title={
+                virtueleBoringActiveModels.length === 0
+                  ? 'Pick a DOV model in the dropdown or the section pane to enable this overlay'
+                  : virtueleBoringVisible
+                    ? 'Hide DOV Virtuele Boring overlay'
+                    : 'Show DOV Virtuele Boring overlay'
+              }
+              className={
+                'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
+                (virtueleBoringActiveModels.length === 0
+                  ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                  : virtueleBoringVisible
+                    ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+                    : 'border-gray-200 text-gray-500 hover:bg-gray-100')
+              }
+            >
+              <Database size={11} />
+              DOV
+            </button>
+            {onChangeVirtueleBoringOverrideModel !== undefined && (
+              <select
+                value={virtueleBoringOverrideModel}
+                onChange={e => onChangeVirtueleBoringOverrideModel(e.target.value)}
+                disabled={virtueleBoringCatalog === null}
+                title="Override which DOV model this pane shows"
+                aria-label="DOV overlay model for this pane"
+                className="h-6 px-1 border border-gray-200 rounded text-[10px] bg-white text-gray-700 max-w-[160px]"
+              >
+                <option value="">Follow section</option>
+                {(virtueleBoringCatalog ?? []).map(entry => (
+                  <option key={entry.code} value={entry.code}>
+                    {entry.beschrijving}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         )}
       </div>
 
@@ -551,7 +585,14 @@ function BorelogRailLayer({
   const fill = layer.color_hex ?? '#9ca3af'
   const label = layer.beschrijving || layer.name
   const tooltip = `${label}: ${layer.top_m_taw.toFixed(2)} → ${layer.base_m_taw.toFixed(2)} mTAW (${layer.thickness_m.toFixed(2)} m)`
-  const showInlineLabel = height >= VB_LABEL_MIN_HEIGHT && label.length > 0
+  const maxLines = maxLinesForHeight(height, VB_LABEL_FONT_SIZE)
+  const lines = maxLines > 0
+    ? wrapLabelToLines(label, maxCharsForWidth(width, VB_LABEL_FONT_SIZE), maxLines)
+    : []
+  const lineHeight = VB_LABEL_FONT_SIZE * 1.15
+  const blockHeight = lineHeight * lines.length
+  const firstBaselineY =
+    yTop + height / 2 - blockHeight / 2 + VB_LABEL_FONT_SIZE * 0.8
   return (
     <g>
       <rect
@@ -567,16 +608,20 @@ function BorelogRailLayer({
       >
         <title>{tooltip}</title>
       </rect>
-      {showInlineLabel && (
+      {lines.length > 0 && (
         <text
           x={left + width / 2}
-          y={yTop + height / 2 + VB_LABEL_FONT_SIZE / 3}
+          y={firstBaselineY}
           textAnchor="middle"
           fontSize={VB_LABEL_FONT_SIZE}
           fill="#111827"
           style={{ pointerEvents: 'none' }}
         >
-          {label.length > 10 ? label.slice(0, 9) + '…' : label}
+          {lines.map((line, i) => (
+            <tspan key={i} x={left + width / 2} dy={i === 0 ? 0 : lineHeight}>
+              {line}
+            </tspan>
+          ))}
           <title>{tooltip}</title>
         </text>
       )}
