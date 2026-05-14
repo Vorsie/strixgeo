@@ -461,6 +461,218 @@ async def test_auto_populate_creates_contacts_from_formal_stratigraphy(
     assert body["skipped_no_stratigraphy"] == 0
 
 
+async def test_auto_populate_assigns_display_order_by_depth_descending(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """The deepest formation (oldest) gets the LOWEST display_order.
+
+    Borehole has three layers: 'Antropogeen' at 0–1 m (youngest),
+    'Quartair' at 1–5 m, 'Ieper' at 5–15 m (oldest). Auto-populate
+    walks top-down so without the depth-sort fix the first-encountered
+    'Antropogeen' would end up with display_order=0 — inverted from
+    the "Modelling hierarchy" convention. Pin: deepest mean top wins.
+    """
+    from sqlalchemy import select
+
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    obs = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="formal_stratigraphy",
+    )
+    db_session.add(obs)
+    await db_session.flush()
+    layers = [
+        ObservationLayerOrm(
+            id=uuid7(),
+            observation_id=obs.id,
+            top_m=0.0,
+            base_m=1.0,
+            description="Antropogeen",
+            layer_index=0,
+        ),
+        ObservationLayerOrm(
+            id=uuid7(),
+            observation_id=obs.id,
+            top_m=1.0,
+            base_m=5.0,
+            description="Quartair",
+            layer_index=1,
+        ),
+        ObservationLayerOrm(
+            id=uuid7(),
+            observation_id=obs.id,
+            top_m=5.0,
+            base_m=15.0,
+            description="Ieper",
+            layer_index=2,
+        ),
+    ]
+    db_session.add_all(layers)
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = list(
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm)
+                .where(GeologicalFormationOrm.app_project_id == project.id)
+                .order_by(GeologicalFormationOrm.display_order)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    names_in_order = [f.name for f in rows]
+    # Deepest top first (Ieper at top=5m), then Quartair (top=1m),
+    # then Antropogeen (top=0m). Lower display_order = older.
+    assert names_in_order == ["Ieper", "Quartair", "Antropogeen"]
+
+
+async def test_auto_populate_display_order_aggregates_across_boreholes(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Real-project shape: many formations, multiple boreholes, mean
+    top-depth aggregated across all observations of each formation.
+
+    Mirrors the testeroni dogfooding case (2026-05-14) — DOV imports
+    typically yield 5-9 formations per project, observed across 10+
+    boreholes with depth variations. The mean-aggregation must put
+    Antropogeen at the YOUNGEST end (highest display_order) regardless
+    of how many boreholes encountered it first.
+
+    Setup: 2 boreholes, 5 formations spanning Antropogeen → Ieper.
+    BH-1 has slightly shallower depths than BH-2 — simulates real
+    site variability.
+    """
+    from sqlalchemy import select
+
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, bh1 = project_with_borehole
+    bh2 = BoreholeOrm(
+        id=uuid7(),
+        name="BH-2",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="BH-002",
+        location_x=150100.0,
+        location_y=200100.0,
+        epsg=31370,
+        total_depth_m=20.0,
+    )
+    db_session.add(bh2)
+    await db_session.commit()
+    model = await _create_model(async_client, project.id)
+
+    # Stratigraphy used in both boreholes — top depths differ slightly
+    # to exercise the mean aggregation. Order in source matches a real
+    # top-down DOV stratigraphy walk (youngest first).
+    stratigraphy_bh1 = [
+        ("Antropogeen", 0.0, 0.8),
+        ("Quartair", 0.8, 4.5),
+        ("Pleistoceen", 4.5, 8.0),
+        ("Paleogeen: Kortrijk", 8.0, 14.0),
+        ("Ieper", 14.0, 20.0),
+    ]
+    stratigraphy_bh2 = [
+        ("Antropogeen", 0.0, 1.2),
+        ("Quartair", 1.2, 5.8),
+        ("Pleistoceen", 5.8, 9.5),
+        ("Paleogeen: Kortrijk", 9.5, 16.0),
+        ("Ieper", 16.0, 20.0),
+    ]
+
+    for borehole, layers in ((bh1, stratigraphy_bh1), (bh2, stratigraphy_bh2)):
+        obs = ObservationOrm(
+            id=uuid7(),
+            borehole_id=borehole.id,
+            observation_type="formal_stratigraphy",
+        )
+        db_session.add(obs)
+        await db_session.flush()
+        db_session.add_all(
+            [
+                ObservationLayerOrm(
+                    id=uuid7(),
+                    observation_id=obs.id,
+                    top_m=top,
+                    base_m=base,
+                    description=name,
+                    layer_index=idx,
+                )
+                for idx, (name, top, base) in enumerate(layers)
+            ]
+        )
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(bh1.id), str(bh2.id)]},
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = list(
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm)
+                .where(GeologicalFormationOrm.app_project_id == project.id)
+                .order_by(GeologicalFormationOrm.display_order)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    names_in_order = [f.name for f in rows]
+    # Deepest mean top → oldest → lowest display_order:
+    # - Ieper:    mean top = (14.0 + 16.0)/2 = 15.0
+    # - Kortrijk: mean top = (8.0 + 9.5)/2 = 8.75
+    # - Pleistoceen: mean top = (4.5 + 5.8)/2 = 5.15
+    # - Quartair: mean top = (0.8 + 1.2)/2 = 1.0
+    # - Antropogeen: mean top = (0.0 + 0.0)/2 = 0.0
+    # Antropogeen ends up YOUNGEST (highest display_order) — the
+    # whole point of the depth-sort fix. The dogfooding bug had the
+    # ordering inverted.
+    assert names_in_order == [
+        "Ieper",
+        "Paleogeen: Kortrijk",
+        "Pleistoceen",
+        "Quartair",
+        "Antropogeen",
+    ]
+    # Display orders are contiguous 0..4 (compact assignment).
+    assert [f.display_order for f in rows] == [0, 1, 2, 3, 4]
+
+
 async def test_auto_populate_pairs_formal_with_informal_split_into_name_regional_ref(
     async_client: AsyncClient,
     db_session: AsyncSession,
