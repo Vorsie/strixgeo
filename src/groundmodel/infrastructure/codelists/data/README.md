@@ -17,6 +17,24 @@ distribution received 2026-05.
 | `codetabel_kleur.csv`               |  235 | _Not used_ — DOV's WFS already returns the Dutch label (e.g. `"beigegrijs"`)          | Authoritative list of color tokens for an English-translation pass on field-log colors when we want to expose them to non-Dutch readers.                                                |
 | `codetabel_consistentie.csv`        |    7 | _Not used_ — DOV's WFS returns the Dutch label                                         | Translation table for field-log consistency tokens (`zeer slap`, `slap`, `plastisch`, `matig vast`, `vast`, `hard`, `versteend` → `very soft` / `soft` / … / `lithified`).                |
 | `grondsoort GEO-BGGG.xlsx`          |    — | _Not used_                                                                             | Original consolidated reference document from the working group; contains additional context not present in the CSV exports (descriptions, methodology, examples). Open with Excel/LO. |
+| `g3dv3_modeleenheden.xlsx`          |  113 | G3Dv3 model unit table — formation + member codes, abbreviations, Dutch names, H3D hydrogeology codes. Source for `g3dv3_units.json`. | Re-fetch when DOV publishes a new G3Dv3 revision. |
+| `g3dv3_kleurcode_rgb.xlsx`          |  133 | G3Dv3 prescribed colors — RGB per formation/member. Source for `g3dv3_units.json`. | Same refresh trigger. |
+| `g3dv3_units.json`                  |  117 | Joined catalog: code, abbreviation, rank, parent, Dutch name, **age_rank**, color hex, H3D codes. Consumed by `infrastructure/codelists/g3dv3_catalog.py`. | Single source of truth for stratigraphic ordering + canonical colors on Belgian projects. Used by auto-populate to set `display_order` (invert: lower display_order = older). |
+
+## G3Dv3 catalog rebuild
+
+Whenever DOV publishes a new G3Dv3 revision:
+
+1. Download `ModeleenhedenG3Dv3_X.xlsx` and `G3Dv3kleurcodeRGB_YYYYMMDD.xlsx`
+   from https://www.dov.vlaanderen.be/page/geologisch-3d-model-g3dv3.
+2. Overwrite `g3dv3_modeleenheden.xlsx` and `g3dv3_kleurcode_rgb.xlsx`.
+3. Run `uv run python scripts/build_g3dv3_catalog.py` to regenerate
+   `g3dv3_units.json`.
+4. Commit the three files together.
+
+The catalog is built from the xlsx files at packaging time; runtime
+code only reads the JSON. Network access is never required for
+lookup — the catalog is fully self-contained.
 
 ## Translation strategy
 
