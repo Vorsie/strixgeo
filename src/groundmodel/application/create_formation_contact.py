@@ -24,6 +24,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -115,24 +116,23 @@ class CreateFormationContact(GroundModelLogger):
         self.info(f"Creating formation contact: model={model_id}, formation={formation_id}")
         # Per-(model, anchor, formation) uniqueness check. Geological
         # semantic: a formation has exactly one top per investigation.
-        # Enforced at the application layer (vs a DB unique index)
-        # because the anchor is a nullable XOR pair — partial unique
-        # indexes work in Postgres but add migration overhead we
-        # don't need yet at this scale.
+        # Two-layer enforcement: this best-effort SELECT keeps the
+        # happy path fast (a 409 short-circuits the INSERT entirely),
+        # while the partial unique indexes on ``formation_contact``
+        # (migration c9f4e72a3811 — one per anchor flavour to handle
+        # the XOR pair) close the race for parallel transactions
+        # that both pass this check before either commits.
         anchor_filter = (
             FormationContactOrm.borehole_id == borehole_id
             if borehole_id is not None
             else FormationContactOrm.cpt_id == cpt_id
         )
-        existing_id = (
-            await self._session.execute(
-                select(FormationContactOrm.id).where(
-                    FormationContactOrm.model_id == model_id,
-                    FormationContactOrm.formation_id == formation_id,
-                    anchor_filter,
-                )
-            )
-        ).scalar_one_or_none()
+        existing_id_stmt = select(FormationContactOrm.id).where(
+            FormationContactOrm.model_id == model_id,
+            FormationContactOrm.formation_id == formation_id,
+            anchor_filter,
+        )
+        existing_id = (await self._session.execute(existing_id_stmt)).scalar_one_or_none()
         if existing_id is not None:
             self.warning(
                 f"Duplicate contact rejected: model={model_id} "
@@ -140,18 +140,43 @@ class CreateFormationContact(GroundModelLogger):
                 f"{borehole_id or cpt_id} → existing id={existing_id}"
             )
             raise DuplicateContactError(existing_id)
-        contact = await self._repo.create_contact(
-            model_id=model_id,
-            formation_id=formation_id,
-            depth_top_m=depth_top_m,
-            borehole_id=borehole_id,
-            cpt_id=cpt_id,
-            source=source,
-            confidence=confidence,
-            observation_id=observation_id,
-            observation_layer_id=observation_layer_id,
-            notes=notes,
-        )
+        # Race-safety net: the application-layer check above is best-
+        # effort. Two parallel transactions can both pass it before
+        # either commits. The partial unique indexes on
+        # ``formation_contact`` (migration c9f4e72a3811) reject the
+        # second insert with an IntegrityError; catch that and
+        # convert to the same DuplicateContactError shape so the
+        # API contract (409 + existing id) is preserved no matter
+        # which check trips first.
+        try:
+            contact = await self._repo.create_contact(
+                model_id=model_id,
+                formation_id=formation_id,
+                depth_top_m=depth_top_m,
+                borehole_id=borehole_id,
+                cpt_id=cpt_id,
+                source=source,
+                confidence=confidence,
+                observation_id=observation_id,
+                observation_layer_id=observation_layer_id,
+                notes=notes,
+            )
+        except IntegrityError as err:
+            await self._session.rollback()
+            # Re-query for the row that won the race. If the failure
+            # was the (model, formation, anchor) unique index, the
+            # winner is now visible to us. If it was a different
+            # constraint (CHECK, FK, ...), the re-query finds
+            # nothing and we re-raise the original error.
+            winner_id = (await self._session.execute(existing_id_stmt)).scalar_one_or_none()
+            if winner_id is None:
+                raise
+            self.warning(
+                f"Duplicate contact race lost: model={model_id} "
+                f"formation={formation_id} anchor="
+                f"{borehole_id or cpt_id} → winner id={winner_id}"
+            )
+            raise DuplicateContactError(winner_id) from err
         # On-click build pivot: per-contact mutations no longer trigger
         # Delaunay. Flag the surface stale so the section view renders
         # it dashed + faded; user clicks Build to materialise. Cheap
