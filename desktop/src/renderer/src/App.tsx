@@ -31,6 +31,7 @@ import { isTypingTarget } from './utils/keyboard'
 import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
 import { addAllToSet } from './utils/sets'
+import { projectPointOntoLine } from './utils/sectionProjection'
 import {
   demSourceForEpsg,
   readDemOverlay,
@@ -248,6 +249,15 @@ export default function App() {
   // map / chart / borelog — section view comes next.
   const [sections, setSections] = useState<CrossSectionResponse[]>([])
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
+  // Contact ids the user wants visually highlighted in the active
+  // cross-section. Driven by clicks on the crossings banner (debt
+  // #9): App resolves which section contains one of the offending
+  // anchors, opens it, then sets this state so ContactsLayer can
+  // render a ring + pulse on every contact in the issue. Cleared
+  // after a short timeout so the visual is transient — the user
+  // shouldn't have to dismiss it.
+  const [focusedContactIds, setFocusedContactIds] = useState<readonly string[]>([])
+  const focusedContactsTimeoutRef = useRef<number | null>(null)
 
   // Geological model state — lifted to App so SectionPanel can
   // render contacts with formation colours AND InterpretationPane
@@ -2634,6 +2644,84 @@ export default function App() {
     setSelectedBoreholeId(null)
   }, [])
 
+  // Banner click → focus the offending contacts in a section view.
+  // Resolves which section actually contains one of the contact
+  // anchors (preferring the currently-selected section to avoid an
+  // unnecessary navigation), opens it, then sets focusedContactIds
+  // so ContactsLayer renders the ring + pulse on every contact in
+  // the issue. If no section covers any of the anchors, surface a
+  // toast asking the user to draw one rather than silently doing
+  // nothing — user-decision 2026-05-14 to skip auto-creating
+  // sections. The visual is cleared after 2.5 s so it doesn't
+  // linger if the user navigates elsewhere. debt #9.
+  const handleFocusContacts = useCallback(
+    (contactIds: readonly string[]) => {
+      if (contactIds.length === 0) return
+      const offending = contacts.filter(c => contactIds.includes(c.id))
+      if (offending.length === 0) {
+        // Stale banner data — the contacts vanished since the
+        // validator ran (rare, e.g. another tab deleted them).
+        toast('error', "Couldn't find the contact in the current project.")
+        return
+      }
+      // Resolve each contact's anchor coordinates from the loaded
+      // cpts / boreholes lists. Skip contacts whose anchor has no
+      // surveyed (x, y) — they couldn't have triggered a TIN-vertex
+      // crossing in the first place.
+      const anchorPoints: Array<{ x: number; y: number }> = []
+      for (const c of offending) {
+        if (c.borehole_id) {
+          const bh = boreholes.find(b => b.id === c.borehole_id)
+          if (bh && bh.location_x !== null && bh.location_y !== null) {
+            anchorPoints.push({ x: bh.location_x, y: bh.location_y })
+          }
+        } else if (c.cpt_id) {
+          const cpt = cpts.find(p => p.id === c.cpt_id)
+          if (cpt && cpt.location_x !== null && cpt.location_y !== null) {
+            anchorPoints.push({ x: cpt.location_x, y: cpt.location_y })
+          }
+        }
+      }
+      const sectionContains = (s: CrossSectionResponse): boolean =>
+        anchorPoints.some(p => {
+          const proj = projectPointOntoLine(s, p.x, p.y)
+          return proj !== null && Math.abs(proj.offset) <= s.projection_buffer_m
+        })
+      // Prefer the section the user is already viewing — keeps the
+      // viewport stable when the offending contact is already in
+      // sight. Otherwise pick the first qualifying section in the
+      // project's list (typically the only one).
+      const current = selectedSectionId
+        ? sections.find(s => s.id === selectedSectionId) ?? null
+        : null
+      const target =
+        current && sectionContains(current)
+          ? current
+          : sections.find(sectionContains) ?? null
+      if (target === null) {
+        toast(
+          'error',
+          'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
+        )
+        return
+      }
+      if (target.id !== selectedSectionId) {
+        setSelectedSectionId(target.id)
+        setSelectedId(null)
+        setSelectedBoreholeId(null)
+      }
+      setFocusedContactIds(contactIds)
+      if (focusedContactsTimeoutRef.current !== null) {
+        window.clearTimeout(focusedContactsTimeoutRef.current)
+      }
+      focusedContactsTimeoutRef.current = window.setTimeout(() => {
+        setFocusedContactIds([])
+        focusedContactsTimeoutRef.current = null
+      }, 2500)
+    },
+    [contacts, boreholes, cpts, sections, selectedSectionId],
+  )
+
   // ---------------------------------------------------------------------------
   // Import
   // ---------------------------------------------------------------------------
@@ -3003,6 +3091,7 @@ export default function App() {
               s => s.is_stale === true,
             ).length
           }
+          onFocusContacts={handleFocusContacts}
           pushUndoCommand={pushUndo}
           onDedupeContacts={
             activeGeologicalModel ? handleDedupeContacts : undefined
@@ -3048,6 +3137,7 @@ export default function App() {
                 contacts={contacts}
                 formations={formations}
                 surfacesByFormationId={surfacesByFormationId}
+                focusedContactIds={focusedContactIds}
                 excludedBoreholeIds={
                   activeGeologicalModel?.excluded_borehole_ids ?? []
                 }
