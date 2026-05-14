@@ -52,12 +52,7 @@ import type {
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import HoverReadoutCard from './HoverReadoutCard'
-import {
-  buildFillPolygon,
-  buildFloorFillPolygon,
-  columnsBetween,
-  type PlacedColumn,
-} from './utils'
+import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
 
 interface Props {
   contacts: readonly FormationContactResponse[]
@@ -829,6 +824,35 @@ export default function ContactsLayer({
     return out
   }, [slicedPolylines])
 
+  // Deepest investigation-bottom screen-Y in the section's projected
+  // columns — used as the FLOOR for the oldest formation's fill (and
+  // the fallback when an intermediate formation has pinched out and
+  // no older covers an X position). Filling down to plotBottom is
+  // misleading because it visualises model data where we don't have
+  // any; clipping to the deepest CPT / borehole bottom keeps the
+  // band honest about what the section actually knows.
+  const dataExtentFloor = useMemo(() => {
+    let deepest = -Infinity
+    for (const col of placedColumns) {
+      const item = col.proj.item
+      const elev = item.elevation_m
+      if (elev == null) continue
+      const bottomDepth =
+        col.kind === 'cpt'
+          ? (item as CptListItem).max_depth_m
+          : (item as BoreholeListItem).total_depth_m
+      if (bottomDepth == null) continue
+      const bottomElev = elev - bottomDepth
+      const y = levelToScreen(bottomElev)
+      if (y > deepest) deepest = y
+    }
+    // Fall back to plotBottom only if no column has depth data —
+    // otherwise that floor is the worst case (full plot height).
+    // Cap at plotBottom so a clipped projection doesn't push the
+    // floor below the visible plot.
+    return deepest === -Infinity ? plotBottom : Math.min(deepest, plotBottom)
+  }, [placedColumns, levelToScreen, plotBottom])
+
   // Filled coloured bands between adjacent formation tops, giving
   // the section the classic geological-column read: each rock unit
   // shaded with its formation colour between its top and the next-
@@ -837,11 +861,19 @@ export default function ContactsLayer({
   // uses — so the bands stay correct even when display_order is
   // inverted from convention.
   //
-  // The oldest formation gets a floor fill down to plotBottom (the
-  // section's visible elevation floor): visualises "below this top
-  // the formation continues as far as we can see". Above the
-  // youngest top there's no fill (nothing geological to draw —
-  // that's open air / un-modelled).
+  // Pinch-out handling (the geologically correct behaviour): when
+  // the immediate-next-older formation has no data at some X — e.g.
+  // KoAa pinches out east of borehole BH-5 — the band's bottom
+  // at that X falls through to the NEXT older formation (KoRo).
+  // The fallback chain walks the full age-sorted older list before
+  // dropping to the data-extent floor. Without this, the Quartair
+  // band would truncate at KoAa's eastern edge and leave a visual
+  // gap where Quartair geologically continues onto KoRo.
+  //
+  // The oldest formation's fill stops at ``dataExtentFloor`` — the
+  // deepest CPT or borehole bottom — not at the visible plot floor.
+  // Above the youngest top there's no fill (nothing geological to
+  // draw — that's open air / un-modelled).
   //
   // Opacity is intentionally low (0.18 fresh / 0.08 stale) so the
   // qc curves + per-column glyphs underneath remain legible. The
@@ -875,10 +907,11 @@ export default function ContactsLayer({
     }[] = []
     for (let i = 0; i < annotated.length; i++) {
       const younger = annotated[i].line
-      const older = annotated[i + 1]?.line
-      const d = older
-        ? buildFillPolygon(younger.screenPoints, older.screenPoints)
-        : buildFloorFillPolygon(younger.screenPoints, plotBottom)
+      // All formations older than this one, in age order
+      // (immediate-next-older first) — fed to buildFillBand as the
+      // pinch-out fallback chain.
+      const olders = annotated.slice(i + 1).map(a => a.line.screenPoints)
+      const d = buildFillBand(younger.screenPoints, olders, dataExtentFloor)
       if (d === '') continue
       out.push({
         formationId: younger.formationId,
@@ -888,7 +921,7 @@ export default function ContactsLayer({
       })
     }
     return out
-  }, [slicedPolylines, plotBottom])
+  }, [slicedPolylines, dataExtentFloor])
 
   // Drag state lives in the component so its update path is
   // explicit. Document-level mousemove + mouseup listeners attach
