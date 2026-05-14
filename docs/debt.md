@@ -683,3 +683,50 @@ work (debt #44 already lists open follow-ups) — they share the
 section-jump-and-highlight infrastructure. Or after the first
 real user reports being unable to find the offending contact
 without trial-and-error in the section view.
+
+## 53. Virtuele Boring API as formation prior for CPT-only projects (medium — dogfooding ask 2026-05-14)
+
+**What.** DOV exposes a REST API at
+``services.dov.vlaanderen.be/virtueleboringserver/base/lagenmodel/g3dv3_F/profielbevraging/lagen``
+that returns the expected G3Dv3 formation stack at any (x, y) in
+Flanders, derived from the same 3D model whose unit table we
+ship as a static codelist. Wire it as a Phase 4+ fallback that
+seeds candidate formation contacts when a project has CPTs only
+and no boreholes with formal stratigraphic interpretations —
+giving the engineer "DOV says you should expect Antropogeen
+0–2m, Boom Klei 2–18m, ..." as a starting point to nudge from
+in the section editor.
+
+**Why deferred.** The G3Dv3 static catalog (this commit) covers
+the "what formations exist + age order + colors" half. The
+Virtuele Boring API covers the "where in the column at THIS
+location" half — useful but not production-blocking. The API
+also needs reverse-engineering: the public spec at
+``confluence.omgeving.vlaanderen.be/.../Virtueel+Profiel+API`` is
+behind a Confluence redirect we couldn't follow, the bare
+endpoint returned ``null`` to the probe coords (request shape
+not fully understood yet), and we need to verify it returns NCS
+slugs / G3Dv3 codes (not just locally-rendered text labels)
+before integrating.
+
+**Wins when this lands:**
+* CPT-only projects get a default formation stack out-of-the-box
+  (massive demo win — drop a project, hit "Seed from G3Dv3", get
+  a starting model in seconds).
+* Reduces "blank page" friction when no borehole interpretations
+  exist nearby.
+* Sanity-check on user-drawn formations ("DOV predicted Diest at
+  this depth, you placed Boom — confirm?").
+
+**When to revisit.** When dogfooding hits a CPT-only project
+where the user has to type every formation from scratch, OR when
+the Flanders launch demo needs "import → instant model" to land
+without a borehole prerequisite.
+
+**Implementation sketch.** New ``infrastructure/parsers/dov/
+virtuele_boring_client.py`` (GroundModelLogger-inheriting),
+returns a list of ``{formation_code, top_m, base_m,
+confidence}``. UI surface: "Seed from G3Dv3" button in
+InterpretationPane next to "Auto-populate from boreholes". The
+seeded contacts carry a flag distinguishing them from
+borehole-anchored picks so the validator can downweight them.
