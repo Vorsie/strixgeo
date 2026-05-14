@@ -158,6 +158,8 @@ function installElectronStub(): void {
     onMenuProjectSaveAs: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuProjectClose: vi.fn().mockReturnValue(noopUnsubscribe),
     onMenuProjectOpenRecent: vi.fn().mockReturnValue(noopUnsubscribe),
+    onMenuEditUndo: vi.fn().mockReturnValue(noopUnsubscribe),
+    onMenuEditRedo: vi.fn().mockReturnValue(noopUnsubscribe),
   }
 }
 
