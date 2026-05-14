@@ -283,6 +283,26 @@ export interface DeduplicateContactsResponse {
   removed_contact_ids: string[]
 }
 
+/** API representation of a cached TIN surface — one per
+ * (model, formation). Section view fetches these to render slice-
+ * derived polylines (off-line picks contribute via their triangle).
+ */
+export interface FormationSurfaceResponse {
+  id: string
+  model_id: string
+  formation_id: string
+  method: string
+  /** ``[x_m, y_m, elevation_m]`` triples in the project's
+   * horizontal CRS + the formation's vertical datum. */
+  vertices: [number, number, number][]
+  /** Vertex-index triples (counter-clockwise winding). Empty
+   * when the formation has < 3 valid contact points. */
+  triangles: [number, number, number][]
+  source_contact_count: number
+  created_at: string
+  updated_at: string
+}
+
 // Gap validator output — the editor surfaces these as soft warnings
 // per borehole (missing surface contact, duplicate depth, contact
 // below test depth, etc.). Empty issues = clean stratigraphy.
@@ -1048,6 +1068,16 @@ export const api = {
         `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
         { borehole_ids: boreholeIds },
       ),
+
+    // List every cached TIN surface in the model. Section consumer
+    // fetches once on section load + indexes by formation_id; the
+    // in-browser slice service cuts each surface against the
+    // section line.
+    listSurfaces: (
+      projectId: string,
+      modelId: string,
+    ): Promise<FormationSurfaceResponse[]> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/surfaces`),
 
     // One-shot cleanup for legacy duplicates (pre-uniqueness rule).
     // Walks every (model, anchor, formation) group with N>1 contacts
