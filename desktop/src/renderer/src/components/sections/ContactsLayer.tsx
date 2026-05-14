@@ -162,6 +162,14 @@ interface Props {
    * render — gives the user something to look at while the geology
    * is sparse. */
   surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /** Contact ids to visually highlight with a transient ring +
+   * pulse — driven by the crossings-banner click intent (debt #9).
+   * Each matching contact in the per-column layer band gets an
+   * additional amber ring rendered on top of its segment line so the
+   * user can spot the offending pick without hunting. Undefined or
+   * empty → no highlight. Parent (App.tsx) clears the set after a
+   * short timer so the visual is transient. */
+  focusedContactIds?: ReadonlySet<string>
   /** Section-line endpoints in the project's horizontal CRS. The
    * slice projects each TIN vertex against this line, so its
    * coordinate frame must match the surface vertices' frame. Both
@@ -488,6 +496,7 @@ export default function ContactsLayer({
   surfacesByFormationId,
   sectionLine,
   alongMToScreenX,
+  focusedContactIds,
 }: Props): JSX.Element | null {
   // ---- Selection model -------------------------------------------
   // Component-local — selection is transient UI state, not a
@@ -1727,6 +1736,7 @@ export default function ContactsLayer({
         const display = showLabel ? truncateToWidth(layer.formationName, labelWidth) : ''
         const isDragged = drag !== null && drag.contactId === layer.contactId
         const isSelected = selection.has(layer.contactId)
+        const isFocused = focusedContactIds?.has(layer.contactId) ?? false
         return (
           <g key={layer.key}>
             {/* Selection halo — drawn under the top segment so the
@@ -1745,6 +1755,59 @@ export default function ContactsLayer({
                   strokeOpacity={0.35}
                   pointerEvents="none"
                 />
+              )}
+            {/* Focus ring + pulse — fired by the crossings banner
+                click intent (debt #9). Amber, matching the banner
+                colour, so the visual association is obvious. The
+                inner static ring marks the offending pick; the
+                concentric SMIL-animated circle pulses outward to
+                draw the eye. Cleared after the parent's timeout. */}
+            {isFocused &&
+              layer.segY >= plotTop &&
+              layer.segY <= plotBottom && (
+                <g pointerEvents="none" data-testid="contact-focus-ring">
+                  <line
+                    x1={layer.segLeftX - 3}
+                    x2={layer.segRightX + 3}
+                    y1={layer.segY}
+                    y2={layer.segY}
+                    stroke="#d97706"
+                    strokeWidth={5}
+                    strokeOpacity={0.4}
+                  />
+                  <circle
+                    cx={layer.labelX}
+                    cy={layer.segY}
+                    r={6}
+                    fill="none"
+                    stroke="#d97706"
+                    strokeWidth={2}
+                  />
+                  <circle
+                    cx={layer.labelX}
+                    cy={layer.segY}
+                    r={6}
+                    fill="none"
+                    stroke="#d97706"
+                    strokeWidth={2}
+                    opacity={0.7}
+                  >
+                    <animate
+                      attributeName="r"
+                      from="6"
+                      to="18"
+                      dur="1.2s"
+                      repeatCount="indefinite"
+                    />
+                    <animate
+                      attributeName="opacity"
+                      from="0.7"
+                      to="0"
+                      dur="1.2s"
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+                </g>
               )}
             {/* Top segment — only when the top sits inside the plot
                 area, otherwise the layer extends off the top edge
