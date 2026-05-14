@@ -91,6 +91,18 @@ Pick a slice through the project, see the investigations projected
 on it, draw/edit formation tops between them — the edits commit to
 the geological model, not to the section. The section is a view.
 
+**Stratigraphic order — `display_order` is the age axis.** Lower
+`display_order` = older formation (deeper in the stratigraphic
+column). Section views and any other layered renderer iterate
+formations ASCENDING by `display_order` so older paints first and
+younger formations render visually on top — the geological
+superposition rule. Reorder lives in InterpretationPane via
+drag-and-drop; the drag-end commit renumbers every visible
+formation 0..N-1 (compact) and PATCHes only the rows whose index
+actually changed. Future work (debt #14, crossing validator) uses
+this ordering to flag "younger formation drops below older" as a
+violation.
+
 ### v1.0 commercial MVP gate
 
 The product is "sellable" the moment a geotech engineer can do this
