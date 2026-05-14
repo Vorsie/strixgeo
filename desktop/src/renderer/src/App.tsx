@@ -667,13 +667,16 @@ export default function App() {
   // Auto-refetch surfaces after any contact mutation. ``contacts``
   // identity changes exactly once per mutation handler (each one
   // calls setContacts), so this useEffect fires once per mutation
-  // without per-handler bookkeeping. The backend recomputes the TIN
-  // synchronously inside each mutation, so by the time we GET here
-  // the cache is current. Skips on the bootstrap-initial setContacts
-  // because the bootstrap already fetched surfaces in parallel.
-  // Same trigger bumps the crossings refresh signal so the
-  // InterpretationPane's validator banner re-runs whenever picks
-  // change.
+  // without per-handler bookkeeping. Post on-click build pivot: the
+  // refetch returns is_stale=true for surfaces of formations whose
+  // contacts changed (per-edit handlers flip the flag rather than
+  // recompute), and is_stale=false after AutoPopulate / Dedupe
+  // (those still trigger Delaunay synchronously). Either way the
+  // GET reflects the current cache state. Skips on the bootstrap-
+  // initial setContacts because the bootstrap already fetched
+  // surfaces in parallel. Same trigger bumps the crossings refresh
+  // signal so the InterpretationPane's validator banner re-runs
+  // whenever picks change.
   const lastSurfaceRefetchContactsRef = useRef<readonly FormationContactResponse[] | null>(null)
   const [crossingsRefreshCounter, setCrossingsRefreshCounter] = useState(0)
   useEffect(() => {
