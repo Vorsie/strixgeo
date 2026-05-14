@@ -10,6 +10,9 @@ side effects observable through the response.
 
 from __future__ import annotations
 
+from datetime import UTC
+from uuid import UUID
+
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -814,6 +817,103 @@ async def test_create_contact_rejects_duplicate_anchor_formation(
     detail = resp.json()["detail"]
     assert detail["code"] == "duplicate_contact"
     assert detail["existing_contact_id"] == first["id"]
+
+
+async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Three pre-existing duplicates for the same (anchor, formation) →
+    dedupe keeps one, deletes the other two. Survivor = manual_pick
+    when present (beats borehole_observation), else most recent.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from groundmodel.infrastructure.db.models.formation_contact_orm import (
+        FormationContactOrm as FCO,
+    )
+
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    # Insert 3 duplicates directly (bypasses the new uniqueness check
+    # at the API layer; this mirrors the legacy data shape we want
+    # to clean up).
+    now = datetime.now(UTC)
+    auto_old = FCO(
+        id=uuid7(),
+        model_id=UUID(model["id"]),
+        formation_id=UUID(formation["id"]),
+        borehole_id=borehole.id,
+        depth_top_m=2.0,
+        source="borehole_observation",
+        confidence="high",
+        observation_layer_id=None,
+        created_at=now - timedelta(hours=2),
+    )
+    auto_recent = FCO(
+        id=uuid7(),
+        model_id=UUID(model["id"]),
+        formation_id=UUID(formation["id"]),
+        borehole_id=borehole.id,
+        depth_top_m=2.0,
+        source="borehole_observation",
+        confidence="high",
+        observation_layer_id=None,
+        created_at=now,
+    )
+    manual = FCO(
+        id=uuid7(),
+        model_id=UUID(model["id"]),
+        formation_id=UUID(formation["id"]),
+        borehole_id=borehole.id,
+        depth_top_m=2.5,
+        source="manual_pick",
+        confidence="medium",
+        created_at=now - timedelta(hours=1),
+    )
+    db_session.add_all([auto_old, auto_recent, manual])
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/dedupe",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["inspected_groups"] == 1
+    assert body["duplicates_removed"] == 2
+
+    # Survivor must be the manual_pick (priority 1 wins over the two
+    # borehole_observation rows regardless of timestamp).
+    list_resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+    )
+    rows = list_resp.json()
+    assert len(rows) == 1
+    assert rows[0]["id"] == str(manual.id)
+    assert rows[0]["source"] == "manual_pick"
+
+
+async def test_dedupe_is_a_no_op_when_no_duplicates(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Clean model → 0 duplicates removed, idempotent."""
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+    )
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/dedupe",
+    )
+    body = resp.json()
+    assert body["inspected_groups"] == 1
+    assert body["duplicates_removed"] == 0
+    assert body["removed_contact_ids"] == []
 
 
 async def test_create_contact_allows_same_formation_on_different_anchors(
