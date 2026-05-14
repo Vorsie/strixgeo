@@ -244,10 +244,11 @@ def test_sub_centimetre_overlap_within_tolerance_is_not_a_crossing() -> None:
     assert issues == []
 
 
-def test_equal_display_order_pairs_are_skipped() -> None:
-    """Two formations with the SAME display_order have no defined
-    superposition relationship — the validator skips the pair silently
-    rather than guessing which is older.
+def test_equal_mean_elevation_pairs_are_skipped() -> None:
+    """Two formations with identical mean surface elevation have no
+    defined superposition relationship — the validator skips the
+    pair rather than guessing which is older. (display_order is
+    NOT consulted; geological age derives from the data.)
     """
     a = _surface(
         "A",
@@ -257,11 +258,50 @@ def test_equal_display_order_pairs_are_skipped() -> None:
     )
     b = _surface(
         "B",
-        display_order=5,  # same as A
-        vertices=[(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (5.0, 10.0, 0.0)],
+        display_order=10,
+        # Identical mean elevation (= 5.0) — different vertices but
+        # the same area-averaged depth.
+        vertices=[(0.0, 0.0, 4.0), (10.0, 0.0, 5.0), (5.0, 10.0, 6.0)],
         triangles=_UNIT_TRIANGLES,
     )
     issues = GeologyValidator().validate_no_crossings([a, b])
+    assert issues == []
+
+
+def test_validator_ignores_display_order_uses_mean_elevation() -> None:
+    """Regression: ``display_order`` describes UI list order, NOT
+    geological age. A natural top-down workflow assigns
+    ``display_order = 0`` to the youngest formation (the surface unit
+    encountered first when describing a borehole). Under that
+    convention every project would false-flag a crossing.
+
+    Fixture: the SHALLOWER surface carries the LOWER ``display_order``
+    (i.e. user's "top-down" creation order) — opposite to any
+    "lower = older" convention. The data is geologically consistent
+    (deeper surface IS older). The validator must produce zero
+    issues.
+    """
+    # display_order says this is OLDEST (=0), but the surface sits
+    # NEAR THE TOP (high elevation = young in reality).
+    shallow_but_labelled_old = _surface(
+        "Antropogeen",
+        display_order=0,
+        vertices=[(0.0, 0.0, 9.5), (10.0, 0.0, 9.6), (5.0, 10.0, 9.7)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    # display_order says this is YOUNGEST (=3), but it sits DEEP
+    # (low elevation = old in reality).
+    deep_but_labelled_young = _surface(
+        "Roubaix",
+        display_order=3,
+        vertices=[(0.0, 0.0, -15.0), (10.0, 0.0, -14.8), (5.0, 10.0, -15.2)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    issues = GeologyValidator().validate_no_crossings(
+        [shallow_but_labelled_old, deep_but_labelled_young]
+    )
+    # Zero crossings — the data is geologically consistent regardless
+    # of the inverted display_order labels.
     assert issues == []
 
 
