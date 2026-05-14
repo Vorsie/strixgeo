@@ -23,9 +23,8 @@
 import { ChevronDown, ChevronRight, Database } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { api } from '../../api/client'
 import type { VirtueleBoringLagenmodelEntry } from '../../api/client'
-import { log } from '../../utils/log'
+import { useVirtueleBoringCatalog } from '../../hooks/useVirtueleBoringCatalog'
 import {
   VIRTUELE_BORING_MAX_DEPTH_MAX_M,
   VIRTUELE_BORING_MAX_DEPTH_MIN_M,
@@ -56,8 +55,7 @@ export default function VirtueleBoringStrip({
   onChangeShowOnSection,
 }: Props): JSX.Element {
   const [open, setOpen] = useState(modelA !== null || modelB !== null)
-  const [catalog, setCatalog] = useState<VirtueleBoringLagenmodelEntry[] | null>(null)
-  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const catalog = useVirtueleBoringCatalog(open)
   // Local-then-commit pattern for the depth input — the input shows
   // whatever the user is typing immediately, but the actual overlay
   // state (and the PATCH /view-state round-trip) only fires when
@@ -69,23 +67,6 @@ export default function VirtueleBoringStrip({
   useEffect(() => {
     setLocalDepth(maxDepthM === null ? '' : String(maxDepthM))
   }, [maxDepthM])
-
-  useEffect(() => {
-    if (!open || catalog !== null) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const result = await api.virtueleBoring.lagenmodellen()
-        if (!cancelled) setCatalog(result)
-      } catch (err) {
-        log.warning('VirtueleBoringStrip', `lagenmodellen fetch failed: ${String(err)}`)
-        if (!cancelled) setCatalogError('Could not reach DOV.')
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [open, catalog])
 
   const overlayActive = modelA !== null || modelB !== null
 
@@ -127,6 +108,9 @@ export default function VirtueleBoringStrip({
 
       {open && (
         <>
+          {open && catalog === null && (
+            <span className="text-[10px] text-gray-400">Loading catalogue…</span>
+          )}
           <ModelSlotDropdown
             label="A"
             selected={modelA}
@@ -170,9 +154,6 @@ export default function VirtueleBoringStrip({
               />
               <span>Show on section</span>
             </label>
-          )}
-          {catalogError !== null && (
-            <span className="text-[10px] text-amber-700">{catalogError}</span>
           )}
         </>
       )}
