@@ -210,12 +210,25 @@ class GeologyValidator(GroundModelLogger):
     ) -> list[GapIssue]:
         """Check that no two formation surfaces violate stratigraphic order.
 
-        For every pair (older, younger) where ``older.display_order <
-        younger.display_order``, sample each surface's vertices
-        against the other's TIN and look for points where the younger
-        formation lies BELOW the older — a violation of the geological
-        superposition rule. Within ``CROSSING_TOLERANCE_M`` of each
-        other counts as touching, not crossing (interpolation noise).
+        For every pair of surfaces, derive which is older from the
+        data itself: the surface with the LOWER mean elevation across
+        its footprint is the older formation (older lies deeper in
+        the column by definition of stratigraphic superposition).
+        Then sample each surface's vertices against the other's TIN
+        and look for points where the younger formation lies BELOW
+        the older — a violation. Within ``CROSSING_TOLERANCE_M`` of
+        each other counts as touching, not crossing (interpolation
+        noise).
+
+        Why not use ``display_order``? It's a UI ordering preference
+        the user manipulates via drag-and-drop in InterpretationPane.
+        The natural top-down workflow (describe a borehole from the
+        surface down → create formations in encounter order) puts
+        ``display_order = 0`` on the YOUNGEST formation, opposite to
+        any "lower = older" convention. Validating against it
+        false-flags every project where the user created formations
+        in natural order. Geological age is data-driven; this
+        validator should be too.
 
         Parameters
         ----------
@@ -244,14 +257,27 @@ class GeologyValidator(GroundModelLogger):
         coverage projects are essentially free.
         """
         issues: list[GapIssue] = []
-        # Filter to surfaces that actually have triangles. Equal
-        # display_order pairs are skipped (ambiguous order).
+        # Filter to surfaces that actually have triangles. Pairs with
+        # identical mean elevation (rare: identical-depth surfaces)
+        # are skipped — order ambiguous, nothing to validate.
         usable = [f for f in formations if f.surface.triangles]
+        # Pre-compute mean elevation per surface — used as the
+        # data-derived age axis. ``surface.vertices`` carries (x, y,
+        # elevation_m) tuples (positive up) by the contract documented
+        # in tin_surface.compute_tin.
+        mean_z: dict[int, float] = {
+            id(f): sum(v[2] for v in f.surface.vertices) / len(f.surface.vertices)
+            for f in usable
+            if f.surface.vertices
+        }
         for i, a in enumerate(usable):
             for b in usable[i + 1 :]:
-                if a.display_order == b.display_order:
+                mean_a = mean_z.get(id(a))
+                mean_b = mean_z.get(id(b))
+                if mean_a is None or mean_b is None or mean_a == mean_b:
                     continue
-                if a.display_order < b.display_order:
+                # Lower mean elevation = deeper in the column = older.
+                if mean_a < mean_b:
                     older, younger = a, b
                 else:
                     older, younger = b, a
