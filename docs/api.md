@@ -200,7 +200,35 @@ GET    /projects/{pid}/geology/models/{mid}/boreholes/{bid}/validate
                                                     missing_surface_contact,
                                                     duplicate_depth,
                                                     contact_below_test,
-                                                    no_contacts.
+                                                    no_contacts. Each issue
+                                                    carries optional
+                                                    ``contact_ids`` /
+                                                    ``formation_ids`` arrays
+                                                    so the editor can
+                                                    highlight the offenders.
+
+GET    /projects/{pid}/geology/models/{mid}/validate/crossings
+                                                    Cross-formation validator.
+                                                    Walks every cached TIN
+                                                    pair (older, younger) and
+                                                    flags any (x, y) where
+                                                    the younger formation's
+                                                    surface dips below the
+                                                    older's — a violation of
+                                                    the stratigraphic-order
+                                                    superposition rule
+                                                    (lower display_order =
+                                                    older). Issue kind:
+                                                    ``formation_crossing``;
+                                                    ``formation_ids`` carries
+                                                    ``[older_id, younger_id]``
+                                                    and ``depth_m`` carries
+                                                    the worst Δ-elevation in
+                                                    metres. Empty list = all
+                                                    surfaces stack consistently.
+                                                    1 cm tolerance absorbs
+                                                    interpolation + survey
+                                                    noise.
 
 GET    /projects/{pid}/geology/models/{mid}/surfaces
                                                     List the cached TIN
