@@ -168,7 +168,13 @@ describe('ContactsLayer', () => {
       [makeFormation()],
       [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
     )
-    expect(container.querySelectorAll('path').length).toBe(1)
+    // One per-formation cross-column polyline (the dashed top line).
+    // We target paths that aren't the fill band — fills also render
+    // as <path> now but carry a ``data-testid="formation-fill-..."``.
+    const lines = Array.from(container.querySelectorAll('path')).filter(
+      p => !p.getAttribute('data-testid')?.startsWith('formation-fill-'),
+    )
+    expect(lines.length).toBe(1)
   })
 
   it('emits a horizontal segment at every contact top', () => {
@@ -634,7 +640,12 @@ describe('ContactsLayer', () => {
       [makeFormation({ color: '#aabbcc' })],
       [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
     )
-    expect(container.querySelector('path')?.getAttribute('stroke')).toBe('#aabbcc')
+    // The fill band path has stroke="none" — skip it. Target the
+    // formation's actual top polyline by excluding the fill testid.
+    const linePath = Array.from(container.querySelectorAll('path')).find(
+      p => !p.getAttribute('data-testid')?.startsWith('formation-fill-'),
+    )
+    expect(linePath?.getAttribute('stroke')).toBe('#aabbcc')
     expect(container.querySelector('line')?.getAttribute('stroke')).toBe('#aabbcc')
   })
 
