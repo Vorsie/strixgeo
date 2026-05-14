@@ -25,26 +25,37 @@ from uuid import UUID
 
 @dataclass(frozen=True)
 class GapIssue:
-    """One problem found by the no-gaps validator.
+    """One problem found by the geology validator.
 
     Attributes
     ----------
     kind : str
-        One of ``"missing_surface_contact"``, ``"duplicate_depth"``,
-        ``"contact_below_test"``, ``"no_contacts"``. New kinds may
+        Per-borehole kinds: ``"missing_surface_contact"``,
+        ``"duplicate_depth"``, ``"contact_below_test"``,
+        ``"no_contacts"``. Cross-formation kinds:
+        ``"formation_crossing"`` (two surfaces intersect against the
+        stratigraphic-order superposition rule). New kinds may
         be added; callers should treat unknown kinds as warnings
         rather than crash.
     detail : str
         Free-text explanation suitable for the UI.
     depth_m : float | None
-        Depth involved in the issue, when relevant.
+        Depth involved in the issue, when relevant. For crossing
+        issues this carries the worst elevation difference (positive
+        metres of "wrong way" overlap).
     contact_ids : tuple[UUID, ...]
         Contact rows the issue points at (for the editor to
         highlight). Empty tuple when no specific contact is at
         fault (e.g. ``no_contacts``).
+    formation_ids : tuple[UUID, ...]
+        Formations involved in the issue. Empty for per-borehole
+        kinds; populated for ``formation_crossing`` as
+        ``(older_formation_id, younger_formation_id)`` (in stratigraphic
+        order — older first).
     """
 
     kind: str
     detail: str
     depth_m: float | None = None
     contact_ids: tuple[UUID, ...] = ()
+    formation_ids: tuple[UUID, ...] = ()
