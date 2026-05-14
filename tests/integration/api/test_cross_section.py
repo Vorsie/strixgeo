@@ -146,3 +146,78 @@ async def test_patch_omitted_view_state_leaves_bag_untouched(
     body = resp.json()
     assert body["name"] == "Renamed"
     assert body["view_state"] == {"cpt_channels": {"qc": True}}
+
+
+async def test_patch_excluded_ids_persists_through_round_trip(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """Right-click → remove from section path: PATCH appends to the
+    excluded arrays, GET returns them unchanged.
+
+    The frontend (SectionPanel.handleRemoveFromSection) reads the
+    current arrays, appends the new id, and PATCHes the whole array.
+    This test pins that the round-trip preserves what the caller sent.
+    """
+    section = await _create_section(async_client, project.id)
+    # Initial state: empty arrays.
+    assert section["excluded_cpt_ids"] == []
+    assert section["excluded_borehole_ids"] == []
+
+    cpt_id = str(uuid7())
+    bh_id_a = str(uuid7())
+    bh_id_b = str(uuid7())
+
+    # First patch: hide a CPT + a borehole.
+    resp = await async_client.patch(
+        f"/projects/{project.id}/sections/{section['id']}",
+        json={
+            "excluded_cpt_ids": [cpt_id],
+            "excluded_borehole_ids": [bh_id_a],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["excluded_cpt_ids"] == [cpt_id]
+    assert body["excluded_borehole_ids"] == [bh_id_a]
+
+    # Second patch: extend borehole list (caller appends client-side).
+    resp = await async_client.patch(
+        f"/projects/{project.id}/sections/{section['id']}",
+        json={"excluded_borehole_ids": [bh_id_a, bh_id_b]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    # CPT list untouched (we didn't send it); borehole list expanded.
+    assert body["excluded_cpt_ids"] == [cpt_id]
+    assert body["excluded_borehole_ids"] == [bh_id_a, bh_id_b]
+
+
+async def test_patch_excluded_ids_empty_array_clears_the_list(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """ "Restore all" footer path: PATCH with an empty array clears
+    every previously-excluded id. The frontend's footer button sends
+    both arrays as ``[]`` in one PATCH.
+    """
+    section = await _create_section(async_client, project.id)
+    cpt_id = str(uuid7())
+    bh_id = str(uuid7())
+
+    # Seed the section with one hidden of each kind.
+    await async_client.patch(
+        f"/projects/{project.id}/sections/{section['id']}",
+        json={
+            "excluded_cpt_ids": [cpt_id],
+            "excluded_borehole_ids": [bh_id],
+        },
+    )
+
+    # Clear both via the footer's PATCH shape.
+    resp = await async_client.patch(
+        f"/projects/{project.id}/sections/{section['id']}",
+        json={"excluded_cpt_ids": [], "excluded_borehole_ids": []},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["excluded_cpt_ids"] == []
+    assert body["excluded_borehole_ids"] == []
