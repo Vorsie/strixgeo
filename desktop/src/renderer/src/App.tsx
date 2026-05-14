@@ -1435,31 +1435,45 @@ export default function App() {
       // Refetch the cache so the section view's slice render uses
       // the freshly-computed TINs even when the checksum matched.
       refetchSurfaces()
+      // Build also auto-reorders display_order to match the data —
+      // refetch formations so the InterpretationPane list reflects
+      // the new age order without a window reload.
+      const reordered = result.formations_reordered ?? 0
+      if (reordered > 0) {
+        refetchFormations()
+      }
       log.success(
         'geology',
         `rebuildSurfaces ok considered=${result.formations_considered} ` +
-          `rebuilt=${result.formations_rebuilt}`,
+          `rebuilt=${result.formations_rebuilt} reordered=${reordered}`,
       )
       if (result.formations_considered === 0) {
         toast('success', 'No formations with picks yet — nothing to rebuild.')
-      } else if (result.formations_rebuilt === 0) {
+      } else if (result.formations_rebuilt === 0 && reordered === 0) {
         toast(
           'success',
           `Cache already in sync (${result.formations_considered} ` +
             `formation${result.formations_considered === 1 ? '' : 's'} checked).`,
         )
       } else {
-        toast(
-          'success',
-          `Rebuilt ${result.formations_rebuilt} of ${result.formations_considered} ` +
-            `surface${result.formations_considered === 1 ? '' : 's'}.`,
-        )
+        const rebuiltPart =
+          result.formations_rebuilt > 0
+            ? `Rebuilt ${result.formations_rebuilt} of ${result.formations_considered} ` +
+              `surface${result.formations_considered === 1 ? '' : 's'}`
+            : `${result.formations_considered} surface${
+                result.formations_considered === 1 ? '' : 's'
+              } already current`
+        const reorderPart =
+          reordered > 0
+            ? `; reordered ${reordered} formation${reordered === 1 ? '' : 's'} by depth`
+            : ''
+        toast('success', `${rebuiltPart}${reorderPart}.`)
       }
     } catch (err) {
       log.error('geology', 'rebuildSurfaces failed', err)
       toast('error', 'Could not rebuild surfaces — see console.')
     }
-  }, [project, activeGeologicalModel, refetchSurfaces])
+  }, [project, activeGeologicalModel, refetchSurfaces, refetchFormations])
 
   // each section borehole's stratigraphy observation (formal
   // preferred, informal fallback). Backend creates contacts +
