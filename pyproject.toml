@@ -44,6 +44,16 @@ dependencies = [
     # float TIFFs natively, and ``getpixel`` / ``crop`` are all the
     # sampler needs — no array-math dependency creep.
     "Pillow>=10.0",
+    # SciPy — Delaunay triangulation for the geological model's TIN
+    # surfaces (one TIN per formation, computed from its contacts).
+    # ``scipy.spatial.Delaunay`` is the standard battle-tested
+    # implementation; we use the qhull backend it wraps. Method-
+    # agnostic surface schema means a future Phase 5 GemPy / kriging
+    # engine can drop in alongside without removing this; TIN stays
+    # the interactive default because Delaunay on tens of points is
+    # sub-millisecond, suitable for "drag a contact and see the
+    # surface refresh" UX.
+    "scipy>=1.13",
 ]
 
 [dependency-groups]
