@@ -548,6 +548,196 @@ async def test_auto_populate_assigns_display_order_by_depth_descending(
     assert names_in_order == ["Ieper", "Quartair", "Antropogeen"]
 
 
+async def test_auto_populate_display_order_uses_g3dv3_age_when_all_known(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """When every newly-created formation resolves in the G3Dv3
+    catalog, display_order follows authoritative age — not depth.
+
+    Setup: a borehole where the depth order DISAGREES with the
+    G3Dv3 age order. Layer at 0–1 m is "Boom" (Oligocene, age_rank
+    43 — old) and layer at 5–15 m is "Antropogeen" (Holocene,
+    age_rank 0 — young). On a real site this would be a faulted /
+    inverted sequence; here we engineer it on purpose to prove
+    that G3Dv3 age wins over depth when all names resolve.
+
+    With today's depth-only heuristic the deepest layer would be
+    sorted as "oldest" — but that's wrong: Antropogeen is by
+    definition younger than Boom regardless of where it sits in
+    this hole. The G3Dv3 path catches that and orders by age.
+    """
+    from sqlalchemy import select
+
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    obs = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="formal_stratigraphy",
+    )
+    db_session.add(obs)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            # Deliberate inversion: Boom (older) sits ABOVE Antropogeen
+            # (younger) in this hole. Depth heuristic alone would call
+            # Antropogeen oldest. G3Dv3 must override.
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=obs.id,
+                top_m=0.0,
+                base_m=1.0,
+                description="Boom",
+                layer_index=0,
+            ),
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=obs.id,
+                top_m=1.0,
+                base_m=5.0,
+                description="Diest",
+                layer_index=1,
+            ),
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=obs.id,
+                top_m=5.0,
+                base_m=15.0,
+                description="Antropogeen",
+                layer_index=2,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = list(
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm)
+                .where(GeologicalFormationOrm.app_project_id == project.id)
+                .order_by(GeologicalFormationOrm.display_order)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    names_in_order = [f.name for f in rows]
+    # G3Dv3 age order (oldest first → lowest display_order):
+    # Boom (age_rank 43) > Diest (age_rank 30) > Antropogeen (age_rank 0).
+    # Depth order would have put Antropogeen first; G3Dv3 wins.
+    assert names_in_order == ["Boom", "Diest", "Antropogeen"]
+
+
+async def test_auto_populate_falls_back_to_depth_when_any_formation_is_g3dv3_unknown(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Mixing G3Dv3-known and unknown formations falls back to
+    depth-derived ordering for the whole batch.
+
+    The G3Dv3 age axis and the depth axis live in different
+    coordinate systems, so mixing them produces inconsistent
+    results when they disagree. All-or-nothing keeps the batch
+    consistent: if any formation isn't in the catalog, we use
+    depth for everyone — same as today's behaviour for
+    non-Belgian or informal projects.
+    """
+    from sqlalchemy import select
+
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    obs = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="formal_stratigraphy",
+    )
+    db_session.add(obs)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=obs.id,
+                top_m=0.0,
+                base_m=1.0,
+                description="Antropogeen",
+                layer_index=0,
+            ),
+            # "MyCustomFill" is not a G3Dv3 unit — this triggers the
+            # fallback for the whole batch.
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=obs.id,
+                top_m=1.0,
+                base_m=5.0,
+                description="MyCustomFill",
+                layer_index=1,
+            ),
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=obs.id,
+                top_m=5.0,
+                base_m=15.0,
+                description="Boom",
+                layer_index=2,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = list(
+        (
+            await db_session.execute(
+                select(GeologicalFormationOrm)
+                .where(GeologicalFormationOrm.app_project_id == project.id)
+                .order_by(GeologicalFormationOrm.display_order)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    names_in_order = [f.name for f in rows]
+    # Depth-derived: deepest first → Boom, MyCustomFill, Antropogeen.
+    assert names_in_order == ["Boom", "MyCustomFill", "Antropogeen"]
+
+
 async def test_auto_populate_display_order_aggregates_across_boreholes(
     async_client: AsyncClient,
     db_session: AsyncSession,
