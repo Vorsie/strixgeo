@@ -1,21 +1,28 @@
-"""No-gaps validator for the geological model — pure domain logic.
+"""Validators for the geological model — pure domain logic.
 
-The validator answers a single question: do this borehole's
-formation contacts form a contiguous stratigraphy from surface to
-test depth? It never raises — bad data is reported as a list of
+The validator answers two questions:
+
+1. **Per borehole**: do this borehole's formation contacts form a
+   contiguous stratigraphy from surface to test depth?
+   (``validate_no_gaps``)
+2. **Cross-formation**: do any two formation surfaces violate the
+   stratigraphic-order superposition rule (younger surface dipping
+   below an older one anywhere in the project)?
+   (``validate_no_crossings``)
+
+It never raises — bad data is reported as a list of
 :class:`GapIssue` items. The editor decides whether to block save
 or warn the user.
 
-This service was lifted out of ``GeologyRepository`` (debt #26):
+The first method was lifted out of ``GeologyRepository`` (debt #26):
 domain logic does not belong inside an infrastructure file, and a
 pure-input shape lets future callers (the model editor's save
 batch, the exporter snapshot builder, a hypothetical CLI
 linter) validate without touching the database.
 
-Inputs are plain data — a sequence of contact-depth tuples and an
-optional borehole depth. The caller (typically a use case or the
-repository's loader) maps ORM rows to ``ContactDepth`` before
-delegating here.
+Inputs are plain data. The caller (typically a use case or the
+repository's loader) maps ORM rows to ``ContactDepth`` /
+``FormationSurfaceInput`` before delegating here.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
+from groundmodel.domain.services.tin_surface import TinSurface, evaluate_tin_at
 from groundmodel.domain.value_objects.gap_issue import GapIssue
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -40,6 +48,23 @@ class ContactDepth:
 
     id: UUID
     depth_top_m: float
+
+
+@dataclass(frozen=True)
+class FormationSurfaceInput:
+    """Minimal projection of a formation's TIN for the crossing check.
+
+    Carries the formation's id (so issues can name the offenders),
+    its display name (so the issue ``detail`` is readable), its
+    stratigraphic order (lower = older — drives the "younger should
+    sit above" rule), and the cached TIN. The validator never
+    recomputes the TIN; it consumes whatever the cache holds.
+    """
+
+    formation_id: UUID
+    name: str
+    display_order: int
+    surface: TinSurface
 
 
 class GeologyValidator(GroundModelLogger):
@@ -169,4 +194,103 @@ class GeologyValidator(GroundModelLogger):
 
         if issues:
             self.warning(f"validate_no_gaps: {len(issues)} issue(s) on {len(contacts)} contact(s)")
+        return issues
+
+    # Two surfaces sampled at the same (x, y) within this many metres
+    # of each other don't count as a violation — sub-decimetre overlap
+    # is within Delaunay's interpolation noise plus the elevation
+    # measurement noise from anchor surveying. 0.01 m (1 cm) is
+    # generous enough to absorb noise but small compared to a real
+    # geological misordering (which is typically metres).
+    CROSSING_TOLERANCE_M = 0.01
+
+    def validate_no_crossings(
+        self,
+        formations: Sequence[FormationSurfaceInput],
+    ) -> list[GapIssue]:
+        """Check that no two formation surfaces violate stratigraphic order.
+
+        For every pair (older, younger) where ``older.display_order <
+        younger.display_order``, sample each surface's vertices
+        against the other's TIN and look for points where the younger
+        formation lies BELOW the older — a violation of the geological
+        superposition rule. Within ``CROSSING_TOLERANCE_M`` of each
+        other counts as touching, not crossing (interpolation noise).
+
+        Parameters
+        ----------
+        formations : Sequence[FormationSurfaceInput]
+            One entry per formation to consider. Formations without a
+            triangulated surface (vertices < 3, all collinear) are
+            silently skipped — they have no surface to cross.
+
+        Returns
+        -------
+        list[GapIssue]
+            One ``formation_crossing`` issue per offending pair.
+            ``formation_ids`` is ``(older_id, younger_id)``;
+            ``depth_m`` carries the worst (largest) elevation
+            difference (positive metres of "wrong way" overlap).
+            Empty list ⇒ stratigraphic order is geologically
+            consistent everywhere the surfaces overlap.
+
+        Notes
+        -----
+        Cost is O(P × V × T) per pair where P is pair count, V is
+        sampled vertices, T is target triangles — at v1 cardinality
+        (≤ 20 formations × ≤ 200 vertices × ≤ 200 triangles) this is
+        well under 100 ms even with no spatial index. Formations
+        whose footprints don't overlap produce zero hits, so sparse-
+        coverage projects are essentially free.
+        """
+        issues: list[GapIssue] = []
+        # Filter to surfaces that actually have triangles. Equal
+        # display_order pairs are skipped (ambiguous order).
+        usable = [f for f in formations if f.surface.triangles]
+        for i, a in enumerate(usable):
+            for b in usable[i + 1 :]:
+                if a.display_order == b.display_order:
+                    continue
+                if a.display_order < b.display_order:
+                    older, younger = a, b
+                else:
+                    older, younger = b, a
+                worst_delta = 0.0
+                # Sample younger's vertices against older's TIN.
+                for vx, vy, vz_y in younger.surface.vertices:
+                    vz_o = evaluate_tin_at(older.surface, vx, vy)
+                    if vz_o is None:
+                        continue
+                    # Younger BELOW older = violation. delta is positive
+                    # metres of overlap.
+                    delta = vz_o - vz_y
+                    if delta > self.CROSSING_TOLERANCE_M and delta > worst_delta:
+                        worst_delta = delta
+                # Symmetric pass: older's vertices against younger's TIN.
+                # Catches crossings where younger has no vertex over
+                # older's footprint but older has one over younger's.
+                for vx, vy, vz_o in older.surface.vertices:
+                    vz_y = evaluate_tin_at(younger.surface, vx, vy)
+                    if vz_y is None:
+                        continue
+                    delta = vz_o - vz_y
+                    if delta > self.CROSSING_TOLERANCE_M and delta > worst_delta:
+                        worst_delta = delta
+                if worst_delta > 0.0:
+                    issues.append(
+                        GapIssue(
+                            kind="formation_crossing",
+                            detail=(
+                                f"Younger formation '{younger.name}' sits below older "
+                                f"'{older.name}' by up to {worst_delta:.2f} m — "
+                                "violates stratigraphic superposition."
+                            ),
+                            depth_m=worst_delta,
+                            formation_ids=(older.formation_id, younger.formation_id),
+                        )
+                    )
+        if issues:
+            self.warning(
+                f"validate_no_crossings: {len(issues)} crossing(s) across {len(usable)} surface(s)"
+            )
         return issues
