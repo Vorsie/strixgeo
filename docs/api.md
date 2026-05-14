@@ -236,52 +236,67 @@ GET    /projects/{pid}/geology/models/{mid}/surfaces
                                                     the model. One row per
                                                     formation that has at
                                                     least one anchor with a
-                                                    known elevation; the
-                                                    cache refreshes server-
-                                                    side after every contact
-                                                    mutation (create / update
-                                                    / delete / batch / auto-
-                                                    populate / dedupe).
-                                                    Vertices are
-                                                    [x, y, elevation] in the
-                                                    project's horizontal CRS;
-                                                    triangles are integer
-                                                    triplets indexing
+                                                    known elevation. On-click
+                                                    build: surfaces only land
+                                                    after the user clicks
+                                                    Build (POST /rebuild) —
+                                                    contact mutations flip
+                                                    ``is_stale=true`` instead
+                                                    of recomputing. Each row
+                                                    carries ``is_stale: bool``
+                                                    so the section consumer
+                                                    can render stale TINs at
+                                                    a demoted style. Vertices
+                                                    are [x, y, elevation] in
+                                                    the project's horizontal
+                                                    CRS; triangles are
+                                                    integer triplets indexing
                                                     vertices. Empty list when
-                                                    nothing has been picked.
-                                                    Bundle round-trips the
-                                                    cache so re-opening a
-                                                    .strix paints the slice
-                                                    on first render without
-                                                    a recompute.
-POST   /projects/{pid}/geology/models/{mid}/surfaces/rebuild
-                                                    Manual escape hatch —
-                                                    force-recompute every
-                                                    formation's TIN cache
-                                                    in this model. Empty
-                                                    body. Auto-recompute
-                                                    hooks keep the cache in
-                                                    sync on the happy path;
-                                                    click this when the
-                                                    cache may have drifted
-                                                    (anchor elevation
-                                                    edited without a
-                                                    contact mutation,
-                                                    bundle restored,
-                                                    suspected stale
-                                                    checksum). Idempotent
-                                                    — every formation runs
-                                                    through the same
+                                                    nothing has been picked
+                                                    + built. Bundle round-
+                                                    trips the cache + the
+                                                    is_stale flag; restore
+                                                    force-stales any surface
+                                                    whose source_contact_count
+                                                    drifted from the live
+                                                    contacts.
+POST   /projects/{pid}/geology/models/{mid}/surfaces/rebuild?method=tin
+                                                    PRIMARY build path —
+                                                    materialise every
+                                                    formation's TIN from
+                                                    its current contacts.
+                                                    Empty body. The
+                                                    InterpretationPane's
+                                                    "Build model" button +
+                                                    File → Save's auto-fire
+                                                    both call this. Clears
+                                                    ``is_stale`` on every
+                                                    successful upsert; per-
+                                                    contact mutations no
+                                                    longer auto-recompute
+                                                    (on-click build pivot).
+                                                    Optional ``?method`` query
+                                                    param scaffolds for
+                                                    Phase 5+ kriging / RBF /
+                                                    GemPy; v1 enforces
+                                                    ``method=tin`` via
+                                                    pattern. Unknown method
+                                                    → 422. Idempotent — the
                                                     checksum short-circuit
-                                                    as the auto-recompute
-                                                    path. Response:
+                                                    skips the Delaunay run
+                                                    when no contacts changed
+                                                    since the last build but
+                                                    still clears a lingering
+                                                    is_stale flag (e.g. a
+                                                    PATCH that round-tripped
+                                                    to the same depth).
+                                                    Response:
                                                     ``{formations_considered,
-                                                    formations_rebuilt}``
-                                                    — the second is the
-                                                    subset whose cache
-                                                    write actually fired.
-                                                    On a clean model both
-                                                    are 0. 404 when the
+                                                    formations_rebuilt}`` —
+                                                    the second is the subset
+                                                    whose cache write actually
+                                                    fired. On a clean model
+                                                    both are 0. 404 when the
                                                     model isn't in this
                                                     project.
 
