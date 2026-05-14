@@ -70,3 +70,12 @@ class GeologicalModelOrm(Base):
         back_populates="model",
         cascade="all, delete-orphan",
     )
+    # Reverse relationship for the cached TIN surfaces (one row per
+    # formation present in this model). The bundle serialiser nests
+    # them under the model so .strix save/restore carries the cache
+    # — opening a file on a fresh DB doesn't pay the recompute cost
+    # up front; the next contact mutation refreshes anyway.
+    surfaces: Mapped[list[FormationSurfaceOrm]] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        "FormationSurfaceOrm",
+        cascade="all, delete-orphan",
+    )
