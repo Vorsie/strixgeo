@@ -8,6 +8,8 @@ loader can't quietly change the rules.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from uuid6 import uuid7
 
 from groundmodel.domain.services.geology_validator import (
@@ -114,13 +116,22 @@ def _surface(
     display_order: int,
     vertices: list[tuple[float, float, float]],
     triangles: list[tuple[int, int, int]],
+    contact_lookup: dict[tuple[float, float], UUID] | None = None,
 ) -> FormationSurfaceInput:
-    """Build a FormationSurfaceInput with a fresh formation_id."""
+    """Build a FormationSurfaceInput with a fresh formation_id.
+
+    ``contact_lookup`` is optional — when omitted the validator runs
+    in the legacy "I don't know which picks caused this" mode and
+    emits crossings with an empty ``contact_ids``. Passing a lookup
+    populates ``contact_ids`` for any vertex whose (rounded x, y)
+    matches a key in the dict.
+    """
     return FormationSurfaceInput(
         formation_id=uuid7(),
         name=name,
         display_order=display_order,
         surface=TinSurface(vertices=vertices, triangles=triangles),
+        contact_lookup=contact_lookup or {},
     )
 
 
@@ -329,3 +340,74 @@ def test_empty_input_returns_empty_list() -> None:
     """No formations → nothing to compare → empty list."""
     issues = GeologyValidator().validate_no_crossings([])
     assert issues == []
+
+
+def test_crossing_carries_contact_ids_from_lookup() -> None:
+    """When the caller supplies a contact_lookup, the offending
+    vertices' contact_ids land on the GapIssue. Both sides of the
+    crossing pair contribute — the banner needs every pick to
+    highlight, not just one.
+    """
+    older_id_a = uuid7()
+    older_id_b = uuid7()
+    older_id_c = uuid7()
+    younger_id_a = uuid7()
+    younger_id_b = uuid7()
+    younger_id_c = uuid7()
+    older = _surface(
+        "Older",
+        display_order=0,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+        contact_lookup={
+            (0.0, 0.0): older_id_a,
+            (10.0, 0.0): older_id_b,
+            (5.0, 10.0): older_id_c,
+        },
+    )
+    # Younger's middle vertex sits 3 m below older — symmetric pass
+    # at older's vertices also detects it (older's z=5 vs younger's
+    # interpolated z<5 around the centre triangle).
+    younger = _surface(
+        "Younger",
+        display_order=10,
+        vertices=[(0.0, 0.0, 8.0), (10.0, 0.0, 8.0), (5.0, 10.0, 2.0)],
+        triangles=_UNIT_TRIANGLES,
+        contact_lookup={
+            (0.0, 0.0): younger_id_a,
+            (10.0, 0.0): younger_id_b,
+            (5.0, 10.0): younger_id_c,
+        },
+    )
+    issues = GeologyValidator().validate_no_crossings([older, younger])
+    assert len(issues) == 1
+    contact_ids = set(issues[0].contact_ids)
+    # The offending younger vertex is (5, 10) — younger_id_c.
+    assert younger_id_c in contact_ids
+    # Older's symmetric pass also fires — at least one older contact
+    # appears (the centre/edge that sits over the dipping younger
+    # triangle).
+    assert contact_ids & {older_id_a, older_id_b, older_id_c}
+
+
+def test_crossing_without_lookup_emits_empty_contact_ids() -> None:
+    """Backwards-compatibility check: when no contact_lookup is
+    supplied the validator still detects the crossing but emits an
+    empty ``contact_ids`` tuple. The banner remains non-clickable
+    in that case (graceful degradation rather than a crash).
+    """
+    older = _surface(
+        "Older",
+        display_order=0,
+        vertices=[(0.0, 0.0, 5.0), (10.0, 0.0, 5.0), (5.0, 10.0, 5.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    younger = _surface(
+        "Younger",
+        display_order=10,
+        vertices=[(0.0, 0.0, 8.0), (10.0, 0.0, 8.0), (5.0, 10.0, 2.0)],
+        triangles=_UNIT_TRIANGLES,
+    )
+    issues = GeologyValidator().validate_no_crossings([older, younger])
+    assert len(issues) == 1
+    assert issues[0].contact_ids == ()
