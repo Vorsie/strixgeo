@@ -133,6 +133,11 @@ interface Props {
    * line so off-line picks contribute properly. Absent → connect-the-
    * dots fallback in ContactsLayer (still works for sparse data). */
   surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /** Contact ids the user has asked to be visually highlighted —
+   * driven by the crossings banner click (debt #9). Forwarded to
+   * ContactsLayer which renders the ring + pulse. Transient: App
+   * clears the array on a short timer after dispatch. */
+  focusedContactIds?: readonly string[]
   /** Click-to-place hook. Fires when the user picks a formation on
    * the picker modal — caller (App) POSTs the contact and updates
    * the contacts state. Omitting it leaves the section read-only.
@@ -207,6 +212,7 @@ export default function SectionPanel({
   formations = [],
   excludedBoreholeIds,
   surfacesByFormationId,
+  focusedContactIds,
   onCreateContact,
   onUpdateContactDepth,
   onDeleteContact,
@@ -1263,6 +1269,11 @@ export default function SectionPanel({
               snapDepthsByAnchorId={snapDepthsByAnchorId}
               getCptValuesAtDepth={getCptValuesAtDepth}
               surfacesByFormationId={surfacesByFormationId}
+              focusedContactIds={
+                focusedContactIds && focusedContactIds.length > 0
+                  ? new Set(focusedContactIds)
+                  : undefined
+              }
               sectionLine={{
                 startX: section.start_x,
                 startY: section.start_y,
