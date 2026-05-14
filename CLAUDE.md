@@ -821,11 +821,20 @@ The probabilistic side (Probabilistic Toolkit / PTK) consumes
 integration surface.
 
 **Plaxis is NOT a D-Series tool** — it's Bentley/PLAXIS BV, with
-its own remote-scripting API (`plxscripting`) that drives a
-running Plaxis instance, OR a direct `.plxs` / legacy `.geo` file
-write. GEOLib doesn't cover Plaxis. The PlaxisExporter is a
-separate effort from the GEOLib-backed exporters — see debt #34
-for the version-target decision that gates it.
+its own remote-scripting API (`plxscripting`). GEOLib doesn't
+cover Plaxis. **Target (decided 2026-05-14): Plaxis 2D/3D 2018+;
+the PlaxisExporter emits a runnable `plxscripting` Python script
+(`.py`) that the engineer runs against their own Plaxis
+instance.** No live Plaxis dependency at our build/test time, no
+scripting license needed on our side, and the script is human-
+readable so engineers can tweak it before running. `.plxs` itself
+is undocumented binary (likely SQLite/Firebird inside a
+compressed container, exposed via the `.plxzip` variant) and not
+viable as a direct file-write target for a solo dev. The legacy
+`.geo` ASCII format is pre-2014 and modern Plaxis no longer
+guarantees a clean round-trip. The PlaxisExporter is a separate
+effort from the GEOLib-backed exporters; targets the same
+geometry contract.
 
 ---
 
@@ -961,7 +970,7 @@ See [docs/debt.md](docs/debt.md) for the full backlog. Format conventions stay h
 
 Order is strict priority — top-of-list = highest. Currently open in priority order:
 
-**Tier A — Phase 4 engineering blocker:** #1 (Plaxis target version).
+**Tier A — Phase 4 engineering blocker:** *(none open — #1 Plaxis target resolved 2026-05-14: emit `plxscripting` Python script targeting Plaxis 2D/3D 2018+; see "Export System" above for the decision rationale.)*
 
 **Tier B — Commercial launch gates, pre-paid-revenue:** #2 (bundled Postgres), #3 (license keys), #4 (auth on by-id endpoints; sub of #3), #5 (tamper hardening; sub of #3), #6 (installer + code signing + auto-update), #7 (marketing site + market-facing name).
 
