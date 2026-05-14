@@ -513,11 +513,22 @@ export default function App() {
     if (project && activeGeologicalModel) {
       try {
         await api.geology.rebuildSurfaces(project.id, activeGeologicalModel.id)
-        // Refetch surfaces so the in-memory state matches the freshly
-        // committed cache; the bundle write below reads ``project``
-        // (which doesn't carry surfaces) but the Section view reflects
-        // the new state immediately.
-        refetchSurfaces()
+        // Refetch surfaces inline rather than calling the memoised
+        // ``refetchSurfaces`` callback — that callback is declared
+        // further down the App body, so closing over it here would
+        // TDZ at the deps line. Same listSurfaces call, just the
+        // body unwrapped.
+        try {
+          const surfs = await api.geology.listSurfaces(
+            project.id,
+            activeGeologicalModel.id,
+          )
+          const sm = new Map<string, FormationSurfaceResponse>()
+          for (const s of surfs) sm.set(s.formation_id, s)
+          setSurfacesByFormationId(sm)
+        } catch (err) {
+          log.warn('geology', 'listSurfaces after auto-build failed', err)
+        }
         log.success('geology', 'auto-build before save: ok')
       } catch (err) {
         log.warn('geology', 'auto-build before save failed — saving anyway', err)
@@ -538,7 +549,6 @@ export default function App() {
   }, [
     project,
     activeGeologicalModel,
-    refetchSurfaces,
     saveMetadata,
     setSessionImportCptIds,
     setSessionImportBoreholeIds,
