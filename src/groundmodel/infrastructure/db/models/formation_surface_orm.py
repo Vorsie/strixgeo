@@ -6,6 +6,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -97,6 +99,21 @@ class FormationSurfaceOrm(Base):
     # ends up at the same depth) doesn't trigger an unnecessary recompute.
     source_contact_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     source_contact_checksum: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+
+    # On-click build pivot: contact mutations flip this to True (cheap
+    # one-row UPDATE, no Delaunay); only ``POST /surfaces/rebuild``
+    # clears it back to False after a successful recompute. The
+    # section view renders stale TINs at lower opacity + dashed so
+    # the engineer can see "this was your last build, refresh to
+    # update." Bundle restore independently recomputes from the
+    # source_contact_checksum vs current contacts so a tampered
+    # .strix can't silently claim freshness.
+    is_stale: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=false(),
+        default=False,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
