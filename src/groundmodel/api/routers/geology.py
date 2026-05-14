@@ -28,6 +28,7 @@ from groundmodel.api.schemas.project.formation_contact import (
     FormationSurfaceResponse,
     GapIssueResponse,
     GapValidationResponse,
+    RebuildSurfacesResponse,
 )
 from groundmodel.api.schemas.project.geological_formation import (
     GeologicalFormationCreateRequest,
@@ -55,6 +56,7 @@ from groundmodel.application.deduplicate_formation_contacts import (
     DeduplicateFormationContacts,
 )
 from groundmodel.application.delete_formation_contact import DeleteFormationContact
+from groundmodel.application.rebuild_model_surfaces import RebuildModelSurfaces
 from groundmodel.application.update_formation_contact import UpdateFormationContact
 from groundmodel.application.update_formation_contacts_batch import (
     UpdateFormationContactsBatch,
@@ -658,6 +660,36 @@ async def dedupe_existing_contacts(
         inspected_groups=outcome.inspected_groups,
         duplicates_removed=outcome.duplicates_removed,
         removed_contact_ids=outcome.removed_contact_ids,
+    )
+
+
+@router.post(
+    "/models/{model_id}/surfaces/rebuild",
+    response_model=RebuildSurfacesResponse,
+)
+async def rebuild_model_surfaces(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> RebuildSurfacesResponse:
+    """Manual escape hatch — force-recompute every formation's TIN cache.
+
+    The auto-recompute hooks attached to every contact-mutating use
+    case keep the cache fresh on the happy path. Click this when
+    that path was bypassed (anchor elevation edited without a
+    contact mutation, bundle restored, suspected stale checksum).
+    Idempotent — running on a clean model returns
+    ``formations_rebuilt=0``.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    outcome = await RebuildModelSurfaces(session).execute(model_id)
+    return RebuildSurfacesResponse(
+        formations_considered=outcome.formations_considered,
+        formations_rebuilt=outcome.formations_rebuilt,
     )
 
 
