@@ -10,7 +10,7 @@ Five tiers:
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14)*
 * **B. Commercial launch gates — pre-paid-revenue** (#2–#7)
-* **C. Dogfooding asks — current Phase 4 friction** (#8–#10)
+* **C. Dogfooding asks — current Phase 4 friction** (#9–#10; #8 resolved 2026-05-14)
 * **D. Post-launch / Phase 5** (#11–#14)
 * **E. Lower technical debt** (#15–#21)
 
@@ -152,47 +152,6 @@ a hard constraint when picking the market-facing name — neither
 "Strix" nor any close phonetic variant survives this. Trademark +
 domain search needs to clear against both word marks AND the
 common-knowledge association with D-Stability files.
-
-## 8. Undo/redo (Ctrl+Z) for geological model edits (medium — dogfooding ask 2026-05-13)
-
-**What.** No undo system today. Every contact create / delete /
-update / batch-create / batch-update / auto-populate is permanent
-the moment it commits. User asked for Ctrl+Z during a real
-dogfooding session — they want to revert a misclick or a wrong
-auto-populate without re-importing the project.
-
-**Scope shape.** Command pattern. Each mutation handler builds a
-``Command`` object with ``apply()`` + ``revert()``. App-level
-``useUndo()`` hook owns ``historyStack: Command[]`` +
-``redoStack: Command[]``. Ctrl+Z pops history → revert → push
-redo. Ctrl+Y / Shift+Ctrl+Z pops redo → apply → push history.
-Every existing mutation handler in ``App.tsx`` adds a command
-push after success.
-
-Commands needed (rough sketch):
-
-* ``CreateContactCommand`` — revert: DELETE the created id.
-* ``DeleteContactCommand`` — revert: POST a new contact with the
-  pre-delete payload (gets a new server id; updates remembered
-  refs in the redo stack).
-* ``UpdateContactDepthCommand`` — revert: PATCH back to the old
-  depth.
-* ``BatchUpdateContactsCommand`` — revert: PUT batch with the
-  pre-update snapshot.
-* ``BatchCreateContactsCommand`` — revert: DELETE every created id.
-* ``AutoPopulateCommand`` — revert: DELETE every created contact
-  + every created formation.
-
-**Why deferred.** Touches every mutation handler — ~1-2 days of
-careful work + tests. Better to ship as one coherent feature in
-its own session than to bolt onto the next bugfix sprint.
-
-**When to revisit.** Next session focused on contact-editor work,
-or sooner if dogfooding hits a real "I just lost an hour of
-picks" moment. The friction-list trigger is the same shape as
-the data-loss save bug from earlier (sibling to the resolved
-selection-toolbox anchor at the bottom of this file) — a real loss
-event makes this MUCH higher priority.
 
 ## 9. Crossings banner — surface offending contacts + jump-to-section (medium — dogfooding ask 2026-05-14)
 
