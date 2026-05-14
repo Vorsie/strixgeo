@@ -460,6 +460,22 @@ export default function SectionPanel({
 
   // ---- Data layer (DEM + CPT plots + projected investigations) -------
 
+  // Boreholes the active model excludes are filtered out of the
+  // section view entirely (column doesn't render, picker can't fire,
+  // contacts don't appear). The "Boreholes in model" checkbox in the
+  // InterpretationPane controls inclusion; unchecking removes the
+  // borehole from every section editor view of this model. Cleaner
+  // mental model than "column shown but contacts hidden" (which was
+  // a real source of "I clicked but nothing happened" confusion in
+  // dogfooding).
+  const includedBoreholes = useMemo(() => {
+    if (!excludedBoreholeIds || excludedBoreholeIds.length === 0) {
+      return boreholes
+    }
+    const excluded = new Set(excludedBoreholeIds)
+    return boreholes.filter(b => !excluded.has(b.id))
+  }, [boreholes, excludedBoreholeIds])
+
   const {
     cptChannels,
     setCptChannels,
@@ -474,7 +490,7 @@ export default function SectionPanel({
     projectedCpts,
     projectedBoreholes,
     boreholeDetails,
-  } = useSectionData(section, cpts, boreholes)
+  } = useSectionData(section, cpts, includedBoreholes)
 
   // Channel-toggle commit: update the in-memory state optimistically
   // for an instant re-render, then PATCH the section row's
