@@ -21,13 +21,16 @@ import type {
   VirtueleBoringInvestigationPrediction,
   VirtueleBoringLayer,
 } from '../api/client'
+import {
+  maxCharsForWidth,
+  maxLinesForHeight,
+  wrapLabelToLines,
+} from '../utils/labelWrap'
 import { useElementSize } from './sections/utils'
 
 const COLUMN_WIDTH_PX = 48
 const COLUMN_GAP_PX = 4
-const HEADER_HEIGHT_PX = 14
 const LABEL_FONT_SIZE = 9
-const LABEL_MIN_HEIGHT_PX = 12
 const GHOST_OPACITY = 0.55
 const HEADER_FONT_SIZE = 9
 
@@ -221,7 +224,10 @@ function DepthGhostLayer({
   const fill = layer.color_hex ?? '#9ca3af'
   const label = layer.beschrijving || layer.name
   const tooltip = `${label}: ${layer.top_m_taw.toFixed(2)} → ${layer.base_m_taw.toFixed(2)} mTAW (${layer.thickness_m.toFixed(2)} m)`
-  const showInlineLabel = height >= LABEL_MIN_HEIGHT_PX && label.length > 0
+  const maxLines = maxLinesForHeight(height, LABEL_FONT_SIZE)
+  const lines = maxLines > 0
+    ? wrapLabelToLines(label, maxCharsForWidth(width, LABEL_FONT_SIZE), maxLines)
+    : []
   return (
     <g>
       <rect
@@ -237,25 +243,54 @@ function DepthGhostLayer({
       >
         <title>{tooltip}</title>
       </rect>
-      {showInlineLabel && (
-        <text
-          x={left + width / 2}
-          y={yTop + height / 2 + LABEL_FONT_SIZE / 3}
-          textAnchor="middle"
+      {lines.length > 0 && (
+        <MultiLineSvgLabel
+          lines={lines}
+          centerX={left + width / 2}
+          rectTopY={yTop}
+          rectHeight={height}
           fontSize={LABEL_FONT_SIZE}
-          fill="#111827"
-          style={{ pointerEvents: 'none' }}
-        >
-          {truncateForWidth(label, width)}
-          <title>{tooltip}</title>
-        </text>
+          tooltip={tooltip}
+        />
       )}
     </g>
   )
 }
 
-function truncateForWidth(label: string, width: number): string {
-  const maxChars = Math.max(4, Math.floor((width - 4) / 4.5))
-  if (label.length <= maxChars) return label
-  return label.slice(0, maxChars - 1) + '…'
+function MultiLineSvgLabel({
+  lines,
+  centerX,
+  rectTopY,
+  rectHeight,
+  fontSize,
+  tooltip,
+}: {
+  lines: readonly string[]
+  centerX: number
+  rectTopY: number
+  rectHeight: number
+  fontSize: number
+  tooltip: string
+}): JSX.Element {
+  const lineHeight = fontSize * 1.15
+  const blockHeight = lineHeight * lines.length
+  const firstBaselineY =
+    rectTopY + rectHeight / 2 - blockHeight / 2 + fontSize * 0.8
+  return (
+    <text
+      x={centerX}
+      y={firstBaselineY}
+      textAnchor="middle"
+      fontSize={fontSize}
+      fill="#111827"
+      style={{ pointerEvents: 'none' }}
+    >
+      {lines.map((line, i) => (
+        <tspan key={i} x={centerX} dy={i === 0 ? 0 : lineHeight}>
+          {line}
+        </tspan>
+      ))}
+      <title>{tooltip}</title>
+    </text>
+  )
 }
