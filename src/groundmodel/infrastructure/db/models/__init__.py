@@ -10,6 +10,7 @@ from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionO
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
 from groundmodel.infrastructure.db.models.field_log_interval_orm import FieldLogIntervalOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "DrillSegmentOrm",
     "FieldLogIntervalOrm",
     "FormationContactOrm",
+    "FormationSurfaceOrm",
     "GeologicalFormationOrm",
     "GeologicalModelOrm",
     "GeotechnicalUnitOrm",
