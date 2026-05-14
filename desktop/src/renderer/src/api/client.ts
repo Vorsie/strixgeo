@@ -990,6 +990,25 @@ export const api = {
   // geometry to DXF / Plaxis. Every endpoint is project-scoped at
   // the URL and bundle-persisted via ``project_bundle.geological_*``.
   geology: {
+    // Download the geological model as a runnable Plaxis 3D
+    // plxscripting Python script. Returns the raw bytes so the
+    // caller can pipe to the Electron save-dialog + write-file IPC
+    // pair, matching the section-DXF flow. The .py is human-readable
+    // — engineers can review it before running against Plaxis.
+    exportPlaxis3d: async (
+      projectId: string,
+      modelId: string,
+    ): Promise<ArrayBuffer> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/export/plaxis3d`,
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `Plaxis export failed (${res.status})`)
+      }
+      return res.arrayBuffer()
+    },
+
     // --- Formations vocabulary -------------------------------------
     listFormations: (projectId: string): Promise<GeologicalFormationResponse[]> =>
       get(`/projects/${projectId}/geology/formations`),
