@@ -19,6 +19,7 @@ from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.formation_contact import (
     AutoPopulateFromStratigraphyRequest,
     AutoPopulateFromStratigraphyResponse,
+    DeduplicateContactsResponse,
     FormationContactBatchUpdateRequest,
     FormationContactBatchUpdateResponse,
     FormationContactCreateRequest,
@@ -48,6 +49,9 @@ from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
 from groundmodel.application.create_formation_contact import (
     CreateFormationContact,
     DuplicateContactError,
+)
+from groundmodel.application.deduplicate_formation_contacts import (
+    DeduplicateFormationContacts,
 )
 from groundmodel.application.delete_formation_contact import DeleteFormationContact
 from groundmodel.application.update_formation_contact import UpdateFormationContact
@@ -619,6 +623,40 @@ async def auto_populate_from_stratigraphy(
         skipped_existing=outcome.skipped_existing,
         skipped_unmatched=outcome.skipped_unmatched,
         skipped_no_stratigraphy=outcome.skipped_no_stratigraphy,
+    )
+
+
+@router.post(
+    "/models/{model_id}/contacts/dedupe",
+    response_model=DeduplicateContactsResponse,
+)
+async def dedupe_existing_contacts(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> DeduplicateContactsResponse:
+    """One-shot cleanup for legacy duplicate (anchor, formation) contacts.
+
+    Walks every (model, anchor, formation) group with N>1 contacts
+    and deletes all but the highest-priority survivor. Survivor
+    rule (in order): manual_pick beats auto-derived; rows with
+    observation_layer_id beat rows without; most recent created_at
+    breaks remaining ties.
+
+    Idempotent — running on a clean model is a no-op. Used to clean
+    up duplicates created before the per-(model, anchor, formation)
+    uniqueness rule landed.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    outcome = await DeduplicateFormationContacts(session).execute(model_id)
+    return DeduplicateContactsResponse(
+        inspected_groups=outcome.inspected_groups,
+        duplicates_removed=outcome.duplicates_removed,
+        removed_contact_ids=outcome.removed_contact_ids,
     )
 
 
