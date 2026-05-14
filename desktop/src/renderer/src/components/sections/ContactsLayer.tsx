@@ -52,7 +52,12 @@ import type {
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import HoverReadoutCard from './HoverReadoutCard'
-import { columnsBetween, type PlacedColumn } from './utils'
+import {
+  buildFillPolygon,
+  buildFloorFillPolygon,
+  columnsBetween,
+  type PlacedColumn,
+} from './utils'
 
 interface Props {
   contacts: readonly FormationContactResponse[]
@@ -749,6 +754,7 @@ export default function ContactsLayer({
         color: string
         name: string
         d: string
+        screenPoints: readonly { x: number; y: number }[]
         isStale: boolean
       }[]
     }
@@ -757,6 +763,7 @@ export default function ContactsLayer({
       color: string
       name: string
       d: string
+      screenPoints: readonly { x: number; y: number }[]
       isStale: boolean
     }[] = []
     // Iterate ``polylineData`` rather than the ``surfacesByFormationId``
@@ -775,9 +782,13 @@ export default function ContactsLayer({
       // Project each (alongM, elevationM) into screen space; clip
       // segments that leave the plot area in Y so we don't paint over
       // the chrome. We render as a single path with M/L commands;
-      // out-of-range vertices break the path with a fresh M.
+      // out-of-range vertices break the path with a fresh M. Raw
+      // screen points are retained alongside the path string so the
+      // formation-fill band builder can pair adjacent surfaces by X
+      // without re-parsing the SVG.
       let path = ''
       let pendingMove = true
+      const screenPoints: { x: number; y: number }[] = []
       for (const p of points) {
         const x = alongMToScreenX(p.alongM)
         const y = levelToScreen(p.elevationM)
@@ -787,6 +798,7 @@ export default function ContactsLayer({
         }
         path += `${pendingMove ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)} `
         pendingMove = false
+        screenPoints.push({ x, y })
       }
       if (path === '') continue
       out.push({
@@ -794,6 +806,7 @@ export default function ContactsLayer({
         color: meta.color,
         name: meta.name,
         d: path,
+        screenPoints,
         isStale: surface.is_stale === true,
       })
     }
@@ -815,6 +828,67 @@ export default function ContactsLayer({
     for (const line of slicedPolylines) out.add(line.formationId)
     return out
   }, [slicedPolylines])
+
+  // Filled coloured bands between adjacent formation tops, giving
+  // the section the classic geological-column read: each rock unit
+  // shaded with its formation colour between its top and the next-
+  // older formation's top. Age order is data-derived (mean surface
+  // elevation; lower = older) — same axis the crossings validator
+  // uses — so the bands stay correct even when display_order is
+  // inverted from convention.
+  //
+  // The oldest formation gets a floor fill down to plotBottom (the
+  // section's visible elevation floor): visualises "below this top
+  // the formation continues as far as we can see". Above the
+  // youngest top there's no fill (nothing geological to draw —
+  // that's open air / un-modelled).
+  //
+  // Opacity is intentionally low (0.18 fresh / 0.08 stale) so the
+  // qc curves + per-column glyphs underneath remain legible. The
+  // top polylines paint on top at full opacity for crisp boundaries.
+  const formationFillBands = useMemo(() => {
+    if (slicedPolylines.length === 0) {
+      return [] as {
+        formationId: string
+        color: string
+        d: string
+        isStale: boolean
+      }[]
+    }
+    // Sort youngest-first by mean screen-Y. Screen-Y is inverted
+    // (smaller Y = higher elevation = younger), so ascending Y
+    // gives youngest first.
+    const annotated = slicedPolylines
+      .filter(s => s.screenPoints.length > 0)
+      .map(s => ({
+        line: s,
+        meanY:
+          s.screenPoints.reduce((acc, p) => acc + p.y, 0) /
+          s.screenPoints.length,
+      }))
+      .sort((a, b) => a.meanY - b.meanY)
+    const out: {
+      formationId: string
+      color: string
+      d: string
+      isStale: boolean
+    }[] = []
+    for (let i = 0; i < annotated.length; i++) {
+      const younger = annotated[i].line
+      const older = annotated[i + 1]?.line
+      const d = older
+        ? buildFillPolygon(younger.screenPoints, older.screenPoints)
+        : buildFloorFillPolygon(younger.screenPoints, plotBottom)
+      if (d === '') continue
+      out.push({
+        formationId: younger.formationId,
+        color: younger.color,
+        d,
+        isStale: younger.isStale,
+      })
+    }
+    return out
+  }, [slicedPolylines, plotBottom])
 
   // Drag state lives in the component so its update path is
   // explicit. Document-level mousemove + mouseup listeners attach
@@ -1465,6 +1539,22 @@ export default function ContactsLayer({
 
   return (
     <g>
+      {/* Filled coloured bands between adjacent formation tops.
+          Drawn FIRST so every other section element (CPT curves,
+          column glyphs, contact lines, labels) paints on top. The
+          band's colour matches its formation's top-polyline colour;
+          low opacity keeps the underlying curves legible. */}
+      {formationFillBands.map(band => (
+        <path
+          key={`fill-${band.formationId}`}
+          d={band.d}
+          fill={band.color}
+          fillOpacity={band.isStale ? 0.08 : 0.18}
+          stroke="none"
+          pointerEvents="none"
+          data-testid={`formation-fill-${band.formationId}`}
+        />
+      ))}
       {/* Slice-of-TIN polylines. Drawn first (under everything else)
           so the per-column tops + name labels paint on top. Solid
           stroke distinguishes them from the dashed connect-the-dots
