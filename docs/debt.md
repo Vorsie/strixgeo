@@ -8,7 +8,7 @@ within each tier the order also matters.**
 
 Five tiers:
 
-* **A. Phase 4 engineering blockers** (#1)
+* **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14)*
 * **B. Commercial launch gates — pre-paid-revenue** (#2–#7)
 * **C. Dogfooding asks — current Phase 4 friction** (#8–#10)
 * **D. Post-launch / Phase 5** (#11–#14)
@@ -24,21 +24,6 @@ cleanup pass continue to reference the OLD numbers — that's an
 unavoidable cost of the renumber.
 
 ---
-
-## 1. Plaxis target version unconfirmed (medium → blocking before exporter implementation)
-
-**What.** The Plaxis exporter (MVP gate item) needs a target file
-format. Plaxis 2D 2016+ uses ``.plxs``; older versions (still
-common in BE consultancies) use the legacy ``.geo`` / PLAXIS Input
-ASCII. Building for ``.plxs`` and shipping to a 2014-vintage
-paying customer is a support conversation before revenue.
-
-**Why deferred.** Cannot decide without market signal.
-
-**When to revisit.** Ask the first 5 validation contacts which
-Plaxis version they run. Decide format target from the modal
-response. Implement exporter only after the version is named —
-format delta is non-trivial.
 
 ## 2. Bundled Postgres distribution path not prototyped (medium → blocking before beta)
 
