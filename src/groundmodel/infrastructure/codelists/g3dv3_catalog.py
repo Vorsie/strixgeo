@@ -43,6 +43,7 @@ from pathlib import Path
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 _CATALOG_PATH = Path(__file__).resolve().parent / "data" / "g3dv3_units.json"
+_ALIASES_PATH = Path(__file__).resolve().parent / "data" / "g3dv3_aliases.json"
 
 
 @dataclass(frozen=True)
@@ -105,23 +106,13 @@ def _normalize(s: str | None) -> str:
     return " ".join(s.lower().split())
 
 
-# Historical / alternative formation names that resolve to a canonical
-# G3Dv3 name. DOV boreholes interpreted under older stratigraphic
-# frameworks still ship these labels — the engineer who reads the log
-# expects them to match the modern unit.
-#
-# Add an entry here when:
-# * The NCS / G3Dv3 renamed a formation and old logs survive.
-# * A stage-name was historically used for the lithostrat unit (e.g.
-#   "Ieperiaan" is the chronostratigraphic stage, "Ieper" the old
-#   lithostrat name, "Kortrijk" the modern G3Dv3 lithostrat name).
-#
-# Keys + values are lower-cased; resolution runs through ``_normalize``
-# so callers don't have to care about casing.
-_FORMATION_NAME_ALIASES: dict[str, str] = {
-    "ieper": "kortrijk",
-    "ieperiaan": "kortrijk",
-}
+# Historical / alternative formation names live in
+# ``data/g3dv3_aliases.json`` next to the unit catalog. The map is
+# expected to grow over time — every borehole-interpretation campaign
+# under an older stratigraphic framework can surface a new label that
+# no longer matches modern G3Dv3 nomenclature. Keeping aliases as data
+# (not code) means adding one is a single-line JSON change, not a
+# code commit.
 
 
 class G3Dv3Catalog(GroundModelLogger):
@@ -137,13 +128,19 @@ class G3Dv3Catalog(GroundModelLogger):
     module-level ``get_catalog()`` returns a process-singleton.
     """
 
-    def __init__(self, catalog_path: Path = _CATALOG_PATH) -> None:
-        """Load the catalog JSON and build the lookup indexes.
+    def __init__(
+        self,
+        catalog_path: Path = _CATALOG_PATH,
+        aliases_path: Path = _ALIASES_PATH,
+    ) -> None:
+        """Load the catalog + alias JSON files and build the lookup indexes.
 
         Parameters
         ----------
         catalog_path : Path
             Path to ``g3dv3_units.json``. Override only in tests.
+        aliases_path : Path
+            Path to ``g3dv3_aliases.json``. Override only in tests.
         """
         super().__init__(__name__)
         with catalog_path.open(encoding="utf-8") as fh:
@@ -166,10 +163,21 @@ class G3Dv3Catalog(GroundModelLogger):
         self._by_name: dict[str, G3Dv3Unit] = {_normalize(u.name_nl): u for u in self._units}
         self._by_abbrev: dict[str, G3Dv3Unit] = {_normalize(u.abbreviation): u for u in self._units}
         self._by_code: dict[str, G3Dv3Unit] = {u.code: u for u in self._units}
+
+        # Aliases — every entry normalised on both sides so callers
+        # don't have to worry about casing in either the alias JSON or
+        # at lookup time.
+        with aliases_path.open(encoding="utf-8") as fh:
+            alias_raw = json.load(fh)
+        self._aliases: dict[str, str] = {
+            _normalize(k): _normalize(v) for k, v in alias_raw.get("aliases", {}).items()
+        }
+
         self.debug(
             f"G3Dv3 catalog loaded: {len(self._units)} units "
             f"({sum(1 for u in self._units if u.rank == 'formation')} formations, "
-            f"{sum(1 for u in self._units if u.rank == 'member')} members)"
+            f"{sum(1 for u in self._units if u.rank == 'member')} members), "
+            f"{len(self._aliases)} aliases"
         )
 
     def all_units(self) -> list[G3Dv3Unit]:
@@ -179,15 +187,16 @@ class G3Dv3Catalog(GroundModelLogger):
     def lookup_by_name(self, name: str | None) -> G3Dv3Unit | None:
         """Match a unit by Dutch name (case-insensitive, whitespace-tolerant).
 
-        Falls through ``_FORMATION_NAME_ALIASES`` for historical names —
-        a borehole logged as "Ieper" or "Ieperiaan" resolves to the
+        Falls through ``self._aliases`` (loaded from
+        ``data/g3dv3_aliases.json``) for historical names — a
+        borehole logged as "Ieper" or "Ieperiaan" resolves to the
         modern G3Dv3 "Kortrijk" entry.
         """
         normalized = _normalize(name)
         direct = self._by_name.get(normalized)
         if direct is not None:
             return direct
-        alias_target = _FORMATION_NAME_ALIASES.get(normalized)
+        alias_target = self._aliases.get(normalized)
         if alias_target is not None:
             return self._by_name.get(alias_target)
         return None
