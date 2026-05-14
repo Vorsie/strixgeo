@@ -26,6 +26,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.recompute_formation_surface import (
+    RecomputeFormationSurface,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -151,6 +154,12 @@ class CreateFormationContact(GroundModelLogger):
             observation_id=observation_id,
             observation_layer_id=observation_layer_id,
             notes=notes,
+        )
+        # Refresh the cached TIN for this (model, formation) pair so
+        # the section view's slice query lands on current geometry.
+        # In-transaction; commits below alongside the new contact.
+        await RecomputeFormationSurface(self._session).execute(
+            model_id=model_id, formation_id=formation_id
         )
         await self._session.commit()
         await self._session.refresh(contact)
