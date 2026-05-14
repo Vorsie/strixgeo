@@ -1,0 +1,7 @@
+{
+  "_doc": "Historical / alternative formation names that resolve to a canonical G3Dv3 name_nl. Keys and values are matched case-insensitively (loader normalises both sides). Add an entry when a borehole interpretation surfaces a name that no longer matches modern G3Dv3 nomenclature. Source the canonical side from g3dv3_units.json — never invent a name.",
+  "aliases": {
+    "Ieper": "Kortrijk",
+    "Ieperiaan": "Kortrijk"
+  }
+}
