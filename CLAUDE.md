@@ -990,7 +990,7 @@ Order is strict priority — top-of-list = highest. Currently open in priority o
 
 **Tier B — Commercial launch gates, pre-paid-revenue:** #2 (bundled Postgres), #3 (license keys), #4 (auth on by-id endpoints; sub of #3), #5 (tamper hardening; sub of #3), #6 (installer + code signing + auto-update), #7 (marketing site + market-facing name).
 
-**Tier C — Dogfooding asks, current Phase 4 friction:** #10 (Virtuele Boring API for CPT-only projects). *(#8 Ctrl+Z undo and #9 crossings banner → focus offending contacts both resolved 2026-05-14.)*
+**Tier C — Dogfooding asks, current Phase 4 friction:** *(none open — #8 Ctrl+Z undo, #9 crossings banner focus, and #10 Virtuele Boring overlays all resolved 2026-05-14.)*
 
 **Tier D — Post-launch / Phase 5:** #11 (NL / multilingual stratigraphy catalog), #12 (App.tsx → custom hooks split; smoke test shipped), #13 (geotech units in section editor), #14 (Sidebar UI overhaul).
 
