@@ -275,13 +275,17 @@ async def test_batch_update_applies_all_in_one_commit(
 ) -> None:
     """Happy path — PUT /batch updates N contacts in one call."""
     project, borehole = project_with_borehole
-    formation = await _create_formation(async_client, project.id)
+    # Two distinct formations — one contact per (borehole, formation)
+    # is the geological invariant the API now enforces (409 on
+    # duplicates), so a multi-contact batch needs distinct formations.
+    formation_a = await _create_formation(async_client, project.id, name="A")
+    formation_b = await _create_formation(async_client, project.id, name="B")
     model = await _create_model(async_client, project.id)
     c1 = await _create_contact(
-        async_client, project.id, model["id"], formation["id"], borehole.id, depth=2.0
+        async_client, project.id, model["id"], formation_a["id"], borehole.id, depth=2.0
     )
     c2 = await _create_contact(
-        async_client, project.id, model["id"], formation["id"], borehole.id, depth=5.0
+        async_client, project.id, model["id"], formation_b["id"], borehole.id, depth=5.0
     )
 
     resp = await async_client.put(
@@ -704,6 +708,158 @@ async def test_auto_populate_rejects_empty_borehole_ids(
         json={"borehole_ids": []},
     )
     assert resp.status_code == 422
+
+
+async def test_auto_populate_respects_existing_user_pick(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """USER OVERRIDES ARE ABSOLUTE — auto-populate must not overwrite
+    or duplicate an existing contact for the same (borehole, formation)
+    pair, regardless of where the existing contact came from.
+    """
+    from groundmodel.infrastructure.db.models.observation_layer_orm import (
+        ObservationLayerOrm,
+    )
+    from groundmodel.infrastructure.db.models.observation_orm import (
+        ObservationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    model = await _create_model(async_client, project.id)
+    # Manually pre-create a formation + contact mimicking a user's
+    # hand-pick — at depth 4.0m, source 'manual_pick'.
+    formation = await _create_formation(async_client, project.id, name="Boom Klei")
+    manual_contact = await _create_contact(
+        async_client,
+        project.id,
+        model["id"],
+        formation["id"],
+        borehole.id,
+        depth=4.0,
+    )
+
+    # Now attach a formal stratigraphy observation that, if auto-
+    # populated naively, WOULD create a second contact for the same
+    # (borehole, formation) at a different depth.
+    observation = ObservationOrm(
+        id=uuid7(),
+        borehole_id=borehole.id,
+        observation_type="formal_stratigraphy",
+    )
+    db_session.add(observation)
+    await db_session.flush()
+    db_session.add(
+        ObservationLayerOrm(
+            id=uuid7(),
+            observation_id=observation.id,
+            top_m=2.5,  # different depth from the manual pick
+            base_m=8.0,
+            description="Boom Klei",
+            layer_index=0,
+        )
+    )
+    await db_session.commit()
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts/auto-populate",
+        json={"borehole_ids": [str(borehole.id)]},
+    )
+    body = resp.json()
+    # Auto-populate honoured the existing user pick — no new contact
+    # for the (borehole, Boom Klei) pair was created.
+    assert body["created_contact_ids"] == []
+    assert body["skipped_existing"] == 1
+
+    # The manual pick is still where the user put it.
+    list_resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+    )
+    rows = list_resp.json()
+    assert len(rows) == 1
+    assert rows[0]["id"] == manual_contact["id"]
+    assert rows[0]["depth_top_m"] == 4.0
+
+
+# ---------------------------------------------------------------------------
+# Per-(model, anchor, formation) uniqueness — the duplicate-contact rule
+# ---------------------------------------------------------------------------
+
+
+async def test_create_contact_rejects_duplicate_anchor_formation(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """A second contact for the same (model, anchor, formation) → 409
+    with the existing contact id in the response body so the frontend
+    can route to a 'move existing' flow.
+    """
+    project, borehole = project_with_borehole
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+    first = await _create_contact(
+        async_client, project.id, model["id"], formation["id"], borehole.id, depth=3.0
+    )
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+        json={
+            "formation_id": formation["id"],
+            "borehole_id": str(borehole.id),
+            "depth_top_m": 5.0,
+        },
+    )
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "duplicate_contact"
+    assert detail["existing_contact_id"] == first["id"]
+
+
+async def test_create_contact_allows_same_formation_on_different_anchors(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Same formation on TWO different boreholes is fine — the
+    uniqueness is per (model, anchor, formation), not per
+    (model, formation).
+    """
+    project, borehole_a = project_with_borehole
+    borehole_b = BoreholeOrm(
+        id=uuid7(),
+        name="BH-2",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="BH-002",
+        location_x=150100.0,
+        location_y=200100.0,
+        epsg=31370,
+        total_depth_m=10.0,
+    )
+    db_session.add(borehole_b)
+    await db_session.commit()
+    formation = await _create_formation(async_client, project.id)
+    model = await _create_model(async_client, project.id)
+
+    # Same formation, different boreholes → both succeed.
+    a = await _create_contact(
+        async_client,
+        project.id,
+        model["id"],
+        formation["id"],
+        borehole_a.id,
+        depth=3.0,
+    )
+    b = await _create_contact(
+        async_client,
+        project.id,
+        model["id"],
+        formation["id"],
+        borehole_b.id,
+        depth=4.5,
+    )
+    assert a["id"] != b["id"]
 
 
 # ---------------------------------------------------------------------------
