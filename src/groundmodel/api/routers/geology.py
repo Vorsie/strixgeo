@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
@@ -672,22 +672,40 @@ async def dedupe_existing_contacts(
 async def rebuild_model_surfaces(
     project_id: UUID,
     model_id: UUID,
+    method: str = Query(
+        "tin",
+        regex="^tin$",
+        description=(
+            "Surface interpolation method. v1.0 ships TIN only; the "
+            "param scaffolds for kriging / RBF / GemPy in Phase 5+ "
+            "without a contract bump."
+        ),
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> RebuildSurfacesResponse:
-    """Manual escape hatch — force-recompute every formation's TIN cache.
+    """Build the geological model — recompute every formation's TIN cache.
 
-    The auto-recompute hooks attached to every contact-mutating use
-    case keep the cache fresh on the happy path. Click this when
-    that path was bypassed (anchor elevation edited without a
-    contact mutation, bundle restored, suspected stale checksum).
-    Idempotent — running on a clean model returns
-    ``formations_rebuilt=0``.
+    The PRIMARY way the user materialises their picks into surfaces.
+    Per-contact mutations no longer auto-recompute (on-click build
+    pivot); they flip ``is_stale=True`` and the section view renders
+    the stale cache faded + dashed until this endpoint clears it.
+
+    Also covers escape-hatch use: anchor elevation edited without a
+    contact mutation, suspected drift, etc. Idempotent — calling on
+    a clean model returns ``formations_rebuilt=0``.
+
+    Method param scaffolds the future kriging selector. v1 enforces
+    ``method=tin`` via regex; an unknown value returns 422.
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
         detail="Model not found",
     )
+    # Method dispatch is a no-op today; keeps the call site shape
+    # ready for Phase 5's per-method use cases without revisiting
+    # the route.
+    _ = method
     outcome = await RebuildModelSurfaces(session).execute(model_id)
     return RebuildSurfacesResponse(
         formations_considered=outcome.formations_considered,
