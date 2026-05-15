@@ -12,6 +12,7 @@ import {
 } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { useTheme } from '../hooks/useTheme'
 
 import type {
   BoreholeAxis,
@@ -31,6 +32,34 @@ import SectionOverlays from './SectionOverlays'
 // selected.
 const RADIUS = 4
 const RADIUS_SELECTED = 7
+
+// Basemap tile layers — swapped based on the resolved theme so the map
+// background matches the shell's dark/light surface.
+//
+// Light: standard OpenStreetMap — the existing layer, unchanged.
+// Dark:  CARTO dark_all — free, no API key, global coverage, designed for
+//        dark-UI contexts. Required attribution includes both OSM and CARTO
+//        per their tile usage policy.
+//
+// Marker/overlay COLOURS are NOT changed for the dark basemap. CARTO dark_all
+// uses a near-black surface (#1a1a2e range) against which the curated
+// KNOWN_COLORS palette (saturated hues, lightness ~50%) remains clearly
+// visible. Hash-derived marker colours (``hashColor``) use 55% lightness and
+// 55% saturation — also legible on dark. No halo/stroke changes needed;
+// the existing 0.85 fillOpacity and 1px stroke keep markers distinct.
+const TILE_LIGHT = {
+  url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  subdomains: undefined as string | undefined,
+} as const
+
+const TILE_DARK = {
+  url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  attribution:
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
+    '&copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: 'abcd',
+} as const
 
 // Curated colours for the small set of well-known categorical values we
 // expect from the backend. Anything outside this map falls through to a
@@ -217,6 +246,15 @@ export default function MapView({
   initialZoom,
   onCameraChange,
 }: Props) {
+  // Resolved theme drives the basemap tile layer. ``useTheme`` returns
+  // 'light' | 'dark' based on the OS preference and any user override
+  // persisted to localStorage. The tile layer is swapped live when the
+  // theme changes — react-leaflet unmounts the old TileLayer and mounts
+  // the new one, which causes Leaflet to remove the old tiles and fetch
+  // the new ones without a full MapContainer remount.
+  const { resolved: resolvedTheme } = useTheme()
+  const tileConfig = resolvedTheme === 'dark' ? TILE_DARK : TILE_LIGHT
+
   // Initial Leaflet camera — restored from the App's ref on remount
   // so navigating from section panel back to map preserves the user's
   // last view. Belgium-centred at zoom 9 is the cold-boot fallback.
@@ -322,11 +360,21 @@ export default function MapView({
         center={startCenter}
         zoom={startZoom}
         className="h-full w-full"
-        style={{ background: '#f0f0f0' }}
+        // Background shown while tiles load. Matches the basemap's approximate
+        // surface tone so the flash on tile arrival is less jarring.
+        style={{ background: resolvedTheme === 'dark' ? '#1a1a2e' : '#f0f0f0' }}
       >
+        {/* Basemap — swapped live on theme change.
+            ``key`` forces react-leaflet to unmount the old TileLayer and
+            mount a new one, which triggers Leaflet's internal tile-layer
+            remove → add cycle cleanly without a full MapContainer remount.
+            Marker/overlay colours are NOT changed — curated KNOWN_COLORS
+            and hash-derived hues both clear WCAG AA on CARTO dark_all. */}
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          key={resolvedTheme}
+          attribution={tileConfig.attribution}
+          url={tileConfig.url}
+          {...(tileConfig.subdomains !== undefined ? { subdomains: tileConfig.subdomains } : {})}
         />
 
         {/* DEM hillshade overlay. Pinned to its own pane between the
@@ -483,7 +531,7 @@ export default function MapView({
             ? 'No visible markers to fit'
             : `Fit map to ${visibleMarkerCount} visible item${visibleMarkerCount === 1 ? '' : 's'}`
         }
-        className="absolute top-[88px] left-2 z-[1000] w-[30px] h-[30px] bg-white border-2 border-gray-300 rounded shadow flex items-center justify-center text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-300 disabled:cursor-not-allowed transition-colors"
+        className="absolute top-[88px] left-2 z-[1000] w-[30px] h-[30px] bg-white dark:bg-slate-800 border-2 border-gray-300 dark:border-slate-600 rounded shadow flex items-center justify-center text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
       >
         <Maximize2 size={14} />
       </button>
@@ -533,7 +581,7 @@ function LayerControl({
 
   return (
     <div
-      className="absolute top-2 right-2 z-[1000] bg-white rounded shadow-lg border border-gray-200 text-xs select-none w-56"
+      className="absolute top-2 right-2 z-[1000] bg-white dark:bg-slate-800 rounded shadow-lg border border-gray-200 dark:border-slate-600 text-xs select-none w-56"
       onMouseDown={e => e.stopPropagation()}
       onDoubleClick={e => e.stopPropagation()}
       onWheel={e => e.stopPropagation()}
@@ -541,7 +589,7 @@ function LayerControl({
     >
       {/* CPT category */}
       {cptTypeCounts.size > 0 && (
-        <div className={openCategory === 'cpt' ? 'border-b border-gray-100' : ''}>
+        <div className={openCategory === 'cpt' ? 'border-b border-gray-100 dark:border-slate-700' : ''}>
           <CategoryHeader
             label="CPT"
             count={cptTotal}
@@ -596,7 +644,7 @@ function LayerControl({
                 />
               </div>
               {bhOrdered.length === 0 ? (
-                <div className="text-[10px] text-gray-400 italic px-1">
+                <div className="text-[10px] text-gray-400 dark:text-slate-500 italic px-1">
                   No values for this axis.
                 </div>
               ) : (
@@ -629,7 +677,7 @@ function LayerControl({
           entirely (the previous behaviour) made the feature
           undiscoverable on fresh projects whose CRS hasn't been set. */}
       {onDemOverlayChange && demOverlay && (
-        <div className={openCategory === 'cpt' || openCategory === 'borehole' ? 'border-t border-gray-100' : ''}>
+        <div className={openCategory === 'cpt' || openCategory === 'borehole' ? 'border-t border-gray-100 dark:border-slate-700' : ''}>
           <CategoryHeader
             label="Terrain"
             // Surface the active provider name in the badge slot so the
@@ -658,9 +706,9 @@ function LayerControl({
 
 function TerrainUnavailableHint() {
   return (
-    <div className="px-3 pb-2 text-[10px] text-gray-500 leading-snug">
+    <div className="px-3 pb-2 text-[10px] text-gray-500 dark:text-slate-400 leading-snug">
       No terrain source for this project's horizontal CRS. Open{' '}
-      <span className="font-medium text-gray-600">Edit metadata</span> from the
+      <span className="font-medium text-gray-600 dark:text-slate-300">Edit metadata</span> from the
       sidebar and set <span className="font-mono">Default horizontal CRS</span>{' '}
       to <span className="font-mono">31370</span> (Belgium) or{' '}
       <span className="font-mono">28992</span> (Netherlands) to enable the
@@ -688,8 +736,8 @@ function TerrainSection({
   }, [overlay.opacity])
 
   return (
-    <div className="px-2 pb-2 text-[11px] text-gray-700">
-      <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5">
+    <div className="px-2 pb-2 text-[11px] text-gray-700 dark:text-slate-200">
+      <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 rounded px-1 py-0.5">
         <input
           type="checkbox"
           className="cursor-pointer shrink-0"
@@ -702,7 +750,7 @@ function TerrainSection({
       </label>
       {overlay.enabled && (
         <div className="mt-1.5 px-1">
-          <div className="flex items-center justify-between text-[10px] text-gray-500 mb-0.5">
+          <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-slate-400 mb-0.5">
             <span>Opacity</span>
             <span className="tabular-nums">{Math.round(localOpacity * 100)}%</span>
           </div>
@@ -741,15 +789,15 @@ function CategoryHeader({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-gray-50 transition-colors"
+      className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
     >
       {open ? (
-        <ChevronDown size={11} className="text-gray-500 shrink-0" />
+        <ChevronDown size={11} className="text-gray-500 dark:text-slate-400 shrink-0" />
       ) : (
-        <ChevronRight size={11} className="text-gray-500 shrink-0" />
+        <ChevronRight size={11} className="text-gray-500 dark:text-slate-400 shrink-0" />
       )}
-      <span className="font-medium text-gray-700">{label}</span>
-      <span className="ml-auto text-gray-400 tabular-nums">{count}</span>
+      <span className="font-medium text-gray-700 dark:text-slate-200">{label}</span>
+      <span className="ml-auto text-gray-400 dark:text-slate-400 tabular-nums">{count}</span>
     </button>
   )
 }
@@ -772,7 +820,7 @@ function CheckboxRow({
   shape?: 'circle' | 'square'
 }) {
   return (
-    <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5">
+    <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 rounded px-1 py-0.5">
       <input
         type="checkbox"
         className="cursor-pointer shrink-0"
@@ -781,7 +829,7 @@ function CheckboxRow({
       />
       <span
         className={[
-          'inline-block w-2.5 h-2.5 border border-gray-300 shrink-0',
+          'inline-block w-2.5 h-2.5 border border-gray-300 dark:border-slate-500 shrink-0',
           shape === 'circle' ? 'rounded-full' : '',
         ].join(' ')}
         style={{ backgroundColor: color }}
@@ -789,13 +837,13 @@ function CheckboxRow({
       <span
         className={[
           'flex-1 truncate',
-          monospace ? 'font-mono text-gray-700' : 'text-gray-700',
+          monospace ? 'font-mono text-gray-700 dark:text-slate-200' : 'text-gray-700 dark:text-slate-200',
         ].join(' ')}
         title={label}
       >
         {label}
       </span>
-      <span className="text-gray-400 tabular-nums shrink-0">{count}</span>
+      <span className="text-gray-400 dark:text-slate-500 tabular-nums shrink-0">{count}</span>
     </label>
   )
 }
@@ -815,8 +863,8 @@ function AxisButton({
       className={[
         'flex-1 px-1.5 py-0.5 rounded transition-colors',
         active
-          ? 'bg-blue-100 text-blue-700 font-medium'
-          : 'text-gray-500 hover:bg-gray-100',
+          ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium'
+          : 'text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700',
       ].join(' ')}
     >
       {label}
@@ -842,12 +890,12 @@ interface LegendEntry {
 function Legend({ entries }: { entries: LegendEntry[] }) {
   return (
     <div
-      className="absolute bottom-2 right-2 z-[1000] bg-white rounded shadow-lg border border-gray-200 text-xs select-none p-2 w-56"
+      className="absolute bottom-2 right-2 z-[1000] bg-white dark:bg-slate-800 rounded shadow-lg border border-gray-200 dark:border-slate-600 text-xs select-none p-2 w-56"
       onMouseDown={e => e.stopPropagation()}
       onWheel={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
-      <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-slate-500 mb-1.5">
         Visible on map
       </div>
       <div className="flex flex-col gap-0.5">
@@ -855,21 +903,21 @@ function Legend({ entries }: { entries: LegendEntry[] }) {
           <div key={e.label} className="flex items-center gap-2 px-1 py-0.5">
             <span
               className={[
-                'inline-block w-2.5 h-2.5 border border-gray-300 shrink-0',
+                'inline-block w-2.5 h-2.5 border border-gray-300 dark:border-slate-500 shrink-0',
                 e.shape === 'circle' ? 'rounded-full' : '',
               ].join(' ')}
               style={{ backgroundColor: e.color }}
             />
             <span
               className={[
-                'flex-1 truncate text-gray-700',
+                'flex-1 truncate text-gray-700 dark:text-slate-200',
                 e.monospace ? 'font-mono' : '',
               ].join(' ')}
               title={e.label}
             >
               {e.label}
             </span>
-            <span className="text-gray-400 tabular-nums shrink-0">{e.count}</span>
+            <span className="text-gray-400 dark:text-slate-500 tabular-nums shrink-0">{e.count}</span>
           </div>
         ))}
       </div>
