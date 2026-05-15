@@ -277,6 +277,18 @@ export interface AutoPopulateFromStratigraphyResponse {
   skipped_no_stratigraphy: number
 }
 
+/** One candidate formation name returned by discover-from-stratigraphy. */
+export interface FormationCandidateItem {
+  /** Formation name as found in the observation stratigraphy. */
+  name: string
+  /** Number of in-scope boreholes that carry this name. */
+  borehole_count: number
+}
+
+export interface DiscoverFromStratigraphyResponse {
+  candidates: FormationCandidateItem[]
+}
+
 export interface DeduplicateContactsResponse {
   inspected_groups: number
   duplicates_removed: number
@@ -1190,6 +1202,20 @@ export const api = {
     ): Promise<AutoPopulateFromStratigraphyResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
+        { borehole_ids: boreholeIds },
+      ),
+
+    // Read-only scan: returns candidate formation names derived from
+    // borehole stratigraphy observations (FORMAL preferred, INFORMAL
+    // fallback). No DB mutation — the endpoint just runs the same scan
+    // as auto-populate and returns what it would have created.
+    discoverFromStratigraphy: (
+      projectId: string,
+      modelId: string,
+      boreholeIds: readonly string[],
+    ): Promise<DiscoverFromStratigraphyResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/discover-from-stratigraphy`,
         { borehole_ids: boreholeIds },
       ),
 
