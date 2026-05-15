@@ -742,15 +742,14 @@ function LayerControl({
         </div>
       )}
 
-      {/* Terrain category — hillshade DEM overlay + Esri World Topo.
+      {/* Terrain category — hillshade DEM overlay.
           Always renders when the parent wires ``onDemOverlayChange``; if
           the project's horizontal EPSG doesn't map to a known DEM source
           we still surface the section with a "no source for this CRS" hint
           so the user can find the metadata editor and fix it. Hiding
           entirely made the feature undiscoverable on fresh projects.
-          Esri World Topo lives here (under "Terrain") for discoverability
-          as a topographically-detailed basemap; selecting it simply sets
-          the basemap choice to ``esri_world_topo`` — no parallel state. */}
+          World Topo is no longer a shortcut here — it lives exclusively
+          in the Basemap dropdown where all basemap choices belong. */}
       {onDemOverlayChange && demOverlay && (
         <div className={openCategory === 'cpt' || openCategory === 'borehole' ? 'border-t border-gray-100 dark:border-slate-700' : ''}>
           <CategoryHeader
@@ -768,8 +767,6 @@ function LayerControl({
               source={demSource}
               overlay={demOverlay}
               onChange={onDemOverlayChange}
-              basemapId={basemapId}
-              onBasemapChange={onBasemapChange}
             />
           )}
         </div>
@@ -782,17 +779,15 @@ function TerrainSection({
   source,
   overlay,
   onChange,
-  basemapId,
-  onBasemapChange,
 }: {
   // ``source`` is null when the project's CRS has no DEM provider. The
-  // World Topo shortcut still renders in that case so the user can
-  // switch the basemap to topographic without a working DEM source.
+  // section still renders a hint pointing to the metadata editor so the
+  // user can fix the CRS. The World Topo basemap shortcut that used to
+  // live here was removed (Item 3, 2026-05-15): World Topo is now
+  // exclusively in the Basemap dropdown where basemap choices belong.
   source: DemSource | null
   overlay: DemOverlayState
   onChange: (next: DemOverlayState) => void
-  basemapId: BasemapId
-  onBasemapChange: (id: BasemapId) => void
 }) {
   // Local mirror of the slider so dragging stays smooth — committing
   // every pixel of slider travel to the parent would round-trip
@@ -805,24 +800,6 @@ function TerrainSection({
 
   return (
     <div className="px-2 pb-2 text-[11px] text-gray-700 dark:text-slate-200">
-      {/* Esri World Topo shortcut — sets the basemap choice to World Topo.
-          Lives under "Terrain" for discoverability (topo map = terrain
-          context). Selecting it writes through to the same basemap state
-          the Basemap dropdown controls; there is no parallel state. */}
-      <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 rounded px-1 py-0.5">
-        <input
-          type="checkbox"
-          className="cursor-pointer shrink-0"
-          checked={basemapId === 'esri_world_topo'}
-          // Intentional: un-checking reverts to the OSM default rather
-          // than restoring the user's previous explicit basemap. The
-          // shortcut is a convenience; the Basemap dropdown is the
-          // full picker. Revisit only if dogfooding finds it annoying.
-          onChange={e => onBasemapChange(e.target.checked ? 'esri_world_topo' : 'osm')}
-        />
-        <span className="flex-1 truncate">World Topo (Esri)</span>
-      </label>
-
       {/* DEM hillshade overlay — available only when the project's
           horizontal CRS maps to a known WMS provider. */}
       {source ? (
