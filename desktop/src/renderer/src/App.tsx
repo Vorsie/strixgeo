@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useToasts } from './hooks/useToasts'
+import { useAppBoot } from './hooks/useAppBoot'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import L from 'leaflet'
 import {
   api,
-  setBaseUrl,
   DuplicateContactError,
   DuplicateCptError,
 } from './api/client'
@@ -138,6 +138,9 @@ export default function App() {
   // importable by the other hooks that receive it as a dep-injection param.
   const { toasts, toast } = useToasts()
 
+  // API boot sequence — extracted to useAppBoot.
+  const { ready, apiError } = useAppBoot()
+
   // Controls the NewProjectDialog modal visibility. Triggered by the File
   // menu's New Project item or the Welcome screen's Create button.
   const [newProjectOpen, setNewProjectOpen] = useState(false)
@@ -233,8 +236,6 @@ export default function App() {
     }
   }, [doUndo, doRedo])
 
-  const [ready, setReady] = useState(false)
-  const [apiError, setApiError] = useState(false)
   const [cpts, setCpts] = useState<CptListItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detailMap, setDetailMap] = useState<Map<string, CptResponse>>(new Map())
@@ -2138,27 +2139,6 @@ export default function App() {
     },
     [project],
   )
-
-  // ---------------------------------------------------------------------------
-  // Boot — wait for API regardless of project state
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    async function boot() {
-      const base = await window.electron.getApiBaseUrl()
-      setBaseUrl(base)
-      log.info('boot', `API base = ${base}`)
-      const ok = await window.electron.waitForApi()
-      if (ok) {
-        log.info('boot', 'API ready')
-        setReady(true)
-      } else {
-        log.error('boot', 'API failed to come up within timeout')
-        setApiError(true)
-      }
-    }
-    boot()
-  }, [])
 
   // Load CPTs + boreholes + sections whenever the API is ready and a
   // project is selected. ``project?.id`` in the dep array means each
