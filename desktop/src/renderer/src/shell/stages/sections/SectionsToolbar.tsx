@@ -1,13 +1,9 @@
 // Sections stage toolbar — section-specific verbs wired from the ShellContext bus.
 //
-// Collects the section actions that were previously scattered across
-// InterpretationPane (Build model, Auto-populate, Dedupe) and SectionPanel's
-// header (Export DXF, Export Plaxis 3D) into one place for the Sections stage.
-// New cross-section and Delete section live here too (previously in Sidebar's
-// SectionList).
-//
-// All handlers are sourced from useShell() — no props accepted (matches the
-// StageDescriptor.ToolbarComponent contract).
+// Collects the section actions (Build model, Auto-populate, Dedupe, Export DXF,
+// Export Plaxis 3D, New cross-section, Delete section) into one place for the
+// Sections stage.  All handlers are sourced from useShell() — no props accepted
+// (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useState } from 'react'
 import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus } from 'lucide-react'

@@ -2,10 +2,10 @@
  * Geology stage inspector pane — formation list, drag-reorder, borehole
  * scope, and the surface-crossing banner.
  *
- * Migrates the ``InterpretationPane`` content into the StageDescriptor
- * inspector slot.  All data and handlers are sourced from ``useShell()``
- * (no props accepted — matches the StageDescriptor.InspectorComponent
- * contract).
+ * Owns the geological model definition UI (formations + reorder + borehole
+ * scope) that previously lived in ``InterpretationPane``.  All data and
+ * handlers are sourced from ``useShell()`` (no props accepted — matches the
+ * StageDescriptor.InspectorComponent contract).
  *
  * **TDZ constraint (Risk 3 in geology-stage-architecture.md §8.1):**
  * ``reorderFormations`` is declared as a ``useCallback`` BEFORE
@@ -15,13 +15,9 @@
  * filtered list inline from ``formations`` + ``manifestFormationIds`` — the
  * same inputs that feed ``visibleFormations``.
  *
- * **Not included (retained in InterpretationPane until G3 / G4):**
- * - Build model, Dedupe, From boreholes, Export Plaxis — these are toolbar
- *   verbs now.
- * - Amber unsaved markers for formations — wired in the G4 polish commit.
- *
- * **InterpretationPane.tsx is NOT deleted here** — it stays mounted in
- * Sidebar.tsx during the G1–G3 transition window.  See G3 for the removal.
+ * **Pending (G4 polish commit):**
+ * - Amber unsaved markers for formations — wired when ``sessionImportFormationIds``
+ *   is threaded to the formation rows.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
