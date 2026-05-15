@@ -21,6 +21,9 @@ from groundmodel.api.schemas.project.formation_contact import (
     AutoPopulateFromStratigraphyResponse,
     CrossingValidationResponse,
     DeduplicateContactsResponse,
+    DiscoverFromStratigraphyRequest,
+    DiscoverFromStratigraphyResponse,
+    FormationCandidateItem,
     FormationContactBatchUpdateRequest,
     FormationContactBatchUpdateResponse,
     FormationContactCreateRequest,
@@ -60,6 +63,9 @@ from groundmodel.application.deduplicate_formation_contacts import (
     DeduplicateFormationContacts,
 )
 from groundmodel.application.delete_formation_contact import DeleteFormationContact
+from groundmodel.application.discover_formations_from_stratigraphy import (
+    DiscoverFormationsFromStratigraphy,
+)
 from groundmodel.application.rebuild_model_surfaces import RebuildModelSurfaces
 from groundmodel.application.update_formation_contact import UpdateFormationContact
 from groundmodel.application.update_formation_contacts_batch import (
@@ -633,6 +639,71 @@ async def auto_populate_from_stratigraphy(
         skipped_existing=outcome.skipped_existing,
         skipped_unmatched=outcome.skipped_unmatched,
         skipped_no_stratigraphy=outcome.skipped_no_stratigraphy,
+    )
+
+
+@router.post(
+    "/models/{model_id}/contacts/discover-from-stratigraphy",
+    response_model=DiscoverFromStratigraphyResponse,
+)
+async def discover_from_stratigraphy(
+    project_id: UUID,
+    model_id: UUID,
+    request: DiscoverFromStratigraphyRequest,
+    session: AsyncSession = Depends(get_session),
+) -> DiscoverFromStratigraphyResponse:
+    """Return candidate formation names from borehole stratigraphy — read-only.
+
+    Runs the same FORMAL_STRATIGRAPHY-preferred / INFORMAL_STRATIGRAPHY-
+    fallback / surface-layers-skipped scan as the auto-populate endpoint but
+    commits nothing.  The result feeds ``FormationSelectionDialog`` so the
+    user can curate which formations to keep before any mutation fires.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Geological model — must belong to ``project_id``.  Required so the
+        scope guard is consistent with sibling contact endpoints even though
+        this endpoint does not write to the model.
+    request : DiscoverFromStratigraphyRequest
+        Body with ``borehole_ids`` list (1..500).
+
+    Returns
+    -------
+    DiscoverFromStratigraphyResponse
+        ``candidates`` list sorted by ``borehole_count`` descending then
+        ``name`` ascending.  Empty list when no borehole carries stratigraphy.
+        Always 200 — the endpoint never errors on empty results.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}"
+        f"/contacts/discover-from-stratigraphy borehole_ids={len(request.borehole_ids)}"
+    )
+    # Model scope guard — prevents leaking candidate names across projects
+    # via a hand-crafted payload with an out-of-project model_id.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    candidates = await DiscoverFormationsFromStratigraphy(session).execute(
+        project_id=project_id,
+        borehole_ids=request.borehole_ids,
+    )
+    logger.info(
+        f"discover-from-stratigraphy done: {len(candidates)} candidate(s) for model={model_id}"
+    )
+    return DiscoverFromStratigraphyResponse(
+        candidates=[
+            FormationCandidateItem(name=c.name, borehole_count=c.borehole_count) for c in candidates
+        ]
     )
 
 
