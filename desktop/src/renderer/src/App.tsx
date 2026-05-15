@@ -209,6 +209,17 @@ export default function App() {
     handleMapCameraChange,
   } = mapState
 
+  // Reset the persisted Leaflet camera on project switch. mapCameraRef is
+  // a stable ref that outlives any single project; without this reset,
+  // opening project B after panning project A would restore A's viewport
+  // and suppress auto-fit (B's investigations would land off-screen).
+  // Pairs with the FitOnLoad re-arm in MapView. Placed AFTER the mapState
+  // destructure (not next to clearUndo) — mapCameraRef is declared here,
+  // so an earlier effect would hit a TDZ.
+  useEffect(() => {
+    mapCameraRef.current = null
+  }, [project?.id, mapCameraRef])
+
   // Session imports — records added since the last File → Save. Drives
   // the per-row amber asterisks in the sidebar AND the project-level
   // dirty signal (combined with metadata-dirty). Persists per project

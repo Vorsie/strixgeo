@@ -175,6 +175,16 @@ function FitOnLoad({
   const map = useMap()
   const firedRef = useRef(false)
 
+  // Re-arm on project switch. FitOnLoad is NOT remounted when the project
+  // changes (no key on MapView), so firedRef would stay true forever and
+  // only the first project ever opened would auto-fit. When the camera was
+  // reset (hasPersisted flips back to false — see the mapCameraRef reset in
+  // App.tsx), allow one more auto-fit for the new project. Declared before
+  // the main effect so it re-arms in the same commit the guard runs.
+  useEffect(() => {
+    if (!hasPersisted) firedRef.current = false
+  }, [hasPersisted])
+
   useEffect(() => {
     // Only auto-fit when: no previously persisted camera, markers exist,
     // and we have not already fired (guard against StrictMode double-mount).
@@ -423,12 +433,17 @@ export default function MapView({
             PNG so it composites transparently above the opaque base layer.
             Keyed on ``basemap.id + '-overlay'`` so it unmounts/remounts only
             when the basemap changes — same stability reasoning as the base
-            layer above. */}
+            layer above. Pinned to its own pane at z=210: above the opaque
+            base (tilePane z=200) but BELOW the DEM hillshade (z=250) so
+            enabling hillshade does not hide the GRB-selectie reference
+            lines, and well below the marker panes (z=400/600). */}
+        <Pane name="basemap-overlay" style={{ zIndex: 210 }} />
         {basemap.overlay && (
           <TileLayer
             key={`${basemap.id}-overlay`}
             url={basemap.overlay.url}
             attribution={basemap.overlay.attribution}
+            pane="basemap-overlay"
           />
         )}
 

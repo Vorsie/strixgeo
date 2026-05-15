@@ -231,7 +231,11 @@ function ViewTab({
       className={[
         'flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors',
         active
-          ? 'bg-surface-app border border-border-subtle shadow-sm text-text-primary'
+          ? // accent border (not border-subtle) so the selected-state
+            // boundary clears WCAG 2.2 1.4.11 (3:1) in dark mode —
+            // surface-app on surface-card is only ~1.4:1; the accent
+            // border carries the state indication at ~6:1.
+            'bg-surface-app border border-accent shadow-sm text-text-primary'
           : 'text-text-secondary hover:text-text-primary',
       ].join(' ')}
     >
