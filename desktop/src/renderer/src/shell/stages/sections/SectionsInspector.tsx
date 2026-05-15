@@ -67,26 +67,16 @@ export default function SectionsInspector(): JSX.Element {
       handleChangeVirtueleBoringPicker,
       handleSetShowOverlay,
     },
+    coordinator: {
+      sessionImportSectionIds,
+    },
   } = useShell()
 
-  // Resolve session-import section ids from the lifecycle's dirty state.
-  // The sections hook exposes visibleSections; we match against the
-  // sections list. Session-imported = in sections but not yet in the
-  // project's .gmproj manifest.  We detect via the useSections hook
-  // which doesn't expose sessionImportSectionIds directly on the bus —
-  // infer it by checking if the section was created after the last save.
-  // The safest proxy: we track creating=true in handleCreateSection, so
-  // all sections returned from handleCreateSection are "new this session".
-  // We don't have a direct set here — use geoModel.formationsRefreshCounter
-  // pattern isn't available. Instead, expose a local empty set as a
-  // graceful degradation: the amber asterisk for sections is a nice-to-have
-  // in the inspector, but the section list in Sidebar.tsx still drives the
-  // session-imports state correctly.
-  // TODO(S7): when Sidebar.tsx's section list is retired and this inspector
-  // becomes the sole section-list path, expose sessionImportSectionIds from
-  // UseSectionsResult and wire it here so the unsaved-section amber marker
-  // reaches parity. Tracked in docs/debt.md.
-  const sessionImportSectionIds = useMemo(() => new Set<string>(), [])
+  // sessionImportSectionIds is now sourced from the coordinator slice
+  // of the ShellContext bus (debt #25 resolution). Previously a stub
+  // empty set because the value was not exposed on the bus; now wired
+  // so section rows in this inspector show the amber unsaved-marker at
+  // parity with CPT and borehole rows in DataInspector.
 
   const selectedSection = useMemo(
     () => (selectedSectionId ? sections.find(s => s.id === selectedSectionId) ?? null : null),
