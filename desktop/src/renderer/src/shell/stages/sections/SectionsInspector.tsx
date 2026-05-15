@@ -10,8 +10,8 @@
 //
 // All state is sourced from useShell() — no props accepted.
 
-import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Slash, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, Pencil, Slash, Trash2 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { api } from '../../../api/client'
@@ -458,6 +458,7 @@ function SectionRow({
 interface SectionPropertiesProps {
   section: CrossSectionResponse
   onPatch: (patch: {
+    name?: string
     projection_buffer_m?: number
     vertical_exaggeration?: number
   }) => Promise<void>
@@ -466,16 +467,17 @@ interface SectionPropertiesProps {
 /**
  * Editable display properties for the selected cross-section.
  *
- * Shows the section name (read-only display), start/end coordinates,
- * length, and two slider controls (projection buffer, vertical
- * exaggeration) that patch the section on release.
+ * Shows the section name as an inline-editable field (click to edit,
+ * commit on blur/Enter, cancel on Esc), plus two slider controls
+ * (projection buffer, vertical exaggeration) that patch on release.
  *
  * Parameters
  * ----------
  * section
  *     The currently-selected cross-section.
  * onPatch
- *     Async patch handler — called on slider release.
+ *     Async patch handler — called on blur/Enter for name and on
+ *     slider release for buffer/VEX.
  *
  * Returns
  * -------
@@ -501,15 +503,96 @@ function SectionProperties({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section.id])
 
+  // Inline name edit state — mirrors the ux.md inline-edit pattern:
+  // click-to-edit, commit on blur/Enter, cancel on Esc, trim blanks,
+  // fall back to prior name when the field is cleared.
+  const [editing, setEditing] = useState(false)
+  const [draftName, setDraftName] = useState(section.name)
+  const nameInputRef = useRef<HTMLInputElement>(null)
+
+  // Keep draft in sync when the server round-trip updates section.name
+  // (e.g. after a PATCH the parent replaces the section object). Reset
+  // only when the section identity changes — not on every server echo —
+  // for the same "avoid flickering" reason as the slider states above.
+  useEffect(() => {
+    setDraftName(section.name)
+    setEditing(false)
+    // reason: same as the slider useEffect — reset when the section
+    // IDENTITY changes, not when the server echoes the same id with a
+    // patched name. Server echo already drives the section.name prop
+    // which we read on first render and on section switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.id])
+
+  function handleNameClick(): void {
+    setDraftName(section.name)
+    setEditing(true)
+  }
+
+  function commitName(): void {
+    const trimmed = draftName.trim()
+    setEditing(false)
+    // Fall back to prior name when the field is blank (ux.md: don't
+    // allow blank names).
+    if (trimmed === '' || trimmed === section.name) {
+      setDraftName(section.name)
+      return
+    }
+    setDraftName(trimmed)
+    void onPatch({ name: trimmed })
+  }
+
+  function handleNameKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur()
+    } else if (e.key === 'Escape') {
+      // Cancel — restore prior name without patching.
+      setDraftName(section.name)
+      setEditing(false)
+    }
+  }
+
+  // Auto-focus the input when edit mode opens.
+  useEffect(() => {
+    if (editing) nameInputRef.current?.select()
+  }, [editing])
+
   const dx = section.end_x - section.start_x
   const dy = section.end_y - section.start_y
   const lengthM = Math.sqrt(dx * dx + dy * dy)
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Name (read-only — rename via future metadata editor) */}
+      {/* Name — inline-edit on click (ux.md inline-edit pattern). */}
       <div>
-        <p className="text-xs font-medium text-text-primary">{section.name}</p>
+        {editing ? (
+          <input
+            ref={nameInputRef}
+            type="text"
+            value={draftName}
+            onChange={e => setDraftName(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={handleNameKeyDown}
+            className="w-full text-xs font-medium text-text-primary bg-surface-card border border-accent rounded px-1.5 py-0.5 focus:outline-none focus:ring-2 focus:ring-accent"
+            aria-label="Section name"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={handleNameClick}
+            title="Click to rename this cross-section"
+            className="group flex items-center gap-1 w-full text-left"
+          >
+            <span className="text-xs font-medium text-text-primary truncate">
+              {section.name}
+            </span>
+            <Pencil
+              size={10}
+              className="flex-shrink-0 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"
+              aria-hidden="true"
+            />
+          </button>
+        )}
         <p className="text-[10px] text-text-muted mt-0.5">
           {lengthM.toFixed(0)} m · EPSG:{section.epsg}
         </p>

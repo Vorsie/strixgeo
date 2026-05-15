@@ -45,6 +45,7 @@ export interface UseSectionsResult {
   ) => Promise<void>
   handleDeleteSection: (id: string) => Promise<void>
   handlePatchSelectedSection: (patch: {
+    name?: string
     projection_buffer_m?: number
     vertical_exaggeration?: number
     view_state?: Record<string, unknown>
@@ -359,10 +360,12 @@ export function useSections({
 
   // PATCH the currently-selected section. Used by the SectionPanel's
   // buffer + VEX sliders (fires on release, not every pixel of drag,
-  // to avoid hammering the backend). Updates local state with the row
-  // the server returns so subsequent renders use the server-truth value.
+  // to avoid hammering the backend), and by the inspector's inline
+  // name editor (commits on blur/Enter). Updates local state with the
+  // row the server returns so subsequent renders use the server-truth value.
   const handlePatchSelectedSection = useCallback(
     async (patch: {
+      name?: string
       projection_buffer_m?: number
       vertical_exaggeration?: number
       view_state?: Record<string, unknown>
