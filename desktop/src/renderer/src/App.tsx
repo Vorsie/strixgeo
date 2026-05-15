@@ -4,6 +4,7 @@ import { useAppBoot } from './hooks/useAppBoot'
 import { useMapOverlays } from './hooks/useMapOverlays'
 import { useGeologicalModel } from './hooks/useGeologicalModel'
 import type { ContactCopyPayload } from './hooks/useGeologicalModel'
+import { useSections } from './hooks/useSections'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import L from 'leaflet'
 import {
@@ -17,18 +18,15 @@ import type {
   CptListItem,
   CptPlotResponse,
   CptResponse,
-  CrossSectionResponse,
 } from './api/client'
 import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
 import { usePersistedSet } from './hooks/usePersistedSet'
 import { useTheme } from './hooks/useTheme'
-import { wgs84ToProjected } from './hooks/useWgs84'
 import { isTypingTarget } from './utils/keyboard'
 import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
 import { addAllToSet } from './utils/sets'
-import { projectPointOntoLine } from './utils/sectionProjection'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
@@ -233,28 +231,6 @@ export default function App() {
   const [importing, setImporting] = useState(false)
   const [bboxImportType, setBboxImportType] = useState<BboxImportType>(null)
   const [dovImporting, setDovImporting] = useState(false)
-  // Cross-sections (Phase 4). List comes from the API on project load;
-  // selecting a section will surface its panel in the main view in S2+.
-  // For S1 the selection is wired but the main view still renders the
-  // map / chart / borelog — section view comes next.
-  const [sections, setSections] = useState<CrossSectionResponse[]>([])
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
-  // Contact ids the user wants visually highlighted in the active
-  // cross-section. Driven by clicks on the crossings banner (debt
-  // #9): App resolves which section contains one of the offending
-  // anchors, opens it, then sets this state so ContactsLayer can
-  // render a ring + pulse on every contact in the issue. Cleared
-  // after a short timeout so the visual is transient — the user
-  // shouldn't have to dismiss it.
-  const [focusedContactIds, setFocusedContactIds] = useState<readonly string[]>([])
-  const focusedContactsTimeoutRef = useRef<number | null>(null)
-
-  // ``true`` while the user is two-click-drawing a section line on
-  // the map. The Sidebar's "+ New cross-section" button enters this
-  // mode; the MapView mounts a SectionLineDrawer that completes via
-  // ``handleSectionLineDrawn`` below.
-  const [drawingSection, setDrawingSection] = useState(false)
-
   // Layer-visibility state — lifted from MapView so the Sidebar can also
   // grey out + reorder hidden items. We track HIDDEN values (not visible
   // ones) so an empty set means "show everything", which avoids the
@@ -454,6 +430,43 @@ export default function App() {
     addToSessionImports,
   })
 
+  // Cross-section state and handlers — sections list, selection, draw
+  // mode, focused-contact highlight, and all CRUD. The lifecycle
+  // callbacks (handleSectionCreated / handleSectionDeleted) are
+  // internalised here so the manifest + session-imports bookkeeping
+  // is co-located with the mutation handlers that trigger it.
+  const {
+    sections,
+    selectedSectionId,
+    drawingSection,
+    focusedContactIds,
+    visibleSections,
+    refreshSectionList,
+    clearSectionSelection,
+    handleSectionCreated,
+    handleSectionDeleted,
+    handleCreateSection,
+    cancelSectionDraw,
+    handleSectionLineDrawn,
+    handleDeleteSection,
+    handlePatchSelectedSection,
+    handleSelectSection,
+    handleFocusContacts,
+  } = useSections({
+    project,
+    toast,
+    pushUndo,
+    manifestSectionIds,
+    addToManifest,
+    removeFromManifest,
+    setSessionImportSectionIds,
+    contacts,
+    boreholes,
+    cpts,
+    setSelectedId,
+    setSelectedBoreholeId,
+  })
+
   // Combined "is anything unsaved?" flag. Drives the sidebar / window-
   // title asterisks, the close-attempt branching, and the File → Save
   // no-op-when-clean check.
@@ -568,29 +581,6 @@ export default function App() {
     discardContacts,
   ])
 
-  // Section-lifecycle callbacks. These stay in App for now — extracted
-  // to useSections in Commit 5 (Phase S2). Formations callbacks above
-  // moved to useGeologicalModel; section callbacks still inline here.
-  const handleSectionCreated = useCallback(
-    (id: string) => {
-      addToManifest('section', [id])
-      addAllToSet(setSessionImportSectionIds, [id])
-    },
-    [addToManifest, setSessionImportSectionIds],
-  )
-  const handleSectionDeleted = useCallback(
-    (id: string) => {
-      removeFromManifest('section', [id])
-      setSessionImportSectionIds(prev => {
-        if (!prev.has(id)) return prev
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-    },
-    [removeFromManifest, setSessionImportSectionIds],
-  )
-
   // Export the section's drawn geological model to DXF. Owns the
   // full flow (fetch bytes → save dialog → file write) so the
   // SectionPanel + SectionHeader stay storage-agnostic. The button
@@ -660,14 +650,6 @@ export default function App() {
     () =>
       boreholes.filter(b => manifestBoreholeIds.has(b.id) && !removedBoreholeIds.has(b.id)),
     [boreholes, manifestBoreholeIds, removedBoreholeIds],
-  )
-
-  // Cross-sections — same manifest gate as CPTs / boreholes. A
-  // section that was created in a previous session but never saved
-  // to the .strix file disappears on the next open.
-  const visibleSections = useMemo(
-    () => sections.filter(s => manifestSectionIds.has(s.id)),
-    [sections, manifestSectionIds],
   )
 
   // Out-of-viewport sets — empty when the map hasn't reported bounds
@@ -1193,206 +1175,6 @@ export default function App() {
     }
   }, [project])
 
-  const refreshSectionList = useCallback(async () => {
-    if (!project) return
-    try {
-      const list = await api.section.list(project.id)
-      setSections(list)
-      log.debug('section', `refreshList: ${list.length} sections`)
-    } catch (err) {
-      log.error('section', 'refreshList failed', err)
-      toast('error', 'Failed to load cross-sections.')
-    }
-  }, [project])
-
-  // Placeholder geometry generator. S1 ships the discovery surface
-  // "+ New cross-section" enters a two-click draw mode on the map.
-  // The Sidebar fires this; the MapView mounts a SectionLineDrawer
-  // that ultimately calls ``handleSectionLineDrawn`` below with the
-  // captured endpoints. Returning ``null`` keeps the SectionList's
-  // contract (creation returns the row or null); the row materialises
-  // asynchronously via the draw flow instead of in this handler.
-  const handleCreateSection = useCallback(async (): Promise<
-    CrossSectionResponse | null
-  > => {
-    if (!project) return null
-    if (project.default_horizontal_epsg == null) {
-      toast('error', 'Set a Default horizontal CRS in Project metadata first.')
-      return null
-    }
-    // Drop any active section selection so the map is the visible
-    // surface for drawing. Also clear CPT/borehole selection for the
-    // same reason — the user shouldn't have a detail panel obscuring
-    // half the map mid-draw.
-    setSelectedSectionId(null)
-    setSelectedId(null)
-    setSelectedBoreholeId(null)
-    setDrawingSection(true)
-    return null
-  }, [project])
-
-  const cancelSectionDraw = useCallback(() => {
-    setDrawingSection(false)
-  }, [])
-
-  // Fires from the SectionLineDrawer once the user has placed both
-  // endpoints. Converts WGS84 (Leaflet's native CRS) → the project's
-  // horizontal EPSG and POSTs the section. On success the new row
-  // is added to local state and selected so the user immediately
-  // sees the section panel render.
-  const handleSectionLineDrawn = useCallback(
-    async (
-      start: { lat: number; lng: number },
-      end: { lat: number; lng: number },
-    ) => {
-      setDrawingSection(false)
-      if (!project) return
-      const epsg = project.default_horizontal_epsg
-      if (epsg == null) return // gated upstream, defensive only
-      const [sx, sy] = wgs84ToProjected(start.lat, start.lng, epsg)
-      const [ex, ey] = wgs84ToProjected(end.lat, end.lng, epsg)
-      // Defensive guard for the "double-click same spot" race —
-      // the backend rejects zero-length lines, but a clearer toast
-      // beats a backend 400.
-      if (sx === ex && sy === ey) {
-        toast('error', 'The two endpoints landed at the same point. Try again.')
-        return
-      }
-      const ordinal = sections.length + 1
-      try {
-        const createPayload = {
-          name: `Cross-section ${ordinal}`,
-          epsg,
-          start_x: sx,
-          start_y: sy,
-          end_x: ex,
-          end_y: ey,
-        }
-        const created = await api.section.create(project.id, createPayload)
-        setSections(prev => [...prev, created])
-        setSelectedSectionId(created.id)
-        // Manifest + session-imports update so the new section
-        // tracks as dirty until File → Save (matches the CPT /
-        // borehole import lifecycle).
-        handleSectionCreated(created.id)
-        log.success('section', `created ${created.name} from map draw`)
-        const projectId = project.id
-        let currentId = created.id
-        pushUndo({
-          description: 'Create cross-section',
-          revert: async () => {
-            await api.section.delete(projectId, currentId)
-            setSections(prev => prev.filter(s => s.id !== currentId))
-            setSelectedSectionId(prev => (prev === currentId ? null : prev))
-          },
-          reapply: async () => {
-            const recreated = await api.section.create(projectId, createPayload)
-            currentId = recreated.id
-            setSections(prev => [...prev, recreated])
-            setSelectedSectionId(recreated.id)
-            handleSectionCreated(recreated.id)
-          },
-        })
-      } catch (err) {
-        log.error('section', 'create-from-draw failed', err)
-        toast('error', 'Could not create the cross-section.')
-      }
-    },
-    [project, sections.length, handleSectionCreated, pushUndo],
-  )
-
-  const handleDeleteSection = useCallback(
-    async (id: string) => {
-      if (!project) return
-      try {
-        // Snapshot the section so undo can re-POST an equivalent.
-        const snapshot = sections.find(s => s.id === id)
-        if (!snapshot) return
-        await api.section.delete(project.id, id)
-        setSections(prev => prev.filter(s => s.id !== id))
-        if (selectedSectionId === id) setSelectedSectionId(null)
-        handleSectionDeleted(id)
-        log.info('section', `deleted ${id}`)
-        const projectId = project.id
-        const recreatePayload = {
-          name: snapshot.name,
-          description: snapshot.description,
-          epsg: snapshot.epsg,
-          start_x: snapshot.start_x,
-          start_y: snapshot.start_y,
-          end_x: snapshot.end_x,
-          end_y: snapshot.end_y,
-          projection_buffer_m: snapshot.projection_buffer_m,
-          vertical_exaggeration: snapshot.vertical_exaggeration,
-        }
-        let currentId: string | null = null
-        pushUndo({
-          description: 'Delete cross-section',
-          revert: async () => {
-            const recreated = await api.section.create(projectId, recreatePayload)
-            currentId = recreated.id
-            setSections(prev => [...prev, recreated])
-            handleSectionCreated(recreated.id)
-          },
-          reapply: async () => {
-            if (!currentId) return
-            await api.section.delete(projectId, currentId)
-            const deletedId = currentId
-            setSections(prev => prev.filter(s => s.id !== deletedId))
-            setSelectedSectionId(prev => (prev === deletedId ? null : prev))
-            currentId = null
-          },
-        })
-      } catch (err) {
-        log.error('section', `delete ${id} failed`, err)
-        toast('error', 'Could not delete the cross-section.')
-      }
-    },
-    [
-      project,
-      selectedSectionId,
-      handleSectionDeleted,
-      handleSectionCreated,
-      sections,
-      pushUndo,
-    ],
-  )
-
-  // PATCH the currently-selected section. Used by the SectionPanel's
-  // buffer + VEX sliders (fires on release, not on every pixel of
-  // drag, to avoid hammering the backend). Updates local state with
-  // the row the server returns so subsequent renders use the
-  // server-truth value.
-  const handlePatchSelectedSection = useCallback(
-    async (patch: {
-      projection_buffer_m?: number
-      vertical_exaggeration?: number
-      view_state?: Record<string, unknown>
-      excluded_cpt_ids?: string[]
-      excluded_borehole_ids?: string[]
-    }) => {
-      if (!project || !selectedSectionId) return
-      try {
-        const updated = await api.section.update(
-          project.id,
-          selectedSectionId,
-          patch,
-        )
-        setSections(prev =>
-          prev.map(s => (s.id === updated.id ? updated : s)),
-        )
-        log.debug(
-          'section',
-          `patched ${selectedSectionId} → ${JSON.stringify(patch)}`,
-        )
-      } catch (err) {
-        log.error('section', `patch ${selectedSectionId} failed`, err)
-        toast('error', 'Could not save the section change.')
-      }
-    },
-    [project, selectedSectionId],
-  )
-
   const loadBoreholeDetail = useCallback(
     async (id: string) => {
       if (boreholeDetailMap.has(id)) return
@@ -1416,7 +1198,7 @@ export default function App() {
     // Switching to a CPT clears any borehole / section selection so
     // only one detail panel is rendered at a time.
     setSelectedBoreholeId(null)
-    setSelectedSectionId(null)
+    clearSectionSelection()
     // Lazy-load full detail for the chart panel (mTAW elevation, cone props, etc).
     if (!detailMap.has(id)) {
       api.cpt.get(id).then(detail => {
@@ -1425,106 +1207,18 @@ export default function App() {
     }
     await loadChart(id)
     setView('chart')
-  }, [loadChart, detailMap])
+  }, [loadChart, detailMap, clearSectionSelection])
 
   const handleSelectBorehole = useCallback(
     async (id: string) => {
       setSelectedBoreholeId(id)
       // Mutually exclusive with CPT + section selection.
       setSelectedId(null)
-      setSelectedSectionId(null)
+      clearSectionSelection()
       await loadBoreholeDetail(id)
       setView('chart')
     },
-    [loadBoreholeDetail],
-  )
-
-  // Cross-section selection — exclusive with CPT + borehole. Clearing
-  // the others on entry means the existing view-tab logic doesn't
-  // have to know about sections; the dedicated section panel renders
-  // whenever ``selectedSectionId`` is set and supersedes everything.
-  const handleSelectSection = useCallback((id: string) => {
-    setSelectedSectionId(id)
-    setSelectedId(null)
-    setSelectedBoreholeId(null)
-  }, [])
-
-  // Banner click → focus the offending contacts in a section view.
-  // Resolves which section actually contains one of the contact
-  // anchors (preferring the currently-selected section to avoid an
-  // unnecessary navigation), opens it, then sets focusedContactIds
-  // so ContactsLayer renders the ring + pulse on every contact in
-  // the issue. If no section covers any of the anchors, surface a
-  // toast asking the user to draw one rather than silently doing
-  // nothing — user-decision 2026-05-14 to skip auto-creating
-  // sections. The visual is cleared after 2.5 s so it doesn't
-  // linger if the user navigates elsewhere. debt #9.
-  const handleFocusContacts = useCallback(
-    (contactIds: readonly string[]) => {
-      if (contactIds.length === 0) return
-      const offending = contacts.filter(c => contactIds.includes(c.id))
-      if (offending.length === 0) {
-        // Stale banner data — the contacts vanished since the
-        // validator ran (rare, e.g. another tab deleted them).
-        toast('error', "Couldn't find the contact in the current project.")
-        return
-      }
-      // Resolve each contact's anchor coordinates from the loaded
-      // cpts / boreholes lists. Skip contacts whose anchor has no
-      // surveyed (x, y) — they couldn't have triggered a TIN-vertex
-      // crossing in the first place.
-      const anchorPoints: Array<{ x: number; y: number }> = []
-      for (const c of offending) {
-        if (c.borehole_id) {
-          const bh = boreholes.find(b => b.id === c.borehole_id)
-          if (bh && bh.location_x !== null && bh.location_y !== null) {
-            anchorPoints.push({ x: bh.location_x, y: bh.location_y })
-          }
-        } else if (c.cpt_id) {
-          const cpt = cpts.find(p => p.id === c.cpt_id)
-          if (cpt && cpt.location_x !== null && cpt.location_y !== null) {
-            anchorPoints.push({ x: cpt.location_x, y: cpt.location_y })
-          }
-        }
-      }
-      const sectionContains = (s: CrossSectionResponse): boolean =>
-        anchorPoints.some(p => {
-          const proj = projectPointOntoLine(s, p.x, p.y)
-          return proj !== null && Math.abs(proj.offset) <= s.projection_buffer_m
-        })
-      // Prefer the section the user is already viewing — keeps the
-      // viewport stable when the offending contact is already in
-      // sight. Otherwise pick the first qualifying section in the
-      // project's list (typically the only one).
-      const current = selectedSectionId
-        ? sections.find(s => s.id === selectedSectionId) ?? null
-        : null
-      const target =
-        current && sectionContains(current)
-          ? current
-          : sections.find(sectionContains) ?? null
-      if (target === null) {
-        toast(
-          'error',
-          'No cross-section contains the offending contact — draw one through the borehole or CPT to view it.',
-        )
-        return
-      }
-      if (target.id !== selectedSectionId) {
-        setSelectedSectionId(target.id)
-        setSelectedId(null)
-        setSelectedBoreholeId(null)
-      }
-      setFocusedContactIds(contactIds)
-      if (focusedContactsTimeoutRef.current !== null) {
-        window.clearTimeout(focusedContactsTimeoutRef.current)
-      }
-      focusedContactsTimeoutRef.current = window.setTimeout(() => {
-        setFocusedContactIds([])
-        focusedContactsTimeoutRef.current = null
-      }, 2500)
-    },
-    [contacts, boreholes, cpts, sections, selectedSectionId],
+    [loadBoreholeDetail, clearSectionSelection],
   )
 
   // ---------------------------------------------------------------------------
@@ -1905,7 +1599,7 @@ export default function App() {
                 cpts={visibleCpts}
                 boreholes={visibleBoreholes}
                 onPatch={handlePatchSelectedSection}
-                onClose={() => setSelectedSectionId(null)}
+                onClose={clearSectionSelection}
                 onSelectCpt={handleSelect}
                 onSelectBorehole={handleSelectBorehole}
                 contacts={contacts}
