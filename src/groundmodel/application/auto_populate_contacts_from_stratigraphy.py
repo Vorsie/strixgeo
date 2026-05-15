@@ -35,7 +35,7 @@ everything back via the session's auto-rollback.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -58,6 +58,116 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
+
+@dataclass(frozen=True)
+class StratigraphyCandidate:
+    """A unique formation name discovered from borehole stratigraphy.
+
+    Attributes
+    ----------
+    name : str
+        Formation name as it would be assigned by auto-populate
+        (informal description preferred; formal as fallback).
+    borehole_count : int
+        Number of boreholes in scope that carry this name.
+    """
+
+    name: str
+    borehole_count: int
+
+
+async def scan_stratigraphy_candidates(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    borehole_ids: Iterable[UUID],
+) -> list[StratigraphyCandidate]:
+    """Scan borehole stratigraphy and return unique formation name candidates.
+
+    Runs the same FORMAL_STRATIGRAPHY-preferred / INFORMAL_STRATIGRAPHY-
+    fallback / surface-layers-skipped logic as
+    ``AutoPopulateContactsFromStratigraphy.execute()`` but performs NO DB
+    write.  Used by the discover-from-stratigraphy endpoint to populate the
+    ``FormationSelectionDialog`` without committing anything.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active SQLAlchemy async session (read-only use; no flush/commit).
+    project_id : UUID
+        Project scope — only boreholes within this project are queried.
+    borehole_ids : Iterable[UUID]
+        Boreholes to scan.  Caller is responsible for scoping; borehole ids
+        outside the project are silently filtered by the WHERE clause.
+
+    Returns
+    -------
+    list[StratigraphyCandidate]
+        Unique candidates sorted by ``borehole_count`` descending, then
+        ``name`` ascending.  Empty when no borehole carries stratigraphy.
+    """
+    borehole_id_list = list(borehole_ids)
+    if not borehole_id_list:
+        return []
+
+    # Load boreholes with observations + layers in one round-trip.
+    bh_stmt = (
+        select(BoreholeOrm)
+        .where(
+            BoreholeOrm.id.in_(borehole_id_list),
+            BoreholeOrm.app_project_id == project_id,
+        )
+        .options(selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers))
+    )
+    boreholes = list((await session.execute(bh_stmt)).scalars().all())
+
+    # name → set of borehole ids that contributed it (dedup per borehole).
+    name_to_boreholes: dict[str, set[UUID]] = {}
+
+    for borehole in boreholes:
+        formal_obs = _find_observation(borehole.observations, ObservationType.FORMAL_STRATIGRAPHY)
+        informal_obs = _find_observation(
+            borehole.observations, ObservationType.INFORMAL_STRATIGRAPHY
+        )
+        if formal_obs is None and informal_obs is None:
+            continue
+
+        primary_obs = formal_obs if formal_obs is not None else informal_obs
+        other_obs = informal_obs if formal_obs is not None else None
+        assert primary_obs is not None
+        primary_is_formal = formal_obs is not None
+        other_layers = list(other_obs.layers) if other_obs is not None else []
+
+        for layer in primary_obs.layers:
+            if layer.top_m < 0.0:
+                # Surface layers (top_m == 0) ARE included — same as auto-populate.
+                # Negative depths are invalid; skip.
+                continue
+            primary_desc = (layer.description or "").strip()
+            if not primary_desc:
+                continue
+
+            counterpart = _best_overlap(layer.top_m, layer.base_m, other_layers)
+            counterpart_desc = (counterpart.description or "").strip() if counterpart else None  # type: ignore[union-attr]
+
+            # Mirror the auto-populate name assignment:
+            # name = informal (primary when not formal; counterpart when primary is formal)
+            if primary_is_formal:
+                name = counterpart_desc or primary_desc
+            else:
+                name = primary_desc
+
+            name_to_boreholes.setdefault(name, set()).add(borehole.id)
+
+    return sorted(
+        [
+            StratigraphyCandidate(name=n, borehole_count=len(bids))
+            for n, bids in name_to_boreholes.items()
+        ],
+        key=lambda c: (-c.borehole_count, c.name),
+    )
+
+
 # Default colour palette for auto-created formations — cycles per
 # formation, deterministic so the same description always lands on
 # the same hue. Engineers rename + recolour after the auto-populate
@@ -74,6 +184,50 @@ _DEFAULT_FORMATION_COLOURS = (
     "#0ea5e9",  # sky
     "#c084fc",  # purple
 )
+
+
+def _find_observation(
+    observations: Iterable[ObservationOrm],
+    kind: ObservationType,
+) -> ObservationOrm | None:
+    """Return the first observation of ``kind`` on the borehole, or None.
+
+    A borehole's observations are unique per type in practice (DOV doesn't
+    ship two formal stratigraphy interpretations for one boring), so "first
+    match" is equivalent to "the match".
+    """
+    for obs in observations:
+        if obs.observation_type == kind.value:
+            return obs
+    return None
+
+
+def _best_overlap(
+    top_m: float,
+    base_m: float,
+    candidates: Iterable[object],
+) -> object | None:
+    """Return the candidate layer with the largest depth-interval overlap.
+
+    Used to pair a primary-stream layer with its counterpart in the other
+    stream (formal vs informal).  Overlap = intersection length:
+    ``max(0, min(b1, b2) - max(t1, t2))``.  Returns ``None`` when no
+    candidate overlaps at all.
+
+    Type-erased to ``object`` because callers pass ``ObservationLayerOrm``
+    rows via structural typing (``top_m`` / ``base_m`` / ``description``
+    attributes); a typed signature would require a circular import.
+    """
+    best: object | None = None
+    best_overlap_len = 0.0
+    for cand in candidates:
+        cand_top = float(getattr(cand, "top_m"))
+        cand_base = float(getattr(cand, "base_m"))
+        overlap = min(base_m, cand_base) - max(top_m, cand_top)
+        if overlap > best_overlap_len:
+            best_overlap_len = overlap
+            best = cand
+    return best
 
 
 def _palette_colour_for(name: str) -> str:
@@ -433,51 +587,6 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             skipped_no_stratigraphy=skipped_no_stratigraphy,
         )
 
-    @staticmethod
-    def _find_observation(
-        observations: Iterable[ObservationOrm],
-        kind: ObservationType,
-    ) -> ObservationOrm | None:
-        """Return the first observation of ``kind`` on the borehole, or None.
-
-        A borehole's observations are unique per type in practice
-        (DOV doesn't ship two formal stratigraphy interpretations
-        for one boring), so "first match" is equivalent to "the
-        match" — the helper is just a one-liner factored out so
-        the use case body stays readable.
-        """
-        for obs in observations:
-            if obs.observation_type == kind.value:
-                return obs
-        return None
-
-    @staticmethod
-    def _best_overlap(
-        top_m: float,
-        base_m: float,
-        candidates: Iterable[object],
-    ) -> object | None:
-        """Find the candidate layer with the largest depth-interval overlap.
-
-        Used to pair a primary-stream layer with its counterpart in
-        the other stream (formal vs informal). Overlap is the
-        intersection length: ``max(0, min(b1, b2) - max(t1, t2))``.
-        Returns the candidate with max overlap; None when no
-        candidate overlaps at all (no informal layer covers this
-        depth range).
-
-        Type-erased to ``object`` because callers pass
-        ObservationLayerOrm rows with the same ``top_m`` / ``base_m``
-        / ``description`` columns; static typing here would force a
-        circular import for a one-line helper.
-        """
-        best: object | None = None
-        best_overlap = 0.0
-        for cand in candidates:
-            cand_top = float(getattr(cand, "top_m"))
-            cand_base = float(getattr(cand, "base_m"))
-            overlap = min(base_m, cand_base) - max(top_m, cand_top)
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best = cand
-        return best
+    # Delegate to module-level helpers shared with scan_stratigraphy_candidates.
+    _find_observation = staticmethod(_find_observation)
+    _best_overlap = staticmethod(_best_overlap)
