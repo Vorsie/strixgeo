@@ -1051,7 +1051,7 @@ export default function SectionPanel({
   const yAxisLabel = datumShort ? `Level (${datumShort})` : 'Level (m)'
 
   return (
-    <div className="flex flex-col h-full w-full bg-white">
+    <div className="flex flex-col h-full w-full bg-surface-page">
       <SectionHeader
         section={section}
         lengthM={lengthM}
@@ -1148,20 +1148,21 @@ export default function SectionPanel({
               <SoilPatterns />
             </defs>
 
-            {/* Plot-area background — solid white over the tinted
-                container so the grid + axes read cleanly even when
-                a future overlay tints the canvas. Marquee + pan
-                dispatch lives on the SVG root (see handleMouseDown
-                above) so this rect only needs to draw — its
-                mousedown bubbles up to the SVG and gets routed
-                there. */}
+            {/* Plot-area background — surface one step above the page
+                background so the grid + axes read cleanly over it.
+                Uses CSS-var tokens (section-plot-*) defined in
+                index.css :root/.dark because SVG attributes can't
+                use Tailwind dark: variants. Marquee + pan dispatch
+                lives on the SVG root (see handleMouseDown above) so
+                this rect only needs to draw — its mousedown bubbles
+                up to the SVG and gets routed there. */}
             <rect
               x={MARGIN.left}
               y={MARGIN.top}
               width={plotWidth}
               height={plotHeight}
-              fill="#fafafa"
-              stroke="#e5e7eb"
+              fill="var(--section-plot-bg)"
+              stroke="var(--section-plot-border)"
               data-testid="section-marquee-bg"
             />
 
@@ -1182,13 +1183,13 @@ export default function SectionPanel({
                     x2={sx}
                     y1={MARGIN.top}
                     y2={MARGIN.top + plotHeight}
-                    stroke="#e5e7eb"
+                    stroke="var(--section-grid)"
                   />
                   <text
                     x={sx}
                     y={MARGIN.top + plotHeight + 14}
                     fontSize={10}
-                    fill="#6b7280"
+                    fill="var(--section-axis-tick)"
                     textAnchor="middle"
                   >
                     {Math.round(v)}
@@ -1207,13 +1208,13 @@ export default function SectionPanel({
                     x2={MARGIN.left + plotWidth}
                     y1={sy}
                     y2={sy}
-                    stroke="#e5e7eb"
+                    stroke="var(--section-grid)"
                   />
                   <text
                     x={MARGIN.left - 6}
                     y={sy + 3}
                     fontSize={10}
-                    fill="#6b7280"
+                    fill="var(--section-axis-tick)"
                     textAnchor="end"
                   >
                     {/* One decimal when the step is sub-metre so
@@ -1448,7 +1449,7 @@ export default function SectionPanel({
               x={MARGIN.left + plotWidth / 2}
               y={MARGIN.top + plotHeight + 28}
               fontSize={11}
-              fill="#374151"
+              fill="var(--section-axis-title)"
               textAnchor="middle"
             >
               Distance along section (m)
@@ -1457,7 +1458,7 @@ export default function SectionPanel({
               x={14}
               y={MARGIN.top + plotHeight / 2}
               fontSize={11}
-              fill="#374151"
+              fill="var(--section-axis-title)"
               textAnchor="middle"
               transform={`rotate(-90 14 ${MARGIN.top + plotHeight / 2})`}
             >
@@ -1578,7 +1579,16 @@ export default function SectionPanel({
 
 function CanvasHints(): JSX.Element {
   return (
-    <div className="absolute bottom-2 left-2 z-10 text-[10px] text-gray-400 bg-white/80 px-1.5 py-0.5 rounded pointer-events-none">
+    // SVG can't use Tailwind dark: variants; the hint pill's background and
+    // text colour are driven by --section-hint-* CSS-var tokens (index.css
+    // :root/.dark) so they match the dark plot-area chrome.
+    <div
+      className="absolute bottom-2 left-2 z-10 text-[10px] px-1.5 py-0.5 rounded pointer-events-none"
+      style={{
+        color: 'var(--section-hint-text)',
+        background: 'var(--section-hint-bg)',
+      }}
+    >
       Drag to pan · scroll to zoom · double-click to reset · right-click a column to focus
     </div>
   )

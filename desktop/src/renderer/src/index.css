@@ -58,6 +58,24 @@
   --borelog-axis-line:           #d4d4d8;  /* zinc-300  — mTAW axis guide line         */
   --borelog-axis-tick:           #6b7280;  /* gray-500  — mTAW tick label text         */
 
+  /* Section SVG chrome tokens — SVG attributes can't use Tailwind dark:
+   * variants. Light values are the literal hex currently hard-coded in
+   * SectionPanel.tsx so the light theme is byte-identical after the migration.
+   * The plot-area background uses --color-surface-page (white) in light;
+   * the canvas wrapper background tracks the same token.
+   * Grid and axis lines reuse --color-border-subtle where the tones align;
+   * axis label text reuses --color-text-secondary / --color-text-muted.
+   * --section-plot-bg and --section-plot-border need section-specific values
+   * because they differ slightly from the generic surface tokens — the plot
+   * is deliberately one shade warmer in light to read as a "data canvas". */
+  --section-plot-bg:         #fafafa;  /* gray-50    — plot-area rect fill   */
+  --section-plot-border:     #e5e7eb;  /* gray-200   — plot-area rect stroke */
+  --section-grid:            #e5e7eb;  /* gray-200   — grid lines            */
+  --section-axis-tick:       #6b7280;  /* gray-500   — tick label text       */
+  --section-axis-title:      #374151;  /* gray-700   — axis title text       */
+  --section-hint-bg:         rgba(255,255,255,0.80); /* hint pill background */
+  --section-hint-text:       #9ca3af;  /* gray-400   — hint text             */
+
   /* Chart curve colour tokens — light values mirror the existing hard-coded
    * constants in CptChart.tsx exactly so the light theme is byte-identical
    * after the migration. The ``.dark`` block overrides these to legible
@@ -114,6 +132,20 @@
   --borelog-text-muted:          #94a3b8;  /* slate-400 — ~6.8:1 on slate-900 (AA pass for small text); was slate-500 #64748b ~3.6:1 (fails 4.5:1) */
   --borelog-axis-line:           #334155;  /* slate-700 — was #d4d4d8 zinc-300     */
   --borelog-axis-tick:           #94a3b8;  /* slate-400 — was #6b7280 gray-500     */
+
+  /* Section SVG chrome — dark hero values.
+   * Plot area shifts to slate-800 (one step above the slate-900 page) so it
+   * reads as a distinct content surface, not a flat black void. Grid lines and
+   * axis chrome align with the borelog token palette for visual consistency
+   * across the two main SVG-rendered panels. The hint pill inverts to a dark
+   * translucent surface so the text reads against the dark plot area. */
+  --section-plot-bg:         #1e293b;  /* slate-800  — was #fafafa gray-50   */
+  --section-plot-border:     #334155;  /* slate-700  — was #e5e7eb gray-200  */
+  --section-grid:            #334155;  /* slate-700  — was #e5e7eb gray-200  */
+  --section-axis-tick:       #94a3b8;  /* slate-400  — was #6b7280 gray-500  */
+  --section-axis-title:      #cbd5e1;  /* slate-300  — was #374151 gray-700  */
+  --section-hint-bg:         rgba(15,23,42,0.80);  /* dark pill background   */
+  --section-hint-text:       #64748b;  /* slate-500  — was #9ca3af gray-400  */
 
   /* Chart curve colours — dark hero values.
    *
