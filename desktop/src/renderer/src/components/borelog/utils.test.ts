@@ -236,4 +236,114 @@ describe('computeLayout', () => {
     expect(layout.totalDepth).toBe(9)
     expect(layout.canvasHeight).toBe(90)
   })
+
+  // ------------------------------------------------------------------
+  // Hidden-tracks support — hiddenTracks param filters tracks from
+  // the layout so no gap is left behind and total width recomputes.
+  // ------------------------------------------------------------------
+
+  it('excludes a hidden observation track from the layout', () => {
+    const layoutAll = computeLayout(
+      makeBorehole({
+        total_depth_m: 1,
+        observations: [
+          {
+            id: 'o1',
+            observation_type: 'coded_lithology',
+            layers: [{ id: 'l1', top_m: 0, base_m: 1 } as never],
+          } as never,
+          {
+            id: 'o2',
+            observation_type: 'formal_stratigraphy',
+            layers: [{ id: 'l2', top_m: 0, base_m: 1 } as never],
+          } as never,
+        ],
+      }),
+      60,
+    )
+    const layoutHidden = computeLayout(
+      makeBorehole({
+        total_depth_m: 1,
+        observations: [
+          {
+            id: 'o1',
+            observation_type: 'coded_lithology',
+            layers: [{ id: 'l1', top_m: 0, base_m: 1 } as never],
+          } as never,
+          {
+            id: 'o2',
+            observation_type: 'formal_stratigraphy',
+            layers: [{ id: 'l2', top_m: 0, base_m: 1 } as never],
+          } as never,
+        ],
+      }),
+      60,
+      new Set(['formal_stratigraphy'] as const),
+    )
+    // One less track → totalWidth narrows by stratigraphy track width + gap.
+    expect(layoutHidden.totalWidth).toBe(
+      layoutAll.totalWidth - (OBS_TRACK_WIDTH_STRATIGRAPHY + TRACK_GAP),
+    )
+    expect(layoutHidden.observationTracks.map(t => t.observation.observation_type)).toEqual([
+      'coded_lithology',
+    ])
+  })
+
+  it('excludes a hidden drill-method track from the layout', () => {
+    const borehole = makeBorehole({
+      total_depth_m: 2,
+      drill_segments: [{ id: 'd1', top_m: 0, base_m: 2, method: 'auger' } as never],
+    })
+    const layoutVisible = computeLayout(borehole, 60)
+    const layoutHidden = computeLayout(borehole, 60, new Set(['drill_method'] as const))
+
+    expect(layoutVisible.drillMethodX).not.toBeNull()
+    expect(layoutHidden.drillMethodX).toBeNull()
+    expect(layoutHidden.totalWidth).toBe(
+      layoutVisible.totalWidth - (DRILL_TRACK_WIDTH + TRACK_GAP),
+    )
+  })
+
+  it('excludes a hidden field-log track from the layout', () => {
+    const borehole = makeBorehole({
+      total_depth_m: 2,
+      field_log_intervals: [{ id: 'f1', top_m: 0, base_m: 2 } as never],
+    })
+    const layoutVisible = computeLayout(borehole, 60)
+    const layoutHidden = computeLayout(borehole, 60, new Set(['field_log'] as const))
+
+    expect(layoutVisible.fieldLogX).not.toBeNull()
+    expect(layoutHidden.fieldLogX).toBeNull()
+    expect(layoutHidden.totalWidth).toBe(
+      layoutVisible.totalWidth - (FIELD_LOG_TRACK_WIDTH + TRACK_GAP),
+    )
+  })
+
+  it('excludes a hidden samples track from the layout', () => {
+    const borehole = makeBorehole({
+      total_depth_m: 2,
+      samples: [{ id: 's1', depth_top_m: 0, depth_base_m: 2 } as never],
+    })
+    const layoutVisible = computeLayout(borehole, 60)
+    const layoutHidden = computeLayout(borehole, 60, new Set(['samples_lab'] as const))
+
+    expect(layoutVisible.samplesX).not.toBeNull()
+    expect(layoutHidden.samplesX).toBeNull()
+    expect(layoutHidden.totalWidth).toBe(
+      layoutVisible.totalWidth - (SAMPLES_TRACK_WIDTH + TRACK_GAP),
+    )
+  })
+
+  it('defaults to showing all tracks when hiddenTracks is omitted', () => {
+    // Backward-compat: existing call sites that don't pass hiddenTracks
+    // still work correctly.
+    const borehole = makeBorehole({
+      total_depth_m: 2,
+      drill_segments: [{ id: 'd1', top_m: 0, base_m: 2, method: 'auger' } as never],
+    })
+    const layoutImplicit = computeLayout(borehole, 60)
+    const layoutExplicit = computeLayout(borehole, 60, new Set())
+    expect(layoutImplicit.drillMethodX).toBe(layoutExplicit.drillMethodX)
+    expect(layoutImplicit.totalWidth).toBe(layoutExplicit.totalWidth)
+  })
 })
