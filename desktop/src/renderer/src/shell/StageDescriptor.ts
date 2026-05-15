@@ -11,6 +11,7 @@
 // routes internally.
 
 import type { ComponentType } from 'react'
+import type { LucideIcon } from 'lucide-react'
 
 /**
  * Identifier for each workflow stage in the spine.
@@ -67,7 +68,11 @@ export interface StageSummary {
  */
 export interface StageDescriptor {
   id: StageId
-  icon: ComponentType<{ size?: number; className?: string }>
+  // Lucide icon component. ``LucideIcon`` is lucide-react's own forwardRef
+  // type — every stage descriptor assigns a lucide icon (Database, Layers,
+  // …), so typing it as the narrower ``ComponentType<{size,className}>``
+  // mis-rejected the actual values. StageSpine renders it with size + class.
+  icon: LucideIcon
   spineLabel: string
   useStageSummary: () => StageSummary
   CanvasComponent: ComponentType

@@ -616,7 +616,7 @@ export function useGeologicalModel({
               // server-state cache and the in-batch index. Refetch
               // would slow the path; skip + count.
               failed += 1
-              log.warning(
+              log.warn(
                 'geology',
                 `batchCreateContacts 409 but existing id ${err.existingContactId} not in local cache, skipped`,
               )

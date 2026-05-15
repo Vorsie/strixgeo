@@ -205,7 +205,14 @@ export default function DataInspector(): JSX.Element {
         .filter(b => {
           const filterValue =
             (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
-          return !hiddenBoreholeValues.has(filterValue) && !outOfViewportBoreholeIds.has(b.id)
+          // hiddenBoreholeValues is Record<BoreholeAxis, Set<string>> — index
+          // by the active axis to get the Set (the old App did this inline
+          // before passing the per-axis Set into Sidebar; the bus carries
+          // the full Record so the indexing moves here).
+          return (
+            !hiddenBoreholeValues[boreholeAxis].has(filterValue) &&
+            !outOfViewportBoreholeIds.has(b.id)
+          )
         })
         .sort(boreholeSorter),
     [boreholesAfterSearch, hiddenBoreholeValues, outOfViewportBoreholeIds, boreholeAxis, boreholeSorter],
@@ -216,7 +223,10 @@ export default function DataInspector(): JSX.Element {
         .filter(b => {
           const filterValue =
             (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
-          return hiddenBoreholeValues.has(filterValue) || outOfViewportBoreholeIds.has(b.id)
+          return (
+            hiddenBoreholeValues[boreholeAxis].has(filterValue) ||
+            outOfViewportBoreholeIds.has(b.id)
+          )
         })
         .sort(boreholeSorter),
     [boreholesAfterSearch, hiddenBoreholeValues, outOfViewportBoreholeIds, boreholeAxis, boreholeSorter],
