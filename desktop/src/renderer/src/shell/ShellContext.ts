@@ -23,7 +23,56 @@ import type { UseMapOverlaysResult } from '../hooks/useMapOverlays'
 import type { UseProjectLifecycleResult } from '../hooks/useProjectLifecycle'
 import type { UseInvestigationDataResult } from '../hooks/useInvestigationData'
 import type { UseUndoStackResult } from '../hooks/useUndoStack'
+import type { UseMapStateResult } from '../hooks/useMapState'
 import type { CptListItem, BoreholeListItem, ProjectResponse } from '../api/client'
+
+/**
+ * App-level cross-hook coordinator state.
+ *
+ * These values live in App.tsx rather than in a single hook because they
+ * span multiple hook boundaries by design: ``selectedId`` is written by
+ * ``useInvestigationData`` import handlers and read by ``useSections``
+ * for mutual-exclusion; ``view`` is written by import handlers AND read
+ * by the canvas switcher. Extracting them into a dedicated hook would
+ * create a circular dependency between ``useInvestigationData`` and
+ * ``useSections``. They are grouped here as a named slice so stage
+ * components have a predictable, documented place to find them.
+ *
+ * See the coordinator comment block in App.tsx for the full rationale.
+ */
+export interface Coordinator {
+  /** Currently selected CPT id, or ``null`` when nothing is selected. */
+  selectedId: string | null
+  /** Currently selected borehole id, or ``null`` when nothing is selected. */
+  selectedBoreholeId: string | null
+  /** Update the selected CPT id. */
+  setSelectedId: (id: string | null) => void
+  /** Update the selected borehole id. */
+  setSelectedBoreholeId: (id: string | null) => void
+  /** Current main canvas mode — map overview or detail chart. */
+  view: 'map' | 'chart'
+  /** Switch the main canvas mode. */
+  setView: (v: 'map' | 'chart') => void
+  /** Select a CPT: sets selectedId, clears borehole + section, loads detail, switches to chart. */
+  handleSelect: (id: string) => Promise<void>
+  /** Select a borehole: sets selectedBoreholeId, clears CPT + section, loads detail, switches to chart. */
+  handleSelectBorehole: (id: string) => Promise<void>
+  /** Export the section's geological model to DXF (owns the save-dialog + file-write flow). */
+  handleExportSectionDxf: (
+    projectId: string,
+    sectionId: string,
+    sectionName: string,
+    modelId: string,
+  ) => Promise<void>
+  /** CPT ids that are outside the current map viewport. Empty before the map reports bounds. */
+  outOfViewportCptIds: ReadonlySet<string>
+  /** Borehole ids outside the current map viewport. */
+  outOfViewportBoreholeIds: ReadonlySet<string>
+  /** Absolute path of the open .gmproj file, or ``null`` if unsaved. */
+  projectFilePath: string | null
+  /** Formation ids currently in the project manifest (drives session-dirty detection). */
+  manifestFormationIds: ReadonlySet<string>
+}
 
 /**
  * The full app state bus carried through the shell.
@@ -65,10 +114,25 @@ export interface ShellContextValue {
   overlays: UseMapOverlaysResult
   /** Toast notification stack and ``toast`` action. */
   toasts: UseToastsResult
-  /** Undo / redo stack — push + undo + redo + clear. */
+  /** Undo / redo stack — push + undo + redo + clear + canUndo + canRedo + busy. */
   undo: UseUndoStackResult
   /** API boot — ``ready`` and ``apiError`` (stable refs; rarely needed by stages). */
   boot: UseAppBootResult
+  /**
+   * Map layer-visibility, viewport bounds, and Leaflet camera persistence.
+   *
+   * The full ``useMapState()`` result is surfaced here so stage components
+   * (e.g. DataStage's canvas) can read / write layer toggles without prop
+   * drilling.  The individual stable callbacks inside this result are safe
+   * to include in effect dep arrays; the object itself should NOT be placed
+   * in a useEffect dep array because it is rebuilt each render.
+   */
+  mapState: UseMapStateResult
+  /**
+   * App-level cross-hook coordinator state — selection, view mode, and
+   * DXF export.  See ``Coordinator`` above for the full rationale.
+   */
+  coordinator: Coordinator
 }
 
 /**
