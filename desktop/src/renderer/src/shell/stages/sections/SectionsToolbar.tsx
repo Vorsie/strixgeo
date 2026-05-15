@@ -31,6 +31,7 @@ import Button from '../../../components/ui/Button'
 export default function SectionsToolbar(): JSX.Element {
   const {
     project,
+    visibleBoreholes,
     sections: {
       selectedSectionId,
       sections,
@@ -44,6 +45,7 @@ export default function SectionsToolbar(): JSX.Element {
       handleRebuildSurfaces,
       handleDedupeContacts,
       handleExportModelPlaxis3d,
+      handleAutoPopulateFromStratigraphy,
     },
     coordinator: {
       handleExportSectionDxf,
@@ -52,6 +54,7 @@ export default function SectionsToolbar(): JSX.Element {
 
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [seeding, setSeeding] = useState(false)
   // Delete confirm modal state — replaces window.confirm() per UX rules:
   // irreversible actions require a Modal with default-focus on Cancel and a
   // button labelled with the action name (not "OK"). See docs/ux.md.
@@ -135,11 +138,22 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }
 
-  // No handleAutoPopulate here by design: "Seed from stratigraphy" is
-  // disabled in the Sections stage and the bus action is NOT reachable
-  // from this component (not even destructured) so the CLAUDE.md
-  // "Geology stage owns model definition" contract is structurally
-  // enforced — the Seed action moves to the Geology stage in S6/S7.
+  // Seed from stratigraphy — un-gated now that the Geology stage owns
+  // formation definition ("Fill from boreholes").  The Geology stage
+  // creates the formation rows (the source of truth); Sections Seed
+  // only places contacts for formations that ALREADY EXIST in the model.
+  // It does NOT create formations and does NOT trigger a Delaunay build.
+  // Risk 4 (geology-stage-architecture.md §8.1): if duplicates appear,
+  // run Dedupe — the tooltip below surfaces this guidance to the user.
+  async function handleSeed(): Promise<void> {
+    if (!activeGeologicalModel || seeding) return
+    setSeeding(true)
+    try {
+      await handleAutoPopulateFromStratigraphy(visibleBoreholes.map(b => b.id))
+    } finally {
+      setSeeding(false)
+    }
+  }
 
   async function handleDedupe(): Promise<void> {
     if (!activeGeologicalModel || deduping) return
@@ -254,24 +268,25 @@ export default function SectionsToolbar(): JSX.Element {
         }
       />
 
-      {/* Seed from stratigraphy — DISABLED in the Sections stage.
-          Formation definition ("Fill from boreholes") belongs to the
-          Geology stage (S6/S7, not yet built). This button is kept
-          greyed-out so the user sees the affordance exists, but cannot
-          trigger it before the Geology stage owns the action.
-          The underlying handleAutoPopulateFromStratigraphy bus action
-          is intentionally preserved — it will be repurposed / relocated
-          to the Geology stage's "Fill from boreholes" flow in S6/S7.
-          See CLAUDE.md "Geology stage owns model definition" contract. */}
+      {/* Seed from stratigraphy — places contacts at borehole observation
+          boundaries for formations that already exist in the active model.
+          Contract: Geology stage owns "Fill from boreholes" (creates formation
+          rows). Sections Seed only creates CONTACTS — it never creates
+          formations and never triggers a Delaunay/TIN build.
+          Risk 4 (geology-stage-architecture.md §8.1): run Dedupe afterwards
+          if this places duplicate contacts alongside existing ones. */}
       <ToolbarButton
         icon={<Sparkles size={13} />}
-        label="From boreholes"
-        onClick={() => {
-          // Intentionally no-op: this trigger is disabled in the Sections
-          // stage. The Geology stage (S6/S7) will own this action.
-        }}
-        disabled
-        title="Define the geological model in the Geology stage first — Seed places contacts for already-defined layers."
+        label={seeding ? 'Seeding…' : 'Seed'}
+        onClick={() => void handleSeed()}
+        disabled={!hasModel || seeding}
+        title={
+          !hasModel
+            ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
+            : seeding
+              ? 'Seeding contacts from borehole stratigraphy…'
+              : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear'
+        }
       />
 
       {/* Dedupe contacts */}
