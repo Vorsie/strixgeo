@@ -160,9 +160,13 @@ export default function SectionsCanvas(): JSX.Element {
         onDeleteContact={handleDeleteContact}
         onBatchUpdateContacts={handleBatchUpdateContacts}
         onBatchCreateContacts={handleBatchCreateContacts}
-        onAutoPopulateFromStratigraphy={
-          activeGeologicalModel ? handleAutoPopulateFromStratigraphy : undefined
-        }
+        // onAutoPopulateFromStratigraphy intentionally omitted: the
+        // Sections stage does NOT own formation seeding. That action
+        // belongs to the Geology stage (S6/S7). Omitting the prop
+        // leaves the SectionHeader button permanently disabled with
+        // the "define in Geology stage first" tooltip.
+        // handleAutoPopulateFromStratigraphy on the bus is preserved
+        // for the Geology stage to wire when it lands.
         onCreateFormation={handleInlineCreateFormation}
         onExportDxf={
           activeGeologicalModel

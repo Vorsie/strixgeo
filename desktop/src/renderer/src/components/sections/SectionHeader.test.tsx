@@ -149,26 +149,40 @@ describe('SectionHeader Export DXF button', () => {
 })
 
 describe('SectionHeader Seed from stratigraphy button', () => {
-  it('is absent when onAutoPopulateFromStratigraphy is not provided', () => {
+  // The button always renders (greyed/disabled when no prop, enabled when wired)
+  // so users can see the affordance exists even before the Geology stage wires it.
+  // See CLAUDE.md "Geology stage owns model definition" contract.
+
+  it('renders in disabled state when onAutoPopulateFromStratigraphy is not provided', () => {
     render(<SectionHeader {...(_baseProps() as never)} />)
-    expect(
-      screen.queryByTestId('auto-populate-stratigraphy-button'),
-    ).not.toBeInTheDocument()
+    const btn = screen.getByTestId(
+      'auto-populate-stratigraphy-button',
+    ) as HTMLButtonElement
+    expect(btn).toBeInTheDocument()
+    expect(btn.disabled).toBe(true)
   })
 
-  it('renders when onAutoPopulateFromStratigraphy is wired', () => {
+  it('shows Geology-stage-first tooltip when disabled (prop absent)', () => {
+    render(<SectionHeader {...(_baseProps() as never)} />)
+    const btn = screen.getByTestId('auto-populate-stratigraphy-button')
+    expect(btn.title).toMatch(/Geology stage/i)
+  })
+
+  it('renders enabled when onAutoPopulateFromStratigraphy is wired', () => {
     render(
       <SectionHeader
         {...(_baseProps() as never)}
         onAutoPopulateFromStratigraphy={vi.fn().mockResolvedValue(undefined)}
       />,
     )
-    expect(
-      screen.getByTestId('auto-populate-stratigraphy-button'),
-    ).toBeInTheDocument()
+    const btn = screen.getByTestId(
+      'auto-populate-stratigraphy-button',
+    ) as HTMLButtonElement
+    expect(btn).toBeInTheDocument()
+    expect(btn.disabled).toBe(false)
   })
 
-  it('calls the handler when clicked', async () => {
+  it('calls the handler when clicked (wired path)', async () => {
     const onAuto = vi.fn().mockResolvedValue(undefined)
     render(
       <SectionHeader

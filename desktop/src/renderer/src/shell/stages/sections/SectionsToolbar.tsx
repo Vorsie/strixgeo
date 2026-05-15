@@ -263,21 +263,24 @@ export default function SectionsToolbar(): JSX.Element {
         }
       />
 
-      {/* Auto-populate from stratigraphy */}
+      {/* Seed from stratigraphy — DISABLED in the Sections stage.
+          Formation definition ("Fill from boreholes") belongs to the
+          Geology stage (S6/S7, not yet built). This button is kept
+          greyed-out so the user sees the affordance exists, but cannot
+          trigger it before the Geology stage owns the action.
+          The underlying handleAutoPopulateFromStratigraphy bus action
+          is intentionally preserved — it will be repurposed / relocated
+          to the Geology stage's "Fill from boreholes" flow in S6/S7.
+          See CLAUDE.md "Geology stage owns model definition" contract. */}
       <ToolbarButton
         icon={<Sparkles size={13} />}
-        label={populating ? 'Working…' : 'From boreholes'}
-        onClick={handleAutoPopulate}
-        disabled={!hasModel || populating || visibleBoreholes.length === 0}
-        title={
-          !hasModel
-            ? 'No active geological model'
-            : visibleBoreholes.length === 0
-              ? 'No boreholes visible — import boreholes first'
-              : populating
-                ? 'Working…'
-                : 'Seed formation contacts from borehole stratigraphy observations'
-        }
+        label="From boreholes"
+        onClick={() => {
+          // Intentionally no-op: this trigger is disabled in the Sections
+          // stage. The Geology stage (S6/S7) will own this action.
+        }}
+        disabled
+        title="Define the geological model in the Geology stage first — Seed places contacts for already-defined layers."
       />
 
       {/* Dedupe contacts */}

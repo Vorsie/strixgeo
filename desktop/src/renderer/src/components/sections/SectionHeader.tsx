@@ -391,19 +391,31 @@ export default function SectionHeader({
         Reset
       </button>
 
-      {onAutoPopulateFromStratigraphy && (
-        <button
-          onClick={() => void handleAutoPopulate()}
-          disabled={autoPopulating}
-          className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Seed contacts on this section's boreholes from their formal stratigraphy (informal as fallback). Idempotent — re-running is a no-op."
-          aria-label="Auto-populate contacts from stratigraphy"
-          data-testid="auto-populate-stratigraphy-button"
-        >
-          <Wand2 size={11} />
-          {autoPopulating ? 'Seeding…' : 'Seed from stratigraphy'}
-        </button>
-      )}
+      {/* Seed from stratigraphy — always rendered so the user knows
+          the affordance exists, but the button is disabled/greyed when
+          the prop is absent. In the Sections stage the caller passes
+          undefined so the button stays permanently greyed with the
+          "define in Geology stage first" tooltip — enforcing the
+          contract that formation definition belongs to the Geology stage
+          (S6/S7). When wired (future Geology stage), the button becomes
+          functional. See CLAUDE.md "Geology stage owns model definition". */}
+      <button
+        onClick={() => void handleAutoPopulate()}
+        disabled={!onAutoPopulateFromStratigraphy || autoPopulating}
+        className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        title={
+          !onAutoPopulateFromStratigraphy
+            ? 'Define the geological model in the Geology stage first — Seed places contacts for already-defined layers.'
+            : autoPopulating
+              ? 'Seeding…'
+              : 'Seed contacts on this section\'s boreholes from their formal stratigraphy (informal as fallback). Idempotent — re-running is a no-op.'
+        }
+        aria-label="Auto-populate contacts from stratigraphy"
+        data-testid="auto-populate-stratigraphy-button"
+      >
+        <Wand2 size={11} />
+        {autoPopulating ? 'Seeding…' : 'Seed from stratigraphy'}
+      </button>
 
       {onExportDxf && (
         <button

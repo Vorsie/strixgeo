@@ -116,11 +116,24 @@ the recompute. The section view renders stale TINs at opacity 0.35
 + dashed ``6 3`` so the engineer sees "this is your last build,
 refresh to update." Distinct from the connect-the-dots fallback
 (dashed ``4 3``, opacity 0.55) and from fresh TIN (solid 0.7).
-Auto-recompute IS retained on the explicit "do a thing" actions
-(Auto-populate from boreholes, Dedupe) — they're build-shaped
-intents, not iterative edits. The ``method`` query param scaffolds
-for kriging / RBF / GemPy in Phase 5; v1 enforces ``method=tin``
-via regex.
+Dedupe's auto-recompute is retained (it is a build-shaped intent,
+not an iterative edit). The ``method`` query param scaffolds for
+kriging / RBF / GemPy in Phase 5; v1 enforces ``method=tin`` via
+regex.
+
+**Geology stage owns model definition. Formations are created/curated/
+deleted and seeded from borehole stratigraphy ("Fill from boreholes")
+in the Geology stage — the substrate-definition step. The cross-section's
+"Seed from stratigraphy" is NOT a model-definition action: it is a
+downstream, gated operation that (a) is disabled until the active
+geological model has formations, (b) places formation CONTACTS only —
+for the formations the user has kept — at each in-corridor investigation,
+(c) renders them as the dashed connect-the-dots fallback, never solid TIN
+bands, (d) never creates formations and never triggers a Delaunay/TIN
+build. Surface build remains a separate explicit action ("Build model" /
+the Geology stage). This supersedes the earlier rule that listed
+"Auto-populate from boreholes" on the section as a build-shaped intent
+with retained auto-recompute. Dedupe's behaviour is unchanged.**
 
 ### v1.0 commercial MVP gate
 
