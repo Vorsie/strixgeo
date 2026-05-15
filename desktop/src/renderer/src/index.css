@@ -38,6 +38,45 @@
   --color-spine-bg: #f1f5f9;          /* slate-100  */
   --color-spine-active: #2563eb;      /* blue-600   */
   --color-spine-hover: #e2e8f0;       /* slate-200  */
+
+  /* Chart curve colour tokens — light values mirror the existing hard-coded
+   * constants in CptChart.tsx exactly so the light theme is byte-identical
+   * after the migration. The ``.dark`` block overrides these to legible
+   * contrast-corrected values. */
+  /* Borelog SVG chrome tokens — SVG attributes can't use Tailwind dark:
+   * variants, so theme-aware colours for axis/track chrome go here.
+   * Light values equal the existing hard-coded SVG hex constants. */
+  --borelog-track-bg:            #ffffff;  /* white     — full track background rect   */
+  --borelog-card-bg:             #f8fafc;  /* slate-50  — card-style layer background  */
+  --borelog-layer-text:          #374151;  /* gray-700  — card text, stratigraphy text */
+  --borelog-layer-depth:         #6b7280;  /* gray-500  — layer depth tick labels      */
+  --borelog-badge-bg:            rgba(255,255,255,0.85); /* pill badge behind litho code */
+  --borelog-badge-text:          #1f2937;  /* gray-900  — litho code text inside badge */
+  --borelog-sample-selected-bg:     #dbeafe;  /* blue-100 — selected-sample highlight fill */
+  --borelog-sample-selected-border: #3b82f6;  /* blue-500 — selected-sample highlight border */
+  --borelog-track-header-bg:     #fafafa;  /* gray-50   — TrackHeader rect fill        */
+  --borelog-track-header-border: #e5e7eb;  /* gray-200  — TrackHeader rect stroke      */
+  --borelog-text-primary:        #374151;  /* gray-700  — track title text             */
+  --borelog-text-muted:          #9ca3af;  /* gray-400  — track subtitle / axis ticks  */
+  --borelog-axis-line:           #d4d4d8;  /* zinc-300  — mTAW axis guide line         */
+  --borelog-axis-tick:           #6b7280;  /* gray-500  — mTAW tick label text         */
+
+  /* Chart curve colour tokens — light values mirror the existing hard-coded
+   * constants in CptChart.tsx exactly so the light theme is byte-identical
+   * after the migration. The ``.dark`` block overrides these to legible
+   * contrast-corrected values. */
+  --chart-clr-qc:           #111827;  /* gray-900   — existing QC_CLR  */
+  --chart-clr-fs:           #16a34a;  /* green-700  — existing FS_CLR  */
+  --chart-clr-rf:           #b45309;  /* amber-700  — existing RF_CLR  */
+  --chart-clr-u2:           #7c3aed;  /* violet-700 — existing U2_CLR  */
+  --chart-clr-qt:           #1d4ed8;  /* blue-700   — existing QT_CLR  */
+  --chart-clr-ic:           #374151;  /* gray-700   — existing IC_CLR  */
+  --chart-clr-pd:           #dc2626;  /* red-600    — existing PD_CLR  */
+  --chart-grid:             #fce4ec;  /* pink-100   — existing GRID    */
+  --chart-surface-ref:      #9ca3af;  /* gray-400   — existing ref-line stroke  */
+  --chart-surface-label:    #6b7280;  /* gray-500   — existing ref-line label   */
+  --chart-ic-boundary:      #d1d5db;  /* gray-300   — existing IC_ZONE_BOUNDARIES line */
+  --chart-ic-zone-label:    #374151;  /* gray-700   — existing IcZoneLabelsOverlay   */
 }
 
 .dark {
@@ -58,6 +97,60 @@
   --color-spine-bg: #020617;          /* slate-950  */
   --color-spine-active: #2563eb;      /* blue-600   */
   --color-spine-hover: #1e293b;       /* slate-800  */
+
+  /* Borelog SVG chrome — dark hero values.
+   * TrackHeader background matches the dark toolbar surface; border line
+   * softens to slate-700 so it reads as a subtle divider, not noise. Axis
+   * ticks and text shift to slate-300 / slate-400 range for legibility. */
+  --borelog-track-bg:            #0f172a;  /* slate-900 — was #ffffff white        */
+  --borelog-card-bg:             #1e293b;  /* slate-800 — was #f8fafc slate-50     */
+  --borelog-layer-text:          #cbd5e1;  /* slate-300 — was #374151 gray-700     */
+  --borelog-layer-depth:         #94a3b8;  /* slate-400 — was #6b7280 gray-500     */
+  --borelog-badge-bg:            rgba(15,23,42,0.85); /* dark pill background     */
+  --borelog-badge-text:          #e2e8f0;  /* slate-200 — was #1f2937 gray-900     */
+  --borelog-sample-selected-bg:     rgba(59,130,246,0.15); /* blue-500/15 — dark selected fill */
+  --borelog-sample-selected-border: #60a5fa;                /* blue-400   — dark selected border */
+  --borelog-track-header-bg:     #1e293b;  /* slate-800 — was #fafafa light gray   */
+  --borelog-track-header-border: #334155;  /* slate-700 — was #e5e7eb gray-200     */
+  --borelog-text-primary:        #cbd5e1;  /* slate-300 — was #374151 gray-700     */
+  --borelog-text-muted:          #64748b;  /* slate-500 — was #9ca3af gray-400     */
+  --borelog-axis-line:           #334155;  /* slate-700 — was #d4d4d8 zinc-300     */
+  --borelog-axis-tick:           #94a3b8;  /* slate-400 — was #6b7280 gray-500     */
+
+  /* Chart curve colours — dark hero values.
+   *
+   * Hue meaning is PRESERVED in every case; only lightness/saturation is
+   * adjusted so curves clear WCAG 2.2 AA (4.5:1) against the chart
+   * background (approx. slate-900 #0f172a, luminance ≈ 0.007).
+   *
+   * qc  : near-neutral → near-white  (was near-black, invisible on dark)
+   * fs  : green-700    → green-400   (brightened, hue stays green)
+   * rf  : amber-700    → amber-400   (brightened, hue stays amber)
+   * u2  : violet-700   → violet-300  (brightened, hue stays violet)
+   * qt  : blue-700     → blue-400    (brightened, hue stays blue)
+   * ic  : gray-700     → gray-300    (brightened, near-neutral)
+   * pd  : red-600      → red-400     (brightened, hue stays red; pre-drill zone)
+   * grid: pinkish-50   → slate-800   (grid lines: light pink → dark slate stripe)
+   *
+   * SBT zone fills and domain marker colours are NOT tokens — they are
+   * geotechnical domain conventions (Robertson 1990, DOV) and their hues
+   * MUST NOT change. The pastel zone fills remain legible as coloured bands
+   * against any surface because they are filled areas, not thin lines.
+   * Zone boundary separator lines and zone label text DO get a dark variant
+   * because they are UI chrome, not domain convention.
+   */
+  --chart-clr-qc:           #e2e8f0;  /* slate-200  — was #111827 near-black  */
+  --chart-clr-fs:           #4ade80;  /* green-400  — was #16a34a green-700   */
+  --chart-clr-rf:           #fbbf24;  /* amber-400  — was #b45309 amber-700   */
+  --chart-clr-u2:           #c4b5fd;  /* violet-300 — was #7c3aed violet-700  */
+  --chart-clr-qt:           #60a5fa;  /* blue-400   — was #1d4ed8 blue-700    */
+  --chart-clr-ic:           #d1d5db;  /* gray-300   — was #374151 gray-700    */
+  --chart-clr-pd:           #f87171;  /* red-400    — was #dc2626 red-600     */
+  --chart-grid:             #1e293b;  /* slate-800  — was #fce4ec pinkish-50  */
+  --chart-surface-ref:      #94a3b8;  /* slate-400  — was #9ca3af (slight lift) */
+  --chart-surface-label:    #94a3b8;  /* slate-400  — was #6b7280 gray-500    */
+  --chart-ic-boundary:      #4b5563;  /* gray-600   — was #d1d5db gray-300    */
+  --chart-ic-zone-label:    #e5e7eb;  /* gray-200   — was #374151 gray-700    */
 }
 
 html, body, #root {
