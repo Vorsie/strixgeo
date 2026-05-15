@@ -1,19 +1,17 @@
-// Geology stage descriptor — contract-level stub.
+// Geology stage descriptor — functional core (G1).
 //
-// The full Geology stage (formation list + surface build on a plan view) is
-// Phase 4 follow-on work (S7).  This stub makes the spine show all five
-// stages and routes to a placeholder canvas so the app is shippable before
-// the Sections stage is complete.
+// Wires GeologyToolbar (Fill, Build, Dedupe, Reset, Delete model) and
+// GeologyInspector (formation list, drag-reorder, borehole scope, crossings
+// banner) into the StageDescriptor.  GeologyCanvas remains the 2D MapView
+// placeholder until G2 (when the Cesium 3D viewer lands).
 
 import { Mountain } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import { useShell } from '../../ShellContext'
 import GeologyCanvas from './GeologyCanvas'
-
-/** No-op placeholder components — replaced in S7. */
-function GeologyToolbar(): null { return null }
-function GeologyInspector(): null { return null }
+import GeologyToolbar from './GeologyToolbar'
+import GeologyInspector from './GeologyInspector'
 
 /**
  * ``useStageSummary`` for the Geology stage.
