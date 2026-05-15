@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { api } from '../api/client'
+import { log } from '../utils/log'
 import type {
   ProjectResponse,
   VirtueleBoringInvestigationPrediction,
@@ -233,8 +234,7 @@ export function useMapOverlays({
         // render their own "no predictions yet" copy.
         setVirtueleBoringPredictions([])
         setVirtueleBoringSkippedCount(0)
-        // eslint-disable-next-line no-console
-        console.warn('[ui WARN App] virtuele boring predictions fetch failed', err)
+        log.warn('mapOverlays', 'virtuele boring predictions fetch failed', err)
       } finally {
         if (!cancelled) setVirtueleBoringLoading(false)
       }
