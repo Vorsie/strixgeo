@@ -192,6 +192,10 @@ export default function App() {
   // Map layer-visibility, viewport bounds, and Leaflet camera persistence —
   // all lifted to App so the Sidebar can read/write the same state as
   // MapView, but grouped in a hook so App stays a thin coordinator.
+  // Capture the full result as ``mapState`` so it can enter the shell
+  // context bus; individual callbacks are destructured for use in hooks
+  // + effects whose dep arrays must not see the rebuilt object each render.
+  const mapState = useMapState()
   const {
     hiddenCptTypes,
     boreholeAxis,
@@ -203,7 +207,7 @@ export default function App() {
     setBoreholeAxis,
     handleViewportChange,
     handleMapCameraChange,
-  } = useMapState()
+  } = mapState
 
   // Session imports — records added since the last File → Save. Drives
   // the per-row amber asterisks in the sidebar AND the project-level
@@ -483,6 +487,7 @@ export default function App() {
   // full flow (fetch bytes → save dialog → file write) so the
   // SectionPanel + SectionHeader stay storage-agnostic. The button
   // is hidden when no active geological model exists (v1.0 MVP #5).
+  // note: also enters shellContextValue (coordinator slice) — keep its identity stable.
   const handleExportSectionDxf = useCallback(
     async (
       projectId: string,
@@ -744,6 +749,22 @@ export default function App() {
     toasts: { toasts, toast },
     undo: undoStack,
     boot: { ready, apiError },
+    mapState,
+    coordinator: {
+      selectedId,
+      selectedBoreholeId,
+      setSelectedId,
+      setSelectedBoreholeId,
+      view,
+      setView,
+      handleSelect,
+      handleSelectBorehole,
+      handleExportSectionDxf,
+      outOfViewportCptIds,
+      outOfViewportBoreholeIds,
+      projectFilePath,
+      manifestFormationIds,
+    },
   }), [
     project,
     // lifecycle fields
@@ -795,6 +816,15 @@ export default function App() {
     toasts, toast,
     undoStack,
     ready, apiError,
+    // mapState — object rebuilt each render when layer-visibility changes;
+    // include it so context updates when the user toggles a CPT type or moves the map.
+    mapState,
+    // coordinator slice — all are either useState values or stable useCallback refs.
+    selectedId, selectedBoreholeId, setSelectedId, setSelectedBoreholeId,
+    view, setView,
+    handleSelect, handleSelectBorehole, handleExportSectionDxf,
+    outOfViewportCptIds, outOfViewportBoreholeIds,
+    projectFilePath, manifestFormationIds,
   ])
 
   // ---------------------------------------------------------------------------
