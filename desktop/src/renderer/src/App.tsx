@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useToasts } from './hooks/useToasts'
 import { useAppBoot } from './hooks/useAppBoot'
+import { useMapOverlays } from './hooks/useMapOverlays'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import L from 'leaflet'
 import {
@@ -22,7 +23,6 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalModelResponse,
-  VirtueleBoringInvestigationPrediction,
 } from './api/client'
 import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
@@ -34,20 +34,6 @@ import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
 import { addAllToSet } from './utils/sets'
 import { projectPointOntoLine } from './utils/sectionProjection'
-import {
-  demSourceForEpsg,
-  readDemOverlay,
-  type DemOverlayState,
-} from './utils/demSources'
-import {
-  VIRTUELE_BORING_VIEW_STATE_KEY,
-  activeOverlayModels,
-  readPaneModelOverride,
-  readPaneVisibility,
-  readVirtueleBoringOverlay,
-  writePaneModelOverride,
-  writePaneVisibility,
-} from './utils/virtueleBoringOverlay'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
@@ -2895,222 +2881,27 @@ export default function App() {
   )
 
 
-  // ---------------------------------------------------------------------------
-  // DEM hillshade overlay state
-  // ---------------------------------------------------------------------------
-  //
-  // The source is determined by the project's default_horizontal_epsg
-  // (Belgium → DHMVII, NL → AHN); the overlay state lives in
-  // ``project.view_state.dem_overlay`` and round-trips via the
-  // .gmproj bundle. ``readDemOverlay`` clamps out-of-range values so
-  // a hand-edited bundle can't render an invisible / saturated
-  // overlay forever. Memoised on the project handle so render-loop
-  // callers don't churn the object identity.
-  //
-  // These hooks MUST live above every early-return ladder below
-  // (apiError / !ready / !project) — Rules of Hooks: the hook count
-  // must be identical across renders, and the WelcomeScreen branch
-  // would otherwise short-circuit before reaching them, shifting the
-  // ordering once a project is opened.
-  const demSource = useMemo(
-    () => demSourceForEpsg(project?.default_horizontal_epsg ?? null),
-    [project?.default_horizontal_epsg],
-  )
-  const demOverlay = useMemo(
-    () => readDemOverlay(project?.view_state),
-    [project?.view_state],
-  )
-  const handleDemOverlayChange = useCallback(
-    async (next: DemOverlayState) => {
-      // Optimistic UI — the WMS layer flips on/off as fast as the
-      // browser can mount the TileLayer. PATCH /view-state runs in
-      // the background; failure surfaces a toast but the local UI
-      // already reflects the new state. Subsequent saves will write
-      // whatever the server has committed by then.
-      const ok = await applyViewStatePatch({ dem_overlay: next })
-      if (!ok) {
-        toast('error', 'Could not save the terrain overlay setting.')
-      }
-    },
-    // ``toast`` is a hoisted ``function`` declaration in this body —
-    // stable across renders, omitted from deps to match the
-    // convention used by every other callback here.
-    [applyViewStatePatch],
-  )
-
-  // ---------------------------------------------------------------------------
-  // DOV Virtuele Boring overlay state
-  // ---------------------------------------------------------------------------
-  //
-  // Slot pair (modelA / modelB) lives in ``project.view_state.virtuele_boring``
-  // and round-trips via the .gmproj bundle. Per-investigation
-  // predictions are NOT persisted (they're a derived view; would
-  // bloat the file with throwaway data); we refetch when either the
-  // active project or the active models change. Both ghost columns
-  // on the section view AND the InterpretationPane list consume
-  // ``virtueleBoringPredictions`` so one fetch feeds both surfaces.
-  const virtueleBoringOverlay = useMemo(
-    () => readVirtueleBoringOverlay(project?.view_state),
-    [project?.view_state],
-  )
-  const virtueleBoringSectionModels = useMemo(
-    () => activeOverlayModels(virtueleBoringOverlay),
-    [virtueleBoringOverlay],
-  )
-  // Per-pane model overrides — empty string = follow section,
-  // any other string = render only that model in the detail pane.
-  // Seeded from localStorage on project change.
-  const [cptVirtueleBoringOverride, setCptVirtueleBoringOverride] = useState('')
-  const [boreholeVirtueleBoringOverride, setBoreholeVirtueleBoringOverride] =
-    useState('')
-  // Union of every requested model across all panes — drives the
-  // predictions fetch. Without this, a detail-pane override for
-  // hcovv2_S wouldn't have data to render (App fetches section's
-  // models only otherwise). De-dup preserves the first occurrence
-  // so section codes stay ahead of override-only codes.
-  const virtueleBoringActiveModels = useMemo(() => {
-    const out: string[] = []
-    const seen = new Set<string>()
-    const add = (code: string): void => {
-      if (code && !seen.has(code)) {
-        seen.add(code)
-        out.push(code)
-      }
-    }
-    for (const m of virtueleBoringSectionModels) add(m)
-    if (cptVirtueleBoringOverride) add(cptVirtueleBoringOverride)
-    if (boreholeVirtueleBoringOverride) add(boreholeVirtueleBoringOverride)
-    return out
-  }, [
+  // DEM hillshade + DOV Virtuele Boring overlays — extracted to useMapOverlays.
+  // Depends only on project (for view_state keys) and applyViewStatePatch.
+  const {
+    demSource,
+    demOverlay,
+    handleDemOverlayChange,
+    virtueleBoringOverlay,
     virtueleBoringSectionModels,
+    virtueleBoringPredictions,
+    virtueleBoringPredictionByInvestigationId,
+    cptEffectiveModels,
+    boreholeEffectiveModels,
+    showOverlayOnSection,
+    showOverlayOnCpt,
+    showOverlayOnBorehole,
     cptVirtueleBoringOverride,
     boreholeVirtueleBoringOverride,
-  ])
-  // Effective models per pane — what each pane actually renders.
-  // Override (when set) wins; otherwise the pane inherits the
-  // section pane's pick. The section pane itself never has an
-  // override — it IS the source.
-  const cptEffectiveModels = useMemo<readonly string[]>(
-    () =>
-      cptVirtueleBoringOverride
-        ? [cptVirtueleBoringOverride]
-        : virtueleBoringSectionModels,
-    [cptVirtueleBoringOverride, virtueleBoringSectionModels],
-  )
-  const boreholeEffectiveModels = useMemo<readonly string[]>(
-    () =>
-      boreholeVirtueleBoringOverride
-        ? [boreholeVirtueleBoringOverride]
-        : virtueleBoringSectionModels,
-    [boreholeVirtueleBoringOverride, virtueleBoringSectionModels],
-  )
-  const [virtueleBoringPredictions, setVirtueleBoringPredictions] = useState<
-    VirtueleBoringInvestigationPrediction[]
-  >([])
-  const [virtueleBoringLoading, setVirtueleBoringLoading] = useState(false)
-  const [virtueleBoringSkippedCount, setVirtueleBoringSkippedCount] = useState(0)
-
-  useEffect(() => {
-    // No project / no active models → keep the predictions empty so
-    // the section view's ghost column overlay no-ops.
-    const projectId = project?.id
-    if (!projectId || virtueleBoringActiveModels.length === 0) {
-      setVirtueleBoringPredictions([])
-      setVirtueleBoringSkippedCount(0)
-      return
-    }
-    let cancelled = false
-    setVirtueleBoringLoading(true)
-    void (async () => {
-      try {
-        const result = await api.virtueleBoring.predictions(
-          projectId,
-          virtueleBoringActiveModels,
-        )
-        if (cancelled) return
-        setVirtueleBoringPredictions(result.predictions)
-        setVirtueleBoringSkippedCount(result.skipped_count)
-      } catch (err) {
-        if (cancelled) return
-        // A failure here demotes the overlay to "off" visually — the
-        // user keeps the rest of the app working. We don't toast on
-        // every transient DOV blip; the section view + pane both
-        // render their own "no predictions yet" copy.
-        setVirtueleBoringPredictions([])
-        setVirtueleBoringSkippedCount(0)
-        // eslint-disable-next-line no-console
-        console.warn('[ui WARN App] virtuele boring predictions fetch failed', err)
-      } finally {
-        if (!cancelled) setVirtueleBoringLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [project?.id, virtueleBoringActiveModels])
-
-  const handleChangeVirtueleBoringPicker = useCallback(
-    async (next: {
-      modelA: string | null
-      modelB: string | null
-      maxDepthM: number | null
-    }) => {
-      const ok = await applyViewStatePatch({ [VIRTUELE_BORING_VIEW_STATE_KEY]: next })
-      if (!ok) {
-        toast('error', 'Could not save the virtuele-boring overlay setting.')
-      }
-    },
-    [applyViewStatePatch],
-  )
-
-  // Per-pane visibility — localStorage-backed (per-user UI chrome).
-  // Each pane keeps its own boolean so the user can show DOV on the
-  // section view while keeping it off in the detail panes, or vice
-  // versa. State seeded from localStorage on project change.
-  const projectIdForOverlay = project?.id ?? null
-  const [showOverlayOnSection, setShowOverlayOnSection] = useState(true)
-  const [showOverlayOnCpt, setShowOverlayOnCpt] = useState(false)
-  const [showOverlayOnBorehole, setShowOverlayOnBorehole] = useState(false)
-  useEffect(() => {
-    setShowOverlayOnSection(readPaneVisibility(projectIdForOverlay, 'section'))
-    setShowOverlayOnCpt(readPaneVisibility(projectIdForOverlay, 'cpt'))
-    setShowOverlayOnBorehole(readPaneVisibility(projectIdForOverlay, 'borehole'))
-    setCptVirtueleBoringOverride(
-      readPaneModelOverride(projectIdForOverlay, 'cpt'),
-    )
-    setBoreholeVirtueleBoringOverride(
-      readPaneModelOverride(projectIdForOverlay, 'borehole'),
-    )
-  }, [projectIdForOverlay])
-  const handleSetOverlayOverride = useCallback(
-    (pane: 'cpt' | 'borehole', next: string) => {
-      writePaneModelOverride(projectIdForOverlay, pane, next)
-      if (pane === 'cpt') setCptVirtueleBoringOverride(next)
-      else setBoreholeVirtueleBoringOverride(next)
-    },
-    [projectIdForOverlay],
-  )
-  const handleSetShowOverlay = useCallback(
-    (pane: 'section' | 'cpt' | 'borehole', next: boolean) => {
-      writePaneVisibility(projectIdForOverlay, pane, next)
-      if (pane === 'section') setShowOverlayOnSection(next)
-      else if (pane === 'cpt') setShowOverlayOnCpt(next)
-      else setShowOverlayOnBorehole(next)
-    },
-    [projectIdForOverlay],
-  )
-
-  // Index predictions by investigation id once at the App level so
-  // both the section view (looking up each visible column) and the
-  // detail panes (looking up the one selected investigation) hit a
-  // single Map lookup.
-  const virtueleBoringPredictionByInvestigationId = useMemo(() => {
-    const map = new Map<string, VirtueleBoringInvestigationPrediction>()
-    for (const pred of virtueleBoringPredictions) {
-      map.set(pred.investigation_id, pred)
-    }
-    return map
-  }, [virtueleBoringPredictions])
+    handleChangeVirtueleBoringPicker,
+    handleSetShowOverlay,
+    handleSetOverlayOverride,
+  } = useMapOverlays({ project, applyViewStatePatch, toast })
 
   // Resolve the currently-selected section from id + list. Lives here
   // (above the early-return ladder) so the hook count stays stable
