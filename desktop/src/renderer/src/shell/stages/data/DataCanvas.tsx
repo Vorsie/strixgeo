@@ -101,7 +101,7 @@ export default function DataCanvas(): JSX.Element {
           selected in the non-section flow. The section panel (S5) has its
           own header strip; this tab bar is irrelevant when a section is active. */}
       {hasSelection && selectedSectionId === null && (
-        <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-200 bg-gray-50">
+        <div className="flex items-center gap-1 px-3 py-1 border-b border-border-subtle bg-surface-card">
           <ViewTab
             icon={<MapIcon size={13} />}
             label="Map"
@@ -228,8 +228,8 @@ function ViewTab({
       className={[
         'flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors',
         active
-          ? 'bg-white border border-gray-200 shadow-sm text-gray-800'
-          : 'text-gray-500 hover:text-gray-700',
+          ? 'bg-surface-app border border-border-subtle shadow-sm text-text-primary'
+          : 'text-text-secondary hover:text-text-primary',
       ].join(' ')}
     >
       {icon}
