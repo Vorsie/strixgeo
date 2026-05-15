@@ -58,7 +58,7 @@ export default function StageToolbar({
   const StageVerbs = descriptor?.ToolbarComponent ?? null
 
   return (
-    <header
+    <div
       role="toolbar"
       aria-label="Stage toolbar"
       className="flex items-center h-10 bg-surface-card border-b border-border-subtle flex-shrink-0"
@@ -98,6 +98,6 @@ export default function StageToolbar({
           </svg>
         </button>
       </div>
-    </header>
+    </div>
   )
 }
