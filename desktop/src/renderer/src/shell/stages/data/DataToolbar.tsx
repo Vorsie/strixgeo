@@ -10,6 +10,7 @@
 // specific import verbs.
 
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, Upload, Loader2 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -110,28 +111,50 @@ interface DropdownMenuProps {
 
 function DropdownMenu({ label, icon, highlight, children }: DropdownMenuProps) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     function handleClick(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      // The menu is portalled to <body>, so the trigger's wrapper does
+      // NOT contain it — check both the button and the menu explicitly.
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
+  function toggle(): void {
+    setOpen(o => {
+      const next = !o
+      // Anchor the portalled menu under the button. Portalled +
+      // position:fixed so it escapes StageToolbar's `overflow-hidden`
+      // left zone (a plain absolute menu was clipped to the 40px-tall
+      // toolbar — the import menu was invisible).
+      if (next && btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect()
+        setPos({ top: r.bottom + 2, left: r.left })
+      }
+      return next
+    })
+  }
+
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
-        onClick={() => setOpen(o => !o)}
+        ref={btnRef}
+        onClick={toggle}
         className={[
           'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
           open
-            ? 'bg-gray-200 text-gray-800'
+            ? 'bg-surface-app text-text-primary'
             : highlight
-            ? 'text-blue-700 hover:bg-blue-50'
-            : 'text-gray-600 hover:bg-gray-200',
+            ? 'text-accent hover:bg-surface-app'
+            : 'text-text-secondary hover:bg-surface-app',
         ].join(' ')}
       >
         {icon}
@@ -139,14 +162,20 @@ function DropdownMenu({ label, icon, highlight, children }: DropdownMenuProps) {
         <ChevronDown size={11} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && (
-        <div
-          className="absolute top-full left-0 mt-0.5 w-52 bg-white border border-gray-200 rounded shadow-lg z-50 py-1"
-          onClick={() => setOpen(false)}
-        >
-          {children}
-        </div>
-      )}
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: 'fixed', top: pos.top, left: pos.left }}
+            // z above the toast stack (z-[1100]) so it's never occluded.
+            className="w-56 bg-surface-overlay border border-border-subtle rounded shadow-lg z-[1200] py-1"
+            onClick={() => setOpen(false)}
+          >
+            {children}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
@@ -170,13 +199,13 @@ function MenuItem({ label, disabled, dimmed, tag, onClick }: MenuItemProps) {
       disabled={disabled}
       className={[
         'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors',
-        disabled ? 'cursor-not-allowed' : 'hover:bg-gray-50 active:bg-gray-100',
-        dimmed ? 'text-gray-400' : 'text-gray-700',
+        disabled ? 'cursor-not-allowed' : 'hover:bg-surface-card active:bg-surface-card',
+        dimmed ? 'text-text-muted' : 'text-text-primary',
       ].join(' ')}
     >
       <span className="flex-1">{label}</span>
       {tag && (
-        <span className="text-[9px] bg-gray-100 text-gray-400 px-1 py-0.5 rounded">{tag}</span>
+        <span className="text-[9px] bg-surface-card text-text-muted px-1 py-0.5 rounded">{tag}</span>
       )}
     </button>
   )
