@@ -486,6 +486,29 @@ work; that's when consulting ``elevation_source`` actually starts
 to skip overwrites, and the rollback column closes the user-side
 asymmetry.
 
+## 22. CPT detail chart conflates raw curves with Ic/SBT interpretation (low — Parameters-stage trigger)
+
+**What.** The CPT detail chart (``CptChart.tsx``) renders the raw
+measured curves (qc / fs / Rf / u2) AND the Robertson Ic curve +
+SBT zone bands + zone labels + a second x-axis tick row in one
+cramped column. Ic/SBT is *interpretation*, not raw data; on a
+narrow detail pane it reads as clutter, and the pale domain SBT
+pastels on the dark hero surface are unavoidably low-contrast
+(domain hues — Tier 5 — can't be repainted; only the chrome over
+them was de-flipped to dark in the dark-legibility pass).
+
+**Why deferred.** The workflow-spine puts interpretation in the
+Geotech / Parameters stage (Phase 5). Splitting Ic/SBT into its
+own parameter view is naturally that stage's work, not a
+standalone chart refactor now — doing it early duplicates effort
+the stage will redo. The de-flip fix made the interim state
+usable (Ic curve/labels legible again in both themes).
+
+**When to revisit.** When the Geotech / Parameters stage is built
+(Phase 5). Move the Ic curve + SBT zones + zone labels out of the
+raw-curve detail chart into the parameter view there; the raw
+CptChart then shows only measured curves.
+
 ---
 
 ## Historical note — 2026-05-13 security-reviewer audit pass
