@@ -680,7 +680,7 @@ function CrossingsBanner({
   return (
     <div className="px-3 py-2 border-b border-border-subtle">
       <div
-        className="rounded border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-600 px-2 py-1.5 text-[11px] text-amber-900 dark:text-amber-300"
+        className="rounded border border-status-amber/40 bg-status-amber/10 px-2 py-1.5 text-[11px] text-status-amber"
         role="alert"
         aria-label="Surface crossing warnings"
       >
