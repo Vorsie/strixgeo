@@ -70,7 +70,14 @@ export default function StageCanvas({ activeStageId }: StageCanvasProps): JSX.El
       <div
         key={activeStageId}
         className={[
-          'flex-1 overflow-hidden',
+          // MUST be a flex column, not just flex-1: stage canvases
+          // (DataCanvas, SectionsCanvas) are `flex flex-col flex-1` and
+          // rely on THIS parent being a flex container for their flex-1
+          // children (the Leaflet map / recharts plot) to receive a
+          // height. A plain block here collapses them to 0px — the map
+          // and chart render blank. h-full-based placeholders
+          // (GeologyCanvas etc.) work either way.
+          'flex flex-col flex-1 overflow-hidden',
           // Opacity cross-fade on stage change (150 ms ease-out, reduced-
           // motion safe). The animation runs only on the incoming canvas
           // (we key the div so React unmounts the outgoing stage).
