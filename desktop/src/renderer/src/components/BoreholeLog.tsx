@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Database, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Columns3, Database, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 
 import type {
   BoreholeDetailResponse,
@@ -15,6 +16,12 @@ import { SoilPatterns } from '../utils/soilPatterns'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import { isTypingTarget } from '../utils/keyboard'
 import LabTestPanel from './LabTestPanel'
+import {
+  TOGGLEABLE_TRACK_IDS,
+  TRACK_LABEL,
+  useHiddenBoreholeLogTracks,
+  type ToggleableTrackId,
+} from '../hooks/useHiddenBoreholeLogTracks'
 import {
   BASE_PX_PER_M,
   DRILL_TRACK_WIDTH,
@@ -124,7 +131,104 @@ export default function BoreholeLog({
   const [zoomFactor, setZoomFactor] = useState(1.0)
   const pxPerM = BASE_PX_PER_M * zoomFactor
 
-  const layout = useMemo(() => computeLayout(borehole, pxPerM), [borehole, pxPerM])
+  // Global (not project-scoped) hidden-track set. Persisted to localStorage
+  // so the user's column preference survives across sessions + projects.
+  const [hiddenTracks, setHiddenTracks] = useHiddenBoreholeLogTracks()
+
+  // Columns dropdown open/close state + portal anchor position.
+  const [columnsOpen, setColumnsOpen] = useState(false)
+  const [columnsPos, setColumnsPos] = useState<{ top: number; left: number } | null>(null)
+  const columnsBtnRef = useRef<HTMLButtonElement>(null)
+  const columnsMenuRef = useRef<HTMLDivElement>(null)
+
+  // Number of tracks the borehole ACTUALLY HAS that are currently hidden —
+  // used for the "Columns (N hidden)" badge. Only tracks present in THIS
+  // borehole count; hiding a track that isn't here doesn't show as "hidden".
+  const presentTrackIds = useMemo((): ReadonlySet<ToggleableTrackId> => {
+    const ids = new Set<ToggleableTrackId>()
+    for (const o of borehole.observations) {
+      if (o.layers.length > 0) ids.add(o.observation_type as ToggleableTrackId)
+    }
+    if (borehole.drill_segments.length > 0) ids.add('drill_method')
+    if (borehole.field_log_intervals.length > 0) ids.add('field_log')
+    if (borehole.samples.length > 0) ids.add('samples_lab')
+    return ids
+  }, [borehole])
+
+  const hiddenCount = useMemo(() => {
+    let n = 0
+    for (const id of hiddenTracks) {
+      if (presentTrackIds.has(id)) n++
+    }
+    return n
+  }, [hiddenTracks, presentTrackIds])
+
+  // Can't-hide-all guard: ensure at least one DATA track remains visible
+  // whenever the user tries to hide a track. Returns true when hiding
+  // ``id`` would leave zero visible tracks on this borehole.
+  function wouldHideAll(id: ToggleableTrackId): boolean {
+    const visibleAfter = [...presentTrackIds].filter(
+      tid => tid !== id && !hiddenTracks.has(tid),
+    )
+    return visibleAfter.length === 0
+  }
+
+  function toggleTrack(id: ToggleableTrackId): void {
+    setHiddenTracks(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        // Enforce the can't-hide-all guard: silently refuse to hide
+        // the last visible track on this borehole.
+        if (wouldHideAll(id)) return prev
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  function hideTrack(id: ToggleableTrackId): void {
+    // Clicked directly on a track header — same guard applies.
+    if (wouldHideAll(id)) return
+    setHiddenTracks(prev => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+  }
+
+  // Close the Columns dropdown when the user clicks outside it.
+  useEffect(() => {
+    if (!columnsOpen) return
+    function handleClick(e: MouseEvent): void {
+      const t = e.target as Node
+      // The menu is portalled to <body>, check both button and menu refs.
+      if (columnsBtnRef.current?.contains(t) || columnsMenuRef.current?.contains(t)) return
+      setColumnsOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [columnsOpen])
+
+  function toggleColumnsMenu(): void {
+    setColumnsOpen(o => {
+      const next = !o
+      // Anchor the portalled menu under the button — same approach as
+      // DataToolbar's import dropdown. Fixed-position escapes any
+      // overflow:hidden ancestor in the borelog toolbar.
+      if (next && columnsBtnRef.current) {
+        const r = columnsBtnRef.current.getBoundingClientRect()
+        setColumnsPos({ top: r.bottom + 2, left: r.left })
+      }
+      return next
+    })
+  }
+
+  const layout = useMemo(
+    () => computeLayout(borehole, pxPerM, hiddenTracks),
+    [borehole, pxPerM, hiddenTracks],
+  )
 
   // Width of the DOV Virtuele Boring ghost-column rail rendered to
   // the right of the borelog's normal tracks. Zero when the overlay
@@ -218,7 +322,7 @@ export default function BoreholeLog({
     <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-slate-900">
       <BoreholeHeader borehole={borehole} onElevationChange={onElevationChange} />
 
-      {/* Toolbar above the canvas — currently zoom controls only. */}
+      {/* Toolbar above the canvas — zoom controls + Columns toggle. */}
       <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-[11px]">
         <button
           onClick={zoomOut}
@@ -247,6 +351,89 @@ export default function BoreholeLog({
         <span className="text-gray-400 dark:text-slate-500 ml-1 tabular-nums">
           {(zoomFactor * 100).toFixed(0)}%
         </span>
+
+        {/* Columns dropdown — shows / hides individual tracks.
+            The REQUIRED restore path per ux.md reversible-action rule:
+            hiding a track via header-click has no visible undo button, so
+            this dropdown is the only way back. It also lists every toggleable
+            track up-front so power users can manage all columns in one place.
+            The button shows "(N hidden)" when ≥1 track is hidden on this
+            borehole, making the non-default state obvious. */}
+        <div className="relative ml-1">
+          <button
+            ref={columnsBtnRef}
+            onClick={toggleColumnsMenu}
+            aria-expanded={columnsOpen}
+            aria-haspopup="true"
+            title="Show or hide borelog columns"
+            className={[
+              'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors',
+              columnsOpen
+                ? 'border-gray-300 dark:border-slate-500 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200'
+                : hiddenCount > 0
+                  ? 'border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-gray-100 dark:hover:bg-slate-700'
+                  : 'border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700',
+            ].join(' ')}
+          >
+            <Columns3 size={11} />
+            {hiddenCount > 0 ? `Columns (${hiddenCount} hidden)` : 'Columns'}
+          </button>
+
+          {columnsOpen && columnsPos &&
+            createPortal(
+              <div
+                ref={columnsMenuRef}
+                data-testid="borelog-columns-menu"
+                style={{ position: 'fixed', top: columnsPos.top, left: columnsPos.left }}
+                // z-[1200]: above toasts (z-[1100]) so it's never occluded
+                className="w-64 bg-surface-overlay border border-border-subtle rounded shadow-lg z-[1200] py-1"
+              >
+                <div className="px-3 py-1 text-[9px] text-text-muted uppercase tracking-wide select-none">
+                  Toggle columns
+                </div>
+                {TOGGLEABLE_TRACK_IDS.map(id => {
+                  const isPresent = presentTrackIds.has(id)
+                  const isHidden = hiddenTracks.has(id)
+                  const isVisible = !isHidden
+                  // Disable the checkbox when hiding this track would remove
+                  // the last visible track on the current borehole.
+                  const wouldEmpty = isVisible && wouldHideAll(id) && isPresent
+                  return (
+                    <label
+                      key={id}
+                      className={[
+                        'flex items-center gap-2.5 px-3 py-1.5 text-xs select-none',
+                        isPresent
+                          ? wouldEmpty
+                            ? 'text-text-muted cursor-not-allowed'
+                            : 'text-text-primary hover:bg-surface-card cursor-pointer'
+                          : 'text-text-muted cursor-default opacity-40',
+                      ].join(' ')}
+                      title={
+                        !isPresent
+                          ? 'This track is not present on this borehole'
+                          : wouldEmpty
+                            ? 'Cannot hide — this is the last visible column'
+                            : undefined
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isPresent && isVisible}
+                        disabled={!isPresent || wouldEmpty}
+                        onChange={() => isPresent && !wouldEmpty && toggleTrack(id)}
+                        className="accent-blue-500 dark:accent-blue-400"
+                      />
+                      <span className={!isPresent ? 'italic' : undefined}>
+                        {TRACK_LABEL[id]}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>,
+              document.body,
+            )}
+        </div>
         {/* DOV overlay toggle + override picker. The button flips
             visibility; the dropdown selects which model THIS pane
             shows ("Follow section" inherits modelA/modelB; a
@@ -355,6 +542,7 @@ export default function BoreholeLog({
                 subtitle={[t.observation.author, t.observation.observation_date]
                   .filter(Boolean)
                   .join(' · ')}
+                onHide={() => hideTrack(t.observation.observation_type as ToggleableTrackId)}
               />
               <ObservationTrack
                 observation={t.observation}
@@ -375,6 +563,7 @@ export default function BoreholeLog({
                 y={SVG_Y_PAD}
                 title="Drill method"
                 subtitle={null}
+                onHide={() => hideTrack('drill_method')}
               />
               <DrillMethodTrack
                 segments={borehole.drill_segments}
@@ -395,6 +584,7 @@ export default function BoreholeLog({
                 y={SVG_Y_PAD}
                 title="Field log"
                 subtitle="col · mst · con"
+                onHide={() => hideTrack('field_log')}
               />
               <FieldLogTrack
                 intervals={borehole.field_log_intervals}
@@ -413,6 +603,7 @@ export default function BoreholeLog({
                 y={SVG_Y_PAD}
                 title="Samples + lab tests"
                 subtitle={`${borehole.samples.length} sample${borehole.samples.length !== 1 ? 's' : ''}`}
+                onHide={() => hideTrack('samples_lab')}
               />
               <SamplesTrack
                 samples={borehole.samples}
