@@ -248,6 +248,21 @@ rules call out.
   trace a ``saveProject``-shaped flow in one read.
 * Before the first paid release — readability gates support burden.
 
+**Progress (2026-05-15) — S2 landed, not yet resolved.** The trigger
+fired (the UI-shell rework needs a shell on top of App.tsx — see
+``docs/ui-shell-architecture.md``). Phase **S2** extracted 8 custom
+hooks (``useToasts``, ``useAppBoot``, ``useMapOverlays``,
+``useGeologicalModel``, ``useSections``, ``useInvestigationData``,
+``useProjectLifecycle``, ``useMapState``); App.tsx went ~2,200 → 979
+lines. The 979 (vs the architecture doc's ~200–300 estimate) is
+~390 lines of JSX render tree — render extraction is **S3** (stage
+components), not S2. A senior-code-reviewer pass caught + fixed two
+behaviour regressions the green suite missed (dropped
+``onMenuImportCpt`` subscription; lost session-import trim on
+formation delete). **Resolve this item only when S7 completes**
+(App.tsx reduced to the shell coordinator); until then it stays open
+with S3–S7 outstanding.
+
 ## 13. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
 
 **What.** ``geotechnical_unit`` rows (formation → unit
