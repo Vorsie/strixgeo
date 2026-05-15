@@ -258,12 +258,25 @@ export default function MapView({
   initialZoom,
   onCameraChange,
 }: Props) {
-  // Basemap selection — fully decoupled from the application theme.
-  // The user picks a basemap explicitly; the app never auto-switches
-  // it based on dark/light mode (owner feedback S4: "too dark, I
-  // didn't ask"). Persisted per-user in localStorage (UI chrome, not
-  // the .gmproj bundle — same rationale as the theme toggle).
-  const [basemapId, setBasemapId] = useState<BasemapId>(readBasemapId)
+  // Basemap selection — persisted in localStorage, seeded on first run
+  // from the resolved theme (dark → geopunt_hybrid, light → osm).
+  //
+  // Theme is read ONCE here as the lazy useState initializer and NEVER
+  // again in the render path. Re-reading it on each render (or passing
+  // resolvedTheme as a TileLayer key) would re-couple basemap to theme
+  // and recreate the "shiver" that was fixed in the S4 dark pass:
+  // any MapView re-render from an unrelated cause would force a TileLayer
+  // remount and produce a tile-flash. Once the user picks any basemap
+  // explicitly it persists; the theme seed is never consulted again.
+  const [basemapId, setBasemapId] = useState<BasemapId>(() =>
+    // ``document.documentElement.classList.contains('dark')`` reads the
+    // Tailwind dark-class that useTheme in App.tsx applied before this
+    // component mounted — no hook import needed, no render coupling.
+    readBasemapId(
+      typeof document !== 'undefined' &&
+        document.documentElement.classList.contains('dark'),
+    ),
+  )
   const basemap: BasemapSource =
     BASEMAP_SOURCES.find(b => b.id === basemapId) ?? BASEMAP_SOURCES[0]
 
@@ -404,6 +417,20 @@ export default function MapView({
           url={basemap.url}
           {...(basemap.subdomains !== undefined ? { subdomains: basemap.subdomains } : {})}
         />
+
+        {/* Basemap overlay layer — present only on hybrid basemaps (e.g.
+            Geopunt Luchtfoto + GRB-selectie). The overlay URL serves RGBA
+            PNG so it composites transparently above the opaque base layer.
+            Keyed on ``basemap.id + '-overlay'`` so it unmounts/remounts only
+            when the basemap changes — same stability reasoning as the base
+            layer above. */}
+        {basemap.overlay && (
+          <TileLayer
+            key={`${basemap.id}-overlay`}
+            url={basemap.overlay.url}
+            attribution={basemap.overlay.attribution}
+          />
+        )}
 
         {/* DEM hillshade overlay. Pinned to its own pane between the
             basemap (Leaflet's tilePane, z=200) and the marker layers
