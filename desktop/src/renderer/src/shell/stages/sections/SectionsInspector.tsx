@@ -657,12 +657,19 @@ interface FormationListProps {
 /**
  * Read-only ordered list of geological formations.
  *
- * Ordered by ``display_order`` ascending (oldest first — geological
- * superposition: older formations paint first, younger on top).  The
- * staleness indicator is formation-level (if staleSurfaceCount > 0 the
- * formation's surface is stale) — a per-formation staleness flag is not
- * available on the list item without an extra fetch, so the banner above
- * carries the specific count.
+ * Presentation order: DESCENDING by ``display_order`` — youngest
+ * (highest order number, surface / near-surface) at the top, oldest
+ * (order 0, deepest) at the bottom.  This matches how a geologist
+ * reads a stratigraphic column or borelog: surface material at the top.
+ *
+ * IMPORTANT: this is a PRESENTATIONAL sort only.
+ * - ``display_order`` semantics are unchanged (lower = older).
+ * - The section renderer still iterates formations ASCENDING so that
+ *   older formations paint first and younger formations render on top
+ *   (geological superposition rule; see CLAUDE.md "Stratigraphic order").
+ * - The InterpretationPane drag-and-drop reorder also uses ascending
+ *   order for its visual stack.
+ * None of those are affected by reversing the list here.
  *
  * Parameters
  * ----------
@@ -677,8 +684,11 @@ interface FormationListProps {
  *     The formation list element.
  */
 function FormationList({ formations }: FormationListProps): JSX.Element {
+  // Descending so youngest / shallowest formation sits at the top of
+  // the list — matches how a geologist reads a borehole log or the
+  // DOV "Beschrijving van de grond" (surface-to-depth convention).
   const sorted = useMemo(
-    () => [...formations].sort((a, b) => a.display_order - b.display_order),
+    () => [...formations].sort((a, b) => b.display_order - a.display_order),
     [formations],
   )
 
