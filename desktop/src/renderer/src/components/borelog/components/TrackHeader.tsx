@@ -15,6 +15,29 @@ import { truncate } from '../utils'
  * Title and subtitle are length-truncated client-side because SVG has
  * no synchronous ``measureText`` — magic numbers (22 chars / 26 chars)
  * were dialled in against the default 150 px / 90 px column widths.
+ *
+ * When ``onHide`` is provided, the header becomes click-to-hide: a
+ * ``cursor: pointer`` style is applied and clicking the header calls
+ * the handler so the parent can toggle this track off. A tooltip
+ * "Hide column" makes the affordance discoverable without adding
+ * visible UI that competes with the data.
+ *
+ * Parameters
+ * ----------
+ * x : number
+ *     Left edge of the track in SVG coordinates.
+ * width : number
+ *     Track width in pixels.
+ * y : number
+ *     Top of the header in SVG coordinates.
+ * title : string
+ *     Column title (e.g. "Coded lithology").
+ * subtitle : string | null
+ *     Optional secondary line (e.g. author / date). Omitted when null.
+ * onHide : (() => void) | undefined
+ *     When provided, clicking the header calls this handler to hide the
+ *     track. The header shows ``cursor: pointer`` and a "Hide column"
+ *     tooltip to signal the affordance.
  */
 export function TrackHeader({
   x,
@@ -22,15 +45,26 @@ export function TrackHeader({
   y,
   title,
   subtitle,
+  onHide,
 }: {
   x: number
   width: number
   y: number
   title: string
   subtitle: string | null
+  onHide?: () => void
 }): ReactElement {
   return (
-    <g>
+    // The outer <g> captures the click and signals the cursor when
+    // onHide is supplied. SVG does not support `cursor: pointer` on
+    // <g> in all browsers via a className, but the inline style prop
+    // works universally.
+    <g
+      onClick={onHide}
+      style={onHide ? { cursor: 'pointer' } : undefined}
+      role={onHide ? 'button' : undefined}
+      aria-label={onHide ? `Hide ${title} column` : undefined}
+    >
       {/* fill / stroke use CSS custom properties so TrackHeader is legible
           in both light and dark themes without prop drilling the theme down
           into every SVG sub-component. Vars defined in index.css. */}
@@ -42,7 +76,9 @@ export function TrackHeader({
         fill="var(--borelog-track-header-bg)"
         stroke="var(--borelog-track-header-border)"
         strokeWidth={0.5}
-      />
+      >
+        {onHide && <title>Hide column</title>}
+      </rect>
       <text x={x + 4} y={y + 14} fontSize={10} fontWeight={600} fill="var(--borelog-text-primary)">
         {truncate(title, 22)}
       </text>
