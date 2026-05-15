@@ -42,14 +42,12 @@ export default function SectionsToolbar(): JSX.Element {
       activeGeologicalModel,
       staleSurfaceCount,
       handleRebuildSurfaces,
-      handleAutoPopulateFromStratigraphy,
       handleDedupeContacts,
       handleExportModelPlaxis3d,
     },
     coordinator: {
       handleExportSectionDxf,
     },
-    visibleBoreholes,
   } = useShell()
 
   const [creating, setCreating] = useState(false)
@@ -59,7 +57,6 @@ export default function SectionsToolbar(): JSX.Element {
   // button labelled with the action name (not "OK"). See docs/ux.md.
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
-  const [populating, setPopulating] = useState(false)
   const [deduping, setDeduping] = useState(false)
   const [exportingPlaxis, setExportingPlaxis] = useState(false)
   const [exportingDxf, setExportingDxf] = useState(false)
@@ -138,17 +135,11 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }
 
-  async function handleAutoPopulate(): Promise<void> {
-    if (!activeGeologicalModel || populating) return
-    setPopulating(true)
-    try {
-      // Scope to visible boreholes — matches the InterpretationPane behaviour
-      // where ``boreholeIds`` was the list of currently-visible boreholes.
-      await handleAutoPopulateFromStratigraphy(visibleBoreholes.map(b => b.id))
-    } finally {
-      setPopulating(false)
-    }
-  }
+  // No handleAutoPopulate here by design: "Seed from stratigraphy" is
+  // disabled in the Sections stage and the bus action is NOT reachable
+  // from this component (not even destructured) so the CLAUDE.md
+  // "Geology stage owns model definition" contract is structurally
+  // enforced — the Seed action moves to the Geology stage in S6/S7.
 
   async function handleDedupe(): Promise<void> {
     if (!activeGeologicalModel || deduping) return

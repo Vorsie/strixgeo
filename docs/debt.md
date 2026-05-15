@@ -553,6 +553,26 @@ token migration), or first time the white-card-in-dark is reported as
 jarring during dogfooding. Fix shape: `bg-surface-overlay border-
 border-subtle` + token text colours; verify every dialog in both themes.
 
+## 25. SectionsInspector section rows lack the unsaved amber asterisk (low — Tier E)
+
+**What.** `SectionsInspector` feeds `SectionList` a stub empty
+`sessionImportSectionIds` (`new Set<string>()`), so section rows in
+the inspector never show the amber unsaved-marker that CPT/borehole
+rows get. A code comment claims this is "Tracked in docs/debt.md" —
+this entry makes that true.
+
+**Why deferred.** `sessionImportSectionIds` lives on App-level
+coordinator state and is not surfaced on `UseSectionsResult`/the
+ShellContext bus; exposing it is a bus-widening (mirrors the
+S3-remediation `coordinator` widening). The Sidebar.tsx section list
+still carries the correct amber marker as a live fallback, so this is
+graceful degradation, not a correctness loss.
+
+**When to revisit.** S7 — when the Geology stage consolidates and
+Sidebar.tsx's section list is retired, making the inspector the sole
+section-list surface; wire `sessionImportSectionIds` through the bus
+then so the unsaved marker reaches parity.
+
 ---
 
 ## Historical note — 2026-05-13 security-reviewer audit pass

@@ -123,7 +123,7 @@ export default function SectionOverlays({
                 // disappears. A white continuous outline of weight 3
                 // gives a light halo under the green interior stroke
                 // that contrasts on everything.
-                color: selected ? '#ffffff' : '#ffffff',
+                color: '#ffffff',
                 weight: selected ? 3 : 2,
                 opacity: selected ? 0.9 : 0.75,
                 dashArray: selected ? undefined : '6 4',

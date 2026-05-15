@@ -517,10 +517,11 @@ function SectionProperties({
   useEffect(() => {
     setDraftName(section.name)
     setEditing(false)
-    // reason: same as the slider useEffect — reset when the section
-    // IDENTITY changes, not when the server echoes the same id with a
-    // patched name. Server echo already drives the section.name prop
-    // which we read on first render and on section switch.
+    // reason: reset draft/editing ONLY when the section identity changes
+    // (switching sections), NOT when the server echoes the same id with a
+    // patched name — re-running on echo would clobber an in-progress edit.
+    // The draft is (re)snapshotted from section.name on entering edit mode
+    // in handleNameClick, so it never goes stale across a rename round-trip.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section.id])
 
