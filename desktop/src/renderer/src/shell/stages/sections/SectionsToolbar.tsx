@@ -13,6 +13,8 @@ import { useState } from 'react'
 import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import Modal from '../../../components/ui/Modal'
+import Button from '../../../components/ui/Button'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -52,6 +54,10 @@ export default function SectionsToolbar(): JSX.Element {
 
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // Delete confirm modal state — replaces window.confirm() per UX rules:
+  // irreversible actions require a Modal with default-focus on Cancel and a
+  // button labelled with the action name (not "OK"). See docs/ux.md.
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
   const [populating, setPopulating] = useState(false)
   const [deduping, setDeduping] = useState(false)
@@ -77,12 +83,16 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }
 
-  async function handleDelete(): Promise<void> {
+  // Open the confirmation modal. The actual delete fires only after the
+  // user clicks "Delete cross-section" inside the modal.
+  function handleDelete(): void {
     if (!selectedSection || deleting) return
-    const ok = window.confirm(
-      `Delete cross-section "${selectedSection.name}"? This can't be undone.`,
-    )
-    if (!ok) return
+    setDeleteConfirmOpen(true)
+  }
+
+  async function confirmDelete(): Promise<void> {
+    if (!selectedSection || deleting) return
+    setDeleteConfirmOpen(false)
     setDeleting(true)
     try {
       await handleDeleteSection(selectedSection.id)
@@ -284,6 +294,60 @@ export default function SectionsToolbar(): JSX.Element {
               : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group'
         }
       />
+
+      {/* Delete-confirm modal — replaces window.confirm(). Per docs/ux.md
+          irreversible-vs-reversible rule: destructive actions need a Modal
+          with default focus on Cancel and a button that names the action.
+          ``busy`` is set while the delete request is in-flight so Esc /
+          backdrop-click don't dismiss mid-request. */}
+      <Modal
+        open={deleteConfirmOpen}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        labelledBy="delete-section-title"
+        busy={deleting}
+        cardClassName="w-80"
+      >
+        <div className="p-5">
+          <h2
+            id="delete-section-title"
+            className="text-sm font-semibold text-gray-800 mb-1"
+          >
+            Delete cross-section?
+          </h2>
+          <p className="text-xs text-gray-500 mb-4">
+            <span className="font-medium text-gray-700">
+              {selectedSection?.name ?? 'This section'}
+            </span>{' '}
+            will be permanently deleted. Formation contacts placed on it are also removed.
+            This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            {/* Cancel has default focus (autoFocus) — the safe default
+                for an irreversible confirm dialog per docs/ux.md. */}
+            <Button
+              variant="secondary"
+              size="md"
+              // reason: autoFocus on the Cancel button is the safe default
+              // for a destructive-confirm modal — the user should actively
+              // choose the destructive action, not accidentally confirm it.
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting…' : 'Delete cross-section'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

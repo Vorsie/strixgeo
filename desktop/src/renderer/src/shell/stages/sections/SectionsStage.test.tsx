@@ -10,7 +10,7 @@
 // Scope: smoke-render only.  Behavioural correctness (does clicking "New"
 // actually create a section?) is covered by integration tests.
 
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
@@ -326,5 +326,87 @@ describe('Sections stage (smoke)', () => {
       </ShellContext.Provider>,
     )
     expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  // Delete confirm modal — replaced window.confirm() with Modal pattern.
+  // Three paths: open, confirm (deletes), cancel (no delete).
+  describe('SectionsToolbar delete confirm modal', () => {
+    function renderWithSection() {
+      const ctx = makeStubContext()
+      const section = {
+        id: 'sec-del',
+        app_project_id: 'proj-1',
+        name: 'Section B-B',
+        description: null,
+        start_x: 0,
+        start_y: 0,
+        end_x: 100,
+        end_y: 0,
+        epsg: 31370,
+        projection_buffer_m: 50,
+        vertical_exaggeration: 2,
+        excluded_borehole_ids: [],
+        excluded_cpt_ids: [],
+        min_depth_m: null,
+        max_depth_m: null,
+        display_order: 0,
+        view_state: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      }
+      ctx.sections.sections = [section]
+      ctx.sections.selectedSectionId = 'sec-del'
+      return { ctx, section }
+    }
+
+    it('opens the confirm modal when the Delete button is clicked', () => {
+      const { ctx } = renderWithSection()
+      render(
+        <ShellContext.Provider value={ctx}>
+          <SectionsToolbar />
+        </ShellContext.Provider>,
+      )
+      // Before clicking: no modal
+      expect(screen.queryByRole('dialog')).toBeNull()
+      // Click the Delete toolbar button
+      const deleteBtn = screen.getByTitle('Delete "Section B-B"')
+      fireEvent.click(deleteBtn)
+      // Modal should now be open — confirm by dialog role and the heading text.
+      expect(screen.getByRole('dialog')).toBeTruthy()
+      expect(screen.getByRole('heading', { name: /delete cross-section/i })).toBeTruthy()
+    })
+
+    it('does NOT call handleDeleteSection when Cancel is clicked', () => {
+      const { ctx } = renderWithSection()
+      const handleDeleteSection = vi.fn().mockResolvedValue(undefined)
+      ctx.sections.handleDeleteSection = handleDeleteSection
+      render(
+        <ShellContext.Provider value={ctx}>
+          <SectionsToolbar />
+        </ShellContext.Provider>,
+      )
+      fireEvent.click(screen.getByTitle('Delete "Section B-B"'))
+      expect(screen.getByRole('dialog')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+      // Modal closed, no delete fired
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(handleDeleteSection).not.toHaveBeenCalled()
+    })
+
+    it('calls handleDeleteSection when "Delete cross-section" is clicked', async () => {
+      const { ctx } = renderWithSection()
+      const handleDeleteSection = vi.fn().mockResolvedValue(undefined)
+      ctx.sections.handleDeleteSection = handleDeleteSection
+      render(
+        <ShellContext.Provider value={ctx}>
+          <SectionsToolbar />
+        </ShellContext.Provider>,
+      )
+      fireEvent.click(screen.getByTitle('Delete "Section B-B"'))
+      // Click the destructive confirm button (labelled "Delete cross-section")
+      const confirmBtn = screen.getAllByRole('button', { name: /delete cross-section/i })[0]
+      fireEvent.click(confirmBtn)
+      expect(handleDeleteSection).toHaveBeenCalledWith('sec-del')
+    })
   })
 })
