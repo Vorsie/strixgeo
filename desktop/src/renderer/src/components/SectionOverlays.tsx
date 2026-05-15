@@ -116,16 +116,19 @@ export default function SectionOverlays({
             <Polygon
               positions={item.bufferLatLngs}
               pathOptions={{
-                // Dashed green outline so the buffer reads on busy
-                // basemaps even when its fill blends with parks /
-                // vegetation. Selected section gets a continuous,
-                // heavier outline to stand out among siblings.
-                color: '#16a34a',
-                weight: selected ? 2 : 1.25,
-                opacity: selected ? 0.95 : 0.65,
+                // White casing stroke so the buffer polygon reads
+                // over ANY basemap — orthophoto (Geopunt, Esri
+                // satellite), CARTO Voyager, OSM, all share neutral
+                // or greenish tiles where a plain green border
+                // disappears. A white continuous outline of weight 3
+                // gives a light halo under the green interior stroke
+                // that contrasts on everything.
+                color: selected ? '#ffffff' : '#ffffff',
+                weight: selected ? 3 : 2,
+                opacity: selected ? 0.9 : 0.75,
                 dashArray: selected ? undefined : '6 4',
                 fillColor: selected ? '#22c55e' : '#86efac',
-                fillOpacity: selected ? 0.45 : 0.3,
+                fillOpacity: selected ? 0.35 : 0.2,
               }}
               eventHandlers={{ click: () => onSelect(item.id) }}
             >
@@ -135,12 +138,42 @@ export default function SectionOverlays({
                 {item.lengthM.toFixed(0)} m · ±{item.bufferM.toFixed(0)} m
               </Tooltip>
             </Polygon>
+            {/* Green interior stroke rendered as a second polygon with
+                inset weight so the white halo shows around it. Leaflet
+                does not support multi-stroke in a single pathOptions, so
+                we layer two polygons: white casing first, green accent
+                second. Both are non-interactive; only the casing polygon
+                (above) carries the event handlers and tooltip. */}
+            <Polygon
+              positions={item.bufferLatLngs}
+              pathOptions={{
+                color: selected ? '#16a34a' : '#15803d',
+                weight: selected ? 2 : 1.25,
+                opacity: selected ? 0.95 : 0.8,
+                dashArray: selected ? undefined : '6 4',
+                fill: false,
+                interactive: false,
+              }}
+            />
+            {/* Section line — white casing under a dark accent so the
+                line reads on satellite/orthophoto imagery where pure
+                black blends with dark roof/road pixels. Selected goes
+                to amber-red accent with white casing. */}
             <Polyline
               positions={item.lineLatLngs}
               pathOptions={{
-                color: selected ? '#dc2626' : '#111827',
-                weight: selected ? 4 : 2.5,
-                opacity: 0.95,
+                color: '#ffffff',
+                weight: selected ? 6 : 4.5,
+                opacity: 0.85,
+                interactive: false,
+              }}
+            />
+            <Polyline
+              positions={item.lineLatLngs}
+              pathOptions={{
+                color: selected ? '#dc2626' : '#1e293b',
+                weight: selected ? 3.5 : 2.5,
+                opacity: 0.98,
               }}
               eventHandlers={{ click: () => onSelect(item.id) }}
             />
