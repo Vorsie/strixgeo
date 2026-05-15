@@ -142,13 +142,22 @@
   --chart-clr-rf:           #fbbf24;  /* amber-400  — was #b45309 amber-700   */
   --chart-clr-u2:           #c4b5fd;  /* violet-300 — was #7c3aed violet-700  */
   --chart-clr-qt:           #60a5fa;  /* blue-400   — was #1d4ed8 blue-700    */
-  --chart-clr-ic:           #d1d5db;  /* gray-300   — was #374151 gray-700    */
+  /* --chart-clr-ic, --chart-ic-boundary, --chart-ic-zone-label are
+   * intentionally NOT flipped for dark mode. These elements render ON
+   * TOP of the SBT pastel zone fills, which are domain colours (Robertson
+   * 1990) that do not change between themes. The pastel fills remain
+   * light-toned in both themes, so the Ic curve, zone boundary lines, and
+   * zone labels must use the light-theme values in dark mode too — using
+   * the dark-flipped values (near-white) would make them invisible against
+   * the light-coloured pastels. Domain hues are Tier 5 in docs/ux.md and
+   * MUST NOT change; chrome on top of them follows the same invariant. */
+  --chart-clr-ic:           #374151;  /* gray-700   — same as :root; no flip  */
   --chart-clr-pd:           #f87171;  /* red-400    — was #dc2626 red-600     */
   --chart-grid:             #1e293b;  /* slate-800  — was #fce4ec pinkish-50  */
   --chart-surface-ref:      #94a3b8;  /* slate-400  — was #9ca3af (slight lift) */
   --chart-surface-label:    #94a3b8;  /* slate-400  — was #6b7280 gray-500    */
-  --chart-ic-boundary:      #4b5563;  /* gray-600   — was #d1d5db gray-300    */
-  --chart-ic-zone-label:    #e5e7eb;  /* gray-200   — was #374151 gray-700    */
+  --chart-ic-boundary:      #d1d5db;  /* gray-300   — same as :root; no flip  */
+  --chart-ic-zone-label:    #374151;  /* gray-700   — same as :root; no flip  */
 }
 
 html, body, #root {
