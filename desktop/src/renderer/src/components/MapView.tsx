@@ -157,6 +157,40 @@ function ViewportTracker({
   return null
 }
 
+// Fires fitBounds once on mount when no persisted camera exists (the user
+// has not yet panned/zoomed on this project, or the project was just opened
+// on a fresh session). Only runs when there are visible markers to bound to;
+// skips silently when the map is empty so a blank project still centres on
+// the Belgium fallback. ``hasPersisted`` is derived from whether initialCenter
+// was supplied (undefined = no stored camera yet).
+function FitOnLoad({
+  cptMarkers,
+  boreholeMarkers,
+  hasPersisted,
+}: {
+  cptMarkers: { lat: number; lng: number }[]
+  boreholeMarkers: { lat: number; lng: number }[]
+  hasPersisted: boolean
+}) {
+  const map = useMap()
+  const firedRef = useRef(false)
+
+  useEffect(() => {
+    // Only auto-fit when: no previously persisted camera, markers exist,
+    // and we have not already fired (guard against StrictMode double-mount).
+    if (hasPersisted || firedRef.current) return
+    const points: L.LatLngTuple[] = [
+      ...cptMarkers.map(m => [m.lat, m.lng] as L.LatLngTuple),
+      ...boreholeMarkers.map(m => [m.lat, m.lng] as L.LatLngTuple),
+    ]
+    if (points.length === 0) return
+    firedRef.current = true
+    map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 17 })
+  }, [map, hasPersisted, cptMarkers, boreholeMarkers])
+
+  return null
+}
+
 function FlyToSelected({
   cpts,
   boreholes,
@@ -391,6 +425,12 @@ export default function MapView({
             pane="dem-overlay"
           />
         )}
+
+        <FitOnLoad
+          cptMarkers={cptMarkers}
+          boreholeMarkers={boreholeMarkers}
+          hasPersisted={initialCenter !== undefined}
+        />
 
         <FlyToSelected
           cpts={cpts}
