@@ -126,7 +126,7 @@ export function useGeologicalModel({
   toast: (type: 'success' | 'error', message: string) => void
   pushUndo: (cmd: UndoCommand) => void
   addToManifest: (kind: 'formation', ids: string[]) => void
-  removeFromManifest: (kind: 'formation', ids: ReadonlySet<string>) => void
+  removeFromManifest: (kind: 'formation', ids: Iterable<string>) => void
   addToSessionImports: (kind: 'formation' | 'contact', ids: string[]) => void
   removeFromSessionImports: (kind: 'formation' | 'contact', ids: string[]) => void
 }): UseGeologicalModelResult {

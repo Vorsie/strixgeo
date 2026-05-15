@@ -143,7 +143,7 @@ export function useProjectLifecycle({
   setSessionImportSectionIds: (v: Set<string>) => void
   sessionImportContactIds: ReadonlySet<string>
   setSessionImportContactIds: (v: Set<string>) => void
-  removeFromManifest: (kind: 'cpt' | 'borehole' | 'formation' | 'section', ids: ReadonlySet<string>) => void
+  removeFromManifest: (kind: 'cpt' | 'borehole' | 'formation' | 'section', ids: Iterable<string>) => void
   saveMetadata: () => Promise<boolean>
   saveAsProject: () => Promise<void>
   closeProject: () => void

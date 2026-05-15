@@ -133,7 +133,7 @@ export function useSections({
   pushUndo: (cmd: UndoCommand) => void
   manifestSectionIds: ReadonlySet<string>
   addToManifest: (kind: 'section', ids: string[]) => void
-  removeFromManifest: (kind: 'section', ids: string[]) => void
+  removeFromManifest: (kind: 'section', ids: Iterable<string>) => void
   setSessionImportSectionIds: (updater: (prev: Set<string>) => Set<string>) => void
   contacts: FormationContactResponse[]
   boreholes: readonly BoreholeAnchor[]
