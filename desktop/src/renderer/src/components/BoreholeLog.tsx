@@ -179,15 +179,28 @@ export default function BoreholeLog({
       if (next.has(id)) {
         next.delete(id)
       } else {
-        // Enforce the can't-hide-all guard: silently refuse to hide
-        // the last visible track on this borehole.
-        if (wouldHideAll(id)) return prev
+        // Can't-hide-all guard computed against ``prev`` (the updater's
+        // authoritative set), NOT the render-frame ``hiddenTracks`` that
+        // ``wouldHideAll`` closes over — batched state updates can advance
+        // prev past the render snapshot, which would let the guard be
+        // bypassed. ``presentTrackIds`` derives only from the borehole
+        // prop, so closing over it inside the updater is stable.
+        const visibleAfter = [...presentTrackIds].filter(
+          tid => tid !== id && !prev.has(tid),
+        )
+        if (visibleAfter.length === 0) return prev
         next.add(id)
       }
       return next
     })
   }
 
+  // Keyboard accessibility: the header-click is a pointer-only SHORTCUT.
+  // The canonical, fully keyboard-operable control is the "Columns"
+  // dropdown (standard label/checkbox HTML) which covers 100% of the
+  // hide/show functionality — so WCAG 2.1.1 is satisfied without adding
+  // tabIndex/onKeyDown to every SVG track header (which would spam the
+  // tab order with ~8 stops ahead of the content). Intentional, not a gap.
   function hideTrack(id: ToggleableTrackId): void {
     // Clicked directly on a track header — same guard applies.
     if (wouldHideAll(id)) return

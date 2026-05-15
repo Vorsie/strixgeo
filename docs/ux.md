@@ -174,9 +174,19 @@ required.
 * **Show the source token as a `title` tooltip** on every translated
   label so domain experts can verify the mapping without leaving the
   UI.
-* **Persist user preferences in localStorage** with project-scoped
-  keys: `groundmodel.<area>.<projectId>.<kind>`. The `usePersistedSet`
-  hook is the canonical pattern for project-scoped sets.
+* **Persist user preferences in localStorage**, never in the `.gmproj`
+  bundle (UI chrome is per-user, not a project decision). Two key shapes:
+  * **Global** `groundmodel.<area>.<kind>` — for preferences that are
+    the same wherever the user goes (theme, sidebar sort, map basemap,
+    active shell stage, borelog hidden columns). This is the common
+    case. e.g. `groundmodel.borelog.hidden_tracks`,
+    `groundmodel.map.basemap`, `groundmodel.sidebar.sort`.
+  * **Project-scoped** `groundmodel.<area>.<projectId>.<kind>` — ONLY
+    when the value genuinely differs per project (e.g. the per-project
+    session-import / removed sets). `usePersistedSet` is the canonical
+    pattern for these.
+  Always parse-guard reads (tolerate corrupt/manual-edited / unknown
+  values; fall back to the default, never throw).
 
 ## Loading + error feedback
 
