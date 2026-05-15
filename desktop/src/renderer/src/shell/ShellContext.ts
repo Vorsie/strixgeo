@@ -72,6 +72,16 @@ export interface Coordinator {
   projectFilePath: string | null
   /** Formation ids currently in the project manifest (drives session-dirty detection). */
   manifestFormationIds: ReadonlySet<string>
+  /**
+   * CPT IDs imported in the current session but not yet saved to the .gmproj
+   * bundle.  Drives per-row amber asterisks in the investigation list.
+   */
+  sessionImportCptIds: ReadonlySet<string>
+  /**
+   * Borehole IDs imported in the current session but not yet saved.
+   * Same amber-asterisk driver as ``sessionImportCptIds``.
+   */
+  sessionImportBoreholeIds: ReadonlySet<string>
 }
 
 /**

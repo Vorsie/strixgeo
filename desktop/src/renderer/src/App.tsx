@@ -764,6 +764,8 @@ export default function App() {
       outOfViewportBoreholeIds,
       projectFilePath,
       manifestFormationIds,
+      sessionImportCptIds,
+      sessionImportBoreholeIds,
     },
   }), [
     project,
@@ -825,6 +827,7 @@ export default function App() {
     handleSelect, handleSelectBorehole, handleExportSectionDxf,
     outOfViewportCptIds, outOfViewportBoreholeIds,
     projectFilePath, manifestFormationIds,
+    sessionImportCptIds, sessionImportBoreholeIds,
   ])
 
   // ---------------------------------------------------------------------------
