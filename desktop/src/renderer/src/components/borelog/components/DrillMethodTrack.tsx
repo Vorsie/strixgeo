@@ -54,7 +54,7 @@ export function DrillMethodTrack({
               width={width}
               height={height}
               fill={style.fill}
-              stroke="#9ca3af"
+              stroke="var(--borelog-layer-border)"
               strokeWidth={0.4}
             />
             {height >= 14 && (

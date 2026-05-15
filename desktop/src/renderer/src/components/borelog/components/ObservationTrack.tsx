@@ -146,7 +146,7 @@ function ObservationLayerBlock({
         width={mainWidth}
         height={height}
         fill={fillUrl}
-        stroke="#9ca3af"
+        stroke="var(--borelog-layer-border)"
         strokeWidth={0.4}
       />
 

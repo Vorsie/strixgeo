@@ -39,10 +39,6 @@
   --color-spine-active: #2563eb;      /* blue-600   */
   --color-spine-hover: #e2e8f0;       /* slate-200  */
 
-  /* Chart curve colour tokens — light values mirror the existing hard-coded
-   * constants in CptChart.tsx exactly so the light theme is byte-identical
-   * after the migration. The ``.dark`` block overrides these to legible
-   * contrast-corrected values. */
   /* Borelog SVG chrome tokens — SVG attributes can't use Tailwind dark:
    * variants, so theme-aware colours for axis/track chrome go here.
    * Light values equal the existing hard-coded SVG hex constants. */
@@ -56,6 +52,7 @@
   --borelog-sample-selected-border: #3b82f6;  /* blue-500 — selected-sample highlight border */
   --borelog-track-header-bg:     #fafafa;  /* gray-50   — TrackHeader rect fill        */
   --borelog-track-header-border: #e5e7eb;  /* gray-200  — TrackHeader rect stroke      */
+  --borelog-layer-border:        #9ca3af;  /* gray-400  — per-layer rect divider stroke (ObservationTrack/DrillMethodTrack) */
   --borelog-text-primary:        #374151;  /* gray-700  — track title text             */
   --borelog-text-muted:          #9ca3af;  /* gray-400  — track subtitle / axis ticks  */
   --borelog-axis-line:           #d4d4d8;  /* zinc-300  — mTAW axis guide line         */
@@ -112,8 +109,9 @@
   --borelog-sample-selected-border: #60a5fa;                /* blue-400   — dark selected border */
   --borelog-track-header-bg:     #1e293b;  /* slate-800 — was #fafafa light gray   */
   --borelog-track-header-border: #334155;  /* slate-700 — was #e5e7eb gray-200     */
+  --borelog-layer-border:        #334155;  /* slate-700 — subtle layer divider on slate-900 (light was #9ca3af) */
   --borelog-text-primary:        #cbd5e1;  /* slate-300 — was #374151 gray-700     */
-  --borelog-text-muted:          #64748b;  /* slate-500 — was #9ca3af gray-400     */
+  --borelog-text-muted:          #94a3b8;  /* slate-400 — ~6.8:1 on slate-900 (AA pass for small text); was slate-500 #64748b ~3.6:1 (fails 4.5:1) */
   --borelog-axis-line:           #334155;  /* slate-700 — was #d4d4d8 zinc-300     */
   --borelog-axis-tick:           #94a3b8;  /* slate-400 — was #6b7280 gray-500     */
 
