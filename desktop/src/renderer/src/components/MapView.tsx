@@ -22,6 +22,13 @@ import type {
 } from '../api/client'
 import { lambertToWgs84 } from '../hooks/useWgs84'
 import type { DemOverlayState, DemSource } from '../utils/demSources'
+import {
+  BASEMAP_SOURCES,
+  readBasemapId,
+  writeBasemapId,
+  type BasemapId,
+  type BasemapSource,
+} from '../utils/basemapSources'
 import BboxDrawer from './BboxDrawer'
 import SectionLineDrawer from './SectionLineDrawer'
 import SectionOverlays from './SectionOverlays'
@@ -32,34 +39,6 @@ import SectionOverlays from './SectionOverlays'
 // selected.
 const RADIUS = 4
 const RADIUS_SELECTED = 7
-
-// Basemap tile layers — swapped based on the resolved theme so the map
-// background matches the shell's dark/light surface.
-//
-// Light: standard OpenStreetMap — the existing layer, unchanged.
-// Dark:  CARTO dark_all — free, no API key, global coverage, designed for
-//        dark-UI contexts. Required attribution includes both OSM and CARTO
-//        per their tile usage policy.
-//
-// Marker/overlay COLOURS are NOT changed for the dark basemap. CARTO dark_all
-// uses a near-black surface (#1a1a2e range) against which the curated
-// KNOWN_COLORS palette (saturated hues, lightness ~50%) remains clearly
-// visible. Hash-derived marker colours (``hashColor``) use 55% lightness and
-// 55% saturation — also legible on dark. No halo/stroke changes needed;
-// the existing 0.85 fillOpacity and 1px stroke keep markers distinct.
-const TILE_LIGHT = {
-  url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  subdomains: undefined as string | undefined,
-} as const
-
-const TILE_DARK = {
-  url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
-    '&copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: 'abcd',
-} as const
 
 // Curated colours for the small set of well-known categorical values we
 // expect from the backend. Anything outside this map falls through to a
@@ -148,7 +127,7 @@ interface Props {
   onSelectSection?: (id: string) => void
 }
 
-type OpenCategory = 'cpt' | 'borehole' | 'terrain' | null
+type OpenCategory = 'cpt' | 'borehole' | 'terrain' | 'basemap' | null
 
 // Reports the map's current visible bounds + camera (center + zoom)
 // to the parent on mount and after every ``moveend`` (pan / zoom).
@@ -246,14 +225,24 @@ export default function MapView({
   initialZoom,
   onCameraChange,
 }: Props) {
-  // Resolved theme drives the basemap tile layer. ``useTheme`` returns
-  // 'light' | 'dark' based on the OS preference and any user override
-  // persisted to localStorage. The tile layer is swapped live when the
-  // theme changes — react-leaflet unmounts the old TileLayer and mounts
-  // the new one, which causes Leaflet to remove the old tiles and fetch
-  // the new ones without a full MapContainer remount.
+  // Basemap selection — fully decoupled from the application theme.
+  // The user picks a basemap explicitly; the app never auto-switches
+  // it based on dark/light mode (owner feedback S4: "too dark, I
+  // didn't ask"). Persisted per-user in localStorage (UI chrome, not
+  // the .gmproj bundle — same rationale as the theme toggle).
+  //
+  // ``resolvedTheme`` is kept only for the MapContainer loading
+  // background colour so the blank canvas matches the shell surface
+  // before tiles arrive. It no longer drives the basemap choice.
   const { resolved: resolvedTheme } = useTheme()
-  const tileConfig = resolvedTheme === 'dark' ? TILE_DARK : TILE_LIGHT
+  const [basemapId, setBasemapId] = useState<BasemapId>(readBasemapId)
+  const basemap: BasemapSource =
+    BASEMAP_SOURCES.find(b => b.id === basemapId) ?? BASEMAP_SOURCES[0]
+
+  function handleBasemapChange(id: BasemapId): void {
+    writeBasemapId(id)
+    setBasemapId(id)
+  }
 
   // Initial Leaflet camera — restored from the App's ref on remount
   // so navigating from section panel back to map preserves the user's
@@ -323,7 +312,7 @@ export default function MapView({
     hiddenBhAxis,
   )
 
-  function toggleCategory(cat: 'cpt' | 'borehole' | 'terrain'): void {
+  function toggleCategory(cat: 'cpt' | 'borehole' | 'terrain' | 'basemap'): void {
     setOpenCategory(prev => (prev === cat ? null : cat))
   }
 
@@ -360,21 +349,32 @@ export default function MapView({
         center={startCenter}
         zoom={startZoom}
         className="h-full w-full"
-        // Background shown while tiles load. Matches the basemap's approximate
-        // surface tone so the flash on tile arrival is less jarring.
+        // Background shown while tiles load. Matches the shell surface
+        // tone so the blank canvas is less jarring before tiles arrive.
+        // Uses the resolved theme (light/dark shell) as a proxy for the
+        // expected tile brightness — even when the user picks a light
+        // basemap in dark shell mode, this is only visible for <300 ms.
         style={{ background: resolvedTheme === 'dark' ? '#1a1a2e' : '#f0f0f0' }}
       >
-        {/* Basemap — swapped live on theme change.
-            ``key`` forces react-leaflet to unmount the old TileLayer and
-            mount a new one, which triggers Leaflet's internal tile-layer
-            remove → add cycle cleanly without a full MapContainer remount.
-            Marker/overlay colours are NOT changed — curated KNOWN_COLORS
-            and hash-derived hues both clear WCAG AA on CARTO dark_all. */}
+        {/* Basemap tile layer.
+            ``key`` is set to ``basemap.id`` (the user's explicit choice)
+            so react-leaflet unmounts/remounts the TileLayer only when the
+            basemap ACTUALLY changes — not on every MapView re-render.
+            Previously keyed on ``resolvedTheme``, which caused the layer
+            to remount whenever the resolved theme was referenced anywhere
+            in the render tree (e.g. the MapContainer style above), making
+            the hillshade on/off toggle produce a tile-flash "shiver"
+            because toggling the DEM WMSTileLayer re-rendered MapView and
+            any stale theme reference forced a TileLayer key change.
+            Keying on the stable basemap id fixes this: the basemap layer
+            stays mounted across DEM toggle, theme change, and all other
+            MapView re-renders; it only remounts when the user picks a
+            different basemap from the new Basemap dropdown. */}
         <TileLayer
-          key={resolvedTheme}
-          attribution={tileConfig.attribution}
-          url={tileConfig.url}
-          {...(tileConfig.subdomains !== undefined ? { subdomains: tileConfig.subdomains } : {})}
+          key={basemap.id}
+          attribution={basemap.attribution}
+          url={basemap.url}
+          {...(basemap.subdomains !== undefined ? { subdomains: basemap.subdomains } : {})}
         />
 
         {/* DEM hillshade overlay. Pinned to its own pane between the
@@ -514,6 +514,8 @@ export default function MapView({
           demSource={demSource}
           demOverlay={demOverlay}
           onDemOverlayChange={onDemOverlayChange}
+          basemapId={basemapId}
+          onBasemapChange={handleBasemapChange}
         />
       )}
 
@@ -558,6 +560,8 @@ function LayerControl({
   demSource,
   demOverlay,
   onDemOverlayChange,
+  basemapId,
+  onBasemapChange,
 }: {
   cptTypeCounts: Map<string, number>
   hiddenCptTypes: Set<string>
@@ -569,15 +573,18 @@ function LayerControl({
   onToggleBorehole: (value: string, visible: boolean) => void
   onAxisChange: (axis: BoreholeAxis) => void
   openCategory: OpenCategory
-  onToggleCategory: (cat: 'cpt' | 'borehole' | 'terrain') => void
+  onToggleCategory: (cat: 'cpt' | 'borehole' | 'terrain' | 'basemap') => void
   demSource: DemSource | null
   demOverlay: DemOverlayState | undefined
   onDemOverlayChange: ((next: DemOverlayState) => void) | undefined
+  basemapId: BasemapId
+  onBasemapChange: (id: BasemapId) => void
 }) {
   const cptTotal = sum(cptTypeCounts.values())
   const cptOrdered = orderedCptTypes(cptTypeCounts)
   const bhCounts = boreholeAxisCounts[boreholeAxis]
   const bhOrdered = [...bhCounts.entries()].sort((a, b) => b[1] - a[1])
+  const activeBasemap = BASEMAP_SOURCES.find(b => b.id === basemapId) ?? BASEMAP_SOURCES[0]
 
   return (
     <div
@@ -587,6 +594,38 @@ function LayerControl({
       onWheel={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}
     >
+      {/* Basemap category — always present; lets the user switch tile
+          providers without any data needing to be loaded first. */}
+      <div className="border-b border-gray-100 dark:border-slate-700">
+        <CategoryHeader
+          label="Basemap"
+          count={activeBasemap.label}
+          open={openCategory === 'basemap'}
+          onClick={() => onToggleCategory('basemap')}
+        />
+        {openCategory === 'basemap' && (
+          <div className="px-2 pb-2">
+            {BASEMAP_SOURCES.map(b => (
+              <label
+                key={b.id}
+                className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 rounded px-1 py-0.5"
+              >
+                <input
+                  type="radio"
+                  name="basemap"
+                  className="cursor-pointer shrink-0"
+                  checked={basemapId === b.id}
+                  onChange={() => onBasemapChange(b.id)}
+                />
+                <span className="flex-1 truncate text-gray-700 dark:text-slate-200" title={b.label}>
+                  {b.label}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* CPT category */}
       {cptTypeCounts.size > 0 && (
         <div className={openCategory === 'cpt' ? 'border-b border-gray-100 dark:border-slate-700' : ''}>
@@ -669,13 +708,15 @@ function LayerControl({
         </div>
       )}
 
-      {/* Terrain category — hillshade DEM overlay. Always renders when
-          the parent wires ``onDemOverlayChange``; if the project's
-          horizontal EPSG doesn't map to a known DEM source we still
-          surface the section with a "no source for this CRS" hint so
-          the user can find the metadata editor and fix it. Hiding
-          entirely (the previous behaviour) made the feature
-          undiscoverable on fresh projects whose CRS hasn't been set. */}
+      {/* Terrain category — hillshade DEM overlay + Esri World Topo.
+          Always renders when the parent wires ``onDemOverlayChange``; if
+          the project's horizontal EPSG doesn't map to a known DEM source
+          we still surface the section with a "no source for this CRS" hint
+          so the user can find the metadata editor and fix it. Hiding
+          entirely made the feature undiscoverable on fresh projects.
+          Esri World Topo lives here (under "Terrain") for discoverability
+          as a topographically-detailed basemap; selecting it simply sets
+          the basemap choice to ``esri_world_topo`` — no parallel state. */}
       {onDemOverlayChange && demOverlay && (
         <div className={openCategory === 'cpt' || openCategory === 'borehole' ? 'border-t border-gray-100 dark:border-slate-700' : ''}>
           <CategoryHeader
@@ -688,31 +729,17 @@ function LayerControl({
             open={openCategory === 'terrain'}
             onClick={() => onToggleCategory('terrain')}
           />
-          {openCategory === 'terrain' &&
-            (demSource ? (
-              <TerrainSection
-                source={demSource}
-                overlay={demOverlay}
-                onChange={onDemOverlayChange}
-              />
-            ) : (
-              <TerrainUnavailableHint />
-            ))}
+          {openCategory === 'terrain' && (
+            <TerrainSection
+              source={demSource}
+              overlay={demOverlay}
+              onChange={onDemOverlayChange}
+              basemapId={basemapId}
+              onBasemapChange={onBasemapChange}
+            />
+          )}
         </div>
       )}
-    </div>
-  )
-}
-
-function TerrainUnavailableHint() {
-  return (
-    <div className="px-3 pb-2 text-[10px] text-gray-500 dark:text-slate-400 leading-snug">
-      No terrain source for this project's horizontal CRS. Open{' '}
-      <span className="font-medium text-gray-600 dark:text-slate-300">Edit metadata</span> from the
-      sidebar and set <span className="font-mono">Default horizontal CRS</span>{' '}
-      to <span className="font-mono">31370</span> (Belgium) or{' '}
-      <span className="font-mono">28992</span> (Netherlands) to enable the
-      hillshade overlay.
     </div>
   )
 }
@@ -721,10 +748,17 @@ function TerrainSection({
   source,
   overlay,
   onChange,
+  basemapId,
+  onBasemapChange,
 }: {
-  source: DemSource
+  // ``source`` is null when the project's CRS has no DEM provider. The
+  // World Topo shortcut still renders in that case so the user can
+  // switch the basemap to topographic without a working DEM source.
+  source: DemSource | null
   overlay: DemOverlayState
   onChange: (next: DemOverlayState) => void
+  basemapId: BasemapId
+  onBasemapChange: (id: BasemapId) => void
 }) {
   // Local mirror of the slider so dragging stays smooth — committing
   // every pixel of slider travel to the parent would round-trip
@@ -737,34 +771,62 @@ function TerrainSection({
 
   return (
     <div className="px-2 pb-2 text-[11px] text-gray-700 dark:text-slate-200">
+      {/* Esri World Topo shortcut — sets the basemap choice to World Topo.
+          Lives under "Terrain" for discoverability (topo map = terrain
+          context). Selecting it writes through to the same basemap state
+          the Basemap dropdown controls; there is no parallel state. */}
       <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 rounded px-1 py-0.5">
         <input
           type="checkbox"
           className="cursor-pointer shrink-0"
-          checked={overlay.enabled}
-          onChange={e => onChange({ ...overlay, enabled: e.target.checked })}
+          checked={basemapId === 'esri_world_topo'}
+          onChange={e => onBasemapChange(e.target.checked ? 'esri_world_topo' : 'osm')}
         />
-        <span className="flex-1 truncate" title={source.label}>
-          {source.label}
-        </span>
+        <span className="flex-1 truncate">World Topo (Esri)</span>
       </label>
-      {overlay.enabled && (
-        <div className="mt-1.5 px-1">
-          <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-slate-400 mb-0.5">
-            <span>Opacity</span>
-            <span className="tabular-nums">{Math.round(localOpacity * 100)}%</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(localOpacity * 100)}
-            onChange={e => setLocalOpacity(Number(e.target.value) / 100)}
-            onMouseUp={() => onChange({ ...overlay, opacity: localOpacity })}
-            onTouchEnd={() => onChange({ ...overlay, opacity: localOpacity })}
-            onKeyUp={() => onChange({ ...overlay, opacity: localOpacity })}
-            className="w-full cursor-pointer"
-          />
+
+      {/* DEM hillshade overlay — available only when the project's
+          horizontal CRS maps to a known WMS provider. */}
+      {source ? (
+        <>
+          <label className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 rounded px-1 py-0.5">
+            <input
+              type="checkbox"
+              className="cursor-pointer shrink-0"
+              checked={overlay.enabled}
+              onChange={e => onChange({ ...overlay, enabled: e.target.checked })}
+            />
+            <span className="flex-1 truncate" title={source.label}>
+              {source.label}
+            </span>
+          </label>
+          {overlay.enabled && (
+            <div className="mt-1.5 px-1">
+              <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-slate-400 mb-0.5">
+                <span>Opacity</span>
+                <span className="tabular-nums">{Math.round(localOpacity * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round(localOpacity * 100)}
+                onChange={e => setLocalOpacity(Number(e.target.value) / 100)}
+                onMouseUp={() => onChange({ ...overlay, opacity: localOpacity })}
+                onTouchEnd={() => onChange({ ...overlay, opacity: localOpacity })}
+                onKeyUp={() => onChange({ ...overlay, opacity: localOpacity })}
+                className="w-full cursor-pointer"
+              />
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="px-1 pt-0.5 text-[10px] text-gray-500 dark:text-slate-400 leading-snug">
+          No hillshade source for this CRS. Set{' '}
+          <span className="font-mono">Default horizontal CRS</span>{' '}
+          to <span className="font-mono">31370</span> (Belgium) or{' '}
+          <span className="font-mono">28992</span> (Netherlands) in{' '}
+          <span className="font-medium text-gray-600 dark:text-slate-300">Edit metadata</span>.
         </div>
       )}
     </div>
