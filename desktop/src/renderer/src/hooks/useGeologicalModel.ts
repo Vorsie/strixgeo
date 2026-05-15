@@ -1386,7 +1386,16 @@ export function useGeologicalModel({
           `selected=${selectedNames.size} boreholes=${boreholeIds.length}`,
       )
       try {
-        // Step 1: auto-populate contacts for selected names.
+        // Step 1: auto-populate contacts from borehole stratigraphy. The
+        // endpoint creates formations + contacts for ALL names found in the
+        // boreholes, not only selectedNames — it has no name filter. It is
+        // idempotent (existing rows skipped). Step 2 immediately deletes the
+        // formations whose names were not selected, so the model still ends
+        // up containing exactly the selection. Known narrow race: a network
+        // failure between this POST and step 2's first DELETE can leave
+        // unselected formation rows alive until the next Fill run; the
+        // confirm gate, not undo, is the safeguard (a server-side name
+        // filter on auto-populate would close this — out of G1 scope).
         // handleAutoPopulateFromStratigraphy is not called directly here —
         // we replicate its core call so we can control the
         // refresh sequence in step 3 without double-fetching.
