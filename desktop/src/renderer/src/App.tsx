@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useToasts } from './hooks/useToasts'
 import { useAppBoot } from './hooks/useAppBoot'
 import { useMapOverlays } from './hooks/useMapOverlays'
@@ -7,10 +7,9 @@ import type { ContactCopyPayload } from './hooks/useGeologicalModel'
 import { useSections } from './hooks/useSections'
 import { useInvestigationData } from './hooks/useInvestigationData'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
+import { useMapState } from './hooks/useMapState'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
-import L from 'leaflet'
 import { api } from './api/client'
-import type { BoreholeAxis } from './api/client'
 import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
 import { usePersistedSet } from './hooks/usePersistedSet'
@@ -188,66 +187,21 @@ export default function App() {
   const [selectedBoreholeId, setSelectedBoreholeId] = useState<string | null>(null)
   const [view, setView] = useState<View>('map')
 
-  // Layer-visibility state — lifted from MapView so the Sidebar can also
-  // grey out + reorder hidden items. We track HIDDEN values (not visible
-  // ones) so an empty set means "show everything", which avoids the
-  // first-render flash that "visible-set + auto-init effect" would cause
-  // every time a new type appears in the data.
-  const [hiddenCptTypes, setHiddenCptTypes] = useState<Set<string>>(new Set())
-  const [boreholeAxis, setBoreholeAxis] = useState<BoreholeAxis>('drill_method')
-  const [hiddenBoreholeValues, setHiddenBoreholeValues] = useState<
-    Record<BoreholeAxis, Set<string>>
-  >({ drill_method: new Set(), borehole_type: new Set() })
-
-  // Viewport-coupled sidebar — records whose marker is currently
-  // outside the map's visible bounds get demoted to the greyed-out
-  // hidden-bottom section of each tab. Always-on: items aren't hard-
-  // hidden (still visible at opacity-40, still clickable, still counted
-  // in the footer), so coupling the sidebar to the map's spatial scope
-  // never surprises the user by removing things. ``viewportBounds ===
-  // null`` (before the map has reported its initial bounds) treats
-  // everything as in-viewport so the first render doesn't flash an
-  // empty visible section.
-  const [viewportBounds, setViewportBounds] = useState<L.LatLngBounds | null>(null)
-  const handleViewportChange = useCallback((bounds: L.LatLngBounds) => {
-    setViewportBounds(bounds)
-  }, [])
-
-  // Persist the Leaflet camera (center + zoom) across MapView
-  // remounts. The map remounts whenever the user navigates
-  // map → section panel → back; without this ref the viewport resets
-  // to the Belgium-default frame, which is jarring after the user
-  // already zoomed into a specific site. Held in a ref instead of
-  // useState so updating it doesn't trigger a re-render of the App.
-  const mapCameraRef = useRef<{ center: [number, number]; zoom: number } | null>(null)
-  const handleMapCameraChange = useCallback(
-    (center: [number, number], zoom: number) => {
-      mapCameraRef.current = { center, zoom }
-    },
-    [],
-  )
-
-  const handleToggleCptType = useCallback((type: string, visible: boolean) => {
-    setHiddenCptTypes(prev => {
-      const next = new Set(prev)
-      if (visible) next.delete(type)
-      else next.add(type)
-      return next
-    })
-  }, [])
-
-  const handleToggleBoreholeValue = useCallback(
-    (value: string, visible: boolean) => {
-      setHiddenBoreholeValues(prev => {
-        const nextAxis = new Set(prev[boreholeAxis])
-        if (visible) nextAxis.delete(value)
-        else nextAxis.add(value)
-        return { ...prev, [boreholeAxis]: nextAxis }
-      })
-    },
-    [boreholeAxis],
-  )
-
+  // Map layer-visibility, viewport bounds, and Leaflet camera persistence —
+  // all lifted to App so the Sidebar can read/write the same state as
+  // MapView, but grouped in a hook so App stays a thin coordinator.
+  const {
+    hiddenCptTypes,
+    boreholeAxis,
+    hiddenBoreholeValues,
+    viewportBounds,
+    mapCameraRef,
+    handleToggleCptType,
+    handleToggleBoreholeValue,
+    setBoreholeAxis,
+    handleViewportChange,
+    handleMapCameraChange,
+  } = useMapState()
 
   // Session imports — records added since the last File → Save. Drives
   // the per-row amber asterisks in the sidebar AND the project-level
