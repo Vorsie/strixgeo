@@ -11,8 +11,8 @@ Five tiers:
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14)*
 * **B. Commercial launch gates — pre-paid-revenue** (#2–#7)
 * **C. Dogfooding asks — current Phase 4 friction** *(none open — #8, #9, #10 resolved 2026-05-14)*
-* **D. Post-launch / Phase 5** (#11–#14)
-* **E. Lower technical debt** (#15–#21)
+* **D. Post-launch / Phase 5** (#11–#13)
+* **E. Lower technical debt** (#15–#24)
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -284,50 +284,6 @@ contacts. At that point ``FormationContact`` needs either
 ``geotechnical_unit_id`` FK or a separate ``GeotechnicalContact``
 entity. Design the anchor before Phase 5 export work begins.
 
-## 14. Sidebar UI overhaul (medium — dogfooding ask 2026-05-14)
-
-**What.** The Sidebar's Tests / Visualisation / Interpretation
-category-tab structure is getting busy. The InterpretationPane's
-action area in particular hit a real overflow bug during
-dogfooding: 4-5 buttons (Build / From boreholes / Dedupe / Add /
-future imports) didn't fit horizontally on a narrow sidebar so
-the user had to pan-right to see them. Patched immediately by
-moving Build to its own primary row (commit 97f5434), but the
-deeper IA needs a proper rethink before the v1.0 launch.
-
-**Four real options to evaluate** when the time comes:
-
-* **A. Top-of-screen action bar** (AutoCAD / Plaxis pattern). Per-
-  tab horizontal toolbar at the top of the main content area;
-  Sidebar becomes pure navigation + lists. More horizontal space
-  for action labels; another piece of chrome.
-* **B. Right Inspector panel** (Photoshop / Figma). Section view +
-  map fullscreen, Sidebar narrows to nav-icons-only, right edge
-  hosts a collapsible Properties panel that shows section
-  properties / active model / formations + actions. Bigger
-  refactor; matches engineering-software conventions.
-* **C. Top tabs + persistent right-rail** (gINT / D-Series). Flat
-  tab bar across the top; main content fills the screen; slim
-  right rail for context-sensitive properties. Loses count badges
-  unless tabs are decorated.
-* **D. First-run gold-path overlay** (onboarding tutorial). Keep
-  current layout; first project triggers an overlay walking
-  Import → Define formations → Place contacts → Build model →
-  Export. Behind a "?" after dismissal. Cheap; doesn't restructure
-  anything; helps demo flow.
-
-**Why deferred.** Pre-validation. The dogfooding friction
-(missing Build button) was solvable with a small layout patch
-(commit 97f5434); the broader overhaul should follow user input,
-not solo-dev intuition. gINT and D-Series both ship busy UIs
-that engineers tolerate because they're discoverable —
-discoverability beats minimalism for this audience.
-
-**When to revisit.** After the first 5 BE/NL geotech engineers
-have walked through the app on real projects + given friction-list
-feedback. Pre-validation overhauls cost a week and rebuild the
-wrong thing.
-
 ## 15. WFS client base class — remaining wrapper duplication (low)
 
 **What.** The big-three shared blocks are now extracted:
@@ -552,26 +508,6 @@ semantic tokens" pass (pairs naturally with the deferred leaf dark-mode
 token migration), or first time the white-card-in-dark is reported as
 jarring during dogfooding. Fix shape: `bg-surface-overlay border-
 border-subtle` + token text colours; verify every dialog in both themes.
-
-## 25. SectionsInspector section rows lack the unsaved amber asterisk (low — Tier E)
-
-**What.** `SectionsInspector` feeds `SectionList` a stub empty
-`sessionImportSectionIds` (`new Set<string>()`), so section rows in
-the inspector never show the amber unsaved-marker that CPT/borehole
-rows get. A code comment claims this is "Tracked in docs/debt.md" —
-this entry makes that true.
-
-**Why deferred.** `sessionImportSectionIds` lives on App-level
-coordinator state and is not surfaced on `UseSectionsResult`/the
-ShellContext bus; exposing it is a bus-widening (mirrors the
-S3-remediation `coordinator` widening). The Sidebar.tsx section list
-still carries the correct amber marker as a live fallback, so this is
-graceful degradation, not a correctness loss.
-
-**When to revisit.** S7 — when the Geology stage consolidates and
-Sidebar.tsx's section list is retired, making the inspector the sole
-section-list surface; wire `sessionImportSectionIds` through the bus
-then so the unsaved marker reaches parity.
 
 ---
 
