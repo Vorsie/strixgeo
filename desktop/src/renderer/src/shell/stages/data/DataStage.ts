@@ -23,9 +23,9 @@ import DataInspector from './DataInspector'
  *     any exist, ``null`` when the project is empty.
  */
 function useDataStageSummary(): StageSummary {
-  const { investigations } = useShell()
-  const cptCount = investigations.visibleCpts.length
-  const bhCount = investigations.visibleBoreholes.length
+  const { visibleCpts, visibleBoreholes } = useShell()
+  const cptCount = visibleCpts.length
+  const bhCount = visibleBoreholes.length
   const total = cptCount + bhCount
   const label = `${cptCount} CPT${cptCount !== 1 ? 's' : ''} · ${bhCount} borehole${bhCount !== 1 ? 's' : ''}`
   const badge = total > 0 ? `${total}` : null

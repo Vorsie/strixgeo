@@ -3,12 +3,11 @@ import { useToasts } from './hooks/useToasts'
 import { useAppBoot } from './hooks/useAppBoot'
 import { useMapOverlays } from './hooks/useMapOverlays'
 import { useGeologicalModel } from './hooks/useGeologicalModel'
-import type { ContactCopyPayload } from './hooks/useGeologicalModel'
 import { useSections } from './hooks/useSections'
 import { useInvestigationData } from './hooks/useInvestigationData'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
 import { useMapState } from './hooks/useMapState'
-import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle } from 'lucide-react'
 import { api } from './api/client'
 import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
@@ -18,18 +17,14 @@ import { addAllToSet, removeAllFromSet } from './utils/sets'
 import { isTypingTarget } from './utils/keyboard'
 import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
-import Toolbar from './components/Toolbar'
-import Sidebar from './components/Sidebar'
-import MapView from './components/MapView'
-import CptChart from './components/CptChart'
-import BoreholeLog from './components/BoreholeLog'
-import SectionPanel from './components/SectionPanel'
 import WelcomeScreen from './components/WelcomeScreen'
 import NewProjectDialog from './components/NewProjectDialog'
 import ProjectMetadataDialog from './components/ProjectMetadataDialog'
 import UnsavedChangesDialog from './components/UnsavedChangesDialog'
 import Modal from './components/ui/Modal'
 import Button from './components/ui/Button'
+import AppShell from './shell/AppShell'
+import type { ShellContextValue } from './shell/ShellContext'
 
 interface RecentProject {
   path: string
@@ -521,6 +516,11 @@ export default function App() {
         )
       }
     },
+    // reason: toast from useToasts closes over a toastId ref internally,
+    // so identity instability does not cause stale-closure reads here.
+    // The handler only dispatches fire-and-forget API calls and dialog
+    // interactions that do not depend on any captured state that can go
+    // stale — the empty dep array is intentionally safe.
     [],
   )
 
@@ -573,6 +573,8 @@ export default function App() {
     virtueleBoringOverlay,
     virtueleBoringSectionModels,
     virtueleBoringPredictions,
+    virtueleBoringLoading,
+    virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId,
     cptEffectiveModels,
     boreholeEffectiveModels,
@@ -598,6 +600,195 @@ export default function App() {
         : null,
     [selectedSectionId, sections],
   )
+
+  // ---------------------------------------------------------------------------
+  // Shell context value — assembled here and passed to AppShell.
+  //
+  // §8 Risk 2 mitigation: wrapped in useMemo so the object reference stays
+  // stable across renders where none of the hook results actually changed.
+  // Without the memo, every App render would recreate the object and cause
+  // every useShell() consumer to re-render.
+  //
+  // The dep array lists every hook return object. Each hook already returns
+  // stable references via useCallback/useMemo internally, so this outer
+  // memo only breaks when something genuinely changes.
+  //
+  // ``project`` is listed separately and cast to non-null because AppShell
+  // only mounts inside the project gate (``if (!project) return <WelcomeScreen />``
+  // runs first). The cast is safe at the point AppShell renders.
+  // ---------------------------------------------------------------------------
+  const shellContextValue = useMemo((): ShellContextValue => ({
+    // project is non-null here — AppShell is only rendered inside the
+    // project gate below. The loaded-project branch asserts project is truthy.
+    project: project!,
+    lifecycle: {
+      projectDirty,
+      newProjectOpen,
+      setNewProjectOpen,
+      metadataEditorOpen,
+      setMetadataEditorOpen,
+      closeConfirmOpen,
+      setCloseConfirmOpen,
+      unsavedDialogOpen,
+      unsavedSaving,
+      saveProject,
+      discardSessionImports,
+      handleSidebarCloseRequest,
+      handleUnsavedSave,
+      handleUnsavedDiscard,
+      handleUnsavedCancel,
+    },
+    investigations: {
+      cpts,
+      detailMap,
+      plotMap,
+      boreholes,
+      boreholeDetailMap,
+      importing,
+      bboxImportType,
+      dovImporting,
+      removedCptIds,
+      removedBoreholeIds,
+      refreshList,
+      refreshBoreholeList,
+      loadCptDetail,
+      loadChart,
+      loadBoreholeDetail,
+      cancelBboxDraw,
+      unhideCpts,
+      unhideBoreholes,
+      handleRemoveCpts,
+      handleRemoveBoreholes,
+      handleRestoreAllCpts,
+      handleRestoreAllBoreholes,
+      handlePatchCptElevation,
+      handlePatchBoreholeElevation,
+      handleImportCpt,
+      handleImportDov,
+      handleImportBoreholeDov,
+      handleBboxDrawn,
+    },
+    visibleCpts,
+    visibleBoreholes,
+    geoModel: {
+      activeGeologicalModel,
+      formations,
+      formationsRefreshCounter,
+      contacts,
+      surfacesByFormationId,
+      crossingsRefreshCounter,
+      staleSurfaceCount,
+      handleFormationCreated,
+      handleFormationUpdated,
+      handleFormationDeleted,
+      handleInlineCreateFormation,
+      refetchFormations,
+      handleCreateContact,
+      handleUpdateContactDepth,
+      handleBatchCreateContacts,
+      handleBatchUpdateContacts,
+      handleDeleteContact,
+      handleAutoPopulateFromStratigraphy,
+      handleDedupeContacts,
+      handleRebuildSurfaces,
+      handleExportModelPlaxis3d,
+      handleToggleBoreholeInModel,
+      discardContacts,
+    },
+    sections: {
+      sections,
+      selectedSectionId,
+      drawingSection,
+      focusedContactIds,
+      visibleSections,
+      refreshSectionList,
+      clearSectionSelection,
+      handleSectionCreated,
+      handleSectionDeleted,
+      handleCreateSection,
+      cancelSectionDraw,
+      handleSectionLineDrawn,
+      handleDeleteSection,
+      handlePatchSelectedSection,
+      handleSelectSection,
+      handleFocusContacts,
+    },
+    overlays: {
+      demSource,
+      demOverlay,
+      handleDemOverlayChange,
+      virtueleBoringOverlay,
+      virtueleBoringSectionModels,
+      virtueleBoringPredictions,
+      virtueleBoringLoading,
+      virtueleBoringSkippedCount,
+      virtueleBoringPredictionByInvestigationId,
+      cptEffectiveModels,
+      boreholeEffectiveModels,
+      showOverlayOnSection,
+      showOverlayOnCpt,
+      showOverlayOnBorehole,
+      cptVirtueleBoringOverride,
+      boreholeVirtueleBoringOverride,
+      handleChangeVirtueleBoringPicker,
+      handleSetShowOverlay,
+      handleSetOverlayOverride,
+    },
+    toasts: { toasts, toast },
+    undo: { push: pushUndo, undo: doUndo, redo: doRedo, clear: clearUndo },
+    boot: { ready, apiError },
+  }), [
+    project,
+    // lifecycle fields
+    projectDirty, newProjectOpen, setNewProjectOpen,
+    metadataEditorOpen, setMetadataEditorOpen,
+    closeConfirmOpen, setCloseConfirmOpen,
+    unsavedDialogOpen, unsavedSaving,
+    saveProject, discardSessionImports, handleSidebarCloseRequest,
+    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel,
+    // investigation fields
+    cpts, detailMap, plotMap, boreholes, boreholeDetailMap,
+    importing, bboxImportType, dovImporting,
+    removedCptIds, removedBoreholeIds,
+    refreshList, refreshBoreholeList,
+    loadCptDetail, loadChart, loadBoreholeDetail,
+    cancelBboxDraw, unhideCpts, unhideBoreholes,
+    handleRemoveCpts, handleRemoveBoreholes,
+    handleRestoreAllCpts, handleRestoreAllBoreholes,
+    handlePatchCptElevation, handlePatchBoreholeElevation,
+    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
+    visibleCpts, visibleBoreholes,
+    // geological model fields
+    activeGeologicalModel, formations, formationsRefreshCounter,
+    contacts, surfacesByFormationId, crossingsRefreshCounter, staleSurfaceCount,
+    handleFormationCreated, handleFormationUpdated, handleFormationDeleted,
+    handleInlineCreateFormation, refetchFormations,
+    handleCreateContact, handleUpdateContactDepth,
+    handleBatchCreateContacts, handleBatchUpdateContacts, handleDeleteContact,
+    handleAutoPopulateFromStratigraphy, handleDedupeContacts,
+    handleRebuildSurfaces, handleExportModelPlaxis3d,
+    handleToggleBoreholeInModel, discardContacts,
+    // sections fields
+    sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections,
+    refreshSectionList, clearSectionSelection,
+    handleSectionCreated, handleSectionDeleted,
+    handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
+    handleDeleteSection, handlePatchSelectedSection,
+    handleSelectSection, handleFocusContacts,
+    // overlay fields
+    demSource, demOverlay, handleDemOverlayChange,
+    virtueleBoringOverlay, virtueleBoringSectionModels,
+    virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
+    virtueleBoringPredictionByInvestigationId,
+    cptEffectiveModels, boreholeEffectiveModels,
+    showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
+    cptVirtueleBoringOverride, boreholeVirtueleBoringOverride,
+    handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride,
+    // toast + undo + boot
+    toasts, toast,
+    pushUndo, doUndo, doRedo, clearUndo,
+    ready, apiError,
+  ])
 
   // ---------------------------------------------------------------------------
   // Render
@@ -653,239 +844,24 @@ export default function App() {
     )
   }
 
-  const selectedCpt = cpts.find(c => c.id === selectedId)
-  const drawingBbox = bboxImportType !== null
-  const hasSelection = selectedId !== null || selectedBoreholeId !== null
+  // S3: project is loaded — render the shell with empty stage slot placeholders.
+  // The old Toolbar / Sidebar / main content block is deferred to S4/S5
+  // (DataStage + SectionsStage migration). Dialogs and toasts remain at App
+  // level because they overlay the entire shell.
+  //
+  // IMPORTANT: the WelcomeScreen path above must remain intact and the smoke
+  // test must stay green (it never loads a project so it always hits the
+  // !project branch). This branch only renders when project is non-null.
 
   return (
-    <div className="flex flex-col h-screen bg-white overflow-hidden">
-      <Toolbar
-            onImportCpt={handleImportCpt}
-            onImportDov={handleImportDov}
-            onImportBoreholeDov={handleImportBoreholeDov}
-            importing={importing || dovImporting}
-            drawingBbox={drawingBbox}
-          />
+    <>
+      {/* Shell — takes the full viewport. Stage zone components are
+          placeholder nulls in S3; S4/S5 fill them. */}
+      <AppShell context={shellContextValue} />
 
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          cpts={visibleCpts}
-          boreholes={visibleBoreholes}
-          selectedCptId={selectedId}
-          selectedBoreholeId={selectedBoreholeId}
-          onSelectCpt={handleSelect}
-          onSelectBorehole={handleSelectBorehole}
-          onRemoveCpts={handleRemoveCpts}
-          onRemoveBoreholes={handleRemoveBoreholes}
-          removedCptCount={removedCptIds.size}
-          removedBoreholeCount={removedBoreholeIds.size}
-          onRestoreAllCpts={handleRestoreAllCpts}
-          onRestoreAllBoreholes={handleRestoreAllBoreholes}
-          projectName={project.name}
-          projectId={project.id}
-          projectFilePath={projectFilePath}
-          projectDirty={projectDirty}
-          sessionImportCptIds={sessionImportCptIds}
-          sessionImportBoreholeIds={sessionImportBoreholeIds}
-          sessionImportFormationIds={sessionImportFormationIds}
-          manifestFormationIds={manifestFormationIds}
-          sessionImportSectionIds={sessionImportSectionIds}
-          onCloseProject={handleSidebarCloseRequest}
-          onEditMetadata={() => setMetadataEditorOpen(true)}
-          hiddenCptTypes={hiddenCptTypes}
-          hiddenBoreholeValues={hiddenBoreholeValues[boreholeAxis]}
-          boreholeAxis={boreholeAxis}
-          outOfViewportCptIds={outOfViewportCptIds}
-          outOfViewportBoreholeIds={outOfViewportBoreholeIds}
-          sections={visibleSections}
-          selectedSectionId={selectedSectionId}
-          onSelectSection={handleSelectSection}
-          onCreateSection={handleCreateSection}
-          onDeleteSection={handleDeleteSection}
-          canCreateSection={project.default_horizontal_epsg != null}
-          onFormationCreated={handleFormationCreated}
-          onFormationUpdated={handleFormationUpdated}
-          onFormationDeleted={handleFormationDeleted}
-          formationsRefreshSignal={formationsRefreshCounter}
-          crossingsRefreshSignal={crossingsRefreshCounter}
-          activeModelId={activeGeologicalModel?.id ?? null}
-          // On-click build pivot: how many cached surfaces no longer
-          // reflect the current contacts. Drives the "N unbuilt edits"
-          // badge on the Build button. Memoised once in
-          // useGeologicalModel — don't recompute it here per render.
-          staleSurfaceCount={staleSurfaceCount}
-          onFocusContacts={handleFocusContacts}
-          pushUndoCommand={pushUndo}
-          onDedupeContacts={
-            activeGeologicalModel ? handleDedupeContacts : undefined
-          }
-          onRebuildSurfaces={
-            activeGeologicalModel ? handleRebuildSurfaces : undefined
-          }
-          onExportPlaxis3d={
-            activeGeologicalModel ? handleExportModelPlaxis3d : undefined
-          }
-          visibleBoreholeIds={visibleBoreholes.map(b => b.id)}
-          activeModelName={activeGeologicalModel?.name ?? null}
-          visibleBoreholes={visibleBoreholes}
-          excludedBoreholeIds={
-            activeGeologicalModel?.excluded_borehole_ids ?? []
-          }
-          onToggleBoreholeInModel={handleToggleBoreholeInModel}
-        />
-
-        <main className="flex flex-col flex-1 overflow-hidden">
-          {/* Map / Chart tabs only apply to the CPT + borehole flow.
-              The Section panel renders fullscreen below and ignores
-              this toggle — sections have their own header strip with
-              its own controls. */}
-          {hasSelection && selectedSection === null && (
-            <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-200 bg-gray-50">
-              <ViewTab icon={<MapIcon size={13} />} label="Map" active={view === 'map'} onClick={() => setView('map')} />
-              <ViewTab icon={<BarChart2 size={13} />} label="Chart" active={view === 'chart'} onClick={() => setView('chart')} />
-            </div>
-          )}
-
-          <div className="flex-1 overflow-hidden">
-            {selectedSection !== null ? (
-              <SectionPanel
-                section={selectedSection}
-                zEpsg={project.default_vertical_epsg}
-                cpts={visibleCpts}
-                boreholes={visibleBoreholes}
-                onPatch={handlePatchSelectedSection}
-                onClose={clearSectionSelection}
-                onSelectCpt={handleSelect}
-                onSelectBorehole={handleSelectBorehole}
-                contacts={contacts}
-                formations={formations}
-                surfacesByFormationId={surfacesByFormationId}
-                focusedContactIds={focusedContactIds}
-                excludedBoreholeIds={
-                  activeGeologicalModel?.excluded_borehole_ids ?? []
-                }
-                onCreateContact={handleCreateContact}
-                onUpdateContactDepth={handleUpdateContactDepth}
-                onDeleteContact={handleDeleteContact}
-                onBatchUpdateContacts={handleBatchUpdateContacts}
-                onBatchCreateContacts={handleBatchCreateContacts}
-                onAutoPopulateFromStratigraphy={
-                  activeGeologicalModel
-                    ? handleAutoPopulateFromStratigraphy
-                    : undefined
-                }
-                onCreateFormation={handleInlineCreateFormation}
-                onExportDxf={
-                  activeGeologicalModel
-                    ? () =>
-                        handleExportSectionDxf(
-                          project.id,
-                          selectedSection.id,
-                          selectedSection.name,
-                          activeGeologicalModel.id,
-                        )
-                    : undefined
-                }
-                virtueleBoringActiveModels={virtueleBoringSectionModels}
-                virtueleBoringPredictions={virtueleBoringPredictions}
-                virtueleBoringModelA={virtueleBoringOverlay.modelA}
-                virtueleBoringModelB={virtueleBoringOverlay.modelB}
-                virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
-                virtueleBoringShowOnSection={showOverlayOnSection}
-                onChangeVirtueleBoringPicker={handleChangeVirtueleBoringPicker}
-                onChangeVirtueleBoringShowOnSection={next =>
-                  handleSetShowOverlay('section', next)
-                }
-              />
-            ) : view === 'map' || !hasSelection ? (
-              <MapView
-                    cpts={visibleCpts}
-                    boreholes={visibleBoreholes}
-                    selectedCptId={selectedId}
-                    selectedBoreholeId={selectedBoreholeId}
-                    onSelectCpt={handleSelect}
-                    onSelectBorehole={handleSelectBorehole}
-                    hiddenCptTypes={hiddenCptTypes}
-                    hiddenBoreholeValues={hiddenBoreholeValues}
-                    boreholeAxis={boreholeAxis}
-                    onToggleCptType={handleToggleCptType}
-                    onToggleBoreholeValue={handleToggleBoreholeValue}
-                    onChangeBoreholeAxis={setBoreholeAxis}
-                    drawMode={drawingBbox}
-                    onBboxDrawn={handleBboxDrawn}
-                    onCancelDraw={cancelBboxDraw}
-                    onViewportChange={handleViewportChange}
-                    demSource={demSource}
-                    demOverlay={demOverlay}
-                    onDemOverlayChange={handleDemOverlayChange}
-                    drawSectionMode={drawingSection}
-                    onSectionLineDrawn={handleSectionLineDrawn}
-                    onCancelSectionDraw={cancelSectionDraw}
-                    sections={sections}
-                    selectedSectionId={selectedSectionId}
-                    onSelectSection={handleSelectSection}
-                    initialCenter={mapCameraRef.current?.center}
-                    initialZoom={mapCameraRef.current?.zoom}
-                    onCameraChange={handleMapCameraChange}
-                  />
-            ) : selectedBoreholeId ? (
-              boreholeDetailMap.has(selectedBoreholeId) ? (
-                <BoreholeLog
-                  borehole={boreholeDetailMap.get(selectedBoreholeId)!}
-                  onElevationChange={(elevationM, zEpsg) =>
-                    handlePatchBoreholeElevation(selectedBoreholeId, elevationM, zEpsg)
-                  }
-                  virtueleBoringPrediction={
-                    virtueleBoringPredictionByInvestigationId.get(selectedBoreholeId) ?? null
-                  }
-                  virtueleBoringActiveModels={boreholeEffectiveModels}
-                  virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
-                  virtueleBoringVisible={showOverlayOnBorehole}
-                  onToggleVirtueleBoringVisible={() =>
-                    handleSetShowOverlay('borehole', !showOverlayOnBorehole)
-                  }
-                  virtueleBoringOverrideModel={boreholeVirtueleBoringOverride}
-                  onChangeVirtueleBoringOverrideModel={next =>
-                    handleSetOverlayOverride('borehole', next)
-                  }
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full text-sm text-gray-400">
-                  Loading borehole…
-                </div>
-              )
-            ) : (
-              selectedCpt && plotMap.has(selectedId!)
-                ? <CptChart
-                    plot={plotMap.get(selectedId!)!}
-                    name={selectedCpt.name}
-                    detail={detailMap.get(selectedId!)}
-                    onElevationChange={(elevationM, zEpsg) =>
-                      handlePatchCptElevation(selectedId!, elevationM, zEpsg)
-                    }
-                    virtueleBoringPrediction={
-                      virtueleBoringPredictionByInvestigationId.get(selectedId!) ?? null
-                    }
-                    virtueleBoringActiveModels={cptEffectiveModels}
-                    virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
-                    virtueleBoringVisible={showOverlayOnCpt}
-                    onToggleVirtueleBoringVisible={() =>
-                      handleSetShowOverlay('cpt', !showOverlayOnCpt)
-                    }
-                    virtueleBoringOverrideModel={cptVirtueleBoringOverride}
-                    onChangeVirtueleBoringOverrideModel={next =>
-                      handleSetOverlayOverride('cpt', next)
-                    }
-                  />
-                : <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading chart…</div>
-            )}
-          </div>
-        </main>
-      </div>
-
-      {/* Toast stack — z-[1100] keeps it above Leaflet's stacked
-          controls (z-1000) so success / error notifications aren't
-          obscured by the legend / layer toggle. */}
+      {/* Toast stack — stays at App level (outside ShellContext.Provider) so
+          it overlays all shell chrome. z-[1100] keeps it above Leaflet's
+          stacked controls (z-1000). */}
       <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-[1100]">
         {toasts.map(t => (
           <div
@@ -901,8 +877,8 @@ export default function App() {
         ))}
       </div>
 
-      {/* New-project dialog. Sits at the App-shell level so the File-menu
-          signal can open it whether the user has a project loaded or not. */}
+      {/* New-project dialog. Sits at the App level so the File-menu signal
+          can open it whether a project is loaded or not. */}
       <NewProjectDialog
         open={newProjectOpen}
         onCancel={() => setNewProjectOpen(false)}
@@ -912,12 +888,9 @@ export default function App() {
         }}
       />
 
-      {/* Project metadata editor. Triggered by clicking the project name
-          in the sidebar header. The editor's Save button no longer
-          touches the API — it commits to the live project state via
-          ``applyMetadataDraft``. The actual DB + file write happens
-          when the user invokes File → Save / Ctrl+S, or via "Save and
-          close" on the unsaved-changes prompt. */}
+      {/* Project metadata editor. Triggered by clicking the project name in
+          the sidebar header. Save commits to live state; the DB + file write
+          happens on File → Save / Ctrl+S. */}
       <ProjectMetadataDialog
         open={metadataEditorOpen}
         project={project}
@@ -979,24 +952,7 @@ export default function App() {
           </div>
         </div>
       </Modal>
-    </div>
-  )
-}
-
-function ViewTab({ icon, label, active, onClick }: {
-  icon: React.ReactNode; label: string; active: boolean; onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        'flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors',
-        active ? 'bg-white border border-gray-200 shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
-      ].join(' ')}
-    >
-      {icon}
-      {label}
-    </button>
+    </>
   )
 }
 

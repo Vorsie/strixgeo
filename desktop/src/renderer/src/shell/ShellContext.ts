@@ -23,7 +23,7 @@ import type { UseMapOverlaysResult } from '../hooks/useMapOverlays'
 import type { UseProjectLifecycleResult } from '../hooks/useProjectLifecycle'
 import type { UseInvestigationDataResult } from '../hooks/useInvestigationData'
 import type { UseUndoStackResult } from '../hooks/useUndoStack'
-import type { ProjectResponse } from '../api/client'
+import type { CptListItem, BoreholeListItem, ProjectResponse } from '../api/client'
 
 /**
  * The full app state bus carried through the shell.
@@ -43,6 +43,20 @@ export interface ShellContextValue {
   lifecycle: UseProjectLifecycleResult
   /** CPT + borehole data, import flows, hide/restore, elevation edits. */
   investigations: UseInvestigationDataResult
+  /**
+   * Manifest-filtered, removed-set-filtered CPT list.
+   *
+   * Computed in App.tsx and carried here so stage summary hooks and
+   * stage components can read the user-visible list without re-computing
+   * the two-layer filter.
+   */
+  visibleCpts: CptListItem[]
+  /**
+   * Manifest-filtered, removed-set-filtered borehole list.
+   *
+   * Same provenance as ``visibleCpts``.
+   */
+  visibleBoreholes: BoreholeListItem[]
   /** Geological model — formations, contacts, surfaces, all mutation handlers. */
   geoModel: UseGeologicalModelResult
   /** Cross-sections — list, selection, draw mode, CRUD. */
