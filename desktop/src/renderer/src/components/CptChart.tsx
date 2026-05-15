@@ -56,14 +56,28 @@ const U2_MIN = -100  // kPa
 const U2_MAX = 300   // kPa
 const IC_MAX = 4     // dimensionless
 
-const GRID   = '#fce4ec'
-const QC_CLR = '#111827'
-const FS_CLR = '#16a34a'
-const RF_CLR = '#b45309'
-const U2_CLR = '#7c3aed'
-const QT_CLR = '#1d4ed8'
-const IC_CLR = '#374151'
-const PD_CLR = '#dc2626'
+// Curve colours are CSS custom properties defined in index.css.
+// Light values (:root) are the original hard-coded constants so the
+// light theme is byte-identical after this change. Dark values (.dark)
+// are contrast-corrected, hue-preserving equivalents that clear WCAG
+// 2.2 AA on the dark surface. Recharts passes these strings directly to
+// SVG ``stroke``/``fill`` attributes — CSS var() resolves because the
+// SVG is rendered in the DOM and inherits from :root / .dark on <html>.
+const GRID   = 'var(--chart-grid)'
+const QC_CLR = 'var(--chart-clr-qc)'
+const FS_CLR = 'var(--chart-clr-fs)'
+const RF_CLR = 'var(--chart-clr-rf)'
+const U2_CLR = 'var(--chart-clr-u2)'
+const QT_CLR = 'var(--chart-clr-qt)'
+const IC_CLR = 'var(--chart-clr-ic)'
+const PD_CLR = 'var(--chart-clr-pd)'
+
+// Chrome-only colours — not domain curves, but axis/grid chrome.
+// These also need contrast against the dark surface.
+const SURFACE_REF_CLR   = 'var(--chart-surface-ref)'
+const SURFACE_LABEL_CLR = 'var(--chart-surface-label)'
+const IC_BOUNDARY_CLR   = 'var(--chart-ic-boundary)'
+const IC_ZONE_LABEL_CLR = 'var(--chart-ic-zone-label)'
 
 const IC_ZONES = [
   { x1: 0,    x2: 1.31, fill: '#fef9c3', label: 'Sand'      },
@@ -278,8 +292,8 @@ export default function CptChart({
     if (elevationM === null) return null
     return (
       <ReferenceLine yAxisId="y" xAxisId={xAxisId} y={0}
-        stroke="#9ca3af" strokeDasharray="3 3" strokeWidth={1}
-        label={{ value: `${fmtLevel(0)} m — surface`, position: 'insideTopLeft', style: { fontSize: 9, fill: '#6b7280' } }}
+        stroke={SURFACE_REF_CLR} strokeDasharray="3 3" strokeWidth={1}
+        label={{ value: `${fmtLevel(0)} m — surface`, position: 'insideTopLeft', style: { fontSize: 9, fill: SURFACE_LABEL_CLR } }}
       />
     )
   }
@@ -296,7 +310,7 @@ export default function CptChart({
         <XAxis xAxisId="u2b" type="number" orientation="bottom" domain={[U2_MIN, U2_MAX]}
           tick={{ fontSize: 11, fill: U2_CLR }} ticks={[-100, 0, 100, 200, 300]}
         />
-        <ReferenceLine yAxisId="y" xAxisId="u2" x={0} stroke="#9ca3af" strokeWidth={0.5} />
+        <ReferenceLine yAxisId="y" xAxisId="u2" x={0} stroke={SURFACE_REF_CLR} strokeWidth={0.5} />
         {preDrillZone('u2')}
         {surfaceElevationRef('u2')}
         <Tooltip contentStyle={{ fontSize: 10 }}
@@ -394,7 +408,7 @@ export default function CptChart({
         ))}
         {IC_ZONE_BOUNDARIES.map(v => (
           <ReferenceLine key={`line-${v}`} yAxisId="y" xAxisId="ic" x={v}
-            stroke="#d1d5db" strokeWidth={0.8} />
+            stroke={IC_BOUNDARY_CLR} strokeWidth={0.8} />
         ))}
         {surfaceElevationRef('ic')}
         {preDrillZone('ic')}
@@ -416,14 +430,14 @@ export default function CptChart({
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="px-4 pt-3 pb-1 shrink-0">
-        <div className="text-sm font-semibold text-gray-700">{name}</div>
-        <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+        <div className="text-sm font-semibold text-gray-700 dark:text-slate-200">{name}</div>
+        <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-slate-400 mt-0.5">
           <span>{cptType} · {data.length} rows · {maxDepth.toFixed(2)} m</span>
           {/* Inline elevation editor sits on the same line as the run
               summary so the user can fix a missing Z without leaving the
               chart. Falls back to the static "Z = …" readout when no
               save handler is wired (read-only contexts). */}
-          <span className="text-gray-300">·</span>
+          <span className="text-gray-300 dark:text-slate-600">·</span>
           {onElevationChange ? (
             <ElevationEditor
               elevationM={elevationM}
@@ -450,14 +464,14 @@ export default function CptChart({
           {hasIc  && <LegendItem color={IC_CLR} label="Ic (Robertson 1990)" />}
           {preDrillM > 0 && <LegendItem color={PD_CLR} label={`Pre-drill ${preDrillM.toFixed(1)} m`} dashed />}
         </div>
-        <div className="flex items-center gap-1 shrink-0 text-gray-400 text-[10px] select-none">
+        <div className="flex items-center gap-1 shrink-0 text-gray-400 dark:text-slate-400 text-[10px] select-none">
           {isZoomed && (
             <span className="mr-1">
               {zoomDomain[0].toFixed(1)}–{zoomDomain[1].toFixed(1)} m
             </span>
           )}
           <button
-            className="w-6 h-6 rounded text-sm font-bold hover:bg-gray-100 border border-gray-200 leading-none text-gray-500"
+            className="w-6 h-6 rounded text-sm font-bold hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600 leading-none text-gray-500 dark:text-slate-300"
             title="Zoom in"
             onClick={() => setZoomDomain(([min, max]) => {
               const c = (min + max) / 2, r = Math.max(0.5, (max - min) / 1.5)
@@ -466,7 +480,7 @@ export default function CptChart({
             })}
           >+</button>
           <button
-            className="w-6 h-6 rounded text-sm font-bold hover:bg-gray-100 border border-gray-200 leading-none text-gray-500"
+            className="w-6 h-6 rounded text-sm font-bold hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600 leading-none text-gray-500 dark:text-slate-300"
             title="Zoom out"
             onClick={() => setZoomDomain(([min, max]) => {
               const c = (min + max) / 2, r = Math.min(maxDepth, (max - min) * 1.5)
@@ -476,7 +490,7 @@ export default function CptChart({
           >−</button>
           {isZoomed && (
             <button
-              className="px-2 h-6 rounded hover:bg-gray-100 border border-gray-200 text-gray-500"
+              className="px-2 h-6 rounded hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-300"
               title="Reset zoom"
               onClick={() => setZoomDomain([0, maxDepth])}
             >Reset</button>
@@ -505,10 +519,10 @@ export default function CptChart({
                 className={
                   'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
                   (virtueleBoringActiveModels.length === 0
-                    ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                    ? 'border-gray-200 dark:border-slate-600 text-gray-300 dark:text-slate-600 cursor-not-allowed'
                     : virtueleBoringVisible
                       ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
-                      : 'border-gray-200 text-gray-500 hover:bg-gray-100')
+                      : 'border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700')
                 }
               >
                 <Database size={11} />
@@ -521,7 +535,7 @@ export default function CptChart({
                   disabled={catalog === null}
                   title="Override which DOV model this pane shows"
                   aria-label="DOV overlay model for this pane"
-                  className="h-6 px-1 border border-gray-200 rounded text-[10px] bg-white text-gray-700 max-w-[160px]"
+                  className="h-6 px-1 border border-gray-200 dark:border-slate-600 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 max-w-[160px]"
                 >
                   <option value="">Follow section</option>
                   {(catalog ?? []).map(entry => (
@@ -539,10 +553,12 @@ export default function CptChart({
       {/* Ic SBT zone colour key */}
       {hasIc && (
         <div className="flex items-center gap-2 px-4 pb-1 shrink-0 flex-wrap">
-          <span className="text-[9px] text-gray-400 mr-1">SBT:</span>
+          <span className="text-[9px] text-gray-400 dark:text-slate-500 mr-1">SBT:</span>
           {IC_ZONES.map(z => (
-            <div key={z.x1} className="flex items-center gap-1 text-[9px] text-gray-500">
-              <div className="w-3 h-2.5 rounded-sm border border-gray-200" style={{ background: z.fill }} />
+            <div key={z.x1} className="flex items-center gap-1 text-[9px] text-gray-500 dark:text-slate-400">
+              {/* Domain fill: Robertson SBT zone colour — hue must not change (ux.md Tier 5).
+                  The swatch border shifts to a dark-mode-visible slate on dark backgrounds. */}
+              <div className="w-3 h-2.5 rounded-sm border border-gray-200 dark:border-slate-600" style={{ background: z.fill }} />
               {z.label}
             </div>
           ))}
@@ -556,7 +572,7 @@ export default function CptChart({
         style={{ cursor: isDragging ? 'grabbing' : (isZoomed ? 'grab' : 'default') }}
       >
         {showU2 && (
-          <div style={{ flex: 1, position: 'relative' }} className="min-w-0 border-r border-gray-200">
+          <div style={{ flex: 1, position: 'relative' }} className="min-w-0 border-r border-gray-200 dark:border-slate-700">
             <ResponsiveContainer width="100%" height="100%">
               {renderU2Panel(leftmost === 'u2', rightmost === 'u2')}
             </ResponsiveContainer>
@@ -564,7 +580,7 @@ export default function CptChart({
           </div>
         )}
 
-        <div style={{ flex: 2, position: 'relative' }} className={`min-w-0${(hasRf || hasIc) ? ' border-r border-gray-200' : ''}`}>
+        <div style={{ flex: 2, position: 'relative' }} className={`min-w-0${(hasRf || hasIc) ? ' border-r border-gray-200 dark:border-slate-700' : ''}`}>
           <ResponsiveContainer width="100%" height="100%">
             {renderQcFsPanel(leftmost === 'qcfs', rightmost === 'qcfs')}
           </ResponsiveContainer>
@@ -575,7 +591,7 @@ export default function CptChart({
         </div>
 
         {hasRf && (
-          <div style={{ flex: 1, position: 'relative' }} className={`min-w-0${hasIc ? ' border-r border-gray-200' : ''}`}>
+          <div style={{ flex: 1, position: 'relative' }} className={`min-w-0${hasIc ? ' border-r border-gray-200 dark:border-slate-700' : ''}`}>
             <ResponsiveContainer width="100%" height="100%">
               {renderRfPanel(leftmost === 'rf', rightmost === 'rf')}
             </ResponsiveContainer>
@@ -659,7 +675,10 @@ function IcZoneLabelsOverlay() {
               transform:       'translate(-50%, 0) rotate(-90deg)',
               transformOrigin: 'center bottom',
               fontSize:        8,
-              color:           '#374151',
+              // IC_ZONE_LABEL_CLR is a CSS var; the span is a plain DOM
+              // element inside the chart overlay div, so var() resolves
+              // against :root / .dark on <html> just like any other element.
+              color:           IC_ZONE_LABEL_CLR,
               fontWeight:      500,
               whiteSpace:      'nowrap',
               lineHeight:      1,
@@ -675,7 +694,7 @@ function IcZoneLabelsOverlay() {
 
 function LegendItem({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
   return (
-    <div className="flex items-center gap-1 text-[10px] text-gray-600">
+    <div className="flex items-center gap-1 text-[10px] text-gray-600 dark:text-slate-300">
       <div className="w-6" style={{ borderTopWidth: 1.5, borderTopStyle: dashed ? 'dashed' : 'solid', borderTopColor: color }} />
       {label}
     </div>
