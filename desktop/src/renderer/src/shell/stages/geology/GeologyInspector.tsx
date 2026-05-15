@@ -689,6 +689,13 @@ export default function GeologyInspector(): JSX.Element {
             <Button
               variant="secondary"
               size="md"
+              // reason: autoFocus on Cancel is the safe default for a
+              // destructive-confirm modal — the user must actively choose
+              // the destructive action, not accidentally confirm it on
+              // Enter. Matches the delete-model + FormationSelectionDialog
+              // confirms (docs/ux.md "default-focus on Cancel").
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
               onClick={() => setPendingDelete(null)}
               disabled={deleteBusy}
             >
