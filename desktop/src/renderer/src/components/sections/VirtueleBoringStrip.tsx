@@ -89,18 +89,18 @@ export default function VirtueleBoringStrip({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 border-b border-gray-200 bg-white text-xs">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 border-b border-border-subtle bg-surface-card text-xs">
       <button
         onClick={() => setOpen(prev => !prev)}
-        className="flex items-center gap-1.5 text-gray-700 hover:text-gray-900"
+        className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary"
         aria-expanded={open}
         title="Show / hide the DOV Virtuele Boring overlay controls"
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Database size={12} className="text-gray-500" />
+        <Database size={12} className="text-text-muted" />
         <span className="text-[11px] font-medium">DOV virtuele boring</span>
         {overlayActive && !open && (
-          <span className="text-[10px] text-gray-400 ml-1">
+          <span className="text-[10px] text-text-muted ml-1">
             ({[modelA, modelB].filter(Boolean).join(' · ')})
           </span>
         )}
@@ -109,7 +109,7 @@ export default function VirtueleBoringStrip({
       {open && (
         <>
           {open && catalog === null && (
-            <span className="text-[10px] text-gray-400">Loading catalogue…</span>
+            <span className="text-[10px] text-text-muted">Loading catalogue…</span>
           )}
           <ModelSlotDropdown
             label="A"
@@ -123,8 +123,8 @@ export default function VirtueleBoringStrip({
             catalog={catalog}
             onSelect={code => onChangePicker({ modelA, modelB: code, maxDepthM })}
           />
-          <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
-            <span className="text-gray-500">Depth</span>
+          <label className="flex items-center gap-1.5 text-[11px] text-text-secondary">
+            <span className="text-text-muted">Depth</span>
             <input
               type="number"
               min={VIRTUELE_BORING_MAX_DEPTH_MIN_M}
@@ -140,17 +140,18 @@ export default function VirtueleBoringStrip({
                 }
               }}
               placeholder="Full"
-              className="w-16 px-1.5 py-0.5 border border-gray-200 rounded text-[11px] tabular-nums"
+              className="w-16 px-1.5 py-0.5 border border-border-subtle rounded text-[11px] tabular-nums bg-surface-page text-text-primary"
               title="Show layers down to N metres below each investigation's surface. Empty = full DOV column."
             />
-            <span className="text-[10px] text-gray-400">m below surface</span>
+            <span className="text-[10px] text-text-muted">m below surface</span>
           </label>
           {overlayActive && (
-            <label className="flex items-center gap-1 text-[11px] text-gray-700">
+            <label className="flex items-center gap-1 text-[11px] text-text-secondary">
               <input
                 type="checkbox"
                 checked={showOnSection}
                 onChange={e => onChangeShowOnSection(e.target.checked)}
+                className="accent-accent"
               />
               <span>Show on section</span>
             </label>
@@ -173,12 +174,12 @@ function ModelSlotDropdown({
   onSelect: (code: string | null) => void
 }): JSX.Element {
   return (
-    <label className="flex items-center gap-1 text-[11px] text-gray-700">
-      <span className="text-gray-500">Model {label}</span>
+    <label className="flex items-center gap-1 text-[11px] text-text-secondary">
+      <span className="text-text-muted">Model {label}</span>
       <select
         value={selected ?? ''}
         onChange={e => onSelect(e.target.value === '' ? null : e.target.value)}
-        className="px-1.5 py-0.5 border border-gray-200 rounded text-[11px] bg-white max-w-[180px]"
+        className="px-1.5 py-0.5 border border-border-subtle rounded text-[11px] bg-surface-page text-text-primary max-w-[180px]"
         disabled={catalog === null}
         title={selected ?? 'No overlay in this slot'}
       >

@@ -81,19 +81,19 @@ export default function SectionScrubBar({
   }
 
   return (
-    <div className="border-t border-gray-200 bg-gray-50 px-3 py-2 text-[10px] text-gray-500 flex items-center gap-2">
+    <div className="border-t border-border-subtle bg-surface-card px-3 py-2 text-[10px] text-text-muted flex items-center gap-2">
       <span className="tabular-nums w-14 text-right shrink-0">
         {Math.round(Math.max(0, xMin))} m
       </span>
       <div
         ref={trackRef}
         onMouseDown={onTrackClick}
-        className="relative flex-1 h-3 rounded bg-gray-200 cursor-pointer select-none"
+        className="relative flex-1 h-3 rounded bg-border-subtle cursor-pointer select-none"
         title={`Showing ${viewportSpan.toFixed(0)} m of ${sectionLength.toFixed(0)} m`}
       >
         <div
           onMouseDown={startDrag}
-          className="absolute top-0 bottom-0 rounded bg-blue-500/70 hover:bg-blue-500 transition-colors cursor-grab active:cursor-grabbing"
+          className="absolute top-0 bottom-0 rounded bg-accent/70 hover:bg-accent transition-colors cursor-grab active:cursor-grabbing"
           style={{
             left: `${startPct}%`,
             width: `${widthPct}%`,

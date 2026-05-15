@@ -199,22 +199,27 @@ export default function SectionHeader({
     // ``flex-wrap`` so the controls fall onto a second row in narrow
     // windows instead of clipping the close button off the right
     // edge. ``gap-y-1`` keeps the wrapped row hugging the first.
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 border-b border-gray-200 bg-gray-50 text-xs">
+    // Semantic tokens (surface-card, border-subtle, text-*) respond
+    // to the dark class on <html> without additional dark: variants here;
+    // the active / hover states on toggle buttons still use explicit
+    // dark: overrides because the accent hues (blue-600, emerald-600,
+    // purple-600) are fixed domain colour — see docs/ux.md Tier-5.
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 border-b border-border-subtle bg-surface-card text-xs">
       <div className="flex flex-col min-w-0">
         <span
-          className="font-medium text-gray-800 truncate"
+          className="font-medium text-text-primary truncate"
           title={section.name}
         >
           {section.name}
         </span>
-        <span className="text-[10px] text-gray-500">
+        <span className="text-[10px] text-text-muted">
           {lengthM.toFixed(0)} m · buffer ±{section.projection_buffer_m.toFixed(0)} m
         </span>
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
         <span
-          className="text-[10px] text-gray-500"
+          className="text-[10px] text-text-muted"
           title="Lateral distance from the section line within which investigations are projected onto it"
         >
           Buffer
@@ -229,15 +234,15 @@ export default function SectionHeader({
           onMouseUp={() => onBufferCommit?.(localBuffer)}
           onTouchEnd={() => onBufferCommit?.(localBuffer)}
           onKeyUp={() => onBufferCommit?.(localBuffer)}
-          className="w-28 cursor-pointer"
+          className="w-28 cursor-pointer accent-accent"
           aria-label="Projection buffer (m)"
           disabled={onBufferCommit === undefined}
         />
-        <span className="tabular-nums w-12 text-right">±{Math.round(localBuffer)} m</span>
+        <span className="tabular-nums w-12 text-right text-text-secondary">±{Math.round(localBuffer)} m</span>
       </div>
 
       <div className="flex items-center gap-1">
-        <span className="text-[10px] text-gray-500 mr-1" title="CPT data channel toggles">
+        <span className="text-[10px] text-text-muted mr-1" title="CPT data channel toggles">
           Channels
         </span>
         {CHANNEL_BUTTONS.map(({ key, label, title }) => {
@@ -253,7 +258,7 @@ export default function SectionHeader({
                 'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
                 (active
                   ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                  : 'bg-white text-gray-500 border-gray-200 hover:text-gray-800 hover:bg-gray-100')
+                  : 'bg-surface-page text-text-muted border-border-subtle hover:text-text-primary hover:bg-surface-card dark:hover:bg-surface-card')
               }
             >
               {label}
@@ -264,7 +269,7 @@ export default function SectionHeader({
 
       <div className="flex items-center gap-1">
         <span
-          className="text-[10px] text-gray-500 mr-1"
+          className="text-[10px] text-text-muted mr-1"
           title="Borehole interpretation stream toggles — each enabled stream renders as its own strip side by side"
         >
           Bore
@@ -284,7 +289,7 @@ export default function SectionHeader({
                 'px-1.5 py-0.5 text-[10px] tabular-nums rounded border transition-colors ' +
                 (active
                   ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                  : 'bg-white text-gray-500 border-gray-200 hover:text-gray-800 hover:bg-gray-100')
+                  : 'bg-surface-page text-text-muted border-border-subtle hover:text-text-primary hover:bg-surface-card dark:hover:bg-surface-card')
               }
             >
               {label}
@@ -304,7 +309,7 @@ export default function SectionHeader({
           'px-1.5 py-0.5 text-[10px] rounded border transition-colors ' +
           (snapToStratigraphy
             ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
-            : 'bg-white text-gray-500 border-gray-200 hover:text-gray-800 hover:bg-gray-100')
+            : 'bg-surface-page text-text-muted border-border-subtle hover:text-text-primary hover:bg-surface-card dark:hover:bg-surface-card')
         }
       >
         Snap
@@ -312,7 +317,7 @@ export default function SectionHeader({
 
       <div className="flex items-center gap-2">
         <span
-          className="text-[10px] text-gray-500"
+          className="text-[10px] text-text-muted"
           title="Spacing between investigations — at 0% tests render at their true projected X (bands may overlap)"
         >
           Spacing
@@ -327,17 +332,17 @@ export default function SectionHeader({
           onMouseUp={() => onColumnSpacingCommit?.(columnSpacing)}
           onTouchEnd={() => onColumnSpacingCommit?.(columnSpacing)}
           onKeyUp={() => onColumnSpacingCommit?.(columnSpacing)}
-          className="w-24 cursor-pointer"
+          className="w-24 cursor-pointer accent-accent"
           aria-label="Column spacing"
           disabled={onColumnSpacingCommit === undefined}
         />
-        <span className="tabular-nums w-10 text-right">
+        <span className="tabular-nums w-10 text-right text-text-secondary">
           {Math.round(columnSpacing * 100)}%
         </span>
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-gray-500">V exag</span>
+        <span className="text-[10px] text-text-muted">V exag</span>
         <input
           type="range"
           min={0}
@@ -347,21 +352,21 @@ export default function SectionHeader({
           onMouseUp={() => onVexCommit?.(vex)}
           onTouchEnd={() => onVexCommit?.(vex)}
           onKeyUp={() => onVexCommit?.(vex)}
-          className="w-32 cursor-pointer"
+          className="w-32 cursor-pointer accent-accent"
           aria-label="Vertical exaggeration"
         />
-        <span className="tabular-nums w-12 text-right">{vex.toFixed(1)}×</span>
+        <span className="tabular-nums w-12 text-right text-text-secondary">{vex.toFixed(1)}×</span>
       </div>
 
-      <div className="flex flex-col items-end text-[10px] text-gray-500 tabular-nums">
+      <div className="flex flex-col items-end text-[10px] text-text-muted tabular-nums">
         <span>H: {scaleH.toFixed(2)} px/m</span>
         <span>V: {scaleV.toFixed(2)} px/m</span>
       </div>
 
-      <div className="flex items-center rounded border border-gray-200 overflow-hidden">
+      <div className="flex items-center rounded border border-border-subtle overflow-hidden">
         <button
           onClick={onZoomOut}
-          className="flex items-center justify-center w-7 h-7 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors border-r border-gray-200"
+          className="flex items-center justify-center w-7 h-7 text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors border-r border-border-subtle"
           title="Zoom out (or scroll the canvas)"
           aria-label="Zoom out"
         >
@@ -369,7 +374,7 @@ export default function SectionHeader({
         </button>
         <button
           onClick={onZoomIn}
-          className="flex items-center justify-center w-7 h-7 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors"
+          className="flex items-center justify-center w-7 h-7 text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors"
           title="Zoom in (or scroll the canvas)"
           aria-label="Zoom in"
         >
@@ -379,7 +384,7 @@ export default function SectionHeader({
 
       <button
         onClick={onReset}
-        className="flex items-center gap-1 px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors"
+        className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors"
         title="Reset view to default framing"
       >
         <RotateCcw size={11} />
@@ -390,7 +395,7 @@ export default function SectionHeader({
         <button
           onClick={() => void handleAutoPopulate()}
           disabled={autoPopulating}
-          className="flex items-center gap-1 px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Seed contacts on this section's boreholes from their formal stratigraphy (informal as fallback). Idempotent — re-running is a no-op."
           aria-label="Auto-populate contacts from stratigraphy"
           data-testid="auto-populate-stratigraphy-button"
@@ -404,7 +409,7 @@ export default function SectionHeader({
         <button
           onClick={() => void handleExport()}
           disabled={exporting}
-          className="flex items-center gap-1 px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-white hover:text-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Export the active model's layer geometry on this section to DXF (AutoCAD / Plaxis / D-Sheet)"
           aria-label="Export DXF"
         >
@@ -420,7 +425,7 @@ export default function SectionHeader({
           // whichever wrapped row it lands on so it stays reachable
           // even when the header overflows into two rows in narrow
           // windows.
-          className="ml-auto shrink-0 flex items-center justify-center w-7 h-7 rounded border border-gray-200 text-gray-500 hover:bg-white hover:text-gray-800 transition-colors"
+          className="ml-auto shrink-0 flex items-center justify-center w-7 h-7 rounded border border-border-subtle text-text-muted hover:bg-surface-page hover:text-text-primary transition-colors"
           title="Close section view (back to map)"
           aria-label="Close section view"
         >
