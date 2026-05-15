@@ -155,6 +155,41 @@ class FormationContactResponse(BaseModel):
     updated_at: datetime
 
 
+class DiscoverFromStratigraphyRequest(BaseModel):
+    """Body of ``POST .../contacts/discover-from-stratigraphy``.
+
+    Same validation shape as :class:`AutoPopulateFromStratigraphyRequest`:
+    1..500 borehole ids. The endpoint is read-only — it runs the same scan
+    but commits nothing.
+    """
+
+    borehole_ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
+class FormationCandidateItem(BaseModel):
+    """One candidate formation name returned by the discover endpoint.
+
+    The ``name`` matches the working name the auto-populate use case would
+    assign (informal description preferred; formal as fallback). The
+    ``borehole_count`` lets the dialog sort by prevalence and show
+    ``"found in N borehole(s)"`` secondary text.
+    """
+
+    name: str
+    borehole_count: int
+
+
+class DiscoverFromStratigraphyResponse(BaseModel):
+    """Body returned by ``POST .../contacts/discover-from-stratigraphy``.
+
+    Contains the full candidate list sorted by ``borehole_count`` descending
+    then ``name`` ascending. Empty list when no borehole in scope carries
+    stratigraphy data.
+    """
+
+    candidates: list[FormationCandidateItem]
+
+
 class AutoPopulateFromStratigraphyRequest(BaseModel):
     """Body of ``POST /projects/{pid}/geology/models/{mid}/contacts/auto-populate``.
 
