@@ -10,7 +10,7 @@
 // StageDescriptor.ToolbarComponent contract).
 
 import { useState } from 'react'
-import { FilePlus2, Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser } from 'lucide-react'
+import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 
@@ -159,10 +159,13 @@ export default function SectionsToolbar(): JSX.Element {
 
   return (
     <div className="flex items-center gap-1">
-      {/* New cross-section */}
-      <ToolbarButton
-        icon={<FilePlus2 size={13} />}
-        label={creating ? 'Creating…' : 'New'}
+      {/* New cross-section — primary entry action, visually distinct from
+          the secondary verbs so first-time users can find it immediately.
+          Accent-filled button separates it from the grey text-only verbs
+          that follow. */}
+      <PrimaryToolbarButton
+        icon={<Plus size={13} />}
+        label={creating ? 'Creating…' : 'New cross-section'}
         onClick={handleNew}
         disabled={!canCreate || creating}
         title={
@@ -173,6 +176,10 @@ export default function SectionsToolbar(): JSX.Element {
               : 'Create a new cross-section (placeholder endpoints)'
         }
       />
+
+      {/* Separator — visually groups the entry action from the
+          section-scoped destructive verb */}
+      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
 
       {/* Delete section — only active when one is selected */}
       <ToolbarButton
@@ -284,6 +291,68 @@ export default function SectionsToolbar(): JSX.Element {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+interface PrimaryToolbarButtonProps {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  title?: string
+}
+
+/**
+ * Accent-filled toolbar button for the primary entry action (New cross-section).
+ *
+ * Visually separated from the secondary ``ToolbarButton`` verbs so new users
+ * can identify the entry action at a glance. Uses the semantic accent colour
+ * (blue-600 / dark: blue-400 via CSS vars) rather than a hard-coded hex so
+ * both themes work correctly.
+ *
+ * Parameters
+ * ----------
+ * icon
+ *     Lucide icon element (13 px).
+ * label
+ *     Short text label rendered next to the icon.
+ * onClick
+ *     Action handler.
+ * disabled
+ *     When true, the button is non-interactive and dimmed.
+ * title
+ *     Tooltip text (full action description).
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The accent-filled button element.
+ */
+function PrimaryToolbarButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  title,
+}: PrimaryToolbarButtonProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className={[
+        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        disabled
+          ? 'bg-accent/40 text-text-on-accent cursor-not-allowed'
+          : 'bg-accent text-text-on-accent hover:bg-accent-muted',
+      ].join(' ')}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
 
 interface ToolbarButtonProps {
   icon: React.ReactNode

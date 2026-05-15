@@ -11,11 +11,17 @@
 // renders in "section selection" mode: drawSectionMode wires the line-draw
 // interaction, and onSelectSection highlights an existing section.
 //
+// The no-section fallback overlays a call-to-action card that surfaces the
+// "New cross-section" entry action directly on the canvas, removing the need
+// to hunt for the toolbar button.  The card's pointer-events are isolated
+// (pointer-events-none on the wrapper, pointer-events-auto on the card) so
+// the map's draw / click / pan / zoom interactions work through the overlay.
+//
 // The wrapped SectionPanel receives zero internal changes — all its props are
 // wired from the bus.  The component never gains a direct prop; it reads from
 // useShell() and delegates.
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
@@ -64,6 +70,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleSectionLineDrawn,
       cancelSectionDraw,
       handleSelectSection,
+      handleCreateSection,
     },
     overlays: {
       virtueleBoringSectionModels,
@@ -100,6 +107,29 @@ export default function SectionsCanvas(): JSX.Element {
       handleBboxDrawn,
     },
   } = useShell()
+
+  // CTA card dismiss state — the overlay disappears once the user has
+  // started drawing or explicitly clicked "New cross-section" on the
+  // card itself. Resets when the canvas mounts (i.e. the user navigates
+  // to the Sections stage) so new users always see the prompt.
+  const [ctaDismissed, setCtaDismissed] = useState(false)
+
+  // Project needs a horizontal EPSG to create sections — same gate
+  // as the toolbar's PrimaryToolbarButton.
+  const canCreate = (project.default_horizontal_epsg ?? null) !== null
+  const [ctaCreating, setCtaCreating] = useState(false)
+
+  async function handleCtaNew(): Promise<void> {
+    if (!canCreate || ctaCreating) return
+    setCtaDismissed(true)
+    setCtaCreating(true)
+    try {
+      const created = await handleCreateSection()
+      if (created) handleSelectSection(created.id)
+    } finally {
+      setCtaCreating(false)
+    }
+  }
 
   // Resolve the currently-selected section object from the id + list.
   // Mirrors the ``selectedSection`` memo in App.tsx at 3322e04^.
@@ -162,38 +192,96 @@ export default function SectionsCanvas(): JSX.Element {
   // No section selected — show the map so the user can draw a new line
   // or click an existing section marker.  Bbox-draw props are threaded
   // through so DOV imports also work from the Sections stage.
+  //
+  // The CTA card overlays the map and is dismissed once a section exists
+  // or the user explicitly clicks "New cross-section" on it. The wrapper
+  // div is pointer-events-none so the map remains fully interactive; only
+  // the card itself receives pointer events (pointer-events-auto).
   const drawingBbox = bboxImportType !== null
+  const showCta = !ctaDismissed && sections.length === 0 && !drawingSection && !drawingBbox
 
   return (
-    <MapView
-      cpts={visibleCpts}
-      boreholes={visibleBoreholes}
-      selectedCptId={selectedId}
-      selectedBoreholeId={selectedBoreholeId}
-      onSelectCpt={handleSelect}
-      onSelectBorehole={handleSelectBorehole}
-      hiddenCptTypes={hiddenCptTypes}
-      hiddenBoreholeValues={hiddenBoreholeValues}
-      boreholeAxis={boreholeAxis}
-      onToggleCptType={handleToggleCptType}
-      onToggleBoreholeValue={handleToggleBoreholeValue}
-      onChangeBoreholeAxis={setBoreholeAxis}
-      drawMode={drawingBbox}
-      onBboxDrawn={handleBboxDrawn}
-      onCancelDraw={cancelBboxDraw}
-      onViewportChange={handleViewportChange}
-      demSource={demSource}
-      demOverlay={demOverlay}
-      onDemOverlayChange={handleDemOverlayChange}
-      drawSectionMode={drawingSection}
-      onSectionLineDrawn={handleSectionLineDrawn}
-      onCancelSectionDraw={cancelSectionDraw}
-      sections={sections}
-      selectedSectionId={selectedSectionId}
-      onSelectSection={handleSelectSection}
-      initialCenter={mapCameraRef.current?.center}
-      initialZoom={mapCameraRef.current?.zoom}
-      onCameraChange={handleMapCameraChange}
-    />
+    <div className="relative h-full w-full">
+      <MapView
+        cpts={visibleCpts}
+        boreholes={visibleBoreholes}
+        selectedCptId={selectedId}
+        selectedBoreholeId={selectedBoreholeId}
+        onSelectCpt={handleSelect}
+        onSelectBorehole={handleSelectBorehole}
+        hiddenCptTypes={hiddenCptTypes}
+        hiddenBoreholeValues={hiddenBoreholeValues}
+        boreholeAxis={boreholeAxis}
+        onToggleCptType={handleToggleCptType}
+        onToggleBoreholeValue={handleToggleBoreholeValue}
+        onChangeBoreholeAxis={setBoreholeAxis}
+        drawMode={drawingBbox}
+        onBboxDrawn={handleBboxDrawn}
+        onCancelDraw={cancelBboxDraw}
+        onViewportChange={handleViewportChange}
+        demSource={demSource}
+        demOverlay={demOverlay}
+        onDemOverlayChange={handleDemOverlayChange}
+        drawSectionMode={drawingSection}
+        onSectionLineDrawn={handleSectionLineDrawn}
+        onCancelSectionDraw={cancelSectionDraw}
+        sections={sections}
+        selectedSectionId={selectedSectionId}
+        onSelectSection={handleSelectSection}
+        initialCenter={mapCameraRef.current?.center}
+        initialZoom={mapCameraRef.current?.zoom}
+        onCameraChange={handleMapCameraChange}
+      />
+
+      {/* Empty-state CTA — pointer-events-none on the wrapper keeps
+          the map interactive; pointer-events-auto on the card itself
+          lets the user click "New cross-section" without fighting the
+          map's pan/zoom handlers. Hides automatically once a section
+          exists or once the user draws / imports. */}
+      {showCta && (
+        <div className="absolute inset-0 flex items-end justify-center pb-12 pointer-events-none z-[500]">
+          <div
+            className="pointer-events-auto bg-surface-overlay border border-border-default rounded-lg shadow-lg px-5 py-4 max-w-sm text-center"
+          >
+            <p className="text-sm font-medium text-text-primary mb-1">
+              No cross-sections yet
+            </p>
+            <p className="text-xs text-text-secondary mb-3">
+              Draw a line on the map to define a section, or create one with placeholder endpoints to start.
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCtaNew()}
+                disabled={!canCreate || ctaCreating}
+                className={[
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                  !canCreate || ctaCreating
+                    ? 'bg-accent/40 text-text-on-accent cursor-not-allowed'
+                    : 'bg-accent text-text-on-accent hover:bg-accent-muted',
+                ].join(' ')}
+                title={
+                  !canCreate
+                    ? 'Set a Default horizontal CRS in Project metadata to create sections'
+                    : ctaCreating
+                      ? 'Creating…'
+                      : 'Create a new cross-section with placeholder endpoints'
+                }
+              >
+                + New cross-section
+              </button>
+              <button
+                type="button"
+                onClick={() => setCtaDismissed(true)}
+                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
