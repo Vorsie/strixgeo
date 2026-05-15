@@ -47,6 +47,7 @@ import type { FormationCandidate } from '../../../hooks/useGeologicalModel'
 export default function GeologyToolbar(): JSX.Element {
   const {
     visibleBoreholes,
+    toasts: { toast },
     geoModel: {
       activeGeologicalModel,
       formations,
@@ -91,8 +92,10 @@ export default function GeologyToolbar(): JSX.Element {
     try {
       const result = await discoverBoreholeFormations(boreholeIds)
       if (result.length === 0) {
-        // No stratigraphy data — the bus action already logs an error; no
-        // dialog to open with an empty list. A toast lives in the bus.
+        // No stratigraphy data — opening an empty dialog would be a silent
+        // dead end on the stage's primary entry action (§10.4). Surface the
+        // reason explicitly. ('error' is the only non-success toast type.)
+        toast('error', 'No boreholes carry stratigraphy data.')
         return
       }
       setCandidates(result)
