@@ -32,6 +32,7 @@ export default function SectionsToolbar(): JSX.Element {
     sections: {
       selectedSectionId,
       sections,
+      handleSelectSection,
       handleCreateSection,
       handleDeleteSection,
     },
@@ -55,6 +56,7 @@ export default function SectionsToolbar(): JSX.Element {
   const [populating, setPopulating] = useState(false)
   const [deduping, setDeduping] = useState(false)
   const [exportingPlaxis, setExportingPlaxis] = useState(false)
+  const [exportingDxf, setExportingDxf] = useState(false)
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
@@ -65,7 +67,11 @@ export default function SectionsToolbar(): JSX.Element {
     if (!canCreate || creating) return
     setCreating(true)
     try {
-      await handleCreateSection()
+      const created = await handleCreateSection()
+      // Auto-select so the canvas immediately opens the new section,
+      // matching the inspector's SectionList.handleCreate behaviour
+      // (both affordances trigger the same action — keep them consistent).
+      if (created) handleSelectSection(created.id)
     } finally {
       setCreating(false)
     }
@@ -86,13 +92,18 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   async function handleExportDxf(): Promise<void> {
-    if (!selectedSection || !activeGeologicalModel) return
-    await handleExportSectionDxf(
-      project.id,
-      selectedSection.id,
-      selectedSection.name,
-      activeGeologicalModel.id,
-    )
+    if (!selectedSection || !activeGeologicalModel || exportingDxf) return
+    setExportingDxf(true)
+    try {
+      await handleExportSectionDxf(
+        project.id,
+        selectedSection.id,
+        selectedSection.name,
+        activeGeologicalModel.id,
+      )
+    } finally {
+      setExportingDxf(false)
+    }
   }
 
   async function handleExportPlaxis(): Promise<void> {
@@ -106,7 +117,9 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   async function handleBuild(): Promise<void> {
-    if (rebuilding) return
+    // Guard on model presence too — the Build button is always rendered
+    // but is meaningless without an active geological model.
+    if (rebuilding || !activeGeologicalModel) return
     setRebuilding(true)
     try {
       await handleRebuildSurfaces()
@@ -183,15 +196,17 @@ export default function SectionsToolbar(): JSX.Element {
       {/* Export DXF — requires a section + active model */}
       <ToolbarButton
         icon={<FileOutput size={13} />}
-        label="Export DXF"
+        label={exportingDxf ? 'Exporting…' : 'Export DXF'}
         onClick={handleExportDxf}
-        disabled={!hasSection || !hasModel}
+        disabled={!hasSection || !hasModel || exportingDxf}
         title={
           !hasSection
             ? 'Select a section to export'
             : !hasModel
               ? 'No active geological model — contacts must exist first'
-              : 'Export this section as DXF'
+              : exportingDxf
+                ? 'Exporting…'
+                : 'Export this section as DXF'
         }
       />
 
@@ -218,10 +233,12 @@ export default function SectionsToolbar(): JSX.Element {
         icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
         label={rebuilding ? 'Building…' : staleLabel}
         onClick={handleBuild}
-        disabled={rebuilding}
+        disabled={rebuilding || !hasModel}
         amber={staleSurfaceCount > 0 && !rebuilding}
         title={
-          rebuilding
+          !hasModel
+            ? 'No active geological model — create formations and contacts first'
+            : rebuilding
             ? 'Building surfaces…'
             : staleSurfaceCount > 0
               ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`

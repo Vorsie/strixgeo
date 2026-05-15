@@ -509,6 +509,29 @@ usable (Ic curve/labels legible again in both themes).
 raw-curve detail chart into the parameter view there; the raw
 CptChart then shows only measured curves.
 
+## 23. Stage toolbars clip silently at narrow window widths (low — Tier E)
+
+**What.** `StageToolbar`'s left zone is `flex items-center flex-1
+overflow-hidden`. The SectionsToolbar carries ~7 verb buttons (New /
+Delete / Export DXF / Plaxis 3D / Build / Auto-populate / Dedupe);
+DataToolbar and future stage toolbars are similar. Below roughly
+900px window width the rightmost buttons are clipped with no scroll
+and no overflow indicator — the same failure class as the original
+debt #14 InterpretationPane action overflow that triggered the whole
+shell rework.
+
+**Why deferred.** At the Phase-4 target desktop widths (1280px+) all
+verbs fit comfortably; the clip only triggers on a deliberately
+narrow / split-screen Electron window. Fixing it well (a responsive
+overflow-into-a-"More ▾"-menu, or horizontal scroll affordance, or a
+`min-w-0` label-shrink budget) is its own focused piece, not worth
+pre-building before a user actually hits it.
+
+**When to revisit.** First time a real user reports clipped toolbar
+buttons on a narrow window, OR when a stage toolbar gains enough
+verbs that it overflows at typical widths. The fix shape is known
+(overflow menu); the trigger is a real width complaint.
+
 ---
 
 ## Historical note — 2026-05-13 security-reviewer audit pass

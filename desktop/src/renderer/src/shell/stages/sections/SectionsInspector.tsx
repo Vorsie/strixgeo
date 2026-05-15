@@ -54,6 +54,7 @@ export default function SectionsInspector(): JSX.Element {
       handleCreateSection,
       handleDeleteSection,
       handlePatchSelectedSection,
+      handleFocusContacts,
     },
     geoModel: {
       activeGeologicalModel,
@@ -81,8 +82,11 @@ export default function SectionsInspector(): JSX.Element {
   // pattern isn't available. Instead, expose a local empty set as a
   // graceful degradation: the amber asterisk for sections is a nice-to-have
   // in the inspector, but the section list in Sidebar.tsx still drives the
-  // session-imports state correctly.  This can be wired when
-  // UseSectionsResult exposes sessionImportSectionIds.
+  // session-imports state correctly.
+  // TODO(S7): when Sidebar.tsx's section list is retired and this inspector
+  // becomes the sole section-list path, expose sessionImportSectionIds from
+  // UseSectionsResult and wire it here so the unsaved-section amber marker
+  // reaches parity. Tracked in docs/debt.md.
   const sessionImportSectionIds = useMemo(() => new Set<string>(), [])
 
   const selectedSection = useMemo(
@@ -130,10 +134,7 @@ export default function SectionsInspector(): JSX.Element {
           badge={staleSurfaceCount > 0 ? `${staleSurfaceCount} stale` : undefined}
           badgeAmber={staleSurfaceCount > 0}
         >
-          <FormationList
-            formations={formations}
-            staleSurfaceCount={staleSurfaceCount}
-          />
+          <FormationList formations={formations} />
         </InspectorSection>
       )}
 
@@ -146,6 +147,7 @@ export default function SectionsInspector(): JSX.Element {
           modelId={activeGeologicalModel.id}
           refreshSignal={crossingsRefreshCounter}
           staleSurfaceCount={staleSurfaceCount}
+          onFocusContacts={handleFocusContacts}
         />
       )}
 
@@ -490,7 +492,13 @@ function SectionProperties({
   useEffect(() => {
     setBufferM(section.projection_buffer_m)
     setVex(section.vertical_exaggeration)
-  }, [section.id, section.projection_buffer_m, section.vertical_exaggeration])
+    // reason: reset local slider state only when the SELECTED SECTION
+    // changes, not when the server echoes the same section back after a
+    // PATCH. Depending on projection_buffer_m / vertical_exaggeration
+    // would re-run this on every onMouseUp→PATCH round-trip and make the
+    // slider flicker back to the last-committed value mid-drag-release.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.id])
 
   const dx = section.end_x - section.start_x
   const dy = section.end_y - section.start_y
@@ -560,7 +568,6 @@ interface FormationListProps {
     color: string
     display_order: number
   }>
-  staleSurfaceCount: number
 }
 
 /**
@@ -577,9 +584,8 @@ interface FormationListProps {
  * ----------
  * formations
  *     The formations to render (from ``useShell().geoModel.formations``).
- * staleSurfaceCount
- *     Number of stale surfaces in the active model — used for the header
- *     badge only; not per-formation.
+ *     Per-formation staleness is not on the list item — the header badge
+ *     (rendered by the caller) carries the stale count.
  *
  * Returns
  * -------
@@ -625,6 +631,9 @@ interface CrossingsBannerProps {
   modelId: string
   refreshSignal: number
   staleSurfaceCount: number
+  /** Highlight the offending contacts in the section view when a crossing
+   *  row is clicked (debt #9 flow — same contract as InterpretationPane). */
+  onFocusContacts: (contactIds: readonly string[]) => void
 }
 
 /**
@@ -655,6 +664,7 @@ function CrossingsBanner({
   modelId,
   refreshSignal,
   staleSurfaceCount,
+  onFocusContacts,
 }: CrossingsBannerProps): JSX.Element | null {
   const [issues, setIssues] = useState<GapIssueResponse[]>([])
 
@@ -680,7 +690,11 @@ function CrossingsBanner({
   return (
     <div className="px-3 py-2 border-b border-border-subtle">
       <div
-        className="rounded border border-status-amber/40 bg-status-amber/10 px-2 py-1.5 text-[11px] text-status-amber"
+        // S5 review: light-mode amber-on-amber-tint failed WCAG AA at
+        // 11px (~3:1). Body text uses text-primary in light (high
+        // contrast on the amber tint) and the amber token only in dark
+        // (passes ~6:1). The amber border + tint still signal "warning".
+        className="rounded border border-status-amber/40 bg-status-amber/10 px-2 py-1.5 text-[11px] text-text-primary dark:text-status-amber"
         role="alert"
         aria-label="Surface crossing warnings"
       >
@@ -696,11 +710,28 @@ function CrossingsBanner({
           </span>
         </div>
         <ul className="mt-1 ml-5 list-disc space-y-0.5">
-          {issues.map((issue, idx) => (
-            <li key={`${issue.formation_ids.join('-')}-${idx}`}>
-              {issue.detail}
-            </li>
-          ))}
+          {issues.map((issue, idx) => {
+            // Click a row to highlight the offending contacts in the
+            // section view (debt #9). Rows with no contact_ids stay
+            // inert text — same canFocus guard as InterpretationPane.
+            const canFocus = issue.contact_ids.length > 0
+            return (
+              <li key={`${issue.formation_ids.join('-')}-${idx}`}>
+                {canFocus ? (
+                  <button
+                    type="button"
+                    className="w-full cursor-pointer rounded px-1 py-0.5 text-left hover:bg-status-amber/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
+                    onClick={() => onFocusContacts(issue.contact_ids)}
+                    title="Highlight the offending contacts in the section view"
+                  >
+                    {issue.detail}
+                  </button>
+                ) : (
+                  issue.detail
+                )}
+              </li>
+            )
+          })}
         </ul>
       </div>
     </div>
