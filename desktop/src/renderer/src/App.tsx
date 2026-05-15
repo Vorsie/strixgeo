@@ -5,28 +5,19 @@ import { useMapOverlays } from './hooks/useMapOverlays'
 import { useGeologicalModel } from './hooks/useGeologicalModel'
 import type { ContactCopyPayload } from './hooks/useGeologicalModel'
 import { useSections } from './hooks/useSections'
+import { useInvestigationData } from './hooks/useInvestigationData'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import L from 'leaflet'
-import {
-  api,
-  DuplicateCptError,
-} from './api/client'
-import type {
-  BoreholeAxis,
-  BoreholeDetailResponse,
-  BoreholeListItem,
-  CptListItem,
-  CptPlotResponse,
-  CptResponse,
-} from './api/client'
+import { api } from './api/client'
+import type { BoreholeAxis } from './api/client'
 import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
 import { usePersistedSet } from './hooks/usePersistedSet'
 import { useTheme } from './hooks/useTheme'
+import { addAllToSet } from './utils/sets'
 import { isTypingTarget } from './utils/keyboard'
 import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
-import { addAllToSet } from './utils/sets'
 import Toolbar from './components/Toolbar'
 import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
@@ -85,11 +76,6 @@ declare global {
 }
 
 type View = 'map' | 'chart'
-
-// The bbox-draw flow can be triggered for either CPT or borehole imports.
-// `null` means the user isn't in draw mode; the value tells `handleBboxDrawn`
-// which API to call when the rectangle is committed.
-type BboxImportType = 'cpt' | 'borehole' | null
 
 export default function App() {
   const {
@@ -215,22 +201,15 @@ export default function App() {
     }
   }, [doUndo, doRedo])
 
-  const [cpts, setCpts] = useState<CptListItem[]>([])
+  // CPT and borehole selection + view tab — these are cross-cutting
+  // coordinator state. Both useInvestigationData and useSections need to
+  // read / write selection; keeping them in App avoids a circular hook
+  // dependency. ``view`` is also App-level since import handlers need to
+  // navigate to the chart tab.
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [detailMap, setDetailMap] = useState<Map<string, CptResponse>>(new Map())
-  const [plotMap, setPlotMap] = useState<Map<string, CptPlotResponse>>(new Map())
-  // Borehole-side state: list (for sidebar + map) + selected id + lazy detail
-  // cache. Mutually exclusive with `selectedId` — selecting one clears the
-  // other so only one detail panel is shown at a time.
-  const [boreholes, setBoreholes] = useState<BoreholeListItem[]>([])
   const [selectedBoreholeId, setSelectedBoreholeId] = useState<string | null>(null)
-  const [boreholeDetailMap, setBoreholeDetailMap] = useState<
-    Map<string, BoreholeDetailResponse>
-  >(new Map())
   const [view, setView] = useState<View>('map')
-  const [importing, setImporting] = useState(false)
-  const [bboxImportType, setBboxImportType] = useState<BboxImportType>(null)
-  const [dovImporting, setDovImporting] = useState(false)
+
   // Layer-visibility state — lifted from MapView so the Sidebar can also
   // grey out + reorder hidden items. We track HIDDEN values (not visible
   // ones) so an empty set means "show everything", which avoids the
@@ -291,56 +270,6 @@ export default function App() {
     [boreholeAxis],
   )
 
-  // Three id-keyed sets coordinate the project-scoped row visibility:
-  //
-  //   1. ``removedCptIds`` / ``removedBoreholeIds`` — project-local
-  //      hide, derived from server-side investigation_review rows where
-  //      ``is_hidden=true``. Bundle-persisted (rides in the .gmproj on
-  //      save, restored on open), so hiding a CPT on PC A shows up
-  //      hidden when PC B opens the same .gmproj. Locally maintained
-  //      as a state Set for optimistic UX; the server is the source of
-  //      truth and the load-on-project-change effect re-seeds it.
-  //   2. ``sessionImportCptIds`` / ``sessionImportBoreholeIds`` — rows
-  //      added since the last File → Save. Persisted to localStorage.
-  //      Drives the project-level dirty signal. Cleared by saveProject.
-  //   3. ``selectedForRemoval`` (in Sidebar) — multi-select for the
-  //      bulk-remove action. Ephemeral, reset on tab switch.
-  const [removedCptIds, setRemovedCptIds] = useState<Set<string>>(new Set())
-  const [removedBoreholeIds, setRemovedBoreholeIds] = useState<Set<string>>(new Set())
-
-  // Reload the removed-sets from the server whenever the project
-  // changes. The .gmproj-restore path will have pushed the saved
-  // is_hidden state into the DB before this fires; the GET picks up
-  // exactly what should be hidden in this session. Empty fallback on
-  // failure so the user sees ALL rows rather than nothing.
-  useEffect(() => {
-    if (!project) {
-      setRemovedCptIds(new Set())
-      setRemovedBoreholeIds(new Set())
-      return
-    }
-    let cancelled = false
-    api.review
-      .list(project.id)
-      .then(reviews => {
-        if (cancelled) return
-        const cptHidden = new Set<string>()
-        const bhHidden = new Set<string>()
-        for (const r of reviews) {
-          if (!r.is_hidden) continue
-          if (r.target_kind === 'cpt') cptHidden.add(r.target_id)
-          else if (r.target_kind === 'borehole') bhHidden.add(r.target_id)
-        }
-        setRemovedCptIds(cptHidden)
-        setRemovedBoreholeIds(bhHidden)
-      })
-      .catch(err => {
-        log.warn('reviews', `load failed for project ${project.id}`, err)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [project])
 
   // Session imports — records added since the last File → Save. Drives
   // the per-row amber asterisks in the sidebar AND the project-level
@@ -430,6 +359,54 @@ export default function App() {
     addToSessionImports,
   })
 
+  // CPT + borehole data, import flows, hide/restore, elevation edits.
+  // Selection state (selectedId/selectedBoreholeId) and view tab are
+  // owned by App (declared above) and injected so this hook avoids a
+  // circular dep with useSections, which also needs those setters.
+  const {
+    cpts,
+    detailMap,
+    plotMap,
+    boreholes,
+    boreholeDetailMap,
+    importing,
+    bboxImportType,
+    dovImporting,
+    removedCptIds,
+    removedBoreholeIds,
+    refreshList,
+    refreshBoreholeList,
+    loadCptDetail,
+    loadChart,
+    loadBoreholeDetail,
+    cancelBboxDraw,
+    unhideCpts,
+    unhideBoreholes,
+    handleRemoveCpts,
+    handleRemoveBoreholes,
+    handleRestoreAllCpts,
+    handleRestoreAllBoreholes,
+    handlePatchCptElevation,
+    handlePatchBoreholeElevation,
+    handleImportCpt,
+    handleImportDov,
+    handleImportBoreholeDov,
+    handleBboxDrawn,
+  } = useInvestigationData({
+    project,
+    ready,
+    toast,
+    pushUndo,
+    addToManifest,
+    setSessionImportCptIds,
+    setSessionImportBoreholeIds,
+    selectedId,
+    setSelectedId,
+    selectedBoreholeId,
+    setSelectedBoreholeId,
+    setView,
+  })
+
   // Cross-section state and handlers — sections list, selection, draw
   // mode, focused-contact highlight, and all CRUD. The lifecycle
   // callbacks (handleSectionCreated / handleSectionDeleted) are
@@ -454,6 +431,7 @@ export default function App() {
     handleFocusContacts,
   } = useSections({
     project,
+    ready,
     toast,
     pushUndo,
     manifestSectionIds,
@@ -466,6 +444,35 @@ export default function App() {
     setSelectedId,
     setSelectedBoreholeId,
   })
+
+  // App-level selection wrappers. These live in App (not inside
+  // useInvestigationData) because they orchestrate across two hooks:
+  // they need ``clearSectionSelection`` from ``useSections`` AND they
+  // need ``loadCptDetail`` / ``loadChart`` / ``loadBoreholeDetail``
+  // from ``useInvestigationData``. Putting them in either hook would
+  // create a circular dependency.
+  const handleSelect = useCallback(
+    async (id: string): Promise<void> => {
+      setSelectedId(id)
+      setSelectedBoreholeId(null)
+      clearSectionSelection()
+      await loadCptDetail(id)
+      await loadChart(id)
+      setView('chart')
+    },
+    [setSelectedId, setSelectedBoreholeId, clearSectionSelection, loadCptDetail, loadChart, setView],
+  )
+
+  const handleSelectBorehole = useCallback(
+    async (id: string): Promise<void> => {
+      setSelectedBoreholeId(id)
+      setSelectedId(null)
+      clearSectionSelection()
+      await loadBoreholeDetail(id)
+      setView('chart')
+    },
+    [setSelectedBoreholeId, setSelectedId, clearSectionSelection, loadBoreholeDetail, setView],
+  )
 
   // Combined "is anything unsaved?" flag. Drives the sidebar / window-
   // title asterisks, the close-attempt branching, and the File → Save
@@ -666,296 +673,7 @@ export default function App() {
     [visibleBoreholes, viewportBounds],
   )
 
-  const handleRemoveCpts = useCallback(
-    (ids: string[]) => {
-      if (ids.length === 0 || !project) return
-      // Optimistic local update — server upserts fire in parallel and
-      // failures are logged but don't roll back the UI (the user can
-      // re-hide if needed; the saved-state is what matters and that
-      // gets reconciled on next project load).
-      setRemovedCptIds(prev => {
-        const next = new Set(prev)
-        for (const id of ids) next.add(id)
-        return next
-      })
-      if (selectedId && ids.includes(selectedId)) {
-        setSelectedId(null)
-        setView('map')
-      }
-      void Promise.allSettled(
-        ids.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: true })),
-      ).then(results => {
-        const failed = results.filter(r => r.status === 'rejected').length
-        if (failed > 0) {
-          log.warn('reviews', `${failed}/${ids.length} hide-CPT upserts failed`)
-        }
-      })
-    },
-    [project, selectedId],
-  )
 
-  const handleRemoveBoreholes = useCallback(
-    (ids: string[]) => {
-      if (ids.length === 0 || !project) return
-      setRemovedBoreholeIds(prev => {
-        const next = new Set(prev)
-        for (const id of ids) next.add(id)
-        return next
-      })
-      if (selectedBoreholeId && ids.includes(selectedBoreholeId)) {
-        setSelectedBoreholeId(null)
-        setView('map')
-      }
-      void Promise.allSettled(
-        ids.map(id =>
-          api.review.upsert(project.id, 'borehole', id, { is_hidden: true }),
-        ),
-      ).then(results => {
-        const failed = results.filter(r => r.status === 'rejected').length
-        if (failed > 0) {
-          log.warn('reviews', `${failed}/${ids.length} hide-borehole upserts failed`)
-        }
-      })
-    },
-    [project, selectedBoreholeId],
-  )
-
-  const handleRestoreAllCpts = useCallback(() => {
-    if (!project) return
-    const ids = Array.from(removedCptIds)
-    setRemovedCptIds(new Set())
-    void Promise.allSettled(
-      ids.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: false })),
-    ).then(results => {
-      const failed = results.filter(r => r.status === 'rejected').length
-      if (failed > 0) {
-        log.warn('reviews', `${failed}/${ids.length} restore-CPT upserts failed`)
-      }
-    })
-  }, [project, removedCptIds])
-
-  const handleRestoreAllBoreholes = useCallback(() => {
-    if (!project) return
-    const ids = Array.from(removedBoreholeIds)
-    setRemovedBoreholeIds(new Set())
-    void Promise.allSettled(
-      ids.map(id =>
-        api.review.upsert(project.id, 'borehole', id, { is_hidden: false }),
-      ),
-    ).then(results => {
-      const failed = results.filter(r => r.status === 'rejected').length
-      if (failed > 0) {
-        log.warn('reviews', `${failed}/${ids.length} restore-borehole upserts failed`)
-      }
-    })
-  }, [project, removedBoreholeIds])
-
-  // Phase 3a — manual surface-elevation edit handlers. Both update three
-  // pieces of state in one go: the list (so the sidebar badge clears),
-  // the detail-cache entry (so the chart/borelog header reflects the new
-  // value without a re-fetch), and any selection-derived view. The PATCH
-  // endpoint returns the updated row, so we patch in place rather than
-  // re-fetching.
-  const handlePatchCptElevation = useCallback(
-    async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
-      // Snapshot pre-edit values from the list (always fresh) so undo
-      // can PATCH them back even if the user's been clicking around.
-      const before = cpts.find(c => c.id === id)
-      const beforeElev = before?.elevation_m ?? null
-      const beforeZ = before?.z_epsg ?? null
-      const updated = await api.cpt.patchElevation(id, {
-        elevation_m: elevationM,
-        z_epsg: zEpsg,
-      })
-      setDetailMap(prev => new Map(prev).set(id, updated))
-      setCpts(prev =>
-        prev.map(c =>
-          c.id === id
-            ? { ...c, elevation_m: updated.elevation_m, z_epsg: updated.z_epsg }
-            : c,
-        ),
-      )
-      log.info('cpt', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
-      pushUndo({
-        description: 'Edit CPT elevation',
-        revert: async () => {
-          const back = await api.cpt.patchElevation(id, {
-            elevation_m: beforeElev,
-            z_epsg: beforeZ,
-          })
-          setDetailMap(prev => new Map(prev).set(id, back))
-          setCpts(prev =>
-            prev.map(c =>
-              c.id === id
-                ? { ...c, elevation_m: back.elevation_m, z_epsg: back.z_epsg }
-                : c,
-            ),
-          )
-        },
-        reapply: async () => {
-          const fwd = await api.cpt.patchElevation(id, {
-            elevation_m: elevationM,
-            z_epsg: zEpsg,
-          })
-          setDetailMap(prev => new Map(prev).set(id, fwd))
-          setCpts(prev =>
-            prev.map(c =>
-              c.id === id
-                ? { ...c, elevation_m: fwd.elevation_m, z_epsg: fwd.z_epsg }
-                : c,
-            ),
-          )
-        },
-      })
-    },
-    [cpts, pushUndo],
-  )
-
-  const handlePatchBoreholeElevation = useCallback(
-    async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
-      const before = boreholes.find(b => b.id === id)
-      const beforeElev = before?.elevation_m ?? null
-      const beforeZ = before?.z_epsg ?? null
-      const updated = await api.borehole.patchElevation(id, {
-        elevation_m: elevationM,
-        z_epsg: zEpsg,
-      })
-      setBoreholes(prev =>
-        prev.map(b =>
-          b.id === id
-            ? { ...b, elevation_m: updated.elevation_m, z_epsg: updated.z_epsg }
-            : b,
-        ),
-      )
-      // Patch the detail cache in place — the lab-test children, drill
-      // segments, etc. are unchanged so a full re-fetch is wasteful.
-      setBoreholeDetailMap(prev => {
-        const existing = prev.get(id)
-        if (!existing) return prev
-        const next = new Map(prev)
-        next.set(id, {
-          ...existing,
-          elevation_m: updated.elevation_m,
-          z_epsg: updated.z_epsg,
-        })
-        return next
-      })
-      log.info('borehole', `elevation patched: ${id} → ${elevationM} (z_epsg=${zEpsg})`)
-      pushUndo({
-        description: 'Edit borehole elevation',
-        revert: async () => {
-          const back = await api.borehole.patchElevation(id, {
-            elevation_m: beforeElev,
-            z_epsg: beforeZ,
-          })
-          setBoreholes(prev =>
-            prev.map(b =>
-              b.id === id
-                ? { ...b, elevation_m: back.elevation_m, z_epsg: back.z_epsg }
-                : b,
-            ),
-          )
-          setBoreholeDetailMap(prev => {
-            const existing = prev.get(id)
-            if (!existing) return prev
-            const next = new Map(prev)
-            next.set(id, {
-              ...existing,
-              elevation_m: back.elevation_m,
-              z_epsg: back.z_epsg,
-            })
-            return next
-          })
-        },
-        reapply: async () => {
-          const fwd = await api.borehole.patchElevation(id, {
-            elevation_m: elevationM,
-            z_epsg: zEpsg,
-          })
-          setBoreholes(prev =>
-            prev.map(b =>
-              b.id === id
-                ? { ...b, elevation_m: fwd.elevation_m, z_epsg: fwd.z_epsg }
-                : b,
-            ),
-          )
-          setBoreholeDetailMap(prev => {
-            const existing = prev.get(id)
-            if (!existing) return prev
-            const next = new Map(prev)
-            next.set(id, {
-              ...existing,
-              elevation_m: fwd.elevation_m,
-              z_epsg: fwd.z_epsg,
-            })
-            return next
-          })
-        },
-      })
-    },
-    [boreholes, pushUndo],
-  )
-
-  // Re-importing or re-fetching a record is an explicit "make this visible
-  // again" signal, so clear any of the supplied ids from the project-local
-  // removed-set. Without this, a 409-duplicate import returns the existing
-  // id, the sidebar's removed-filter hides it, and the user sees no change.
-  // The server-side is_hidden flag is flipped via a parallel upsert so the
-  // un-hide rides into the next .gmproj save.
-  const unhideCpts = useCallback(
-    (ids: Iterable<string>) => {
-      const touched: string[] = []
-      setRemovedCptIds(prev => {
-        const next = new Set(prev)
-        for (const id of ids) {
-          if (next.delete(id)) touched.push(id)
-        }
-        return touched.length > 0 ? next : prev
-      })
-      if (!project || touched.length === 0) return
-      void Promise.allSettled(
-        touched.map(id => api.review.upsert(project.id, 'cpt', id, { is_hidden: false })),
-      )
-    },
-    [project],
-  )
-  const unhideBoreholes = useCallback(
-    (ids: Iterable<string>) => {
-      const touched: string[] = []
-      setRemovedBoreholeIds(prev => {
-        const next = new Set(prev)
-        for (const id of ids) {
-          if (next.delete(id)) touched.push(id)
-        }
-        return touched.length > 0 ? next : prev
-      })
-      if (!project || touched.length === 0) return
-      void Promise.allSettled(
-        touched.map(id =>
-          api.review.upsert(project.id, 'borehole', id, { is_hidden: false }),
-        ),
-      )
-    },
-    [project],
-  )
-
-  // Load CPTs + boreholes + sections whenever the API is ready and a
-  // project is selected. ``project?.id`` in the dep array means each
-  // project switch re-fetches its own scope (and clears stale section
-  // state for the previous project).
-  useEffect(() => {
-    if (ready && project) {
-      refreshList()
-      refreshBoreholeList()
-      refreshSectionList()
-    }
-  }, [ready, project?.id])
-
-  // Wire Electron menu → import
-  useEffect(() => {
-    const off = window.electron.onMenuImportCpt(handleImportCpt)
-    return off
-  }, [])
 
   // Mirror the live project state into the OS window title. Title shows
   // 'Ground Model — Site A *' when dirty (Word / Plaxis convention).
@@ -1133,277 +851,6 @@ export default function App() {
     handleMenuProjectSaveAs,
     handleMenuProjectClose,
   ])
-
-  // ---------------------------------------------------------------------------
-  // Data loading
-  // ---------------------------------------------------------------------------
-
-  const refreshList = useCallback(async () => {
-    if (!project) return
-    try {
-      const list = await api.cpt.list(project.id)
-      setCpts(list)
-      log.debug('cpt', `refreshList: ${list.length} CPTs`)
-      // No per-CPT detail fetch here: CptListItem already carries location_x/y for
-      // map markers. Detail is fetched lazily by handleSelect when a CPT is clicked.
-    } catch (err) {
-      log.error('cpt', 'refreshList failed', err)
-      toast('error', 'Failed to load CPT list')
-    }
-  }, [project])
-
-  const loadChart = useCallback(async (id: string) => {
-    if (plotMap.has(id)) return
-    try {
-      const plot = await api.cpt.plot(id)
-      setPlotMap(prev => new Map(prev).set(id, plot))
-    } catch (err) {
-      log.error('cpt', `loadChart(${id}) failed`, err)
-      toast('error', 'Failed to load chart data')
-    }
-  }, [plotMap])
-
-  const refreshBoreholeList = useCallback(async () => {
-    if (!project) return
-    try {
-      const list = await api.borehole.list(project.id)
-      setBoreholes(list)
-      log.debug('borehole', `refreshList: ${list.length} boreholes`)
-    } catch (err) {
-      log.error('borehole', 'refreshList failed', err)
-      toast('error', 'Failed to load borehole list')
-    }
-  }, [project])
-
-  const loadBoreholeDetail = useCallback(
-    async (id: string) => {
-      if (boreholeDetailMap.has(id)) return
-      try {
-        const detail = await api.borehole.get(id)
-        setBoreholeDetailMap(prev => new Map(prev).set(id, detail))
-      } catch (err) {
-        log.error('borehole', `loadDetail(${id}) failed`, err)
-        toast('error', 'Failed to load borehole detail')
-      }
-    },
-    [boreholeDetailMap],
-  )
-
-  // ---------------------------------------------------------------------------
-  // Selection
-  // ---------------------------------------------------------------------------
-
-  const handleSelect = useCallback(async (id: string) => {
-    setSelectedId(id)
-    // Switching to a CPT clears any borehole / section selection so
-    // only one detail panel is rendered at a time.
-    setSelectedBoreholeId(null)
-    clearSectionSelection()
-    // Lazy-load full detail for the chart panel (mTAW elevation, cone props, etc).
-    if (!detailMap.has(id)) {
-      api.cpt.get(id).then(detail => {
-        setDetailMap(prev => new Map(prev).set(id, detail))
-      }).catch(() => { /* chart can render without detail */ })
-    }
-    await loadChart(id)
-    setView('chart')
-  }, [loadChart, detailMap, clearSectionSelection])
-
-  const handleSelectBorehole = useCallback(
-    async (id: string) => {
-      setSelectedBoreholeId(id)
-      // Mutually exclusive with CPT + section selection.
-      setSelectedId(null)
-      clearSectionSelection()
-      await loadBoreholeDetail(id)
-      setView('chart')
-    },
-    [loadBoreholeDetail, clearSectionSelection],
-  )
-
-  // ---------------------------------------------------------------------------
-  // Import
-  // ---------------------------------------------------------------------------
-
-  const handleImportCpt = useCallback(async () => {
-    if (!project) return
-    const filePaths = await window.electron.openFiles([
-      { name: 'GEF Files', extensions: ['gef'] },
-      { name: 'All Files', extensions: ['*'] }
-    ])
-    if (filePaths.length === 0) return
-
-    setImporting(true)
-    try {
-      const results = await Promise.allSettled(
-        filePaths.map(fp => api.cpt.import(fp, project.id))
-      )
-
-      let imported = 0, warnings = 0, duplicates = 0, errors = 0
-      let firstId: string | null = null
-      const touchedIds: string[] = []
-      // IDs that were CREATED in this import (not duplicates of existing
-      // rows). These get tagged as session-imports so the sidebar paints
-      // the amber asterisk and the project becomes dirty until File →
-      // Save commits the new state.
-      const newIds: string[] = []
-
-      for (const r of results) {
-        if (r.status === 'fulfilled') {
-          if (r.value.has_errors) warnings++
-          else imported++
-          firstId ??= r.value.cpt_id
-          touchedIds.push(r.value.cpt_id)
-          newIds.push(r.value.cpt_id)
-        } else if (r.reason instanceof DuplicateCptError) {
-          duplicates++
-          firstId ??= r.reason.cptId
-          touchedIds.push(r.reason.cptId)
-        } else {
-          errors++
-        }
-      }
-
-      const ok = imported + warnings
-      const parts: string[] = []
-      if (ok > 0) parts.push(`${ok} imported${warnings > 0 ? ` (${warnings} with warnings)` : ''}`)
-      if (duplicates > 0) parts.push(`${duplicates} already existed`)
-      if (errors > 0) parts.push(`${errors} failed`)
-      toast(errors > 0 && ok === 0 ? 'error' : 'success', parts.join(', '))
-
-      unhideCpts(touchedIds)
-      // Append to the manifest (visibility gate) AND the session-
-      // imports tracking set (drives project-level dirty + discard
-      // rollback). Both sets see the same IDs; they answer different
-      // questions about them.
-      addToManifest('cpt', newIds)
-      addAllToSet(setSessionImportCptIds, newIds)
-      await refreshList()
-      if (firstId) {
-        setSelectedId(firstId)
-        await loadChart(firstId)
-        if (filePaths.length === 1) setView('chart')
-      }
-    } finally {
-      setImporting(false)
-    }
-  }, [project, refreshList, loadChart, unhideCpts, addToManifest, setSessionImportCptIds])
-
-  // ---------------------------------------------------------------------------
-  // DOV import
-  // ---------------------------------------------------------------------------
-
-  const handleImportDov = useCallback(() => {
-    setView('map')
-    setBboxImportType('cpt')
-  }, [])
-
-  const handleImportBoreholeDov = useCallback(() => {
-    setView('map')
-    setBboxImportType('borehole')
-  }, [])
-
-  const handleBboxDrawn = useCallback(
-    async (west: number, south: number, east: number, north: number) => {
-      if (!project) return
-      const importType = bboxImportType
-      setBboxImportType(null)
-      if (!importType) return // defensive — shouldn't happen
-      setDovImporting(true)
-      try {
-        if (importType === 'cpt') {
-          // Snapshot ids BEFORE the API call so we can diff for the
-          // session-imports tagging. ``result.cpt_ids`` includes both
-          // newly-imported and pre-existing rows; we only want the new.
-          const beforeIds = new Set(cpts.map(c => c.id))
-          const result = await api.cpt.importDov({ west, south, east, north }, project.id)
-          const parts: string[] = []
-          if (result.imported > 0) parts.push(`${result.imported} imported`)
-          if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
-          if (result.failed > 0) parts.push(`${result.failed} failed`)
-          toast(
-            result.failed > 0 && result.imported === 0 ? 'error' : 'success',
-            parts.join(', ') || 'No CPTs found in this area',
-          )
-          unhideCpts(result.cpt_ids)
-          // Every CPT returned by DOV (new or duplicate) needs to be
-          // visible — add them all to the manifest. Session-imports
-          // tracking only flags the genuinely-new ones so a re-import
-          // of an already-saved area doesn't re-dirty the project.
-          addToManifest('cpt', result.cpt_ids)
-          addAllToSet(
-            setSessionImportCptIds,
-            result.cpt_ids.filter(id => !beforeIds.has(id)),
-          )
-          await refreshList()
-          if (result.imported === 1 && result.cpt_ids.length > 0) {
-            const id = result.cpt_ids[0]
-            setSelectedId(id)
-            setSelectedBoreholeId(null)
-            await loadChart(id)
-            setView('chart')
-          }
-        } else {
-          const beforeIds = new Set(boreholes.map(b => b.id))
-          const result = await api.borehole.importDov(
-            { west, south, east, north },
-            project.id,
-          )
-          const parts: string[] = []
-          if (result.imported > 0) parts.push(`${result.imported} imported`)
-          if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
-          if (result.failed > 0) parts.push(`${result.failed} failed`)
-          const extras: string[] = []
-          if (result.interpretations_attached)
-            extras.push(`${result.interpretations_attached} obs`)
-          if (result.samples_attached) extras.push(`${result.samples_attached} samples`)
-          if (result.grain_sizes_attached)
-            extras.push(`${result.grain_sizes_attached} grain-size`)
-          const summary = parts.join(', ') || 'No boreholes found in this area'
-          const detail = extras.length > 0 ? ` (+ ${extras.join(', ')})` : ''
-          toast(
-            result.failed > 0 && result.imported === 0 ? 'error' : 'success',
-            summary + detail,
-          )
-          unhideBoreholes(result.borehole_ids)
-          addToManifest('borehole', result.borehole_ids)
-          addAllToSet(
-            setSessionImportBoreholeIds,
-            result.borehole_ids.filter(id => !beforeIds.has(id)),
-          )
-          await refreshBoreholeList()
-          if (result.imported === 1 && result.borehole_ids.length > 0) {
-            const id = result.borehole_ids[0]
-            setSelectedBoreholeId(id)
-            setSelectedId(null)
-            await loadBoreholeDetail(id)
-            setView('chart')
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'DOV import failed'
-        log.error('import', `DOV bbox import failed: ${msg}`, err)
-        toast('error', msg)
-      } finally {
-        setDovImporting(false)
-      }
-    },
-    [
-      project,
-      bboxImportType,
-      cpts,
-      boreholes,
-      refreshList,
-      refreshBoreholeList,
-      loadChart,
-      loadBoreholeDetail,
-      unhideCpts,
-      unhideBoreholes,
-      addToManifest,
-      setSessionImportCptIds,
-      setSessionImportBoreholeIds,
-    ],
-  )
 
 
   // DEM hillshade + DOV Virtuele Boring overlays — extracted to useMapOverlays.
@@ -1658,7 +1105,7 @@ export default function App() {
                     onChangeBoreholeAxis={setBoreholeAxis}
                     drawMode={drawingBbox}
                     onBboxDrawn={handleBboxDrawn}
-                    onCancelDraw={() => setBboxImportType(null)}
+                    onCancelDraw={cancelBboxDraw}
                     onViewportChange={handleViewportChange}
                     demSource={demSource}
                     demOverlay={demOverlay}

@@ -11,7 +11,7 @@
 // resolve which section contains the offending anchors. Those lists are
 // dep-injected so the hook stays independent of the data-loading hooks.
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import type { CrossSectionResponse, FormationContactResponse } from '../api/client'
@@ -76,6 +76,8 @@ interface CptAnchor {
  * ----------
  * project
  *     Active project.  When ``null`` all state is reset to empty.
+ * ready
+ *     From ``useAppBoot`` — data loading waits until the API is up.
  * toast
  *     Stable action from ``useToasts`` for surfacing API failures.
  * pushUndo
@@ -111,6 +113,7 @@ interface CptAnchor {
  */
 export function useSections({
   project,
+  ready,
   toast,
   pushUndo,
   manifestSectionIds,
@@ -124,6 +127,8 @@ export function useSections({
   setSelectedBoreholeId,
 }: {
   project: { id: string; default_horizontal_epsg: number | null; name: string } | null
+  /** From ``useAppBoot`` — data loading waits until the API is up. */
+  ready: boolean
   toast: (type: 'success' | 'error', message: string) => void
   pushUndo: (cmd: UndoCommand) => void
   manifestSectionIds: ReadonlySet<string>
@@ -162,6 +167,20 @@ export function useSections({
       toast('error', 'Failed to load cross-sections.')
     }
   }, [project])
+
+  // Auto-load sections whenever the API is ready and a project is open.
+  // Mirrors the CPT/borehole auto-load in useInvestigationData so all
+  // three lists refresh on project switch without App coordinating them.
+  useEffect(() => {
+    if (ready && project) {
+      void refreshSectionList()
+    }
+    // reason: refreshSectionList is stable when project is stable; its
+    // identity changes only when project changes, which is already
+    // captured via project?.id. Including the callback itself would
+    // fire an extra fetch on every unrelated dep change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, project?.id])
 
   // Manifest gate: only ids present in the .gmproj bundle are visible.
   // Sections created in a previous session and never saved vanish on
