@@ -103,6 +103,10 @@ export interface UseGeologicalModelResult {
  * addToSessionImports
  *     From the session-imports tracking layer — flags new formations and
  *     contacts as unsaved so the dirty indicator lights up.
+ * removeFromSessionImports
+ *     Dual of ``addToSessionImports`` — clears a formation/contact's
+ *     unsaved flag when it is deleted before ever being saved, so the
+ *     project doesn't stay dirty over a row that no longer exists.
  *
  * Returns
  * -------
@@ -116,6 +120,7 @@ export function useGeologicalModel({
   addToManifest,
   removeFromManifest,
   addToSessionImports,
+  removeFromSessionImports,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error', message: string) => void
@@ -123,6 +128,7 @@ export function useGeologicalModel({
   addToManifest: (kind: 'formation', ids: string[]) => void
   removeFromManifest: (kind: 'formation', ids: ReadonlySet<string>) => void
   addToSessionImports: (kind: 'formation' | 'contact', ids: string[]) => void
+  removeFromSessionImports: (kind: 'formation' | 'contact', ids: string[]) => void
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -301,15 +307,15 @@ export function useGeologicalModel({
   const handleFormationDeleted = useCallback(
     (id: string) => {
       removeFromManifest('formation', new Set([id]))
-      addToSessionImports('formation', []) // no-op — just signals shape; deletion removed from session set via addToSessionImports
-      // Remove from session import tracking if present.
-      // Since addToSessionImports only adds, we rely on the caller
-      // (useProjectLifecycle's discardSessionImports) to handle the
-      // session set trim on delete. The formation-deleted callback
-      // only needs to drop it from the manifest.
+      // Drop it from the session-import set too. Deleting a formation
+      // that was created-but-not-yet-saved must clear its dirty
+      // contribution — otherwise ``projectDirty`` stays true forever
+      // over a row that no longer exists (the normal delete-then-save
+      // path never reaches discardSessionImports).
+      removeFromSessionImports('formation', [id])
       refetchFormations()
     },
-    [removeFromManifest, refetchFormations],
+    [removeFromManifest, removeFromSessionImports, refetchFormations],
   )
 
   const handleInlineCreateFormation = useCallback(

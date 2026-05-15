@@ -14,7 +14,7 @@ import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
 import { usePersistedSet } from './hooks/usePersistedSet'
 import { useTheme } from './hooks/useTheme'
-import { addAllToSet } from './utils/sets'
+import { addAllToSet, removeAllFromSet } from './utils/sets'
 import { isTypingTarget } from './utils/keyboard'
 import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
@@ -253,6 +253,19 @@ export default function App() {
     [setSessionImportFormationIds, setSessionImportContactIds],
   )
 
+  // Dual of ``addToSessionImports`` — drops ids from the session-import
+  // set so deleting a created-but-unsaved formation/contact clears its
+  // contribution to ``projectDirty``. Restores behaviour the pre-hook
+  // App.tsx had inline in ``handleFormationDeleted``; without it a
+  // create-then-delete-before-save leaves the project permanently dirty.
+  const removeFromSessionImports = useCallback(
+    (kind: 'formation' | 'contact', ids: string[]) => {
+      if (kind === 'formation') removeAllFromSet(setSessionImportFormationIds, ids)
+      else removeAllFromSet(setSessionImportContactIds, ids)
+    },
+    [setSessionImportFormationIds, setSessionImportContactIds],
+  )
+
   // Geological model — formations, contacts, TIN surfaces, and all
   // mutation handlers (create / update / delete / batch, auto-populate,
   // dedupe, rebuild, Plaxis export, borehole toggle). The cluster is
@@ -289,6 +302,7 @@ export default function App() {
     addToManifest,
     removeFromManifest,
     addToSessionImports,
+    removeFromSessionImports,
   })
 
   // Project lifecycle — dirty flag, File menu IPC, close-flow dialogs,
@@ -382,6 +396,18 @@ export default function App() {
     setSelectedBoreholeId,
     setView,
   })
+
+  // Wire the File → Import CPT menu signal to the import flow. The
+  // handler now lives in useInvestigationData (post hook-split), so this
+  // subscription effect sits here — without it the menu item is silently
+  // dead (the keyboard path goes through the Toolbar button, the menu
+  // path needs this). onMenuImportBorehole has never been wired (pre-
+  // existing gap, tracked separately — not restored here so this stays a
+  // faithful behaviour restoration, not a feature add).
+  useEffect(() => {
+    const off = window.electron.onMenuImportCpt(() => void handleImportCpt())
+    return off
+  }, [handleImportCpt])
 
   // Cross-section state and handlers — sections list, selection, draw
   // mode, focused-contact highlight, and all CRUD. The lifecycle
@@ -683,14 +709,11 @@ export default function App() {
           formationsRefreshSignal={formationsRefreshCounter}
           crossingsRefreshSignal={crossingsRefreshCounter}
           activeModelId={activeGeologicalModel?.id ?? null}
-          staleSurfaceCount={
-            // On-click build pivot: how many cached surfaces no
-            // longer reflect the current contacts. Drives the
-            // "N unbuilt edits" badge on the Build button.
-            Array.from(surfacesByFormationId.values()).filter(
-              s => s.is_stale === true,
-            ).length
-          }
+          // On-click build pivot: how many cached surfaces no longer
+          // reflect the current contacts. Drives the "N unbuilt edits"
+          // badge on the Build button. Memoised once in
+          // useGeologicalModel — don't recompute it here per render.
+          staleSurfaceCount={staleSurfaceCount}
           onFocusContacts={handleFocusContacts}
           pushUndoCommand={pushUndo}
           onDedupeContacts={

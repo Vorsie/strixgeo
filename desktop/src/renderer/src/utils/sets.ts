@@ -24,3 +24,25 @@ export function addAllToSet(
     return next ?? prev
   })
 }
+
+// Functional dual of ``addAllToSet`` — removes ids from an existing Set
+// without mutating it, and returns ``prev`` unchanged when nothing was
+// present (so React skips the no-op re-render). Used by the
+// ``removeFromSessionImports`` bridge so deleting a created-but-unsaved
+// formation/contact clears its dirty signal — the inverse of the
+// add-on-create path.
+export function removeAllFromSet(
+  setter: Dispatch<SetStateAction<Set<string>>>,
+  ids: Iterable<string>,
+): void {
+  setter(prev => {
+    let next: Set<string> | null = null
+    for (const id of ids) {
+      if (prev.has(id)) {
+        if (next === null) next = new Set(prev)
+        next.delete(id)
+      }
+    }
+    return next ?? prev
+  })
+}
