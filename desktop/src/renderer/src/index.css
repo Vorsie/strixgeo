@@ -2,6 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+ * Semantic colour tokens for the workflow-spine shell
+ * (docs/ui-shell-architecture.md §6).
+ *
+ * Dark is the DESIGNED HERO (``.dark`` block); light (``:root``) is the
+ * equal-quality alternate and the default when no ``dark`` class is on
+ * <html>. Both clear WCAG 2.2 AA for body text on their surfaces — the
+ * non-negotiable tier-1 floor in docs/ux.md. Custom hues (soil patterns,
+ * hash-derived marker colours) are re-checked per-component against the
+ * dark background; they are intentionally NOT tokens (they're dynamic).
+ *
+ * Values are LITERAL hex, not Tailwind ``theme()`` calls. Deviation from
+ * docs/ui-shell-architecture.md §6.3, which suggested ``theme()``:
+ * index.css has no existing ``theme()`` usage, so literals avoid assuming
+ * the PostCSS ``theme()`` function is wired and are equally correct. Each
+ * value is annotated with the Primer/Tailwind step it mirrors so the
+ * mapping stays verifiable (ux.md override rule: document why).
+ * ------------------------------------------------------------------------- */
+:root {
+  --color-surface-app: #f1f5f9;       /* slate-100  */
+  --color-surface-page: #ffffff;      /* white      */
+  --color-surface-card: #f8fafc;      /* slate-50   */
+  --color-surface-overlay: #ffffff;   /* white      */
+  --color-border-subtle: #e2e8f0;     /* slate-200  */
+  --color-border-default: #cbd5e1;    /* slate-300  */
+  --color-text-primary: #0f172a;      /* slate-900  */
+  --color-text-secondary: #475569;    /* slate-600  */
+  --color-text-muted: #94a3b8;        /* slate-400  */
+  --color-text-on-accent: #ffffff;    /* white      */
+  --color-accent: #2563eb;            /* blue-600   */
+  --color-accent-muted: #1d4ed8;      /* blue-700   */
+  --color-status-amber: #d97706;      /* amber-600  */
+  --color-status-danger: #dc2626;     /* red-600    */
+  --color-spine-bg: #f1f5f9;          /* slate-100  */
+  --color-spine-active: #2563eb;      /* blue-600   */
+  --color-spine-hover: #e2e8f0;       /* slate-200  */
+}
+
+.dark {
+  --color-surface-app: #020617;       /* slate-950  */
+  --color-surface-page: #0f172a;      /* slate-900  */
+  --color-surface-card: #1e293b;      /* slate-800  */
+  --color-surface-overlay: #172033;   /* slate-850 (custom step between 800/900) */
+  --color-border-subtle: #334155;     /* slate-700  */
+  --color-border-default: #475569;    /* slate-600  */
+  --color-text-primary: #f8fafc;      /* slate-50   */
+  --color-text-secondary: #cbd5e1;    /* slate-300  */
+  --color-text-muted: #64748b;        /* slate-500  */
+  --color-text-on-accent: #ffffff;    /* white      */
+  --color-accent: #60a5fa;            /* blue-400   */
+  --color-accent-muted: #93c5fd;      /* blue-300   */
+  --color-status-amber: #fbbf24;      /* amber-400  */
+  --color-status-danger: #f87171;     /* red-400    */
+  --color-spine-bg: #020617;          /* slate-950  */
+  --color-spine-active: #2563eb;      /* blue-600   */
+  --color-spine-hover: #1e293b;       /* slate-800  */
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
