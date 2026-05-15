@@ -18,7 +18,7 @@
 //   are localStorage-backed (per-user UI chrome, not a project
 //   decision).
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import { log } from '../utils/log'
@@ -206,24 +206,62 @@ export function useMapOverlays({
   const [virtueleBoringLoading, setVirtueleBoringLoading] = useState(false)
   const [virtueleBoringSkippedCount, setVirtueleBoringSkippedCount] = useState(0)
 
+  // Predictions cache — keyed on ``projectId:sortedModels`` so reselecting
+  // a previously-loaded model set is instant. Invalidated when the project
+  // changes (the ref is replaced with a new empty Map). A ref is used instead
+  // of state because the cache itself is not render-triggering; cache hits
+  // still call setVirtueleBoringPredictions to drive the UI update.
+  const predictionsCacheRef = useRef<Map<string, VirtueleBoringInvestigationPrediction[]>>(
+    new Map(),
+  )
+
+  // Stable string key for the current active model set — sorted so
+  // ['hcovv2_S', 'hcovv2_Q'] and ['hcovv2_Q', 'hcovv2_S'] produce the
+  // same key and deduplicate the fetch. The effect depends on this string
+  // instead of the virtueleBoringActiveModels array reference so it does NOT
+  // refire when the array is referentially-new but value-equal (which happens
+  // whenever view_state produces a new object reference on project updates).
+  const sortedActiveModelKey = useMemo(
+    () => [...virtueleBoringActiveModels].sort().join(','),
+    [virtueleBoringActiveModels],
+  )
+
+  // Invalidate the predictions cache when the project changes so stale
+  // predictions from a previous project never bleed into the new one.
+  const lastCacheProjectIdRef = useRef<string | null>(null)
+  const projectId = project?.id ?? null
+  if (lastCacheProjectIdRef.current !== projectId) {
+    lastCacheProjectIdRef.current = projectId
+    predictionsCacheRef.current = new Map()
+  }
+
   useEffect(() => {
     // No project / no active models → keep the predictions empty so
     // the section view's ghost column overlay no-ops.
-    const projectId = project?.id
-    if (!projectId || virtueleBoringActiveModels.length === 0) {
+    if (!projectId || sortedActiveModelKey === '') {
       setVirtueleBoringPredictions([])
       setVirtueleBoringSkippedCount(0)
       return
     }
+
+    // Cache hit — serve immediately without any network round-trip.
+    const cacheKey = `${projectId}:${sortedActiveModelKey}`
+    const cached = predictionsCacheRef.current.get(cacheKey)
+    if (cached !== undefined) {
+      setVirtueleBoringPredictions(cached)
+      return
+    }
+
     let cancelled = false
     setVirtueleBoringLoading(true)
     void (async () => {
       try {
-        const result = await api.virtueleBoring.predictions(
-          projectId,
-          virtueleBoringActiveModels,
-        )
+        // Pass models in sorted order so the backend sees a stable list
+        // regardless of which pane's override triggered the fetch.
+        const models = sortedActiveModelKey.split(',')
+        const result = await api.virtueleBoring.predictions(projectId, models)
         if (cancelled) return
+        predictionsCacheRef.current.set(cacheKey, result.predictions)
         setVirtueleBoringPredictions(result.predictions)
         setVirtueleBoringSkippedCount(result.skipped_count)
       } catch (err) {
@@ -242,7 +280,7 @@ export function useMapOverlays({
     return () => {
       cancelled = true
     }
-  }, [project?.id, virtueleBoringActiveModels])
+  }, [projectId, sortedActiveModelKey])
 
   // Per-pane visibility — localStorage-backed (per-user UI chrome).
   // Each pane keeps its own boolean so the user can show DOV on the

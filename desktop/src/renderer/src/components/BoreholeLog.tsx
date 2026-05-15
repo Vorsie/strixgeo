@@ -89,6 +89,9 @@ interface Props {
   // Per-pane model override. "" = follow section.
   virtueleBoringOverrideModel?: string
   onChangeVirtueleBoringOverrideModel?: (next: string) => void
+  // True while the predictions network fetch is in flight. Surfaces a
+  // spinner next to the DOV button so the pane doesn't appear hung.
+  virtueleBoringLoading?: boolean
 }
 
 // Per-model ghost-column width inside the borelog. Same vocabulary
@@ -108,6 +111,7 @@ export default function BoreholeLog({
   onToggleVirtueleBoringVisible,
   virtueleBoringOverrideModel = '',
   onChangeVirtueleBoringOverrideModel,
+  virtueleBoringLoading = false,
 }: Props): React.ReactElement {
   const virtueleBoringCatalog = useVirtueleBoringCatalog(
     onChangeVirtueleBoringOverrideModel !== undefined,
@@ -249,6 +253,14 @@ export default function BoreholeLog({
             specific code renders only that one). */}
         {onToggleVirtueleBoringVisible !== undefined && (
           <div className="flex items-center gap-1 ml-auto">
+            {/* Spinner shown while the predictions fetch is in flight
+                so the pane doesn't look unresponsive after model pick. */}
+            {virtueleBoringLoading && (
+              <span
+                aria-label="Loading DOV predictions"
+                className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"
+              />
+            )}
             <button
               onClick={onToggleVirtueleBoringVisible}
               disabled={virtueleBoringActiveModels.length === 0}

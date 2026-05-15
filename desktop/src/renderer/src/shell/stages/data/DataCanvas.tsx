@@ -72,6 +72,7 @@ export default function DataCanvas(): JSX.Element {
       handleDemOverlayChange,
       virtueleBoringOverlay,
       virtueleBoringPredictionByInvestigationId,
+      virtueleBoringLoading,
       cptEffectiveModels,
       boreholeEffectiveModels,
       showOverlayOnCpt,
@@ -169,6 +170,7 @@ export default function DataCanvas(): JSX.Element {
               onChangeVirtueleBoringOverrideModel={next =>
                 handleSetOverlayOverride('borehole', next)
               }
+              virtueleBoringLoading={virtueleBoringLoading}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-sm text-gray-400">
@@ -196,6 +198,7 @@ export default function DataCanvas(): JSX.Element {
             onChangeVirtueleBoringOverrideModel={next =>
               handleSetOverlayOverride('cpt', next)
             }
+            virtueleBoringLoading={virtueleBoringLoading}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-sm text-gray-400">

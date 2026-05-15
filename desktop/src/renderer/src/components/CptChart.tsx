@@ -45,6 +45,9 @@ interface Props {
   // exposes this control to the engineer.
   virtueleBoringOverrideModel?: string
   onChangeVirtueleBoringOverrideModel?: (next: string) => void
+  // True while the predictions network fetch is in flight. Surfaces a
+  // spinner next to the DOV button so the pane doesn't appear hung.
+  virtueleBoringLoading?: boolean
 }
 
 // ── DOV standard axis ranges ────────────────────────────────────────────────
@@ -147,6 +150,7 @@ export default function CptChart({
   onToggleVirtueleBoringVisible,
   virtueleBoringOverrideModel = '',
   onChangeVirtueleBoringOverrideModel,
+  virtueleBoringLoading = false,
 }: Props) {
   // Lazy-load the catalogue when the model dropdown is present —
   // most CPT detail views never need it (engineers leaving overlays
@@ -504,6 +508,14 @@ export default function CptChart({
               hydrogeology while the section pane shows formations. */}
           {onToggleVirtueleBoringVisible !== undefined && (
             <>
+              {/* Spinner shown while the predictions fetch is in flight
+                  so the pane doesn't look unresponsive after model pick. */}
+              {virtueleBoringLoading && (
+                <span
+                  aria-label="Loading DOV predictions"
+                  className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"
+                />
+              )}
               <button
                 onClick={onToggleVirtueleBoringVisible}
                 disabled={virtueleBoringActiveModels.length === 0}
