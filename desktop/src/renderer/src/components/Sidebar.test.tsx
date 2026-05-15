@@ -248,12 +248,16 @@ describe('Sidebar — viewport-out partition (debt #14, always-on)', () => {
   })
 })
 
-describe('Sidebar — three-category IA', () => {
-  it('renders Tests / Visualisation / Interpretation category headers', () => {
+describe('Sidebar — two-category IA', () => {
+  // Interpretation / Geology category moved to the Geology stage
+  // inspector (G3 / debt #14 resolution). Sidebar now has two
+  // categories: Tests and Visualisation.
+  it('renders Tests and Visualisation category headers (no Interpretation)', () => {
     renderSidebar()
     expect(screen.getByText('Tests')).toBeInTheDocument()
     expect(screen.getByText('Visualisation')).toBeInTheDocument()
-    expect(screen.getByText('Interpretation')).toBeInTheDocument()
+    expect(screen.queryByText('Interpretation')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ground model')).not.toBeInTheDocument()
   })
 
   it('groups CPT + Borehole + DMT under Tests', () => {
@@ -269,20 +273,6 @@ describe('Sidebar — three-category IA', () => {
   it('X-sections sub-tab lives under Visualisation, not Tests', () => {
     renderSidebar()
     expect(screen.getByText('X-sections')).toBeInTheDocument()
-  })
-
-  it('Interpretation surfaces the Ground model sub-tab', () => {
-    renderSidebar()
-    expect(screen.getByText('Ground model')).toBeInTheDocument()
-  })
-
-  it('clicking the Ground model sub-tab switches activeTab and renders the pane', () => {
-    renderSidebar()
-    fireEvent.click(screen.getByText('Ground model'))
-    // No projectId is passed in the default render — the pane shows
-    // its no-project guard text. Stable marker that doesn't depend
-    // on mocking the geology API.
-    expect(screen.getByText(/Open or create a project/i)).toBeInTheDocument()
   })
 })
 

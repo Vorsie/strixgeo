@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { usePersistedJSON } from '../hooks/usePersistedJSON'
-import InterpretationPane from './interpretation/InterpretationPane'
 import {
   Activity,
   AlertTriangle,
@@ -9,7 +8,6 @@ import {
   Drill,
   EyeOff,
   Gauge,
-  Layers,
   MapPin,
   Plus,
   Search,
@@ -26,7 +24,7 @@ import type {
 import DirtyAsterisk from './ui/DirtyAsterisk'
 import { isTypingTarget } from '../utils/keyboard'
 
-type DataType = 'cpt' | 'borehole' | 'section' | 'dmt' | 'geology'
+type DataType = 'cpt' | 'borehole' | 'section' | 'dmt'
 type SortKey = 'default' | 'name' | 'depth'
 type SortDirection = 'asc' | 'desc'
 
@@ -51,10 +49,7 @@ interface Props {
   onRestoreAllCpts: () => void
   onRestoreAllBoreholes: () => void
   projectName: string
-  /** Project UUID — used by the Interpretation pane to fetch
-   * formations / models / contacts for the active project. Null
-   * before a project loads (the sidebar isn't mounted then, but
-   * keep optional so future tooling can render the chrome). */
+  /** Project UUID — kept optional for compatibility. */
   projectId?: string | null
   // Path to the .gmproj file on disk; rendered as a tooltip on the
   // project name so the user can confirm which file is loaded without
@@ -83,80 +78,7 @@ interface Props {
   // active session — exactly when they're useful.
   sessionImportCptIds?: ReadonlySet<string>
   sessionImportBoreholeIds?: ReadonlySet<string>
-  /** IDs of formations created in this session but not yet saved
-   * to the .strix file. Drives the per-row amber visual in the
-   * Interpretation pane. */
-  sessionImportFormationIds?: ReadonlySet<string>
-  /** Manifest of saved + session-created formation IDs — used by
-   * the Interpretation pane to filter out prior-session unsaved
-   * rows that still live in the DB. */
-  manifestFormationIds?: ReadonlySet<string>
-  /** Same but for cross-sections — surfaces in the SectionList
-   * when a session-created section hasn't been saved yet. */
-  sessionImportSectionIds?: ReadonlySet<string>
-  /** Fires when the Interpretation pane successfully creates a
-   * new formation — App uses it to update the manifest +
-   * session-imports set so the dirty signal flips immediately. */
-  onFormationCreated?: (id: string) => void
-  /** Fires when the Interpretation pane successfully deletes a
-   * formation. */
-  onFormationDeleted?: (id: string) => void
-  /** Fires when an existing formation is renamed / recoloured. App
-   * uses this to resync the cached formations list so the section
-   * picker + ContactsLayer pick up the change. */
-  onFormationUpdated?: (id: string) => void
-  /** Refresh signal — App bumps this after server-side mutations
-   * the Interpretation pane wouldn't otherwise see (e.g. auto-
-   * populate from stratigraphy creating new formations outside
-   * the pane's own create-edit-delete flow). Threaded straight
-   * through to ``InterpretationPane.refreshSignal``. */
-  formationsRefreshSignal?: number
-  /** Push an UndoCommand onto the App-level undo stack. Threaded
-   * through to InterpretationPane so its formation create / edit /
-   * delete handlers participate in Ctrl+Z. */
-  pushUndoCommand?: (cmd: import('../hooks/useUndoStack').UndoCommand) => void
-  /** One-shot dedupe handler — App calls the API + refreshes
-   * contacts state. Resolves with the duplicates-removed count
-   * for the toast in the pane. */
-  onDedupeContacts?: () => Promise<number>
-  /** Manual rebuild of every cached TIN surface in the active model.
-   * Threaded straight through to InterpretationPane for the
-   * "Rebuild surfaces" button next to Dedupe. */
-  onRebuildSurfaces?: () => Promise<void>
-  /** Active geological model id — InterpretationPane needs it to
-   * fetch the crossings validator result for its banner. ``null``
-   * when the project has no active model (the banner stays hidden). */
-  activeModelId?: string | null
-  /** Refresh signal for the crossings banner — App bumps after every
-   * contact mutation so the banner re-runs the validator. */
-  crossingsRefreshSignal?: number
-  /** Count of cached surfaces whose source contacts have changed
-   * since the last Build (on-click build pivot). Drives the
-   * "N unbuilt edits" badge on the Build button in the pane. */
-  staleSurfaceCount?: number
-  /** Click handler for an item in the crossings banner — threaded
-   * through to InterpretationPane. App.tsx maps the clicked
-   * contact_ids to a section that contains one of the anchors and
-   * fires the focus highlight in ContactsLayer (debt #9). */
-  onFocusContacts?: (contactIds: readonly string[]) => void
-  /** Visible borehole IDs — used by the Interpretation pane's
-   * "Populate from boreholes" affordance to walk every borehole's
-   * stratigraphy observations and harvest formation names. */
-  visibleBoreholeIds?: readonly string[]
-  /** Name of the project's active geological model. Threaded
-   * through to the Interpretation pane as a subtitle. */
-  activeModelName?: string | null
-  /** Visible boreholes — the Interpretation pane shows them in a
-   * "Boreholes in model" sub-section with a per-row checkbox so
-   * the user can mark which ones contribute formation contacts. */
-  visibleBoreholes?: readonly BoreholeListItem[]
-  /** Borehole IDs the active model excludes from contact rendering /
-   * placement. Mirrors the model's ``excluded_borehole_ids``. */
-  excludedBoreholeIds?: readonly string[]
-  /** Toggle a borehole in / out of the active model. The Interpretation
-   * pane calls this on checkbox change. App PATCHes the model. */
-  onToggleBoreholeInModel?: (boreholeId: string, included: boolean) => void | Promise<void>
-  // Map-layer visibility (kept from the previous turn) — still drives
+  // Map-layer visibility — drives
   // the visible-first / hidden-bottom partitioning of each tab's list.
   hiddenCptTypes: Set<string>
   hiddenBoreholeValues: Set<string>
@@ -190,17 +112,9 @@ interface Props {
   canCreateSection?: boolean
 }
 
-// Three top-level categories — Tests are raw data sources,
-// Visualisation is views into those sources (X-sections; eventually
-// maps + 3D), Interpretation is the engineering model the platform
-// produces (geological formations + contacts + geotech units, the
-// Phase 4 MVP-gate output).
-//
-// Sub-tabs live under each category header so the IA stays clean as
-// more tabs land: a new lab-test type joins Tests; a 3D view joins
-// Visualisation; a parameter editor joins Interpretation. Adding a
-// tab is a single line in the right bucket rather than another
-// entry in a flat bar that eventually overflows.
+// Two top-level categories — Tests (raw data sources) and Visualisation
+// (views into those sources). The Interpretation / Geology category has
+// moved to the Geology stage inspector (G3 / debt #14 resolution).
 const CATEGORIES: {
   name: string
   tabs: { id: DataType; label: string; icon: React.ReactNode; available: boolean }[]
@@ -219,15 +133,6 @@ const CATEGORIES: {
       // ``Slash`` reads as a straight diagonal line — closest stock
       // icon to a cross-section slice through the project.
       { id: 'section', label: 'X-sections', icon: <Slash size={14} />, available: true },
-    ],
-  },
-  {
-    name: 'Interpretation',
-    tabs: [
-      // The Phase 4 MVP-gate feature: a per-project geological model
-      // (formations + contacts + geotech subdivision) that the
-      // exporters serialise to DXF / Plaxis.
-      { id: 'geology', label: 'Ground model', icon: <Layers size={14} />, available: true },
     ],
   },
 ]
@@ -289,25 +194,7 @@ export default function Sidebar({
   projectDirty,
   sessionImportCptIds,
   sessionImportBoreholeIds,
-  sessionImportFormationIds,
-  manifestFormationIds,
   sessionImportSectionIds,
-  onFormationCreated,
-  onFormationDeleted,
-  onFormationUpdated,
-  formationsRefreshSignal,
-  pushUndoCommand,
-  onDedupeContacts,
-  onRebuildSurfaces,
-  activeModelId,
-  crossingsRefreshSignal,
-  staleSurfaceCount,
-  onFocusContacts,
-  visibleBoreholeIds,
-  activeModelName,
-  visibleBoreholes: panelBoreholes,
-  excludedBoreholeIds,
-  onToggleBoreholeInModel,
   hiddenCptTypes,
   hiddenBoreholeValues,
   boreholeAxis,
@@ -620,12 +507,10 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Three-category tab bar: Tests / Visualisation /
-          Interpretation. Each category renders its own row of
-          sub-tabs underneath a small uppercase label. The IA
-          mirrors how engineers think about the work — raw data
-          sources up top, views into those sources in the middle,
-          the engineering model (Phase 4 MVP gate) at the bottom. */}
+      {/* Two-category tab bar: Tests / Visualisation. Each category
+          renders its own row of sub-tabs underneath a small uppercase
+          label. The Interpretation / Geology category moved to the
+          Geology stage inspector (G3 / debt #14 resolution). */}
       <div className="border-b border-gray-200">
         {CATEGORIES.map(category => (
           <div key={category.name} className="border-t border-gray-100 first:border-t-0">
@@ -818,29 +703,6 @@ export default function Sidebar({
             sessionImportSectionIds={sessionImportSectionIds}
           />
         )}
-        {activeTab === 'geology' && (
-          <InterpretationPane
-            projectId={projectId ?? null}
-            manifestFormationIds={manifestFormationIds}
-            sessionImportFormationIds={sessionImportFormationIds}
-            boreholeIds={visibleBoreholeIds}
-            activeModelName={activeModelName}
-            activeModelId={activeModelId}
-            modelBoreholes={panelBoreholes ?? []}
-            excludedBoreholeIds={excludedBoreholeIds}
-            onToggleBoreholeInModel={onToggleBoreholeInModel}
-            onFormationCreated={onFormationCreated}
-            onFormationDeleted={onFormationDeleted}
-            onFormationUpdated={onFormationUpdated}
-            refreshSignal={formationsRefreshSignal}
-            crossingsRefreshSignal={crossingsRefreshSignal}
-            staleSurfaceCount={staleSurfaceCount}
-            onFocusContacts={onFocusContacts}
-            pushUndoCommand={pushUndoCommand}
-            onDedupeContacts={onDedupeContacts}
-            onRebuildSurfaces={onRebuildSurfaces}
-          />
-        )}
         {activeTab === 'dmt' && <EmptyState label="Available in Phase 4" />}
       </div>
 
@@ -859,7 +721,6 @@ export default function Sidebar({
             {sections.length} cross-section{sections.length !== 1 ? 's' : ''}
           </span>
         )}
-        {activeTab === 'geology' && <span>Ground model</span>}
         {activeTab === 'dmt' && <span>—</span>}
         {removedCount > 0 && (activeTab === 'cpt' || activeTab === 'borehole') && (
           <button
