@@ -24,6 +24,23 @@ module.exports = {
       // ``extend`` MERGES into Tailwind's default palette — the stock
       // ``slate-*`` / ``blue-*`` scales stay intact, so this addition is
       // non-breaking for every component already in the tree.
+      // Stage cross-fade animation (§6.5). The ``animate-[fadeIn_150ms_ease-out]``
+      // arbitrary value in StageCanvas.tsx references this keyframe by name.
+      // Without registering it here the arbitrary class has no matching
+      // ``@keyframes`` declaration and the cross-fade is silently dead.
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+      },
+      animation: {
+        // Named animation shorthand so ``animate-fadeIn`` works as an
+        // alternative to the arbitrary ``animate-[fadeIn_150ms_ease-out]``
+        // form. Both work; the arbitrary form is used in StageCanvas.tsx
+        // because it is already there and is more explicit about duration.
+        fadeIn: 'fadeIn 150ms ease-out',
+      },
       colors: {
         // Surface hierarchy — Primer's layered-surface model.
         'surface-app': 'var(--color-surface-app)',
