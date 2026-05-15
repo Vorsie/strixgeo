@@ -85,6 +85,10 @@ import {
   type PlacedColumnInput,
   type Viewport,
 } from './sections/utils'
+import {
+  selectVisibleLabels,
+  type ColumnLabelMode,
+} from '../utils/columnLabelLod'
 
 interface Props {
   section: CrossSectionResponse
@@ -298,6 +302,11 @@ export default function SectionPanel({
   // click that didn't move the mouse. ContactsLayer watches the
   // counter and clears its selection on each tick. Click-to-clear.
   const [selectionResetCounter, setSelectionResetCounter] = useState(0)
+
+  // Hovered column id — tracked so the LOD pass can force the hovered
+  // column's label to 'full' regardless of spacing. Transient UI state;
+  // not persisted (it resets naturally when the user moves the mouse).
+  const [hoveredColumnId, setHoveredColumnId] = useState<string | null>(null)
 
   const [vex, setVex] = useState<number>(section.vertical_exaggeration ?? VEX_DEFAULT)
   useEffect(() => {
@@ -968,6 +977,25 @@ export default function SectionPanel({
     return m
   }, [visibleColumns])
 
+  // Column-label level-of-detail. At dense column spacings the three-line
+  // header stack collides into an unreadable mess. ``selectVisibleLabels``
+  // decides per column whether to render the full header, a rotated id, or
+  // nothing. Selected (focusedColumn) and hovered columns always get full.
+  // Recomputes when the layout changes (zoom / pan / spacing) or when
+  // hover/focus changes.
+  const { labelModeById, calloutIds } = useMemo(() => {
+    const lodInputs = visibleColumns.map(col => ({
+      id: col.proj.item.id,
+      nudgedX: col.nudgedX,
+      selected: focusedColumn !== null && col.proj.item.id === focusedColumn.id,
+      hovered: col.proj.item.id === hoveredColumnId,
+    }))
+    const results = selectVisibleLabels(lodInputs)
+    const modeMap = new Map<string, ColumnLabelMode>(results.map(r => [r.id, r.mode]))
+    const callout = new Set<string>(results.filter(r => r.callout).map(r => r.id))
+    return { labelModeById: modeMap, calloutIds: callout }
+  }, [visibleColumns, focusedColumn, hoveredColumnId])
+
   // Warped along-distance → screen X. The Spacing slider's lerp
   // moves each test from its true projected X toward its packed
   // position; without warping any other X-positioned content, the
@@ -1379,6 +1407,9 @@ export default function SectionPanel({
               onSelectBorehole={undefined}
               onColumnContextMenu={handleColumnContextMenu}
               hideStickIds={hideStickIds}
+              labelModeById={labelModeById}
+              calloutIds={calloutIds}
+              onColumnHover={setHoveredColumnId}
             />
 
             {/* DOV Virtuele Boring ghost columns — informative-only

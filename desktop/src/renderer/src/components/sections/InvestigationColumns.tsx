@@ -16,8 +16,10 @@
  *   * CPT = thin vertical line + circle cap, borehole = thin line
  *     + square cap. Same shape vocabulary as the map markers so
  *     the identity reads consistently.
- *   * Name label above the cap (no rotation — symbol labels handle
- *     collision via the nudge pass, not in-place rotation).
+ *   * Name label above the cap — mode controlled by ``labelModeById``
+ *     (full three-row stack, rotated id, or none). The ``full``
+ *     mode is the DOV "lengteprofiel" three-row convention. The
+ *     ``rotated`` mode is the gINT/Strater dense-log convention.
  *   * Tie-back diagonal when displaced: a small tick at the top of
  *     the plot at the column's true X, connected by a thin grey
  *     line to the column cap at its nudged X. Reads as "this
@@ -27,6 +29,7 @@
  */
 
 import ColumnGlyph from './ColumnGlyph'
+import type { ColumnLabelMode } from '../../utils/columnLabelLod'
 import type { PlacedColumn } from './utils'
 
 export default function InvestigationColumns({
@@ -38,6 +41,9 @@ export default function InvestigationColumns({
   onSelectBorehole,
   onColumnContextMenu,
   hideStickIds,
+  labelModeById,
+  calloutIds,
+  onColumnHover,
 }: {
   columns: PlacedColumn[]
   levelToScreen: (level: number) => number
@@ -58,6 +64,19 @@ export default function InvestigationColumns({
    * "this is where the test sits" visual — so ColumnGlyph hides the
    * stick. Name + elevation labels stay as identifiers. */
   hideStickIds?: ReadonlySet<string>
+  /** Per-column label level-of-detail mode keyed by investigation id.
+   * Absent entries default to ``'full'``. Computed by SectionPanel
+   * from ``selectVisibleLabels`` so the LOD decision is kept out of
+   * the per-column render loop. */
+  labelModeById?: ReadonlyMap<string, ColumnLabelMode>
+  /** Set of investigation IDs whose forced-full label (selected or
+   * hovered in a dense layout) should be rendered with the callout
+   * offset to avoid occlusion by adjacent columns. */
+  calloutIds?: ReadonlySet<string>
+  /** Hover enter/leave callback. Forwards the hovered investigation id
+   * (or ``null`` on leave) up to SectionPanel so the LOD can force
+   * the hovered column to full regardless of spacing. */
+  onColumnHover?: (id: string | null) => void
 }): JSX.Element {
   return (
     <g>
@@ -101,6 +120,10 @@ export default function InvestigationColumns({
             onClick={onClick}
             onContextMenu={onContextMenu}
             hideStick={hideStickIds?.has(item.id) ?? false}
+            labelMode={labelModeById?.get(item.id) ?? 'full'}
+            callout={calloutIds?.has(item.id) ?? false}
+            onMouseEnter={onColumnHover ? () => onColumnHover(item.id) : undefined}
+            onMouseLeave={onColumnHover ? () => onColumnHover(null) : undefined}
           />
         )
       })}

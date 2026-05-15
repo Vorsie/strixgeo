@@ -15,7 +15,18 @@
  * nudged from its true projected X to ``screenX`` to avoid overlap.
  * We draw a tick at the true X on the top axis and a thin diagonal
  * back to the cap so the geometry stays inspectable.
+ *
+ * Label LOD: ``labelMode`` controls which of three label presentations
+ * renders. ``'full'`` (default) = the normal three-row stack (name /
+ * elevation / qc row). ``'rotated'`` = only the name, rotated 90°
+ * counter-clockwise anchored at the column top — the gINT/LeapFrog
+ * dense-log convention for tight spacings. ``'none'`` = no label at
+ * all. ``callout`` shifts the full label up an extra 14 px to avoid
+ * occlusion by an adjacent column when the selected/hovered column is
+ * in a dense neighbourhood.
  */
+
+import type { ColumnLabelMode } from '../../utils/columnLabelLod'
 
 const CPT_COLOR = '#1f2937' // slate-800; deliberate dark so it
 // stays readable over the future DEM hillshade
@@ -37,6 +48,10 @@ export default function ColumnGlyph({
   onClick,
   onContextMenu,
   hideStick = false,
+  labelMode = 'full',
+  callout = false,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   name: string
   kind: 'cpt' | 'borehole'
@@ -60,6 +75,17 @@ export default function ColumnGlyph({
    * test" visual is redundant. Name + signed elevation labels still
    * render above the band as the column's identifier. */
   hideStick?: boolean
+  /** Label level-of-detail mode. ``'full'`` = three-row stack (default).
+   * ``'rotated'`` = name only, rotated 90° CCW. ``'none'`` = no label. */
+  labelMode?: ColumnLabelMode
+  /** When true (selected/hovered in a dense layout), shift the label
+   * up by an extra 14 px to clear an adjacent column's label. */
+  callout?: boolean
+  /** Mouse-enter handler — forwarded from InvestigationColumns so
+   * SectionPanel can track the hovered column for LOD purposes. */
+  onMouseEnter?: () => void
+  /** Mouse-leave handler — paired with ``onMouseEnter``. */
+  onMouseLeave?: () => void
 }): JSX.Element | null {
   const sx = screenX
   // ``null`` elevation gets the column floated at level=0 in a
@@ -96,6 +122,8 @@ export default function ColumnGlyph({
   return (
     <g
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={{ cursor: onClick ? 'pointer' : 'default' }}
     >
       {/* Transparent hit-box spanning the column's vertical strip.
@@ -174,7 +202,12 @@ export default function ColumnGlyph({
       {/* Top cap + label — only inside the plot area. The CAP itself
           is suppressed when ``hideStick`` is set (a band is showing
           where the test sits); the LABELS still render so the
-          column keeps its identifier. */}
+          column keeps its identifier.
+          Label LOD (``labelMode``):
+            'full'    — three-row stack (name / elevation / qc row).
+            'rotated' — name only, rotated 90° CCW at the column top.
+                        Used at dense spacings (gINT convention).
+            'none'    — no label. Middle columns in a very dense layout. */}
       {sy >= plotTop && sy <= plotBottom && (
         <>
           {!hideStick &&
@@ -190,29 +223,53 @@ export default function ColumnGlyph({
                 fillOpacity={elevKnown ? 0.95 : 0.5}
               />
             ))}
-          {/* Three-row label stack above the cap, DOV "lengteprofiel"
-              convention (page 3 scale annotation
-              "4% 2%2 +7.48 10 MPa"):
-                  row 1 (sy-22): test name (horizontal, centered)
-                  row 2 (sy-12): signed elevation marker
-                  row 3 (sy-3): per-CPT gridline value labels (added
-                                  by CptDataColumn, NOT here)
-              The name is shifted up to leave a clear strip between
-              the elevation and the cap so CptDataColumn's gridline
-              labels can sit there without colliding. */}
-          <text
-            x={sx}
-            y={sy - 22}
-            fontSize={9}
-            fill={elevKnown ? '#1f2937' : '#9ca3af'}
-            textAnchor="middle"
-          >
-            {name}
-            {offsetLabel}
-          </text>
-          {elevKnown && (
-            <text x={sx} y={sy - 12} fontSize={8} fill="#6b7280" textAnchor="middle">
-              {`${elevation! >= 0 ? '+' : ''}${elevation!.toFixed(2)} m`}
+
+          {/* Full three-row label stack. ``callout`` shifts it up an extra
+              14 px when the column is selected/hovered in a dense layout so
+              the forced-full label doesn't collide with a neighbour's
+              rotated id. */}
+          {labelMode === 'full' && (
+            <>
+              <text
+                x={sx}
+                y={sy - 22 - (callout ? 14 : 0)}
+                fontSize={9}
+                fill={elevKnown ? '#1f2937' : '#9ca3af'}
+                textAnchor="middle"
+              >
+                {name}
+                {offsetLabel}
+              </text>
+              {elevKnown && (
+                <text
+                  x={sx}
+                  y={sy - 12 - (callout ? 14 : 0)}
+                  fontSize={8}
+                  fill="#6b7280"
+                  textAnchor="middle"
+                >
+                  {`${elevation! >= 0 ? '+' : ''}${elevation!.toFixed(2)} m`}
+                </text>
+              )}
+            </>
+          )}
+
+          {/* Rotated id — a single ``transform="rotate(-90)"`` around the
+              label's anchor point. The anchor sits just above ``plotTop``
+              (not above sy) so the label reads along the column from the
+              top of the canvas downward — the gINT/Strater/LeapFrog
+              dense-log convention. ``textAnchor="start"`` means the label
+              starts at the top of the plot and reads downward. */}
+          {labelMode === 'rotated' && (
+            <text
+              x={sx}
+              y={plotTop - 4}
+              fontSize={9}
+              fill={elevKnown ? '#1f2937' : '#9ca3af'}
+              textAnchor="start"
+              transform={`rotate(-90, ${sx}, ${plotTop - 4})`}
+            >
+              {name}
             </text>
           )}
         </>
