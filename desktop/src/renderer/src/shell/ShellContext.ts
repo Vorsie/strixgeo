@@ -87,6 +87,19 @@ export interface Coordinator {
    * Same amber-asterisk driver as ``sessionImportCptIds``.
    */
   sessionImportBoreholeIds: ReadonlySet<string>
+  /**
+   * Cross-section IDs created in the current session but not yet saved.
+   *
+   * Drives the per-row amber asterisk in ``SectionsInspector``'s
+   * ``SectionList``.  Wired in G3 (debt #25 resolution): when
+   * Sidebar.tsx's section list is retired, this inspector becomes the
+   * sole section-list surface and the unsaved marker must reach parity
+   * with CPT/borehole rows.  Lives in Coordinator (not ``sections``)
+   * for the same reason as ``sessionImportCptIds``: spans the
+   * session-import state write path (``useSections``) and the read
+   * path (``SectionsInspector``) across hook boundaries.
+   */
+  sessionImportSectionIds: ReadonlySet<string>
 }
 
 /**
