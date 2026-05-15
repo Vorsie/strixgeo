@@ -36,14 +36,23 @@ Distribution risk that hits before any geotech engineer sees the
 UI.
 
 **Why deferred.** Not blocking development; current dev flow uses
-Docker Compose.
+Docker Compose. User-deferred 2026-05-15: bundling waits until the
+feature set is ship-ready (UI rework, geotechnical model,
+parametrisation, PDF reports, 3D viewer all still open) — a
+packaged installer is worthless ahead of what it wraps.
 
-**When to revisit.** Before approaching the first 5 validation
-engineers. Build a one-off prototype on a clean Windows machine
-without Docker. If the bundled path is fragile, the SQLite +
-SpatiaLite fallback (already called out in CLAUDE.md) becomes the
-real plan and is a non-trivial refactor. The decision belongs
-ahead of the first beta install.
+**Fork analysis already done** — see
+[distribution-db-decision.md](distribution-db-decision.md):
+embedded-Postgres vs SQLite+SpatiaLite costed against the real
+codebase surface (Fork A ~1–2 days, zero Python blast radius;
+Fork B ~1–2 weeks, touches the array-backed depth-series schema).
+Recommendation recorded: Fork A, SQLite as a documented escape
+hatch. Pick up from that doc when revisiting — no need to re-derive.
+
+**When to revisit.** When the v1.0 feature set is ship-ready, and
+before the first clean-box coworker install. Build the Fork A
+prototype on a clean Windows machine without Docker per the
+decision doc's "proposed build step".
 
 ## 3. License key + activation system (medium → blocking before paid release)
 
