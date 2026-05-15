@@ -455,6 +455,16 @@ export default function MapView({
             regardless of opacity blending. Mounting order alone is
             insufficient — Leaflet's pane system decides final z-order. */}
         <Pane name="dem-overlay" style={{ zIndex: 250 }} />
+
+        {/* Investigation markers get their OWN explicit pane above every
+            tile/overlay pane. Relying on Leaflet's default overlayPane
+            (z=400, CircleMarker) / markerPane (z=600, divIcon) left CPT/
+            borehole markers visually under the Geopunt GRB-selectie
+            overlay in practice. z=640: above all basemap/DEM panes, below
+            tooltipPane (650) / popupPane (700) so hover tooltips + popups
+            still render above the markers. Both marker layers below pin
+            to this pane explicitly so the order is unconditional. */}
+        <Pane name="investigation-markers" style={{ zIndex: 640 }} />
         {demSource && demOverlay?.enabled && (
           <WMSTileLayer
             url={demSource.url}
@@ -517,6 +527,7 @@ export default function MapView({
           return (
             <CircleMarker
               key={`cpt-${m.id}`}
+              pane="investigation-markers"
               center={[m.lat, m.lng]}
               radius={selected ? RADIUS_SELECTED : RADIUS}
               pathOptions={{
@@ -549,6 +560,7 @@ export default function MapView({
           return (
             <Marker
               key={`bh-${m.id}`}
+              pane="investigation-markers"
               position={[m.lat, m.lng]}
               icon={squareDivIcon(color, selected)}
               eventHandlers={{ click: () => onSelectBorehole(m.id) }}
