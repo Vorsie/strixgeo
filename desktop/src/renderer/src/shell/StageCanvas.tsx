@@ -49,6 +49,12 @@ export default function StageCanvas({ activeStageId }: StageCanvasProps): JSX.El
   // active stage changes, the wrapper fades from 0 → 1 so the transition
   // is visible on the incoming canvas (outgoing is already unmounted by
   // the React key change).
+  //
+  // prevStageRef intentionally survives the ``key``-change unmount: React
+  // does not reset refs on unmount — only the DOM node and component state
+  // are cleaned up. The ref lives in the parent StageCanvas (not inside the
+  // keyed div) so it persists across stage switches and correctly signals
+  // "a change just happened" to the opacity-fade logic on the next render.
   const prevStageRef = useRef<StageId>(activeStageId)
   const stageChanged = prevStageRef.current !== activeStageId
   if (stageChanged) prevStageRef.current = activeStageId
