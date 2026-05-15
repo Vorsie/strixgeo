@@ -1,0 +1,279 @@
+/**
+ * Formation selection dialog — opened by the "Fill from boreholes" toolbar
+ * verb in the Geology stage.
+ *
+ * Shows the candidate formation names discovered from borehole stratigraphy
+ * (result of ``discoverBoreholeFormations``).  The user selects which
+ * formations to keep; on confirm ``applyBoreholeFormationSelection`` fires.
+ *
+ * Key design rules (from ``docs/geology-stage-architecture.md`` §10.2–§10.4):
+ *
+ * - Default state: candidates whose name matches an existing model formation
+ *   are pre-checked; new candidates are unchecked (opt-in, not opt-out).
+ * - Deletion warning: live-recomputed as the user toggles checkboxes.
+ *   Red ``text-red-600`` copy; Cancel gets ``autoFocus`` when any deletion
+ *   would occur.
+ * - The deletion set is every formation in ``currentFormations`` whose name is
+ *   NOT in the selected set — including manually-added formations not in the
+ *   candidate list.
+ * - Apply / Cancel buttons; confirm button text is ``"Apply selection"``,
+ *   never "OK".
+ *
+ * Dark-mode note: the shared Modal primitive is light-only.  Inline
+ * ``dark:`` variants are used here instead (same pattern as the Sections
+ * delete confirm modal).
+ */
+
+import { useCallback, useMemo, useState } from 'react'
+
+import type { FormationCandidate } from '../../../hooks/useGeologicalModel'
+import type {
+  FormationContactResponse,
+  GeologicalFormationResponse,
+} from '../../../api/client'
+import Modal from '../../../components/ui/Modal'
+import Button from '../../../components/ui/Button'
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
+export interface FormationSelectionDialogProps {
+  /** Whether the dialog is open. */
+  open: boolean
+  /** Candidate formation names from the discovery scan. */
+  candidates: FormationCandidate[]
+  /**
+   * Current formations in the model — used to pre-check rows and compute
+   * how many would be deleted.
+   */
+  currentFormations: GeologicalFormationResponse[]
+  /**
+   * Current contacts in the model — used to compute the M in "M contacts
+   * will be deleted".
+   */
+  currentContacts: FormationContactResponse[]
+  /** Fired on confirm with the set of selected formation names. */
+  onConfirm: (selectedNames: ReadonlySet<string>) => void
+  /** Fired on cancel or backdrop click. */
+  onCancel: () => void
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+/**
+ * Modal dialog for the "Fill from boreholes" curated selection flow.
+ *
+ * Parameters
+ * ----------
+ * open
+ *     Whether the dialog is visible.
+ * candidates
+ *     Formation name candidates returned by the discovery scan.
+ * currentFormations
+ *     Formations currently in the geological model.
+ * currentContacts
+ *     Contacts currently in the geological model.
+ * onConfirm
+ *     Callback fired on "Apply selection" with the user-chosen name set.
+ * onCancel
+ *     Callback fired on Cancel or backdrop click.
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The modal dialog element (renders null when ``open`` is false).
+ */
+export default function FormationSelectionDialog({
+  open,
+  candidates,
+  currentFormations,
+  currentContacts,
+  onConfirm,
+  onCancel,
+}: FormationSelectionDialogProps): JSX.Element {
+  // ---------------------------------------------------------------------------
+  // Checked state: names of candidates the user has selected.
+  // Pre-checked: any candidate whose name is already in the model.
+  // ---------------------------------------------------------------------------
+
+  const currentNameSet = useMemo(
+    () => new Set(currentFormations.map(f => f.name)),
+    [currentFormations],
+  )
+
+  const [checked, setChecked] = useState<ReadonlySet<string>>(() => {
+    // Pre-check candidates that already have a matching formation in the model.
+    // New candidates (not yet in the model) start unchecked — the user must
+    // opt in to adding them, not opt out of deleting things.
+    return new Set(candidates.filter(c => currentNameSet.has(c.name)).map(c => c.name))
+  })
+
+  // ---------------------------------------------------------------------------
+  // Deletion accounting (live — recomputed on every checkbox change).
+  //
+  // Deleted formations: every CURRENT formation whose name is NOT in ``checked``.
+  // This intentionally includes manually-added formations not in the candidate
+  // list (see §10.2 sharp-edge note).
+  // ---------------------------------------------------------------------------
+
+  const { deletedFormationCount, deletedContactCount } = useMemo(() => {
+    const toDelete = currentFormations.filter(f => !checked.has(f.name))
+    const deletedIds = new Set(toDelete.map(f => f.id))
+    return {
+      deletedFormationCount: toDelete.length,
+      deletedContactCount: currentContacts.filter(c =>
+        deletedIds.has(c.formation_id),
+      ).length,
+    }
+  }, [checked, currentFormations, currentContacts])
+
+  const willDelete = deletedFormationCount > 0
+
+  // ---------------------------------------------------------------------------
+  // Toggle helpers
+  // ---------------------------------------------------------------------------
+
+  const toggle = useCallback((name: string) => {
+    setChecked(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }, [])
+
+  const selectAll = useCallback(() => {
+    setChecked(new Set(candidates.map(c => c.name)))
+  }, [candidates])
+
+  const selectNone = useCallback(() => {
+    setChecked(new Set())
+  }, [])
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  return (
+    <Modal
+      open={open}
+      onCancel={onCancel}
+      labelledBy="fill-from-boreholes-title"
+      cardClassName="w-[480px] max-h-[80vh] flex flex-col"
+    >
+      {/* Header */}
+      <div className="px-5 pt-5 pb-3 border-b border-gray-200 dark:border-gray-700">
+        <h2
+          id="fill-from-boreholes-title"
+          className="text-sm font-semibold text-gray-800 dark:text-gray-100"
+        >
+          Fill from boreholes
+        </h2>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Select the formations to include in the model. Unselected formations
+          and their contacts will be permanently deleted.
+        </p>
+      </div>
+
+      {/* Select all / none controls */}
+      <div className="flex justify-end gap-3 px-5 py-2 border-b border-gray-100 dark:border-gray-700">
+        <button
+          type="button"
+          className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+          onClick={selectAll}
+        >
+          Select all
+        </button>
+        <button
+          type="button"
+          className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+          onClick={selectNone}
+        >
+          Select none
+        </button>
+      </div>
+
+      {/* Candidate list — scrollable when tall */}
+      <div className="flex-1 overflow-y-auto px-5 py-2 min-h-0">
+        {candidates.length === 0 ? (
+          <p className="py-4 text-center text-xs text-gray-400 dark:text-gray-500">
+            No stratigraphy candidates found.
+          </p>
+        ) : (
+          <ul className="space-y-1" role="list">
+            {candidates.map(candidate => {
+              const isChecked = checked.has(candidate.name)
+              return (
+                <li key={candidate.name}>
+                  <label className="flex items-start gap-2.5 py-1.5 px-2 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors select-none">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 text-accent focus:ring-accent focus:ring-1 shrink-0"
+                      checked={isChecked}
+                      onChange={() => toggle(candidate.name)}
+                    />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-xs font-medium text-gray-800 dark:text-gray-100 truncate">
+                        {candidate.name}
+                      </span>
+                      <span className="block text-xs text-gray-400 dark:text-gray-500">
+                        found in {candidate.boreholeCount}{' '}
+                        {candidate.boreholeCount === 1 ? 'borehole' : 'boreholes'}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Deletion warning — shown only when at least one formation would be deleted */}
+      {willDelete && (
+        <div className="px-5 py-2 border-t border-red-100 dark:border-red-900 bg-red-50 dark:bg-red-950/40">
+          <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+            {deletedFormationCount} formation{deletedFormationCount === 1 ? '' : 's'} and{' '}
+            {deletedContactCount} contact{deletedContactCount === 1 ? '' : 's'} will be
+            permanently deleted.
+          </p>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700">
+        {/* Cancel has autoFocus when a deletion warning is visible — the safe
+            default for a destructive-confirm modal per docs/ux.md. When no
+            deletions would occur, the confirm button takes focus instead. */}
+        <Button
+          variant="secondary"
+          size="md"
+          onClick={onCancel}
+          // reason: autoFocus on Cancel is the safe default for a destructive
+          // confirm dialog when deletions would occur — the user must actively
+          // choose the destructive action. When willDelete is false (no
+          // deletions), the confirm button is focused instead.
+          // eslint-disable-next-line jsx-a11y/no-autofocus
+          autoFocus={willDelete}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant={willDelete ? 'danger' : 'primary'}
+          size="md"
+          onClick={() => onConfirm(checked)}
+          disabled={checked.size === 0 && currentFormations.length === 0}
+          // reason: autoFocus on the confirm button when no deletions occur —
+          // the action is additive-only and safe to confirm with Enter.
+          // eslint-disable-next-line jsx-a11y/no-autofocus
+          autoFocus={!willDelete}
+        >
+          Apply selection
+        </Button>
+      </div>
+    </Modal>
+  )
+}
