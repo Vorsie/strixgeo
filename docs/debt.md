@@ -532,6 +532,27 @@ buttons on a narrow window, OR when a stage toolbar gains enough
 verbs that it overflows at typical widths. The fix shape is known
 (overflow menu); the trigger is a real width complaint.
 
+## 24. Shared Modal is light-only — every dialog is a white card in dark theme (low — Tier E)
+
+**What.** `components/ui/Modal.tsx` hard-codes `bg-white border-gray-200`
+(not design tokens). In dark theme the backdrop dims correctly but the
+card stays white with gray-800 body text. This affects EVERY modal —
+NewProject, ProjectMetadata, UnsavedChanges, close-project confirm, and
+now the Sections delete confirm. Functionally readable (white card on a
+dimmed backdrop) but visually jarring against the dark hero shell.
+
+**Why deferred.** Pre-existing; not introduced by the Sections-polish
+batch (the delete-confirm just newly *exercises* it). Fixing `Modal.tsx`
+is a single shared change with app-wide blast radius across ~5 dialogs —
+it needs its own focused change + senior-review pass, not a slip-in on
+an unrelated commit.
+
+**When to revisit.** Fold into a "migrate shared ui/* primitives to
+semantic tokens" pass (pairs naturally with the deferred leaf dark-mode
+token migration), or first time the white-card-in-dark is reported as
+jarring during dogfooding. Fix shape: `bg-surface-overlay border-
+border-subtle` + token text colours; verify every dialog in both themes.
+
 ---
 
 ## Historical note — 2026-05-13 security-reviewer audit pass

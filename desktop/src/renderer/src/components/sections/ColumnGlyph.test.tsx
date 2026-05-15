@@ -77,13 +77,18 @@ describe('ColumnGlyph — graceful degrade on missing data', () => {
 describe('ColumnGlyph — tie-back diagonal', () => {
   it('renders no tie-back when tieBackTrueX is null', () => {
     const { container } = renderGlyph({ tieBackTrueX: null })
-    // The tie-back tick is the only ``stroke="#6b7280"`` line.
-    expect(container.querySelector('line[stroke="#6b7280"]')).toBeNull()
+    // The tie-back tick is the only ``stroke="var(--section-column-line)"`` line
+    // (was hard-coded #6b7280 before the dark-theme tokenisation).
+    expect(
+      container.querySelector('line[stroke="var(--section-column-line)"]'),
+    ).toBeNull()
   })
 
   it('renders a tick + diagonal when displaced from its true X', () => {
     const { container } = renderGlyph({ tieBackTrueX: 50, screenX: 100 })
-    const ticks = container.querySelectorAll('line[stroke="#6b7280"]')
+    const ticks = container.querySelectorAll(
+      'line[stroke="var(--section-column-line)"]',
+    )
     // One vertical tick + one diagonal back to the cap.
     expect(ticks.length).toBe(2)
   })

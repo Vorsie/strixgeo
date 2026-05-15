@@ -28,11 +28,13 @@
 
 import type { ColumnLabelMode } from '../../utils/columnLabelLod'
 
-const CPT_COLOR = '#1f2937' // slate-800; deliberate dark so it
-// stays readable over the future DEM hillshade
-const BH_COLOR = '#1f2937'
-const MISSING_ELEV_COLOR = '#9ca3af' // gray-400 — "we don't know
-// where this column belongs on Y" visual
+// Theme-aware via CSS vars (index.css): :root == the prior hard-coded
+// hex (light byte-identical), .dark lifts them off the dark plot bg
+// where #1f2937 was invisible (~1:1). SVG attrs can't use Tailwind dark:.
+const CPT_COLOR = 'var(--section-column-text)'
+const BH_COLOR = 'var(--section-column-text)'
+const MISSING_ELEV_COLOR = 'var(--section-column-missing)' // "we don't
+// know where this column belongs on Y" muted visual
 
 export default function ColumnGlyph({
   name,
@@ -167,7 +169,7 @@ export default function ColumnGlyph({
             x2={tieBackTrueX}
             y1={plotTop}
             y2={plotTop + 5}
-            stroke="#6b7280"
+            stroke="var(--section-column-line)"
             strokeWidth={1.25}
             strokeOpacity={0.8}
           />
@@ -176,7 +178,7 @@ export default function ColumnGlyph({
             x2={sx}
             y1={plotTop + 5}
             y2={clampedTop}
-            stroke="#6b7280"
+            stroke="var(--section-column-line)"
             strokeWidth={1}
             strokeOpacity={0.55}
             strokeDasharray="2 2"
@@ -234,7 +236,7 @@ export default function ColumnGlyph({
                 x={sx}
                 y={sy - 22 - (callout ? 14 : 0)}
                 fontSize={9}
-                fill={elevKnown ? '#1f2937' : '#9ca3af'}
+                fill={elevKnown ? 'var(--section-column-text)' : 'var(--section-column-missing)'}
                 textAnchor="middle"
               >
                 {name}
@@ -245,7 +247,7 @@ export default function ColumnGlyph({
                   x={sx}
                   y={sy - 12 - (callout ? 14 : 0)}
                   fontSize={8}
-                  fill="#6b7280"
+                  fill="var(--section-column-line)"
                   textAnchor="middle"
                 >
                   {`${elevation! >= 0 ? '+' : ''}${elevation!.toFixed(2)} m`}
@@ -265,7 +267,7 @@ export default function ColumnGlyph({
               x={sx}
               y={plotTop - 4}
               fontSize={9}
-              fill={elevKnown ? '#1f2937' : '#9ca3af'}
+              fill={elevKnown ? 'var(--section-column-text)' : 'var(--section-column-missing)'}
               textAnchor="start"
               transform={`rotate(-90, ${sx}, ${plotTop - 4})`}
             >

@@ -74,7 +74,19 @@
   --section-axis-tick:       #6b7280;  /* gray-500   — tick label text       */
   --section-axis-title:      #374151;  /* gray-700   — axis title text       */
   --section-hint-bg:         rgba(255,255,255,0.80); /* hint pill background */
-  --section-hint-text:       #9ca3af;  /* gray-400   — hint text             */
+  /* S1 review: was #9ca3af (~2.5:1 on the white pill) — a pre-existing
+   * WCAG AA fail for this small hint text. ux.md Tier-1 (WCAG AA) is
+   * non-negotiable and overrides byte-identity, so darkened to gray-500
+   * (#6b7280 ≈ 4.6:1). */
+  --section-hint-text:       #6b7280;  /* gray-500   — hint text (AA)        */
+  /* Column-identity chrome — ColumnGlyph renders these as SVG attrs that
+   * can't take Tailwind dark: variants. :root values equal the prior
+   * hard-coded ColumnGlyph constants exactly (light byte-identical);
+   * .dark lifts them off the dark plot bg where #1f2937 was invisible
+   * (~1:1). Column ids are chrome, not domain content (Tier 5). */
+  --section-column-text:     #1f2937;  /* gray-800 — CPT/BH id + known-elev label */
+  --section-column-missing:  #9ca3af;  /* gray-400 — unknown-elevation muted      */
+  --section-column-line:     #6b7280;  /* gray-500 — tie-back stroke + sub-label  */
 
   /* Chart curve colour tokens — light values mirror the existing hard-coded
    * constants in CptChart.tsx exactly so the light theme is byte-identical
@@ -145,7 +157,11 @@
   --section-axis-tick:       #94a3b8;  /* slate-400  — was #6b7280 gray-500  */
   --section-axis-title:      #cbd5e1;  /* slate-300  — was #374151 gray-700  */
   --section-hint-bg:         rgba(15,23,42,0.80);  /* dark pill background   */
-  --section-hint-text:       #64748b;  /* slate-500  — was #9ca3af gray-400  */
+  --section-hint-text:       #94a3b8;  /* slate-400  — ~5.7:1 (AA); was #64748b ~3.6:1 (fail) */
+  /* Dark column-identity chrome — lifts ColumnGlyph off the #1e293b plot. */
+  --section-column-text:     #e2e8f0;  /* slate-200  — ~11.9:1; was #1f2937 (~1:1, invisible) */
+  --section-column-missing:  #94a3b8;  /* slate-400  — ~5.7:1 muted; was #9ca3af              */
+  --section-column-line:     #94a3b8;  /* slate-400  — tie-back + sub-label; was #6b7280       */
 
   /* Chart curve colours — dark hero values.
    *
