@@ -1,5 +1,5 @@
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import { Field } from './Field'
 import { LegendChip } from './LegendChip'
@@ -65,6 +65,52 @@ describe('TrackHeader', () => {
     )
     const txt = container.querySelector('text')!.textContent ?? ''
     expect(txt.endsWith('…')).toBe(true)
+  })
+
+  it('calls onHide when the header is clicked', () => {
+    const onHide = vi.fn()
+    const { container } = render(
+      <svg>
+        <TrackHeader x={0} y={0} width={100} title="Coded lithology" subtitle={null} onHide={onHide} />
+      </svg>,
+    )
+    // The outer <g> is the click target.
+    const g = container.querySelector('g')!
+    fireEvent.click(g)
+    expect(onHide).toHaveBeenCalledOnce()
+  })
+
+  it('sets cursor:pointer on the header group when onHide is provided', () => {
+    const { container } = render(
+      <svg>
+        <TrackHeader x={0} y={0} width={100} title="Coded lithology" subtitle={null} onHide={() => {}} />
+      </svg>,
+    )
+    const g = container.querySelector('g') as SVGGElement
+    expect(g.style.cursor).toBe('pointer')
+  })
+
+  it('does not set cursor:pointer when onHide is absent', () => {
+    const { container } = render(
+      <svg>
+        <TrackHeader x={0} y={0} width={100} title="Coded lithology" subtitle={null} />
+      </svg>,
+    )
+    const g = container.querySelector('g') as SVGGElement
+    // No inline cursor when onHide is not provided.
+    expect(g.style.cursor).toBe('')
+  })
+
+  it('does not call onHide when none supplied (no crash on click)', () => {
+    // Clicking a header without onHide should be a no-op, not a crash.
+    const { container } = render(
+      <svg>
+        <TrackHeader x={0} y={0} width={100} title="Coded lithology" subtitle={null} />
+      </svg>,
+    )
+    const g = container.querySelector('g')!
+    // Should not throw.
+    expect(() => fireEvent.click(g)).not.toThrow()
   })
 })
 
