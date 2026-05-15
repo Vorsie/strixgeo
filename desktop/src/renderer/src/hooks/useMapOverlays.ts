@@ -244,20 +244,12 @@ export function useMapOverlays({
     }
   }, [project?.id, virtueleBoringActiveModels])
 
-  const handleChangeVirtueleBoringPicker = useCallback(
-    async (next: VirtueleBoringPickerPayload): Promise<void> => {
-      const ok = await applyViewStatePatch({ [VIRTUELE_BORING_VIEW_STATE_KEY]: next })
-      if (!ok) {
-        toast('error', 'Could not save the virtuele-boring overlay setting.')
-      }
-    },
-    [applyViewStatePatch],
-  )
-
   // Per-pane visibility — localStorage-backed (per-user UI chrome).
   // Each pane keeps its own boolean so the user can show DOV on the
   // section view while keeping it off in the detail panes, or vice
   // versa. State seeded from localStorage on project change.
+  // Declared before the picker/override handlers so they can close
+  // over projectIdForOverlay and the setShow* setters without TDZ.
   const projectIdForOverlay = project?.id ?? null
   const [showOverlayOnSection, setShowOverlayOnSection] = useState(true)
   const [showOverlayOnCpt, setShowOverlayOnCpt] = useState(false)
@@ -274,11 +266,43 @@ export function useMapOverlays({
     )
   }, [projectIdForOverlay])
 
+  const handleChangeVirtueleBoringPicker = useCallback(
+    async (next: VirtueleBoringPickerPayload): Promise<void> => {
+      const ok = await applyViewStatePatch({ [VIRTUELE_BORING_VIEW_STATE_KEY]: next })
+      if (!ok) {
+        toast('error', 'Could not save the virtuele-boring overlay setting.')
+        return
+      }
+      // Selecting a model in the section picker auto-enables the section
+      // overlay so it renders immediately without a second manual click.
+      // When both slots are cleared (modelA and modelB both null) we leave
+      // visibility unchanged so the user's last explicit hide is preserved.
+      if (next.modelA || next.modelB) {
+        writePaneVisibility(projectIdForOverlay, 'section', true)
+        setShowOverlayOnSection(true)
+      }
+    },
+    // ``toast`` is a hoisted ``function`` declaration in App.tsx body —
+    // stable across renders, omitted from deps to match the convention
+    // used by every other callback there.
+    [applyViewStatePatch, projectIdForOverlay],
+  )
+
   const handleSetOverlayOverride = useCallback(
     (pane: 'cpt' | 'borehole', next: string): void => {
       writePaneModelOverride(projectIdForOverlay, pane, next)
       if (pane === 'cpt') setCptVirtueleBoringOverride(next)
       else setBoreholeVirtueleBoringOverride(next)
+      // Selecting a model auto-enables visibility for that pane so the
+      // overlay renders immediately without a second manual click on the
+      // DOV toggle. The user can still hide it afterward via the toggle.
+      // Clearing the override (next === '') leaves visibility unchanged
+      // so the user's explicit hide decision is preserved.
+      if (next) {
+        writePaneVisibility(projectIdForOverlay, pane, true)
+        if (pane === 'cpt') setShowOverlayOnCpt(true)
+        else setShowOverlayOnBorehole(true)
+      }
     },
     [projectIdForOverlay],
   )
