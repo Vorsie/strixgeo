@@ -1,11 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   makeFixtureBorehole,
   makeFixtureBoreholeWithAdmixtures,
   makeFixtureBoreholeWithEmptySample,
 } from '../test/fixtures/borehole'
+import { BORELOG_HIDDEN_TRACKS_KEY } from '../hooks/useHiddenBoreholeLogTracks'
 import BoreholeLog from './BoreholeLog'
 
 // Behaviour-oriented smoke test for BoreholeLog. The component is
@@ -16,6 +17,12 @@ import BoreholeLog from './BoreholeLog'
 // component renders without throwing for a representative fixture.
 
 describe('BoreholeLog', () => {
+  beforeEach(() => {
+    // Isolate localStorage between tests so hidden-track state from one
+    // test doesn't bleed into the next.
+    localStorage.clear()
+  })
+
   it('renders the borehole header with name and total depth', () => {
     const borehole = makeFixtureBorehole()
     render(<BoreholeLog borehole={borehole} />)
@@ -213,5 +220,112 @@ describe('BoreholeLog', () => {
     render(<BoreholeLog borehole={borehole} />)
 
     expect(screen.getByText('Field log')).toBeInTheDocument()
+  })
+
+  // ------------------------------------------------------------------
+  // Column-toggle feature — click-to-hide + Columns dropdown
+  // ------------------------------------------------------------------
+
+  it('renders the Columns toolbar button', () => {
+    render(<BoreholeLog borehole={makeFixtureBorehole()} />)
+    // The button may read "Columns" or "Columns (N hidden)" — match either.
+    expect(screen.getByTitle('Show or hide borelog columns')).toBeInTheDocument()
+  })
+
+  it('clicking a track header hides that track', () => {
+    render(<BoreholeLog borehole={makeFixtureBorehole()} />)
+
+    // Before hiding: the track header is present. ``getAllByText`` because
+    // "Drill method" also appears in the legend section at the bottom.
+    const allBefore = screen.getAllByText('Drill method')
+    expect(allBefore.length).toBeGreaterThanOrEqual(1)
+
+    // Click the header text — the event bubbles to the <g> onClick.
+    fireEvent.click(allBefore[0])
+
+    // After hiding, the Columns button shows "1 hidden".
+    expect(screen.getByTitle('Show or hide borelog columns').textContent).toMatch(
+      /Columns \(1 hidden\)/,
+    )
+  })
+
+  it('Columns button shows hidden count when a track is hidden', () => {
+    // Pre-seed localStorage so the component mounts with one hidden track.
+    localStorage.setItem(
+      BORELOG_HIDDEN_TRACKS_KEY,
+      JSON.stringify(['drill_method']),
+    )
+    render(<BoreholeLog borehole={makeFixtureBorehole()} />)
+
+    // Button reads "Columns (1 hidden)" when one present track is hidden.
+    expect(screen.getByTitle('Show or hide borelog columns').textContent).toMatch(
+      /Columns \(1 hidden\)/,
+    )
+  })
+
+  it('persists hidden track to localStorage when header clicked', () => {
+    render(<BoreholeLog borehole={makeFixtureBorehole()} />)
+
+    const drillHeader = screen.getAllByText('Drill method')[0]
+    fireEvent.click(drillHeader)
+
+    const stored = JSON.parse(localStorage.getItem(BORELOG_HIDDEN_TRACKS_KEY) ?? '[]') as string[]
+    expect(stored).toContain('drill_method')
+  })
+
+  it('tolerates corrupt localStorage on mount (parse-guard)', () => {
+    localStorage.setItem(BORELOG_HIDDEN_TRACKS_KEY, 'not-valid-json{{')
+    // Should not throw on mount.
+    expect(() => render(<BoreholeLog borehole={makeFixtureBorehole()} />)).not.toThrow()
+  })
+
+  it('tolerates unknown track ids in localStorage (forward-compat)', () => {
+    localStorage.setItem(
+      BORELOG_HIDDEN_TRACKS_KEY,
+      JSON.stringify(['drill_method', 'future_track_from_v2']),
+    )
+    // Should not throw; unknown id is silently ignored.
+    expect(() => render(<BoreholeLog borehole={makeFixtureBorehole()} />)).not.toThrow()
+    // The known id still applies: "1 hidden" visible on the Columns button.
+    expect(screen.getByTitle('Show or hide borelog columns').textContent).toMatch(
+      /Columns \(1 hidden\)/,
+    )
+  })
+
+  it('cannot hide the last visible track (cant-hide-all guard)', () => {
+    // Borehole with only a drill-method track and no other data tracks.
+    // Hiding 'drill_method' would leave the borelog with no tracks — the
+    // guard must prevent it.
+    const borehole = {
+      ...makeFixtureBorehole(),
+      // Strip all observations and samples, keep only drill segments.
+      observations: [],
+      samples: [],
+      field_log_intervals: [],
+    }
+    render(<BoreholeLog borehole={borehole} />)
+
+    // Click the drill-method header — the guard fires.
+    const drillHeader = screen.getAllByText('Drill method')[0]
+    fireEvent.click(drillHeader)
+
+    // Guard prevented the hide: Columns button still shows "Columns"
+    // (no "(N hidden)" suffix), not "Columns (1 hidden)".
+    expect(screen.getByTitle('Show or hide borelog columns').textContent).toMatch(
+      /^Columns$/,
+    )
+  })
+
+  it('depth axis track id is never in the toggleable set', () => {
+    // Structural: the mTAW / depth axis is the spine and cannot be hidden.
+    // Tested here as a guard so a future refactor doesn't accidentally
+    // add it and break the borelog's structural coherence.
+    render(<BoreholeLog borehole={makeFixtureBorehole()} />)
+    // The Columns button must exist, but no checkbox should reference
+    // a "depth" or "mtaw" track. We verify no such element is present.
+    const btn = screen.getByTitle('Show or hide borelog columns')
+    fireEvent.click(btn)
+    // Even with the dropdown open, no "depth axis" label should appear.
+    expect(screen.queryByText(/depth axis/i)).not.toBeInTheDocument()
   })
 })
