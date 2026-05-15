@@ -1,0 +1,330 @@
+// Smoke test for the Sections stage components (SectionsCanvas,
+// SectionsToolbar, SectionsInspector).
+//
+// The App.smoke.test.tsx only mounts App with project=null — it never reaches
+// the loaded-project Sections render (WelcomeScreen appears before AppShell
+// mounts).  This test exercises the three Sections zone components with a
+// stub ShellContext to catch TDZ crashes, missing imports, and render-time
+// throws that the main smoke test cannot reach.
+//
+// Scope: smoke-render only.  Behavioural correctness (does clicking "New"
+// actually create a section?) is covered by integration tests.
+
+import { render, cleanup } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { ShellContext } from '../../ShellContext'
+import type { ShellContextValue } from '../../ShellContext'
+import SectionsCanvas from './SectionsCanvas'
+import SectionsToolbar from './SectionsToolbar'
+import SectionsInspector from './SectionsInspector'
+
+// ---------------------------------------------------------------------------
+// Module-level mocks — keep the component tree from touching the network or
+// Leaflet (Leaflet needs a real DOM; jsdom is incomplete for map rendering).
+// ---------------------------------------------------------------------------
+
+vi.mock('../../../api/client', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
+  return {
+    ...actual,
+    setBaseUrl: vi.fn(),
+    api: {
+      geology: {
+        validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+      },
+      virtueleBoring: {
+        getModels: vi.fn().mockResolvedValue([]),
+      },
+    },
+  }
+})
+
+// MapView imports Leaflet which crashes in jsdom.  Replace with a null render.
+vi.mock('../../../components/MapView', () => ({
+  default: () => null,
+}))
+
+// SectionPanel is a complex component with its own data-fetch hook.
+// Replace with a null render to keep the smoke test focused on the
+// SectionsCanvas wiring, not SectionPanel's internal behaviour.
+vi.mock('../../../components/SectionPanel', () => ({
+  default: () => null,
+}))
+
+// VirtueleBoringStrip fetches the catalog on mount — stub it.
+vi.mock('../../../components/sections/VirtueleBoringStrip', () => ({
+  default: () => null,
+}))
+
+// ---------------------------------------------------------------------------
+// Minimal ShellContext stub — all leaf values needed to render the three
+// Sections stage components without throwing.  Optional / unused slices
+// default to stable empty values so any future useShell() read in a
+// newly-added component doesn't need a stub update.
+// ---------------------------------------------------------------------------
+
+const noopAsync = (): Promise<void> => Promise.resolve()
+const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
+
+function makeStubContext(): ShellContextValue {
+  return {
+    project: {
+      id: 'proj-1',
+      name: 'Test Project',
+      project_number: null,
+      client: null,
+      site_label: null,
+      description: null,
+      tags: [],
+      default_horizontal_epsg: 31370,
+      default_vertical_epsg: 5710,
+      phase: 'design',
+      status: 'active',
+      view_state: {},
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      archived_at: null,
+    },
+    lifecycle: {
+      projectDirty: false,
+      newProjectOpen: false,
+      setNewProjectOpen: vi.fn(),
+      metadataEditorOpen: false,
+      setMetadataEditorOpen: vi.fn(),
+      closeConfirmOpen: false,
+      setCloseConfirmOpen: vi.fn(),
+      unsavedDialogOpen: false,
+      unsavedSaving: false,
+      saveProject: () => Promise.resolve(true),
+      discardSessionImports: vi.fn(),
+      handleSidebarCloseRequest: vi.fn(),
+      handleUnsavedSave: noopAsync,
+      handleUnsavedDiscard: vi.fn(),
+      handleUnsavedCancel: vi.fn(),
+    },
+    investigations: {
+      cpts: [],
+      boreholes: [],
+      detailMap: new Map(),
+      plotMap: new Map(),
+      boreholeDetailMap: new Map(),
+      importing: false,
+      dovImporting: false,
+      bboxImportType: null,
+      removedCptIds: new Set(),
+      removedBoreholeIds: new Set(),
+      refreshList: noopAsync,
+      refreshBoreholeList: noopAsync,
+      loadCptDetail: noopAsync,
+      loadChart: noopAsync,
+      loadBoreholeDetail: noopAsync,
+      cancelBboxDraw: vi.fn(),
+      unhideCpts: vi.fn(),
+      unhideBoreholes: vi.fn(),
+      handleRemoveCpts: vi.fn(),
+      handleRemoveBoreholes: vi.fn(),
+      handleRestoreAllCpts: vi.fn(),
+      handleRestoreAllBoreholes: vi.fn(),
+      handlePatchCptElevation: noopAsync,
+      handlePatchBoreholeElevation: noopAsync,
+      handleImportCpt: noopAsync,
+      handleImportDov: vi.fn(),
+      handleImportBoreholeDov: vi.fn(),
+      handleBboxDrawn: noopAsync,
+    },
+    visibleCpts: [],
+    visibleBoreholes: [],
+    geoModel: {
+      activeGeologicalModel: null,
+      formations: [],
+      formationsRefreshCounter: 0,
+      contacts: [],
+      surfacesByFormationId: new Map(),
+      crossingsRefreshCounter: 0,
+      staleSurfaceCount: 0,
+      handleFormationCreated: vi.fn(),
+      handleFormationUpdated: vi.fn(),
+      handleFormationDeleted: vi.fn(),
+      handleInlineCreateFormation: noopAsyncNull,
+      refetchFormations: vi.fn(),
+      handleCreateContact: noopAsync,
+      handleUpdateContactDepth: noopAsync,
+      handleBatchCreateContacts: noopAsync,
+      handleBatchUpdateContacts: noopAsync,
+      handleDeleteContact: noopAsync,
+      handleAutoPopulateFromStratigraphy: noopAsync,
+      handleDedupeContacts: () => Promise.resolve(0),
+      handleRebuildSurfaces: noopAsync,
+      handleExportModelPlaxis3d: noopAsync,
+      handleToggleBoreholeInModel: noopAsync,
+      discardContacts: vi.fn(),
+    },
+    sections: {
+      sections: [],
+      selectedSectionId: null,
+      drawingSection: false,
+      focusedContactIds: [],
+      visibleSections: [],
+      refreshSectionList: noopAsync,
+      clearSectionSelection: vi.fn(),
+      handleSectionCreated: vi.fn(),
+      handleSectionDeleted: vi.fn(),
+      handleCreateSection: noopAsyncNull,
+      cancelSectionDraw: vi.fn(),
+      handleSectionLineDrawn: noopAsync,
+      handleDeleteSection: noopAsync,
+      handlePatchSelectedSection: noopAsync,
+      handleSelectSection: vi.fn(),
+      handleFocusContacts: vi.fn(),
+    },
+    overlays: {
+      demSource: null,
+      demOverlay: { enabled: false, opacity: 0.6 },
+      handleDemOverlayChange: noopAsync,
+      virtueleBoringOverlay: { modelA: null, modelB: null, maxDepthM: null },
+      virtueleBoringSectionModels: [],
+      virtueleBoringPredictions: [],
+      virtueleBoringLoading: false,
+      virtueleBoringSkippedCount: 0,
+      virtueleBoringPredictionByInvestigationId: new Map(),
+      cptEffectiveModels: [],
+      boreholeEffectiveModels: [],
+      showOverlayOnSection: false,
+      showOverlayOnCpt: false,
+      showOverlayOnBorehole: false,
+      cptVirtueleBoringOverride: '',
+      boreholeVirtueleBoringOverride: '',
+      handleChangeVirtueleBoringPicker: noopAsync,
+      handleSetShowOverlay: vi.fn(),
+      handleSetOverlayOverride: vi.fn(),
+    },
+    toasts: {
+      toasts: [],
+      toast: vi.fn(),
+    },
+    undo: {
+      push: vi.fn(),
+      undo: noopAsync,
+      redo: noopAsync,
+      clear: vi.fn(),
+      canUndo: false,
+      canRedo: false,
+      busy: false,
+    },
+    boot: { ready: true, apiError: false },
+    mapState: {
+      hiddenCptTypes: new Set(),
+      hiddenBoreholeValues: { drill_method: new Set<string>(), borehole_type: new Set<string>() },
+      boreholeAxis: 'drill_method',
+      viewportBounds: null,
+      mapCameraRef: { current: null },
+      handleToggleCptType: vi.fn(),
+      handleToggleBoreholeValue: vi.fn(),
+      setBoreholeAxis: vi.fn(),
+      handleViewportChange: vi.fn(),
+      handleMapCameraChange: vi.fn(),
+    },
+    coordinator: {
+      selectedId: null,
+      selectedBoreholeId: null,
+      setSelectedId: vi.fn(),
+      setSelectedBoreholeId: vi.fn(),
+      view: 'map',
+      setView: vi.fn(),
+      handleSelect: noopAsync,
+      handleSelectBorehole: noopAsync,
+      handleExportSectionDxf: noopAsync,
+      outOfViewportCptIds: new Set(),
+      outOfViewportBoreholeIds: new Set(),
+      projectFilePath: null,
+      manifestFormationIds: new Set(),
+      sessionImportCptIds: new Set(),
+      sessionImportBoreholeIds: new Set(),
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
+beforeEach(() => {
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+})
+
+afterEach(() => {
+  cleanup()
+  consoleErrorSpy.mockRestore()
+  vi.restoreAllMocks()
+})
+
+describe('Sections stage (smoke)', () => {
+  it('SectionsCanvas renders without throwing when no section is selected', () => {
+    const ctx = makeStubContext()
+    // selectedSectionId = null → map fallback branch (MapView is mocked)
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('SectionsCanvas renders without throwing when a section is selected', () => {
+    const ctx = makeStubContext()
+    const section = {
+      id: 'sec-1',
+      app_project_id: 'proj-1',
+      name: 'Section A-A',
+      description: null,
+      start_x: 0,
+      start_y: 0,
+      end_x: 100,
+      end_y: 0,
+      epsg: 31370,
+      projection_buffer_m: 50,
+      vertical_exaggeration: 2,
+      excluded_borehole_ids: [],
+      excluded_cpt_ids: [],
+      min_depth_m: null,
+      max_depth_m: null,
+      display_order: 0,
+      view_state: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    ctx.sections.sections = [section]
+    ctx.sections.selectedSectionId = 'sec-1'
+    // SectionPanel is mocked — the render path just confirms the
+    // selectedSection branch reaches SectionPanel without throwing.
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('SectionsToolbar renders without throwing', () => {
+    const ctx = makeStubContext()
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsToolbar />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('SectionsInspector renders without throwing', () => {
+    const ctx = makeStubContext()
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsInspector />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+})
