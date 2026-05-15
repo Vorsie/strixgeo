@@ -49,7 +49,6 @@ export default function SectionsInspector(): JSX.Element {
     sections: {
       sections,
       selectedSectionId,
-      visibleSections,
       handleSelectSection,
       handleCreateSection,
       handleDeleteSection,
@@ -99,11 +98,13 @@ export default function SectionsInspector(): JSX.Element {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* ------------------------------------------------------------------ */}
-      {/* Section list                                                        */}
+      {/* Section list — uses ALL sections, not the manifest-gated           */}
+      {/* visibleSections, so newly-drawn sections appear immediately in     */}
+      {/* the list without waiting for the next File → Save round-trip.     */}
       {/* ------------------------------------------------------------------ */}
-      <InspectorSection label="Cross-sections" count={visibleSections.length}>
+      <InspectorSection label="Cross-sections" count={sections.length}>
         <SectionList
-          sections={visibleSections}
+          sections={sections}
           selectedId={selectedSectionId}
           onSelect={handleSelectSection}
           onCreate={handleCreateSection}
