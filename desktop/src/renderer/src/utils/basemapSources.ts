@@ -14,17 +14,41 @@
 //   convention — {z}/{y}/{x} is the correct template for all
 //   ArcGIS MapServer endpoints.
 //
+// - Geopunt WMTS (geo.api.vlaanderen.be) uses KVP syntax with
+//   GoogleMapsVL as the EPSG:3857 TileMatrixSet. Tile ordering is
+//   standard Leaflet {z}/{x}/{y} via the KVP TILEROW/TILECOL params.
+//   Endpoints and layer ids verified 2026-05-15 against live
+//   GetCapabilities + a confirmed GetTile HTTP 200 response.
+//
 // - The basemap choice is fully decoupled from the application theme.
-//   Dark mode does NOT auto-switch the basemap; the user selects
-//   explicitly. This avoids the "I didn't ask for a dark map" owner
-//   feedback from the S4 dark pass (2026-05-15).
+//   Dark mode does NOT auto-switch the basemap after the user's first
+//   explicit pick. FIRST-RUN ONLY: when no persisted value exists,
+//   readBasemapId() seeds dark theme → geopunt_hybrid, light → osm.
+//   This seeding happens once in the useState() initializer in MapView
+//   and is never re-evaluated on theme toggle (which would reintroduce
+//   the "shiver" where theme change forces a TileLayer key change).
 //
 // - Persistence key: ``groundmodel.map.basemap`` in localStorage.
 //   UI chrome only — NOT the .gmproj bundle (docs/ux.md: per-user
 //   UI chrome lives in localStorage, not the bundle).
 
 /** Stable string identifier for a basemap choice. */
-export type BasemapId = 'osm' | 'carto_voyager' | 'esri_satellite' | 'carto_dark' | 'esri_world_topo'
+export type BasemapId =
+  | 'osm'
+  | 'carto_voyager'
+  | 'esri_satellite'
+  | 'carto_dark'
+  | 'esri_world_topo'
+  | 'geopunt_ortho'
+  | 'geopunt_hybrid'
+
+/** Optional transparent overlay rendered above the opaque base tile layer. */
+export interface BasemapOverlay {
+  /** Leaflet URL template for the overlay layer. */
+  url: string
+  /** Attribution HTML for the overlay. */
+  attribution: string
+}
 
 /** Full descriptor for one basemap tile provider. */
 export interface BasemapSource {
@@ -32,7 +56,7 @@ export interface BasemapSource {
   id: BasemapId
   /** Human-readable name shown in the UI dropdown. */
   label: string
-  /** Leaflet URL template. */
+  /** Leaflet URL template for the opaque base layer. */
   url: string
   /** Attribution HTML injected into the Leaflet attribution control. */
   attribution: string
@@ -41,7 +65,47 @@ export interface BasemapSource {
   /** Approximate background colour while tiles load. Keeps the
    * transition from blank-canvas to tiled map less jarring. */
   loadingBg: string
+  /**
+   * Optional transparent overlay rendered above the base tile layer.
+   *
+   * Used for hybrid basemaps (e.g. Geopunt Luchtfoto + GRB-selectie)
+   * where a reference/line layer is composited over an orthophoto base.
+   * The overlay tile URL must serve RGBA PNG so transparency works.
+   */
+  overlay?: BasemapOverlay
 }
+
+// ---------------------------------------------------------------------------
+// Geopunt WMTS tile URL builder
+//
+// Verified endpoints (2026-05-15):
+//   GetCapabilities: https://geo.api.vlaanderen.be/OMWRGBMRVL/wmts?service=WMTS&request=GetCapabilities
+//   GetCapabilities: https://geo.api.vlaanderen.be/GRB/wmts?service=WMTS&request=GetCapabilities
+//   TileMatrixSet: GoogleMapsVL (EPSG:3857, BoundingBox crs="EPSG:3857")
+//   Sample tile HTTP 200 confirmed: TILEMATRIX=7&TILEROW=43&TILECOL=66, RGBA PNG
+//
+// Layer ids from GetCapabilities:
+//   omwrgbmrvl  — orthophoto mosaic (most-recent mid-scale RGB, winter)
+//   grb_sel     — GRB selectie reference overlay (transparent RGBA PNG)
+//
+// Style: empty string (isDefault="true" with empty Identifier in capabilities)
+// ---------------------------------------------------------------------------
+
+const GEOPUNT_ORTHO_URL =
+  'https://geo.api.vlaanderen.be/OMWRGBMRVL/wmts?' +
+  'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+  '&LAYER=omwrgbmrvl&STYLE=&TILEMATRIXSET=GoogleMapsVL' +
+  '&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png'
+
+const GEOPUNT_GRB_SEL_URL =
+  'https://geo.api.vlaanderen.be/GRB/wmts?' +
+  'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+  '&LAYER=grb_sel&STYLE=&TILEMATRIXSET=GoogleMapsVL' +
+  '&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png'
+
+const GEOPUNT_ATTRIBUTION =
+  '&copy; <a href="https://www.vlaanderen.be/digitaal-vlaanderen">Digitaal Vlaanderen</a> / ' +
+  '<a href="https://www.geopunt.be">Geopunt</a>'
 
 /** All supported basemap providers, in display order. */
 export const BASEMAP_SOURCES: readonly BasemapSource[] = [
@@ -70,8 +134,7 @@ export const BASEMAP_SOURCES: readonly BasemapSource[] = [
     label: 'Satellite (Esri)',
     // Esri MapServer REST: tile order is {z}/{y}/{x}, not {z}/{x}/{y}.
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution:
-      'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
     loadingBg: '#2a2a2a',
   },
   {
@@ -86,18 +149,37 @@ export const BASEMAP_SOURCES: readonly BasemapSource[] = [
   },
   {
     // Esri World Topo is included here so it participates in the same
-    // single "active base layer" model as all other basemaps. The
-    // terrain dropdown surfaces a shortcut to this entry (under
-    // "Terrain" for discoverability). When selected via either route
-    // it becomes the active basemap — no parallel state to keep in sync.
-    //
+    // single "active base layer" model as all other basemaps.
     // Esri MapServer REST tile order: {z}/{y}/{x} (NOT {z}/{x}/{y}).
     id: 'esri_world_topo',
     label: 'World Topo (Esri)',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-    attribution:
-      'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
     loadingBg: '#e8e4d9',
+  },
+  {
+    // Flemish orthophoto mosaic — most-recent mid-scale winterflight RGB.
+    // Verified 2026-05-15: WMTS GetCapabilities + sample tile HTTP 200 RGBA PNG.
+    // Coverage: Flanders only; outside Flanders tiles are blank (no error).
+    id: 'geopunt_ortho',
+    label: 'Luchtfoto (Geopunt)',
+    url: GEOPUNT_ORTHO_URL,
+    attribution: GEOPUNT_ATTRIBUTION,
+    loadingBg: '#1a1a1a',
+  },
+  {
+    // Hybrid: Flemish orthophoto + GRB-selectie reference overlay.
+    // The GRB-selectie layer (grb_sel) serves transparent RGBA PNG so it
+    // composites cleanly over the opaque orthophoto base. Verified 2026-05-15.
+    id: 'geopunt_hybrid',
+    label: 'Luchtfoto + GRB (Geopunt)',
+    url: GEOPUNT_ORTHO_URL,
+    attribution: GEOPUNT_ATTRIBUTION,
+    loadingBg: '#1a1a1a',
+    overlay: {
+      url: GEOPUNT_GRB_SEL_URL,
+      attribution: GEOPUNT_ATTRIBUTION,
+    },
   },
 ]
 
@@ -107,28 +189,44 @@ export function basemapById(id: string): BasemapSource | undefined {
 }
 
 const STORAGE_KEY = 'groundmodel.map.basemap'
-const DEFAULT_BASEMAP_ID: BasemapId = 'osm'
+const DEFAULT_BASEMAP_ID_LIGHT: BasemapId = 'osm'
+const DEFAULT_BASEMAP_ID_DARK: BasemapId = 'geopunt_hybrid'
 
 /**
  * Read the persisted basemap id from localStorage.
  *
- * Returns the default (``'osm'``) when localStorage is unavailable
- * or the stored value is not a known id.
+ * When a value is already persisted the theme parameter is ignored — the
+ * user's explicit choice always wins. The theme is only consulted on first
+ * run (no stored value) to pick a sensible default: dark theme gets the
+ * Geopunt hybrid, light theme gets OSM.
+ *
+ * IMPORTANT: this function is designed to be called ONCE as the lazy
+ * ``useState`` initializer inside MapView. Do NOT call it in the render
+ * path or on theme change — doing so would re-couple the basemap to the
+ * theme and reintroduce the tile-layer key-change "shiver" that was fixed
+ * in the S4 dark pass.
+ *
+ * Parameters
+ * ----------
+ * isDark
+ *     Whether the resolved theme is currently dark. Only used when no
+ *     persisted value is found. Defaults to ``false`` (light theme fallback
+ *     when called without arguments, e.g. in tests / SSR).
  *
  * Returns
  * -------
  * BasemapId
- *     The persisted or default basemap id.
+ *     The persisted basemap id, or the theme-appropriate first-run default.
  */
-export function readBasemapId(): BasemapId {
-  if (typeof window === 'undefined') return DEFAULT_BASEMAP_ID
+export function readBasemapId(isDark = false): BasemapId {
+  if (typeof window === 'undefined') return DEFAULT_BASEMAP_ID_LIGHT
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw && BASEMAP_SOURCES.some(b => b.id === raw)) return raw as BasemapId
   } catch {
     // localStorage unavailable (quota / private mode) — fall through.
   }
-  return DEFAULT_BASEMAP_ID
+  return isDark ? DEFAULT_BASEMAP_ID_DARK : DEFAULT_BASEMAP_ID_LIGHT
 }
 
 /**
