@@ -43,13 +43,15 @@ export function ObservationTrack({
 
   return (
     <g>
+      {/* Background rect — CSS var so the track is visible against the
+          dark canvas surface (index.css --borelog-track-bg). */}
       <rect
         x={x}
         y={y}
         width={width}
         height={totalDepth * PX_PER_M}
-        fill="#ffffff"
-        stroke="#e5e7eb"
+        fill="var(--borelog-track-bg)"
+        stroke="var(--borelog-track-header-border)"
         strokeWidth={0.5}
       />
       {observation.layers.map(layer => (
@@ -102,7 +104,10 @@ function ObservationLayerBlock({
   const top = y + layer.top_m * PX_PER_M
   const height = (layer.base_m - layer.top_m) * PX_PER_M
   const primary = layer.main_soil_codes[0] ?? null
-  const fillUrl = cardStyle ? '#f8fafc' : getSoilFillUrl(primary)
+  // Card style uses a CSS var so the background is visible in dark theme.
+  // Soil pattern fills (lithology / stratigraphy) come from getSoilFillUrl —
+  // those are domain patterns (ISO 14688-1) and their hues must not change.
+  const fillUrl = cardStyle ? 'var(--borelog-card-bg)' : getSoilFillUrl(primary)
 
   const stratLabel = isStratigraphy && layer.description ? layer.description : null
   const lithoBadge = !cardStyle && primary ? primary : null
@@ -164,20 +169,22 @@ function ObservationLayerBlock({
           maxHeight={height - 4}
           fontSize={11}
           fontWeight={600}
-          fill="#1f2937"
+          fill="var(--borelog-layer-text)"
         />
       )}
 
       {lithoBadge && height >= 14 && (
         <g>
+          {/* Pill badge behind the litho code — CSS vars so the badge
+              remains legible on both the domain soil-pattern fill (light)
+              and the dark track background. */}
           <rect
             x={x + 2}
             y={top + 2}
             width={Math.min(mainWidth - 4, 18 + lithoBadge.length * 6)}
             height={12}
             rx={1}
-            fill="white"
-            opacity={0.85}
+            fill="var(--borelog-badge-bg)"
           />
           <text
             x={x + 5}
@@ -185,7 +192,7 @@ function ObservationLayerBlock({
             fontSize={9}
             fontWeight={600}
             fontFamily="monospace"
-            fill="#1f2937"
+            fill="var(--borelog-badge-text)"
           >
             {lithoBadge}
             {lithoSecondary ? ` + ${lithoSecondary}` : ''}
@@ -203,7 +210,7 @@ function ObservationLayerBlock({
       )}
 
       {cardLabel && height >= 14 && (
-        <text x={x + 4} y={top + 12} fontSize={9} fill="#374151">
+        <text x={x + 4} y={top + 12} fontSize={9} fill="var(--borelog-layer-text)">
           {truncate(cardLabel, Math.floor(width / 5))}
         </text>
       )}
@@ -213,7 +220,7 @@ function ObservationLayerBlock({
         y={top + 8}
         textAnchor="end"
         fontSize={8}
-        fill="#6b7280"
+        fill="var(--borelog-layer-depth)"
         fontFamily="monospace"
       >
         {layer.top_m.toFixed(2)}
@@ -224,7 +231,7 @@ function ObservationLayerBlock({
           y={top + height - 3}
           textAnchor="end"
           fontSize={8}
-          fill="#6b7280"
+          fill="var(--borelog-layer-depth)"
           fontFamily="monospace"
         >
           {layer.base_m.toFixed(2)}

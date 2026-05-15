@@ -61,17 +61,19 @@ export function AdmixtureChips({
         cursor += chip.width
         return (
           <g key={i}>
+            {/* Swatch: domain soil-colour fill (soilStyle — must not change).
+                Border and label text use CSS vars so they stay legible on dark. */}
             <rect
               x={cx}
               y={y + 1}
               width={SWATCH}
               height={SWATCH}
               fill={chip.fill}
-              stroke="#374151"
+              stroke="var(--borelog-text-primary)"
               strokeWidth={0.4}
               rx={1}
             />
-            <text x={cx + SWATCH + 2} y={y + 8} fontSize={9} fill="#1f2937">
+            <text x={cx + SWATCH + 2} y={y + 8} fontSize={9} fill="var(--borelog-badge-text)">
               {chip.label}
             </text>
           </g>
@@ -82,7 +84,7 @@ export function AdmixtureChips({
           x={x + cursor}
           y={y + 8}
           fontSize={9}
-          fill="#6b7280"
+          fill="var(--borelog-text-muted)"
           fontStyle="italic"
         >
           +{dropped}

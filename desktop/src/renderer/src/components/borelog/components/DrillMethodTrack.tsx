@@ -28,13 +28,15 @@ export function DrillMethodTrack({
   const PX_PER_M = usePxPerM()
   return (
     <g>
+      {/* Background rect — CSS var so the track is visible against the
+          dark canvas surface (index.css --borelog-track-bg). */}
       <rect
         x={x}
         y={y}
         width={width}
         height={totalDepth * PX_PER_M}
-        fill="#ffffff"
-        stroke="#e5e7eb"
+        fill="var(--borelog-track-bg)"
+        stroke="var(--borelog-track-header-border)"
         strokeWidth={0.5}
       />
       {segments.map(seg => {
@@ -56,6 +58,12 @@ export function DrillMethodTrack({
               strokeWidth={0.4}
             />
             {height >= 14 && (
+              // Text rendered on top of the domain drill-method fill colour.
+              // #1f2937 (near-black) is legible on the mid-saturation curated
+              // fills in light theme; on dark theme the fills are unchanged
+              // but near-black text on them still reads well because the fills
+              // are not dark. The badge-text token is lighter, intended for
+              // pill-on-dark-bg — not applicable here; keep near-black.
               <text
                 x={x + width / 2}
                 y={top + height / 2 + 3}

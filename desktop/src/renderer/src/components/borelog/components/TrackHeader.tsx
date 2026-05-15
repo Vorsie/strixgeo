@@ -31,20 +31,23 @@ export function TrackHeader({
 }): ReactElement {
   return (
     <g>
+      {/* fill / stroke use CSS custom properties so TrackHeader is legible
+          in both light and dark themes without prop drilling the theme down
+          into every SVG sub-component. Vars defined in index.css. */}
       <rect
         x={x}
         y={y}
         width={width}
         height={HEADER_HEIGHT}
-        fill="#fafafa"
-        stroke="#e5e7eb"
+        fill="var(--borelog-track-header-bg)"
+        stroke="var(--borelog-track-header-border)"
         strokeWidth={0.5}
       />
-      <text x={x + 4} y={y + 14} fontSize={10} fontWeight={600} fill="#374151">
+      <text x={x + 4} y={y + 14} fontSize={10} fontWeight={600} fill="var(--borelog-text-primary)">
         {truncate(title, 22)}
       </text>
       {subtitle && (
-        <text x={x + 4} y={y + 28} fontSize={9} fill="#9ca3af">
+        <text x={x + 4} y={y + 28} fontSize={9} fill="var(--borelog-text-muted)">
           {truncate(subtitle, 26)}
         </text>
       )}

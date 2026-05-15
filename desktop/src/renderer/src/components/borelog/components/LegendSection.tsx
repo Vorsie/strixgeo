@@ -18,7 +18,7 @@ export function LegendSection({
 }): ReactElement {
   return (
     <div className="flex flex-col gap-1">
-      <div className="text-[9px] uppercase tracking-wide text-gray-400">{title}</div>
+      <div className="text-[9px] uppercase tracking-wide text-gray-400 dark:text-slate-500">{title}</div>
       <div className="flex flex-wrap gap-x-3 gap-y-1">{children}</div>
     </div>
   )

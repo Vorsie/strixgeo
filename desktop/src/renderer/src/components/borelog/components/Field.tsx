@@ -29,12 +29,12 @@ export function Field({
 }): ReactElement {
   return (
     <div className="flex flex-col leading-tight">
-      <span className="text-[9px] uppercase tracking-wide text-gray-400">{label}</span>
+      <span className="text-[9px] uppercase tracking-wide text-gray-400 dark:text-slate-500">{label}</span>
       <span
         className={[
-          'text-gray-700',
+          'text-gray-700 dark:text-slate-200',
           bold ? 'font-semibold' : '',
-          warn ? 'text-amber-600 italic' : '',
+          warn ? 'text-amber-600 dark:text-amber-400 italic' : '',
         ].join(' ')}
       >
         {value}

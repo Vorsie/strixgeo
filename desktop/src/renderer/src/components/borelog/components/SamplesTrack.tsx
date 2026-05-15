@@ -62,8 +62,9 @@ export function SamplesTrack({
                 y={top - 2}
                 width={width - 2}
                 height={Math.max(bottom - top, 12) + 4}
-                fill="#dbeafe"
-                stroke="#3b82f6"
+                // CSS var: light = blue-100 (#dbeafe), dark = blue-900/40.
+                fill="var(--borelog-sample-selected-bg)"
+                stroke="var(--borelog-sample-selected-border)"
                 strokeWidth={1}
                 rx={2}
               />
@@ -75,23 +76,23 @@ export function SamplesTrack({
                 y={top}
                 width={4}
                 height={bottom - top}
-                fill="#374151"
+                fill="var(--borelog-text-primary)"
                 rx={1}
               />
             ) : (
-              <circle cx={x + 10} cy={mid} r={4} fill="#374151" />
+              <circle cx={x + 10} cy={mid} r={4} fill="var(--borelog-text-primary)" />
             )}
 
-            <text x={x + 18} y={mid + 3} fontSize={10} fill="#1f2937">
+            <text x={x + 18} y={mid + 3} fontSize={10} fill="var(--borelog-badge-text)">
               {sample.sample_number ?? '#?'}
             </text>
             {hasAnyTest && (
-              <text x={x + 50} y={mid + 4} fontSize={11} fill="#1f2937">
+              <text x={x + 50} y={mid + 4} fontSize={11} fill="var(--borelog-badge-text)">
                 {tests.map(t => t.symbol).join(' ')}
               </text>
             )}
             {!hasAnyTest && (
-              <text x={x + 50} y={mid + 3} fontSize={9} fill="#9ca3af" fontStyle="italic">
+              <text x={x + 50} y={mid + 3} fontSize={9} fill="var(--borelog-text-muted)" fontStyle="italic">
                 no tests
               </text>
             )}

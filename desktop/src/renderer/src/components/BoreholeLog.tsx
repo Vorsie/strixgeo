@@ -211,16 +211,16 @@ export default function BoreholeLog({
 
   return (
     <PxPerMContext.Provider value={pxPerM}>
-    <div className="flex flex-col h-full overflow-hidden bg-white">
+    <div className="flex flex-col h-full overflow-hidden bg-white dark:bg-slate-900">
       <BoreholeHeader borehole={borehole} onElevationChange={onElevationChange} />
 
       {/* Toolbar above the canvas — currently zoom controls only. */}
-      <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-100 bg-gray-50 text-[11px]">
+      <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-[11px]">
         <button
           onClick={zoomOut}
           disabled={zoomFactor <= ZOOM_MIN + 1e-6}
           title="Zoom out (vertical scale)"
-          className="p-1 rounded hover:bg-gray-200 text-gray-600 disabled:text-gray-300 disabled:cursor-not-allowed"
+          className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 disabled:text-gray-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed"
         >
           <ZoomOut size={13} />
         </button>
@@ -228,7 +228,7 @@ export default function BoreholeLog({
           onClick={zoomIn}
           disabled={zoomFactor >= ZOOM_MAX - 1e-6}
           title="Zoom in (vertical scale)"
-          className="p-1 rounded hover:bg-gray-200 text-gray-600 disabled:text-gray-300 disabled:cursor-not-allowed"
+          className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 disabled:text-gray-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed"
         >
           <ZoomIn size={13} />
         </button>
@@ -236,11 +236,11 @@ export default function BoreholeLog({
           onClick={zoomReset}
           disabled={Math.abs(zoomFactor - 1) < 1e-6}
           title="Reset zoom to 1×"
-          className="p-1 rounded hover:bg-gray-200 text-gray-600 disabled:text-gray-300 disabled:cursor-not-allowed"
+          className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 disabled:text-gray-300 dark:disabled:text-slate-600 disabled:cursor-not-allowed"
         >
           <Maximize2 size={13} />
         </button>
-        <span className="text-gray-400 ml-1 tabular-nums">
+        <span className="text-gray-400 dark:text-slate-500 ml-1 tabular-nums">
           {(zoomFactor * 100).toFixed(0)}%
         </span>
         {/* DOV overlay toggle + override picker. The button flips
@@ -264,10 +264,10 @@ export default function BoreholeLog({
               className={
                 'flex items-center gap-1 px-2 h-6 rounded border text-[10px] transition-colors ' +
                 (virtueleBoringActiveModels.length === 0
-                  ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                  ? 'border-gray-200 dark:border-slate-600 text-gray-300 dark:text-slate-600 cursor-not-allowed'
                   : virtueleBoringVisible
                     ? 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
-                    : 'border-gray-200 text-gray-500 hover:bg-gray-100')
+                    : 'border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700')
               }
             >
               <Database size={11} />
@@ -280,7 +280,7 @@ export default function BoreholeLog({
                 disabled={virtueleBoringCatalog === null}
                 title="Override which DOV model this pane shows"
                 aria-label="DOV overlay model for this pane"
-                className="h-6 px-1 border border-gray-200 rounded text-[10px] bg-white text-gray-700 max-w-[160px]"
+                className="h-6 px-1 border border-gray-200 dark:border-slate-600 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 max-w-[160px]"
               >
                 <option value="">Follow section</option>
                 {(virtueleBoringCatalog ?? []).map(entry => (

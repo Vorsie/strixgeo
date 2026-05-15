@@ -28,7 +28,7 @@ export function BoreholeHeader({
   const zDatumShort = verticalDatumShort(borehole.z_epsg)
   const zLabel = zDatumShort ? `Z (${zDatumShort})` : 'Z'
   return (
-    <div className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-2 border-b border-gray-200 bg-gray-50 text-[11px] shrink-0">
+    <div className="flex flex-wrap gap-x-6 gap-y-1 px-4 py-2 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-[11px] shrink-0">
       <Field label="Boring" value={borehole.name} bold />
       <Field
         label="X / Y"

@@ -69,7 +69,7 @@ export function Legend({
   }
 
   return (
-    <div className="border-t border-gray-200 bg-gray-50 px-4 py-2 text-[11px] flex flex-wrap gap-x-6 gap-y-2 shrink-0">
+    <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 px-4 py-2 text-[11px] flex flex-wrap gap-x-6 gap-y-2 shrink-0">
       {soilCodes.size > 0 && (
         <LegendSection title="Lithology codes">
           {[...soilCodes].sort().map(code => {
@@ -120,7 +120,7 @@ export function Legend({
                 label={s.label}
                 preview={
                   <span
-                    className="inline-block w-3.5 h-3.5 border border-gray-300 rounded-sm"
+                    className="inline-block w-3.5 h-3.5 border border-gray-300 dark:border-slate-500 rounded-sm"
                     style={{ backgroundColor: s.fill }}
                   />
                 }
@@ -133,19 +133,19 @@ export function Legend({
       {testIcons.length > 0 && (
         <LegendSection title="Lab tests">
           {testIcons.map(t => (
-            <span key={t.label} className="flex items-center gap-1.5 text-gray-700">
+            <span key={t.label} className="flex items-center gap-1.5 text-gray-700 dark:text-slate-200">
               <span className="text-base leading-none" style={{ color: t.color }}>
                 {t.symbol}
               </span>
               <span>{t.label}</span>
             </span>
           ))}
-          <span className="text-[10px] text-gray-400 italic ml-2">click sample to view</span>
+          <span className="text-[10px] text-gray-400 dark:text-slate-500 italic ml-2">click sample to view</span>
         </LegendSection>
       )}
 
       {borehole.elevation_m == null && (
-        <div className="flex items-center gap-1 text-amber-600">
+        <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
           <AlertTriangle size={11} />
           <span>Surface elevation missing — borelog renders without absolute level axis.</span>
         </div>

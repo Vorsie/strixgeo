@@ -45,12 +45,14 @@ export function MTawAxis({
 
   return (
     <g>
+      {/* All fills/strokes use CSS custom properties (index.css) so the
+          mTAW axis chrome is legible in dark theme without prop drilling. */}
       <line
         x1={axisRight - 1}
         x2={axisRight - 1}
         y1={y}
         y2={y + height}
-        stroke="#d4d4d8"
+        stroke="var(--borelog-axis-line)"
         strokeWidth={1}
       />
       <text
@@ -58,7 +60,7 @@ export function MTawAxis({
         y={y - 6}
         textAnchor="end"
         fontSize={9}
-        fill="#9ca3af"
+        fill="var(--borelog-text-muted)"
         style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}
       >
         {verticalDatumShort(zEpsg) || 'm'}
@@ -70,13 +72,13 @@ export function MTawAxis({
           const ty = y + depth * PX_PER_M
           return (
             <g key={lvl}>
-              <line x1={axisRight - 6} x2={axisRight - 1} y1={ty} y2={ty} stroke="#9ca3af" />
+              <line x1={axisRight - 6} x2={axisRight - 1} y1={ty} y2={ty} stroke="var(--borelog-text-muted)" />
               <text
                 x={axisRight - 8}
                 y={ty + 3}
                 textAnchor="end"
                 fontSize={10}
-                fill="#6b7280"
+                fill="var(--borelog-axis-tick)"
                 fontFamily="monospace"
               >
                 {formatMtaw(lvl)}

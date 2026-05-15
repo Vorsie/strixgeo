@@ -20,9 +20,9 @@ export function LegendChip({
   preview?: ReactNode
 }): ReactElement {
   return (
-    <span className="flex items-center gap-1.5 text-gray-700">
+    <span className="flex items-center gap-1.5 text-gray-700 dark:text-slate-200">
       {preview}
-      <span className="font-mono text-gray-500">{code}</span>
+      <span className="font-mono text-gray-500 dark:text-slate-400">{code}</span>
       <span>{label}</span>
     </span>
   )
