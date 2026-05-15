@@ -24,6 +24,7 @@ import type {
   BoreholeDetailResponse,
   ObservationResponse,
 } from '../../api/client'
+import type { ToggleableTrackId } from '../../hooks/useHiddenBoreholeLogTracks'
 import {
   BASE_PX_PER_M,
   DRILL_TRACK_WIDTH,
@@ -94,16 +95,35 @@ export function widthForObservationType(observationType: string): number {
  * Single source of truth for x positions + canvas dimensions so the
  * per-track sub-components stay in sync without re-deriving the
  * layout. Called once per render at the top of ``BoreholeLog``.
+ *
+ * Parameters
+ * ----------
+ * borehole : BoreholeDetailResponse
+ *     Full borehole detail including observations, drill segments,
+ *     field-log intervals, and samples.
+ * pxPerM : number
+ *     Effective pixels-per-metre scale (affected by zoom factor).
+ * hiddenTracks : ReadonlySet<ToggleableTrackId>
+ *     Track ids currently hidden by the user. Tracks in this set are
+ *     excluded from the layout so no gap is left behind. Defaults to
+ *     the empty set (show all tracks) — backward-compatible with
+ *     call sites that don't supply it.
+ *
+ * Returns
+ * -------
+ * Layout
+ *     Computed layout describing x-positions and total dimensions.
  */
 export function computeLayout(
   borehole: BoreholeDetailResponse,
   pxPerM: number,
+  hiddenTracks: ReadonlySet<ToggleableTrackId> = new Set(),
 ): Layout {
   // Observations to render — only those with at least one layer, in
   // stable display order (driller's record first, engineer's next,
-  // then the stratigraphy flavours).
+  // then the stratigraphy flavours), excluding user-hidden tracks.
   const observationsToShow = [...borehole.observations]
-    .filter(o => o.layers.length > 0)
+    .filter(o => o.layers.length > 0 && !hiddenTracks.has(o.observation_type as ToggleableTrackId))
     .sort((a, b) => {
       const ai = OBSERVATION_TYPE_ORDER.indexOf(a.observation_type)
       const bi = OBSERVATION_TYPE_ORDER.indexOf(b.observation_type)
@@ -137,19 +157,19 @@ export function computeLayout(
   }
 
   let drillMethodX: number | null = null
-  if (borehole.drill_segments.length > 0) {
+  if (borehole.drill_segments.length > 0 && !hiddenTracks.has('drill_method')) {
     drillMethodX = cursor
     cursor += DRILL_TRACK_WIDTH + TRACK_GAP
   }
 
   let fieldLogX: number | null = null
-  if (borehole.field_log_intervals.length > 0) {
+  if (borehole.field_log_intervals.length > 0 && !hiddenTracks.has('field_log')) {
     fieldLogX = cursor
     cursor += FIELD_LOG_TRACK_WIDTH + TRACK_GAP
   }
 
   let samplesX: number | null = null
-  if (borehole.samples.length > 0) {
+  if (borehole.samples.length > 0 && !hiddenTracks.has('samples_lab')) {
     samplesX = cursor
     cursor += SAMPLES_TRACK_WIDTH + TRACK_GAP
   }
