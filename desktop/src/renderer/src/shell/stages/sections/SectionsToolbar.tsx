@@ -1,9 +1,339 @@
-// Sections stage toolbar placeholder.
+// Sections stage toolbar — section-specific verbs wired from the ShellContext bus.
 //
-// S3 registers an empty slot here.  New, Delete, Export DXF, Export Plaxis,
-// Build Model, and Auto-populate verbs land in S5.
+// Collects the section actions that were previously scattered across
+// InterpretationPane (Build model, Auto-populate, Dedupe) and SectionPanel's
+// header (Export DXF, Export Plaxis 3D) into one place for the Sections stage.
+// New cross-section and Delete section live here too (previously in Sidebar's
+// SectionList).
+//
+// All handlers are sourced from useShell() — no props accepted (matches the
+// StageDescriptor.ToolbarComponent contract).
 
-/** Temporary placeholder toolbar for the Sections stage (S3 skeleton). */
-export default function SectionsToolbar(): null {
-  return null
+import { useState } from 'react'
+import { FilePlus2, Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser } from 'lucide-react'
+
+import { useShell } from '../../ShellContext'
+
+/**
+ * Section-specific verb buttons for the Sections stage toolbar.
+ *
+ * Renders in the left zone of ``StageToolbar`` when the Sections stage is
+ * active.  All state and handlers are read from the ShellContext bus via
+ * ``useShell()``.
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The toolbar verb buttons element.
+ */
+export default function SectionsToolbar(): JSX.Element {
+  const {
+    project,
+    sections: {
+      selectedSectionId,
+      sections,
+      handleCreateSection,
+      handleDeleteSection,
+    },
+    geoModel: {
+      activeGeologicalModel,
+      staleSurfaceCount,
+      handleRebuildSurfaces,
+      handleAutoPopulateFromStratigraphy,
+      handleDedupeContacts,
+      handleExportModelPlaxis3d,
+    },
+    coordinator: {
+      handleExportSectionDxf,
+    },
+    visibleBoreholes,
+  } = useShell()
+
+  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
+  const [populating, setPopulating] = useState(false)
+  const [deduping, setDeduping] = useState(false)
+  const [exportingPlaxis, setExportingPlaxis] = useState(false)
+
+  const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
+
+  // Project needs a horizontal EPSG to create sections (endpoints need a CRS).
+  const canCreate = (project.default_horizontal_epsg ?? null) !== null
+
+  async function handleNew(): Promise<void> {
+    if (!canCreate || creating) return
+    setCreating(true)
+    try {
+      await handleCreateSection()
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function handleDelete(): Promise<void> {
+    if (!selectedSection || deleting) return
+    const ok = window.confirm(
+      `Delete cross-section "${selectedSection.name}"? This can't be undone.`,
+    )
+    if (!ok) return
+    setDeleting(true)
+    try {
+      await handleDeleteSection(selectedSection.id)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function handleExportDxf(): Promise<void> {
+    if (!selectedSection || !activeGeologicalModel) return
+    await handleExportSectionDxf(
+      project.id,
+      selectedSection.id,
+      selectedSection.name,
+      activeGeologicalModel.id,
+    )
+  }
+
+  async function handleExportPlaxis(): Promise<void> {
+    if (!activeGeologicalModel || exportingPlaxis) return
+    setExportingPlaxis(true)
+    try {
+      await handleExportModelPlaxis3d()
+    } finally {
+      setExportingPlaxis(false)
+    }
+  }
+
+  async function handleBuild(): Promise<void> {
+    if (rebuilding) return
+    setRebuilding(true)
+    try {
+      await handleRebuildSurfaces()
+    } finally {
+      setRebuilding(false)
+    }
+  }
+
+  async function handleAutoPopulate(): Promise<void> {
+    if (!activeGeologicalModel || populating) return
+    setPopulating(true)
+    try {
+      // Scope to visible boreholes — matches the InterpretationPane behaviour
+      // where ``boreholeIds`` was the list of currently-visible boreholes.
+      await handleAutoPopulateFromStratigraphy(visibleBoreholes.map(b => b.id))
+    } finally {
+      setPopulating(false)
+    }
+  }
+
+  async function handleDedupe(): Promise<void> {
+    if (!activeGeologicalModel || deduping) return
+    setDeduping(true)
+    try {
+      await handleDedupeContacts()
+    } finally {
+      setDeduping(false)
+    }
+  }
+
+  const hasSection = selectedSection !== null
+  const hasModel = activeGeologicalModel !== null
+  const staleLabel =
+    staleSurfaceCount > 0
+      ? `Build · ${staleSurfaceCount} stale`
+      : 'Build model'
+
+  return (
+    <div className="flex items-center gap-1">
+      {/* New cross-section */}
+      <ToolbarButton
+        icon={<FilePlus2 size={13} />}
+        label={creating ? 'Creating…' : 'New'}
+        onClick={handleNew}
+        disabled={!canCreate || creating}
+        title={
+          !canCreate
+            ? 'Set a Default horizontal CRS in Project metadata to create sections'
+            : creating
+              ? 'Creating…'
+              : 'Create a new cross-section (placeholder endpoints)'
+        }
+      />
+
+      {/* Delete section — only active when one is selected */}
+      <ToolbarButton
+        icon={<Trash2 size={13} />}
+        label={deleting ? 'Deleting…' : 'Delete'}
+        onClick={handleDelete}
+        disabled={!hasSection || deleting}
+        danger
+        title={
+          !hasSection
+            ? 'Select a cross-section to delete it'
+            : deleting
+              ? 'Deleting…'
+              : `Delete "${selectedSection.name}"`
+        }
+      />
+
+      {/* Separator */}
+      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+
+      {/* Export DXF — requires a section + active model */}
+      <ToolbarButton
+        icon={<FileOutput size={13} />}
+        label="Export DXF"
+        onClick={handleExportDxf}
+        disabled={!hasSection || !hasModel}
+        title={
+          !hasSection
+            ? 'Select a section to export'
+            : !hasModel
+              ? 'No active geological model — contacts must exist first'
+              : 'Export this section as DXF'
+        }
+      />
+
+      {/* Export Plaxis 3D — model-level, not section-scoped */}
+      <ToolbarButton
+        icon={<Cpu size={13} />}
+        label={exportingPlaxis ? 'Exporting…' : 'Plaxis 3D'}
+        onClick={handleExportPlaxis}
+        disabled={!hasModel || exportingPlaxis}
+        title={
+          !hasModel
+            ? 'No active geological model'
+            : exportingPlaxis
+              ? 'Exporting…'
+              : 'Export the geological model as a Plaxis 3D plxscripting Python script'
+        }
+      />
+
+      {/* Separator */}
+      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+
+      {/* Build model — amber badge when surfaces are stale */}
+      <ToolbarButton
+        icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
+        label={rebuilding ? 'Building…' : staleLabel}
+        onClick={handleBuild}
+        disabled={rebuilding}
+        amber={staleSurfaceCount > 0 && !rebuilding}
+        title={
+          rebuilding
+            ? 'Building surfaces…'
+            : staleSurfaceCount > 0
+              ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
+              : 'Rebuild TIN surfaces from current contacts'
+        }
+      />
+
+      {/* Auto-populate from stratigraphy */}
+      <ToolbarButton
+        icon={<Sparkles size={13} />}
+        label={populating ? 'Working…' : 'From boreholes'}
+        onClick={handleAutoPopulate}
+        disabled={!hasModel || populating || visibleBoreholes.length === 0}
+        title={
+          !hasModel
+            ? 'No active geological model'
+            : visibleBoreholes.length === 0
+              ? 'No boreholes visible — import boreholes first'
+              : populating
+                ? 'Working…'
+                : 'Seed formation contacts from borehole stratigraphy observations'
+        }
+      />
+
+      {/* Dedupe contacts */}
+      <ToolbarButton
+        icon={<Eraser size={13} />}
+        label={deduping ? 'Cleaning…' : 'Dedupe'}
+        onClick={handleDedupe}
+        disabled={!hasModel || deduping}
+        title={
+          !hasModel
+            ? 'No active geological model'
+            : deduping
+              ? 'Cleaning…'
+              : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group'
+        }
+      />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+interface ToolbarButtonProps {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  title?: string
+  /** Render with amber tint (stale-surface badge affordance). */
+  amber?: boolean
+  /** Render with red tint (destructive action affordance). */
+  danger?: boolean
+}
+
+/**
+ * Compact toolbar button for the Sections stage verbs.
+ *
+ * Parameters
+ * ----------
+ * icon
+ *     Lucide icon element (13 px).
+ * label
+ *     Short text label rendered next to the icon.
+ * onClick
+ *     Action handler.
+ * disabled
+ *     When true, the button is non-interactive.
+ * title
+ *     Tooltip text (full action description).
+ * amber
+ *     Highlights the button in amber (stale-surface badge affordance).
+ * danger
+ *     Highlights the button in red (destructive action affordance).
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The button element.
+ */
+function ToolbarButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  title,
+  amber,
+  danger,
+}: ToolbarButtonProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={[
+        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        disabled
+          ? 'text-text-muted cursor-not-allowed'
+          : danger
+            ? 'text-status-danger hover:bg-surface-app'
+            : amber
+              ? 'text-status-amber hover:bg-surface-app'
+              : 'text-text-secondary hover:bg-surface-app hover:text-text-primary',
+      ].join(' ')}
+    >
+      {icon}
+      {label}
+    </button>
+  )
 }
