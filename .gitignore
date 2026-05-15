@@ -139,6 +139,10 @@ data/
 # DO need to be checked in (see src/groundmodel/infrastructure/codelists/).
 !src/groundmodel/infrastructure/codelists/data/
 !src/groundmodel/infrastructure/codelists/data/**
+# Exception: shell/stages/data — the Data stage descriptor lives here, not
+# geotechnical data files (those live in tests/fixtures/ or the DOV cache).
+!desktop/src/renderer/src/shell/stages/data/
+!desktop/src/renderer/src/shell/stages/data/**
 
 # Generated outputs
 reports/

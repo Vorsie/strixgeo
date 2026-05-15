@@ -1,0 +1,76 @@
+// Shell stage contract — the interface every stage descriptor implements.
+//
+// A ``StageDescriptor`` is a plain TypeScript object (no class, no React
+// component at the descriptor level). ``AppShell`` reads the registry to
+// configure its three zones (spine button, toolbar, canvas, inspector).
+//
+// Risk 3 note (see ui-shell-architecture.md §8.1): ``CanvasComponent`` is a
+// React component that can render whatever it wants internally, including
+// conditional branches. The stage abstraction does NOT mandate a single
+// immutable view — a stage like Data that switches between map and chart just
+// routes internally.
+
+import type { ComponentType } from 'react'
+
+/**
+ * Identifier for each workflow stage in the spine.
+ *
+ * Order here mirrors the engineering process order the spine communicates
+ * (Data → Sections → Geology → Geotechnical → Export).
+ */
+export type StageId = 'data' | 'sections' | 'geology' | 'geotechnical' | 'export'
+
+/**
+ * Computed summary shown in the spine button tooltip and inspector header.
+ *
+ * The ``badge`` field drives the dot badge on the spine icon — ``null``
+ * means no badge. ``badgeIntent`` controls the badge colour.
+ */
+export interface StageSummary {
+  /** Short text shown in the spine button tooltip and inspector header. */
+  label: string
+  /** Dot badge content on the spine icon. ``null`` = no badge. */
+  badge: string | null
+  /** Badge colour intent. Defaults to ``'neutral'`` when omitted. */
+  badgeIntent?: 'neutral' | 'amber' | 'red'
+}
+
+/**
+ * Descriptor object that fully specifies a workflow stage.
+ *
+ * ``AppShell`` reads a ``StageDescriptor`` from the registry and uses it to
+ * populate the spine button, the toolbar, the canvas, and the inspector for
+ * that stage.  No prop avalanche is passed into zone components — they read
+ * their data via ``useShell()`` hooks instead.
+ *
+ * Parameters
+ * ----------
+ * id
+ *     Unique stage identifier.  Must match the ``StageId`` union.
+ * icon
+ *     24 px Lucide icon component (not JSX).  ``AppShell`` renders it with
+ *     ``size={16}``.
+ * spineLabel
+ *     Short label rendered below the icon on the spine button (max ~10 chars
+ *     at ``w-16``).
+ * useStageSummary
+ *     React hook (called inside ``AppShell``'s render tree) that computes the
+ *     live summary for the spine badge and inspector header.
+ * CanvasComponent
+ *     The center canvas for this stage.  Receives state via ``useShell()``.
+ * ToolbarComponent
+ *     The stage-specific left zone of the top toolbar.  Receives state via
+ *     ``useShell()``.
+ * InspectorComponent
+ *     The right inspector panel for this stage.  Receives state via
+ *     ``useShell()``.
+ */
+export interface StageDescriptor {
+  id: StageId
+  icon: ComponentType<{ size?: number; className?: string }>
+  spineLabel: string
+  useStageSummary: () => StageSummary
+  CanvasComponent: ComponentType
+  ToolbarComponent: ComponentType
+  InspectorComponent: ComponentType
+}
