@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import { useToasts } from './hooks/useToasts'
 import { Map as MapIcon, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react'
 import L from 'leaflet'
 import {
@@ -111,12 +112,6 @@ type View = 'map' | 'chart'
 // which API to call when the rectangle is committed.
 type BboxImportType = 'cpt' | 'borehole' | null
 
-interface Toast {
-  id: number
-  type: 'success' | 'error'
-  message: string
-}
-
 export default function App() {
   const {
     project,
@@ -138,6 +133,11 @@ export default function App() {
     saveAsProject,
     closeProject,
   } = useProject()
+
+  // Toast notifications — extracted to useToasts so ``toast`` is
+  // importable by the other hooks that receive it as a dep-injection param.
+  const { toasts, toast } = useToasts()
+
   // Controls the NewProjectDialog modal visibility. Triggered by the File
   // menu's New Project item or the Welcome screen's Create button.
   const [newProjectOpen, setNewProjectOpen] = useState(false)
@@ -251,8 +251,6 @@ export default function App() {
   const [importing, setImporting] = useState(false)
   const [bboxImportType, setBboxImportType] = useState<BboxImportType>(null)
   const [dovImporting, setDovImporting] = useState(false)
-  const [toasts, setToasts] = useState<Toast[]>([])
-  const toastId = useRef(0)
   // Cross-sections (Phase 4). List comes from the API on project load;
   // selecting a section will surface its panel in the main view in S2+.
   // For S1 the selection is wired but the main view still renders the
@@ -3146,16 +3144,6 @@ export default function App() {
         : null,
     [selectedSectionId, sections],
   )
-
-  // ---------------------------------------------------------------------------
-  // Toasts
-  // ---------------------------------------------------------------------------
-
-  function toast(type: 'success' | 'error', message: string) {
-    const id = ++toastId.current
-    setToasts(prev => [...prev, { id, type, message }])
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
-  }
 
   // ---------------------------------------------------------------------------
   // Render
