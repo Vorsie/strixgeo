@@ -324,7 +324,7 @@ export default function DataInspector(): JSX.Element {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Tab bar — CPT / Borehole */}
-      <div className="flex border-b border-gray-200 flex-shrink-0">
+      <div className="flex border-b border-[--color-border-subtle] flex-shrink-0">
         <InspectorTab
           icon={<Activity size={13} />}
           label="CPT"
@@ -341,20 +341,20 @@ export default function DataInspector(): JSX.Element {
 
       {/* Search */}
       {hasList && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-gray-100 flex-shrink-0">
-          <Search size={11} className="text-gray-400 shrink-0" />
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-[--color-border-subtle] flex-shrink-0">
+          <Search size={11} className="text-[--color-text-muted] shrink-0" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder={activeTab === 'cpt' ? 'Search CPTs…' : 'Search boreholes…'}
-            className="w-full bg-transparent text-xs text-gray-700 placeholder-gray-400 focus:outline-none"
+            className="w-full bg-transparent text-xs text-[--color-text-secondary] placeholder-[--color-text-muted] focus:outline-none"
           />
           {searchQuery !== '' && (
             <button
               onClick={() => setSearchQuery('')}
               title="Clear search"
-              className="text-gray-400 hover:text-gray-700 shrink-0"
+              className="text-[--color-text-muted] hover:text-[--color-text-secondary] shrink-0"
             >
               <X size={11} />
             </button>
@@ -364,17 +364,17 @@ export default function DataInspector(): JSX.Element {
 
       {/* Bulk-action bar — visible when ≥1 checkbox is ticked */}
       {selectedCount > 0 && (
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border-b border-blue-100 text-[11px] flex-shrink-0">
-          <span className="text-blue-700 font-medium">{selectedCount} selected</span>
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-100 dark:border-blue-900/40 text-[11px] flex-shrink-0">
+          <span className="text-blue-700 dark:text-blue-300 font-medium">{selectedCount} selected</span>
           <button
             onClick={bulkRemove}
-            className="ml-auto px-2 py-0.5 rounded bg-red-600 text-white hover:bg-red-700 transition-colors text-[10px] font-semibold uppercase tracking-wide"
+            className="ml-auto px-2 py-0.5 rounded bg-red-600 dark:bg-red-500 text-white hover:bg-red-700 dark:hover:bg-red-400 transition-colors text-[10px] font-semibold uppercase tracking-wide"
           >
             Remove
           </button>
           <button
             onClick={clearSelection}
-            className="px-1.5 py-0.5 text-gray-500 hover:text-gray-700"
+            className="px-1.5 py-0.5 text-[--color-text-secondary] hover:text-[--color-text-primary]"
           >
             Clear
           </button>
@@ -383,7 +383,7 @@ export default function DataInspector(): JSX.Element {
 
       {/* Sort + select-all row */}
       {hasList && (
-        <div className="flex items-center gap-2 px-3 py-1 border-b border-gray-100 text-[10px] flex-shrink-0">
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-[--color-border-subtle] text-[10px] flex-shrink-0">
           <SortControl sort={sort} onChange={setSort} />
           <button
             onClick={() =>
@@ -392,7 +392,7 @@ export default function DataInspector(): JSX.Element {
                 : selectAll(activeVisibleIds)
             }
             disabled={activeVisibleIds.length === 0}
-            className="ml-auto text-gray-500 hover:text-gray-700 disabled:text-gray-300"
+            className="ml-auto text-[--color-text-secondary] hover:text-[--color-text-primary] disabled:text-[--color-text-muted] disabled:cursor-not-allowed"
             title="Select all in this tab"
           >
             {selectedCount === activeVisibleIds.length && activeVisibleIds.length > 0
@@ -490,7 +490,7 @@ export default function DataInspector(): JSX.Element {
       </div>
 
       {/* Footer — count + restore-removed link */}
-      <div className="border-t border-gray-100 px-3 py-1.5 text-[10px] text-gray-400 flex items-center gap-2 flex-shrink-0">
+      <div className="border-t border-[--color-border-subtle] px-3 py-1.5 text-[10px] text-[--color-text-muted] flex items-center gap-2 flex-shrink-0">
         {activeTab === 'cpt' && (
           <span>{visibleCpts.length} CPT{visibleCpts.length !== 1 ? 's' : ''}</span>
         )}
@@ -502,7 +502,7 @@ export default function DataInspector(): JSX.Element {
         {removedCount > 0 && (
           <button
             onClick={restoreAll}
-            className="ml-auto text-blue-600 hover:text-blue-800 hover:underline"
+            className="ml-auto text-[--color-accent] hover:underline"
             title="Restore items removed from this project"
           >
             {removedCount} removed · restore all
@@ -534,8 +534,8 @@ function InspectorTab({
       className={[
         'flex-1 flex flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors',
         active
-          ? 'text-blue-600 border-b-2 border-blue-600'
-          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+          ? 'text-[--color-accent] border-b-2 border-[--color-accent]'
+          : 'text-[--color-text-secondary] hover:text-[--color-text-primary] hover:bg-[--color-surface-card]',
       ].join(' ')}
     >
       {icon}
@@ -557,12 +557,12 @@ function SortControl({
 }) {
   const isDefault = sort.key === 'default'
   return (
-    <div className="flex items-center gap-1 text-gray-500">
-      <span className="text-gray-400">Sort:</span>
+    <div className="flex items-center gap-1 text-[--color-text-secondary]">
+      <span className="text-[--color-text-muted]">Sort:</span>
       <select
         value={sort.key}
         onChange={e => onChange({ ...sort, key: e.target.value as SortKey })}
-        className="bg-transparent text-gray-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300 rounded"
+        className="bg-transparent text-[--color-text-secondary] cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300 rounded"
       >
         <option value="default">Default</option>
         <option value="name">Name</option>
@@ -573,7 +573,7 @@ function SortControl({
           onChange({ ...sort, direction: sort.direction === 'asc' ? 'desc' : 'asc' })
         }
         disabled={isDefault}
-        className="text-gray-400 hover:text-gray-700 disabled:text-gray-200 disabled:cursor-not-allowed p-0.5"
+        className="text-[--color-text-muted] hover:text-[--color-text-primary] disabled:text-[--color-text-muted] disabled:opacity-40 disabled:cursor-not-allowed p-0.5"
         title={`Direction: ${sort.direction === 'asc' ? 'ascending' : 'descending'}`}
       >
         {sort.direction === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
@@ -624,7 +624,7 @@ function makeBoreholeSorter(
 
 function HiddenSeparator({ count }: { count: number }) {
   return (
-    <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-wide text-gray-400 bg-gray-50 border-y border-gray-100">
+    <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] uppercase tracking-wide text-[--color-text-muted] bg-[--color-surface-card] border-y border-[--color-border-subtle]">
       <EyeOff size={10} />
       <span>Hidden ({count})</span>
     </div>
@@ -638,13 +638,13 @@ function HiddenSeparator({ count }: { count: number }) {
 function cptBadgeColor(type: string) {
   switch (type) {
     case 'CPTU':
-      return 'bg-blue-100 text-blue-700'
+      return 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
     case 'CPTE':
-      return 'bg-green-100 text-green-700'
+      return 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
     case 'CPTM':
-      return 'bg-orange-100 text-orange-700'
+      return 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300'
     default:
-      return 'bg-gray-100 text-gray-500'
+      return 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-300'
   }
 }
 
@@ -675,15 +675,15 @@ function CptRow({
   return (
     <div
       className={[
-        'group relative flex items-center border-b border-gray-100 transition-colors',
+        'group relative flex items-center border-b border-[--color-border-subtle] transition-colors',
         unsaved ? 'border-l-4 border-l-amber-500' : 'border-l-2 border-l-transparent',
         selected
-          ? 'bg-blue-50'
+          ? 'bg-blue-50 dark:bg-blue-950/30'
           : checked
-          ? 'bg-blue-50/40'
+          ? 'bg-blue-50/40 dark:bg-blue-950/20'
           : unsaved
-          ? 'bg-amber-100/70 hover:bg-amber-100/90'
-          : 'hover:bg-gray-50',
+          ? 'bg-amber-100/70 dark:bg-amber-950/30 hover:bg-amber-100/90 dark:hover:bg-amber-950/40'
+          : 'hover:bg-[--color-surface-card]',
         hidden ? 'opacity-40' : '',
       ].join(' ')}
     >
@@ -699,8 +699,10 @@ function CptRow({
       />
       <button onClick={onClick} className="flex-1 text-left px-2 py-2 pr-7 min-w-0">
         <div className="flex items-center gap-1.5 mb-0.5">
-          <MapPin size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
-          <span className="text-xs font-medium text-gray-800 truncate">{cpt.name}</span>
+          <MapPin size={11} className={selected ? 'text-[--color-accent]' : 'text-[--color-text-muted]'} />
+          {/* text-[--color-text-primary] is the semantic token for primary body text.
+              Previously text-gray-800 (#1f2937) — invisible on dark inspector surface. */}
+          <span className="text-xs font-medium text-[--color-text-primary] truncate">{cpt.name}</span>
           {unsaved && (
             <DirtyAsterisk title="Imported since last save — File → Save to commit" />
           )}
@@ -715,14 +717,14 @@ function CptRow({
             {cpt.cpt_type}
           </span>
           {cpt.max_depth_m != null && (
-            <span className="text-[10px] text-gray-400">{cpt.max_depth_m.toFixed(1)} m</span>
+            <span className="text-[10px] text-[--color-text-muted]">{cpt.max_depth_m.toFixed(1)} m</span>
           )}
         </div>
       </button>
       <button
         onClick={handleRemove}
         title="Remove from project"
-        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
       </button>
@@ -759,15 +761,15 @@ function BoreholeRow({
   return (
     <div
       className={[
-        'group relative flex items-center border-b border-gray-100 transition-colors',
+        'group relative flex items-center border-b border-[--color-border-subtle] transition-colors',
         unsaved ? 'border-l-4 border-l-amber-500' : 'border-l-2 border-l-transparent',
         selected
-          ? 'bg-blue-50'
+          ? 'bg-blue-50 dark:bg-blue-950/30'
           : checked
-          ? 'bg-blue-50/40'
+          ? 'bg-blue-50/40 dark:bg-blue-950/20'
           : unsaved
-          ? 'bg-amber-100/70 hover:bg-amber-100/90'
-          : 'hover:bg-gray-50',
+          ? 'bg-amber-100/70 dark:bg-amber-950/30 hover:bg-amber-100/90 dark:hover:bg-amber-950/40'
+          : 'hover:bg-[--color-surface-card]',
         hidden ? 'opacity-40' : '',
       ].join(' ')}
     >
@@ -783,8 +785,10 @@ function BoreholeRow({
       />
       <button onClick={onClick} className="flex-1 text-left px-2 py-2 pr-7 min-w-0">
         <div className="flex items-center gap-1.5 mb-0.5">
-          <Drill size={11} className={selected ? 'text-blue-500' : 'text-gray-400'} />
-          <span className="text-xs font-medium text-gray-800 truncate">{borehole.name}</span>
+          <Drill size={11} className={selected ? 'text-[--color-accent]' : 'text-[--color-text-muted]'} />
+          {/* text-[--color-text-primary] is the semantic token for primary body text.
+              Previously text-gray-800 (#1f2937) — invisible on dark inspector surface. */}
+          <span className="text-xs font-medium text-[--color-text-primary] truncate">{borehole.name}</span>
           {unsaved && (
             <DirtyAsterisk title="Imported since last save — File → Save to commit" />
           )}
@@ -794,7 +798,7 @@ function BoreholeRow({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5 pl-4 text-[10px] text-gray-400">
+        <div className="flex items-center gap-1.5 pl-4 text-[10px] text-[--color-text-muted]">
           {borehole.total_depth_m != null && (
             <span>{borehole.total_depth_m.toFixed(1)} m</span>
           )}
@@ -808,7 +812,7 @@ function BoreholeRow({
       <button
         onClick={handleRemove}
         title="Remove from project"
-        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
       </button>
@@ -818,7 +822,7 @@ function BoreholeRow({
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <div className="flex items-center justify-center h-24 text-xs text-gray-400 px-4 text-center">
+    <div className="flex items-center justify-center h-24 text-xs text-[--color-text-muted] px-4 text-center">
       {label}
     </div>
   )
