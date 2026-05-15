@@ -92,9 +92,13 @@ interface ImportAction {
 }
 
 // ---------------------------------------------------------------------------
-// Dropdown — identical in shape to the one in Toolbar.tsx; kept here to
-// avoid importing from a file we're about to delete, and to keep this
-// stage self-contained.
+// Dropdown — identical in shape to the one in the (now-deleted) Toolbar.tsx;
+// kept local so this stage is self-contained. This is the SECOND copy of
+// the pattern in the codebase's history (Toolbar's was the first, now gone,
+// so effectively one live copy). Extraction window: if a second live
+// toolbar stage (e.g. SectionsToolbar) needs the same dropdown, lift
+// DropdownMenu/MenuItem to components/ui/ then — per the project's
+// extract-on-the-second-live-copy rule. Not before (one copy ≠ duplication).
 // ---------------------------------------------------------------------------
 
 interface DropdownMenuProps {

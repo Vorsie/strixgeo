@@ -95,7 +95,7 @@ export default function StageToolbar({
               ? `${projectFilePath} — click to edit project metadata`
               : 'Click to edit project metadata'
           }
-          className="flex items-center gap-1 px-2 h-7 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-spine-hover transition-colors max-w-[160px]"
+          className="flex items-center gap-1 px-2 h-7 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-spine-hover transition-colors max-w-[220px]"
         >
           <span className="truncate">{project.name}</span>
           {projectDirty && (

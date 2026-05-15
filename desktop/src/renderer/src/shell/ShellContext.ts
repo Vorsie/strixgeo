@@ -75,6 +75,11 @@ export interface Coordinator {
   /**
    * CPT IDs imported in the current session but not yet saved to the .gmproj
    * bundle.  Drives per-row amber asterisks in the investigation list.
+   *
+   * Lives in Coordinator (not ``investigations`` or ``lifecycle``) because it
+   * spans both: written by the import handlers + the save/discard flow in
+   * ``useProjectLifecycle``, read by the ``DataInspector`` list rows. No
+   * single hook owns it, so it sits in the App-level coordinator slice.
    */
   sessionImportCptIds: ReadonlySet<string>
   /**

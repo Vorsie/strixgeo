@@ -44,6 +44,11 @@ import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../../../api/c
 // Types
 // ---------------------------------------------------------------------------
 
+// Binary by design: the Data stage inspector only lists investigations.
+// The old Sidebar had Tests/Visualisation/Interpretation tabs and needed a
+// `: []` guard on its tab ternaries; here `activeTab` is strictly one of
+// these two, so the `cpt ? … : borehole` ternaries below are exhaustive —
+// a third `: []` branch would be unreachable dead code.
 type InspectorTab = 'cpt' | 'borehole'
 
 type SortKey = 'default' | 'name' | 'depth'
