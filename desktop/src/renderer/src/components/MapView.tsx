@@ -12,7 +12,6 @@ import {
 } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { useTheme } from '../hooks/useTheme'
 
 import type {
   BoreholeAxis,
@@ -230,11 +229,6 @@ export default function MapView({
   // it based on dark/light mode (owner feedback S4: "too dark, I
   // didn't ask"). Persisted per-user in localStorage (UI chrome, not
   // the .gmproj bundle — same rationale as the theme toggle).
-  //
-  // ``resolvedTheme`` is kept only for the MapContainer loading
-  // background colour so the blank canvas matches the shell surface
-  // before tiles arrive. It no longer drives the basemap choice.
-  const { resolved: resolvedTheme } = useTheme()
   const [basemapId, setBasemapId] = useState<BasemapId>(readBasemapId)
   const basemap: BasemapSource =
     BASEMAP_SOURCES.find(b => b.id === basemapId) ?? BASEMAP_SOURCES[0]
@@ -351,10 +345,10 @@ export default function MapView({
         className="h-full w-full"
         // Background shown while tiles load. Matches the shell surface
         // tone so the blank canvas is less jarring before tiles arrive.
-        // Uses the resolved theme (light/dark shell) as a proxy for the
-        // expected tile brightness — even when the user picks a light
-        // basemap in dark shell mode, this is only visible for <300 ms.
-        style={{ background: resolvedTheme === 'dark' ? '#1a1a2e' : '#f0f0f0' }}
+        // Loading-canvas background before tiles arrive — the shell
+        // surface token so it tracks the active theme automatically with
+        // no runtime resolvedTheme read (keeps MapView theme-decoupled).
+        style={{ background: 'var(--color-surface-app)' }}
       >
         {/* Basemap tile layer.
             ``key`` is set to ``basemap.id`` (the user's explicit choice)
@@ -780,6 +774,10 @@ function TerrainSection({
           type="checkbox"
           className="cursor-pointer shrink-0"
           checked={basemapId === 'esri_world_topo'}
+          // Intentional: un-checking reverts to the OSM default rather
+          // than restoring the user's previous explicit basemap. The
+          // shortcut is a convenience; the Basemap dropdown is the
+          // full picker. Revisit only if dogfooding finds it annoying.
           onChange={e => onBasemapChange(e.target.checked ? 'esri_world_topo' : 'osm')}
         />
         <span className="flex-1 truncate">World Topo (Esri)</span>

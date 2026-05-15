@@ -282,9 +282,11 @@ export function useMapOverlays({
         setShowOverlayOnSection(true)
       }
     },
-    // ``toast`` is a hoisted ``function`` declaration in App.tsx body —
-    // stable across renders, omitted from deps to match the convention
-    // used by every other callback there.
+    // reason: ``toast`` is injected from useToasts — a render-stable
+    // function; adding it to deps would re-bind this callback every
+    // render with no behaviour change. eslint can't see that stability,
+    // so the suppression is the documented CLAUDE.md form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [applyViewStatePatch, projectIdForOverlay],
   )
 

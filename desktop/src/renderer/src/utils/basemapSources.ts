@@ -48,6 +48,8 @@ export const BASEMAP_SOURCES: readonly BasemapSource[] = [
   {
     id: 'osm',
     label: 'OSM Standard',
+    // OSM and CARTO tiles use the Leaflet-standard {z}/{x}/{y} ordering.
+    // (Only the Esri entries below invert to {z}/{y}/{x} — see header.)
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
