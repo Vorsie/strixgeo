@@ -38,6 +38,14 @@ import { log } from '../utils/log'
 /** Payload accepted by the ContactsLayer batch-copy handler. */
 export type ContactCopyPayload = import('../components/sections/ContactsLayer').ContactCopyPayload
 
+/** A candidate formation name discovered from borehole stratigraphy. */
+export interface FormationCandidate {
+  /** Formation name as it appears in the observation stratigraphy. */
+  name: string
+  /** Number of in-scope boreholes that carry this name. */
+  boreholeCount: number
+}
+
 export interface UseGeologicalModelResult {
   activeGeologicalModel: GeologicalModelResponse | null
   formations: GeologicalFormationResponse[]
@@ -81,6 +89,20 @@ export interface UseGeologicalModelResult {
   // useProjectLifecycle in Commit 7) so it can scrub the contacts list
   // without owning the internal setContacts setter.
   discardContacts: (ids: ReadonlySet<string>) => void
+  // Fill-from-boreholes: discover candidate names (read-only).
+  discoverBoreholeFormations: (
+    boreholeIds: readonly string[],
+  ) => Promise<FormationCandidate[]>
+  // Fill-from-boreholes: apply the curated selection (destructive).
+  // Step 1 calls auto-populate for selectedNames; step 2 deletes every
+  // current formation whose name is NOT in selectedNames. The confirm
+  // gate lives in FormationSelectionDialog — this fires on confirm only.
+  applyBoreholeFormationSelection: (
+    selectedNames: ReadonlySet<string>,
+    boreholeIds: readonly string[],
+  ) => Promise<void>
+  // Geology toolbar: delete the active geological model (irreversible).
+  handleDeleteModel: () => Promise<void>
 }
 
 /**
@@ -1307,6 +1329,157 @@ export function useGeologicalModel({
     setContacts(prev => prev.filter(c => !ids.has(c.id)))
   }, [])
 
+  // Read-only discovery scan — queries the backend for candidate
+  // formation names from the given boreholes' stratigraphy
+  // (FORMAL preferred, INFORMAL fallback). Returns the list for
+  // FormationSelectionDialog to render. Nothing is created.
+  const discoverBoreholeFormations = useCallback(
+    async (boreholeIds: readonly string[]): Promise<FormationCandidate[]> => {
+      if (!project || !activeGeologicalModel) return []
+      if (boreholeIds.length === 0) return []
+      log.debug(
+        'geology',
+        `discoverBoreholeFormations entry boreholes=${boreholeIds.length}`,
+      )
+      try {
+        const result = await api.geology.discoverFromStratigraphy(
+          project.id,
+          activeGeologicalModel.id,
+          boreholeIds,
+        )
+        log.success(
+          'geology',
+          `discoverBoreholeFormations ok candidates=${result.candidates.length}`,
+        )
+        return result.candidates.map(c => ({
+          name: c.name,
+          boreholeCount: c.borehole_count,
+        }))
+      } catch (err) {
+        log.error('geology', 'discoverBoreholeFormations failed', err)
+        return []
+      }
+    },
+    [project, activeGeologicalModel],
+  )
+
+  // Apply the user's curated formation selection:
+  //   1. Auto-populate contacts for selectedNames (idempotent).
+  //   2. Delete every current formation whose name is NOT in
+  //      selectedNames — sequential to avoid cascade race conditions.
+  //   3. Refresh formations + contacts state.
+  //
+  // NOT added to the undo stack — the delete step is irreversible at
+  // unknown scale; the safeguard is the confirm dialog in the caller.
+  // Mirrors handleDedupeContacts' exclusion for the same reason.
+  const applyBoreholeFormationSelection = useCallback(
+    async (
+      selectedNames: ReadonlySet<string>,
+      boreholeIds: readonly string[],
+    ): Promise<void> => {
+      if (!project || !activeGeologicalModel) return
+      const projectId = project.id
+      const modelId = activeGeologicalModel.id
+      log.info(
+        'geology',
+        `applyBoreholeFormationSelection entry ` +
+          `selected=${selectedNames.size} boreholes=${boreholeIds.length}`,
+      )
+      try {
+        // Step 1: auto-populate contacts for selected names.
+        // handleAutoPopulateFromStratigraphy is not called directly here —
+        // we replicate its core call so we can control the
+        // refresh sequence in step 3 without double-fetching.
+        await api.geology.autoPopulateFromStratigraphy(
+          projectId,
+          modelId,
+          boreholeIds,
+        )
+
+        // Step 2: delete every current formation NOT in selectedNames.
+        // The deletion set is ALL current formations not in the selection —
+        // including manually-added formations that were not candidates.
+        const toDelete = formations.filter(f => !selectedNames.has(f.name))
+        log.info(
+          'geology',
+          `applyBoreholeFormationSelection deleting ${toDelete.length} formation(s)`,
+        )
+        for (const f of toDelete) {
+          await api.geology.deleteFormation(projectId, f.id)
+          log.debug('geology', `deleted formation id=${f.id} name="${f.name}"`)
+        }
+
+        // Step 3: refresh formations + contacts state.
+        const [forms, conts] = await Promise.all([
+          api.geology.listFormations(projectId),
+          api.geology.listContacts(projectId, modelId),
+        ])
+        setFormations(forms)
+        setContacts(conts)
+        // Remove deleted formations from manifest + session-import set.
+        const deletedIds = toDelete.map(f => f.id)
+        removeFromManifest('formation', deletedIds)
+        removeFromSessionImports('formation', deletedIds)
+        // Add any newly-created formations to manifest + session-import.
+        const priorIds = new Set(formations.map(f => f.id))
+        const newlyCreated = forms.filter(f => !priorIds.has(f.id))
+        if (newlyCreated.length > 0) {
+          addToManifest('formation', newlyCreated.map(f => f.id))
+          addToSessionImports('formation', newlyCreated.map(f => f.id))
+        }
+        setFormationsRefreshCounter(c => c + 1)
+        log.success(
+          'geology',
+          `applyBoreholeFormationSelection done ` +
+            `formations=${forms.length} deleted=${toDelete.length}`,
+        )
+      } catch (err) {
+        log.error('geology', 'applyBoreholeFormationSelection failed', err)
+        throw err
+      }
+    },
+    [
+      project,
+      activeGeologicalModel,
+      formations,
+      addToManifest,
+      removeFromManifest,
+      addToSessionImports,
+      removeFromSessionImports,
+    ],
+  )
+
+  // Delete the active geological model (irreversible). Clears all
+  // local formation / contact / surface state and fires
+  // removeFromManifest for all formation ids. The caller (GeologyToolbar)
+  // must show a confirmation dialog before calling this.
+  const handleDeleteModel = useCallback(async (): Promise<void> => {
+    if (!project || !activeGeologicalModel) return
+    const projectId = project.id
+    const modelId = activeGeologicalModel.id
+    log.info('geology', `handleDeleteModel entry model=${modelId}`)
+    try {
+      await api.geology.deleteModel(projectId, modelId)
+      const deletedFormationIds = formations.map(f => f.id)
+      setActiveGeologicalModel(null)
+      setFormations([])
+      setContacts([])
+      setSurfacesByFormationId(new Map())
+      removeFromManifest('formation', deletedFormationIds)
+      removeFromSessionImports('formation', deletedFormationIds)
+      log.success('geology', `handleDeleteModel ok model=${modelId}`)
+    } catch (err) {
+      log.error('geology', `handleDeleteModel failed model=${modelId}`, err)
+      throw err
+    }
+  }, [
+    project,
+    activeGeologicalModel,
+    formations,
+    removeFromManifest,
+    removeFromSessionImports,
+  ])
+
   return {
     activeGeologicalModel,
     formations,
@@ -1331,5 +1504,8 @@ export function useGeologicalModel({
     handleExportModelPlaxis3d,
     handleToggleBoreholeInModel,
     discardContacts,
+    discoverBoreholeFormations,
+    applyBoreholeFormationSelection,
+    handleDeleteModel,
   }
 }
