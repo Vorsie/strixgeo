@@ -1,0 +1,384 @@
+// Smoke test for the Geology stage components (GeologyToolbar, GeologyInspector).
+//
+// Mirrors SectionsStage.test.tsx.  Mounts the two Geology zone components with
+// a stub ShellContext to catch:
+//   * TDZ crashes (in particular the reorderFormations → visibleFormations
+//     ordering constraint documented in geology-stage-architecture.md §8.1 Risk 3)
+//   * Missing imports
+//   * Render-time throws from stale deps or bad JSX
+//
+// Scope: smoke-render only.  Behavioural correctness is covered by the
+// backend unit tests and future integration tests.
+
+import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { ShellContext } from '../../ShellContext'
+import type { ShellContextValue } from '../../ShellContext'
+import GeologyToolbar from './GeologyToolbar'
+import GeologyInspector from './GeologyInspector'
+
+// ---------------------------------------------------------------------------
+// Module-level mocks
+// ---------------------------------------------------------------------------
+
+vi.mock('../../../api/client', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
+  return {
+    ...actual,
+    setBaseUrl: vi.fn(),
+    api: {
+      geology: {
+        // GeologyInspector fetches crossings on mount.
+        validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+      },
+    },
+  }
+})
+
+// FormationDialog is a form modal; stub it so the inspector doesn't need
+// the full dialog tree to pass the smoke render.
+vi.mock('../../../components/interpretation/FormationDialog', () => ({
+  default: () => null,
+}))
+
+// ---------------------------------------------------------------------------
+// Minimal ShellContext stub
+// ---------------------------------------------------------------------------
+
+const noopAsync = (): Promise<void> => Promise.resolve()
+const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
+const noopAsyncCandidates = (): Promise<import('../../../hooks/useGeologicalModel').FormationCandidate[]> =>
+  Promise.resolve([])
+
+function makeStubContext(): ShellContextValue {
+  return {
+    project: {
+      id: 'proj-1',
+      name: 'Test Project',
+      project_number: null,
+      client: null,
+      site_label: null,
+      description: null,
+      tags: [],
+      default_horizontal_epsg: 31370,
+      default_vertical_epsg: 5710,
+      phase: 'design',
+      status: 'active',
+      view_state: {},
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      archived_at: null,
+    },
+    lifecycle: {
+      projectDirty: false,
+      newProjectOpen: false,
+      setNewProjectOpen: vi.fn(),
+      metadataEditorOpen: false,
+      setMetadataEditorOpen: vi.fn(),
+      closeConfirmOpen: false,
+      setCloseConfirmOpen: vi.fn(),
+      unsavedDialogOpen: false,
+      unsavedSaving: false,
+      saveProject: () => Promise.resolve(true),
+      discardSessionImports: vi.fn(),
+      handleSidebarCloseRequest: vi.fn(),
+      handleUnsavedSave: noopAsync,
+      handleUnsavedDiscard: vi.fn(),
+      handleUnsavedCancel: vi.fn(),
+    },
+    investigations: {
+      cpts: [],
+      boreholes: [],
+      detailMap: new Map(),
+      plotMap: new Map(),
+      boreholeDetailMap: new Map(),
+      importing: false,
+      dovImporting: false,
+      bboxImportType: null,
+      removedCptIds: new Set(),
+      removedBoreholeIds: new Set(),
+      refreshList: noopAsync,
+      refreshBoreholeList: noopAsync,
+      loadCptDetail: noopAsync,
+      loadChart: noopAsync,
+      loadBoreholeDetail: noopAsync,
+      cancelBboxDraw: vi.fn(),
+      unhideCpts: vi.fn(),
+      unhideBoreholes: vi.fn(),
+      handleRemoveCpts: vi.fn(),
+      handleRemoveBoreholes: vi.fn(),
+      handleRestoreAllCpts: vi.fn(),
+      handleRestoreAllBoreholes: vi.fn(),
+      handlePatchCptElevation: noopAsync,
+      handlePatchBoreholeElevation: noopAsync,
+      handleImportCpt: noopAsync,
+      handleImportDov: vi.fn(),
+      handleImportBoreholeDov: vi.fn(),
+      handleBboxDrawn: noopAsync,
+    },
+    visibleCpts: [],
+    visibleBoreholes: [],
+    geoModel: {
+      activeGeologicalModel: null,
+      formations: [],
+      formationsRefreshCounter: 0,
+      contacts: [],
+      surfacesByFormationId: new Map(),
+      crossingsRefreshCounter: 0,
+      staleSurfaceCount: 0,
+      handleFormationCreated: vi.fn(),
+      handleFormationUpdated: vi.fn(),
+      handleFormationDeleted: vi.fn(),
+      handleInlineCreateFormation: noopAsyncNull,
+      refetchFormations: vi.fn(),
+      handleCreateContact: noopAsync,
+      handleUpdateContactDepth: noopAsync,
+      handleBatchCreateContacts: noopAsync,
+      handleBatchUpdateContacts: noopAsync,
+      handleDeleteContact: noopAsync,
+      handleAutoPopulateFromStratigraphy: noopAsync,
+      handleDedupeContacts: () => Promise.resolve(0),
+      handleRebuildSurfaces: noopAsync,
+      handleExportModelPlaxis3d: noopAsync,
+      handleToggleBoreholeInModel: noopAsync,
+      discardContacts: vi.fn(),
+      // G1 additions
+      discoverBoreholeFormations: noopAsyncCandidates,
+      applyBoreholeFormationSelection: noopAsync,
+      handleDeleteModel: noopAsync,
+    },
+    sections: {
+      sections: [],
+      selectedSectionId: null,
+      drawingSection: false,
+      focusedContactIds: [],
+      visibleSections: [],
+      refreshSectionList: noopAsync,
+      clearSectionSelection: vi.fn(),
+      handleSectionCreated: vi.fn(),
+      handleSectionDeleted: vi.fn(),
+      handleCreateSection: noopAsyncNull,
+      cancelSectionDraw: vi.fn(),
+      handleSectionLineDrawn: noopAsync,
+      handleDeleteSection: noopAsync,
+      handlePatchSelectedSection: noopAsync,
+      handleSelectSection: vi.fn(),
+      handleFocusContacts: vi.fn(),
+    },
+    overlays: {
+      demSource: null,
+      demOverlay: { enabled: false, opacity: 0.6 },
+      handleDemOverlayChange: noopAsync,
+      virtueleBoringOverlay: { modelA: null, modelB: null, maxDepthM: null },
+      virtueleBoringSectionModels: [],
+      virtueleBoringPredictions: [],
+      virtueleBoringLoading: false,
+      virtueleBoringSkippedCount: 0,
+      virtueleBoringPredictionByInvestigationId: new Map(),
+      cptEffectiveModels: [],
+      boreholeEffectiveModels: [],
+      showOverlayOnSection: false,
+      showOverlayOnCpt: false,
+      showOverlayOnBorehole: false,
+      cptVirtueleBoringOverride: '',
+      boreholeVirtueleBoringOverride: '',
+      handleChangeVirtueleBoringPicker: noopAsync,
+      handleSetShowOverlay: vi.fn(),
+      handleSetOverlayOverride: vi.fn(),
+    },
+    toasts: {
+      toasts: [],
+      toast: vi.fn(),
+    },
+    undo: {
+      push: vi.fn(),
+      undo: noopAsync,
+      redo: noopAsync,
+      clear: vi.fn(),
+      canUndo: false,
+      canRedo: false,
+      busy: false,
+    },
+    boot: { ready: true, apiError: false },
+    mapState: {
+      hiddenCptTypes: new Set(),
+      hiddenBoreholeValues: {
+        drill_method: new Set<string>(),
+        borehole_type: new Set<string>(),
+      },
+      boreholeAxis: 'drill_method',
+      viewportBounds: null,
+      mapCameraRef: { current: null },
+      handleToggleCptType: vi.fn(),
+      handleToggleBoreholeValue: vi.fn(),
+      setBoreholeAxis: vi.fn(),
+      handleViewportChange: vi.fn(),
+      handleMapCameraChange: vi.fn(),
+    },
+    coordinator: {
+      selectedId: null,
+      selectedBoreholeId: null,
+      setSelectedId: vi.fn(),
+      setSelectedBoreholeId: vi.fn(),
+      view: 'map',
+      setView: vi.fn(),
+      handleSelect: noopAsync,
+      handleSelectBorehole: noopAsync,
+      handleExportSectionDxf: noopAsync,
+      outOfViewportCptIds: new Set(),
+      outOfViewportBoreholeIds: new Set(),
+      projectFilePath: null,
+      manifestFormationIds: new Set(),
+      sessionImportCptIds: new Set(),
+      sessionImportBoreholeIds: new Set(),
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
+beforeEach(() => {
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+})
+
+afterEach(() => {
+  cleanup()
+  consoleErrorSpy.mockRestore()
+  vi.restoreAllMocks()
+})
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('Geology stage (smoke)', () => {
+  it('GeologyToolbar renders without throwing', () => {
+    const ctx = makeStubContext()
+    render(
+      <ShellContext.Provider value={ctx}>
+        <GeologyToolbar />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('GeologyInspector renders without throwing (TDZ check)', () => {
+    // This test exercises the reorderFormations → visibleFormations ordering
+    // constraint from geology-stage-architecture.md §8.1 Risk 3.  If TDZ
+    // fires, React will throw during the render phase and consoleError will
+    // receive the error.
+    const ctx = makeStubContext()
+    render(
+      <ShellContext.Provider value={ctx}>
+        <GeologyInspector />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('GeologyInspector renders formation list without throwing', () => {
+    const ctx = makeStubContext()
+    ctx.geoModel.formations = [
+      {
+        id: 'form-1',
+        app_project_id: 'proj-1',
+        name: 'Boom Klei',
+        color: '#b45309',
+        code: null,
+        regional_ref: 'BmKi',
+        description: null,
+        display_order: 0,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    ctx.coordinator.manifestFormationIds = new Set(['form-1'])
+    render(
+      <ShellContext.Provider value={ctx}>
+        <GeologyInspector />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    // Formation name must appear in the list.
+    expect(screen.getByText('Boom Klei')).toBeTruthy()
+  })
+
+  describe('GeologyToolbar Delete model confirm modal', () => {
+    function renderWithModel() {
+      const ctx = makeStubContext()
+      ctx.geoModel.activeGeologicalModel = {
+        id: 'model-1',
+        app_project_id: 'proj-1',
+        name: 'Default',
+        is_active: true,
+        excluded_borehole_ids: [],
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      }
+      return ctx
+    }
+
+    it('opens the confirm modal when Delete model is clicked', () => {
+      const ctx = renderWithModel()
+      render(
+        <ShellContext.Provider value={ctx}>
+          <GeologyToolbar />
+        </ShellContext.Provider>,
+      )
+      expect(screen.queryByRole('dialog')).toBeNull()
+      // The Delete model button carries the danger title.
+      const deleteBtn = screen.getByTitle(
+        'Permanently delete the active geological model and all its formations, contacts, and surfaces',
+      )
+      fireEvent.click(deleteBtn)
+      expect(screen.getByRole('dialog')).toBeTruthy()
+      expect(
+        screen.getByRole('heading', { name: /delete geological model/i }),
+      ).toBeTruthy()
+    })
+
+    it('does NOT call handleDeleteModel when Cancel is clicked', () => {
+      const ctx = renderWithModel()
+      const handleDeleteModel = vi.fn().mockResolvedValue(undefined)
+      ctx.geoModel.handleDeleteModel = handleDeleteModel
+      render(
+        <ShellContext.Provider value={ctx}>
+          <GeologyToolbar />
+        </ShellContext.Provider>,
+      )
+      const deleteBtn = screen.getByTitle(
+        'Permanently delete the active geological model and all its formations, contacts, and surfaces',
+      )
+      fireEvent.click(deleteBtn)
+      expect(screen.getByRole('dialog')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(handleDeleteModel).not.toHaveBeenCalled()
+    })
+
+    it('calls handleDeleteModel when "Delete geological model" is confirmed', () => {
+      const ctx = renderWithModel()
+      const handleDeleteModel = vi.fn().mockResolvedValue(undefined)
+      ctx.geoModel.handleDeleteModel = handleDeleteModel
+      render(
+        <ShellContext.Provider value={ctx}>
+          <GeologyToolbar />
+        </ShellContext.Provider>,
+      )
+      const deleteBtn = screen.getByTitle(
+        'Permanently delete the active geological model and all its formations, contacts, and surfaces',
+      )
+      fireEvent.click(deleteBtn)
+      const confirmBtn = screen.getAllByRole('button', {
+        name: /delete geological model/i,
+      })[0]
+      fireEvent.click(confirmBtn)
+      expect(handleDeleteModel).toHaveBeenCalledTimes(1)
+    })
+  })
+})
