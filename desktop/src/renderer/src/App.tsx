@@ -113,20 +113,27 @@ export default function App() {
   // Ctrl+Y / Ctrl+Shift+Z reapplies. The stack clears on project
   // switch (see the effect below).
   //
-  // CRITICAL: destructure the hook's return into individual stable
-  // callbacks. The wrapper object literal is rebuilt every render
-  // (busy / canUndo / canRedo are state that changes); putting the
-  // whole object into a useEffect / useCallback dep list creates an
-  // infinite render loop because the dep is "new" every commit. The
-  // four function fields below are individually useCallback-stable.
+  // Capture the full result so the shell context can expose the live
+  // canUndo / canRedo / busy flags (B1 fix). The object is rebuilt
+  // every render whenever busy / canUndo / canRedo state changes, so
+  // it MUST NOT go into any useEffect or useCallback dep array — that
+  // would create an infinite render loop.
+  //
+  // CRITICAL: destructure the individual stable callbacks from the
+  // result and use ONLY those callbacks in effects + other hooks.
+  // The wrapper object (``undoStack``) goes into the shell context
+  // memo dep array (correct — the memo SHOULD rebreak when undo state
+  // changes so stage components see updated canUndo / canRedo), but
+  // NEVER into a useEffect / useCallback dep list.
+  const undoStack = useUndoStack({
+    onError: msg => toast('error', msg),
+  })
   const {
     push: pushUndo,
     undo: doUndo,
     redo: doRedo,
     clear: clearUndo,
-  } = useUndoStack({
-    onError: msg => toast('error', msg),
-  })
+  } = undoStack
 
   // Clear undo history whenever the project changes. Cross-project
   // undo is semantically undefined (the captured ids belong to the
@@ -735,7 +742,7 @@ export default function App() {
       handleSetOverlayOverride,
     },
     toasts: { toasts, toast },
-    undo: { push: pushUndo, undo: doUndo, redo: doRedo, clear: clearUndo },
+    undo: undoStack,
     boot: { ready, apiError },
   }), [
     project,
@@ -786,7 +793,7 @@ export default function App() {
     handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride,
     // toast + undo + boot
     toasts, toast,
-    pushUndo, doUndo, doRedo, clearUndo,
+    undoStack,
     ready, apiError,
   ])
 
