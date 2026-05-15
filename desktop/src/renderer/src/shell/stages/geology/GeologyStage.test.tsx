@@ -232,6 +232,7 @@ function makeStubContext(): ShellContextValue {
       manifestFormationIds: new Set(),
       sessionImportCptIds: new Set(),
       sessionImportBoreholeIds: new Set(),
+      sessionImportSectionIds: new Set(),
     },
   }
 }
