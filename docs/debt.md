@@ -562,6 +562,42 @@ instead of ``<Geology3DViewer>`` → show a "No network — 3D view requires
 internet access" toast. A simpler first step is a persistent help tooltip
 on the viewer explaining the offline case.
 
+## 28. Formation surfaces carry no interpolation-confidence signal (medium — Phase 5 model quality)
+
+**What.** The TIN surfaces are an unconstrained Delaunay interpolation
+over the contact points. Near the data-sparse boundary — the convex
+hull edge, or any region far from a borehole/CPT contact — the surface
+is pure extrapolation and frequently misbehaves: younger formations
+dip below older ones, surfaces fan out into spikes, and the model
+looks visibly "unsure" at the edges (observed while dogfeeding the
+3D split view, 2026-05-16). The crossings validator (#18) flags WHERE
+two surfaces cross, but nothing quantifies or *shows* that a vertex is
+low-confidence because there is no nearby data — the edge artifact and
+a genuine geological crossing look identical to the user.
+
+**Why deferred.** A confidence signal is a model-quality feature, not
+a v1.0 geometry/export gate deliverable. Doing it properly means: (a)
+a per-vertex confidence metric (e.g. distance to nearest contact, or
+local contact density / kriging variance once a non-TIN interpolator
+lands), (b) persisting it alongside the surface vertices, (c) a render
+treatment in the 3D viewer + section editor (fade / hatch / stipple
+low-confidence regions so extrapolation reads differently from
+data-backed surface), and (d) deciding whether to *clamp*
+extrapolation past the hull rather than just flag it. The cleaner
+metric (kriging variance) is naturally a Phase 5 deliverable since v1
+enforces ``method=tin``; building a TIN-only distance heuristic now
+risks being thrown away when the real interpolator arrives.
+
+**When to revisit.** Phase 5, alongside the kriging / RBF interpolator
+(the ``method`` query param already scaffolds for it) — variance falls
+out of those methods for free. Pull earlier if a dogfeeding user
+mistakes an edge extrapolation artifact for a real geological crossing
+and acts on it, or if the v1.0 launch demo's model edges look
+unprofessional enough to hurt the Flanders pitch — in that case ship
+the cheap interim: a distance-to-nearest-contact heuristic driving a
+fade on hull-edge triangles, explicitly labelled "low confidence —
+no nearby data".
+
 ---
 
 ## Historical note — 2026-05-13 security-reviewer audit pass
