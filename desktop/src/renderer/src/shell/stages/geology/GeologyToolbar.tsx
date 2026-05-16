@@ -7,8 +7,13 @@
 //   3. Build model — calls handleRebuildSurfaces; amber badge when stale.
 //   4. Dedupe — calls handleDedupeContacts (model maintenance verb).
 //   5. Separator.
-//   6. Reset view — stub (disabled until 3D viewer lands in G5).
+//   6. Reset view — collapses split viewport + flies camera to model bounding box.
 //   7. Delete model — irreversible; confirm modal with Cancel default focus.
+//
+// Reset wiring: the camera fly-to and split-collapse are performed via
+// module-level ref callbacks exported from GeologyCanvas (resetCameraCallback
+// and resetSplitViewportCallback).  This avoids a bus extension for
+// session-ephemeral view state that has no meaningful persistence requirement.
 //
 // The PrimaryToolbarButton / ToolbarButton internal components mirror
 // SectionsToolbar.tsx (copy two). Extract to shell/ToolbarPrimitives.tsx
@@ -18,7 +23,6 @@
 
 import { useState } from 'react'
 import {
-  Cpu,
   Eraser,
   RefreshCw,
   Sparkles,
@@ -31,6 +35,10 @@ import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import FormationSelectionDialog from './FormationSelectionDialog'
 import type { FormationCandidate } from '../../../hooks/useGeologicalModel'
+import {
+  resetCameraCallback,
+  resetSplitViewportCallback,
+} from './GeologyCanvas'
 
 /**
  * Geology-stage toolbar verbs wired from the ShellContext bus.
@@ -237,15 +245,22 @@ export default function GeologyToolbar(): JSX.Element {
       {/* Separator */}
       <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
 
-      {/* Reset view — stub until the 3D viewer lands in Phase G5 */}
+      {/* Reset view — collapses split viewport + flies camera to model bounds.
+          Calls the module-level callbacks exported by GeologyCanvas rather
+          than routing through the bus (session-ephemeral view state). */}
       <ToolbarButton
         icon={<RotateCcw size={13} />}
         label="Reset view"
         onClick={() => {
-          // Intentionally no-op: wired to the 3D viewer camera reset in G5.
+          resetSplitViewportCallback.current?.()
+          resetCameraCallback.current?.()
         }}
-        disabled
-        title="Reset 3D view to model bounding box — available after the 3D viewer lands"
+        disabled={!hasModel}
+        title={
+          !hasModel
+            ? 'No active geological model'
+            : 'Reset to single 3D view and fly camera to model bounding box'
+        }
       />
 
       {/* Delete model — irreversible; opens a confirm modal */}
