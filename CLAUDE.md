@@ -1007,6 +1007,6 @@ Order is strict priority — top-of-list = highest. Currently open in priority o
 
 **Tier D — Post-launch / Phase 5:** #11 (NL / multilingual stratigraphy catalog), #12 (App.tsx → custom hooks split; smoke test shipped), #13 (geotech units in section editor). *(#14 Sidebar UI overhaul resolved 2026-05-15: Interpretation tab moved to GeologyInspector; InterpretationPane deleted; Sidebar owns Tests + Visualisation only.)*
 
-**Tier E — Lower technical debt:** #15 (WFS client base class), #16 (telemetry / crash reporting), #17 (permkey backfill), #18 (crossings validator suppress-when-stale), #19 (bundle vertices / triangles size cap), #20 (ScalarLabTest parameter-slug), #21 (elevation rollback column). *(#25 SectionsInspector sessionImportSectionIds resolved 2026-05-15: wired through ShellContext coordinator bus in G3.)*
+**Tier E — Lower technical debt:** #15 (WFS client base class), #16 (telemetry / crash reporting), #17 (permkey backfill), #18 (crossings validator suppress-when-stale), #19 (bundle vertices / triangles size cap), #20 (ScalarLabTest parameter-slug), #21 (elevation rollback column), #22 (CPT chart Ic/SBT conflation), #23 (toolbar clip at narrow widths), #24 (Modal dark-theme), #26 (3D viewer blank basemap in offline mode). *(#25 SectionsInspector sessionImportSectionIds resolved 2026-05-15: wired through ShellContext coordinator bus in G3.)*
 
 **Resolved anchor (outside numbered list):** Contact selection toolbox — kept for design rationale only.

@@ -12,7 +12,7 @@ Five tiers:
 * **B. Commercial launch gates — pre-paid-revenue** (#2–#7)
 * **C. Dogfooding asks — current Phase 4 friction** *(none open — #8, #9, #10 resolved 2026-05-14)*
 * **D. Post-launch / Phase 5** (#11–#13)
-* **E. Lower technical debt** (#15–#24)
+* **E. Lower technical debt** (#15–#24, #26)
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -508,6 +508,29 @@ semantic tokens" pass (pairs naturally with the deferred leaf dark-mode
 token migration), or first time the white-card-in-dark is reported as
 jarring during dogfooding. Fix shape: `bg-surface-overlay border-
 border-subtle` + token text colours; verify every dialog in both themes.
+
+## 26. 3D viewer — blank basemap in offline mode (low — Tier E)
+
+**What.** When no network is available, the Cesium tile layers in
+``Geology3DViewer`` return 404 errors and the 3D canvas shows formation
+surfaces against a blank black globe. The surfaces are still rendered
+correctly (geometry and colours are local); only the geographic context
+(road network, orthophoto, topo labels) is missing.
+
+**Why deferred.** Implementing an auto-fallback to the 2D ``MapView``
+on tile failure requires detecting all tile-provider failures and toggling
+the canvas, adding state to ``GeologyCanvas`` that complicates the 3D/2D
+decision path. For v1.0 the offline blank-globe case is documented as
+known degradation — the engineer still sees the model geometry, which is
+the primary use of the 3D view during offline fieldwork.
+
+**When to revisit.** When a user reports confusion ("the 3D viewer is
+broken, I see nothing") during on-site use without network. The fix shape:
+detect the first tile-fetch failure via Cesium's imagery tile-error event
+→ set a ``tileLoadFailed`` flag → ``GeologyCanvas`` renders ``<MapView>``
+instead of ``<Geology3DViewer>`` → show a "No network — 3D view requires
+internet access" toast. A simpler first step is a persistent help tooltip
+on the viewer explaining the offline case.
 
 ---
 
