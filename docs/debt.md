@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #40, #36 — and #12 (S3–S7; system-architect plan in hand), #41 (folds into #12's R-plan) *(#37, #38, #43, #51 resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #40 — and #12 (S3–S7; system-architect plan in hand), #41 (folds into #12's R-plan) *(#36, #37, #38, #43, #51 resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50
 
@@ -36,10 +36,11 @@ deferred (app not feature-ready for packaging); Tier C reopened as
 the "current work" tier — #37, #38, #12, #41, #43, #51, #40, #36
 moved up from D/E (data-loss landmine + roadmap-gating
 velocity/refactor work + cheap dogfeed friction); #37 + #38 + #51
-+ #43 resolved same day (model-aware `delete_model`; contact-mutation
-use cases unit-covered in the pre-commit suite; inspector chrome
-migrated to semantic tokens; Data-stage Esc-to-map peel restored).
-34 open items**) compact them. Commit messages and code comments written
++ #43 + #36 resolved same day (model-aware `delete_model`;
+contact-mutation use cases unit-covered in the pre-commit suite;
+inspector chrome migrated to semantic tokens; Data-stage Esc-to-map
+peel restored; excluded_borehole_ids now filtered in TIN recompute).
+33 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -606,28 +607,6 @@ no nearby data".
 > security-reviewer, staff-engineer, product-strategy-advisor, and
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
-
-## 36. `excluded_borehole_ids` is ignored by TIN recompute (Tier C — view/surface divergence)
-
-**What.** `GeologicalModel.excluded_borehole_ids` is applied at
-section projection time (`BuildSectionSnapshot` filters
-investigations) but NOT at TIN recompute time —
-`RecomputeFormationSurface` loads all contacts for `(model_id,
-formation_id)` without filtering excluded anchors. An excluded
-borehole that still carries contacts contributes its (x, y, z) point
-to the surface, so the TIN disagrees with what the section view
-shows.
-
-**Why deferred.** The exclusion list is Phase-4 scaffolding the UI
-doesn't strongly expose yet; in practice a user wouldn't place
-contacts on a borehole they then exclude, so the inconsistency is
-latent, not observed.
-
-**When to revisit.** When the section editor's per-investigation
-show/hide is wired to `excluded_borehole_ids` and the user can flip
-exclusion after contacts exist. Fix: add the exclusion filter to the
-`RecomputeFormationSurface` contact query (one WHERE clause; decide
-skip-vs-delete for existing excluded-anchor contacts).
 
 ## 39. No batch borehole-detail endpoint — N parallel GETs on section open (Tier D — latent perf cliff)
 
