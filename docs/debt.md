@@ -6,22 +6,27 @@ context without rediscovering it from grep. **Order is strict
 priority — top is highest, bottom is lowest. Tiers are grouped, but
 within each tier the order also matters.**
 
-Five tiers:
+Five tiers (priority order WITHIN each tier matters too — the list
+below is the canonical ordering, not the numeric order of the
+sections that follow):
 
-* **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14)*
-* **B. Commercial launch gates — pre-paid-revenue** (#2–#7)
-* **C. Dogfooding asks — current Phase 4 friction** *(none open — #8, #9, #10 resolved 2026-05-14)*
-* **D. Post-launch / Phase 5** (#11–#13)
-* **E. Lower technical debt** (#15–#24, #26–#27)
+* **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
+* **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
+* **C. Current Phase 4 friction / launch-demo blockers:** #30, #29, #31, #33, #32, #34, #35
+* **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43
+* **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
 not here. Numbers stay stable through a debt-fixing campaign (do
 not renumber after each fix); explicit cleanup passes (last done
-**2026-05-14, renumbered + priority-sorted, 21 open items**)
-compact them. Commit messages and code comments written before a
-cleanup pass continue to reference the OLD numbers — that's an
-unavoidable cost of the renumber.
+**2026-05-16: six-agent codebase audit added #29–#50, #24 deleted
+(Modal semantic-token migration shipped); 43 open items**) compact
+them. Commit messages and code comments written before a cleanup
+pass continue to reference the OLD numbers — that's an unavoidable
+cost of the renumber. Sections #2–#28 below remain in their prior
+numeric order; #29–#50 are appended in numeric order — read the
+five-tier list above for true priority.
 
 ---
 
@@ -488,27 +493,6 @@ buttons on a narrow window, OR when a stage toolbar gains enough
 verbs that it overflows at typical widths. The fix shape is known
 (overflow menu); the trigger is a real width complaint.
 
-## 24. Shared Modal is light-only — every dialog is a white card in dark theme (low — Tier E)
-
-**What.** `components/ui/Modal.tsx` hard-codes `bg-white border-gray-200`
-(not design tokens). In dark theme the backdrop dims correctly but the
-card stays white with gray-800 body text. This affects EVERY modal —
-NewProject, ProjectMetadata, UnsavedChanges, close-project confirm, and
-now the Sections delete confirm. Functionally readable (white card on a
-dimmed backdrop) but visually jarring against the dark hero shell.
-
-**Why deferred.** Pre-existing; not introduced by the Sections-polish
-batch (the delete-confirm just newly *exercises* it). Fixing `Modal.tsx`
-is a single shared change with app-wide blast radius across ~5 dialogs —
-it needs its own focused change + senior-review pass, not a slip-in on
-an unrelated commit.
-
-**When to revisit.** Fold into a "migrate shared ui/* primitives to
-semantic tokens" pass (pairs naturally with the deferred leaf dark-mode
-token migration), or first time the white-card-in-dark is reported as
-jarring during dogfooding. Fix shape: `bg-surface-overlay border-
-border-subtle` + token text colours; verify every dialog in both themes.
-
 ## 27. Bathymetry / water-surface DEM cells — no bed-elevation data (low — Tier E)
 
 **What.** The DEM clip rule (§11.3) flags any vertex that lands on a
@@ -597,6 +581,482 @@ unprofessional enough to hurt the Flanders pitch — in that case ship
 the cheap interim: a distance-to-nearest-contact heuristic driving a
 fade on hull-edge triangles, explicitly labelled "low confidence —
 no nearby data".
+
+---
+
+> The items below (#29–#50) were added by the 2026-05-16 six-agent
+> codebase audit (senior-code-reviewer, system-architect,
+> security-reviewer, staff-engineer, product-strategy-advisor, and
+> ux-reviewer-as-general-purpose-proxy). They are in numeric order;
+> their true priority is the five-tier list at the top of this file.
+
+## 29. Plaxis 2D per-section exporter missing (Tier C — launch-demo blocker)
+
+**What.** The MVP gate claims "export to DXF and/or Plaxis." The
+Plaxis 3D model-level exporter ships and is toolbar-wired; the Plaxis
+**2D** per-section exporter does not exist. A BE/NL geotech's typical
+workflow is a 2D stability / settlement check in Plaxis 2D — the
+larger market segment than Plaxis 3D. The geometry contract is
+already in place: CLAUDE.md describes the 2D exporter as "same data
+shape with investigations projected onto the section line" and the
+section snapshot (`BuildSectionSnapshot`) exists.
+
+**Why deferred.** The 3D exporter was the more architecturally
+interesting piece and shipped first; the 2D variant was called a
+"Phase 4 follow-on" in the exporter docstring but never filed.
+
+**When to revisit.** Before any Flanders launch demo — "can I get
+this into Plaxis 2D?" is the first question a pilot engineer asks.
+Treat as a demo-stopper, not polish. Fix is a `plxscripting` 2D
+script emitter against the existing section snapshot.
+
+## 30. Export stage is a "coming soon" stub — exports unreachable from the workflow spine (Tier C — launch-demo blocker)
+
+**What.** `ExportCanvas.tsx` is a single muted "coming soon" line.
+Both export buttons (DXF, Plaxis 3D) live only in the SectionsToolbar
+— discoverable only after navigating to Sections, selecting a
+section, and reading the toolbar. An engineer who follows the natural
+stage spine (Data → Geology → Sections → Geotechnical → Export) lands
+on a blank Export stage at the exact moment they need to take the
+result home. Demo-kill: the workflow ends in an empty room.
+
+**Why deferred.** Exports were wired into Sections as they landed;
+the Export stage was stubbed and never filed.
+
+**When to revisit.** Before any demo or beta handoff. Minimum fix:
+surface the export actions in the Export stage canvas (a section
+selector + the existing export buttons, or a redirect with guidance).
+~½ day focused.
+
+## 31. No project-CRS validation on section creation / export (Tier C — silent garbage geometry)
+
+**What.** Section creation only gates on `effectiveHorizontalEpsg !=
+null`. The DXF / Plaxis exporters compute along-section distance as a
+Euclidean distance between projected coordinates, calibrated for
+metric CRS (EPSG:31370 / 28992). A GEF-only project with no
+DOV-sourced EPSG and no project default falls back to WGS84 degrees;
+along-distance values come out at ~1e-4 m scale and the exported
+geometry is silently garbage. No warning at create or export time.
+
+**Why deferred.** The primary import path is DOV (always Lambert72);
+GEF-only projects are a minority of early users, and the null gate
+masks the issue for the common case.
+
+**When to revisit.** Before the first beta user imports a non-DOV GEF
+file and creates a section. Fix: export-time CRS check that
+rejects/warns when `effectiveHorizontalEpsg` is not a known metric
+CRS, plus a section-creation tooltip naming the CRS.
+
+## 32. `.gmproj` geotechnical-units round-trip is unverified (Tier C — MVP-gate data loss)
+
+**What.** The v3 schema lists `geotechnical_units` as a top-level
+array, but no test confirms units survive `POST /projects/{id}/
+restore` (wipe-DB-and-reopen, or send-to-colleague). If restore
+rebuilds formations + models but drops unit rows or their formation
+FK, the subdivision work the engineer did (MVP gate step 3) is lost
+on first reopen. Backwards-compat is suspended pre-ship so this
+hasn't been stress-tested.
+
+**Why deferred.** Units are structure-only in v1 (no parameter
+values), so the loss is silent rather than catastrophic — formations
+and contacts survive — and the wipe-restore path is rarely exercised
+solo.
+
+**When to revisit.** Before the first coworker handoff where a
+.gmproj is expected to carry full project state. Concretely: add a
+restore round-trip test that builds a project WITH geotech units,
+wipes, restores, and asserts the units (and their formation links)
+reappear. If they don't, the restore endpoint needs a units ingest
+pass parallel to the geology-models pass.
+
+## 33. "Fill from boreholes" dead-ends CPT-only / interpretation-less projects (Tier C — first-run friction)
+
+**What.** Two facets of the same first-run trap. (a) The Geology
+stage's primary verb gates on `visibleBoreholes.length > 0`; a
+CPT-only project (the DOV-bbox + GEF launch-demo spine) has no
+boreholes, so the accent button is permanently disabled and the
+GeologyCanvas empty state still points the user at the disabled
+action — the only working path (GeologyInspector "Add formation") is
+undiscoverable on the canvas. (b) Boreholes imported from a non-DOV
+source (BRO/DINO GEF, common for any NL pilot) have no interpretation
+layers, so Fill silently yields zero formations with no explanation.
+
+**Why deferred.** Manual creation works (via the inspector) and DOV
+is the Flanders happy path, so the stage is not functionally blocked
+— it is a discoverability / first-run-guidance gap.
+
+**When to revisit.** Before the v1.0 launch-demo recording, or the
+first CPT-only / non-DOV dogfeed — whichever first. Fix: (a) an
+"Add formation" CTA on the empty GeologyCanvas mirroring
+SectionsCanvas's CTA card, with empty-state copy that distinguishes
+"no boreholes at all" from "boreholes with no interpretation data";
+(b) disable Fill with an explanatory tooltip rather than silent
+no-op when no interpretation layers exist.
+
+## 34. `PATCH .../elevation` does not stale dependent TIN surfaces (Tier C — silent wrong geometry)
+
+**What.** Every formation-contact mutation flips the affected
+`formation_surface.is_stale = True`. But `PATCH /cpt/{id}/elevation`
+and `PATCH /borehole/{id}/elevation` — which change the Z used by
+every contact at that anchor — call `set_elevation` and return
+without touching any surface row. A corrected elevation silently
+leaves stale TINs rendering at full opacity / solid (the freshness
+badge shows nothing), so the 3D viewer and section editor display
+geometrically-wrong surfaces that *look* fresh. `RebuildModelSurfaces`
+documents this as a known hook-coverage gap; flagged independently
+by two audit agents.
+
+**Why deferred.** The elevation routers are project-scoped (no model
+in the URL), so marking stale needs a project→models→affected-
+formations fan-out; judged not worth it for the initial cut, and in
+practice Z is usually set before contacts.
+
+**When to revisit.** Before any non-solo distribution — this is the
+kind of silent inconsistency that is hard to explain to an engineer.
+Fix (~½ day): after `set_elevation`, `SELECT DISTINCT model_id,
+formation_id FROM formation_contact WHERE cpt_id = $1 OR borehole_id
+= $1` and bulk-set `is_stale = True`.
+
+## 35. "Build model" silently overwrites user drag-reorder via age inference (Tier C — Build is unsafe for unusual stratigraphy)
+
+**What.** `RebuildModelSurfaces._reorder_by_age` runs as the final
+step of every "Build 3D model" click. It re-derives `display_order`
+from per-anchor depth constraints (`infer_age_order`) and writes back
+any formation that moved. Any formation with ≥1 contact is eligible
+for re-ranking — so a manual drag-reorder in GeologyInspector (the
+documented editing surface for the age axis) is silently reverted on
+the next Build. For geological edge cases (pinch-outs,
+unconformities, tectonic inversion) the data-driven inference is
+wrong and Build destroys the engineer's correct interpretation
+without asking.
+
+**Why deferred.** Auto-reorder is a genuine win when the user creates
+formations in non-stratigraphic order and the data disambiguates;
+the silent-overwrite cost is masked while the only user is the dev.
+
+**When to revisit.** First dogfeed/demo where a user drag-orders for
+an unusual site then loses it on Build. Fix: a per-formation
+`pinned_order: bool` set by drag-reorder; `_reorder_by_age` skips
+pinned formations.
+
+## 36. `excluded_borehole_ids` is ignored by TIN recompute (Tier D — view/surface divergence)
+
+**What.** `GeologicalModel.excluded_borehole_ids` is applied at
+section projection time (`BuildSectionSnapshot` filters
+investigations) but NOT at TIN recompute time —
+`RecomputeFormationSurface` loads all contacts for `(model_id,
+formation_id)` without filtering excluded anchors. An excluded
+borehole that still carries contacts contributes its (x, y, z) point
+to the surface, so the TIN disagrees with what the section view
+shows.
+
+**Why deferred.** The exclusion list is Phase-4 scaffolding the UI
+doesn't strongly expose yet; in practice a user wouldn't place
+contacts on a borehole they then exclude, so the inconsistency is
+latent, not observed.
+
+**When to revisit.** When the section editor's per-investigation
+show/hide is wired to `excluded_borehole_ids` and the user can flip
+exclusion after contacts exist. Fix: add the exclusion filter to the
+`RecomputeFormationSurface` contact query (one WHERE clause; decide
+skip-vs-delete for existing excluded-anchor contacts).
+
+## 37. `delete_model` cascade destroys all project formations; single-model invariant unenforced (Tier D — pre-Phase-5 landmine)
+
+**What.** `GeologicalFormation` rows are project-scoped with no model
+FK (correct for shared Phase-5 vocabulary). `delete_model` deletes
+all formations for the project before deleting the model, justified
+by an "exactly one model per project" assumption that lives only as a
+code comment — nothing in the API or DB enforces it, and nothing
+prevents creating a second model. If a second model ever exists,
+deleting one silently wipes every formation in the project.
+
+**Why deferred.** Multi-model is a Phase-5 concept; v1 UI creates
+exactly one and exposes no Delete-model button, so the risk is
+contained today.
+
+**When to revisit.** Before any surface that allows a second model
+(UI or scripted API), and before Phase-5 multi-model work *starts*
+(not during). Fix shape (already in the repo comment): make the
+cascade model-aware — delete only formations exclusively owned by the
+target model — or add a junction table for model membership.
+
+## 38. Geology contact-mutation use cases have no unit-test coverage (Tier D — pre-commit blind to the hottest write path)
+
+**What.** `CreateFormationContact`, `UpdateFormationContact`,
+`DeleteFormationContact`, `DeduplicateFormationContacts`,
+`RebuildModelSurfaces`, `ValidateModelCrossings`,
+`BuildSectionSnapshot`, `BuildGroundModelSnapshot` have no unit
+tests — only integration tests that need a live Postgres and so do
+NOT run in the pre-commit hook (`pytest tests/unit -q`). This is the
+highest-frequency write path in the Phase-4 MVP with the most domain
+logic (XOR anchor check, `DuplicateContactError`, stale-flag
+propagation, checksum short-circuit, `projected_by_id` filter). A
+regression here passes the unit suite silently. Flagged by two audit
+agents independently; DoD §4 requires this coverage.
+
+**Why deferred.** All depend on a real `AsyncSession`; the repository
+isn't behind a Protocol/ABC, making mock-based unit tests awkward —
+not worth the refactor mid-build.
+
+**When to revisit.** Before any non-solo user can mutate contacts.
+Fix: introduce a `GeologyRepositoryProtocol` (structural `Protocol`)
+so tests pass an `AsyncMock`; cover `DuplicateContactError`, the
+stale-pair set, dedup determinism, and the snapshot contact filter.
+
+## 39. No batch borehole-detail endpoint — N parallel GETs on section open (Tier D — latent perf cliff)
+
+**What.** `useSectionData.ts` fetches every in-buffer borehole via
+`Promise.allSettled(ids.map(id => api.borehole.get(id)))`. Each
+`GET /borehole/{id}` returns the full child tree (6 lab-test
+families, ~12 `selectinload` queries) even though the section column
+only needs header + observations. The CPT path already has
+`POST /cpt/plot-batch`; the borehole path has no equivalent and no
+`include=` filter on the section call. A dense corridor (50+
+boreholes) is 50+ round-trips, each over-fetching lab data the
+section never renders. The hook's own comment flags this.
+
+**Why deferred.** Typical Phase-4 sections (10–30 boreholes) complete
+before the user notices.
+
+**When to revisit.** When a 50+-borehole corridor shows a >1 s load
+during dogfeed. Two-part fix: (a) pass `include=` to drop lab trees
+the section doesn't use; (b) add `POST /boreholes/detail-batch`
+mirroring `plot-batch` — one query replaces N.
+
+## 40. `api/routers/geology.py` is a ~1,100-line orchestration monolith (Tier E)
+
+**What.** One router file covers formations, geotechnical units,
+models, contacts (CRUD + batch), surface rebuild, gap/crossing
+validation, ground-surface build, and Plaxis-3D export — the
+API-layer analogue of pre-S2 App.tsx. Any new geology operation
+(Plaxis 2D #29, G3Dv3 seed, per-unit contacts) has the whole file as
+blast radius. `build_ground_surface` alone is ~122 lines of
+error-mapping + provider-factory wiring that belongs in an
+application use case, not a route handler.
+
+**Why deferred.** Splitting it (sub-routers for formations / models /
+contacts / surfaces / exports) carries real merge-conflict risk
+during active Phase-4 feature work.
+
+**When to revisit.** When a Phase-5 op would push it past ~1,400
+lines, or on the first merge conflict from two sessions touching
+different parts. Split into `api/routers/geology/{formations,models,
+contacts,surfaces,exports}.py` mounted on a shared `APIRouter`.
+
+## 41. `Geology3DViewer.tsx` (~1,740 lines) is untested; pure geometry helpers not extracted (Tier E)
+
+**What.** The largest single component in the codebase, growing every
+Phase-4 step, with zero test coverage (Cesium needs WebGL so it can't
+be unit-mocked). But `flyToBounds` / `flyToCutFace` /
+`buildFormationPrimitive` / `buildBasemapLid` contain pure-ish
+coordinate math (midpoint, normal, camera-direction vectors) that is
+extractable into a `cesiumGeometry.ts` helper vitest *can* reach, and
+the two-click split-line state machine is pure local state, also
+testable. The recent `flyToCutFace` ReferenceError fix (585c714) is
+exactly the class of bug a smoke test would have caught.
+
+**Why deferred.** Rendering-level tests need a headless-WebGL harness
+(separate tooling investment); accepted no coverage during the
+Phase-4 sprint.
+
+**When to revisit.** Before Phase 5 or first external release. Fix:
+(a) extract the pure helpers into `cesiumGeometry.ts`; (b) add a
+`Geology3DViewer.test.tsx` smoke test stubbing the widget to null
+(the viewer already guards every effect on `widgetRef.current ==
+null`).
+
+## 42. Multi-class files violate the one-class-per-file convention (Tier E)
+
+**What.** CLAUDE.md "Code Conventions" requires one class per file
+(only `shared/exceptions.py` exempt). Offenders:
+`api/schemas/project/formation_contact.py` (17 schema classes in one
+~355-line file — every geology endpoint grows it, every import pulls
+the whole module), `domain/services/tin_surface.py` (4 value
+objects + 3 functions + a logger, with a hard numpy/scipy import at
+module load), `domain/services/geology_validator.py` (3 classes).
+The `tin_surface` value objects (`ContactPoint3D`, `TinSurface`,
+`SectionLine2D`, `SlicePoint`) are domain types imported by the
+application layer and belong under `domain/value_objects/`.
+
+**Why deferred.** Pre-existing groupings from when each subsystem was
+first sketched and the class counts were small.
+
+**When to revisit.** Before the first non-solo contributor
+(readability gates onboarding), or when the Phase-5 kriging/RBF
+interpolator gives `tin_surface.py` a second compute path. Split
+`formation_contact.py` first (it grows fastest); then the
+`tin_surface` value objects into `domain/value_objects/`.
+
+## 43. Esc no longer closes the inspector / canvas detail views (Tier D — shell-rework keyboard regression)
+
+**What.** docs/ux.md makes Esc the global "close detail panel" key
+and requires detail-panel close on "X OR Esc". After the S2–S7 shell
+rework, the right Inspector toggles only via the StageToolbar button
+(`onToggleInspector`) and `useShellState` registers no `keydown`
+listener; selecting a CPT/borehole swaps the canvas to a chart/log
+with no Esc-to-return. Modals and bbox/section draw still honour Esc;
+the inspector and canvas detail views regressed. A gINT/Plaxis user
+reflexively hits Esc to back out and nothing happens.
+
+**Why deferred.** Not a data/destructive defect — every view is still
+mouse-dismissible. A correct global Esc that peels one layer at a
+time across five stages without colliding with the section editor's
+existing per-layer Esc peel is a focused interaction-design pass, not
+a one-liner.
+
+**When to revisit.** When the shared `hooks/useGlobalShortcut.ts`
+extraction (already flagged ripe in docs/ux.md via the
+`isTypingTarget` fourth-copy trigger) lands — fold the shell-level
+Esc peel order into that one ordered handler.
+
+## 44. Cross-stage selection model is inconsistent with the spine metaphor (Tier D — product/interaction decision)
+
+**What.** The Data → Geology → Sections → Geotechnical → Export spine
+trains the user that a selected investigation persists across stages.
+It doesn't: map-marquee + CPT/borehole selection live in the
+coordinator bus but only DataInspector/DataCanvas consume them, and
+`StageCanvas`'s `key={activeStageId}` unmounts the previous stage so
+any in-progress marquee is discarded with no indication. A
+gINT/LeapFrog user who marquee-selects "the holes I'm modelling" then
+steps to the next stage expects that scope to carry; here it
+evaporates.
+
+**Why deferred.** The Geology "boreholes in model" toggles and the
+section corridor are the actual v1 scoping mechanisms, so cross-stage
+carry isn't functionally required — it's an expectation mismatch the
+metaphor creates. Resolving it is a product-semantics call (does
+selection mean "inspect" or "scope"?), not a bug fix.
+
+**When to revisit.** When the Geotechnical (subdivision) stage is
+built — that stage forces a concrete "which formations/units am I
+working on" selection and therefore the cross-stage semantics
+decision. Settle it there and document the chosen model in
+docs/ux.md's selection section.
+
+## 45. Shell empty / loading states are below the documented bar (Tier E)
+
+**What.** docs/ux.md: "Empty states — text + icon (Lucide), never
+just blank"; async needs an in-element spinner. Violations:
+`DataInspector` empty states are text-only; `DataCanvas` loading
+fallbacks are bare "Loading chart…" strings with no spinner;
+`ExportCanvas` / `GeotechnicalCanvas` are a single muted "coming
+soon" line with no icon or guidance. GeologyCanvas's empty state
+(Mountain icon + actionable guidance) is the one that does it right
+and should be the template — the inconsistency reads as unfinished
+against the LeapFrog/Plaxis polish the product sells on.
+
+**Why deferred.** Purely cosmetic — every state is functionally
+correct, just under-guided. Fixing it well means a shared
+`<EmptyState icon title hint>` primitive across ~6 sites (the
+rule-of-three is already met), its own focused pass.
+
+**When to revisit.** When the shared `EmptyState` primitive is
+extracted (DataInspector ↔ canvas-fallback duplication already meets
+rule-of-three), or before the launch-demo recording — bare "coming
+soon" canvases on camera undercut the polish narrative.
+
+## 46. Long-running stage verbs lack an in-button spinner (Tier E)
+
+**What.** "Fill from boreholes" / "Seed" / "Dedupe" / Plaxis-3D
+export are multi-second server round-trips whose only feedback is a
+label swap + `disabled`. Only "Build model" shows a spinner
+(`RefreshCw animate-spin`); the rest freeze their label with no
+motion, so on a slow network the engineer can't tell working from
+hung. docs/ux.md requires disable + in-button spinner for async
+triggers; only Build honours the spinner half.
+
+**Why deferred.** Disable + relabel does prevent double-submit and
+does say "working" — a sub-spec affordance, not a missing one.
+
+**When to revisit.** Fold into the `shell/ToolbarPrimitives.tsx`
+extraction GeologyToolbar's header comment already schedules for the
+Export-stage toolbar (copy 3) — add a spinner slot to the shared
+primitive so every long verb gets it for free.
+
+## 47. `project_bundle.py` column auto-enumeration → silent `.gmproj` format drift (Tier B — backwards-compat re-arm trigger)
+
+**What.** `build_project_bundle` / `restore_project_bundle` enumerate
+every ORM column via `__mapper__.column_attrs` so new columns "ride
+along automatically." Convenient pre-ship; a forward-compat liability
+once backwards-compat re-arms: adding any column to any bundled ORM
+model silently changes the emitted `.strix` shape with no version
+bump, no conscious decision, no round-trip test. The manual
+`_SKIP_COLUMNS` set is the only gate.
+
+**Why deferred.** Backwards-compat is suspended pre-ship (owner
+directive 2026-05-16); the enumeration is a real time-saver during
+rapid Phase-4 work and the risk is zero while no external `.strix`
+file matters.
+
+**When to revisit.** At the backwards-compat re-arm trigger (first
+external distribution — ties to #3). Then: audit every bundled ORM
+class for columns that should NOT be portable (caches,
+server-managed timestamps) and promote them to `_SKIP_COLUMNS`; add a
+fixture test per top-level bundle array asserting its exact column
+set, so a new column forces a conscious format-version decision.
+
+## 48. `project_bundle.py` procedural logger + no restore-progress logging (Tier E)
+
+**What.** The ~860-line bundle module uses a module-level
+`LoggerFactory.get_logger(__name__)` (legitimate — it's procedural,
+not a class) but the call style diverges from the `self.info()`
+`GroundModelLogger` convention used everywhere else, and
+`restore_project_bundle` has no `[i/total]` progress logging in the
+CPT/borehole restore loops. A 500-CPT restore today produces no
+per-row log, so a stuck restore is indistinguishable from a running
+one — exactly the DoD bulk-loop logging rule.
+
+**Why deferred.** The logger works; it's a consistency + observability
+gap, not a correctness one.
+
+**When to revisit.** Next time `restore_project_bundle` is touched
+for any functional reason — wrap it in a
+`ProjectBundleService(GroundModelLogger)` and add `[i/total]`
+progress to the CPT/borehole loops in the same change.
+
+## 49. Crossings validator issues N queries per formation (Tier E)
+
+**What.** `ValidateModelCrossings.execute` loops over `formation_ids`
+calling `repo.list_contacts(model_id, formation_id=fid)` once per
+formation (the code comment claims "all formations at once" — it
+isn't). N formations → N+2 round-trips. Invisible at v1 (~10
+formations, <5 ms) but the validator polls after every contact edit,
+so a Phase-5 model with 20+ formations stalls the crossings banner
+during active editing.
+
+**Why deferred.** Read-only, non-blocking, sub-5 ms at current
+cardinality; the misleading comment is the only immediate harm (fixed
+as a quick-fix, see below).
+
+**When to revisit.** When the crossings banner is reported slow on a
+15+-formation model during active editing. Fix is also a
+simplification: one `list_contacts(model_id)` (no formation filter)
++ Python grouping — one round-trip, less code.
+
+## 50. Virtuele Boring model code reaches an outbound URL without a codelist gate (Tier E — security, low; pairs with #4)
+
+**What.** `GET /projects/{pid}/virtuele-boring/predictions?models=…`
+splits the comma-separated `models` param and embeds each raw element
+into the outbound DOV URL path (`virtuele_boring_client.py`:
+`f"{BASE}{PATH}/{model}"`) with no regex/codelist gate. The API caps
+the count (12) but not each code's length or charset. httpx
+URL-normalises traversal so this is not RCE; the real issue is an
+arbitrary user string in a backend-issued HTTP request — server
+probing / behaviour-sensitivity if a proxy is ever interposed. Real
+attacker surface is small (localhost-only API, CORS+TrustedHost block
+external callers, target is an HTTPS government WCS) but it
+contradicts the project's own injection-defence posture.
+
+**Why deferred.** CORS + TrustedHost limit callers to the renderer
+and a local dev; exploitation needs a compromised renderer or a
+deliberate local curl. No regression in the 2026-05-13 audited
+surfaces.
+
+**When to revisit.** With the #4 auth-threading work, or when the
+catalogue endpoint is cached server-side. Fix is a two-liner:
+`VALID_MODEL_CODE_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,50}$')` and a
+400 on any non-matching code before fan-out.
 
 ---
 
