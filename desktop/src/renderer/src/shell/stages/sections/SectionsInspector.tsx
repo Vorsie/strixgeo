@@ -438,7 +438,7 @@ function SectionRow({
         onClick={handleDelete}
         disabled={deleting}
         title={deleting ? 'Deleting…' : 'Delete cross-section'}
-        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted hover:text-status-danger hover:bg-status-danger/10 opacity-0 group-hover:opacity-100 disabled:opacity-30 transition-opacity"
+        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted hover:text-status-danger hover:bg-status-danger/10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 transition-opacity"
       >
         <Trash2 size={12} />
       </button>
