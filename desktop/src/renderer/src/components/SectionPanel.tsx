@@ -348,8 +348,28 @@ export default function SectionPanel({
 
   const panStart = useRef<{ px: number; py: number; viewport: Viewport } | null>(null)
   const [isPanning, setIsPanning] = useState(false)
+  // True while a CAD-style both-buttons-held pan is active, so the
+  // trailing right-button contextmenu is suppressed (see the SVG
+  // onContextMenu wrapper). Reset on the next single-button mousedown.
+  const bothBtnPanRef = useRef(false)
 
   function handleMouseDown(e: React.MouseEvent<SVGSVGElement>): void {
+    // CAD/Plaxis-style pan: holding BOTH mouse buttons pans regardless
+    // of which button fired this event. Left-drag pan + shift-marquee
+    // (below) are unchanged. e.buttons is a bitmask: 1=left, 2=right.
+    if ((e.buttons & 1) === 1 && (e.buttons & 2) === 2) {
+      e.preventDefault()
+      bothBtnPanRef.current = true
+      const r = e.currentTarget.getBoundingClientRect()
+      panStart.current = {
+        px: e.clientX - r.left,
+        py: e.clientY - r.top,
+        viewport,
+      }
+      setIsPanning(true)
+      return
+    }
+    bothBtnPanRef.current = false
     // Only the left button starts a pan — right-click is reserved
     // for a future context menu, middle-click stays for browser
     // autoscroll.
@@ -1163,7 +1183,16 @@ export default function SectionPanel({
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
             onDoubleClick={resetView}
-            onContextMenu={handleSvgContextMenu}
+            onContextMenu={e => {
+              // Swallow the contextmenu that fires when the right
+              // button is released at the end of a both-button pan.
+              if (bothBtnPanRef.current) {
+                e.preventDefault()
+                bothBtnPanRef.current = false
+                return
+              }
+              handleSvgContextMenu(e)
+            }}
           >
             {/* Soil-code pattern defs — hoisted to a single ``<defs>``
                 so every BoreholeColumn renders into the same pattern
