@@ -108,6 +108,18 @@ export interface Coordinator {
    * ``sessionImportSectionIds`` above.
    */
   sessionImportFormationIds: ReadonlySet<string>
+  /**
+   * Investigation IDs (CPT or borehole) currently selected by a map
+   * marquee drag.  Drives the checkbox "checked" state in
+   * ``DataInspector`` so the list and map selections stay in sync.
+   *
+   * Lives in Coordinator (not DataInspector local state) because the
+   * map writes it and the inspector reads it — two separate components
+   * that cannot share local state without the bus.
+   */
+  marqueeSelectedIds: ReadonlySet<string>
+  /** Replace the marquee selection set (called by the map on drag-end). */
+  setMarqueeSelectedIds: (ids: Set<string>) => void
 }
 
 /**
