@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #43, #40, #36 — and #12 (S3–S7; system-architect plan in hand), #41 (folds into #12's R-plan) *(#37, #38, #51 resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #40, #36 — and #12 (S3–S7; system-architect plan in hand), #41 (folds into #12's R-plan) *(#37, #38, #43, #51 resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50
 
@@ -36,9 +36,10 @@ deferred (app not feature-ready for packaging); Tier C reopened as
 the "current work" tier — #37, #38, #12, #41, #43, #51, #40, #36
 moved up from D/E (data-loss landmine + roadmap-gating
 velocity/refactor work + cheap dogfeed friction); #37 + #38 + #51
-resolved same day (model-aware `delete_model`; contact-mutation use
-cases unit-covered in the pre-commit suite; inspector chrome migrated
-to semantic tokens). 35 open items**) compact them. Commit messages and code comments written
++ #43 resolved same day (model-aware `delete_model`; contact-mutation
+use cases unit-covered in the pre-commit suite; inspector chrome
+migrated to semantic tokens; Data-stage Esc-to-map peel restored).
+34 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -711,28 +712,6 @@ first sketched and the class counts were small.
 interpolator gives `tin_surface.py` a second compute path. Split
 `formation_contact.py` first (it grows fastest); then the
 `tin_surface` value objects into `domain/value_objects/`.
-
-## 43. Esc no longer closes the inspector / canvas detail views (Tier C — shell-rework keyboard regression, daily dogfeed friction)
-
-**What.** docs/ux.md makes Esc the global "close detail panel" key
-and requires detail-panel close on "X OR Esc". After the S2–S7 shell
-rework, the right Inspector toggles only via the StageToolbar button
-(`onToggleInspector`) and `useShellState` registers no `keydown`
-listener; selecting a CPT/borehole swaps the canvas to a chart/log
-with no Esc-to-return. Modals and bbox/section draw still honour Esc;
-the inspector and canvas detail views regressed. A gINT/Plaxis user
-reflexively hits Esc to back out and nothing happens.
-
-**Why deferred.** Not a data/destructive defect — every view is still
-mouse-dismissible. A correct global Esc that peels one layer at a
-time across five stages without colliding with the section editor's
-existing per-layer Esc peel is a focused interaction-design pass, not
-a one-liner.
-
-**When to revisit.** When the shared `hooks/useGlobalShortcut.ts`
-extraction (already flagged ripe in docs/ux.md via the
-`isTypingTarget` fourth-copy trigger) lands — fold the shell-level
-Esc peel order into that one ordered handler.
 
 ## 44. Cross-stage selection model is inconsistent with the spine metaphor (Tier D — product/interaction decision)
 
