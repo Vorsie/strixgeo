@@ -10,6 +10,7 @@ integration, so this is where they get exercised.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -762,3 +763,105 @@ async def test_stale_surfaces_for_investigation_requires_xor_anchor(
         await repo.stale_surfaces_for_investigation()
     with pytest.raises(ValueError, match="exactly one"):
         await repo.stale_surfaces_for_investigation(cpt_id=uuid7(), borehole_id=uuid7())
+
+
+# ---------------------------------------------------------------------------
+# RecomputeFormationSurface honours excluded_borehole_ids (debt #36)
+# ---------------------------------------------------------------------------
+
+
+async def _bh(
+    db_session: AsyncSession,
+    project_id,  # noqa: ANN001
+    *,
+    name: str,
+    x: float,
+    y: float,
+    z: float,
+) -> BoreholeOrm:
+    """A borehole with a placeable (x, y, elevation) so it contributes a
+    TIN point."""
+    bh = BoreholeOrm(
+        id=uuid7(),
+        name=name,
+        app_project_id=project_id,
+        project_id="DOV",
+        test_id=name,
+        location_x=x,
+        location_y=y,
+        epsg=31370,
+        elevation_m=z,
+        total_depth_m=20.0,
+    )
+    db_session.add(bh)
+    await db_session.commit()
+    return bh
+
+
+async def test_recompute_skips_contacts_on_excluded_boreholes(
+    db_session: AsyncSession,
+) -> None:
+    """A borehole on the model's excluded list must not contribute its
+    point to the TIN (debt #36) — but its contact row survives so
+    un-excluding restores it."""
+    from groundmodel.application.recompute_formation_surface import (
+        RecomputeFormationSurface,
+    )
+
+    project = ProjectOrm(id=uuid7(), name="Excl test", status="active")
+    db_session.add(project)
+    await db_session.flush()
+    bh_keep = await _bh(db_session, project.id, name="KEEP", x=1000.0, y=1000.0, z=10.0)
+    bh_drop = await _bh(db_session, project.id, name="DROP", x=2000.0, y=2000.0, z=12.0)
+
+    repo = GeologyRepository(db_session)
+    boom = await repo.create_formation(project.id, name="Boom Klei", color="#5a4a3a")
+    model = await repo.create_model(project.id, name="Main")
+    await db_session.commit()
+    c_keep = await repo.create_contact(
+        model_id=model.id, formation_id=boom.id, borehole_id=bh_keep.id, depth_top_m=2.0
+    )
+    c_drop = await repo.create_contact(
+        model_id=model.id, formation_id=boom.id, borehole_id=bh_drop.id, depth_top_m=3.0
+    )
+    await db_session.commit()
+
+    recompute = RecomputeFormationSurface(db_session)
+
+    # No exclusion → both contacts contribute (source_contact_count == 2).
+    await recompute.execute(model.id, boom.id)
+    await db_session.commit()
+    surface = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(
+                FormationSurfaceOrm.model_id == model.id,
+                FormationSurfaceOrm.formation_id == boom.id,
+            )
+        )
+    ).scalar_one()
+    assert surface.source_contact_count == 2
+    checksum_all = surface.source_contact_checksum
+
+    # Exclude bh_drop from the model, recompute → only bh_keep's point
+    # remains (count drops to 1) and the checksum changes.
+    model.excluded_borehole_ids = [bh_drop.id]
+    await db_session.commit()
+    db_session.expunge_all()
+    await RecomputeFormationSurface(db_session).execute(model.id, boom.id)
+    await db_session.commit()
+    surface2 = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(
+                FormationSurfaceOrm.model_id == model.id,
+                FormationSurfaceOrm.formation_id == boom.id,
+            )
+        )
+    ).scalar_one()
+    assert surface2.source_contact_count == 1
+    assert surface2.source_contact_checksum != checksum_all
+    assert surface2.is_stale is False
+
+    # Skip, never delete: BOTH contact rows still exist — un-excluding
+    # the borehole would restore its contribution on the next recompute.
+    for cid in (c_keep.id, c_drop.id):
+        assert await db_session.get(FormationContactOrm, cid) is not None
