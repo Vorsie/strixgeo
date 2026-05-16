@@ -39,13 +39,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from groundmodel.domain.services.dem_clip_constants import (
+    KIND_CONTACT_ABOVE_DEM,
+    KIND_DEM_CELL_LOW_CONFIDENCE,
+)
 from groundmodel.domain.services.tin_surface import TinSurface
 from groundmodel.domain.value_objects.gap_issue import GapIssue
-
-# Kind constants — stable identifiers that the API schema and UI copy
-# key off.  New kinds follow the same naming convention (snake_case).
-KIND_CONTACT_ABOVE_DEM = "contact_above_dem"
-KIND_DEM_CELL_LOW_CONFIDENCE = "dem_cell_low_confidence"
 
 
 @dataclass(frozen=True)
