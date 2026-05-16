@@ -333,7 +333,13 @@ GET    /projects/{pid}/geology/models/{mid}/export/plaxis3d
 POST   /projects/{pid}/sections             Create a cross-section (line
                                             endpoints + projection buffer
                                             + view prefs). 422 when the
-                                            endpoints coincide.
+                                            endpoints coincide. 400 when
+                                            ``epsg`` is not a supported
+                                            projected metric CRS (debt
+                                            #31 — degrees would yield
+                                            garbage along-distance); the
+                                            DXF + Plaxis 2D exports apply
+                                            the same guard defensively.
 GET    /projects/{pid}/sections             List sections, display_order
                                             then name.
 GET    /projects/{pid}/sections/{sid}       Fetch one.
