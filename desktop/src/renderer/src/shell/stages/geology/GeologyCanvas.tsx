@@ -23,7 +23,7 @@
 // model-definition surface; the Data stage is the inspection surface.
 
 import * as Cesium from 'cesium'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '../../../api/client'
 import type { GroundSurfaceBuildResponse } from '../../../api/client'
@@ -31,9 +31,26 @@ import { useShell } from '../../ShellContext'
 import MapView from '../../../components/MapView'
 import Geology3DViewer, { type SplitMode } from './Geology3DViewer'
 
+// ---------------------------------------------------------------------------
+// Cross-component callbacks — module-level refs shared between GeologyCanvas
+// and GeologyToolbar without routing through the ShellContext bus.
+// Only one canvas instance is mounted at a time, so this is race-free.
+// ---------------------------------------------------------------------------
+
 // Exposed to GeologyToolbar (same module boundary — no bus extension needed).
 // Populated by Geology3DViewer when the primary viewport mounts.
 export const resetCameraCallback: React.MutableRefObject<(() => void) | null> = {
+  current: null,
+}
+
+/**
+ * Reset the split viewport back to single-viewport mode.
+ *
+ * Populated by ``GeologyCanvas`` when mounted.  ``GeologyToolbar`` imports
+ * and calls ``resetSplitViewportCallback.current?.()`` when the Reset button
+ * is clicked.
+ */
+export const resetSplitViewportCallback: React.MutableRefObject<(() => void) | null> = {
   current: null,
 }
 
@@ -116,13 +133,14 @@ export default function GeologyCanvas(): JSX.Element {
 
   const [groundSurface, setGroundSurface] = useState<GroundSurfaceBuildResponse | null>(null)
 
+  const projectId = project?.id ?? null
+  const modelId = activeGeologicalModel?.id ?? null
+
   useEffect(() => {
-    if (!project || !activeGeologicalModel) {
+    if (!projectId || !modelId) {
       setGroundSurface(null)
       return
     }
-    const projectId = project.id
-    const modelId = activeGeologicalModel.id
     let cancelled = false
 
     api.geology
@@ -139,7 +157,10 @@ export default function GeologyCanvas(): JSX.Element {
     return () => {
       cancelled = true
     }
-  }, [project, activeGeologicalModel])
+    // Key on stable id strings — a server refresh returning a new object
+    // with the same id (e.g. after surfaces/rebuild updates is_stale) must
+    // not re-fire the DEM fetch. The surface TIN does not depend on staleness.
+  }, [projectId, modelId])
 
   // ---------------------------------------------------------------------------
   // 3D-or-2D decision
@@ -204,21 +225,4 @@ export default function GeologyCanvas(): JSX.Element {
       onDemOverlayChange={handleDemOverlayChange}
     />
   )
-}
-
-// ---------------------------------------------------------------------------
-// Cross-component callbacks — module-level refs shared between GeologyCanvas
-// and GeologyToolbar without routing through the ShellContext bus.
-// Only one canvas instance is mounted at a time, so this is race-free.
-// ---------------------------------------------------------------------------
-
-/**
- * Reset the split viewport back to single-viewport mode.
- *
- * Populated by ``GeologyCanvas`` when mounted.  ``GeologyToolbar`` imports
- * and calls ``resetSplitViewportCallback.current?.()`` when the Reset button
- * is clicked.
- */
-export const resetSplitViewportCallback: React.MutableRefObject<(() => void) | null> = {
-  current: null,
 }
