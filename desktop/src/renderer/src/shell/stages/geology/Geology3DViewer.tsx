@@ -714,9 +714,12 @@ function CesiumViewport({
     const rect = surfacesRectangle(rectSources, projectEpsg)
     if (!rect) return
 
+    // ImageryLayer.rectangle is read-only post-construction — it must be
+    // passed via the constructor (the layer-level clip that makes the
+    // basemap a true cutout over the model footprint).
     const provider = buildImageryProvider(activeBasemap, rect)
-    const layer = widget.scene.imageryLayers.addImageryProvider(provider)
-    layer.rectangle = rect
+    const layer = new Cesium.ImageryLayer(provider, { rectangle: rect })
+    widget.scene.imageryLayers.add(layer)
     imageryLayerRef.current = layer
 
     // If the source has an overlay (e.g. Geopunt hybrid: GRB-selectie
@@ -733,8 +736,10 @@ function CesiumViewport({
         },
         rect,
       )
-      const overlayLayer = widget.scene.imageryLayers.addImageryProvider(overlayProvider)
-      overlayLayer.rectangle = rect
+      const overlayLayer = new Cesium.ImageryLayer(overlayProvider, {
+        rectangle: rect,
+      })
+      widget.scene.imageryLayers.add(overlayLayer)
       imageryOverlayLayerRef.current = overlayLayer
     }
     // reason: surfacesByFormationId / groundSurface drive the clip
