@@ -209,9 +209,22 @@ class RebuildModelSurfaces(GroundModelLogger):
         if not all_formations:
             return 0
 
+        # Debt #35: pinned formations were manually drag-reordered by
+        # the engineer — Build's age inference is exactly the thing they
+        # overrode (pinch-outs / unconformities / inversion the data
+        # can't disambiguate). Keep every pinned formation at its EXACT
+        # current display_order; only the non-pinned formations get
+        # re-flowed, into whatever slots the pinned ones don't occupy.
+        pinned_order_by_fid: dict[UUID, int] = {
+            f.id: f.display_order for f in all_formations if f.pinned_order
+        }
+        pinned_ids = set(pinned_order_by_fid)
+        occupied = set(pinned_order_by_fid.values())
+
         # Algorithm orders the contact-bearing formations by data;
         # orphans append in their current display_order so a manual
-        # drag-reorder on an unplaced formation survives Build.
+        # drag-reorder on an unplaced formation survives Build. Pinned
+        # formations are removed from the re-flow entirely.
         age_ordered = infer_age_order(
             contacts_by_anchor=contacts_by_anchor,
             all_formation_ids=list(with_contacts),
@@ -220,11 +233,24 @@ class RebuildModelSurfaces(GroundModelLogger):
             (f for f in all_formations if f.id not in with_contacts),
             key=lambda f: f.display_order,
         )
-        final_order: list[UUID] = age_ordered + [f.id for f in orphans]
-        new_order_by_fid = {fid: i for i, fid in enumerate(final_order)}
+        non_pinned_sequence: list[UUID] = [fid for fid in age_ordered if fid not in pinned_ids] + [
+            f.id for f in orphans if f.id not in pinned_ids
+        ]
+
+        # Free slots = 0..N-1 minus the indices the pinned formations
+        # hold. Assign the non-pinned sequence into them in order, so
+        # the data-driven ordering still applies AROUND the fixed picks.
+        free_slots = (i for i in range(len(all_formations)) if i not in occupied)
+        new_order_by_fid: dict[UUID, int] = dict(pinned_order_by_fid)
+        for fid, slot in zip(non_pinned_sequence, free_slots):
+            new_order_by_fid[fid] = slot
 
         changed = 0
         for f in all_formations:
+            if f.id in pinned_ids:
+                # Belt-and-braces: never touch a pinned formation even
+                # if its stored order somehow drifted from the map.
+                continue
             target = new_order_by_fid.get(f.id)
             if target is None:
                 continue
