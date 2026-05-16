@@ -104,6 +104,9 @@ export interface Geology3DViewerProps {
    * The ref holds a ``() => void`` callback when the viewer is mounted.
    */
   resetCameraRef: React.MutableRefObject<(() => void) | null>
+  /** Collapse the split back to a single viewport (the "Single view"
+   * button in the viewer). Owned by GeologyCanvas. */
+  onExitSplit?: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -755,7 +758,17 @@ function CesiumViewport({
 
     const handler = new Cesium.ScreenSpaceEventHandler(widget.scene.canvas)
     handler.setInputAction((event: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
-      const cartesian = widget.scene.pickPosition(event.position)
+      // pickPosition needs a depth buffer / something pickable under the
+      // cursor. On the flat ellipsoid (no Cesium terrain) it returns
+      // undefined for clicks off the TIN — which is why the split never
+      // registered. Fall back to the ellipsoid intersection so any
+      // click on the scene yields a world point.
+      const cartesian =
+        widget.scene.pickPosition(event.position) ??
+        widget.camera.pickEllipsoid(
+          event.position,
+          widget.scene.globe.ellipsoid,
+        )
       if (cartesian) {
         onSceneClick(cartesian)
       }
@@ -898,6 +911,7 @@ export default function Geology3DViewer({
   onSplitPlaneDrawn,
   resetCameraRef,
   groundSurface,
+  onExitSplit,
 }: Geology3DViewerProps): JSX.Element {
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
@@ -950,6 +964,11 @@ export default function Geology3DViewer({
   // Basemap on/off (the user toggle). Default on.
   const [basemapEnabled, setBasemapEnabled] = useState(true)
 
+  // Split-line free-draw is EXPLICIT: armed by the "Split model" button,
+  // not always-on. Without this every click in single view tried to
+  // start a split (and silently failed on the flat ellipsoid).
+  const [splitArmed, setSplitArmed] = useState(false)
+
   const handleViewportClick = useCallback(
     (cartesian: Cesium.Cartesian3) => {
       if (splitMode !== 'single' || splitPlane !== null) return
@@ -961,13 +980,12 @@ export default function Geology3DViewer({
 
       if (drawState.phase === 'first-click') {
         const plane = computeSplitPlane(drawState.first, cartesian)
+        setDrawState({ phase: 'idle' })
         if (plane) {
           onSplitPlaneDrawn(plane)
-          setDrawState({ phase: 'idle' })
-        } else {
-          // Segment too short — reset the draw; the user must re-click.
-          setDrawState({ phase: 'idle' })
+          setSplitArmed(false)
         }
+        // Segment too short → stay armed, idle: the user re-clicks.
       }
     },
     // projectEpsg is intentionally absent: computeSplitPlane works purely
@@ -975,9 +993,10 @@ export default function Geology3DViewer({
     [splitMode, splitPlane, drawState, onSplitPlaneDrawn],
   )
 
-  // Only wire the click handler on the primary viewport when in draw mode.
-  // Draw mode is active when splitMode === 'single' and splitPlane === null.
-  const isDrawMode = splitMode === 'single' && splitPlane === null
+  // Draw mode is active only while explicitly armed (and we're in single
+  // view with no plane yet). Clicks are captured only then.
+  const isDrawMode =
+    splitMode === 'single' && splitPlane === null && splitArmed
   const primaryClickHandler = isDrawMode ? handleViewportClick : undefined
 
   // ---------------------------------------------------------------------------
@@ -1058,6 +1077,44 @@ export default function Geology3DViewer({
             </ul>
           </div>
         }
+
+        {/* Split control — explicit free-draw arm + collapse. */}
+        <div className="absolute bottom-9 left-1/2 -translate-x-1/2 z-10">
+          {splitMode === 'split' ? (
+            <button
+              type="button"
+              onClick={() => onExitSplit?.()}
+              className="px-3 py-1.5 rounded text-xs font-semibold bg-surface-overlay/95 border border-border-default text-text-primary hover:bg-surface-page transition-colors shadow-lg"
+              title="Collapse the split back to a single view"
+            >
+              Single view
+            </button>
+          ) : splitArmed ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSplitArmed(false)
+                setDrawState({ phase: 'idle' })
+              }}
+              className="px-3 py-1.5 rounded text-xs font-semibold bg-surface-overlay/95 border border-border-default text-text-secondary hover:bg-surface-page transition-colors shadow-lg"
+              title="Cancel the split-line draw"
+            >
+              Cancel split
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setSplitArmed(true)
+                setDrawState({ phase: 'idle' })
+              }}
+              className="px-3 py-1.5 rounded text-xs font-semibold bg-accent text-text-on-accent hover:bg-accent-muted transition-colors shadow-lg"
+              title="Draw a line across the model to split it into two independently-panned views"
+            >
+              ✂ Split model
+            </button>
+          )}
+        </div>
 
         {/* Split-line draw mode hint */}
         {isDrawMode && (
