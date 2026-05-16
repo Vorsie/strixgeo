@@ -23,6 +23,12 @@ Orphan suppression:
 - orphaned contact (observation_layer_id=None) is purged before idempotency
   check when selected_keys is provided, allowing re-creation
 
+§10 on-click build contract:
+- auto-populate must NOT trigger Delaunay / TIN recompute (no
+  RecomputeFormationSurface call); instead it calls mark_surfaces_stale on
+  formations that already have a surface row, and skips brand-new formations
+  (no surface row to mark stale yet).
+
 The DB session is mocked at the ``session.execute`` / ``session.add`` boundary;
 no real DB or network I/O is performed.
 """
@@ -30,7 +36,7 @@ no real DB or network I/O is performed.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -320,9 +326,10 @@ async def test_execute_selected_keys_filters_unselected_layers():
     session.commit = AsyncMock()
 
     with patch(
-        "groundmodel.application.auto_populate_contacts_from_stratigraphy.RecomputeFormationSurface"
-    ) as mock_recompute:
-        mock_recompute.return_value.execute_many = AsyncMock()
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ) as mock_mark_stale:
         use_case = AutoPopulateContactsFromStratigraphy(session)
         outcome = await use_case.execute(
             project_id=project_id,
@@ -337,6 +344,8 @@ async def test_execute_selected_keys_filters_unselected_layers():
     # The formation added via session.add should be GeologicalFormationOrm — verify
     # at least one add happened (formation + contact = 2 adds)
     assert session.add.call_count >= 2
+    # §10 on-click build contract: mark_surfaces_stale called (no Delaunay).
+    mock_mark_stale.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -392,9 +401,10 @@ async def test_execute_selected_keys_none_processes_all():
     session.commit = AsyncMock()
 
     with patch(
-        "groundmodel.application.auto_populate_contacts_from_stratigraphy.RecomputeFormationSurface"
-    ) as mock_recompute:
-        mock_recompute.return_value.execute_many = AsyncMock()
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ) as mock_mark_stale:
         use_case = AutoPopulateContactsFromStratigraphy(session)
         outcome = await use_case.execute(
             project_id=project_id,
@@ -406,3 +416,96 @@ async def test_execute_selected_keys_none_processes_all():
     # Both layers processed → 2 formations + 2 contacts
     assert len(outcome.created_formation_ids) == 2
     assert len(outcome.created_contact_ids) == 2
+    # §10 on-click build contract: mark_surfaces_stale called (no Delaunay).
+    mock_mark_stale.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# §10 on-click build contract — no TIN, stale-flip for pre-existing surfaces
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_auto_populate_does_not_build_tin_marks_existing_surfaces_stale():
+    """§10 contract: auto-populate must NOT trigger Delaunay/TIN recompute.
+
+    After the run:
+    - contacts and formations are created;
+    - mark_surfaces_stale is called (not RecomputeFormationSurface.execute_many);
+    - brand-new formations (no pre-existing surface row) result in a
+      mark_surfaces_stale call that returns 0 — the repo no-ops when
+      no surface row exists for that (model, formation) pair, leaving the
+      formation to render via the connect-the-dots fallback until Build fires.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    layer = _layer(top_m=0.0, base_m=8.0, description="Boom Klei")
+    bh = _borehole(
+        [
+            _observation(ObservationType.INFORMAL_STRATIGRAPHY, [layer]),
+        ]
+    )
+
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = [bh]
+
+    empty_formations_result = MagicMock()
+    empty_formations_result.scalars.return_value.all.return_value = []
+
+    max_order_result = MagicMock()
+    max_order_result.scalar_one.return_value = 0
+
+    empty_contacts_result = MagicMock()
+    empty_contacts_result.all.return_value = []
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return empty_formations_result
+        if call_count == 3:
+            return max_order_result
+        if call_count == 4:
+            return empty_contacts_result
+        return empty_contacts_result
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock()
+    session.new = []
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    # Brand-new formation → no surface row exists → mark_surfaces_stale is a
+    # no-op (returns 0). Confirms the repo path is taken, NOT Delaunay.
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,  # repo returns 0 when no surface row exists to flip
+    ) as mock_mark_stale:
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh.id],
+        )
+
+    # Contact + formation created.
+    assert len(outcome.created_formation_ids) == 1
+    assert len(outcome.created_contact_ids) == 1
+    # mark_surfaces_stale was called exactly once (not RecomputeFormationSurface).
+    mock_mark_stale.assert_called_once()
+    # The call receives one (model_id, formation_id) pair — the touched formation.
+    call_args = mock_mark_stale.call_args
+    pairs = list(call_args[0][0])  # first positional arg is the generator
+    assert len(pairs) == 1
+    assert pairs[0][0] == model_id
