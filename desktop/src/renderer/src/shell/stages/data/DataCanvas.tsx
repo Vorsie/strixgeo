@@ -11,6 +11,7 @@
 import { Map as MapIcon, BarChart2 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { LoadingState } from '../../EmptyState'
 import MapView from '../../../components/MapView'
 import CptChart from '../../../components/CptChart'
 import BoreholeLog from '../../../components/BoreholeLog'
@@ -179,9 +180,7 @@ export default function DataCanvas(): JSX.Element {
               virtueleBoringLoading={virtueleBoringLoading}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-sm text-text-muted">
-              Loading borehole…
-            </div>
+            <LoadingState label="Loading borehole…" />
           )
         ) : selectedCpt && plotMap.has(selectedId!) ? (
           <CptChart
@@ -207,9 +206,7 @@ export default function DataCanvas(): JSX.Element {
             virtueleBoringLoading={virtueleBoringLoading}
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-sm text-text-muted">
-            Loading chart…
-          </div>
+          <LoadingState label="Loading chart…" />
         )}
       </div>
     </div>
