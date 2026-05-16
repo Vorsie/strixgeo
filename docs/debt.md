@@ -12,8 +12,8 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current Phase 4 friction / launch-demo blockers:** #30, #29, #31, #33, #32, #34, #35
-* **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43
+* **C. Current Phase 4 friction / launch-demo blockers:** #29, #31, #33, #32, #34, #35
+* **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50, #51
 
 When an item is resolved, **delete it from this list** — its
@@ -22,12 +22,13 @@ not here. Numbers stay stable through a debt-fixing campaign (do
 not renumber after each fix); explicit cleanup passes (last done
 **2026-05-16: six-agent codebase audit added #29–#50, #24 deleted
 (Modal semantic-token migration shipped) + #51 (inspector token
-migration, de-scoped from the same pass's quick-fix batch); 44 open
-items**) compact
+migration, de-scoped from the same pass's quick-fix batch). Tier C
+campaign began 2026-05-16: #30 resolved (Export stage hub shipped),
+#52 filed (PDF report export). 44 open items**) compact
 them. Commit messages and code comments written before a cleanup
 pass continue to reference the OLD numbers — that's an unavoidable
 cost of the renumber. Sections #2–#28 below remain in their prior
-numeric order; #29–#50 are appended in numeric order — read the
+numeric order; #29+ are appended in numeric order — read the
 five-tier list above for true priority.
 
 ---
@@ -612,24 +613,6 @@ this into Plaxis 2D?" is the first question a pilot engineer asks.
 Treat as a demo-stopper, not polish. Fix is a `plxscripting` 2D
 script emitter against the existing section snapshot.
 
-## 30. Export stage is a "coming soon" stub — exports unreachable from the workflow spine (Tier C — launch-demo blocker)
-
-**What.** `ExportCanvas.tsx` is a single muted "coming soon" line.
-Both export buttons (DXF, Plaxis 3D) live only in the SectionsToolbar
-— discoverable only after navigating to Sections, selecting a
-section, and reading the toolbar. An engineer who follows the natural
-stage spine (Data → Geology → Sections → Geotechnical → Export) lands
-on a blank Export stage at the exact moment they need to take the
-result home. Demo-kill: the workflow ends in an empty room.
-
-**Why deferred.** Exports were wired into Sections as they landed;
-the Export stage was stubbed and never filed.
-
-**When to revisit.** Before any demo or beta handoff. Minimum fix:
-surface the export actions in the Export stage canvas (a section
-selector + the existing export buttons, or a redirect with guidance).
-~½ day focused.
-
 ## 31. No project-CRS validation on section creation / export (Tier C — silent garbage geometry)
 
 **What.** Section creation only gates on `effectiveHorizontalEpsg !=
@@ -942,8 +925,9 @@ docs/ux.md's selection section.
 just blank"; async needs an in-element spinner. Violations:
 `DataInspector` empty states are text-only; `DataCanvas` loading
 fallbacks are bare "Loading chart…" strings with no spinner;
-`ExportCanvas` / `GeotechnicalCanvas` are a single muted "coming
-soon" line with no icon or guidance. GeologyCanvas's empty state
+`GeotechnicalCanvas` is a single muted "coming soon" line with no
+icon or guidance (`ExportCanvas` was fixed when #30 shipped — it now
+follows the icon + actionable-card pattern). GeologyCanvas's empty state
 (Mountain icon + actionable guidance) is the one that does it right
 and should be the template — the inconsistency reads as unfinished
 against the LeapFrog/Plaxis polish the product sells on.
@@ -1088,6 +1072,43 @@ shape: `text-gray-*` → `text-text-{primary,secondary,muted}`,
 verify GeologyInspector + DataInspector + the 7 other flagged files
 in light and dark. Pairs naturally with the deferred leaf dark-mode
 token migration.
+
+## 52. PDF report export (Tier D — Phase 5 reporting deliverable)
+
+**What.** The Export stage hub (shipped with #30) surfaces machine
+targets — DXF, Plaxis 3D (Plaxis 2D / D-Series / GeoStudio / IFC as
+they land). It does NOT produce a human-readable **PDF report**: a
+formatted document an engineer hands to a client / files in the
+project dossier (project header, location map, investigation
+inventory, borelogs, cross-section figures, the formation/geotech
+model summary, derived parameters once Phase 5 lands). Every
+incumbent (gINT, D-Series, GeoStudio) ships a report generator; its
+absence is a credibility gap the moment a consultancy asks "can I
+get a deliverable out of this?". CLAUDE.md "Build Sequence" already
+lists "PDF reports" under Phase 5.
+
+**Why deferred.** A report engine is a real subsystem (layout/
+templating choice — ReportLab / WeasyPrint / headless-Chromium —,
+figure rendering from the section + 3D views, a template the user
+can brand, pagination). The v1.0 MVP gate is the *machine* export
+path (layer geometry → design tools); the report is the *human*
+output and is genuinely Phase 5 scope, not a launch-demo blocker.
+Building it before per-layer parameters + statistics exist (also
+Phase 5) means the report would have half its content blank.
+
+**When to revisit.** Phase 5, alongside derived parameters +
+statistics (the report's richest content depends on them). Pull
+earlier ONLY if a pilot consultancy makes a signed PDF deliverable a
+hard procurement requirement before then — in which case ship a thin
+interim (project header + investigation inventory + section figures,
+parameters section explicitly "not yet computed"). When built it
+becomes another `ExportCard` in the Export hub (the #30 canvas was
+designed so new targets are one card — no toolbar/inspector change).
+Decide the engine on the renderer/back-end split: a Python-side
+generator (ReportLab/WeasyPrint) keeps figures reproducible and
+testable; a renderer-side print-to-PDF reuses the live Cesium/recharts
+views but couples the report to Electron. Lean Python-side unless the
+3D figure fidelity forces the renderer path.
 
 ---
 
