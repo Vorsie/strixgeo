@@ -131,6 +131,7 @@ export default function DataInspector(): JSX.Element {
       sessionImportCptIds,
       sessionImportBoreholeIds,
       marqueeSelectedIds,
+      setHoveredTestId,
     },
     mapState: {
       hiddenCptTypes,
@@ -448,6 +449,7 @@ export default function DataInspector(): JSX.Element {
                   onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
                   onClick={() => void handleSelect(c.id)}
                   onRemove={() => handleRemoveCpts([c.id])}
+                  onHover={h => setHoveredTestId(h ? c.id : null)}
                 />
               ))}
               {cptHidden.length > 0 && <HiddenSeparator count={cptHidden.length} />}
@@ -462,6 +464,7 @@ export default function DataInspector(): JSX.Element {
                   onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
                   onClick={() => void handleSelect(c.id)}
                   onRemove={() => handleRemoveCpts([c.id])}
+                  onHover={h => setHoveredTestId(h ? c.id : null)}
                 />
               ))}
             </>
@@ -491,6 +494,7 @@ export default function DataInspector(): JSX.Element {
                   onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
                   onClick={() => void handleSelectBorehole(b.id)}
                   onRemove={() => handleRemoveBoreholes([b.id])}
+                  onHover={h => setHoveredTestId(h ? b.id : null)}
                 />
               ))}
               {bhHidden.length > 0 && <HiddenSeparator count={bhHidden.length} />}
@@ -505,6 +509,7 @@ export default function DataInspector(): JSX.Element {
                   onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
                   onClick={() => void handleSelectBorehole(b.id)}
                   onRemove={() => handleRemoveBoreholes([b.id])}
+                  onHover={h => setHoveredTestId(h ? b.id : null)}
                 />
               ))}
             </>
@@ -679,6 +684,7 @@ function CptRow({
   onToggleCheck,
   onClick,
   onRemove,
+  onHover,
 }: {
   cpt: CptListItem
   selected: boolean
@@ -688,6 +694,8 @@ function CptRow({
   onToggleCheck: (shiftKey: boolean) => void
   onClick: () => void
   onRemove: () => void
+  /** Row hover — highlights the matching map marker (if visible). */
+  onHover?: (hovered: boolean) => void
 }) {
   function handleRemove(e: React.MouseEvent) {
     e.stopPropagation()
@@ -696,6 +704,8 @@ function CptRow({
 
   return (
     <div
+      onMouseEnter={() => onHover?.(true)}
+      onMouseLeave={() => onHover?.(false)}
       className={[
         'group relative flex items-center border-b border-[--color-border-subtle] transition-colors',
         unsaved ? 'border-l-4 border-l-amber-500' : 'border-l-2 border-l-transparent',
@@ -763,6 +773,7 @@ function BoreholeRow({
   onToggleCheck,
   onClick,
   onRemove,
+  onHover,
 }: {
   borehole: BoreholeListItem
   selected: boolean
@@ -772,6 +783,8 @@ function BoreholeRow({
   onToggleCheck: (shiftKey: boolean) => void
   onClick: () => void
   onRemove: () => void
+  /** Row hover — highlights the matching map marker (if visible). */
+  onHover?: (hovered: boolean) => void
 }) {
   function handleRemove(e: React.MouseEvent) {
     e.stopPropagation()
@@ -782,6 +795,8 @@ function BoreholeRow({
 
   return (
     <div
+      onMouseEnter={() => onHover?.(true)}
+      onMouseLeave={() => onHover?.(false)}
       className={[
         'group relative flex items-center border-b border-[--color-border-subtle] transition-colors',
         unsaved ? 'border-l-4 border-l-amber-500' : 'border-l-2 border-l-transparent',
