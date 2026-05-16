@@ -403,6 +403,14 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         selected_key_set: frozenset[str] | None = (
             frozenset(selected_keys) if selected_keys is not None else None
         )
+        # Pre-compute the lower-case form once so the per-layer filter checks
+        # below (two sites) are O(N) total instead of O(N × |selected_key_set|).
+        # The set rebuild `{k.lower() for k in selected_key_set}` at each layer
+        # was an inadvertent O(N²) pattern introduced when the case-insensitive
+        # check was added.  None when selected_key_set is None (all-keys path).
+        selected_key_set_lower: frozenset[str] | None = (
+            frozenset(k.lower() for k in selected_key_set) if selected_key_set is not None else None
+        )
         self.info(
             f"Auto-populate: model={model_id} boreholes={len(borehole_id_list)} "
             f"selected_keys={len(selected_key_set) if selected_key_set is not None else 'all'}"
@@ -456,12 +464,10 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         # Fill run.  We only purge within the selected-key scope so we never
         # touch user-placed contacts on formations the caller did not request.
         surviving_formation_ids_for_selected: set[UUID] = set()
-        if selected_key_set is not None:
+        if selected_key_set is not None and selected_key_set_lower is not None:
             for f in existing_formations:
                 stable_key = f.regional_ref if f.regional_ref else f.name
-                if stable_key in selected_key_set or stable_key.lower() in {
-                    k.lower() for k in selected_key_set
-                }:
+                if stable_key in selected_key_set or stable_key.lower() in selected_key_set_lower:
                     surviving_formation_ids_for_selected.add(f.id)
             if surviving_formation_ids_for_selected:
                 orphan_del = delete(FormationContactOrm).where(
@@ -582,9 +588,10 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
 
                 # Apply the selected-key filter when the caller provided one.
                 # Case-insensitive comparison — DOV descriptions arrive in mixed case.
-                if selected_key_set is not None and stable_key.lower() not in {
-                    k.lower() for k in selected_key_set
-                }:
+                if (
+                    selected_key_set_lower is not None
+                    and stable_key.lower() not in selected_key_set_lower
+                ):
                     skipped_key_filter += 1
                     self.debug(
                         f"Borehole {borehole.id} layer {layer.id}: "
