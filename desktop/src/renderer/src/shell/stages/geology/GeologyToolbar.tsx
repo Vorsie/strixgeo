@@ -140,14 +140,20 @@ export default function GeologyToolbar(): JSX.Element {
   }
 
   // 4. Confirm handler for FormationSelectionDialog.
+  //    Receives stable keys (not display names) from the dialog.
   async function handleSelectionConfirm(
-    selectedNames: ReadonlySet<string>,
+    selectedKeys: ReadonlySet<string>,
   ): Promise<void> {
     setSelectionDialogOpen(false)
     setApplying(true)
     try {
       const boreholeIds = visibleBoreholes.map(b => b.id)
-      await applyBoreholeFormationSelection(selectedNames, boreholeIds)
+      await applyBoreholeFormationSelection(selectedKeys, boreholeIds)
+    } catch (err) {
+      // applyBoreholeFormationSelection logs + throws; toast the failure here
+      // so the Geology stage surfaces it even when the error originates deep
+      // in the hook (previously this path was silently swallowed).
+      toast('error', 'Could not apply formation selection — check the connection.')
     } finally {
       setApplying(false)
     }
