@@ -93,18 +93,26 @@ the geological model, not to the section. The section is a view.
 
 **Stratigraphic order — `display_order` is the age axis.** Lower
 `display_order` = older formation (deeper in the stratigraphic
-column). Section views and any other layered renderer iterate
+column). Section views and any other layered **renderer** iterate
 formations ASCENDING by `display_order` so older paints first and
 younger formations render visually on top — the geological
-superposition rule. Reorder lives in InterpretationPane via
-drag-and-drop; the drag-end commit renumbers every visible
-formation 0..N-1 (compact) and PATCHes only the rows whose index
-actually changed. The crossing validator
+superposition rule. **The GeologyInspector formation LIST is the
+one exception: it presents formations YOUNGEST-first (descending
+`display_order`), because an engineer reads it like a borehole log /
+stratigraphic column — surface/youngest at the top, oldest at
+depth. This is a presentation-only reversal; `display_order`
+semantics and every renderer's ascending paint order are unchanged.
+The drag-reorder runs in that displayed (reversed) space and maps
+the displayed index back to `display_order = (N-1 - i)`.** Reorder
+lives in GeologyInspector via drag-and-drop (the old InterpretationPane
+was deleted in the G3 sidebar overhaul); the drag-end commit
+renumbers every visible formation 0..N-1 (compact) and PATCHes only
+the rows whose index actually changed. The crossing validator
 (``GET /geology/models/{mid}/validate/crossings``) consumes this
 ordering: it samples each pair of cached TIN surfaces and flags any
 (x, y) where the younger formation dips below the older. Results
-surface in InterpretationPane as an amber "N surface crossings
-detected" banner; refetched on every contact mutation.
+surface as an amber "N surface crossings detected" banner; refetched
+on every contact mutation.
 
 **On-click build — the user controls when surfaces compute.** Per-
 contact mutations (Create / Update / Delete / Batch update) DO NOT
