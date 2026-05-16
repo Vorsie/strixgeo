@@ -30,15 +30,32 @@ funnels through this use case. Per borehole:
 The use case owns transaction discipline: one commit for the whole
 batch. A partial-failure (e.g. FK violation mid-loop) rolls
 everything back via the session's auto-rollback.
+
+Stable identity key
+-------------------
+Every layer resolves to a ``(name, regional_ref, key)`` triple via
+``_derive_layer_names_and_key``.  The **stable key** is defined as:
+
+    key = regional_ref  (when formal stratigraphy is present — stable
+                         cross-borehole code independent of working name)
+    key = name          (when informal-only — working name is the only
+                         available identifier)
+
+The discover scan (``scan_stratigraphy_candidates``) and the write
+path (``AutoPopulateContactsFromStratigraphy.execute``) BOTH call
+this single function, so the key used during candidate discovery is
+provably identical to the key used during formation find-or-create.
+The ``selected_keys`` filter on ``execute`` is expressed in these
+stable keys, not in display names.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid6 import uuid7
@@ -61,19 +78,85 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 @dataclass(frozen=True)
 class StratigraphyCandidate:
-    """A unique formation name discovered from borehole stratigraphy.
+    """A unique formation candidate discovered from borehole stratigraphy.
 
     Attributes
     ----------
     name : str
         Formation name as it would be assigned by auto-populate
         (informal description preferred; formal as fallback).
+    regional_ref : str or None
+        Formal stratigraphy code when the primary stream was formal;
+        ``None`` for informal-only boreholes.
+    key : str
+        Stable cross-borehole identity key — ``regional_ref`` when
+        present, ``name`` otherwise.  The ``selected_keys`` filter on
+        ``AutoPopulateContactsFromStratigraphy.execute`` is expressed
+        in these keys; the discover endpoint returns them so the dialog
+        can pass the same set back on confirm.
     borehole_count : int
-        Number of boreholes in scope that carry this name.
+        Number of boreholes in scope that carry this key.
     """
 
     name: str
+    regional_ref: str | None
+    key: str
     borehole_count: int
+
+
+def _derive_layer_names_and_key(
+    *,
+    primary_is_formal: bool,
+    primary_desc: str,
+    counterpart_desc: str | None,
+) -> tuple[str, str | None, str]:
+    """Derive the formation (name, regional_ref, key) triple for one primary layer.
+
+    This is the **single source of truth** for the naming and identity logic
+    shared between ``scan_stratigraphy_candidates`` (the discover scan) and
+    ``AutoPopulateContactsFromStratigraphy.execute`` (the write path).  Both
+    callers MUST use this function so the stable key is provably identical on
+    both sides — the root cause of the divergence bug fixed here.
+
+    DOV split convention:
+      * ``name``         = informal description (working name engineers use).
+      * ``regional_ref`` = formal stratigraphy code (stable regional reference).
+    Each field falls back to the primary stream's own description when the
+    other stream has no counterpart for this layer.
+
+    Stable key rule:
+      * ``key = regional_ref``  when formal stratigraphy is present
+        (same formal code = same formation, regardless of working name).
+      * ``key = name``          when informal-only (working name is the only
+        available stable identifier in that borehole).
+
+    Parameters
+    ----------
+    primary_is_formal : bool
+        True when the primary observation stream is FORMAL_STRATIGRAPHY.
+    primary_desc : str
+        Non-empty description from the primary layer (caller must strip/filter
+        blank descriptions before calling this function).
+    counterpart_desc : str or None
+        Stripped description of the best-overlap layer in the other stream, or
+        None when no other stream exists or no overlap was found.
+
+    Returns
+    -------
+    tuple[str, str | None, str]
+        ``(name, regional_ref, key)`` where ``name`` is the display /
+        working name, ``regional_ref`` is the formal code (or None), and
+        ``key`` is the stable cross-borehole identity key.
+    """
+    if primary_is_formal:
+        regional_ref: str | None = primary_desc
+        name = counterpart_desc or primary_desc
+    else:
+        regional_ref = None
+        name = primary_desc
+
+    key = regional_ref if regional_ref else name
+    return name, regional_ref, key
 
 
 async def scan_stratigraphy_candidates(
@@ -82,7 +165,7 @@ async def scan_stratigraphy_candidates(
     project_id: UUID,
     borehole_ids: Iterable[UUID],
 ) -> list[StratigraphyCandidate]:
-    """Scan borehole stratigraphy and return unique formation name candidates.
+    """Scan borehole stratigraphy and return unique formation candidates.
 
     Runs the same FORMAL_STRATIGRAPHY-preferred / INFORMAL_STRATIGRAPHY-
     fallback / surface-layers-skipped logic as
@@ -121,8 +204,10 @@ async def scan_stratigraphy_candidates(
     )
     boreholes = list((await session.execute(bh_stmt)).scalars().all())
 
-    # name → set of borehole ids that contributed it (dedup per borehole).
-    name_to_boreholes: dict[str, set[UUID]] = {}
+    # key → (first seen name, first seen regional_ref, set of borehole ids).
+    # Keyed on stable key, not on display name — the same key from two
+    # boreholes with different working names must merge into one candidate.
+    key_to_data: dict[str, tuple[str, str | None, set[UUID]]] = {}
 
     for borehole in boreholes:
         formal_obs = _find_observation(borehole.observations, ObservationType.FORMAL_STRATIGRAPHY)
@@ -150,19 +235,28 @@ async def scan_stratigraphy_candidates(
             counterpart = _best_overlap(layer.top_m, layer.base_m, other_layers)
             counterpart_desc = (counterpart.description or "").strip() if counterpart else None  # type: ignore[union-attr]
 
-            # Mirror the auto-populate name assignment:
-            # name = informal (primary when not formal; counterpart when primary is formal)
-            if primary_is_formal:
-                name = counterpart_desc or primary_desc
-            else:
-                name = primary_desc
+            # Single shared derivation: name/regional_ref/key from the same
+            # function used by execute(). Key divergence was the root cause of
+            # the discover-execute mismatch (bug fixed 2026-05-16).
+            name, regional_ref, key = _derive_layer_names_and_key(
+                primary_is_formal=primary_is_formal,
+                primary_desc=primary_desc,
+                counterpart_desc=counterpart_desc,
+            )
 
-            name_to_boreholes.setdefault(name, set()).add(borehole.id)
+            if key not in key_to_data:
+                key_to_data[key] = (name, regional_ref, set())
+            key_to_data[key][2].add(borehole.id)
 
     return sorted(
         [
-            StratigraphyCandidate(name=n, borehole_count=len(bids))
-            for n, bids in name_to_boreholes.items()
+            StratigraphyCandidate(
+                name=name,
+                regional_ref=regional_ref,
+                key=key,
+                borehole_count=len(bids),
+            )
+            for key, (name, regional_ref, bids) in key_to_data.items()
         ],
         key=lambda c: (-c.borehole_count, c.name),
     )
@@ -263,6 +357,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         project_id: UUID,
         model_id: UUID,
         borehole_ids: Iterable[UUID],
+        selected_keys: list[str] | None = None,
     ) -> AutoPopulateOutcome:
         """Walk every borehole in scope and seed contacts.
 
@@ -278,6 +373,25 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             Boreholes to process. Typically the set projected onto
             the active cross-section. Caller is responsible for
             scoping; this use case doesn't filter further.
+        selected_keys : list[str] or None, optional
+            When provided, only layers whose stable key (``regional_ref``
+            when present, else ``name``) is in this set are processed.
+            Layers for other keys are silently skipped — the caller
+            (``applyBoreholeFormationSelection``) owns the delete step
+            for non-selected formations, so this filter is the mechanism
+            that creates ONLY the user's chosen formations.
+
+            When ``None`` (default), all layers are processed — preserving
+            the existing behaviour of ``handleAutoPopulateFromStratigraphy``
+            (the Sections "Seed from stratigraphy" path), which is unaffected
+            by this change.
+
+            Orphan safety: when ``selected_keys`` is provided, any
+            ``FormationContactOrm`` rows whose ``formation_id`` maps to a
+            formation whose stable key is in ``selected_keys`` but whose
+            ``observation_layer_id`` is NULL (orphaned from a prior failed
+            run) are deleted before the idempotency check so they cannot
+            suppress re-creation.
 
         Returns
         -------
@@ -286,7 +400,13 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             response and the frontend can patch local state by id.
         """
         borehole_id_list = list(borehole_ids)
-        self.info(f"Auto-populate: model={model_id} boreholes={len(borehole_id_list)}")
+        selected_key_set: frozenset[str] | None = (
+            frozenset(selected_keys) if selected_keys is not None else None
+        )
+        self.info(
+            f"Auto-populate: model={model_id} boreholes={len(borehole_id_list)} "
+            f"selected_keys={len(selected_key_set) if selected_key_set is not None else 'all'}"
+        )
         if not borehole_id_list:
             return AutoPopulateOutcome([], [], 0, 0, 0)
 
@@ -304,37 +424,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         )
         boreholes = list((await self._session.execute(bh_stmt)).scalars().all())
 
-        # Pre-load every existing contact in the model so the dedup
-        # checks are O(1) per layer. Two indices needed:
-        #
-        # * ``used_layer_ids``: skip layers we've already auto-populated
-        #   from (idempotency on observation_layer_id).
-        # * ``occupied_anchor_formation``: skip layers whose
-        #   (anchor, formation) tuple already has a contact, regardless
-        #   of source. This is the "user overrides are absolute" rule —
-        #   if the engineer manually placed a Boom Klei contact on
-        #   borehole-X, re-running auto-populate must NOT add a second
-        #   one alongside it. Same protection if the contact came from
-        #   a previous auto-populate that the user then dragged or
-        #   overwrote — the existence of the (anchor, formation) tuple
-        #   wins, no matter how it got there.
-        contact_rows = list(
-            (
-                await self._session.execute(
-                    select(
-                        FormationContactOrm.observation_layer_id,
-                        FormationContactOrm.borehole_id,
-                        FormationContactOrm.formation_id,
-                    ).where(FormationContactOrm.model_id == model_id)
-                )
-            ).all()
-        )
-        used_layer_ids: set[UUID] = {row[0] for row in contact_rows if row[0] is not None}
-        occupied_anchor_formation: set[tuple[UUID, UUID]] = {
-            (row[1], row[2]) for row in contact_rows if row[1] is not None
-        }
-
-        # Pre-load every project formation. Two indices: a stable
+        # Pre-load every project formation. Two indices: stable
         # cross-borehole key (regional_ref — formal stratigraphy code)
         # and a fallback name index for informal-only formations.
         # Lookups are case-insensitive — DOV layer descriptions arrive
@@ -357,6 +447,66 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             )
         ).scalar_one() + 1
 
+        # When selected_keys is provided, purge orphaned FormationContactOrm
+        # rows whose formation_id maps to a formation in the selected set and
+        # whose observation_layer_id is NULL.  NULL-source contacts are created
+        # only by prior incomplete runs (FK orphans from a crash/rollback); they
+        # block re-creation via used_layer_ids / occupied_anchor_formation and
+        # would permanently suppress the desired contacts on every subsequent
+        # Fill run.  We only purge within the selected-key scope so we never
+        # touch user-placed contacts on formations the caller did not request.
+        surviving_formation_ids_for_selected: set[UUID] = set()
+        if selected_key_set is not None:
+            for f in existing_formations:
+                stable_key = f.regional_ref if f.regional_ref else f.name
+                if stable_key in selected_key_set or stable_key.lower() in {
+                    k.lower() for k in selected_key_set
+                }:
+                    surviving_formation_ids_for_selected.add(f.id)
+            if surviving_formation_ids_for_selected:
+                orphan_del = delete(FormationContactOrm).where(
+                    FormationContactOrm.model_id == model_id,
+                    FormationContactOrm.formation_id.in_(surviving_formation_ids_for_selected),
+                    FormationContactOrm.observation_layer_id.is_(None),
+                )
+                orphan_result = await self._session.execute(orphan_del)
+                orphan_count = orphan_result.rowcount
+                if orphan_count:
+                    self.debug(
+                        f"Auto-populate: purged {orphan_count} orphaned contact(s) "
+                        f"for selected formations (NULL observation_layer_id)"
+                    )
+
+        # Pre-load every existing contact in the model so the dedup
+        # checks are O(1) per layer. Two indices needed:
+        #
+        # * ``used_layer_ids``: skip layers we've already auto-populated
+        #   from (idempotency on observation_layer_id).
+        # * ``occupied_anchor_formation``: skip layers whose
+        #   (anchor, formation) tuple already has a contact, regardless
+        #   of source. This is the "user overrides are absolute" rule —
+        #   if the engineer manually placed a Boom Klei contact on
+        #   borehole-X, re-running auto-populate must NOT add a second
+        #   one alongside it.
+        #
+        # These indices are built AFTER the orphan purge above so the
+        # orphan rows no longer block re-creation.
+        contact_rows = list(
+            (
+                await self._session.execute(
+                    select(
+                        FormationContactOrm.observation_layer_id,
+                        FormationContactOrm.borehole_id,
+                        FormationContactOrm.formation_id,
+                    ).where(FormationContactOrm.model_id == model_id)
+                )
+            ).all()
+        )
+        used_layer_ids: set[UUID] = {row[0] for row in contact_rows if row[0] is not None}
+        occupied_anchor_formation: set[tuple[UUID, UUID]] = {
+            (row[1], row[2]) for row in contact_rows if row[1] is not None
+        }
+
         created_contact_ids: list[UUID] = []
         created_formation_ids: list[UUID] = []
         # O(1) membership check for the post-walk depth-based reorder
@@ -375,6 +525,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         skipped_existing = 0
         skipped_unmatched = 0
         skipped_no_stratigraphy = 0
+        skipped_key_filter = 0
 
         for borehole in boreholes:
             # Resolve both streams. Formal is the authoritative regional
@@ -420,16 +571,26 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 counterpart = self._best_overlap(layer.top_m, layer.base_m, other_layers)
                 counterpart_desc = (counterpart.description or "").strip() if counterpart else None
 
-                # DOV split: name = informal description, regional_ref
-                # = formal description. Each falls back to the primary
-                # stream's own description on whichever side has no
-                # counterpart.
-                if primary_is_formal:
-                    regional_ref: str | None = primary_desc
-                    name = counterpart_desc or primary_desc
-                else:
-                    regional_ref = None  # informal-only borehole
-                    name = primary_desc
+                # Single shared derivation — same function as scan_stratigraphy_candidates
+                # so the stable key used here is provably identical to the key returned
+                # to the dialog.  This was the root cause of the bug fixed here.
+                name, regional_ref, stable_key = _derive_layer_names_and_key(
+                    primary_is_formal=primary_is_formal,
+                    primary_desc=primary_desc,
+                    counterpart_desc=counterpart_desc,
+                )
+
+                # Apply the selected-key filter when the caller provided one.
+                # Case-insensitive comparison — DOV descriptions arrive in mixed case.
+                if selected_key_set is not None and stable_key.lower() not in {
+                    k.lower() for k in selected_key_set
+                }:
+                    skipped_key_filter += 1
+                    self.debug(
+                        f"Borehole {borehole.id} layer {layer.id}: "
+                        f"key '{stable_key}' not in selected_keys, skipped"
+                    )
+                    continue
 
                 # Find or create. regional_ref is the cross-borehole
                 # key when present (same formal code = same formation,
@@ -577,7 +738,8 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             f"+{len(created_formation_ids)} formations, "
             f"skipped {skipped_existing} existing / "
             f"{skipped_unmatched} unmatched / "
-            f"{skipped_no_stratigraphy} no-stratigraphy"
+            f"{skipped_no_stratigraphy} no-stratigraphy / "
+            f"{skipped_key_filter} key-filtered"
         )
         return AutoPopulateOutcome(
             created_contact_ids=created_contact_ids,
