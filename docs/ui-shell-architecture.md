@@ -538,7 +538,7 @@ This eliminates the current Toolbar.tsx import-dropdown-only design. The import 
 
 **Geotechnical stage.** Canvas = cross-section or plan view with geotech-unit subdivision visible (debt #13). Toolbar = Add unit, Edit parameters (Phase 5). Inspector = unit list per formation, parameter values (Phase 5). Summary badge = "N units". Phase 5 work — stub only.
 
-**Export stage.** Canvas = summary view (project overview, export checklist). Toolbar = Export DXF, Export Plaxis 3D, Export Plaxis 2D (Phase 4 follow-on), future D-Stability / D-Sheet / GeoStudio / IFC. Inspector = export format options, output path. Summary badge = last export date or "Never". Phase 4 follow-on — stub only for the initial shell build.
+**Export stage.** *(Shipped 2026-05-16, debt #30.)* Canvas = the export hub: one actionable `ExportCard` per target (icon + description + action). DXF (section picker + Export) and Plaxis 3D (Export) ship today; Plaxis 2D / D-Stability / D-Sheet / GeoStudio / IFC / PDF report (debt #52) each land as one additional card — no toolbar/inspector change. Toolbar + Inspector = **null by design**: targets are picked on the canvas itself (the original "verbs in the toolbar" plan was superseded — the audit's agreed fix for debt #30 was canvas-based, and it keeps the export handlers shared verbatim with the Sections toolbar via the ShellContext bus). Summary badge = count of currently-runnable targets (`null` when nothing is exportable yet).
 
 ---
 
