@@ -67,7 +67,12 @@ export default function SectionLineDrawer({ active, onLineDrawn, onCancel }: Pro
       if (startRef.current === null) {
         // First click — pin the start, open the rubber-band preview.
         startRef.current = e.latlng
+        // pane: the default vector pane (overlayPane z=400) is covered
+        // by the Geopunt GRB-selectie overlay in this app — same reason
+        // the markers were pinned to investigation-markers (z=640).
+        // Reuse that pane so the rubber-band draw is visible over GRB.
         startMarkerRef.current = L.circleMarker(e.latlng, {
+          pane: 'investigation-markers',
           radius: 5,
           color: '#dc2626',
           weight: 2,
@@ -75,6 +80,7 @@ export default function SectionLineDrawer({ active, onLineDrawn, onCancel }: Pro
           fillOpacity: 0.5,
         }).addTo(map)
         lineRef.current = L.polyline([e.latlng, e.latlng], {
+          pane: 'investigation-markers',
           color: '#dc2626',
           weight: 3,
           opacity: 0.9,
