@@ -231,6 +231,7 @@ function makeStubContext(): ShellContextValue {
       handleSelect: noopAsync,
       handleSelectBorehole: noopAsync,
       handleExportSectionDxf: noopAsync,
+      handleExportSectionPlaxis2d: noopAsync,
       outOfViewportCptIds: new Set(),
       outOfViewportBoreholeIds: new Set(),
       projectFilePath: null,
