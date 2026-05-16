@@ -299,6 +299,23 @@ export default function App() {
   // dedupe, rebuild, Plaxis export, borehole toggle). The cluster is
   // large enough to own its own hook; useGeologicalModel.ts has the
   // full implementation with commentary.
+  const geo = useGeologicalModel({
+    project,
+    toast,
+    pushUndo,
+    addToManifest,
+    removeFromManifest,
+    addToSessionImports,
+    removeFromSessionImports,
+  })
+  // Local destructure is for App.tsx's own use ONLY. The COMPLETE hook
+  // result is handed to the shell as `geoModel: geo` (below) — never a
+  // re-listed literal. A hand-mirrored object literal silently dropped
+  // discoverBoreholeFormations / applyBoreholeFormationSelection /
+  // handleDeleteModel and crashed Fill at runtime (2026-05-16); App.tsx
+  // tsc noise is ignored + Vitest stubs the coordinator, so neither gate
+  // caught it. Passing `geo` whole makes that drift structurally
+  // impossible.
   const {
     activeGeologicalModel,
     formations,
@@ -323,15 +340,7 @@ export default function App() {
     handleExportModelPlaxis3d,
     handleToggleBoreholeInModel,
     discardContacts,
-  } = useGeologicalModel({
-    project,
-    toast,
-    pushUndo,
-    addToManifest,
-    removeFromManifest,
-    addToSessionImports,
-    removeFromSessionImports,
-  })
+  } = geo
 
   // Project lifecycle — dirty flag, File menu IPC, close-flow dialogs,
   // Save / Discard / window title / OS quit handshake. Wired here (after
@@ -703,31 +712,9 @@ export default function App() {
     },
     visibleCpts,
     visibleBoreholes,
-    geoModel: {
-      activeGeologicalModel,
-      formations,
-      formationsRefreshCounter,
-      contacts,
-      surfacesByFormationId,
-      crossingsRefreshCounter,
-      staleSurfaceCount,
-      handleFormationCreated,
-      handleFormationUpdated,
-      handleFormationDeleted,
-      handleInlineCreateFormation,
-      refetchFormations,
-      handleCreateContact,
-      handleUpdateContactDepth,
-      handleBatchCreateContacts,
-      handleBatchUpdateContacts,
-      handleDeleteContact,
-      handleAutoPopulateFromStratigraphy,
-      handleDedupeContacts,
-      handleRebuildSurfaces,
-      handleExportModelPlaxis3d,
-      handleToggleBoreholeInModel,
-      discardContacts,
-    },
+    // Whole hook result — see the comment at the useGeologicalModel call.
+    // Re-listing fields here is what dropped Fill's discover/apply.
+    geoModel: geo,
     sections: {
       sections,
       selectedSectionId,
