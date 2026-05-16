@@ -38,11 +38,18 @@ import { log } from '../utils/log'
 /** Payload accepted by the ContactsLayer batch-copy handler. */
 export type ContactCopyPayload = import('../components/sections/ContactsLayer').ContactCopyPayload
 
-/** A candidate formation name discovered from borehole stratigraphy. */
+/** A candidate formation discovered from borehole stratigraphy. */
 export interface FormationCandidate {
-  /** Formation name as it appears in the observation stratigraphy. */
+  /** Working display name (informal description preferred; formal as fallback). */
   name: string
-  /** Number of in-scope boreholes that carry this name. */
+  /**
+   * Stable cross-borehole identity key — ``regional_ref`` when formal
+   * stratigraphy is present, else ``name``.  Selection state in
+   * FormationSelectionDialog and the ``selected_keys`` filter sent to the
+   * auto-populate endpoint are both expressed in these keys.
+   */
+  key: string
+  /** Number of in-scope boreholes that carry this key. */
   boreholeCount: number
 }
 
@@ -94,11 +101,12 @@ export interface UseGeologicalModelResult {
     boreholeIds: readonly string[],
   ) => Promise<FormationCandidate[]>
   // Fill-from-boreholes: apply the curated selection (destructive).
-  // Step 1 calls auto-populate for selectedNames; step 2 deletes every
-  // current formation whose name is NOT in selectedNames. The confirm
-  // gate lives in FormationSelectionDialog — this fires on confirm only.
+  // Calls auto-populate with selected stable keys (server creates only
+  // those formations), then refetches the fresh formation list and
+  // deletes any formation whose stable key is NOT in the selected set.
+  // The confirm gate lives in FormationSelectionDialog.
   applyBoreholeFormationSelection: (
-    selectedNames: ReadonlySet<string>,
+    selectedKeys: ReadonlySet<string>,
     boreholeIds: readonly string[],
   ) => Promise<void>
   // Geology toolbar: delete the active geological model (irreversible).
@@ -1427,7 +1435,8 @@ export function useGeologicalModel({
   }, [])
 
   // Read-only discovery scan — queries the backend for candidate
-  // formation names from the given boreholes' stratigraphy
+  // Read-only discovery scan — queries the backend for candidate
+  // formations from the given boreholes' stratigraphy
   // (FORMAL preferred, INFORMAL fallback). Returns the list for
   // FormationSelectionDialog to render. Nothing is created.
   //
@@ -1435,6 +1444,11 @@ export function useGeologicalModel({
   // when the bootstrap raced or the model was just deleted — the model is
   // created on demand and the scan proceeds without requiring the user to
   // manually recover.
+  //
+  // On API error: toasts the failure and throws — the caller (GeologyToolbar)
+  // sees the throw and stays in the idle state. Previously this returned []
+  // on error, masquerading as "no stratigraphy data" and giving the user no
+  // feedback on what went wrong.
   const discoverBoreholeFormations = useCallback(
     async (boreholeIds: readonly string[]): Promise<FormationCandidate[]> => {
       if (!project) return []
@@ -1457,33 +1471,54 @@ export function useGeologicalModel({
         )
         return result.candidates.map(c => ({
           name: c.name,
+          // key falls back to name for old server responses that pre-date the
+          // stable-key field (empty-string default on the schema); name is the
+          // correct fallback in that case.
+          key: c.key || c.name,
           boreholeCount: c.borehole_count,
         }))
       } catch (err) {
         log.error('geology', 'discoverBoreholeFormations failed', err)
-        return []
+        toast('error', 'Could not scan borehole stratigraphy — check the connection.')
+        throw err
       }
     },
-    [project, ensureActiveGeologicalModel],
+    [project, ensureActiveGeologicalModel, toast],
   )
 
-  // Apply the user's curated formation selection:
-  //   1. Auto-populate contacts for selectedNames (idempotent).
-  //   2. Delete every current formation whose name is NOT in
-  //      selectedNames — sequential to avoid cascade race conditions.
-  //   3. Refresh formations + contacts state.
+  // Apply the user's curated formation selection (Fill-from-boreholes confirm).
   //
-  // NOT added to the undo stack — the delete step is irreversible at
-  // unknown scale; the safeguard is the confirm dialog in the caller.
-  // Mirrors handleDedupeContacts' exclusion for the same reason.
+  // Corrected pipeline (2026-05-16 — third attempt, root cause confirmed):
+  //
+  //   Step 1: POST auto-populate with selected stable keys.
+  //           The server creates ONLY the formations whose stable key is in the
+  //           set — no bulk create-then-delete dance, no key identity mismatch.
+  //
+  //   Step 2: Refetch the FRESH formation list from the server.
+  //           Never filter the stale pre-Fill ``formations`` closure — that was
+  //           the stale-closure delete bug (created formations got deleted
+  //           because the pre-Fill closure didn't know about them yet).
+  //
+  //   Step 3: Delete every formation whose stable key is NOT in selectedKeys,
+  //           computed against the FRESH list (Fork E: non-kept formations,
+  //           incl. manually-added ones, are removed). Stable key =
+  //           regional_ref when present, else name — same rule as server.
+  //           Sequential deletes (cascade-safe).
+  //
+  //   Step 4: If auto-populate returned +0 formations AND skipped_existing > 0,
+  //           surface a clear toast ("already populated — dedupe or delete to
+  //           reset") so the user isn't silently confused by a no-op.
+  //
+  //   Step 5: Final refresh of formations + contacts + surfaces state.
+  //
+  // NOT on the undo stack — irreversible at unknown scale; confirm dialog is
+  // the safeguard. Mirrors handleDedupeContacts' exclusion for the same reason.
   const applyBoreholeFormationSelection = useCallback(
     async (
-      selectedNames: ReadonlySet<string>,
+      selectedKeys: ReadonlySet<string>,
       boreholeIds: readonly string[],
     ): Promise<void> => {
       if (!project) return
-      // Ensure a model exists (handles the case where the user clicks
-      // Fill-from-boreholes before the bootstrap completes or after a Delete).
       const activeModel = await ensureActiveGeologicalModel()
       if (!activeModel) return
       const projectId = project.id
@@ -1491,32 +1526,40 @@ export function useGeologicalModel({
       log.info(
         'geology',
         `applyBoreholeFormationSelection entry ` +
-          `selected=${selectedNames.size} boreholes=${boreholeIds.length}`,
+          `selected=${selectedKeys.size} boreholes=${boreholeIds.length}`,
       )
       try {
-        // Step 1: auto-populate contacts from borehole stratigraphy. The
-        // endpoint creates formations + contacts for ALL names found in the
-        // boreholes, not only selectedNames — it has no name filter. It is
-        // idempotent (existing rows skipped). Step 2 immediately deletes the
-        // formations whose names were not selected, so the model still ends
-        // up containing exactly the selection. Known narrow race: a network
-        // failure between this POST and step 2's first DELETE can leave
-        // unselected formation rows alive until the next Fill run; the
-        // confirm gate, not undo, is the safeguard (a server-side name
-        // filter on auto-populate would close this — out of G1 scope).
-        // handleAutoPopulateFromStratigraphy is not called directly here —
-        // we replicate its core call so we can control the
-        // refresh sequence in step 3 without double-fetching.
-        await api.geology.autoPopulateFromStratigraphy(
+        // Step 1: auto-populate with selected stable keys (server-side filter).
+        // The server creates only formations whose key is in selectedKeys, so
+        // there is no unselected-formation creation to clean up afterwards.
+        const outcome = await api.geology.autoPopulateFromStratigraphy(
           projectId,
           modelId,
           boreholeIds,
+          Array.from(selectedKeys),
+        )
+        log.debug(
+          'geology',
+          `applyBoreholeFormationSelection auto-populate: ` +
+            `+${outcome.created_formation_ids.length} formations, ` +
+            `+${outcome.created_contact_ids.length} contacts, ` +
+            `skipped_existing=${outcome.skipped_existing}`,
         )
 
-        // Step 2: delete every current formation NOT in selectedNames.
-        // The deletion set is ALL current formations not in the selection —
-        // including manually-added formations that were not candidates.
-        const toDelete = formations.filter(f => !selectedNames.has(f.name))
+        // Step 2: fetch the FRESH formation list — never filter the pre-Fill
+        // closure (stale-closure delete was the prior bug).
+        const freshForms = await api.geology.listFormations(projectId)
+
+        // Step 3: delete every formation whose stable key (regional_ref ?? name)
+        // is NOT in selectedKeys — includes manually-added formations the user
+        // did not select. Sequential to avoid cascade race conditions.
+        const selectedKeyLower = new Set(
+          Array.from(selectedKeys).map(k => k.toLowerCase()),
+        )
+        const toDelete = freshForms.filter(f => {
+          const stableKey = (f.regional_ref ?? f.name).toLowerCase()
+          return !selectedKeyLower.has(stableKey)
+        })
         log.info(
           'geology',
           `applyBoreholeFormationSelection deleting ${toDelete.length} formation(s)`,
@@ -1526,29 +1569,44 @@ export function useGeologicalModel({
           log.debug('geology', `deleted formation id=${f.id} name="${f.name}"`)
         }
 
-        // Step 3: refresh formations + contacts state.
+        // Step 4: surface feedback when auto-populate created nothing despite
+        // the user selecting formations — this means orphaned contacts from a
+        // prior run were suppressing creation (should now be fixed by the server-
+        // side orphan purge, but keep the toast for observability).
+        if (
+          outcome.created_formation_ids.length === 0 &&
+          outcome.skipped_existing > 0
+        ) {
+          toast(
+            'error',
+            `Nothing created — ${outcome.skipped_existing} layer(s) already ` +
+              `populated. Use Dedupe or Delete model to reset, then retry.`,
+          )
+        }
+
+        // Step 5: final refresh — fetch post-delete state.
         const [forms, conts] = await Promise.all([
           api.geology.listFormations(projectId),
           api.geology.listContacts(projectId, modelId),
         ])
         setFormations(forms)
         setContacts(conts)
-        // Remove deleted formations from manifest + session-import set.
+
+        // Manifest + session-import housekeeping.
         const deletedIds = toDelete.map(f => f.id)
         removeFromManifest('formation', deletedIds)
         removeFromSessionImports('formation', deletedIds)
-        // Add any newly-created formations to manifest + session-import.
-        const priorIds = new Set(formations.map(f => f.id))
-        const newlyCreated = forms.filter(f => !priorIds.has(f.id))
-        if (newlyCreated.length > 0) {
-          addToManifest('formation', newlyCreated.map(f => f.id))
-          addToSessionImports('formation', newlyCreated.map(f => f.id))
+        // Newly-created formations need to enter the manifest.
+        if (outcome.created_formation_ids.length > 0) {
+          addToManifest('formation', outcome.created_formation_ids)
+          addToSessionImports('formation', outcome.created_formation_ids)
         }
         setFormationsRefreshCounter(c => c + 1)
         log.success(
           'geology',
           `applyBoreholeFormationSelection done ` +
-            `formations=${forms.length} deleted=${toDelete.length}`,
+            `formations=${forms.length} deleted=${toDelete.length} ` +
+            `created=${outcome.created_formation_ids.length}`,
         )
       } catch (err) {
         log.error('geology', 'applyBoreholeFormationSelection failed', err)
@@ -1558,7 +1616,7 @@ export function useGeologicalModel({
     [
       project,
       ensureActiveGeologicalModel,
-      formations,
+      toast,
       addToManifest,
       removeFromManifest,
       addToSessionImports,
