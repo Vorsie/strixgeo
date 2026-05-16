@@ -500,7 +500,7 @@ export default function Sidebar({
             // based on whether the metadata editor has unsaved drafts.
             onClick={onCloseProject}
             title="Close project — returns to the welcome screen. The .gmproj file and DB data are kept."
-            className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
           >
             <X size={12} />
           </button>
@@ -908,7 +908,7 @@ function CptRow({
       <button
         onClick={handleRemove}
         title="Remove from project"
-        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
       </button>
@@ -1001,7 +1001,7 @@ function BoreholeRow({
       <button
         onClick={handleRemove}
         title="Remove from project"
-        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
       </button>
@@ -1198,7 +1198,7 @@ function SectionRow({
         <button
           onClick={handleDelete}
           title="Delete cross-section"
-          className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
         >
           <Trash2 size={12} />
         </button>
