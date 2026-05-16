@@ -107,6 +107,12 @@ export default defineConfig({
     // (from before the exclude was added) continues pre-bundling cesium and
     // the Workers/ resolution fails at runtime.  This ensures every dev start
     // produces a cache that genuinely lacks a cesium.js pre-bundle entry.
+    //
+    // INTENTIONALLY PERMANENT — do not remove during tidy passes.
+    // Cesium's runtime Workers/ tree is fragile enough that a stale-cache
+    // reintroduction on every `npm install` outweighs the ~2-5 s cold-boot
+    // cost.  Removing force: true causes silent runtime failures that are
+    // hard to diagnose (workers 404 on first launch after a clean install).
     optimizeDeps: {
       exclude: ['cesium'],
       force: true,
