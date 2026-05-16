@@ -16,6 +16,7 @@ detail to the user, full upstream context in the server log.
 
 from __future__ import annotations
 
+import re
 from uuid import UUID
 
 import httpx
@@ -56,6 +57,22 @@ project_router = APIRouter(
 # realistic ceiling is 2; we leave headroom for future surfaces
 # that may want to compare more variants side-by-side.
 _MAX_MODELS_PER_REQUEST = 12
+
+# Codelist gate for the ``models`` query param (debt #50). Each code is
+# embedded raw into the outbound DOV doorprik URL path
+# (``virtuele_boring_client.py``: f"{BASE}{PATH}/{model}"). DOV
+# lagenmodel codes are short ASCII slugs (e.g. ``g3dv3_F``,
+# ``hcovv2_H``); anything outside this charset/length is not a real
+# code and must not reach the outbound request. httpx URL-normalises
+# traversal so this is not RCE, but an arbitrary user string in a
+# backend-issued HTTP request contradicts the project's own
+# injection-defence posture — reject it at the boundary.
+#
+# ``\A``/``\Z`` (not ``^``/``$``): Python's ``$`` also matches just
+# before a trailing newline, so ``^...$`` would let ``"g3dv3\n"``
+# through — exactly the kind of smuggled control char this gate
+# exists to stop.
+_VALID_MODEL_CODE_RE = re.compile(r"\A[A-Za-z0-9_.\-]{1,50}\Z")
 
 
 @catalog_router.get("/lagenmodellen", response_model=list[VirtueleBoringLagenmodelEntry])
@@ -132,6 +149,21 @@ async def fetch_predictions(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Too many models requested (max {_MAX_MODELS_PER_REQUEST}).",
+        )
+
+    invalid = [code for code in requested if not _VALID_MODEL_CODE_RE.match(code)]
+    if invalid:
+        # Do not echo the raw rejected values back verbatim beyond a
+        # short, length-capped preview — keep the 400 from becoming a
+        # reflection surface.
+        preview = ", ".join(repr(code[:20]) for code in invalid[:3])
+        logger.warning(
+            f"Rejected {len(invalid)} invalid Virtuele Boring model "
+            f"code(s) before fan-out: {preview}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One or more model codes are not valid lagenmodel codes.",
         )
 
     use_case = FetchVirtueleBoringPredictions(session)
