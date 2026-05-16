@@ -24,6 +24,9 @@ from groundmodel.infrastructure.db.repositories.borehole_repository import (
     LAB_TEST_RELATIONSHIPS,
     BoreholeRepository,
 )
+from groundmodel.infrastructure.db.repositories.geology_repository import (
+    GeologyRepository,
+)
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -311,6 +314,17 @@ async def patch_borehole_elevation(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Borehole {borehole_id} not found",
+        )
+    # Debt #34: changing this borehole's elevation shifts the absolute z
+    # of every contact anchored here (z = elevation_m − depth_top_m), so
+    # flip the dependent TIN surfaces stale in the same transaction —
+    # otherwise the viewer keeps rendering the old geometry as fresh.
+    flipped = await GeologyRepository(session).stale_surfaces_for_investigation(
+        borehole_id=borehole_id
+    )
+    if flipped:
+        logger.info(
+            f"PATCH /borehole/{borehole_id}/elevation: staled {flipped} dependent surface(s)"
         )
     await session.commit()
     return BoreholeListItem.model_validate(borehole)
