@@ -43,6 +43,9 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import (
 from groundmodel.infrastructure.db.models.formation_surface_orm import (
     FormationSurfaceOrm,
 )
+from groundmodel.infrastructure.db.models.geological_model_orm import (
+    GeologicalModelOrm,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -85,6 +88,39 @@ class RecomputeFormationSurface(GroundModelLogger):
             .scalars()
             .all()
         )
+
+        # Debt #36: the model's ``excluded_borehole_ids`` is applied at
+        # section-projection time but was NOT applied here, so a borehole
+        # the user excluded from the model still contributed its (x, y,
+        # z) point to the TIN — the surface silently disagreed with what
+        # the section view showed. Drop contacts anchored to an excluded
+        # borehole BEFORE the anchor load + checksum, so excluding a
+        # borehole changes the checksum (→ recompute) and its point
+        # vanishes from the surface. Skip, never delete: the contact row
+        # survives so un-excluding the borehole restores its
+        # contribution (mirrors BuildSectionSnapshot's filter-at-
+        # projection, which also keeps the contacts).
+        excluded_bh_ids: set[UUID] = set(
+            (
+                await self._session.execute(
+                    select(GeologicalModelOrm.excluded_borehole_ids).where(
+                        GeologicalModelOrm.id == model_id
+                    )
+                )
+            ).scalar_one_or_none()
+            or []
+        )
+        if excluded_bh_ids:
+            before = len(contacts)
+            contacts = [
+                c for c in contacts if c.borehole_id is None or c.borehole_id not in excluded_bh_ids
+            ]
+            dropped = before - len(contacts)
+            if dropped:
+                self.debug(
+                    f"recompute: dropped {dropped} contact(s) anchored to "
+                    f"excluded borehole(s) (model={model_id} formation={formation_id})"
+                )
 
         # Bulk-load the unique anchor ids referenced by these contacts.
         # Two queries because borehole_id and cpt_id are XOR-nullable;
