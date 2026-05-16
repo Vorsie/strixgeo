@@ -63,8 +63,11 @@ resolved 2026-05-17** (shared `shell/ToolbarPrimitives.tsx` extracted
 at the rule-of-three window + `busy` in-button spinner wired on every
 long verb). **#45 partial 2026-05-17** (shared `EmptyState`/
 `LoadingState` primitive shipped + GeotechnicalCanvas/DataCanvas
-fixed; DataInspector adoption is the residual — #45 stays open). 29
-open items**) compact them. Commit messages and code comments written
+fixed; DataInspector adoption is the residual — #45 stays open).
+**#48 progress-logging shipped 2026-05-17** (restore loops now have
+[i/total] DEBUG + phase summaries; only the cosmetic procedural-logger
+style remains — #48 stays open, rescoped). 29 open items**) compact
+them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -726,24 +729,29 @@ server-managed timestamps) and promote them to `_SKIP_COLUMNS`; add a
 fixture test per top-level bundle array asserting its exact column
 set, so a new column forces a conscious format-version decision.
 
-## 48. `project_bundle.py` procedural logger + no restore-progress logging (Tier E)
+## 48. `project_bundle.py` procedural logger style — residual (Tier E; progress logging shipped 2026-05-17)
 
-**What.** The ~860-line bundle module uses a module-level
-`LoggerFactory.get_logger(__name__)` (legitimate — it's procedural,
-not a class) but the call style diverges from the `self.info()`
-`GroundModelLogger` convention used everywhere else, and
-`restore_project_bundle` has no `[i/total]` progress logging in the
-CPT/borehole restore loops. A 500-CPT restore today produces no
-per-row log, so a stuck restore is indistinguishable from a running
-one — exactly the DoD bulk-loop logging rule.
+**What.** **Done (c6678e0):** `restore_project_bundle`'s CPT/borehole
+loops now log phase-start + phase-summary INFO and per-row
+`[i/total]` DEBUG, including what was SKIPPED and why (no-id payload /
+already-present) — the DoD bulk-loop rule. A stuck 500-CPT restore is
+no longer indistinguishable from a running one.
 
-**Why deferred.** The logger works; it's a consistency + observability
-gap, not a correctness one.
+**Residual.** The ~880-line module still uses a module-level
+`LoggerFactory.get_logger(__name__)` rather than the
+`self.info()` `GroundModelLogger` convention. This is legitimate
+(it's procedural, not a class) and purely a style-consistency gap —
+the observability half that actually mattered is closed.
 
-**When to revisit.** Next time `restore_project_bundle` is touched
-for any functional reason — wrap it in a
-`ProjectBundleService(GroundModelLogger)` and add `[i/total]`
-progress to the CPT/borehole loops in the same change.
+**Why deferred.** Wrapping the whole module in a
+`ProjectBundleService(GroundModelLogger)` is a non-trivial refactor of
+the `.gmproj`-contract critical path for zero behaviour gain — not
+worth the regression surface blind.
+
+**When to revisit.** Only if the module is being substantially
+restructured for a functional reason anyway; fold the class-ification
+into that change. Otherwise leave as-is — a working procedural logger
+is not a defect.
 
 ## 52. PDF report export (Tier D — Phase 5 reporting deliverable)
 
