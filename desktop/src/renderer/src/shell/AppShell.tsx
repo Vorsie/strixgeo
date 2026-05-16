@@ -86,6 +86,66 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context.project.id])
 
+  // Debt #43: the shell rework dropped the global "Esc backs out of the
+  // detail view" behaviour. A gINT/Plaxis-trained engineer reflexively
+  // hits Esc to leave a chart/borelog and nothing happened. This restores
+  // ONE peel layer: the Data-stage transient detail (CptChart / BoreholeLog
+  // that replaces the map) → clear the selection, returning to the map.
+  //
+  // Deliberately NOT closing the persistent right Inspector: it is an
+  // always-on workspace panel (ui-shell §2.4 default-open + the
+  // soft-coupling UX rule), not the transient "detail panel" docs/ux.md's
+  // Esc rule refers to. Collapsing it on Esc would be surprising.
+  //
+  // Collision-safe by yielding to every more-specific Esc owner:
+  //   * an open Modal (renders role="dialog" + its own Esc handler),
+  //   * an active draw mode (bbox / section line — their components own Esc),
+  //   * the Sections-stage editor's per-layer Esc peel (we never act off
+  //     the Data stage, and bail when a section is selected),
+  //   * a typing target (input / textarea / select / contentEditable).
+  // The handler reads live values off ``context`` (a useMemo'd object that
+  // re-identifies when any slice changes) so the effect re-binds with
+  // fresh state rather than closing over a stale snapshot.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const t = e.target as HTMLElement | null
+      if (
+        t &&
+        (t.tagName === 'INPUT' ||
+          t.tagName === 'TEXTAREA' ||
+          t.tagName === 'SELECT' ||
+          t.isContentEditable)
+      ) {
+        return
+      }
+      // A modal owns Esc — Modal.tsx renders role="dialog".
+      if (document.querySelector('[role="dialog"]')) return
+      // A draw mode owns Esc (bbox import / section line).
+      if (
+        context.investigations.bboxImportType !== null ||
+        context.sections.drawingSection
+      ) {
+        return
+      }
+      // Scoped to the Data-stage transient detail only — the Sections
+      // editor runs its own per-layer Esc peel and must not be touched.
+      if (activeStageId !== 'data') return
+      if (context.sections.selectedSectionId !== null) return
+      const hasSelection =
+        context.coordinator.selectedId !== null ||
+        context.coordinator.selectedBoreholeId !== null
+      if (!hasSelection) return
+      e.preventDefault()
+      context.coordinator.setSelectedId(null)
+      context.coordinator.setSelectedBoreholeId(null)
+      context.coordinator.setView('map')
+      log.debug('shell', 'Esc → cleared data-stage detail selection')
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [activeStageId, context])
+
   log.debug('shell', `render stage=${activeStageId} inspectorOpen=${inspectorOpen}`)
 
   return (
