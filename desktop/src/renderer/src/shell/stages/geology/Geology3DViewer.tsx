@@ -487,10 +487,12 @@ function rebuildSurfacePrimitives(
     : undefined
 
   // Basemap "lid" — one georeferenced orthophoto image draped flat as
-  // a textured rectangle at the model's top elevation. Skipped while
-  // the split is active (a full rectangle would mask the cut half;
-  // the clipped per-half lid lands with the caps step).
-  if (lid && !clip) {
+  // a textured rectangle at the model's top elevation. Kept during the
+  // split too (the user wants the basemap visible in both halves; a
+  // clipped per-half lid is the caps-step refinement). translucent
+  // false → opaque, bright (the requested "heighten opacity") and it
+  // depth-writes so it sits solidly on top.
+  if (lid) {
     scene.primitives.add(
       new Cesium.Primitive({
         geometryInstances: new Cesium.GeometryInstance({
@@ -502,6 +504,7 @@ function rebuildSurfacePrimitives(
         }),
         appearance: new Cesium.EllipsoidSurfaceAppearance({
           aboveGround: true,
+          translucent: false,
           material: Cesium.Material.fromType('Image', { image: lid.url }),
         }),
         asynchronous: false,
@@ -755,6 +758,11 @@ function CesiumViewport({
     if (creditContainer) creditContainer.style.display = 'none'
 
     widgetRef.current = widget
+    // A freshly created widget has the default whole-Earth camera —
+    // it must be re-framed. Clearing the fit guard here is what makes
+    // the StrictMode-recreated (and secondary) viewport actually fly
+    // to the model instead of staying on the bare globe.
+    lastFitKeyRef.current = null
 
     return () => {
       widget.destroy()
