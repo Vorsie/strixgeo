@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Maximize2 } from 'lucide-react'
 import {
   CircleMarker,
   MapContainer,
   Marker,
   Pane,
+  Rectangle,
   TileLayer,
   Tooltip,
   WMSTileLayer,
@@ -124,6 +125,13 @@ interface Props {
   sections?: readonly CrossSectionResponse[]
   selectedSectionId?: string | null
   onSelectSection?: (id: string) => void
+  // Marquee (Shift+drag) multi-select. ``marqueeSelectedIds`` drives the
+  // ring highlight on the map; ``onMarqueeSelect`` fires on drag-end with
+  // the full set of IDs (CPT + borehole) whose markers fell inside the
+  // dragged rectangle. DataInspector reads ``marqueeSelectedIds`` to sync
+  // the checkbox state so list and map selections stay in agreement.
+  marqueeSelectedIds?: ReadonlySet<string>
+  onMarqueeSelect?: (ids: Set<string>) => void
 }
 
 type OpenCategory = 'cpt' | 'borehole' | 'terrain' | 'basemap' | null
@@ -238,6 +246,122 @@ function FlyToSelected({
   return null
 }
 
+// ---------------------------------------------------------------------------
+// Shift+drag marquee select (inside MapContainer so useMap() resolves).
+//
+// Modifier choice: Shift+drag. Plain drag is Leaflet's pan gesture;
+// Shift is the natural "extend selection" modifier on every OS and
+// matches ux.md §section-editor shortcuts (Shift-marquee). This avoids
+// colliding with the existing pan, bbox-draw (crosshair mode), and
+// section-line-draw (also distinct draw modes) gestures. The marquee
+// only fires when Shift is held at mousedown — any other combination
+// falls through to Leaflet's default pan behaviour.
+//
+// The component lives INSIDE MapContainer so useMap() resolves to the
+// containing Leaflet instance. It renders a Leaflet-native Rectangle
+// overlay (thin blue dashed rect) during the drag, and fires
+// onMarqueeSelect on mouseup with all CPT/borehole marker IDs whose
+// WGS84 position falls inside the dragged bounds.
+// ---------------------------------------------------------------------------
+
+function ShiftDragMarquee({
+  cptMarkers,
+  boreholeMarkers,
+  onMarqueeSelect,
+}: {
+  cptMarkers: { id: string; lat: number; lng: number }[]
+  boreholeMarkers: { id: string; lat: number; lng: number }[]
+  onMarqueeSelect: (ids: Set<string>) => void
+}): JSX.Element | null {
+  const map = useMap()
+
+  // Rect corners during an active drag — null when idle.
+  const [dragRect, setDragRect] = useState<{
+    start: L.LatLng
+    end: L.LatLng
+  } | null>(null)
+
+  // Keep latest cptMarkers / boreholeMarkers without re-running the
+  // event-listener effect — the lists can change on every render; we
+  // only need the latest snapshot at mouseup.
+  const cptMarkersRef = useRef(cptMarkers)
+  const boreholeMarkersRef = useRef(boreholeMarkers)
+  cptMarkersRef.current = cptMarkers
+  boreholeMarkersRef.current = boreholeMarkers
+
+  const onMarqueeSelectRef = useRef(onMarqueeSelect)
+  onMarqueeSelectRef.current = onMarqueeSelect
+
+  // Stable DOM-event handler — mounted once, reads fresh data via refs.
+  const handleMouseDown = useCallback(
+    (e: MouseEvent) => {
+      if (!e.shiftKey) return
+      // Disable Leaflet pan while we drag the marquee.
+      map.dragging.disable()
+      const startLatLng = map.mouseEventToLatLng(e)
+
+      function onMove(ev: MouseEvent): void {
+        const end = map.mouseEventToLatLng(ev)
+        setDragRect({ start: startLatLng, end })
+      }
+
+      function onUp(): void {
+        map.dragging.enable()
+        setDragRect(prev => {
+          if (!prev) return null
+          const bounds = L.latLngBounds(prev.start, prev.end)
+          const ids = new Set<string>()
+          for (const m of cptMarkersRef.current) {
+            if (bounds.contains([m.lat, m.lng])) ids.add(m.id)
+          }
+          for (const m of boreholeMarkersRef.current) {
+            if (bounds.contains([m.lat, m.lng])) ids.add(m.id)
+          }
+          onMarqueeSelectRef.current(ids)
+          return null
+        })
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onUp)
+      }
+
+      document.addEventListener('mousemove', onMove)
+      document.addEventListener('mouseup', onUp)
+    },
+    // reason: map is stable (Leaflet Map instance lives for the lifetime of
+    // MapContainer); no other deps are needed because all mutable data is
+    // accessed via refs in the inner callbacks, not via closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [map],
+  )
+
+  useEffect(() => {
+    // Attach to the Leaflet container div directly — a React
+    // onMouseDown handler would be passive by default and could not
+    // call e.stopPropagation() to gate Leaflet's pan. Attaching via
+    // addEventListener with passive:false gives the handler priority.
+    const container = map.getContainer()
+    container.addEventListener('mousedown', handleMouseDown)
+    return () => container.removeEventListener('mousedown', handleMouseDown)
+  }, [map, handleMouseDown])
+
+  if (!dragRect) return null
+
+  return (
+    <Rectangle
+      bounds={L.latLngBounds(dragRect.start, dragRect.end)}
+      pathOptions={{
+        color: '#2563eb',
+        weight: 1.5,
+        opacity: 0.85,
+        dashArray: '4 3',
+        fillColor: '#3b82f6',
+        fillOpacity: 0.08,
+        interactive: false,
+      }}
+    />
+  )
+}
+
 export default function MapView({
   cpts,
   boreholes,
@@ -267,6 +391,8 @@ export default function MapView({
   initialCenter,
   initialZoom,
   onCameraChange,
+  marqueeSelectedIds,
+  onMarqueeSelect,
 }: Props) {
   // Basemap selection — persisted in localStorage, seeded on first run
   // from the resolved theme (dark → geopunt_hybrid, light → osm).
@@ -520,9 +646,22 @@ export default function MapView({
           />
         )}
 
-        {/* CPT markers — circle, colour by type */}
+        {/* Marquee Shift+drag multi-select — only mounts when a callback is wired. */}
+        {onMarqueeSelect && (
+          <ShiftDragMarquee
+            cptMarkers={cptMarkers}
+            boreholeMarkers={boreholeMarkers}
+            onMarqueeSelect={onMarqueeSelect}
+          />
+        )}
+
+        {/* CPT markers — circle, colour by type.
+            Marquee-selected markers get a blue ring (outer CircleMarker at
+            RADIUS+4 with blue stroke, no fill) to distinguish map-marquee
+            selection from the single-row selection (enlarged radius). */}
         {cptMarkers.map(m => {
           const selected = m.id === selectedCptId
+          const marqueeSelected = marqueeSelectedIds?.has(m.id) ?? false
           const color = KNOWN_COLORS[m.type] ?? hashColor(m.type)
           return (
             <CircleMarker
@@ -531,8 +670,8 @@ export default function MapView({
               center={[m.lat, m.lng]}
               radius={selected ? RADIUS_SELECTED : RADIUS}
               pathOptions={{
-                color: selected ? '#1e3a8a' : '#1f2937',
-                weight: selected ? 2 : 1,
+                color: selected ? '#1e3a8a' : marqueeSelected ? '#2563eb' : '#1f2937',
+                weight: selected ? 2 : marqueeSelected ? 2 : 1,
                 fillColor: color,
                 fillOpacity: 0.85,
               }}
@@ -553,16 +692,18 @@ export default function MapView({
             point-pixel-shape marker; everything else (Marker, Polygon)
             either scales with zoom or only paints circles. The shape is
             the primary CPT-vs-borehole signal; colour secondarily encodes
-            the active filter axis (drill method / borehole type). */}
+            the active filter axis (drill method / borehole type).
+            Marquee-selected boreholes get a blue-ring SVG override. */}
         {boreholeMarkers.map(m => {
           const selected = m.id === selectedBoreholeId
+          const marqueeSelected = marqueeSelectedIds?.has(m.id) ?? false
           const color = colorForCategoryValue(m.axisValue)
           return (
             <Marker
               key={`bh-${m.id}`}
               pane="investigation-markers"
               position={[m.lat, m.lng]}
-              icon={squareDivIcon(color, selected)}
+              icon={squareDivIcon(color, selected, marqueeSelected)}
               eventHandlers={{ click: () => onSelectBorehole(m.id) }}
             >
               <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
@@ -1106,29 +1247,39 @@ function boreholeValue(b: BoreholeListItem, axis: BoreholeAxis): string {
  * RADIUS_SELECTED = 7 → 14px square) so both families read at the same
  * visual weight on a busy map.
  */
-function squareDivIcon(fill: string, selected: boolean): L.DivIcon {
+function squareDivIcon(fill: string, selected: boolean, marqueeSelected = false): L.DivIcon {
   const size = selected ? 14 : 9
-  const stroke = selected ? '#7f1d1d' : '#3f2a1a'
-  const strokeWidth = selected ? 2 : 1.2
+  // Stroke: selection → dark-red, marquee → blue, default → dark brown.
+  const stroke = selected ? '#7f1d1d' : marqueeSelected ? '#2563eb' : '#3f2a1a'
+  const strokeWidth = selected ? 2 : marqueeSelected ? 2 : 1.2
   // Pulling stroke-width / 2 inward from each edge keeps the stroke
   // fully inside the SVG viewbox; otherwise selection growth pixels
   // get clipped by the icon's bounding rect.
   const inset = strokeWidth / 2
   const rectSize = size - strokeWidth
+  // Marquee-selected markers get a blue ring around the square.
+  const ringMarkup = marqueeSelected && !selected
+    ? `<rect x="-2" y="-2" width="${size + 4}" height="${size + 4}" ` +
+      `fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="2 2" />`
+    : ''
+  // SVG viewbox must be large enough for the ring when present.
+  const svgSize = marqueeSelected && !selected ? size + 4 : size
+  const svgOffset = marqueeSelected && !selected ? 2 : 0
   return L.divIcon({
     // Drop Leaflet's default ".leaflet-div-icon" white-background +
     // border styles — they fight our SVG for visual ownership of the
     // pixel.
     className: '',
     html:
-      `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">` +
-      `<rect x="${inset}" y="${inset}" width="${rectSize}" height="${rectSize}" ` +
+      `<svg width="${svgSize}" height="${svgSize}" xmlns="http://www.w3.org/2000/svg">` +
+      ringMarkup +
+      `<rect x="${inset + svgOffset}" y="${inset + svgOffset}" width="${rectSize}" height="${rectSize}" ` +
       `fill="${fill}" fill-opacity="0.9" stroke="${stroke}" stroke-width="${strokeWidth}" />` +
       `</svg>`,
-    iconSize: [size, size],
+    iconSize: [svgSize, svgSize],
     // Centre the icon on the lat/lng anchor so position is consistent
     // with how CircleMarker treats its centre.
-    iconAnchor: [size / 2, size / 2],
+    iconAnchor: [svgSize / 2, svgSize / 2],
   })
 }
 
