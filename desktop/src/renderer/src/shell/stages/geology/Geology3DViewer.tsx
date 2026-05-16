@@ -46,6 +46,13 @@ import type {
 import type { BasemapSource, BasemapId } from '../../../utils/basemapSources'
 import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/basemapSources'
 import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
+import {
+  computeBasemapBounds,
+  sampleTinZ,
+  clipTrisToHalfSpace,
+  clipTexTrisToHalfSpace,
+  type TexVert,
+} from './cesiumGeometry'
 
 // Disable Cesium ion. All basemaps and terrain come from our own providers.
 Cesium.Ion.defaultAccessToken = ''
@@ -145,10 +152,6 @@ const GROUND_SURFACE_COLOR = new Cesium.Color(0.55, 0.52, 0.48, ALPHA_GROUND_SUR
 // Geopunt orthophoto WMS (verified live 2026-05-16: serves EPSG:31370
 // + image/png GetMap, layer "Ortho"). One GetMap for the model bbox is
 // the "GIS magic" the user asked for — far more robust than draping a
-// WMTS over the whole Cesium ellipsoid (the GoogleMapsVL matrixset
-// never tiles right under Cesium → the 400-storm + smeared "wall").
-const GEOPUNT_ORTHO_WMS = 'https://geo.api.vlaanderen.be/omwrgbmrvl/wms'
-
 /** A single georeferenced image draped flat as a "lid" on top of the
  * model: the WGS84 rectangle to place it in, the elevation (top of the
  * model) to place it at, and the one-shot WMS GetMap image URL. */
@@ -182,53 +185,15 @@ function buildBasemapLid(
   surfaces: { vertices: readonly (readonly [number, number, number])[] }[],
   projectEpsg: number,
 ): BasemapLid | null {
-  if (projectEpsg !== 31370) return null
-  let minE = Infinity
-  let maxE = -Infinity
-  let minN = Infinity
-  let maxN = -Infinity
-  let maxZ = -Infinity
-  let n = 0
-  for (const s of surfaces) {
-    for (const [x, y, z] of s.vertices) {
-      if (x < minE) minE = x
-      if (x > maxE) maxE = x
-      if (y < minN) minN = y
-      if (y > maxN) maxN = y
-      if (z > maxZ) maxZ = z
-      n++
-    }
+  // Pure footprint/url math lives in cesiumGeometry (debt #41); this
+  // wrapper only wraps the degree bounds in a Cesium.Rectangle.
+  const b = computeBasemapBounds(surfaces, projectEpsg)
+  if (b === null) return null
+  return {
+    rect: Cesium.Rectangle.fromDegrees(b.minLng, b.minLat, b.maxLng, b.maxLat),
+    elevation: b.elevation,
+    url: b.url,
   }
-  if (n === 0) return null
-  const padE = (maxE - minE) * 0.08 || 1
-  const padN = (maxN - minN) * 0.08 || 1
-  minE -= padE
-  maxE += padE
-  minN -= padN
-  maxN += padN
-  const [latSW, lngSW] = projectedToWgs84(minE, minN, projectEpsg)
-  const [latNE, lngNE] = projectedToWgs84(maxE, maxN, projectEpsg)
-  const rect = Cesium.Rectangle.fromDegrees(
-    Math.min(lngSW, lngNE),
-    Math.min(latSW, latNE),
-    Math.max(lngSW, lngNE),
-    Math.max(latSW, latNE),
-  )
-  // Image px ~ bbox aspect, capped at 2048 on the long side.
-  const dE = maxE - minE
-  const dN = maxN - minN
-  const longSide = Math.max(dE, dN, 1)
-  const scale = 2048 / longSide
-  const imgW = Math.max(1, Math.round(dE * scale))
-  const imgH = Math.max(1, Math.round(dN * scale))
-  // WMS 1.1.1 — avoids the 1.3.0 EPSG:31370 axis-order trap (1.1.1 is
-  // always minx,miny,maxx,maxy = easting,northing).
-  const url =
-    `${GEOPUNT_ORTHO_WMS}?service=WMS&request=GetMap&version=1.1.1` +
-    `&layers=Ortho&styles=&srs=EPSG:31370&format=image/png` +
-    `&width=${imgW}&height=${imgH}` +
-    `&bbox=${minE},${minN},${maxE},${maxN}`
-  return { rect, elevation: maxZ + 0.5, url }
 }
 
 /**
@@ -375,31 +340,6 @@ function flyToCutFace(
   })
 }
 
-/** Sample a formation TIN's elevation at a projected (x, y) point by
- * locating the containing triangle (projected XY) and barycentric-
- * interpolating z. Returns ``null`` when the point is outside the
- * surface (pinch-out / absent). */
-function sampleTinZ(
-  surface: FormationSurfaceResponse,
-  px: number,
-  py: number,
-): number | null {
-  for (const [i0, i1, i2] of surface.triangles) {
-    const [ax, ay, az] = surface.vertices[i0]
-    const [bx, by, bz] = surface.vertices[i1]
-    const [cx, cy, cz] = surface.vertices[i2]
-    const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
-    if (Math.abs(d) < 1e-9) continue
-    const l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d
-    const l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d
-    const l3 = 1 - l1 - l2
-    const EPS = -1e-6
-    if (l1 >= EPS && l2 >= EPS && l3 >= EPS) {
-      return l1 * az + l2 * bz + l3 * cz
-    }
-  }
-  return null
-}
 
 /**
  * Build the coloured cut-face "caps" (step 2). Samples every formation
@@ -615,105 +555,6 @@ function buildCapPrimitives(
  * -------
  * ``Cesium.Primitive`` or ``null``.
  */
-/** Half-space clip used by the split view (G6 step 1). Given ECEF
- * triangles and a Cesium.Plane, returns the triangle soup on the kept
- * side (Sutherland–Hodgman per triangle; crossing edges produce 1–2
- * output triangles). ``keepPositive`` keeps the side the plane normal
- * points to — the secondary viewport passes ``false`` for the other
- * half. This is the actual "slice the cake" cut (Cesium has no
- * ClippingPlaneCollection for raw Primitives). */
-function clipTrisToHalfSpace(
-  triangles: Cesium.Cartesian3[][],
-  plane: Cesium.Plane,
-  keepPositive: boolean,
-): Cesium.Cartesian3[][] {
-  const EPS = 1e-6
-  const out: Cesium.Cartesian3[][] = []
-  for (const tri of triangles) {
-    // Signed distance, flipped so "kept" is always >= -EPS.
-    const ds = tri.map(p => {
-      const d = Cesium.Plane.getPointDistance(plane, p)
-      return keepPositive ? d : -d
-    })
-    const kept = ds.filter(d => d >= -EPS).length
-    if (kept === 3) {
-      out.push(tri)
-      continue
-    }
-    if (kept === 0) continue
-    // Clip the triangle polygon against the plane edge by edge.
-    const poly: Cesium.Cartesian3[] = []
-    for (let e = 0; e < 3; e++) {
-      const a = tri[e]
-      const b = tri[(e + 1) % 3]
-      const da = ds[e]
-      const db = ds[(e + 1) % 3]
-      const aIn = da >= -EPS
-      const bIn = db >= -EPS
-      if (aIn) poly.push(a)
-      if (aIn !== bIn) {
-        const t = da / (da - db)
-        poly.push(Cesium.Cartesian3.lerp(a, b, t, new Cesium.Cartesian3()))
-      }
-    }
-    // Fan-triangulate the 3- or 4-vertex clipped polygon.
-    for (let k = 1; k + 1 < poly.length; k++) {
-      out.push([poly[0], poly[k], poly[k + 1]])
-    }
-  }
-  return out
-}
-
-/** Same half-space clip as above but carries texture coords — used to
- * slice the basemap lid quad along the split plane so the aerial is
- * cut into the two halves like the geology (st lerped by the same t
- * as the position so the image stays georeferenced). */
-type TexVert = { p: Cesium.Cartesian3; st: [number, number] }
-function clipTexTrisToHalfSpace(
-  triangles: TexVert[][],
-  plane: Cesium.Plane,
-  keepPositive: boolean,
-): TexVert[][] {
-  const EPS = 1e-6
-  const out: TexVert[][] = []
-  for (const tri of triangles) {
-    const ds = tri.map(v => {
-      const d = Cesium.Plane.getPointDistance(plane, v.p)
-      return keepPositive ? d : -d
-    })
-    const kept = ds.filter(d => d >= -EPS).length
-    if (kept === 3) {
-      out.push(tri)
-      continue
-    }
-    if (kept === 0) continue
-    const poly: TexVert[] = []
-    for (let e = 0; e < 3; e++) {
-      const a = tri[e]
-      const b = tri[(e + 1) % 3]
-      const da = ds[e]
-      const db = ds[(e + 1) % 3]
-      const aIn = da >= -EPS
-      const bIn = db >= -EPS
-      if (aIn) poly.push(a)
-      if (aIn !== bIn) {
-        const t = da / (da - db)
-        poly.push({
-          p: Cesium.Cartesian3.lerp(a.p, b.p, t, new Cesium.Cartesian3()),
-          st: [
-            a.st[0] + (b.st[0] - a.st[0]) * t,
-            a.st[1] + (b.st[1] - a.st[1]) * t,
-          ],
-        })
-      }
-    }
-    for (let k = 1; k + 1 < poly.length; k++) {
-      out.push([poly[0], poly[k], poly[k + 1]])
-    }
-  }
-  return out
-}
-
 function buildTinPrimitive(
   vertices: [number, number, number][],
   triangles: [number, number, number][],
