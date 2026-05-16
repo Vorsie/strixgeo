@@ -101,8 +101,15 @@ export default defineConfig({
     // "file not found" during pre-bundling.  Excluding cesium from
     // optimizeDeps lets the dev server serve it raw; production is
     // unaffected (rollup bundles cesium directly from Source/Cesium.js).
+    //
+    // force: true — required so the dev optimizer actually re-runs when the
+    // exclude list changes.  Without it a stale node_modules/.vite/deps cache
+    // (from before the exclude was added) continues pre-bundling cesium and
+    // the Workers/ resolution fails at runtime.  This ensures every dev start
+    // produces a cache that genuinely lacks a cesium.js pre-bundle entry.
     optimizeDeps: {
       exclude: ['cesium'],
+      force: true,
     },
     build: {
       rollupOptions: {
