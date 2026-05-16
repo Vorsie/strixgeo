@@ -197,6 +197,12 @@ export default function App() {
   // that cannot share local state without the coordinator bus.
   const [marqueeSelectedIds, setMarqueeSelectedIds] = useState<Set<string>>(new Set())
 
+  // Hovered investigation id — DataInspector row hover writes it,
+  // MapView reads it to highlight the matching marker (only if that
+  // marker is currently visible, since MapView only renders visible
+  // ones). Soft coupling via the bus; cleared on project change.
+  const [hoveredTestId, setHoveredTestId] = useState<string | null>(null)
+
   // Map layer-visibility, viewport bounds, and Leaflet camera persistence —
   // all lifted to App so the Sidebar can read/write the same state as
   // MapView, but grouped in a hook so App stays a thin coordinator.
@@ -229,6 +235,7 @@ export default function App() {
     // Also clear the map marquee selection — cross-project IDs are
     // semantically undefined; start fresh on each project open.
     setMarqueeSelectedIds(new Set())
+    setHoveredTestId(null)
   }, [project?.id, mapCameraRef])
 
   // Session imports — records added since the last File → Save. Drives
@@ -797,6 +804,8 @@ export default function App() {
       sessionImportFormationIds,
       marqueeSelectedIds,
       setMarqueeSelectedIds,
+      hoveredTestId,
+      setHoveredTestId,
     },
   }), [
     project,
@@ -861,6 +870,7 @@ export default function App() {
     sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds,
     sessionImportFormationIds,
     marqueeSelectedIds, setMarqueeSelectedIds,
+    hoveredTestId, setHoveredTestId,
   ])
 
   // ---------------------------------------------------------------------------
