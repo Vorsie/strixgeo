@@ -94,6 +94,16 @@ export default defineConfig({
           : '/cesium/',
       ),
     },
+    // Cesium's worker scripts (Workers/transferTypedArrayTest.js,
+    // createVerticesFromHeightmap.js, ...) are not static ESM — they are
+    // resolved at runtime via CESIUM_BASE_URL and loaded by the browser as
+    // plain JS.  Vite's dep-optimizer cannot crawl them and breaks with
+    // "file not found" during pre-bundling.  Excluding cesium from
+    // optimizeDeps lets the dev server serve it raw; production is
+    // unaffected (rollup bundles cesium directly from Source/Cesium.js).
+    optimizeDeps: {
+      exclude: ['cesium'],
+    },
     build: {
       rollupOptions: {
         input: {
