@@ -38,46 +38,46 @@ export default function ExportCanvas(): JSX.Element {
     project,
     sections: { sections, selectedSectionId },
     geoModel: { activeGeologicalModel, handleExportModelPlaxis3d },
-    coordinator: { handleExportSectionDxf },
+    coordinator: { handleExportSectionDxf, handleExportSectionPlaxis2d },
   } = useShell()
 
-  // Default the DXF section picker to whatever the user last selected in
-  // the Sections stage; fall back to the first section so the control is
-  // never empty when sections exist. Local state — StageCanvas remounts
-  // this component on every stage entry, so it always re-seeds from the
-  // current selection.
-  const [dxfSectionId, setDxfSectionId] = useState<string | null>(
+  // One section picker drives every section-scoped export (DXF +
+  // Plaxis 2D). Default to whatever the user last selected in the
+  // Sections stage; fall back to the first section so the control is
+  // never empty. Local state — StageCanvas remounts this component on
+  // every stage entry, so it always re-seeds from the current selection.
+  const [sectionId, setSectionId] = useState<string | null>(
     selectedSectionId ?? sections[0]?.id ?? null,
   )
-  const [exportingDxf, setExportingDxf] = useState(false)
-  const [exportingPlaxis, setExportingPlaxis] = useState(false)
+  // Which section-scoped export is in flight ('dxf' | 'plaxis2d'),
+  // null when idle. A single flag (not one per button) so the picker
+  // and both buttons disable together while either export runs.
+  const [sectionBusy, setSectionBusy] = useState<'dxf' | 'plaxis2d' | null>(null)
+  const [exportingPlaxis3d, setExportingPlaxis3d] = useState(false)
 
   const hasModel = activeGeologicalModel !== null
   const hasSections = sections.length > 0
-  const dxfSection = sections.find(s => s.id === dxfSectionId) ?? null
+  const section = sections.find(s => s.id === sectionId) ?? null
 
-  async function handleDxf(): Promise<void> {
-    if (!dxfSection || !activeGeologicalModel || exportingDxf) return
-    setExportingDxf(true)
+  async function handleSectionExport(target: 'dxf' | 'plaxis2d'): Promise<void> {
+    if (!section || !activeGeologicalModel || sectionBusy !== null) return
+    setSectionBusy(target)
     try {
-      await handleExportSectionDxf(
-        project.id,
-        dxfSection.id,
-        dxfSection.name,
-        activeGeologicalModel.id,
-      )
+      const fn =
+        target === 'dxf' ? handleExportSectionDxf : handleExportSectionPlaxis2d
+      await fn(project.id, section.id, section.name, activeGeologicalModel.id)
     } finally {
-      setExportingDxf(false)
+      setSectionBusy(null)
     }
   }
 
   async function handlePlaxis3d(): Promise<void> {
-    if (!activeGeologicalModel || exportingPlaxis) return
-    setExportingPlaxis(true)
+    if (!activeGeologicalModel || exportingPlaxis3d) return
+    setExportingPlaxis3d(true)
     try {
       await handleExportModelPlaxis3d()
     } finally {
-      setExportingPlaxis(false)
+      setExportingPlaxis3d(false)
     }
   }
 
@@ -95,11 +95,11 @@ export default function ExportCanvas(): JSX.Element {
         </p>
 
         <div className="flex flex-col gap-3">
-          {/* Cross-section → DXF */}
+          {/* Section-scoped exports — one picker, DXF + Plaxis 2D. */}
           <ExportCard
             icon={<FileOutput size={18} />}
-            title="Cross-section → DXF"
-            description="Export one cross-section's layer geometry as a DXF — the universal exchange format every CAD / design tool reads."
+            title="Cross-section"
+            description="Export one cross-section's layer geometry — DXF (universal CAD exchange) or a runnable Plaxis 2D plxscripting script with one borehole per projected column."
           >
             {!hasModel ? (
               <Guidance>
@@ -113,14 +113,14 @@ export default function ExportCanvas(): JSX.Element {
               </Guidance>
             ) : (
               <div className="flex items-center gap-2">
-                <label className="sr-only" htmlFor="dxf-section-select">
+                <label className="sr-only" htmlFor="export-section-select">
                   Cross-section to export
                 </label>
                 <select
-                  id="dxf-section-select"
-                  value={dxfSectionId ?? ''}
-                  onChange={e => setDxfSectionId(e.target.value)}
-                  disabled={exportingDxf}
+                  id="export-section-select"
+                  value={sectionId ?? ''}
+                  onChange={e => setSectionId(e.target.value)}
+                  disabled={sectionBusy !== null}
                   className="flex-1 min-w-0 text-xs rounded border border-border-default bg-surface-overlay text-text-primary px-2 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
                 >
                   {sections.map(s => (
@@ -130,15 +130,22 @@ export default function ExportCanvas(): JSX.Element {
                   ))}
                 </select>
                 <ActionButton
-                  label={exportingDxf ? 'Exporting…' : 'Export DXF'}
-                  onClick={() => void handleDxf()}
-                  disabled={!dxfSection || exportingDxf}
+                  label={sectionBusy === 'dxf' ? 'Exporting…' : 'Export DXF'}
+                  onClick={() => void handleSectionExport('dxf')}
+                  disabled={!section || sectionBusy !== null}
+                />
+                <ActionButton
+                  label={
+                    sectionBusy === 'plaxis2d' ? 'Exporting…' : 'Export Plaxis 2D'
+                  }
+                  onClick={() => void handleSectionExport('plaxis2d')}
+                  disabled={!section || sectionBusy !== null}
                 />
               </div>
             )}
           </ExportCard>
 
-          {/* Geological model → Plaxis 3D */}
+          {/* Geological model → Plaxis 3D (model-wide, not section-scoped) */}
           <ExportCard
             icon={<Cpu size={18} />}
             title="Geological model → Plaxis 3D"
@@ -152,9 +159,9 @@ export default function ExportCanvas(): JSX.Element {
             ) : (
               <div className="flex justify-end">
                 <ActionButton
-                  label={exportingPlaxis ? 'Exporting…' : 'Export Plaxis 3D'}
+                  label={exportingPlaxis3d ? 'Exporting…' : 'Export Plaxis 3D'}
                   onClick={() => void handlePlaxis3d()}
-                  disabled={exportingPlaxis}
+                  disabled={exportingPlaxis3d}
                 />
               </div>
             )}
