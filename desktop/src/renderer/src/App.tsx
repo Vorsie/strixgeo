@@ -574,6 +574,56 @@ export default function App() {
     [],
   )
 
+  // Plaxis 2D per-section export (debt #29) — section-scoped sibling
+  // of the model-wide Plaxis 3D export. Same fetch → save-dialog →
+  // file-write flow as handleExportSectionDxf so the Export hub +
+  // Sections toolbar stay storage-agnostic.
+  // note: also enters shellContextValue (coordinator slice) — keep its identity stable.
+  const handleExportSectionPlaxis2d = useCallback(
+    async (
+      projectId: string,
+      sectionId: string,
+      sectionName: string,
+      modelId: string,
+    ): Promise<void> => {
+      log.info('section', `exportPlaxis2d start section=${sectionId} model=${modelId}`)
+      try {
+        const safeName =
+          sectionName.replace(/[^A-Za-z0-9\- _]/g, '_').trim() || 'section'
+        const dialogPath = await window.electron.showExportSaveDialog(
+          `${safeName}_plaxis2d.py`,
+          [
+            { name: 'Python script', extensions: ['py'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        )
+        if (dialogPath === null) {
+          log.debug('section', 'exportPlaxis2d cancelled at save dialog')
+          return
+        }
+        const bytes = await api.section.exportPlaxis2d(projectId, sectionId, modelId)
+        await window.electron.writeExportFile(dialogPath, bytes)
+        log.success(
+          'section',
+          `exportPlaxis2d ok section=${sectionId} bytes=${bytes.byteLength} path=${dialogPath}`,
+        )
+        toast('success', 'Plaxis 2D script exported.')
+      } catch (err) {
+        log.error('section', 'exportPlaxis2d failed', err)
+        toast(
+          'error',
+          err instanceof Error
+            ? err.message
+            : 'Could not export the Plaxis 2D script.',
+        )
+      }
+    },
+    // reason: identical safety argument to handleExportSectionDxf above —
+    // toast's identity instability is internally guarded, and the handler
+    // captures no state that can go stale. Empty dep array intentional.
+    [],
+  )
+
   // Apply the project-local filter before anything user-visible reads
   // the lists. Two layers stack here:
   //
@@ -794,6 +844,7 @@ export default function App() {
       handleSelect,
       handleSelectBorehole,
       handleExportSectionDxf,
+      handleExportSectionPlaxis2d,
       outOfViewportCptIds,
       outOfViewportBoreholeIds,
       projectFilePath,
@@ -865,6 +916,7 @@ export default function App() {
     selectedId, selectedBoreholeId, setSelectedId, setSelectedBoreholeId,
     view, setView,
     handleSelect, handleSelectBorehole, handleExportSectionDxf,
+    handleExportSectionPlaxis2d,
     outOfViewportCptIds, outOfViewportBoreholeIds,
     projectFilePath, manifestFormationIds,
     sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds,
