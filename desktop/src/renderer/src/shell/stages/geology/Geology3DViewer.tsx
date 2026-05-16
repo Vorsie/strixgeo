@@ -298,30 +298,111 @@ function flyToBounds(
  * -------
  * ``Cesium.Primitive`` or ``null``.
  */
+/** Half-space clip used by the split view (G6 step 1). Given ECEF
+ * triangles and a Cesium.Plane, returns the triangle soup on the kept
+ * side (Sutherland–Hodgman per triangle; crossing edges produce 1–2
+ * output triangles). ``keepPositive`` keeps the side the plane normal
+ * points to — the secondary viewport passes ``false`` for the other
+ * half. This is the actual "slice the cake" cut (Cesium has no
+ * ClippingPlaneCollection for raw Primitives). */
+function clipTrisToHalfSpace(
+  triangles: Cesium.Cartesian3[][],
+  plane: Cesium.Plane,
+  keepPositive: boolean,
+): Cesium.Cartesian3[][] {
+  const EPS = 1e-6
+  const out: Cesium.Cartesian3[][] = []
+  for (const tri of triangles) {
+    // Signed distance, flipped so "kept" is always >= -EPS.
+    const ds = tri.map(p => {
+      const d = Cesium.Plane.getPointDistance(plane, p)
+      return keepPositive ? d : -d
+    })
+    const kept = ds.filter(d => d >= -EPS).length
+    if (kept === 3) {
+      out.push(tri)
+      continue
+    }
+    if (kept === 0) continue
+    // Clip the triangle polygon against the plane edge by edge.
+    const poly: Cesium.Cartesian3[] = []
+    for (let e = 0; e < 3; e++) {
+      const a = tri[e]
+      const b = tri[(e + 1) % 3]
+      const da = ds[e]
+      const db = ds[(e + 1) % 3]
+      const aIn = da >= -EPS
+      const bIn = db >= -EPS
+      if (aIn) poly.push(a)
+      if (aIn !== bIn) {
+        const t = da / (da - db)
+        poly.push(Cesium.Cartesian3.lerp(a, b, t, new Cesium.Cartesian3()))
+      }
+    }
+    // Fan-triangulate the 3- or 4-vertex clipped polygon.
+    for (let k = 1; k + 1 < poly.length; k++) {
+      out.push([poly[0], poly[k], poly[k + 1]])
+    }
+  }
+  return out
+}
+
 function buildTinPrimitive(
   vertices: [number, number, number][],
   triangles: [number, number, number][],
   color: Cesium.Color,
   projectEpsg: number,
+  clip?: { plane: Cesium.Plane; keepPositive: boolean },
 ): Cesium.Primitive | null {
   if (triangles.length === 0) return null
 
-  const positionValues = new Float64Array(vertices.length * 3)
-  let i = 0
-  for (const [x, y, z] of vertices) {
+  const ecef = vertices.map(([x, y, z]) => {
     const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
-    const ecef = Cesium.Cartesian3.fromDegrees(lng, lat, z)
-    positionValues[i++] = ecef.x
-    positionValues[i++] = ecef.y
-    positionValues[i++] = ecef.z
-  }
+    return Cesium.Cartesian3.fromDegrees(lng, lat, z)
+  })
 
-  const indices = new Uint32Array(triangles.length * 3)
-  let j = 0
-  for (const [i0, i1, i2] of triangles) {
-    indices[j++] = i0
-    indices[j++] = i1
-    indices[j++] = i2
+  let positionValues: Float64Array
+  let indices: Uint32Array
+
+  if (!clip) {
+    // No split — keep the compact indexed geometry (unchanged path).
+    positionValues = new Float64Array(ecef.length * 3)
+    let i = 0
+    for (const v of ecef) {
+      positionValues[i++] = v.x
+      positionValues[i++] = v.y
+      positionValues[i++] = v.z
+    }
+    indices = new Uint32Array(triangles.length * 3)
+    let j = 0
+    for (const [i0, i1, i2] of triangles) {
+      indices[j++] = i0
+      indices[j++] = i1
+      indices[j++] = i2
+    }
+  } else {
+    // Split active — clip to the half-space and emit a triangle soup
+    // (clipped triangles don't share vertices).
+    const tris: Cesium.Cartesian3[][] = triangles.map(([a, b, c]) => [
+      ecef[a],
+      ecef[b],
+      ecef[c],
+    ])
+    const clipped = clipTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
+    if (clipped.length === 0) return null
+    positionValues = new Float64Array(clipped.length * 9)
+    indices = new Uint32Array(clipped.length * 3)
+    let pi = 0
+    let ii = 0
+    for (const t of clipped) {
+      for (const v of t) {
+        positionValues[pi++] = v.x
+        positionValues[pi++] = v.y
+        positionValues[pi++] = v.z
+        indices[ii] = ii
+        ii++
+      }
+    }
   }
 
   const geometry = new Cesium.Geometry({
@@ -393,14 +474,23 @@ function rebuildSurfacePrimitives(
   groundSurface?: GroundSurfaceBuildResponse | null,
   hiddenFormationIds?: ReadonlySet<string>,
   lid?: BasemapLid | null,
+  clippingPlane?: Cesium.Plane | null,
+  invertClip?: boolean,
 ): void {
   scene.primitives.removeAll()
 
+  // Split view: clip every TIN to one half-space. Primary viewport
+  // keeps the normal side, secondary (invertClip) keeps the other —
+  // so the two panes are genuinely the two halves of the cake.
+  const clip = clippingPlane
+    ? { plane: clippingPlane, keepPositive: !invertClip }
+    : undefined
+
   // Basemap "lid" — one georeferenced orthophoto image draped flat as
-  // a textured rectangle at the model's top elevation. Added inside
-  // the same removeAll/re-add pass as the TINs so it never leaks and
-  // is always positioned on top of the block (the cap of the cake).
-  if (lid) {
+  // a textured rectangle at the model's top elevation. Skipped while
+  // the split is active (a full rectangle would mask the cut half;
+  // the clipped per-half lid lands with the caps step).
+  if (lid && !clip) {
     scene.primitives.add(
       new Cesium.Primitive({
         geometryInstances: new Cesium.GeometryInstance({
@@ -428,6 +518,7 @@ function rebuildSurfacePrimitives(
       groundSurface.triangles,
       GROUND_SURFACE_COLOR,
       projectEpsg,
+      clip,
     )
     if (terrainPrimitive) {
       scene.primitives.add(terrainPrimitive)
@@ -459,7 +550,13 @@ function rebuildSurfacePrimitives(
       ([x, y, z]) => [x, y, z + zOffset],
     )
 
-    const primitive = buildTinPrimitive(offsetVertices, surface.triangles, csColor, projectEpsg)
+    const primitive = buildTinPrimitive(
+      offsetVertices,
+      surface.triangles,
+      csColor,
+      projectEpsg,
+      clip,
+    )
     if (primitive) {
       scene.primitives.add(primitive)
     }
@@ -624,6 +721,9 @@ function CesiumViewport({
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
   // Track the active click handler so we can remove it on cleanup.
   const clickHandlerRef = useRef<Cesium.ScreenSpaceEventHandler | null>(null)
+  // Last surface-set signature the camera was framed to — gates
+  // flyToBounds so re-clipping / toggles don't re-frame the view.
+  const lastFitKeyRef = useRef<string | null>(null)
 
   // ---------------------------------------------------------------------------
   // Mount / unmount the CesiumWidget
@@ -695,12 +795,9 @@ function CesiumViewport({
       groundSurface,
       hiddenFormationIds,
       lid,
+      clippingPlane,
+      invertClip,
     )
-
-    // TODO(post-v1.0): per-primitive clipping for Cesium3DTileset/photogrammetric overlays.
-    // ClippingPlaneCollection is not part of the public API for raw Geometry/Primitive;
-    // it is supported on Cesium3DTileset and Model. The DOM layout (each widget occupies
-    // exactly half the container) provides the visual split for this viewer.
 
     // Wire the camera reset ref after surfaces are added.
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -708,16 +805,30 @@ function CesiumViewport({
       cameraResetRef.current = () => flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
     }
 
-    // Fly to bounds on first data load (non-empty surface set).
+    // Fly to bounds only when the surface SET changes — not on a
+    // clip / basemap / visibility toggle (which re-run this effect but
+    // must not yank the camera). Key on a cheap surface signature.
+    const fitKey = `${projectEpsg}|${allSurfaces
+      .map(s => s.vertices.length)
+      .join(',')}|${groundSurface?.vertices.length ?? 0}`
     const hasSurfaces = allSurfaces.some(s => s.vertices.length > 0)
-    if (hasSurfaces) {
+    if (hasSurfaces && lastFitKeyRef.current !== fitKey) {
+      lastFitKeyRef.current = fitKey
       flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
     }
-    // reason: we only want to fly on mount and data change, not on every
-    // basemap or clipping-plane change. The dep array includes surfaces and
-    // groundSurface but not the camera ref — the ref is stable.
+    // reason: clippingPlane/invertClip drive the per-half clip; the
+    // fitKey ref gates the camera fly so re-clipping doesn't re-frame.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formations, surfacesByFormationId, projectEpsg, groundSurface, hiddenFormationIds, basemapEnabled])
+  }, [
+    formations,
+    surfacesByFormationId,
+    projectEpsg,
+    groundSurface,
+    hiddenFormationIds,
+    basemapEnabled,
+    clippingPlane,
+    invertClip,
+  ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
   // georeferenced "lid" primitive built inside rebuildSurfacePrimitives;
