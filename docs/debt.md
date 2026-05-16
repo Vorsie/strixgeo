@@ -12,7 +12,7 @@ Five tiers:
 * **B. Commercial launch gates — pre-paid-revenue** (#2–#7)
 * **C. Dogfooding asks — current Phase 4 friction** *(none open — #8, #9, #10 resolved 2026-05-14)*
 * **D. Post-launch / Phase 5** (#11–#13)
-* **E. Lower technical debt** (#15–#24, #26)
+* **E. Lower technical debt** (#15–#24, #26–#27)
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -508,6 +508,36 @@ semantic tokens" pass (pairs naturally with the deferred leaf dark-mode
 token migration), or first time the white-card-in-dark is reported as
 jarring during dogfooding. Fix shape: `bg-surface-overlay border-
 border-subtle` + token text colours; verify every dialog in both themes.
+
+## 27. Bathymetry / water-surface DEM cells — no bed-elevation data (low — Tier E)
+
+**What.** The DEM clip rule (§11.3) flags any vertex that lands on a
+NoData cell as ``dem_cell_low_confidence``, which covers the known
+bathymetric failure mode: LiDAR returns the water-surface elevation for
+rivers, lakes, and canals rather than the bed, so a formation contact
+beneath a water body gets clamped to the wrong surface. No bathymetric
+data source (Vlaamse Hydrografische Atlas, AHN4 water-body mask, NGI)
+is integrated today — the flag is a placeholder that tells the engineer
+"check this vertex manually."
+
+**Why deferred.** Ingesting a bed-elevation raster requires (a) a
+second tile-cache provider wired into ``DemProviderFactory``, (b) a
+water-body mask to route DEM queries to the bathymetric provider when
+the (x, y) is within a water polygon, and (c) source data that covers
+the same EPSG:31370 / EPSG:28992 footprints. None of the three pub-
+lished Belgian or Dutch bathymetry services offer a convenient WCS
+interface — the Vlaamse Hydrografische Atlas ships as shapefiles, not
+a tile service, so this is a full ingestion project. The initial
+``dem_cell_low_confidence`` flag still honours Data Integrity Rule §5
+(flag, don't raise) and gives the engineer enough signal to act.
+
+**When to revisit.** When a dogfooding user reports that a water-
+adjacent project has unreliable formation tops and the ``low_confidence``
+flags are insufficient. At that point evaluate: (a) a shapefile-backed
+water-body mask that routes cells to a null sampler vs a bed sampler,
+(b) a simple "depth below water surface" heuristic from
+``BHVlaBathymetry`` data, or (c) accept the limitation and expose it
+in the UI as "DEM accuracy may be reduced near water bodies."
 
 ## 26. 3D viewer — blank basemap in offline mode (low — Tier E)
 
