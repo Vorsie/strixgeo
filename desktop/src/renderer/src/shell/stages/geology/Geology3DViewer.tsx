@@ -302,6 +302,7 @@ function flyToCutFace(
   planeNormal: Cesium.Cartesian3,
   keepPositive: boolean,
 ): void {
+  const EPS = 1e-6
   const points: Cesium.Cartesian3[] = []
   for (const s of surfaces) {
     for (const [x, y, z] of s.vertices) {
@@ -310,16 +311,35 @@ function flyToCutFace(
     }
   }
   if (points.length === 0) return
-  const sphere = Cesium.BoundingSphere.fromPoints(points)
+
+  // Frame the KEPT half, not the whole model. The split plane bisects
+  // the model; the full-model bounding sphere is centred on the cut, so
+  // a sliver half ended up tiny + far while the big half filled the
+  // frame — the asymmetric panes the user saw. Filter to exactly the
+  // points clipTrisToHalfSpace keeps (same signed-distance test) and
+  // fit the camera to that sub-sphere instead.
+  const inKeptHalf = (p: Cesium.Cartesian3): boolean => {
+    const d = Cesium.Plane.getPointDistance(plane, p)
+    return (keepPositive ? d : -d) >= -EPS
+  }
+  const keptPoints = points.filter(inKeptHalf)
+  // Defensive: a split line drawn off the data still gets a usable view.
+  const framePoints = keptPoints.length > 0 ? keptPoints : points
+  const sphere = Cesium.BoundingSphere.fromPoints(framePoints)
   const C = sphere.center
   const range = Math.max(sphere.radius * 2.0, 600)
 
-  // Look toward the plane: the kept (+normal) half is viewed from the
-  // +normal side looking in -normal; the inverted half is the mirror.
+  // "Turn the half outward to see the inside": the camera must sit on
+  // the side where the OTHER half was removed and look toward the kept
+  // body, so the cut face is the first thing it hits. The kept (+normal)
+  // half had its -normal side removed → view along +normal from the
+  // -normal side. The inverted half is the mirror. (The previous sign
+  // put the camera behind the kept body, showing its outer surface and
+  // occluding the cut face entirely.)
   const n = Cesium.Cartesian3.normalize(planeNormal, new Cesium.Cartesian3())
   const viewDir = Cesium.Cartesian3.multiplyByScalar(
     n,
-    keepPositive ? -1 : 1,
+    keepPositive ? 1 : -1,
     new Cesium.Cartesian3(),
   )
   const worldUp = Cesium.Ellipsoid.WGS84.geodeticSurfaceNormal(
