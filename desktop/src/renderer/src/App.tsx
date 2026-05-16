@@ -590,6 +590,19 @@ export default function App() {
     [boreholes, manifestBoreholeIds, removedBoreholeIds],
   )
 
+  // Manifest-filtered formation list — single source of truth for
+  // "which formations are visible". Injected onto the geoModel bus so
+  // GeologyInspector, GeologyStage badge, and SectionsToolbar Seed gate
+  // all read the same value (Fix 3 — 2026-05-16). Formations have no
+  // removed-set; the manifest is the only filter.
+  const visibleFormations = useMemo(
+    () =>
+      manifestFormationIds !== undefined
+        ? formations.filter(f => manifestFormationIds.has(f.id))
+        : formations,
+    [formations, manifestFormationIds],
+  )
+
   // Out-of-viewport sets — empty when the map hasn't reported bounds
   // yet. The Lambert72→WGS84 projection inside ``idsOutsideBounds``
   // is memoised so the per-record cost is just a dictionary lookup
@@ -714,7 +727,11 @@ export default function App() {
     visibleBoreholes,
     // Whole hook result — see the comment at the useGeologicalModel call.
     // Re-listing fields here is what dropped Fill's discover/apply.
-    geoModel: geo,
+    // visibleFormations is overridden here because the hook itself does not
+    // have access to manifestFormationIds (a coordinator-level value). The
+    // spread adds the single extra field without re-listing every other field;
+    // all other geo fields remain exactly as the hook returned them.
+    geoModel: { ...geo, visibleFormations },
     sections: {
       sections,
       selectedSectionId,
@@ -801,7 +818,7 @@ export default function App() {
     handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
     visibleCpts, visibleBoreholes,
     // geological model fields
-    activeGeologicalModel, formations, formationsRefreshCounter,
+    activeGeologicalModel, formations, visibleFormations, formationsRefreshCounter,
     contacts, surfacesByFormationId, crossingsRefreshCounter, staleSurfaceCount,
     handleFormationCreated, handleFormationUpdated, handleFormationDeleted,
     handleInlineCreateFormation, refetchFormations,
