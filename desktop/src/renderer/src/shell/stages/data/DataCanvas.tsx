@@ -54,6 +54,8 @@ export default function DataCanvas(): JSX.Element {
       setView,
       handleSelect,
       handleSelectBorehole,
+      marqueeSelectedIds,
+      setMarqueeSelectedIds,
     },
     mapState: {
       hiddenCptTypes,
@@ -149,6 +151,8 @@ export default function DataCanvas(): JSX.Element {
             initialCenter={mapCameraRef.current?.center}
             initialZoom={mapCameraRef.current?.zoom}
             onCameraChange={handleMapCameraChange}
+            marqueeSelectedIds={marqueeSelectedIds}
+            onMarqueeSelect={setMarqueeSelectedIds}
           />
         ) : selectedBoreholeId ? (
           boreholeDetailMap.has(selectedBoreholeId) ? (
