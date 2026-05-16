@@ -68,8 +68,13 @@ export interface Geology3DViewerProps {
   formations: GeologicalFormationResponse[]
   /** Pre-fetched surface data keyed by formation id. */
   surfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>
-  /** Active basemap from the caller — passed through to Cesium imagery. */
-  activeBasemap: BasemapSource
+  /**
+   * Initial basemap to display.  Optional — when omitted the viewer reads
+   * the same localStorage key as ``MapView`` so the two views stay in sync
+   * with the user's last explicit pick.  When provided, the viewer uses it
+   * as its starting state (useful for controlled testing).
+   */
+  activeBasemap?: BasemapSource
   /** Project's horizontal CRS EPSG code (31370 Lambert72 or 28992 RD New). */
   projectEpsg: number
   /**
@@ -674,9 +679,6 @@ type DrawState =
  *     First ECEF Cartesian3 point (from Cesium scene pick).
  * b
  *     Second ECEF Cartesian3 point.
- * projectEpsg
- *     Horizontal CRS for distance check.
- *
  * Returns
  * -------
  * ``Cesium.Plane`` or ``null``.
@@ -684,7 +686,6 @@ type DrawState =
 function computeSplitPlane(
   a: Cesium.Cartesian3,
   b: Cesium.Cartesian3,
-  projectEpsg: number,
 ): Cesium.Plane | null {
   // Convert both points to geographic to check horizontal distance.
   const cartographic = (c: Cesium.Cartesian3) =>
@@ -718,10 +719,6 @@ function computeSplitPlane(
   const distance = -Cesium.Cartesian3.dot(normal, a)
 
   return new Cesium.Plane(normal, distance)
-
-  // Suppress unused parameter warning. projectEpsg is kept in the signature
-  // as scaffolding for a future NL-calibrated distance check.
-  void projectEpsg
 }
 
 // ---------------------------------------------------------------------------
@@ -773,7 +770,7 @@ export default function Geology3DViewer({
   splitPlane,
   formations,
   surfacesByFormationId,
-  activeBasemap,
+  activeBasemap: initialBasemap,
   projectEpsg,
   onSplitPlaneDrawn,
   resetCameraRef,
@@ -781,14 +778,19 @@ export default function Geology3DViewer({
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
   // the two views share the user's last explicit pick).
+  //
+  // When ``initialBasemap`` is provided (e.g. in tests), it seeds the state;
+  // otherwise the localStorage key is consulted on the lazy initialiser so
+  // the viewer starts in sync with MapView's last pick.
   // ---------------------------------------------------------------------------
 
-  const [basemapId, setBasemapId] = useState<BasemapId>(() =>
-    readBasemapId(
+  const [basemapId, setBasemapId] = useState<BasemapId>(() => {
+    if (initialBasemap) return initialBasemap.id
+    return readBasemapId(
       typeof document !== 'undefined' &&
         document.documentElement.classList.contains('dark'),
-    ),
-  )
+    )
+  })
   const resolvedBasemap: BasemapSource = useMemo(
     () => BASEMAP_SOURCES.find(b => b.id === basemapId) ?? BASEMAP_SOURCES[0],
     [basemapId],
@@ -815,7 +817,7 @@ export default function Geology3DViewer({
       }
 
       if (drawState.phase === 'first-click') {
-        const plane = computeSplitPlane(drawState.first, cartesian, projectEpsg)
+        const plane = computeSplitPlane(drawState.first, cartesian)
         if (plane) {
           onSplitPlaneDrawn(plane)
           setDrawState({ phase: 'idle' })
