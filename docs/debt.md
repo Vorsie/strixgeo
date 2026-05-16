@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #37, #38, #12, #41, #43, #51, #40, #36 *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #38, #12, #41, #43, #51, #40, #36 *(#37 data-loss landmine resolved 2026-05-16 — `delete_model` is now model-aware)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50
 
@@ -35,8 +35,8 @@ fully cleared. **Same day re-tier:** Tier B (bundling/commercial)
 deferred (app not feature-ready for packaging); Tier C reopened as
 the "current work" tier — #37, #38, #12, #41, #43, #51, #40, #36
 moved up from D/E (data-loss landmine + roadmap-gating
-velocity/refactor work + cheap dogfeed friction). 38 open
-items**) compact them. Commit messages and code comments written
+velocity/refactor work + cheap dogfeed friction); #37 resolved same
+day (model-aware `delete_model`). 37 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -625,26 +625,6 @@ show/hide is wired to `excluded_borehole_ids` and the user can flip
 exclusion after contacts exist. Fix: add the exclusion filter to the
 `RecomputeFormationSurface` contact query (one WHERE clause; decide
 skip-vs-delete for existing excluded-anchor contacts).
-
-## 37. `delete_model` cascade destroys all project formations; single-model invariant unenforced (Tier C — DATA-LOSS landmine, top priority)
-
-**What.** `GeologicalFormation` rows are project-scoped with no model
-FK (correct for shared Phase-5 vocabulary). `delete_model` deletes
-all formations for the project before deleting the model, justified
-by an "exactly one model per project" assumption that lives only as a
-code comment — nothing in the API or DB enforces it, and nothing
-prevents creating a second model. If a second model ever exists,
-deleting one silently wipes every formation in the project.
-
-**Why deferred.** Multi-model is a Phase-5 concept; v1 UI creates
-exactly one and exposes no Delete-model button, so the risk is
-contained today.
-
-**When to revisit.** Before any surface that allows a second model
-(UI or scripted API), and before Phase-5 multi-model work *starts*
-(not during). Fix shape (already in the repo comment): make the
-cascade model-aware — delete only formations exclusively owned by the
-target model — or add a junction table for model membership.
 
 ## 38. Geology contact-mutation use cases have no unit-test coverage (Tier C — pre-commit blind to the hottest write path)
 
