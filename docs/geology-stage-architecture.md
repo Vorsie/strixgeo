@@ -1433,3 +1433,136 @@ contact schemas (`FormationContactCreateRequest`,
 contact-domain operation mounted at `.../contacts/discover-from-stratigraphy`,
 so it shares that module rather than fragmenting into a new `geology.py`.
 (Resolved during G1 build — supersedes the earlier `geology.py` suggestion.)
+
+---
+
+## 11. Addendum — G7: DEM ground surface + clip-to-surface (owner directive 2026-05-16)
+
+The G5/G6 viewer ships a **flat** `EllipsoidTerrainProvider` base. Owner
+directive (a practising geotech engineer, dogfooding): the real ground
+surface must be in the model, formation tops must not render above it,
+and the water-surface-vs-bed problem must be acknowledged rather than
+silently wrong. This supersedes §4.x's flat-ellipsoid base. Region scope
+**BE + NL** (owner-confirmed). Build now (owner-confirmed), one
+engineer pass + one review, then dogfood — same rhythm as G1–G6.
+
+### 11.1 The DEM is OUR surface, not Cesium world-terrain
+
+Decision: sample a public DEM into a Strix-owned **"Ground surface"
+TIN** that lives in the same scene as the formation surfaces — *not* a
+Cesium quantized-mesh terrain provider. Rationale:
+
+* **Local-first / offline** — Strix is offline-capable on site
+  (CLAUDE.md "Distribution model"). A live world-terrain provider
+  breaks that; a cached sampled raster does not.
+* **It is the only approach that enforces §11.3** — a cosmetic terrain
+  drape cannot clamp formation geometry; a sampled z-grid we own can.
+* **One concept, not a new one** — the fetch+cache mirrors the existing
+  DOV XML cache (`DovXmlCache`): filesystem-first, network only on a
+  cold cell, cache wipe is safe (CLAUDE.md "Doesn't apply to" — DOV
+  cache layout; the DEM cache gets the same status).
+
+### 11.2 `DemProvider` abstraction (infrastructure)
+
+One interface, two implementations behind it (owner chose BE+NL):
+
+| Provider | Source | Access |
+|---|---|---|
+| `DhmvDemProvider` (BE/Flanders) | DHMV II — *Digitaal Hoogtemodel Vlaanderen II*, 1 m LiDAR DTM | Geopunt/AGIV WCS (GeoTIFF) |
+| `Ahn4DemProvider` (NL) | AHN4 — *Actueel Hoogtebestand Nederland*, 0.5 m | PDOK WCS |
+
+* Provider selected per project from `default_horizontal_epsg`
+  (31370 → DHMV; 28992 → AHN4) with an explicit override path; unknown
+  CRS → "no DEM provider for this region" surfaced to the UI, not a
+  crash.
+* Infrastructure layer only (`infrastructure/dem/`). It returns sampled
+  z at (x, y) in the project CRS; the WCS request, GeoTIFF decode,
+  reprojection, and the on-disk cache all live here. Domain never sees
+  WCS.
+* `DemTileCache` parallels `DovXmlCache` — keyed by (provider, tile
+  bbox, resolution), filesystem under the same userData cache root,
+  TRACE/DEBUG logging of every WCS URL + status + bytes per the DoD,
+  logs cold-miss vs warm-hit.
+* WFS/WCS client reuse: fold into debt #15 (WFS client base class) if
+  the shared shape is real after the second client exists — do not
+  pre-abstract on the first (CLAUDE.md "don't pre-abstract").
+
+### 11.3 Clip rule — layers cannot exist above ground (domain)
+
+A formation top interpolated between boreholes can overshoot the
+terrain in a valley/slope. Rule, owner-stated: **no formation surface z
+may exceed the ground-surface z at the same (x, y).**
+
+* Enforced at **surface build** (the `surfaces/rebuild` path), not only
+  at render — clamp each TIN vertex to `min(formation_z, dem_z)`.
+* Where a contact's own surveyed top sits **above** the DEM, that is a
+  data conflict, not something to silently clamp: emit a
+  `ValidationIssue` (per Data Integrity Rule §5 — validation invariants
+  belong in the parse/build result, the domain accepts messy input and
+  records the problem; it does not raise). The clamp still applies for
+  rendering so the model stays geologically valid, but the issue is
+  surfaced to the engineer.
+* The clamp is a pure domain function (DEM z-grid in, clamped contacts
+  + issues out) — unit-testable with no DB/IO, lives in the geological
+  surface service alongside the TIN compute. Add a `bench_*` only if
+  profiling shows the clamp is per-vertex hot at 500-contact scale
+  (current TIN compute is 2.6 ms @ 500 — clamp is the same order;
+  measure before adding a benchmark per CLAUDE.md "When to add a
+  benchmark").
+
+### 11.4 Bathymetry — scoped OUT as a documented known-limitation
+
+LiDAR DEMs return the **water surface** over rivers/canals/docks, so a
+formation under water would clamp to water level — wrong. There is **no
+single national wet-DEM**; bed data is per-waterway-authority survey
+data (BE: De Vlaamse Waterweg / VMM dwarsprofielen; NL: Rijkswaterstaat
+Vaklodingen / Baseline; estuary/marine: EMODnet). Building automatic
+multi-authority bathymetry ingestion now is a large, low-coverage
+detour and is **not** in G7.
+
+G7 instead:
+
+* Flags DEM cells over mapped water bodies as **low-confidence ground**
+  and emits a `ValidationIssue` ("ground surface over water may
+  represent water level, not bed — verify before relying on clipped
+  formations here") rather than presenting it as truth.
+* Leaves a Phase-5 path: **manual river-bed-profile import** (engineer
+  supplies surveyed cross-sections that override the DEM locally).
+  Tracked as a new debt item, not built now.
+* The "generic GeoTIFF DEM import" the owner did *not* pick stays a
+  natural future fallback provider behind the same `DemProvider`
+  interface — no rework cost to add later.
+
+### 11.5 Contracts — additive only, no .gmproj change
+
+* **API:** one additive endpoint, contact/surface-domain shaped, e.g.
+  `POST /projects/{pid}/geology/models/{mid}/ground-surface/build`
+  (samples the DEM over the model's investigation hull, caches it,
+  returns the ground-surface TIN + any clip `ValidationIssue`s).
+  Read path may piggy-back the existing surfaces response with an
+  additive optional `ground_surface` field — additive, defaults
+  null/optional per CLAUDE.md "Additive only".
+* **.gmproj / bundle:** **no `format_version` change.** The sampled
+  ground surface is a *cache of public data* (like DOV-imported CPTs),
+  derivable from (provider, project hull, resolution) — it does not
+  ride in the bundle as a source-of-truth array. If a future decision
+  wants it persisted for true-offline reopen, that is an additive
+  bundle field + version bump then, designed per the Backwards-Compat
+  upgrade-chain — out of scope for G7.
+* **Frontend:** `Geology3DViewer` renders the ground-surface TIN as the
+  scene base in place of the flat ellipsoid, drapes the basemap on it,
+  and renders formation surfaces already clamped (the clamp is
+  server-side; the viewer just draws what `rebuild` returns). The
+  basemap-cutout drape (§4.4) now drapes onto real relief.
+
+### 11.6 Build rhythm
+
+Single staff-engineer pass for the whole G7 slice (backend provider +
+cache + sampling + clip rule + ValidationIssue + additive endpoint +
+unit tests; frontend viewer integration), one-file-per-commit,
+Conventional Commits, DoD (numpy docstrings + entry/exit logging +
+unit tests), layer model (WCS in infrastructure, clamp in domain,
+orchestration in application, endpoint in API), Node 22, no
+`--no-verify`. Then one senior-code-reviewer pass; fix only genuine
+blockers (crash / data-loss / compat); push; owner dogfoods. Bathymetry
+debt item added to `docs/debt.md` in the same campaign.
