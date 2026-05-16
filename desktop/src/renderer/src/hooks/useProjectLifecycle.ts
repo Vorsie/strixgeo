@@ -32,8 +32,9 @@ export interface UseProjectLifecycleResult {
   saveProject: () => Promise<boolean>
   /** Roll back session imports without touching the DB rows. */
   discardSessionImports: () => void
-  /** Sidebar X / File → Close funnel — checks dirty + source. */
-  handleSidebarCloseRequest: () => void
+  /** Close-project request (toolbar X / File → Close funnel) —
+   *  checks dirty + source. */
+  handleCloseProjectRequest: () => void
   /** "Save and close" branch from the unsaved-changes dialog. */
   handleUnsavedSave: () => Promise<void>
   /** "Discard" branch — rolls back + closes. */
@@ -306,8 +307,11 @@ export function useProjectLifecycle({
     attemptClose('menu')
   }, [attemptClose])
 
-  // Sidebar X path — mis-click protection in addition to the dirty check.
-  const handleSidebarCloseRequest = useCallback(() => {
+  // Toolbar X / close-project path — mis-click protection in addition
+  // to the dirty check. The 'sidebar' source tag is an internal
+  // close-origin enum kept stable for attemptClose's logging; only the
+  // public handler name changed (debt #12 R2).
+  const handleCloseProjectRequest = useCallback(() => {
     attemptClose('sidebar')
   }, [attemptClose])
 
@@ -465,7 +469,7 @@ export function useProjectLifecycle({
     unsavedSaving,
     saveProject,
     discardSessionImports,
-    handleSidebarCloseRequest,
+    handleCloseProjectRequest,
     handleUnsavedSave,
     handleUnsavedDiscard,
     handleUnsavedCancel,

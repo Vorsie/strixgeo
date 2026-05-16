@@ -67,7 +67,7 @@ export default function StageToolbar({
   // Global project state — used in the right zone.
   const {
     project,
-    lifecycle: { projectDirty, saveProject, handleSidebarCloseRequest, setMetadataEditorOpen },
+    lifecycle: { projectDirty, saveProject, handleCloseProjectRequest, setMetadataEditorOpen },
     coordinator: { projectFilePath },
   } = useShell()
 
@@ -128,14 +128,14 @@ export default function StageToolbar({
         <ThemeToggle />
 
         {/* Close project — mirrors File → Close Project (Ctrl+W) for
-            mouse users. App's handleSidebarCloseRequest decides whether
+            mouse users. App's handleCloseProjectRequest decides whether
             to show the save-or-discard dialog or the click-protection
             confirm, so this button just signals intent. */}
         <button
           type="button"
           aria-label="Close project"
           title="Close project — returns to the welcome screen. The .gmproj file and DB data are kept."
-          onClick={handleSidebarCloseRequest}
+          onClick={handleCloseProjectRequest}
           className={[
             'flex items-center justify-center w-7 h-7 rounded',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',

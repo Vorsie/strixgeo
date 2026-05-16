@@ -56,7 +56,7 @@ function makeStubContext(): ShellContextValue {
       unsavedSaving: false,
       saveProject: () => Promise.resolve(true),
       discardSessionImports: vi.fn(),
-      handleSidebarCloseRequest: vi.fn(),
+      handleCloseProjectRequest: vi.fn(),
       handleUnsavedSave: noopAsync,
       handleUnsavedDiscard: vi.fn(),
       handleUnsavedCancel: vi.fn(),
