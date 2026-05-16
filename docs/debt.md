@@ -61,7 +61,10 @@ codes codelist-gated before fan-out). **#49 resolved 2026-05-17**
 (crossings validator collapsed to one model-contacts query). **#46
 resolved 2026-05-17** (shared `shell/ToolbarPrimitives.tsx` extracted
 at the rule-of-three window + `busy` in-button spinner wired on every
-long verb). 29 open items**) compact them. Commit messages and code comments written
+long verb). **#45 partial 2026-05-17** (shared `EmptyState`/
+`LoadingState` primitive shipped + GeotechnicalCanvas/DataCanvas
+fixed; DataInspector adoption is the residual — #45 stays open). 29
+open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -675,28 +678,31 @@ working on" selection and therefore the cross-stage semantics
 decision. Settle it there and document the chosen model in
 docs/ux.md's selection section.
 
-## 45. Shell empty / loading states are below the documented bar (Tier E)
+## 45. Shell empty / loading states — DataInspector adoption residual (Tier E — partial; primitive shipped 2026-05-17)
 
-**What.** docs/ux.md: "Empty states — text + icon (Lucide), never
-just blank"; async needs an in-element spinner. Violations:
-`DataInspector` empty states are text-only; `DataCanvas` loading
-fallbacks are bare "Loading chart…" strings with no spinner;
-`GeotechnicalCanvas` is a single muted "coming soon" line with no
-icon or guidance (`ExportCanvas` was fixed when #30 shipped — it now
-follows the icon + actionable-card pattern). GeologyCanvas's empty state
-(Mountain icon + actionable guidance) is the one that does it right
-and should be the template — the inconsistency reads as unfinished
-against the LeapFrog/Plaxis polish the product sells on.
+**What.** **Done (f7e79e5):** the shared `shell/EmptyState.tsx`
+primitive was extracted from the GeologyCanvas template — `EmptyState`
+(40 px muted icon + title + optional hint + CTA slot) and
+`LoadingState` (spinner + label + `role=status`). The two clearest
+offenders the debt called out are fixed: `GeotechnicalCanvas` (was a
+bare "coming soon" line — on camera for the launch demo) is now a
+guided placeholder, and `DataCanvas`'s two bare "Loading …" strings
+now spin. `ExportCanvas` was already fixed when #30 shipped.
 
-**Why deferred.** Purely cosmetic — every state is functionally
-correct, just under-guided. Fixing it well means a shared
-`<EmptyState icon title hint>` primitive across ~6 sites (the
-rule-of-three is already met), its own focused pass.
+**Residual.** `DataInspector`'s text-only empty states still don't use
+the primitive — a mechanical adoption (swap the inline centred-text
+divs for `<EmptyState>`), deferred only because DataInspector is the
+daily-driver panel and a focused diff there wants its own pass rather
+than riding an extraction commit.
 
-**When to revisit.** When the shared `EmptyState` primitive is
-extracted (DataInspector ↔ canvas-fallback duplication already meets
-rule-of-three), or before the launch-demo recording — bare "coming
-soon" canvases on camera undercut the polish narrative.
+**Why deferred.** Purely cosmetic and the hard part (the shared
+primitive + the on-camera placeholder) is done; the remaining site is
+low-risk but touches the most-used panel.
+
+**When to revisit.** Next time DataInspector is opened for any other
+change, or before the launch-demo recording. Fix: replace its
+text-only empties with `<EmptyState icon title hint>` (icon TBD per
+tab — e.g. `MousePointerClick` for "select an investigation").
 
 ## 47. `project_bundle.py` column auto-enumeration → silent `.gmproj` format drift (Tier B — backwards-compat re-arm trigger)
 
