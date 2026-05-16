@@ -95,13 +95,13 @@ export default function FormationPickerDialog({
         <div className="p-5">
           <h2
             id="formation-picker-title"
-            className="text-base font-semibold text-gray-800 mb-1"
+            className="text-base font-semibold text-text-primary mb-1"
           >
             Top of which formation?
           </h2>
           {anchor && (
-            <p className="text-xs text-gray-500 mb-4">
-              On <span className="font-medium text-gray-700">{anchor.name}</span>{' '}
+            <p className="text-xs text-text-secondary mb-4">
+              On <span className="font-medium text-text-primary">{anchor.name}</span>{' '}
               at depth {anchor.depth_m.toFixed(2)} m ({anchor.elevationM >= 0 ? '+' : ''}
               {anchor.elevationM.toFixed(2)} m TAW)
             </p>
@@ -109,7 +109,7 @@ export default function FormationPickerDialog({
 
           <div className="max-h-72 overflow-y-auto -mx-2 px-2">
             {formations.length === 0 ? (
-              <div className="text-xs text-gray-500 italic px-1 py-3">
+              <div className="text-xs text-text-muted italic px-1 py-3">
                 No formations defined yet — create one with the button below
                 or use <em>From boreholes</em> in the Ground model pane.
               </div>
@@ -122,20 +122,20 @@ export default function FormationPickerDialog({
                       disabled={busyId !== null}
                       className={[
                         'w-full flex items-center gap-2 px-2 py-2 rounded text-left',
-                        'border border-gray-200 hover:border-blue-300 hover:bg-blue-50',
+                        'border border-border-default hover:border-accent hover:bg-surface-page',
                         'disabled:opacity-60 disabled:cursor-not-allowed transition-colors',
                       ].join(' ')}
                     >
                       <span
-                        className="inline-block w-4 h-4 rounded border border-gray-300 shrink-0"
+                        className="inline-block w-4 h-4 rounded border border-border-default shrink-0"
                         style={{ backgroundColor: f.color }}
                       />
                       <span className="flex flex-col min-w-0">
-                        <span className="text-xs font-medium text-gray-800 truncate">
+                        <span className="text-xs font-medium text-text-primary truncate">
                           {f.name}
                         </span>
                         {f.regional_ref && (
-                          <span className="text-[10px] text-gray-400 truncate">
+                          <span className="text-[10px] text-text-muted truncate">
                             {f.regional_ref}
                           </span>
                         )}
@@ -147,7 +147,7 @@ export default function FormationPickerDialog({
             )}
           </div>
 
-          <div className="flex justify-between items-center gap-2 mt-4 pt-3 border-t border-gray-100">
+          <div className="flex justify-between items-center gap-2 mt-4 pt-3 border-t border-border-subtle">
             <Button
               variant="secondary"
               size="sm"
