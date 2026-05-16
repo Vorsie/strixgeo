@@ -67,6 +67,7 @@ export default function GeologyInspector(): JSX.Element {
     geoModel: {
       activeGeologicalModel,
       formations: busFormations,
+      visibleFormations: busVisibleFormations,
       formationsRefreshCounter,
       crossingsRefreshCounter,
       staleSurfaceCount,
@@ -77,6 +78,8 @@ export default function GeologyInspector(): JSX.Element {
       refetchFormations,
     },
     sections: { handleFocusContacts },
+    // manifestFormationIds is still needed by reorderFormations' inline
+    // derivation (cannot read visibleFormations there — TDZ; see §8.1 Risk 3).
     coordinator: { manifestFormationIds, sessionImportFormationIds },
     undo: { push: pushUndoCommand },
     visibleBoreholes,
@@ -286,12 +289,19 @@ export default function GeologyInspector(): JSX.Element {
   )
 
   // ---------------------------------------------------------------------------
-  // visibleFormations — declared AFTER reorderFormations (TDZ boundary).
+  // visibleFormations — sourced from the geoModel bus (single source of truth).
+  //
+  // Previously computed inline via useMemo([formations, manifestFormationIds]).
+  // Now the bus value (computed once in App.tsx) is used directly so the
+  // inspector, the Geology badge, and any future reader all see the same count.
+  //
+  // TDZ note: reorderFormations (declared above) STILL derives the filtered
+  // list inline from ``formations + manifestFormationIds`` — it cannot close
+  // over ``visibleFormations`` because of the declaration order constraint
+  // documented in §8.1 Risk 3. That inline derivation is intentional and
+  // correct; this assignment is purely for the render path below.
   // ---------------------------------------------------------------------------
-  const visibleFormations = useMemo(() => {
-    if (manifestFormationIds === undefined) return formations
-    return formations.filter(f => manifestFormationIds.has(f.id))
-  }, [formations, manifestFormationIds])
+  const visibleFormations = busVisibleFormations
 
   // Reading order for the list UI: youngest-first, like a borehole log /
   // stratigraphic column. ``visibleFormations`` is ascending display_order
