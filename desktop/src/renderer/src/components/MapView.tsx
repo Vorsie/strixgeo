@@ -132,6 +132,10 @@ interface Props {
   // the checkbox state so list and map selections stay in agreement.
   marqueeSelectedIds?: ReadonlySet<string>
   onMarqueeSelect?: (ids: Set<string>) => void
+  // Investigation id hovered in the Data inspector list. The matching
+  // marker (if rendered — only visible ones are) gets the same ring
+  // highlight as a marquee selection so the list↔map link is obvious.
+  hoveredTestId?: string | null
 }
 
 type OpenCategory = 'cpt' | 'borehole' | 'terrain' | 'basemap' | null
@@ -393,6 +397,7 @@ export default function MapView({
   onCameraChange,
   marqueeSelectedIds,
   onMarqueeSelect,
+  hoveredTestId,
 }: Props) {
   // Basemap selection — persisted in localStorage, seeded on first run
   // from the resolved theme (dark → geopunt_hybrid, light → osm).
@@ -669,16 +674,20 @@ export default function MapView({
         {cptMarkers.map(m => {
           const selected = m.id === selectedCptId
           const marqueeSelected = marqueeSelectedIds?.has(m.id) ?? false
+          // Inspector row-hover gets the same blue ring + enlarged
+          // radius as a marquee pick, so the list↔map link is obvious.
+          const hovered = m.id === hoveredTestId
+          const ringed = marqueeSelected || hovered
           const color = KNOWN_COLORS[m.type] ?? hashColor(m.type)
           return (
             <CircleMarker
               key={`cpt-${m.id}`}
               pane="investigation-markers"
               center={[m.lat, m.lng]}
-              radius={selected ? RADIUS_SELECTED : RADIUS}
+              radius={selected || hovered ? RADIUS_SELECTED : RADIUS}
               pathOptions={{
-                color: selected ? '#1e3a8a' : marqueeSelected ? '#2563eb' : '#1f2937',
-                weight: selected ? 2 : marqueeSelected ? 2 : 1,
+                color: selected ? '#1e3a8a' : ringed ? '#2563eb' : '#1f2937',
+                weight: selected ? 2 : ringed ? 2 : 1,
                 fillColor: color,
                 fillOpacity: 0.85,
               }}
@@ -709,13 +718,15 @@ export default function MapView({
         {boreholeMarkers.map(m => {
           const selected = m.id === selectedBoreholeId
           const marqueeSelected = marqueeSelectedIds?.has(m.id) ?? false
+          // Same blue-ring treatment on inspector row-hover.
+          const hovered = m.id === hoveredTestId
           const color = colorForCategoryValue(m.axisValue)
           return (
             <Marker
               key={`bh-${m.id}`}
               pane="investigation-markers"
               position={[m.lat, m.lng]}
-              icon={squareDivIcon(color, selected, marqueeSelected)}
+              icon={squareDivIcon(color, selected, marqueeSelected || hovered)}
               eventHandlers={{ click: () => onSelectBorehole(m.id) }}
             >
               <Tooltip
