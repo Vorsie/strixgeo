@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current Phase 4 friction / launch-demo blockers:** #31, #33, #32, #34, #35
+* **C. Current Phase 4 friction / launch-demo blockers:** #33, #32, #34, #35
 * **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50, #51
 
@@ -25,7 +25,8 @@ not renumber after each fix); explicit cleanup passes (last done
 migration, de-scoped from the same pass's quick-fix batch). Tier C
 campaign began 2026-05-16: #30 resolved (Export stage hub shipped),
 #52 filed (PDF report export), #29 resolved (Plaxis 2D per-section
-exporter shipped). 43 open items**) compact
+exporter shipped), #31 resolved (section CRS allowlist guard).
+42 open items**) compact
 them. Commit messages and code comments written before a cleanup
 pass continue to reference the OLD numbers — that's an unavoidable
 cost of the renumber. Sections #2–#28 below remain in their prior
@@ -593,25 +594,6 @@ no nearby data".
 > security-reviewer, staff-engineer, product-strategy-advisor, and
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
-
-## 31. No project-CRS validation on section creation / export (Tier C — silent garbage geometry)
-
-**What.** Section creation only gates on `effectiveHorizontalEpsg !=
-null`. The DXF / Plaxis exporters compute along-section distance as a
-Euclidean distance between projected coordinates, calibrated for
-metric CRS (EPSG:31370 / 28992). A GEF-only project with no
-DOV-sourced EPSG and no project default falls back to WGS84 degrees;
-along-distance values come out at ~1e-4 m scale and the exported
-geometry is silently garbage. No warning at create or export time.
-
-**Why deferred.** The primary import path is DOV (always Lambert72);
-GEF-only projects are a minority of early users, and the null gate
-masks the issue for the common case.
-
-**When to revisit.** Before the first beta user imports a non-DOV GEF
-file and creates a section. Fix: export-time CRS check that
-rejects/warns when `effectiveHorizontalEpsg` is not a known metric
-CRS, plus a section-creation tooltip naming the CRS.
 
 ## 32. `.gmproj` geotechnical-units round-trip is unverified (Tier C — MVP-gate data loss)
 
