@@ -29,7 +29,7 @@ export interface UseProjectLifecycleResult {
   setCloseConfirmOpen: (open: boolean) => void
   unsavedDialogOpen: boolean
   unsavedSaving: boolean
-  /** Commit metadata + surface build + clear session-imports sets. */
+  /** Commit metadata + clear session-imports sets. */
   saveProject: () => Promise<boolean>
   /** Roll back session imports without touching the DB rows. */
   discardSessionImports: () => void
@@ -49,10 +49,9 @@ export interface UseProjectLifecycleResult {
  * click-protection confirm), Save / Save As, Discard, and the OS window
  * title + quit handshake.
  *
- * ``saveProject`` fires ``handleRebuildSurfaces`` before persisting so
- * the .gmproj bundle round-trips fresh TIN geometry.  Build failures are
- * swallowed (already toasted inside the geological model hook) — the
- * save always proceeds.
+ * ``saveProject`` persists metadata and clears session-import sets.
+ * Surface rebuild is a separate explicit action ("Build 3D model" in
+ * the Geology toolbar) and is NOT auto-fired on save.
  *
  * ``discardSessionImports`` removes session-imported IDs from the
  * manifest and DB-deletes any unsaved formation contacts (fire-and-
@@ -96,8 +95,6 @@ export interface UseProjectLifecycleResult {
  *     From ``useProject`` — open-dialog + load flow.
  * openProjectFile
  *     From ``useProject`` — load from a known path (Recent list).
- * handleRebuildSurfaces
- *     From ``useGeologicalModel`` — auto-fires before save.
  * discardContacts
  *     From ``useGeologicalModel`` — removes unsaved contacts from cache.
  * activeGeologicalModel
@@ -127,7 +124,6 @@ export function useProjectLifecycle({
   closeProject,
   pickAndOpenProject,
   openProjectFile,
-  handleRebuildSurfaces,
   discardContacts,
   activeGeologicalModel,
 }: {
@@ -149,7 +145,6 @@ export function useProjectLifecycle({
   closeProject: () => void
   pickAndOpenProject: () => Promise<{ outcome: 'opened' | 'cancelled' | 'error' }>
   openProjectFile: (path: string) => Promise<unknown>
-  handleRebuildSurfaces: () => Promise<void>
   discardContacts: (ids: ReadonlySet<string>) => void
   activeGeologicalModel: ActiveModel | null
 }): UseProjectLifecycleResult {
@@ -194,20 +189,11 @@ export function useProjectLifecycle({
   // session-imports set so the project lands clean. Failure of any
   // step leaves the dirty flag intact for retry.
   //
-  // On-click build pivot: auto-fire ``Build model`` before the
-  // metadata save so the .strix bundle round-trips a fresh cache,
-  // not yesterday's geometry. Build failures DO NOT block save —
-  // the user's work must always persist; we just toast the failure.
+  // Surface rebuild is NOT auto-fired here. The user triggers it
+  // explicitly via "Build 3D model" in the Geology toolbar (or the
+  // Sections toolbar). Dedupe's auto-recompute is unaffected (it is
+  // a build-shaped intent, not a File → Save concern).
   const saveProject = useCallback(async (): Promise<boolean> => {
-    // Auto-build: fire-and-forget failure — the user's work must
-    // always persist; build failure only means the bundle carries
-    // the previous surface cache. handleRebuildSurfaces toasts
-    // its own error, so no extra toast needed here.
-    try {
-      await handleRebuildSurfaces()
-    } catch {
-      // handleRebuildSurfaces already logged and toasted. Proceed.
-    }
     const ok = await saveMetadata()
     if (!ok) return false
     setSessionImportCptIds(new Set())
@@ -217,7 +203,6 @@ export function useProjectLifecycle({
     setSessionImportContactIds(new Set())
     return true
   }, [
-    handleRebuildSurfaces,
     saveMetadata,
     setSessionImportCptIds,
     setSessionImportBoreholeIds,
