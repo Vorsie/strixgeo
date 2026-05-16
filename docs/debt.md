@@ -40,13 +40,16 @@ velocity/refactor work + cheap dogfeed friction); #37 + #38 + #51
 contact-mutation use cases unit-covered in the pre-commit suite;
 inspector chrome migrated to semantic tokens; Data-stage Esc-to-map
 peel restored; excluded_borehole_ids now filtered in TIN recompute).
-**2026-05-17:** #12 R1–R5 shipped (App.tsx 3,200→1,001) but #12
-stays OPEN — `<400` needs a net-first coordinator/memo extraction;
-#53 filed (shellContextValue dep-array drift, architect pushback #3).
+**2026-05-17:** #12 R1–R5 shipped (App.tsx 3,200→1,001); then the
+net-first step shipped — useShellContextValue.test (renderHook net,
+written first) + verbatim memo → useShellContextValue (App.tsx
+1,001→833); the shellContextValue silent-staleness risk + #53 are
+now NETTED. #12 STILL OPEN (remaining = optional coordinator
+circular-dep split; honest floor ~480–520, see #12 note). #53 filed.
 **#40 resolved** — geology.py monolith split into a per-cluster
 package (75 integration tests green, 27 routes byte-identical). Tier
-C now: only #12 (net-first extraction) + #41 (folds into #12). 33
-open items**) compact them. Commit messages and code comments written
+C now: only #12 (coordinator split, net in place) + #41 (folds into
+#12). 33 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -319,6 +322,32 @@ useSections, callbacks after — the circular-dep needle). Net-first,
 its own focused session — NOT marathon-tail work. Tracked alongside
 the new Tier-E ``shellContextValue`` dep-array-drift item below.
 **#41 (Geology3DViewer pure-helper extract) remains folded here.**
+
+**Progress (2026-05-17, step (a)+memo done) — STILL open.** The
+net-first plan's step (a) + the ``shellContextValue`` half of (b)
+shipped: ``hooks/useShellContextValue.test.tsx`` (renderHook —
+T1 assembly nesting, T2 no-stale per-slice propagation, T3
+referential stability) was written and GREEN before App.tsx was
+touched (the missing detector #53 names). Then the 194-line memo was
+relocated VERBATIM into ``hooks/useShellContextValue.ts`` — body +
+dep array byte-identical (scripted slice), ``geo`` passed whole and
+re-destructured inside so every dep ref is the same identity; tsc
+proves all 134 bindings resolve. App's geo-destructure pruned to the
+5 fields it still uses itself. **App.tsx 1,001 → 833.** Verified:
+net 3/3, R1 loaded-project AppShell mount, shell suite, zero new tsc
+(84==84). The ``shellContextValue`` silent-staleness risk + #53 are
+now NETTED. **Remaining to (optionally) approach <400:** the
+coordinator state/callbacks circular-dep two-hook split — now
+de-risked by this net for assembled-context regressions, but the
+hook-ORDERING constraint is structural (Rules-of-Hooks/lint + suite,
+not the net). Honest math: even that lands App.tsx ~480–520 (the
+irreducible floor = ~30 imports + ~12 hook-call+destructure sites +
+effects + ~120-line render tree); strict ``<400`` would need
+low-value churn the coordinator-pattern rules don't justify.
+Recommended close-out: treat the **memo isolated+netted + Sidebar
+gone + 3,200→833** as #12's substantive completion and revise the
+DoD off the architect's optimistic literal ``<400`` — a product
+decision for the owner, not an automatic resolve.
 
 ## 13. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
 
