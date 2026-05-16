@@ -202,6 +202,7 @@ function makeStubContext(): ShellContextValue {
       handleSelect: noopAsync,
       handleSelectBorehole: noopAsync,
       handleExportSectionDxf: noopAsync,
+      handleExportSectionPlaxis2d: noopAsync,
       outOfViewportCptIds: new Set(),
       outOfViewportBoreholeIds: new Set(),
       projectFilePath: null,
@@ -290,24 +291,51 @@ describe('Export stage canvas (debt #30)', () => {
     expect(screen.queryByRole('button', { name: /export dxf/i })).toBeNull()
   })
 
-  it('fires the shared bus handlers with the right args when both prerequisites are met', () => {
+  // Each section-scoped export shares one busy flag (clicking one
+  // disables the others until it settles — correct UX). Render fresh
+  // per action so the assertions don't fight that busy state.
+  function readyCtx() {
     const ctx = makeStubContext()
     ctx.geoModel.activeGeologicalModel = ACTIVE_MODEL
     ctx.sections.sections = [SECTION_A]
     ctx.sections.selectedSectionId = 'sec-1'
+    return ctx
+  }
+
+  it('Export DXF calls the DXF bus handler with the right args', () => {
+    const ctx = readyCtx()
     const exportDxf = vi.fn().mockResolvedValue(undefined)
-    const exportPlaxis = vi.fn().mockResolvedValue(undefined)
     ctx.coordinator.handleExportSectionDxf = exportDxf
-    ctx.geoModel.handleExportModelPlaxis3d = exportPlaxis
-
     renderCanvas(ctx)
-
     fireEvent.click(screen.getByRole('button', { name: /export dxf/i }))
     expect(exportDxf).toHaveBeenCalledWith('proj-1', 'sec-1', 'Quay 7 — A–A', 'model-1')
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
 
+  it('Export Plaxis 2D calls the section Plaxis-2D bus handler (debt #29)', () => {
+    const ctx = readyCtx()
+    const exportPlaxis2d = vi.fn().mockResolvedValue(undefined)
+    ctx.coordinator.handleExportSectionPlaxis2d = exportPlaxis2d
+    renderCanvas(ctx)
+    // The /plaxis 2d/ regex must NOT match the model-wide "Export
+    // Plaxis 3D" button — distinct target, distinct bus handler.
+    fireEvent.click(screen.getByRole('button', { name: /export plaxis 2d/i }))
+    expect(exportPlaxis2d).toHaveBeenCalledWith(
+      'proj-1',
+      'sec-1',
+      'Quay 7 — A–A',
+      'model-1',
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('Export Plaxis 3D calls the model-wide bus handler', () => {
+    const ctx = readyCtx()
+    const exportPlaxis3d = vi.fn().mockResolvedValue(undefined)
+    ctx.geoModel.handleExportModelPlaxis3d = exportPlaxis3d
+    renderCanvas(ctx)
     fireEvent.click(screen.getByRole('button', { name: /export plaxis 3d/i }))
-    expect(exportPlaxis).toHaveBeenCalledTimes(1)
-
+    expect(exportPlaxis3d).toHaveBeenCalledTimes(1)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 })
