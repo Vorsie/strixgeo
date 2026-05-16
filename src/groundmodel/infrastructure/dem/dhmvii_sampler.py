@@ -57,34 +57,19 @@ import asyncio
 from dataclasses import dataclass
 from email import message_from_bytes
 from io import BytesIO
-from typing import Final
 
 import httpx
 from PIL import Image
 
+from groundmodel.infrastructure.dem.dem_wcs_constants import (
+    DHMVII_COVERAGE_ID,
+    DHMVII_NODATA,
+    DHMVII_WCS_URL,
+    WCS_BBOX_PADDING_M,
+    WCS_SAMPLER_TIMEOUT_SECONDS,
+    WCS_VERSION,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-# WCS endpoint constants — pinned here so a server-side URL change
-# touches one place. Probed live 2026-05-11.
-_WCS_URL: Final = "https://geo.api.vlaanderen.be/DHMV/wcs"
-_COVERAGE_ID: Final = "DHMVII_DTM_1m"
-_WCS_VERSION: Final = "2.0.1"
-
-# DHMVII nodata sentinel. Embedded in the GML metadata as
-# ``<swe:nilValue>-9999</swe:nilValue>``; sentinels appear at hill
-# shadows / sea / outside-coverage pixels.
-_NODATA: Final = -9999.0
-
-# Network timeouts. The WCS server can be slow under load; 15s
-# accommodates a worst-case fetch for a 1 km section bbox (~4 MB
-# TIFF over a slow link).
-_TIMEOUT_SECONDS: Final = 15.0
-
-# Padding around the section endpoints' bbox to ensure the requested
-# rectangle covers every sample point (and a small margin for the
-# bilinear filter's neighbour pixels). Two metres is enough at 1 m
-# native resolution.
-_BBOX_PADDING_M: Final = 2.0
 
 
 @dataclass(frozen=True)
@@ -150,7 +135,7 @@ def _sample_bilinear(img: Image.Image, px: float, py: float) -> float | None:
     v10 = float(img.getpixel((x1, y0)))
     v01 = float(img.getpixel((x0, y1)))
     v11 = float(img.getpixel((x1, y1)))
-    if any(v == _NODATA for v in (v00, v10, v01, v11)):
+    if any(v == DHMVII_NODATA for v in (v00, v10, v01, v11)):
         return None
     return (1 - fx) * (1 - fy) * v00 + fx * (1 - fy) * v10 + (1 - fx) * fy * v01 + fx * fy * v11
 
@@ -226,7 +211,7 @@ class DhmviiSampler(GroundModelLogger):
         self._client = httpx.AsyncClient(
             http2=True,
             follow_redirects=True,
-            timeout=_TIMEOUT_SECONDS,
+            timeout=WCS_SAMPLER_TIMEOUT_SECONDS,
         )
 
     async def __aenter__(self) -> DhmviiSampler:
@@ -264,16 +249,16 @@ class DhmviiSampler(GroundModelLogger):
         # Bbox = line endpoints' axis-aligned envelope + small pad.
         # Padding ensures the bilinear filter's neighbour pixels are
         # always inside the request rectangle.
-        bbox_min_x = min(start_x, end_x) - _BBOX_PADDING_M
-        bbox_max_x = max(start_x, end_x) + _BBOX_PADDING_M
-        bbox_min_y = min(start_y, end_y) - _BBOX_PADDING_M
-        bbox_max_y = max(start_y, end_y) + _BBOX_PADDING_M
+        bbox_min_x = min(start_x, end_x) - WCS_BBOX_PADDING_M
+        bbox_max_x = max(start_x, end_x) + WCS_BBOX_PADDING_M
+        bbox_min_y = min(start_y, end_y) - WCS_BBOX_PADDING_M
+        bbox_max_y = max(start_y, end_y) + WCS_BBOX_PADDING_M
 
         params = {
             "service": "WCS",
-            "version": _WCS_VERSION,
+            "version": WCS_VERSION,
             "request": "GetCoverage",
-            "coverageId": _COVERAGE_ID,
+            "coverageId": DHMVII_COVERAGE_ID,
             "subset": [
                 f"X({bbox_min_x:.3f},{bbox_max_x:.3f})",
                 f"Y({bbox_min_y:.3f},{bbox_max_y:.3f})",
@@ -284,7 +269,7 @@ class DhmviiSampler(GroundModelLogger):
             f"WCS GetCoverage bbox=({bbox_min_x:.1f},{bbox_min_y:.1f}) → "
             f"({bbox_max_x:.1f},{bbox_max_y:.1f}) for {n_samples} samples"
         )
-        resp = await self._client.get(_WCS_URL, params=params)
+        resp = await self._client.get(DHMVII_WCS_URL, params=params)
         resp.raise_for_status()
         tiff = parse_wcs_multipart(resp.content)
         self.debug(f"WCS payload {len(resp.content)} B, TIFF {len(tiff)} B")
@@ -308,7 +293,7 @@ def _coverage_id() -> str:
     Exposed so an integration test can pin the constant; not part of
     the public sampler API.
     """
-    return _COVERAGE_ID
+    return DHMVII_COVERAGE_ID
 
 
 # Run a quick async sample as a script for one-off smoke testing.
