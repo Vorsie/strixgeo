@@ -19,6 +19,8 @@ import { log } from './utils/log'
 import { idsOutsideBounds } from './utils/viewportFilter'
 import WelcomeScreen from './components/WelcomeScreen'
 import NewProjectDialog from './components/NewProjectDialog'
+import AppBootError from './components/AppBootError'
+import AppLoading from './components/AppLoading'
 import ProjectMetadataDialog from './components/ProjectMetadataDialog'
 import UnsavedChangesDialog from './components/UnsavedChangesDialog'
 import Modal from './components/ui/Modal'
@@ -921,23 +923,11 @@ export default function App() {
   // Render
   // ---------------------------------------------------------------------------
 
-  if (apiError) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gray-100 text-gray-500 text-sm gap-2">
-        <div className="text-red-500 font-medium">Failed to start the Strix API</div>
-        <div className="text-xs text-gray-400">Check the developer console for the Python traceback.</div>
-      </div>
-    )
-  }
-
-  if (!ready) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-100 text-gray-500 text-sm gap-2">
-        <div className="animate-spin rounded-full border-2 border-gray-300 border-t-blue-500 w-5 h-5" />
-        Starting Strix API…
-      </div>
-    )
-  }
+  // R5 (debt #12): gate GUARDS stay here (below all hooks — Rules of
+  // Hooks); the screens are presentational components so App reads as
+  // coordinator + a scannable render tree.
+  if (apiError) return <AppBootError />
+  if (!ready) return <AppLoading />
 
   if (!project) {
     return (
