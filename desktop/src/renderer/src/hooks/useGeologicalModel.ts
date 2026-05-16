@@ -183,6 +183,51 @@ export function useGeologicalModel({
   >(new Map())
   const [crossingsRefreshCounter, setCrossingsRefreshCounter] = useState(0)
 
+  // Mirrors activeGeologicalModel into a ref so useCallback closures
+  // can read the latest value without listing the state as a dep.
+  // Follows the lastSurfaceRefetchContactsRef pattern already used in
+  // this hook: a tiny useEffect keeps the ref in sync whenever the
+  // state changes.
+  const activeGeologicalModelRef = useRef<GeologicalModelResponse | null>(null)
+  useEffect(() => {
+    activeGeologicalModelRef.current = activeGeologicalModel
+  }, [activeGeologicalModel])
+
+  // Shared in-flight guard: if a list→adopt→create-Default operation
+  // is already running (bootstrap or ensureActiveGeologicalModel),
+  // any second caller awaits the SAME promise instead of issuing a
+  // concurrent createModel call. Cleared when the promise settles so
+  // a later legitimate ensure (e.g. after handleDeleteModel) works.
+  const ensureModelPromiseRef = useRef<Promise<GeologicalModelResponse | null> | null>(null)
+
+  // Core list→adopt→create-Default logic shared by the bootstrap
+  // effect and ensureActiveGeologicalModel. Extracted here so both
+  // paths are identical and cannot diverge (CLAUDE.md "extract on the
+  // second copy" rule — this is the second concrete use).
+  //
+  // Does NOT set React state — callers do that so they can apply
+  // cancelled-flag guards correctly.
+  //
+  // Returns the active model or throws on API failure.
+  const resolveActiveModel = async (projectId: string): Promise<GeologicalModelResponse> => {
+    let models = await api.geology.listModels(projectId)
+    let active = models.find(m => m.is_active) ?? null
+    if (models.length === 0) {
+      const created = await api.geology.createModel(projectId, {
+        name: 'Default',
+        is_active: true,
+      })
+      active = created
+      log.info('geology', `resolveActiveModel: created Default model for ${projectId}`)
+    } else if (active === null) {
+      // Models exist but none is active — activate the first
+      // (alphabetical by name is fine; v1 has at most one).
+      const promoted = await api.geology.activateModel(projectId, models[0].id)
+      active = promoted
+    }
+    return active
+  }
+
   // Geological-model bootstrap + load.
   //
   // Every project carries exactly one active geological model in v1.
@@ -195,6 +240,10 @@ export function useGeologicalModel({
   // immediately after File → New — no separate "create model"
   // button to discover. Multi-model UX (named scenarios, model
   // comparison) lands later.
+  //
+  // Uses ensureModelPromiseRef to share the list→adopt→create work
+  // with any concurrent ensureActiveGeologicalModel call so two
+  // "Default" models cannot be created simultaneously.
   useEffect(() => {
     if (!project) {
       setActiveGeologicalModel(null)
@@ -208,22 +257,15 @@ export function useGeologicalModel({
       try {
         const projectId = project.id
         // Step 1: model list. Bootstrap a default if empty.
-        let models = await api.geology.listModels(projectId)
-        let active = models.find(m => m.is_active) ?? null
-        if (models.length === 0) {
-          const created = await api.geology.createModel(projectId, {
-            name: 'Default',
-            is_active: true,
+        // Reuse or create the shared in-flight promise so a
+        // concurrent ensureActiveGeologicalModel call doesn't race
+        // us into a second createModel.
+        if (!ensureModelPromiseRef.current) {
+          ensureModelPromiseRef.current = resolveActiveModel(projectId).finally(() => {
+            ensureModelPromiseRef.current = null
           })
-          models = [created]
-          active = created
-          log.info('geology', `bootstrapped Default model for ${projectId}`)
-        } else if (active === null) {
-          // Models exist but none is active — activate the first
-          // (alphabetical by name is fine; v1 has at most one).
-          const promoted = await api.geology.activateModel(projectId, models[0].id)
-          active = promoted
         }
+        const active = await ensureModelPromiseRef.current
         if (cancelled) return
         setActiveGeologicalModel(active)
 
@@ -234,12 +276,8 @@ export function useGeologicalModel({
         // first render — no recompute round-trip required.
         const [forms, conts, surfs] = await Promise.all([
           api.geology.listFormations(projectId),
-          active === null
-            ? Promise.resolve([] as FormationContactResponse[])
-            : api.geology.listContacts(projectId, active.id),
-          active === null
-            ? Promise.resolve([] as FormationSurfaceResponse[])
-            : api.geology.listSurfaces(projectId, active.id),
+          api.geology.listContacts(projectId, active.id),
+          api.geology.listSurfaces(projectId, active.id),
         ])
         if (cancelled) return
         setFormations(forms)
@@ -302,31 +340,34 @@ export function useGeologicalModel({
   }, [project, activeGeologicalModel])
 
   // Ensure an active geological model is present, creating "Default" when none
-  // exists. Shares the same create-model logic as the bootstrap effect so
-  // there is a single implementation. This is the self-heal path for
-  // Fill-from-boreholes: the action is always reachable even when the initial
-  // bootstrap raced or failed. Returns null only when project is absent or the
-  // API call genuinely fails.
+  // exists. Delegates to resolveActiveModel via the shared ensureModelPromiseRef
+  // guard so it cannot race the bootstrap effect into a second createModel call.
+  // This is the self-heal path for Fill-from-boreholes: the action is always
+  // reachable even when the initial bootstrap raced or failed.
+  //
+  // Reads the latest active model via activeGeologicalModelRef (not the state
+  // variable) so the dep array is [project] — stable to project identity.
+  // This prevents setActiveGeologicalModel from re-identifying this callback
+  // and cascading into discoverBoreholeFormations / applyBoreholeFormationSelection
+  // identity churn on every rapid-fill step.
+  //
+  // Returns null only when project is absent or the API call genuinely fails.
   const ensureActiveGeologicalModel = useCallback(
     async (): Promise<GeologicalModelResponse | null> => {
       if (!project) return null
-      // Already have one — fast path.
-      if (activeGeologicalModel) return activeGeologicalModel
+      // Fast path: already have one. Read from ref to avoid listing
+      // activeGeologicalModel as a dep (see comment above).
+      if (activeGeologicalModelRef.current) return activeGeologicalModelRef.current
       try {
         const projectId = project.id
-        let models = await api.geology.listModels(projectId)
-        let active = models.find(m => m.is_active) ?? null
-        if (models.length === 0) {
-          const created = await api.geology.createModel(projectId, {
-            name: 'Default',
-            is_active: true,
+        // Reuse a bootstrap-initiated promise if one is in flight —
+        // the at-most-once guard for createModel("Default").
+        if (!ensureModelPromiseRef.current) {
+          ensureModelPromiseRef.current = resolveActiveModel(projectId).finally(() => {
+            ensureModelPromiseRef.current = null
           })
-          active = created
-          log.info('geology', `ensureActiveGeologicalModel: created Default model for ${projectId}`)
-        } else if (active === null) {
-          const promoted = await api.geology.activateModel(projectId, models[0].id)
-          active = promoted
         }
+        const active = await ensureModelPromiseRef.current
         setActiveGeologicalModel(active)
         return active
       } catch (err) {
@@ -335,7 +376,7 @@ export function useGeologicalModel({
         return null
       }
     },
-    [project, activeGeologicalModel],
+    [project],
   )
 
   // Auto-refetch surfaces after any contact mutation. ``contacts``
