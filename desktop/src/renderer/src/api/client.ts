@@ -1445,6 +1445,27 @@ export const api = {
       }
       return res.arrayBuffer()
     },
+
+    // Download the section's Plaxis 2D plxscripting script as raw
+    // bytes (debt #29). Same byte-pipe contract as exportDxf — the
+    // caller writes the ArrayBuffer straight to a .py file via the
+    // Electron save dialog. Throws on non-2xx; the 404 (missing
+    // section / model) surfaces through the caller's toast.
+    exportPlaxis2d: async (
+      projectId: string,
+      sectionId: string,
+      modelId: string,
+    ): Promise<ArrayBuffer> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/sections/${sectionId}/export/plaxis2d` +
+          `?model_id=${modelId}`,
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `Export failed (${res.status})`)
+      }
+      return res.arrayBuffer()
+    },
   },
 
   // Codelists — static reference data shipped with the backend. Today
