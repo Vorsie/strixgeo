@@ -7,7 +7,6 @@ import { useSections } from './hooks/useSections'
 import { useInvestigationData } from './hooks/useInvestigationData'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
 import { useMapState } from './hooks/useMapState'
-import { AlertTriangle, CheckCircle } from 'lucide-react'
 import { api } from './api/client'
 import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
@@ -21,10 +20,7 @@ import WelcomeScreen from './components/WelcomeScreen'
 import NewProjectDialog from './components/NewProjectDialog'
 import AppBootError from './components/AppBootError'
 import AppLoading from './components/AppLoading'
-import ProjectMetadataDialog from './components/ProjectMetadataDialog'
-import UnsavedChangesDialog from './components/UnsavedChangesDialog'
-import Modal from './components/ui/Modal'
-import Button from './components/ui/Button'
+import AppDialogs from './components/AppDialogs'
 import AppShell from './shell/AppShell'
 import type { ShellContextValue } from './shell/ShellContext'
 
@@ -976,99 +972,29 @@ export default function App() {
           placeholder nulls in S3; S4/S5 fill them. */}
       <AppShell context={shellContextValue} />
 
-      {/* Toast stack — stays at App level (outside ShellContext.Provider) so
-          it overlays all shell chrome. z-[1100] keeps it above Leaflet's
-          stacked controls (z-1000). */}
-      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-[1100]">
-        {toasts.map(t => (
-          <div
-            key={t.id}
-            className={[
-              'flex items-center gap-2 px-3 py-2 rounded shadow-lg text-sm text-white',
-              t.type === 'success' ? 'bg-green-600' : 'bg-red-600'
-            ].join(' ')}
-          >
-            {t.type === 'success' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
-            {t.message}
-          </div>
-        ))}
-      </div>
-
-      {/* New-project dialog. Sits at the App level so the File-menu signal
-          can open it whether a project is loaded or not. */}
-      <NewProjectDialog
-        open={newProjectOpen}
-        onCancel={() => setNewProjectOpen(false)}
-        onSubmit={async name => {
-          const created = await newProject({ name })
-          if (created !== null) setNewProjectOpen(false)
-        }}
-      />
-
-      {/* Project metadata editor. Triggered by clicking the project name in
-          the sidebar header. Save commits to live state; the DB + file write
-          happens on File → Save / Ctrl+S. */}
-      <ProjectMetadataDialog
-        open={metadataEditorOpen}
+      {/* App-level overlays (toasts + the 4 global dialogs) — R5
+          (debt #12). Outside ShellContext.Provider so they sit above
+          all shell chrome; App owns the state + handlers, AppDialogs
+          is pure presentational. */}
+      <AppDialogs
+        toasts={toasts}
+        newProjectOpen={newProjectOpen}
+        setNewProjectOpen={setNewProjectOpen}
+        newProject={newProject}
         project={project}
-        saved={savedProject}
-        onCancel={() => setMetadataEditorOpen(false)}
-        onSubmit={patch => {
-          applyMetadataDraft(patch)
-          setMetadataEditorOpen(false)
-        }}
+        savedProject={savedProject}
+        metadataEditorOpen={metadataEditorOpen}
+        setMetadataEditorOpen={setMetadataEditorOpen}
+        applyMetadataDraft={applyMetadataDraft}
+        unsavedDialogOpen={unsavedDialogOpen}
+        unsavedSaving={unsavedSaving}
+        handleUnsavedSave={handleUnsavedSave}
+        handleUnsavedDiscard={handleUnsavedDiscard}
+        handleUnsavedCancel={handleUnsavedCancel}
+        closeConfirmOpen={closeConfirmOpen}
+        setCloseConfirmOpen={setCloseConfirmOpen}
+        closeProject={closeProject}
       />
-
-      {/* Close-flow dialogs. Only one is visible at a time; ``attemptClose``
-          decides which based on dirty state + trigger source. */}
-      <UnsavedChangesDialog
-        open={unsavedDialogOpen}
-        projectName={project.name}
-        busy={unsavedSaving}
-        onSave={() => void handleUnsavedSave()}
-        onDiscard={handleUnsavedDiscard}
-        onCancel={handleUnsavedCancel}
-      />
-      <Modal
-        open={closeConfirmOpen}
-        onCancel={() => setCloseConfirmOpen(false)}
-        labelledBy="close-project-title"
-        cardClassName="w-80"
-      >
-        <div className="p-5">
-          <h2
-            id="close-project-title"
-            className="text-sm font-semibold text-gray-800 mb-1"
-          >
-            Close this project?
-          </h2>
-          <p className="text-xs text-gray-500 mb-4">
-            <span className="font-medium text-gray-700">{project.name}</span>{' '}
-            will close and you'll be returned to the welcome screen. The
-            .gmproj file and your saved data are kept — you can reopen from
-            the Recent list.
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={() => setCloseConfirmOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              onClick={() => {
-                setCloseConfirmOpen(false)
-                closeProject()
-              }}
-            >
-              Close project
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </>
   )
 }
