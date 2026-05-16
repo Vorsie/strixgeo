@@ -24,6 +24,7 @@
 //     </div>
 //   </div>
 
+import { useEffect } from 'react'
 import { ShellContext } from './ShellContext'
 import type { ShellContextValue } from './ShellContext'
 import { useShellState } from './useShellState'
@@ -67,6 +68,23 @@ export interface AppShellProps {
  */
 export default function AppShell({ context }: AppShellProps): JSX.Element {
   const { activeStageId, inspectorOpen, setActiveStage, toggleInspector } = useShellState()
+
+  // Reset to Data stage on every project open. The localStorage-backed
+  // stage preference ("remember last stage") is a within-session UX:
+  // opening a *different* project should start on Data, not wherever
+  // the user left off last session. The effect fires whenever the
+  // project.id changes (including the initial mount — fresh open always
+  // lands on Data). "Remember last stage within a session" is
+  // unaffected: if the user switches stages and then navigates back
+  // within the same project open, the activeStageId in-memory state
+  // already tracks their current stage correctly.
+  useEffect(() => {
+    setActiveStage('data')
+    // reason: setActiveStage is a stable useCallback; including
+    // context.project.id ensures the effect re-fires when the user
+    // switches projects without remounting AppShell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [context.project.id])
 
   log.debug('shell', `render stage=${activeStageId} inspectorOpen=${inspectorOpen}`)
 
