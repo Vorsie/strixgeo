@@ -105,9 +105,13 @@ export default function GeologyToolbar(): JSX.Element {
       const result = await discoverBoreholeFormations(boreholeIds)
       if (result.length === 0) {
         // No stratigraphy data — opening an empty dialog would be a silent
-        // dead end on the stage's primary entry action (§10.4). Surface the
-        // reason explicitly. ('error' is the only non-success toast type.)
-        toast('error', 'No boreholes carry stratigraphy data.')
+        // dead end on the stage's primary entry action (§10.4 / debt #33).
+        // Surface the reason AND the alternative path so the user isn't
+        // stuck. ('error' is the only non-success toast type.)
+        toast(
+          'error',
+          'No borehole carries interpretation data — add formations manually in the inspector instead.',
+        )
         return
       }
       setCandidates(result)
