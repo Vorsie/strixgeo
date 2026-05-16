@@ -21,6 +21,10 @@ from groundmodel.api.schemas.project.cross_section import (
     CrossSectionUpdateRequest,
 )
 from groundmodel.application.build_section_snapshot import BuildSectionSnapshot
+from groundmodel.infrastructure.codelists.horizontal_crs import (
+    horizontal_crs_label,
+    is_supported_section_crs,
+)
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.repositories.cross_section_repository import (
     CrossSectionRepository,
@@ -39,6 +43,46 @@ logger = LoggerFactory.get_logger(__name__)
 router = APIRouter(prefix="/projects/{project_id}/sections", tags=["cross-sections"])
 
 
+def _require_supported_section_crs(epsg: int | None, *, context: str) -> None:
+    """Reject a non-metric section CRS with a clear 400 (debt #31).
+
+    A cross-section's along-distance is a Euclidean distance in the
+    section's CRS units; only a projected metric CRS makes that
+    physically correct. Geographic CRS (e.g. EPSG:4326 — degrees)
+    would silently produce ~1e-4-scale geometry in every export, so
+    we fail loudly at the boundary instead.
+
+    Parameters
+    ----------
+    epsg : int | None
+        The section's horizontal EPSG (creation request or resolved
+        snapshot).
+    context : str
+        Short phrase for the error message — e.g. ``"create a
+        cross-section"`` or ``"export this section"``.
+
+    Raises
+    ------
+    HTTPException(400)
+        When ``epsg`` is not in the supported metric allowlist.
+    """
+    if is_supported_section_crs(epsg):
+        return
+    logger.warning(
+        f"Rejected attempt to {context} in unsupported CRS "
+        f"{horizontal_crs_label(epsg)} (not a projected metric CRS)"
+    )
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            f"Cannot {context}: {horizontal_crs_label(epsg)} is not a "
+            "supported projected metric CRS. Cross-section geometry "
+            "requires metres (e.g. Belgian Lambert 72 / RD New). Set a "
+            "metric Default horizontal CRS in Project metadata."
+        ),
+    )
+
+
 @router.post(
     "",
     response_model=CrossSectionResponse,
@@ -49,7 +93,12 @@ async def create_section(
     request: CrossSectionCreateRequest,
     session: AsyncSession = Depends(get_session),
 ) -> CrossSectionOrm:
-    """Create a new cross-section under the given project."""
+    """Create a new cross-section under the given project.
+
+    Rejects a non-metric ``epsg`` with 400 — see
+    :func:`_require_supported_section_crs` (debt #31).
+    """
+    _require_supported_section_crs(request.epsg, context="create a cross-section")
     repo = CrossSectionRepository(session)
     section = await repo.create(
         project_id,
@@ -220,6 +269,11 @@ async def export_section_dxf(
             detail=str(exc),
         ) from exc
 
+    # Defence in depth: a section created before the create-time CRS
+    # guard landed (debt #31), or via a direct API call, could still
+    # carry a geographic CRS. Reject here too rather than emit garbage.
+    _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
+
     payload = DxfSectionExporter().export(snapshot)
     # Sanitise the section name for the filename — DXF receivers
     # don't like names with forward slashes, control chars, etc.
@@ -292,6 +346,9 @@ async def export_section_plaxis2d(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+
+    # Same defence-in-depth CRS guard as the DXF export (debt #31).
+    _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
 
     payload = PlaxisSectionExporter().export(snapshot)
     safe_name = (
