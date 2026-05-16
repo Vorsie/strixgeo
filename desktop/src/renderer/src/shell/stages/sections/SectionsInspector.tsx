@@ -3,8 +3,8 @@
 //
 // §4.5 contract: section properties (name/endpoints display,
 // projection-buffer + vertical-exaggeration sliders), the section list
-// (lifted from Sidebar.tsx's SectionList — Sidebar.tsx is NOT deleted; the
-// Interpretation/geology portion stays for S7), the formation list (read-only
+// (originally lifted from the now-deleted Sidebar.tsx's SectionList —
+// debt #12 R3), the formation list (read-only
 // ordered + staleness), the crossings banner, and the VB overlay picker
 // controls.
 //
@@ -232,7 +232,8 @@ function InspectorSection({
 }
 
 // ---------------------------------------------------------------------------
-// SectionList — lifted from Sidebar.tsx SectionList (Sidebar.tsx not deleted)
+// SectionList — originally lifted from Sidebar.tsx's SectionList
+// (Sidebar.tsx deleted in debt #12 R3; this is now the sole owner)
 // ---------------------------------------------------------------------------
 
 interface SectionListProps {

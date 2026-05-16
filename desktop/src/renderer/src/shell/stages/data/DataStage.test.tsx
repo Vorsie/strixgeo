@@ -8,7 +8,7 @@
 // investigation — this test documents and guards the property so a future
 // refactor cannot silently regress it.
 
-import { render, cleanup, screen } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
@@ -296,5 +296,78 @@ describe('Data stage (smoke + consistency)', () => {
     // CPT-01 and CPT-02 (in visibleCpts) must appear.
     expect(screen.getByText('CPT-01')).toBeTruthy()
     expect(screen.getByText('CPT-02')).toBeTruthy()
+  })
+
+  // R3 (debt #12): these two contracts used to live in Sidebar.test.tsx.
+  // The multi-select / bulk-remove + removed-footer logic was copied
+  // verbatim from Sidebar.tsx into DataInspector; porting the
+  // load-bearing assertions here lets Sidebar.tsx + Sidebar.test.tsx be
+  // deleted without losing user-visible coverage. The exhaustive
+  // shift-range / mirror-deselect permutations from Sidebar.test are
+  // deliberately NOT re-ported — identical copied logic, and the
+  // bulk-bar→Remove integration below is the contract that actually
+  // protects the user-facing behaviour.
+  const makeCpt = (id: string, name: string) => ({
+    id,
+    app_project_id: 'proj-1',
+    name,
+    cpt_type: 'CPTU' as const,
+    location_x: 0,
+    location_y: 0,
+    location_epsg: 31370,
+    elevation_m: null,
+    max_depth_m: 20,
+    n_rows: 200,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  })
+
+  it('multi-select reveals the bulk bar and Remove routes the set through handleRemoveCpts', () => {
+    const ctx = makeStubContext()
+    const cptA = makeCpt('a', 'CPT-A')
+    const cptB = makeCpt('b', 'CPT-B')
+    ctx.investigations.cpts = [cptA, cptB]
+    ctx.visibleCpts = [cptA, cptB]
+    const handleRemoveCpts = vi.fn()
+    ctx.investigations.handleRemoveCpts = handleRemoveCpts
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <DataInspector />
+      </ShellContext.Provider>,
+    )
+    // No bulk bar until something is checked.
+    expect(screen.queryByText(/selected/i)).toBeNull()
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[0])
+    expect(screen.getByText(/1 selected/i)).toBeTruthy()
+
+    const bar = screen.getByText(/1 selected/i).parentElement!
+    fireEvent.click(within(bar).getByText(/^Remove$/i))
+    expect(handleRemoveCpts).toHaveBeenCalledTimes(1)
+    expect(new Set(handleRemoveCpts.mock.calls[0][0])).toEqual(new Set(['a']))
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('removed-count footer + restore-all appears for removed CPTs and routes to handleRestoreAllCpts', () => {
+    const ctx = makeStubContext()
+    const cptA = makeCpt('a', 'CPT-A')
+    ctx.investigations.cpts = [cptA]
+    ctx.visibleCpts = [cptA]
+    ctx.investigations.removedCptIds = new Set(['gone-1', 'gone-2'])
+    const handleRestoreAllCpts = vi.fn()
+    ctx.investigations.handleRestoreAllCpts = handleRestoreAllCpts
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <DataInspector />
+      </ShellContext.Provider>,
+    )
+    const restore = screen.getByText(/2 removed · restore all/i)
+    expect(restore).toBeTruthy()
+    fireEvent.click(restore)
+    expect(handleRestoreAllCpts).toHaveBeenCalledTimes(1)
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 })
