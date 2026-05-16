@@ -206,27 +206,43 @@ export default function GeologyInspector(): JSX.Element {
           id: f.id,
           oldOrder: f.display_order,
           newOrder: total - 1 - i,
+          // Debt #35: remember the pre-drag pin state so undo can
+          // restore it exactly (a formation that was NOT pinned must
+          // go back to unpinned on undo, so Build can re-infer it).
+          wasPinned: f.pinned_order,
         }))
         .filter(c => c.oldOrder !== c.newOrder)
       if (changes.length === 0) {
         setReorderBusy(false)
         return
       }
-      // Optimistic local update (same displayed→display_order inversion).
+      // Optimistic local update (same displayed→display_order
+      // inversion). Reordered rows are also pinned locally (debt #35)
+      // so the UI matches what the PATCH persists.
+      const changedIds = new Set(changes.map(c => c.id))
       setFormations(prev => {
         const byId = new Map(reordered.map((f, i) => [f.id, total - 1 - i]))
         return sortFormations(
           prev.map(f => {
             const idx = byId.get(f.id)
-            return idx === undefined ? f : { ...f, display_order: idx }
+            if (idx === undefined) return f
+            return {
+              ...f,
+              display_order: idx,
+              pinned_order: changedIds.has(f.id) ? true : f.pinned_order,
+            }
           }),
         )
       })
       try {
         await Promise.all(
           changes.map(c =>
+            // Debt #35: pin every reordered formation so the next
+            // "Build 3D model" leaves this deliberate ordering intact
+            // instead of reverting it via age inference.
             api.geology.updateFormation(projectId, c.id, {
               display_order: c.newOrder,
+              pinned_order: true,
             }),
           ),
         )
@@ -236,29 +252,42 @@ export default function GeologyInspector(): JSX.Element {
         pushUndoCommand({
           description: `Reorder ${snapshot.length} formation${snapshot.length === 1 ? '' : 's'}`,
           revert: async () => {
+            // Restore BOTH order and the pre-drag pin state (debt #35):
+            // a formation that wasn't pinned before the drag must go
+            // back to unpinned so Build can re-infer its age order.
             await Promise.all(
               snapshot.map(c =>
                 api.geology.updateFormation(projectId, c.id, {
                   display_order: c.oldOrder,
+                  pinned_order: c.wasPinned,
                 }),
               ),
             )
             setFormations(prev => {
-              const byId = new Map(snapshot.map(c => [c.id, c.oldOrder]))
+              const byId = new Map(
+                snapshot.map(c => [
+                  c.id,
+                  { order: c.oldOrder, pinned: c.wasPinned },
+                ]),
+              )
               return sortFormations(
                 prev.map(f => {
-                  const ord = byId.get(f.id)
-                  return ord === undefined ? f : { ...f, display_order: ord }
+                  const s = byId.get(f.id)
+                  return s === undefined
+                    ? f
+                    : { ...f, display_order: s.order, pinned_order: s.pinned }
                 }),
               )
             })
             handleFormationUpdated()
           },
           reapply: async () => {
+            // Redo re-applies the reorder, so re-pin (mirrors forward).
             await Promise.all(
               snapshot.map(c =>
                 api.geology.updateFormation(projectId, c.id, {
                   display_order: c.newOrder,
+                  pinned_order: true,
                 }),
               ),
             )
@@ -267,7 +296,9 @@ export default function GeologyInspector(): JSX.Element {
               return sortFormations(
                 prev.map(f => {
                   const ord = byId.get(f.id)
-                  return ord === undefined ? f : { ...f, display_order: ord }
+                  return ord === undefined
+                    ? f
+                    : { ...f, display_order: ord, pinned_order: true }
                 }),
               )
             })
