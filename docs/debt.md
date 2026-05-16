@@ -58,8 +58,10 @@ residual component-mount smoke needs a Cesium mock harness, far lower
 value once the math is covered. **Tier C now empty** — current work
 drops to Tier D/E. **#50 resolved 2026-05-17** (Virtuele Boring model
 codes codelist-gated before fan-out). **#49 resolved 2026-05-17**
-(crossings validator collapsed to one model-contacts query). 30 open
-items**) compact them. Commit messages and code comments written
+(crossings validator collapsed to one model-contacts query). **#46
+resolved 2026-05-17** (shared `shell/ToolbarPrimitives.tsx` extracted
+at the rule-of-three window + `busy` in-button spinner wired on every
+long verb). 29 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -695,24 +697,6 @@ rule-of-three is already met), its own focused pass.
 extracted (DataInspector ↔ canvas-fallback duplication already meets
 rule-of-three), or before the launch-demo recording — bare "coming
 soon" canvases on camera undercut the polish narrative.
-
-## 46. Long-running stage verbs lack an in-button spinner (Tier E)
-
-**What.** "Fill from boreholes" / "Seed" / "Dedupe" / Plaxis-3D
-export are multi-second server round-trips whose only feedback is a
-label swap + `disabled`. Only "Build model" shows a spinner
-(`RefreshCw animate-spin`); the rest freeze their label with no
-motion, so on a slow network the engineer can't tell working from
-hung. docs/ux.md requires disable + in-button spinner for async
-triggers; only Build honours the spinner half.
-
-**Why deferred.** Disable + relabel does prevent double-submit and
-does say "working" — a sub-spec affordance, not a missing one.
-
-**When to revisit.** Fold into the `shell/ToolbarPrimitives.tsx`
-extraction GeologyToolbar's header comment already schedules for the
-Export-stage toolbar (copy 3) — add a spinner slot to the shared
-primitive so every long verb gets it for free.
 
 ## 47. `project_bundle.py` column auto-enumeration → silent `.gmproj` format drift (Tier B — backwards-compat re-arm trigger)
 
