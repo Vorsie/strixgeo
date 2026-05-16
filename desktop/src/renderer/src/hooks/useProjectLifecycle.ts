@@ -2,10 +2,9 @@
 // dialogs, Save / Save As / Discard, and the OS window title / quit
 // handshake.
 //
-// ``saveProject`` depends on ``handleRebuildSurfaces`` from
-// ``useGeologicalModel``; ``discardSessionImports`` depends on
-// ``discardContacts`` and ``activeGeologicalModel``. Both are injected
-// so the hook avoids reaching across architectural layers.
+// ``discardSessionImports`` depends on ``discardContacts`` and
+// ``activeGeologicalModel``. Both are injected so the hook avoids reaching
+// across architectural layers.
 
 import { useCallback, useEffect, useState } from 'react'
 
