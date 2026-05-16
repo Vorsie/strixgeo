@@ -370,6 +370,27 @@ export interface CrossingValidationResponse {
   issues: GapIssueResponse[]
 }
 
+/** Body returned by ``POST /projects/{pid}/geology/models/{mid}/ground-surface/build``.
+ *
+ * Represents the DEM-sampled ground-surface TIN for the model's investigation
+ * hull.  ``Geology3DViewer`` renders this as the scene base in place of the
+ * flat ``EllipsoidTerrainProvider``.  ``vertices`` is empty when the model has
+ * no in-scope investigations or the DEM is unavailable for the project EPSG.
+ */
+export interface GroundSurfaceBuildResponse {
+  /** ``[x_m, y_m, elevation_m]`` triples in the project's horizontal CRS. */
+  vertices: [number, number, number][]
+  /** Vertex-index triples (counter-clockwise winding). Empty when fewer than
+   * 3 valid DEM samples exist. */
+  triangles: [number, number, number][]
+  /** Which DEM provider answered: ``"dhmvii"`` / ``"ahn4"`` / ``"none"``. */
+  provider_id: string
+  /** True when every tile was served from the local filesystem cache. */
+  from_cache: boolean
+  /** Validation findings — e.g. contact_above_dem, dem_cell_low_confidence. */
+  issues: GapIssueResponse[]
+}
+
 // Geotechnical-unit response shape — mirrors GeotechnicalUnitResponse
 // on the backend 1:1. Structure-only in v1.0 (no parameter values);
 // Phase 5 extends this with γ / c' / φ' / E etc. as additive optional
@@ -1279,6 +1300,22 @@ export const api = {
       modelId: string,
     ): Promise<CrossingValidationResponse> =>
       get(`/projects/${projectId}/geology/models/${modelId}/validate/crossings`),
+
+    // Build (or re-build) the DEM ground-surface TIN for the model's
+    // investigation hull.  The server samples the public DEM (DHMVII
+    // for BE EPSG:31370, AHN4 for NL EPSG:28992), triangulates the
+    // result, and returns the raw vertex / triangle arrays.
+    // ``Geology3DViewer`` renders this as the terrain base mesh.
+    // Returns an empty surface (vertices=[]) when the model has no
+    // in-scope investigations or the project EPSG has no DEM provider.
+    buildGroundSurface: (
+      projectId: string,
+      modelId: string,
+    ): Promise<GroundSurfaceBuildResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/ground-surface/build`,
+        {},
+      ),
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
