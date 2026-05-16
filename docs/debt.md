@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current Phase 4 friction / launch-demo blockers:** #29, #31, #33, #32, #34, #35
+* **C. Current Phase 4 friction / launch-demo blockers:** #31, #33, #32, #34, #35
 * **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50, #51
 
@@ -24,7 +24,8 @@ not renumber after each fix); explicit cleanup passes (last done
 (Modal semantic-token migration shipped) + #51 (inspector token
 migration, de-scoped from the same pass's quick-fix batch). Tier C
 campaign began 2026-05-16: #30 resolved (Export stage hub shipped),
-#52 filed (PDF report export). 44 open items**) compact
+#52 filed (PDF report export), #29 resolved (Plaxis 2D per-section
+exporter shipped). 43 open items**) compact
 them. Commit messages and code comments written before a cleanup
 pass continue to reference the OLD numbers — that's an unavoidable
 cost of the renumber. Sections #2–#28 below remain in their prior
@@ -592,26 +593,6 @@ no nearby data".
 > security-reviewer, staff-engineer, product-strategy-advisor, and
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
-
-## 29. Plaxis 2D per-section exporter missing (Tier C — launch-demo blocker)
-
-**What.** The MVP gate claims "export to DXF and/or Plaxis." The
-Plaxis 3D model-level exporter ships and is toolbar-wired; the Plaxis
-**2D** per-section exporter does not exist. A BE/NL geotech's typical
-workflow is a 2D stability / settlement check in Plaxis 2D — the
-larger market segment than Plaxis 3D. The geometry contract is
-already in place: CLAUDE.md describes the 2D exporter as "same data
-shape with investigations projected onto the section line" and the
-section snapshot (`BuildSectionSnapshot`) exists.
-
-**Why deferred.** The 3D exporter was the more architecturally
-interesting piece and shipped first; the 2D variant was called a
-"Phase 4 follow-on" in the exporter docstring but never filed.
-
-**When to revisit.** Before any Flanders launch demo — "can I get
-this into Plaxis 2D?" is the first question a pilot engineer asks.
-Treat as a demo-stopper, not polish. Fix is a `plxscripting` 2D
-script emitter against the existing section snapshot.
 
 ## 31. No project-CRS validation on section creation / export (Tier C — silent garbage geometry)
 
