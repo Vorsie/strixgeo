@@ -63,10 +63,11 @@ resolved 2026-05-17** (shared `shell/ToolbarPrimitives.tsx` extracted
 at the rule-of-three window + `busy` in-button spinner wired on every
 long verb). **#45 partial 2026-05-17** (shared `EmptyState`/
 `LoadingState` primitive shipped + GeotechnicalCanvas/DataCanvas
-fixed; DataInspector adoption is the residual — #45 stays open).
-**#48 progress-logging shipped 2026-05-17** (restore loops now have
+then **#45 fully resolved 2026-05-17** — DataInspector adopted the
+shared primitive via a new `compact` variant). **#48 progress-logging
+shipped 2026-05-17** (restore loops now have
 [i/total] DEBUG + phase summaries; only the cosmetic procedural-logger
-style remains — #48 stays open, rescoped). 29 open items**) compact
+style remains — #48 stays open, rescoped). 28 open items**) compact
 them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
@@ -680,32 +681,6 @@ built — that stage forces a concrete "which formations/units am I
 working on" selection and therefore the cross-stage semantics
 decision. Settle it there and document the chosen model in
 docs/ux.md's selection section.
-
-## 45. Shell empty / loading states — DataInspector adoption residual (Tier E — partial; primitive shipped 2026-05-17)
-
-**What.** **Done (f7e79e5):** the shared `shell/EmptyState.tsx`
-primitive was extracted from the GeologyCanvas template — `EmptyState`
-(40 px muted icon + title + optional hint + CTA slot) and
-`LoadingState` (spinner + label + `role=status`). The two clearest
-offenders the debt called out are fixed: `GeotechnicalCanvas` (was a
-bare "coming soon" line — on camera for the launch demo) is now a
-guided placeholder, and `DataCanvas`'s two bare "Loading …" strings
-now spin. `ExportCanvas` was already fixed when #30 shipped.
-
-**Residual.** `DataInspector`'s text-only empty states still don't use
-the primitive — a mechanical adoption (swap the inline centred-text
-divs for `<EmptyState>`), deferred only because DataInspector is the
-daily-driver panel and a focused diff there wants its own pass rather
-than riding an extraction commit.
-
-**Why deferred.** Purely cosmetic and the hard part (the shared
-primitive + the on-camera placeholder) is done; the remaining site is
-low-risk but touches the most-used panel.
-
-**When to revisit.** Next time DataInspector is opened for any other
-change, or before the launch-demo recording. Fix: replace its
-text-only empties with `<EmptyState icon title hint>` (icon TBD per
-tab — e.g. `MousePointerClick` for "select an investigation").
 
 ## 47. `project_bundle.py` column auto-enumeration → silent `.gmproj` format drift (Tier B — backwards-compat re-arm trigger)
 
