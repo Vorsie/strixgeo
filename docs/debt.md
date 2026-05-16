@@ -51,8 +51,12 @@ documented coordinator-pattern floor ~480–520 — chasing it = low-value
 churn). #53 reframed (net now exists; residual = hand-maintained dep
 array). #41 un-folded → stands alone. **#40 resolved** — geology.py
 monolith split into a per-cluster package (75 integration tests
-green, 27 routes byte-identical). Tier C now: only #41. 32 open
-items**) compact them. Commit messages and code comments written
+green, 27 routes byte-identical). **#41 part (a) done + re-tiered to
+E** (2026-05-17): the pure geometry (`cesiumGeometry.ts`) extracted
+VERBATIM + 13 vitest cases — the 585c714 bug class is now netted; the
+residual component-mount smoke needs a Cesium mock harness, far lower
+value once the math is covered. **Tier C now empty** — current work
+drops to Tier D/E. 32 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -588,27 +592,37 @@ during dogfeed. Two-part fix: (a) pass `include=` to drop lab trees
 the section doesn't use; (b) add `POST /boreholes/detail-batch`
 mirroring `plot-batch` — one query replaces N.
 
-## 41. `Geology3DViewer.tsx` (~1,740 lines) is untested; pure geometry helpers not extracted (Tier C — gates the 3D-viewer roadmap work)
+## 41. `Geology3DViewer.tsx` component-level smoke still absent (Tier E — residual; pure helpers extracted + netted 2026-05-17)
 
-**What.** The largest single component in the codebase, growing every
-Phase-4 step, with zero test coverage (Cesium needs WebGL so it can't
-be unit-mocked). But `flyToBounds` / `flyToCutFace` /
-`buildFormationPrimitive` / `buildBasemapLid` contain pure-ish
-coordinate math (midpoint, normal, camera-direction vectors) that is
-extractable into a `cesiumGeometry.ts` helper vitest *can* reach, and
-the two-click split-line state machine is pure local state, also
-testable. The recent `flyToCutFace` ReferenceError fix (585c714) is
-exactly the class of bug a smoke test would have caught.
+**What.** Part (a) is **done** (6c5389a): the pure coordinate math —
+`computeBasemapBounds`, `sampleTinZ`, `clipTrisToHalfSpace`,
+`clipTexTrisToHalfSpace` — was extracted VERBATIM into
+`cesiumGeometry.ts` with 13 vitest cases (`cesiumGeometry.test.ts`)
+covering the barycentric sampler, the footprint bbox/url math and the
+Sutherland–Hodgman half-space clip incl. the textured st-lerp.
+Geology3DViewer dropped 1,739→1,580 lines. **This is exactly the bug
+class the 585c714 `flyToCutFace` ReferenceError was, and it is now
+netted.** The remaining residual is part (b): a `Geology3DViewer.
+test.tsx` mount smoke for the *component shell* (effect wiring, the
+two-click split-line state machine, the `widgetRef.current == null`
+guards).
 
-**Why deferred.** Rendering-level tests need a headless-WebGL harness
-(separate tooling investment); accepted no coverage during the
-Phase-4 sprint.
+**Why deferred / re-tiered to E.** The component smoke needs a Cesium
+mock module or headless-WebGL harness — `new Cesium.CesiumWidget`
+throws under jsdom and the mount effect sets `widgetRef.current` to
+the constructed widget (the null guard only holds if construction is
+intercepted), so the smoke needs a non-trivial inert-Cesium stub
+(separate tooling investment). With the *pure math* now covered, the
+marginal value of a shell-mount smoke is much lower than when this was
+a Tier-C blocker — the named bug class no longer rides on it.
 
-**When to revisit.** Before Phase 5 or first external release. Fix:
-(a) extract the pure helpers into `cesiumGeometry.ts`; (b) add a
-`Geology3DViewer.test.tsx` smoke test stubbing the widget to null
-(the viewer already guards every effect on `widgetRef.current ==
-null`).
+**When to revisit.** Before Phase 5 or first external release, OR
+opportunistically when a Cesium test-mock is built for any other
+viewer work. Fix: stand up `test/cesiumMock.ts` (inert
+CesiumWidget/Scene/Camera/ScreenSpaceEventHandler + real math
+classes), then `Geology3DViewer.test.tsx` mounting with empty props
+(every builder early-returns on empty data) asserting no throw +
+split-line click reducer transitions.
 
 ## 42. Multi-class files violate the one-class-per-file convention (Tier E)
 
