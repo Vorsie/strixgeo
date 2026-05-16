@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.schemas.dem import GroundSurfaceBuildResponse
 from groundmodel.api.schemas.project.formation_contact import (
     AutoPopulateFromStratigraphyRequest,
     AutoPopulateFromStratigraphyResponse,
@@ -889,6 +890,151 @@ async def validate_no_crossings(
                 formation_ids=list(i.formation_ids),
             )
             for i in issues
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ground-surface build (G7 DEM clip)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/models/{model_id}/ground-surface/build",
+    response_model=GroundSurfaceBuildResponse,
+)
+async def build_ground_surface(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> GroundSurfaceBuildResponse:
+    """Sample the DEM over the model's investigation hull and return a TIN.
+
+    The returned TIN is used by ``Geology3DViewer`` as the scene base in
+    place of the flat ``EllipsoidTerrainProvider``. The mesh is built from
+    the DEM (DHMVII for BE/EPSG:31370, AHN4 for NL/EPSG:28992) sampled on
+    a 10 m regular grid inside the axis-aligned bbox of all investigations
+    anchored to this model.
+
+    The surface is **not persisted** — it is derivable from the DEM tile
+    cache and the project's investigation locations; calling this endpoint
+    again is idempotent (the WCS tile is served from the local cache on
+    subsequent calls). No ``.gmproj`` or ``format_version`` change.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Geological model — must belong to ``project_id``.
+
+    Returns
+    -------
+    GroundSurfaceBuildResponse
+        TIN vertices + triangles + provider provenance + validation issues.
+        ``vertices`` is empty when the project's CRS has no DEM provider
+        (``provider_id = "none"``) or the model has no in-scope
+        investigations with known (x, y).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(503)
+        When the WCS endpoint is unreachable or returns a non-2xx status
+        and no cached tile exists.
+    """
+    logger.info(f"POST /projects/{project_id}/geology/models/{model_id}/ground-surface/build")
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
+    )
+
+    # Resolve the project's horizontal EPSG to select the DEM provider.
+    # We read the project row directly here — the project ORM is already
+    # pulled in by the session for the scope guard above.
+    from groundmodel.infrastructure.db.models.project_orm import ProjectOrm  # noqa: PLC0415
+
+    project_row = await session.get(ProjectOrm, project_id)
+    epsg: int = (
+        project_row.default_horizontal_epsg
+        if project_row is not None and project_row.default_horizontal_epsg is not None
+        else 31370  # default to Belgian Lambert when not set
+    )
+
+    from groundmodel.infrastructure.dem.dem_provider_factory import (  # noqa: PLC0415
+        NoDemProviderError,
+        build_dem_provider,
+    )
+    from groundmodel.shared.config import settings  # noqa: PLC0415
+
+    try:
+        provider = build_dem_provider(
+            epsg,
+            settings.dem_cache_dir,
+            max_cache_bytes=settings.dem_cache_max_bytes
+            if settings.dem_cache_max_bytes > 0
+            else None,
+        )
+    except NoDemProviderError:
+        logger.info(
+            f"ground-surface build: no DEM provider for EPSG:{epsg} "
+            f"(project={project_id}) — returning empty surface"
+        )
+        return GroundSurfaceBuildResponse(
+            vertices=[],
+            triangles=[],
+            provider_id="none",
+            from_cache=False,
+            issues=[],
+        )
+
+    import httpx  # noqa: PLC0415
+
+    from groundmodel.application.build_ground_surface import BuildGroundSurface  # noqa: PLC0415
+
+    try:
+        async with provider:
+            result = await BuildGroundSurface(session, provider).execute(project_id, model_id)
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            f"ground-surface build: WCS request failed "
+            f"status={exc.response.status_code} for project={project_id}: "
+            f"{exc.response.text[:500]}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"DEM provider returned HTTP {exc.response.status_code}. "
+                "Check network connectivity or try again later."
+            ),
+        ) from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.error(f"ground-surface build: provider error for project={project_id}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"DEM provider error: {exc}",
+        ) from exc
+
+    logger.info(
+        f"ground-surface build: model={model_id} "
+        f"{len(result.vertices)} vertices {len(result.triangles)} triangles "
+        f"provider={result.provider_id} from_cache={result.from_cache} "
+        f"issues={len(result.issues)}"
+    )
+    return GroundSurfaceBuildResponse(
+        vertices=[list(v) for v in result.vertices],
+        triangles=[list(t) for t in result.triangles],
+        provider_id=result.provider_id,
+        from_cache=result.from_cache,
+        issues=[
+            GapIssueResponse(
+                kind=i.kind,
+                detail=i.detail,
+                depth_m=i.depth_m,
+                contact_ids=list(i.contact_ids),
+                formation_ids=list(i.formation_ids),
+            )
+            for i in result.issues
         ],
     )
 
