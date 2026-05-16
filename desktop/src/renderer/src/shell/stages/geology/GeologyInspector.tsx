@@ -506,21 +506,21 @@ export default function GeologyInspector(): JSX.Element {
   return (
     <div className="flex flex-col gap-3 px-3 py-4">
       {/* Header */}
-      <div className="flex flex-col gap-0.5 text-gray-700 min-w-0">
+      <div className="flex flex-col gap-0.5 text-text-secondary min-w-0">
         <div className="flex items-center gap-2">
-          <Layers size={14} className="text-amber-700" />
+          <Layers size={14} className="text-status-amber" />
           <span className="text-xs font-medium">Formations</span>
-          <span className="text-[10px] text-gray-400 tabular-nums">
+          <span className="text-[10px] text-text-muted tabular-nums">
             {visibleFormations.length}
           </span>
         </div>
         {activeGeologicalModel && (
           <div
-            className="text-[10px] text-gray-400 pl-5 truncate"
+            className="text-[10px] text-text-muted pl-5 truncate"
             title="Active stratigraphy — every formation pick belongs to this model"
           >
             Stratigraphy{' '}
-            <span className="text-gray-600">· {activeGeologicalModel.name}</span>
+            <span className="text-text-secondary">· {activeGeologicalModel.name}</span>
           </div>
         )}
       </div>
@@ -547,7 +547,7 @@ export default function GeologyInspector(): JSX.Element {
           highlight the offending contacts on the section canvas. */}
       {crossingIssues.length > 0 && (
         <div
-          className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900"
+          className="rounded border border-status-amber bg-amber-50 dark:bg-amber-950/30 px-2 py-1.5 text-[11px] text-text-primary"
           role="alert"
           aria-label="Surface crossing warnings"
           data-testid="crossings-banner"
@@ -574,7 +574,7 @@ export default function GeologyInspector(): JSX.Element {
                   {canFocus ? (
                     <button
                       type="button"
-                      className="w-full cursor-pointer rounded px-1 py-0.5 text-left hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      className="w-full cursor-pointer rounded px-1 py-0.5 text-left hover:bg-amber-100 dark:hover:bg-amber-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
                       onClick={() => handleFocusContacts(issue.contact_ids)}
                       title="Navigate to the cross-section containing one of the offending contacts."
                       data-testid="crossings-banner-item"
@@ -593,7 +593,7 @@ export default function GeologyInspector(): JSX.Element {
 
       {/* Empty-state guidance */}
       {visibleFormations.length === 0 && (
-        <div className="text-[11px] text-gray-500 leading-snug">
+        <div className="text-[11px] text-text-muted leading-snug">
           No formations yet — Fill from boreholes or add one, then build the
           3D model.
         </div>
@@ -649,7 +649,7 @@ export default function GeologyInspector(): JSX.Element {
               }}
               className={[
                 'h-3 mx-2 rounded-sm border-t-2 border-dashed transition-colors',
-                dragOverId === 'end' ? 'border-blue-500' : 'border-gray-300',
+                dragOverId === 'end' ? 'border-accent' : 'border-border-default',
               ].join(' ')}
               aria-label="Drop here to place at the bottom (oldest)"
             />
@@ -661,17 +661,17 @@ export default function GeologyInspector(): JSX.Element {
           excluded_borehole_ids. Excluded boreholes still render lithology
           on the section but do not anchor contacts. */}
       {visibleBoreholes.length > 0 && (
-        <div className="border-t border-gray-100 pt-3 mt-1">
+        <div className="border-t border-border-subtle pt-3 mt-1">
           <button
             type="button"
             onClick={() => setScopeOpen(prev => !prev)}
-            className="flex items-center gap-1.5 w-full text-left text-gray-700 hover:text-gray-900"
+            className="flex items-center gap-1.5 w-full text-left text-text-secondary hover:text-text-primary"
             title="Show / hide the per-borehole scope toggles"
           >
             {scopeOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <Drill size={12} className="text-gray-500" />
+            <Drill size={12} className="text-text-muted" />
             <span className="text-xs font-medium">Boreholes in model</span>
-            <span className="text-[10px] text-gray-400 tabular-nums ml-auto">
+            <span className="text-[10px] text-text-muted tabular-nums ml-auto">
               {visibleBoreholes.length - excludedSet.size}/{visibleBoreholes.length}
             </span>
           </button>
@@ -685,8 +685,8 @@ export default function GeologyInspector(): JSX.Element {
                     className={[
                       'flex items-center gap-2 px-1 py-1 rounded text-xs transition-colors',
                       included
-                        ? 'text-gray-700 hover:bg-gray-50'
-                        : 'text-gray-400 hover:bg-gray-50',
+                        ? 'text-text-secondary hover:bg-surface-card'
+                        : 'text-text-muted hover:bg-surface-card',
                     ].join(' ')}
                   >
                     <input
@@ -736,11 +736,11 @@ export default function GeologyInspector(): JSX.Element {
         <div className="p-5">
           <h2
             id="delete-formation-title"
-            className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-2"
+            className="text-base font-semibold text-text-primary mb-2"
           >
             Delete formation?
           </h2>
-          <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">
+          <p className="text-xs text-text-secondary mb-4">
             <strong>{pendingDelete?.name}</strong> and every contact + geotech
             unit pointing at it will be removed from the geological model.
             This can&apos;t be undone (until File → Save the change isn&apos;t
@@ -854,10 +854,10 @@ function FormationRow({
         // A 2 px transparent border keeps layout stable in the saved state.
         'group flex items-center gap-2 px-2 py-1.5 rounded transition-colors',
         isDragOver
-          ? 'border-t-2 border-t-blue-500 border-l-2 border-l-transparent'
+          ? 'border-t-2 border-t-accent border-l-2 border-l-transparent'
           : unsaved
-            ? 'border-l-4 border-l-amber-500 bg-amber-50/60 hover:bg-amber-50/90'
-            : 'border-l-2 border-l-transparent hover:bg-gray-50',
+            ? 'border-l-4 border-l-status-amber bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-50/90 dark:hover:bg-amber-950/40'
+            : 'border-l-2 border-l-transparent hover:bg-surface-card',
         isDragging ? 'opacity-40' : '',
       ].join(' ')}
     >
@@ -872,13 +872,13 @@ function FormationRow({
         }}
         onDragEnd={onDragEnd}
         title="Drag to reorder (lower = older)"
-        className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 shrink-0 -ml-1 px-0.5"
+        className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text-secondary shrink-0 -ml-1 px-0.5"
         aria-label={`Drag to reorder ${formation.name}`}
       >
         <GripVertical size={12} />
       </button>
       <span
-        className="inline-block w-3.5 h-3.5 rounded border border-gray-300 shrink-0"
+        className="inline-block w-3.5 h-3.5 rounded border border-border-default shrink-0"
         style={{ backgroundColor: formation.color }}
         title={formation.color}
       />
@@ -888,7 +888,7 @@ function FormationRow({
         title="Edit formation"
       >
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium text-gray-800 truncate">
+          <span className="text-xs font-medium text-text-primary truncate">
             {formation.name}
           </span>
           {unsaved && (
@@ -896,7 +896,7 @@ function FormationRow({
           )}
         </div>
         {formation.regional_ref && (
-          <div className="text-[10px] text-gray-400 truncate">
+          <div className="text-[10px] text-text-muted truncate">
             {formation.regional_ref}
           </div>
         )}
@@ -904,7 +904,7 @@ function FormationRow({
       <button
         onClick={onDelete}
         title="Delete formation"
-        className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+        className="p-1 rounded text-text-muted hover:text-status-danger hover:bg-surface-app opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={11} />
       </button>
