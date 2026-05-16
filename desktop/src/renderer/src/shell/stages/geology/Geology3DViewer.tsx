@@ -644,6 +644,56 @@ function clipTrisToHalfSpace(
   return out
 }
 
+/** Same half-space clip as above but carries texture coords — used to
+ * slice the basemap lid quad along the split plane so the aerial is
+ * cut into the two halves like the geology (st lerped by the same t
+ * as the position so the image stays georeferenced). */
+type TexVert = { p: Cesium.Cartesian3; st: [number, number] }
+function clipTexTrisToHalfSpace(
+  triangles: TexVert[][],
+  plane: Cesium.Plane,
+  keepPositive: boolean,
+): TexVert[][] {
+  const EPS = 1e-6
+  const out: TexVert[][] = []
+  for (const tri of triangles) {
+    const ds = tri.map(v => {
+      const d = Cesium.Plane.getPointDistance(plane, v.p)
+      return keepPositive ? d : -d
+    })
+    const kept = ds.filter(d => d >= -EPS).length
+    if (kept === 3) {
+      out.push(tri)
+      continue
+    }
+    if (kept === 0) continue
+    const poly: TexVert[] = []
+    for (let e = 0; e < 3; e++) {
+      const a = tri[e]
+      const b = tri[(e + 1) % 3]
+      const da = ds[e]
+      const db = ds[(e + 1) % 3]
+      const aIn = da >= -EPS
+      const bIn = db >= -EPS
+      if (aIn) poly.push(a)
+      if (aIn !== bIn) {
+        const t = da / (da - db)
+        poly.push({
+          p: Cesium.Cartesian3.lerp(a.p, b.p, t, new Cesium.Cartesian3()),
+          st: [
+            a.st[0] + (b.st[0] - a.st[0]) * t,
+            a.st[1] + (b.st[1] - a.st[1]) * t,
+          ],
+        })
+      }
+    }
+    for (let k = 1; k + 1 < poly.length; k++) {
+      out.push([poly[0], poly[k], poly[k + 1]])
+    }
+  }
+  return out
+}
+
 function buildTinPrimitive(
   vertices: [number, number, number][],
   triangles: [number, number, number][],
@@ -799,30 +849,86 @@ function rebuildSurfacePrimitives(
     }
   }
 
-  // Basemap "lid" — one georeferenced orthophoto image draped flat as
-  // a textured rectangle at the model's top elevation. Kept during the
-  // split too (the user wants the basemap visible in both halves; a
-  // clipped per-half lid is the caps-step refinement). translucent
-  // false → opaque, bright (the requested "heighten opacity") and it
-  // depth-writes so it sits solidly on top.
+  // Basemap "lid" — the georeferenced orthophoto draped flat at the
+  // model top, built as a textured quad so it can be HALF-SPACE
+  // CLIPPED like the geology (so the aerial is sliced into the two
+  // halves, not a full rectangle over both). Slightly translucent
+  // (alpha 0.65) so the cut/geology reads through it.
   if (lid) {
-    scene.primitives.add(
-      new Cesium.Primitive({
-        geometryInstances: new Cesium.GeometryInstance({
-          geometry: new Cesium.RectangleGeometry({
-            rectangle: lid.rect,
-            height: lid.elevation,
-            vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+    const r = lid.rect
+    const corner = (lng: number, lat: number): Cesium.Cartesian3 =>
+      Cesium.Cartesian3.fromRadians(lng, lat, lid.elevation)
+    // st matches RectangleGeometry's convention: s = west→east,
+    // t = south→north (so the GetMap image stays upright + aligned).
+    let tris: TexVert[][] = [
+      [
+        { p: corner(r.west, r.south), st: [0, 0] },
+        { p: corner(r.east, r.south), st: [1, 0] },
+        { p: corner(r.east, r.north), st: [1, 1] },
+      ],
+      [
+        { p: corner(r.west, r.south), st: [0, 0] },
+        { p: corner(r.east, r.north), st: [1, 1] },
+        { p: corner(r.west, r.north), st: [0, 1] },
+      ],
+    ]
+    if (clip) {
+      tris = clipTexTrisToHalfSpace(tris, clip.plane, clip.keepPositive)
+    }
+    if (tris.length > 0) {
+      const positions = new Float64Array(tris.length * 9)
+      const sts = new Float32Array(tris.length * 6)
+      const indices = new Uint32Array(tris.length * 3)
+      let pi = 0
+      let si = 0
+      let ii = 0
+      for (const t of tris) {
+        for (const v of t) {
+          positions[pi++] = v.p.x
+          positions[pi++] = v.p.y
+          positions[pi++] = v.p.z
+          sts[si++] = v.st[0]
+          sts[si++] = v.st[1]
+          indices[ii] = ii
+          ii++
+        }
+      }
+      scene.primitives.add(
+        new Cesium.Primitive({
+          geometryInstances: new Cesium.GeometryInstance({
+            geometry: new Cesium.Geometry({
+              attributes: {
+                position: new Cesium.GeometryAttribute({
+                  componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+                  componentsPerAttribute: 3,
+                  values: positions,
+                }),
+                st: new Cesium.GeometryAttribute({
+                  componentDatatype: Cesium.ComponentDatatype.FLOAT,
+                  componentsPerAttribute: 2,
+                  values: sts,
+                }),
+              },
+              indices,
+              primitiveType: Cesium.PrimitiveType.TRIANGLES,
+              boundingSphere: Cesium.BoundingSphere.fromVertices(
+                Array.from(positions),
+              ),
+            }),
           }),
+          appearance: new Cesium.EllipsoidSurfaceAppearance({
+            aboveGround: true,
+            translucent: true,
+            material: Cesium.Material.fromType('Image', {
+              image: lid.url,
+              // alpha < 1 → see-through aerial (requested).
+              color: new Cesium.Color(1, 1, 1, 0.65),
+            }),
+          }),
+          asynchronous: false,
         }),
-        appearance: new Cesium.EllipsoidSurfaceAppearance({
-          aboveGround: true,
-          translucent: false,
-          material: Cesium.Material.fromType('Image', { image: lid.url }),
-        }),
-        asynchronous: false,
-      }),
-    )
+      )
+    }
   }
 
   // Ground-surface TIN — rendered first (painter's algorithm: drawn below
