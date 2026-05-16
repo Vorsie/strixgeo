@@ -93,10 +93,14 @@ export default function SectionScrubBar({
       >
         <div
           onMouseDown={startDrag}
-          className="absolute top-0 bottom-0 rounded bg-accent/70 hover:bg-accent transition-colors cursor-grab active:cursor-grabbing"
+          // Always fully visible (was bg-accent/70 — too faint on the
+          // track, only popped on hover). minWidth keeps a small
+          // viewport window grabbable + visible.
+          className="absolute top-0 bottom-0 rounded bg-accent ring-1 ring-inset ring-white/40 hover:brightness-125 transition-[filter] cursor-grab active:cursor-grabbing"
           style={{
             left: `${startPct}%`,
             width: `${widthPct}%`,
+            minWidth: '8px',
           }}
         />
       </div>
