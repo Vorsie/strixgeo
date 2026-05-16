@@ -158,6 +158,9 @@ export interface GeologicalFormationResponse {
   color: string
   code: string | null
   display_order: number
+  // Debt #35: true once the user has manually drag-reordered this
+  // formation — Build's age-inference then leaves its order alone.
+  pinned_order: boolean
   regional_ref: string | null
   description: string | null
   created_at: string
@@ -169,6 +172,7 @@ export interface GeologicalFormationCreatePayload {
   color?: string
   code?: string | null
   display_order?: number
+  pinned_order?: boolean
   regional_ref?: string | null
   description?: string | null
 }
@@ -178,6 +182,7 @@ export interface GeologicalFormationUpdatePayload {
   color?: string | null
   code?: string | null
   display_order?: number | null
+  pinned_order?: boolean | null
   regional_ref?: string | null
   description?: string | null
 }
