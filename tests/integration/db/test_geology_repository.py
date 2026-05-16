@@ -10,10 +10,14 @@ integration, so this is where they get exercised.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_surface_orm import (
+    FormationSurfaceOrm,
+)
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -616,3 +620,91 @@ async def test_delete_model_removes_project_formations(
     for cid in (c1.id, c2.id, c3.id):
         remaining = await db_session.get(FormationContactOrm, cid)
         assert remaining is None, f"Contact {cid} still present after delete_model"
+
+
+# ---------------------------------------------------------------------------
+# stale_surfaces_for_investigation (debt #34)
+# ---------------------------------------------------------------------------
+
+
+async def _add_fresh_surface(
+    db_session: AsyncSession, *, model_id, formation_id
+) -> FormationSurfaceOrm:
+    """Insert a built (is_stale=False) TIN surface for a (model, formation)."""
+    surface = FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=model_id,
+        formation_id=formation_id,
+        method="tin",
+        vertices=[],
+        triangles=[],
+        source_contact_count=1,
+        source_contact_checksum=b"",
+        is_stale=False,
+    )
+    db_session.add(surface)
+    await db_session.commit()
+    return surface
+
+
+async def test_stale_surfaces_for_investigation_flips_dependent_tin(
+    db_session: AsyncSession,
+) -> None:
+    """Editing an investigation's elevation must stale every TIN that has
+    a contact anchored there (debt #34)."""
+    project, borehole = await _make_project_with_borehole(db_session)
+    repo = GeologyRepository(db_session)
+    boom = await repo.create_formation(project.id, name="Boom Klei", color="#5a4a3a")
+    other = await repo.create_formation(project.id, name="Diest Zand", color="#caa")
+    model = await repo.create_model(project.id, name="Main")
+    await db_session.commit()
+
+    # Contact anchors Boom Klei at this borehole; Diest Zand has none here.
+    await repo.create_contact(
+        model_id=model.id,
+        formation_id=boom.id,
+        borehole_id=borehole.id,
+        depth_top_m=2.0,
+    )
+    await db_session.commit()
+
+    boom_surface = await _add_fresh_surface(
+        db_session, model_id=model.id, formation_id=boom.id
+    )
+    other_surface = await _add_fresh_surface(
+        db_session, model_id=model.id, formation_id=other.id
+    )
+
+    flipped = await repo.stale_surfaces_for_investigation(borehole_id=borehole.id)
+    await db_session.commit()
+
+    assert flipped == 1
+    db_session.expunge_all()
+    boom_after = await db_session.get(FormationSurfaceOrm, boom_surface.id)
+    other_after = await db_session.get(FormationSurfaceOrm, other_surface.id)
+    # The anchored formation's TIN is now stale...
+    assert boom_after is not None and boom_after.is_stale is True
+    # ...the unrelated formation's TIN is untouched.
+    assert other_after is not None and other_after.is_stale is False
+
+
+async def test_stale_surfaces_for_investigation_no_contacts_is_noop(
+    db_session: AsyncSession,
+) -> None:
+    """An investigation with no contacts flips nothing (legal no-op)."""
+    project, borehole = await _make_project_with_borehole(db_session)
+    repo = GeologyRepository(db_session)
+    assert await repo.stale_surfaces_for_investigation(borehole_id=borehole.id) == 0
+
+
+async def test_stale_surfaces_for_investigation_requires_xor_anchor(
+    db_session: AsyncSession,
+) -> None:
+    """Neither/both anchor ids is a programming error → ValueError."""
+    repo = GeologyRepository(db_session)
+    with pytest.raises(ValueError, match="exactly one"):
+        await repo.stale_surfaces_for_investigation()
+    with pytest.raises(ValueError, match="exactly one"):
+        await repo.stale_surfaces_for_investigation(
+            cpt_id=uuid7(), borehole_id=uuid7()
+        )
