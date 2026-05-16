@@ -1,12 +1,10 @@
 // Geology stage canvas.
 //
-// G2: 2D plan view (MapView, read-only) — shown when no non-stale surfaces
-// exist yet (i.e. before the user has run Build model).
-//
-// G5: Cesium 3D viewer — shown when at least one non-stale formation surface
-// exists.  Falls back to the MapView plan view when there are no surfaces.
-// The MapView fallback is retained indefinitely (the engineer sees geographic
-// context before any surfaces are computed).
+// G2/G5: Cesium 3D viewer — shown when at least one non-stale formation
+// surface exists (i.e. after the user has run "Build 3D model").  Falls back
+// to a clean empty-state message (NOT a 2D map) when no surfaces exist yet.
+// The 3D viewer is the ONLY canvas content; a plan-view map is absent from
+// the Geology stage by design — the Data stage owns geographic context.
 //
 // G6: split-viewport mode — the user draws a split line in the 3D scene;
 // the canvas splits into two independent CesiumWidget viewports.  Reset
@@ -24,11 +22,11 @@
 
 import * as Cesium from 'cesium'
 import { useEffect, useState } from 'react'
+import { Mountain } from 'lucide-react'
 
 import { api } from '../../../api/client'
 import type { GroundSurfaceBuildResponse } from '../../../api/client'
 import { useShell } from '../../ShellContext'
-import MapView from '../../../components/MapView'
 import Geology3DViewer, { type SplitMode } from './Geology3DViewer'
 
 // ---------------------------------------------------------------------------
@@ -76,29 +74,10 @@ export const resetSplitViewportCallback: React.MutableRefObject<(() => void) | n
 export default function GeologyCanvas(): JSX.Element {
   const {
     project,
-    visibleCpts,
-    visibleBoreholes,
-    sections: { sections },
     geoModel: {
       formations,
       surfacesByFormationId,
       activeGeologicalModel,
-    },
-    mapState: {
-      hiddenCptTypes,
-      hiddenBoreholeValues,
-      boreholeAxis,
-      mapCameraRef,
-      handleToggleCptType,
-      handleToggleBoreholeValue,
-      setBoreholeAxis,
-      handleViewportChange,
-      handleMapCameraChange,
-    },
-    overlays: {
-      demSource,
-      demOverlay,
-      handleDemOverlayChange,
     },
   } = useShell()
 
@@ -194,35 +173,23 @@ export default function GeologyCanvas(): JSX.Element {
     )
   }
 
+  // No built surfaces yet — show a clean guidance message. A 2D plan-view
+  // map does NOT appear here (superseded per geology-stage-architecture.md
+  // §5 addendum): the Geology canvas is 3D-or-message only; geographic
+  // context lives in the Data stage.
+  const hasFormations = formations.length > 0
   return (
-    <MapView
-      cpts={visibleCpts}
-      boreholes={visibleBoreholes}
-      // Read-only: no investigation selection in the Geology stage.
-      // The Geology stage is for model definition, not data inspection.
-      // Users switch to the Data stage to view CPT charts / borelogs.
-      selectedCptId={null}
-      selectedBoreholeId={null}
-      onSelectCpt={() => {}}
-      onSelectBorehole={() => {}}
-      hiddenCptTypes={hiddenCptTypes}
-      hiddenBoreholeValues={hiddenBoreholeValues}
-      boreholeAxis={boreholeAxis}
-      onToggleCptType={handleToggleCptType}
-      onToggleBoreholeValue={handleToggleBoreholeValue}
-      onChangeBoreholeAxis={setBoreholeAxis}
-      // No bbox draw — imports live in the Data stage toolbar.
-      drawMode={false}
-      onViewportChange={handleViewportChange}
-      sections={sections}
-      // Persist the map camera so navigating away and back restores
-      // the user's last frame (same as Data stage behaviour).
-      initialCenter={mapCameraRef.current?.center}
-      initialZoom={mapCameraRef.current?.zoom}
-      onCameraChange={handleMapCameraChange}
-      demSource={demSource}
-      demOverlay={demOverlay}
-      onDemOverlayChange={handleDemOverlayChange}
-    />
+    <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
+      <Mountain size={40} className="text-gray-300" />
+      {hasFormations ? (
+        <p className="text-sm text-center max-w-xs leading-snug">
+          No 3D model yet — build it from the stratigraphy.
+        </p>
+      ) : (
+        <p className="text-sm text-center max-w-xs leading-snug">
+          No formations yet — Fill from boreholes or add one, then build the 3D model.
+        </p>
+      )}
+    </div>
   )
 }
