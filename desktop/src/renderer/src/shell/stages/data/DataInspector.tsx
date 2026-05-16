@@ -124,8 +124,8 @@ export default function DataInspector(): JSX.Element {
     coordinator: {
       selectedId,
       selectedBoreholeId,
-      setSelectedId,
-      setSelectedBoreholeId,
+      handleSelect,
+      handleSelectBorehole,
       outOfViewportCptIds,
       outOfViewportBoreholeIds,
       sessionImportCptIds,
@@ -446,7 +446,7 @@ export default function DataInspector(): JSX.Element {
                   unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
-                  onClick={() => setSelectedId(c.id)}
+                  onClick={() => void handleSelect(c.id)}
                   onRemove={() => handleRemoveCpts([c.id])}
                 />
               ))}
@@ -460,7 +460,7 @@ export default function DataInspector(): JSX.Element {
                   unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
-                  onClick={() => setSelectedId(c.id)}
+                  onClick={() => void handleSelect(c.id)}
                   onRemove={() => handleRemoveCpts([c.id])}
                 />
               ))}
@@ -489,7 +489,7 @@ export default function DataInspector(): JSX.Element {
                   unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
-                  onClick={() => setSelectedBoreholeId(b.id)}
+                  onClick={() => void handleSelectBorehole(b.id)}
                   onRemove={() => handleRemoveBoreholes([b.id])}
                 />
               ))}
@@ -503,7 +503,7 @@ export default function DataInspector(): JSX.Element {
                   unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
-                  onClick={() => setSelectedBoreholeId(b.id)}
+                  onClick={() => void handleSelectBorehole(b.id)}
                   onRemove={() => handleRemoveBoreholes([b.id])}
                 />
               ))}
