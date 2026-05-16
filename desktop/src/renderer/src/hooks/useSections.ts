@@ -11,7 +11,7 @@
 // resolve which section contains the offending anchors. Those lists are
 // dep-injected so the hook stays independent of the data-loading hooks.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import type { CrossSectionResponse, FormationContactResponse } from '../api/client'
@@ -27,6 +27,13 @@ export interface UseSectionsResult {
   drawingSection: boolean
   focusedContactIds: readonly string[]
   visibleSections: CrossSectionResponse[]
+  /**
+   * The CRS new sections will be created in: the project's
+   * ``default_horizontal_epsg`` when set, else the first imported
+   * investigation's ``epsg``, else ``null`` (no CRS anywhere — section
+   * creation is genuinely not possible and the affordances disable).
+   */
+  effectiveHorizontalEpsg: number | null
   // Section data
   refreshSectionList: () => Promise<void>
   // Clear the section selection from outside the hook (e.g. when a CPT
@@ -61,6 +68,10 @@ interface BoreholeAnchor {
   id: string
   location_x: number | null
   location_y: number | null
+  // The investigation's own horizontal CRS. Used as the fallback
+  // section CRS when the project metadata never set one (e.g. a DOV
+  // import that didn't populate default_horizontal_epsg).
+  epsg?: number | null
 }
 
 /** Shape of a CPT list-item as seen by the hook (x/y only needed). */
@@ -68,6 +79,7 @@ interface CptAnchor {
   id: string
   location_x: number | null
   location_y: number | null
+  epsg?: number | null
 }
 
 /**
@@ -154,6 +166,30 @@ export function useSections({
   const focusedContactsTimeoutRef = useRef<number | null>(null)
 
   // ---------------------------------------------------------------------------
+  // Effective horizontal CRS for new sections.
+  //
+  // Section endpoints must be stored in a projected CRS. The project's
+  // ``default_horizontal_epsg`` is the intended source, but a DOV/GEF
+  // import doesn't always populate it — leaving section creation
+  // hard-blocked even though every imported investigation carries its
+  // own ``epsg``. Fall back to the first investigation's CRS so the
+  // user isn't dead-ended on an unfilled metadata dropdown. Only truly
+  // null when there is no project CRS AND no investigation with a CRS.
+  // ---------------------------------------------------------------------------
+  const effectiveHorizontalEpsg = useMemo<number | null>(() => {
+    if (project?.default_horizontal_epsg != null) {
+      return project.default_horizontal_epsg
+    }
+    for (const b of boreholes) {
+      if (b.epsg != null) return b.epsg
+    }
+    for (const c of cpts) {
+      if (c.epsg != null) return c.epsg
+    }
+    return null
+  }, [project, boreholes, cpts])
+
+  // ---------------------------------------------------------------------------
   // Data
   // ---------------------------------------------------------------------------
 
@@ -225,8 +261,12 @@ export function useSections({
   // contract (the row materialises asynchronously after drawing).
   const handleCreateSection = useCallback(async (): Promise<CrossSectionResponse | null> => {
     if (!project) return null
-    if (project.default_horizontal_epsg == null) {
-      toast('error', 'Set a Default horizontal CRS in Project metadata first.')
+    if (effectiveHorizontalEpsg == null) {
+      toast(
+        'error',
+        'No coordinate system found. Import investigations or set a ' +
+          'Default horizontal CRS in Project metadata first.',
+      )
       return null
     }
     // Drop any active section / CPT / borehole selection so the map is
@@ -236,7 +276,7 @@ export function useSections({
     setSelectedBoreholeId(null)
     setDrawingSection(true)
     return null
-  }, [project, setSelectedId, setSelectedBoreholeId])
+  }, [project, effectiveHorizontalEpsg, toast, setSelectedId, setSelectedBoreholeId])
 
   const cancelSectionDraw = useCallback(() => {
     setDrawingSection(false)
@@ -252,7 +292,7 @@ export function useSections({
     ) => {
       setDrawingSection(false)
       if (!project) return
-      const epsg = project.default_horizontal_epsg
+      const epsg = effectiveHorizontalEpsg
       if (epsg == null) return // gated upstream, defensive only
       const [sx, sy] = wgs84ToProjected(start.lat, start.lng, epsg)
       const [ex, ey] = wgs84ToProjected(end.lat, end.lng, epsg)
@@ -298,7 +338,7 @@ export function useSections({
         toast('error', 'Could not create the cross-section.')
       }
     },
-    [project, sections.length, handleSectionCreated, pushUndo],
+    [project, effectiveHorizontalEpsg, sections.length, handleSectionCreated, pushUndo],
   )
 
   const handleDeleteSection = useCallback(
@@ -473,6 +513,7 @@ export function useSections({
     drawingSection,
     focusedContactIds,
     visibleSections,
+    effectiveHorizontalEpsg,
     refreshSectionList,
     clearSectionSelection,
     handleSectionCreated,
