@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current Phase 4 friction / launch-demo blockers:** #35
+* **C. Current Phase 4 friction / launch-demo blockers:** *(none open — #29/#30/#31/#32/#33/#34/#35 all resolved 2026-05-16)*
 * **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50, #51
 
@@ -30,7 +30,8 @@ exporter shipped), #31 resolved (section CRS allowlist guard),
 (geotech-units round-trip already covered by
 ``test_bundle_carries_geotechnical_units`` — confirmed green, no code
 change), #34 resolved (elevation PATCH stales dependent TINs in-
-transaction). 39 open items**) compact
+transaction), #35 resolved (pinned_order survives Build). **Tier C
+fully cleared.** 38 open items**) compact
 them. Commit messages and code comments written before a cleanup
 pass continue to reference the OLD numbers — that's an unavoidable
 cost of the renumber. Sections #2–#28 below remain in their prior
@@ -598,28 +599,6 @@ no nearby data".
 > security-reviewer, staff-engineer, product-strategy-advisor, and
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
-
-## 35. "Build model" silently overwrites user drag-reorder via age inference (Tier C — Build is unsafe for unusual stratigraphy)
-
-**What.** `RebuildModelSurfaces._reorder_by_age` runs as the final
-step of every "Build 3D model" click. It re-derives `display_order`
-from per-anchor depth constraints (`infer_age_order`) and writes back
-any formation that moved. Any formation with ≥1 contact is eligible
-for re-ranking — so a manual drag-reorder in GeologyInspector (the
-documented editing surface for the age axis) is silently reverted on
-the next Build. For geological edge cases (pinch-outs,
-unconformities, tectonic inversion) the data-driven inference is
-wrong and Build destroys the engineer's correct interpretation
-without asking.
-
-**Why deferred.** Auto-reorder is a genuine win when the user creates
-formations in non-stratigraphic order and the data disambiguates;
-the silent-overwrite cost is masked while the only user is the dev.
-
-**When to revisit.** First dogfeed/demo where a user drag-orders for
-an unusual site then loses it on Build. Fix: a per-formation
-`pinned_order: bool` set by drag-reorder; `_reorder_by_age` skips
-pinned formations.
 
 ## 36. `excluded_borehole_ids` is ignored by TIN recompute (Tier D — view/surface divergence)
 
