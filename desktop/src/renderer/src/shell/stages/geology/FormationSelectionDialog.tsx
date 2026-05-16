@@ -53,8 +53,14 @@ export interface FormationSelectionDialogProps {
    * will be deleted".
    */
   currentContacts: FormationContactResponse[]
-  /** Fired on confirm with the set of selected formation names. */
-  onConfirm: (selectedNames: ReadonlySet<string>) => void
+  /**
+   * Fired on confirm with the set of selected stable keys (not display names).
+   * Stable key = ``candidate.key`` (``regional_ref`` when present, else
+   * ``name``).  The hook passes these directly to the server's
+   * ``selected_keys`` filter so identity is preserved regardless of working-
+   * name variation across boreholes sharing a formal stratigraphy code.
+   */
+  onConfirm: (selectedKeys: ReadonlySet<string>) => void
   /** Fired on cancel or backdrop click. */
   onCancel: () => void
 }
@@ -95,12 +101,25 @@ export default function FormationSelectionDialog({
   onCancel,
 }: FormationSelectionDialogProps): JSX.Element {
   // ---------------------------------------------------------------------------
-  // Checked state: names of candidates the user has selected.
-  // Pre-checked: any candidate whose name is already in the model.
+  // Checked state: stable keys of candidates the user has selected.
+  //
+  // Stable key = candidate.key (regional_ref when present, else name).
+  // Selection is keyed on the stable identity — NOT the display name — so two
+  // boreholes that use different working names for the same formal code both
+  // resolve to a single checkable row in the dialog, and the confirmed set
+  // passed to the server is the same key the server used for deduplication.
+  //
+  // Pre-checked: candidates whose stable key already matches an existing
+  // formation (by regional_ref or name fallback).
   // ---------------------------------------------------------------------------
 
-  const currentNameSet = useMemo(
-    () => new Set(currentFormations.map(f => f.name)),
+  // Build a stable-key set from current formations: regional_ref when present,
+  // else name (mirrors the server's stable-key definition).
+  const currentKeySet = useMemo(
+    () =>
+      new Set(
+        currentFormations.map(f => (f.regional_ref ?? f.name).toLowerCase()),
+      ),
     [currentFormations],
   )
 
@@ -108,19 +127,27 @@ export default function FormationSelectionDialog({
     // Pre-check candidates that already have a matching formation in the model.
     // New candidates (not yet in the model) start unchecked — the user must
     // opt in to adding them, not opt out of deleting things.
-    return new Set(candidates.filter(c => currentNameSet.has(c.name)).map(c => c.name))
+    return new Set(
+      candidates
+        .filter(c => currentKeySet.has(c.key.toLowerCase()))
+        .map(c => c.key),
+    )
   })
 
   // ---------------------------------------------------------------------------
   // Deletion accounting (live — recomputed on every checkbox change).
   //
-  // Deleted formations: every CURRENT formation whose name is NOT in ``checked``.
-  // This intentionally includes manually-added formations not in the candidate
-  // list (see §10.2 sharp-edge note).
+  // Deleted formations: every CURRENT formation whose stable key is NOT in
+  // ``checked``. This intentionally includes manually-added formations not in
+  // the candidate list (see §10.2 sharp-edge note).
   // ---------------------------------------------------------------------------
 
   const { deletedFormationCount, deletedContactCount } = useMemo(() => {
-    const toDelete = currentFormations.filter(f => !checked.has(f.name))
+    const checkedLower = new Set(Array.from(checked).map(k => k.toLowerCase()))
+    const toDelete = currentFormations.filter(f => {
+      const stableKey = (f.regional_ref ?? f.name).toLowerCase()
+      return !checkedLower.has(stableKey)
+    })
     const deletedIds = new Set(toDelete.map(f => f.id))
     return {
       deletedFormationCount: toDelete.length,
@@ -133,20 +160,20 @@ export default function FormationSelectionDialog({
   const willDelete = deletedFormationCount > 0
 
   // ---------------------------------------------------------------------------
-  // Toggle helpers
+  // Toggle helpers — operate on candidate.key, not candidate.name
   // ---------------------------------------------------------------------------
 
-  const toggle = useCallback((name: string) => {
+  const toggle = useCallback((key: string) => {
     setChecked(prev => {
       const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }, [])
 
   const selectAll = useCallback(() => {
-    setChecked(new Set(candidates.map(c => c.name)))
+    setChecked(new Set(candidates.map(c => c.key)))
   }, [candidates])
 
   const selectNone = useCallback(() => {
@@ -205,15 +232,15 @@ export default function FormationSelectionDialog({
         ) : (
           <ul className="space-y-1" role="list">
             {candidates.map(candidate => {
-              const isChecked = checked.has(candidate.name)
+              const isChecked = checked.has(candidate.key)
               return (
-                <li key={candidate.name}>
+                <li key={candidate.key}>
                   <label className="flex items-start gap-2.5 py-1.5 px-2 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors select-none">
                     <input
                       type="checkbox"
                       className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 text-accent focus:ring-accent focus:ring-1 shrink-0"
                       checked={isChecked}
-                      onChange={() => toggle(candidate.name)}
+                      onChange={() => toggle(candidate.key)}
                     />
                     <span className="flex-1 min-w-0">
                       <span className="block text-xs font-medium text-gray-800 dark:text-gray-100 truncate">
