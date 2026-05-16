@@ -92,8 +92,12 @@ export default function GeologyToolbar(): JSX.Element {
   // 1. Fill from boreholes — discover candidates, then open the selection
   //    dialog. Empty candidate list → toast-level feedback only (caller
   //    doesn't open the dialog).
+  //
+  //    discoverBoreholeFormations now calls ensureActiveGeologicalModel
+  //    internally, so we do NOT gate on !activeGeologicalModel here.
+  //    The Fill button is always enabled when boreholes are visible.
   async function handleFillFromBoreholes(): Promise<void> {
-    if (discovering || applying || !activeGeologicalModel) return
+    if (discovering || applying) return
     const boreholeIds = visibleBoreholes.map(b => b.id)
     if (boreholeIds.length === 0) return
     setDiscovering(true)
@@ -166,8 +170,11 @@ export default function GeologyToolbar(): JSX.Element {
   // ---------------------------------------------------------------------------
 
   const hasModel = activeGeologicalModel !== null
+  // Fill is enabled when boreholes are present and no operation is in flight.
+  // No model is required — discoverBoreholeFormations creates the Default
+  // model on demand via ensureActiveGeologicalModel.
   const canFill =
-    !discovering && !applying && hasModel && visibleBoreholes.length > 0
+    !discovering && !applying && visibleBoreholes.length > 0
   const staleLabel =
     staleSurfaceCount > 0
       ? `Build · ${staleSurfaceCount} stale`
@@ -194,15 +201,13 @@ export default function GeologyToolbar(): JSX.Element {
         onClick={() => void handleFillFromBoreholes()}
         disabled={!canFill}
         title={
-          !hasModel
-            ? 'No active geological model'
-            : visibleBoreholes.length === 0
-              ? 'No boreholes visible in this project'
-              : discovering
-                ? 'Scanning borehole stratigraphy…'
-                : applying
-                  ? 'Applying selection…'
-                  : 'Discover formation names from borehole stratigraphy and select which to keep'
+          visibleBoreholes.length === 0
+            ? 'No boreholes visible in this project'
+            : discovering
+              ? 'Scanning borehole stratigraphy…'
+              : applying
+                ? 'Applying selection…'
+                : 'Discover formation names from borehole stratigraphy and select which to keep'
         }
       />
 
