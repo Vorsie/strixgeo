@@ -27,6 +27,9 @@ from groundmodel.infrastructure.db.repositories.cross_section_repository import 
 )
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.infrastructure.exporters.dxf_section_exporter import DxfSectionExporter
+from groundmodel.infrastructure.exporters.plaxis_section_exporter import (
+    PlaxisSectionExporter,
+)
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -230,5 +233,76 @@ async def export_section_dxf(
     return Response(
         content=payload,
         media_type="application/dxf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{section_id}/export/plaxis2d")
+async def export_section_plaxis2d(
+    project_id: UUID,
+    section_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Export the section's drawn geology as a runnable Plaxis 2D script.
+
+    The section-scoped sibling of the project-wide
+    ``GET /geology/models/{model_id}/export/plaxis3d``. The emitted
+    ``.py`` connects to a running PLAXIS 2D via ``plxscripting``,
+    creates one Mohr-Coulomb placeholder material per formation, a
+    global soil-layer stack in stratigraphic order, and one borehole
+    per projected column placed at its along-section distance — the
+    same geometry the section editor shows.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    section_id : UUID
+        Section to export. Must belong to ``project_id``.
+    model_id : UUID
+        Which geological model's contacts to include. The desktop
+        sends the active model id by default; nothing prevents
+        exporting a non-active model.
+
+    Returns
+    -------
+    Response
+        ``text/x-python`` body with a ``Content-Disposition`` header
+        proposing a ``<section>_plaxis2d.py`` filename.
+
+    Raises
+    ------
+    HTTPException(404)
+        When section / model / project resolution fails — the use
+        case raises ``ParseError``; mapped to 404 since the typical
+        failure mode is "this id doesn't exist in this project".
+    """
+    logger.info(
+        f"GET /projects/{project_id}/sections/{section_id}/export/plaxis2d (model={model_id})"
+    )
+    try:
+        snapshot = await BuildSectionSnapshot(session).execute(
+            app_project_id=project_id,
+            section_id=section_id,
+            model_id=model_id,
+        )
+    except ParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    payload = PlaxisSectionExporter().export(snapshot)
+    safe_name = (
+        "".join(
+            c if c.isalnum() or c in ("-", "_", " ") else "_" for c in snapshot.section_name
+        ).strip()
+        or "section"
+    )
+    filename = f"{safe_name}_plaxis2d.py"
+    return Response(
+        content=payload,
+        media_type="text/x-python",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
