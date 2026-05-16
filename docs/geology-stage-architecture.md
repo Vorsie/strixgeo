@@ -731,17 +731,24 @@ Each commit is one file:
    - Mirrors `SectionsStage.test.tsx`. Mounts GeologyStage zone components
      with a stub ShellContext; asserts no crash, no TDZ.
 
-### Phase G2 — GeologyCanvas 2D plan view (functional core, day 2)
+### Phase G2 — GeologyCanvas 2D plan view (functional core, day 2) *(superseded)*
 
-**Risk: low.** MapView is already used by both DataCanvas and SectionsCanvas.
+**Superseded 2026-05-16 (build pass).** The MapView fallback was replaced with
+a clean empty-state message (Mountain icon + contextual guidance) so the Geology
+stage no longer shows a read-only map. GeologyCanvas renders either the Cesium
+3D viewer (when surfaces exist) or the empty-state. The MapView plan view described
+below was shipped briefly then removed; the commit that replaced it is
+`fix(geology): replace 2D map fallback with empty-state message`.
 
-1. `feat(geology): replace GeologyCanvas placeholder with MapView plan view`
-   - Updates `GeologyCanvas.tsx` to render `<MapView>` in read-only mode
-     (no CPT/borehole selection wiring, no import bbox drawer).
-   - Passes `cpts`, `boreholes`, `sections`, basemap, map state from
-     `useShell()`.
-   - Sections canvas shows no investigation selection from this view by
-     design (see section 3.6).
+~~**Risk: low.** MapView is already used by both DataCanvas and SectionsCanvas.~~
+
+~~1. `feat(geology): replace GeologyCanvas placeholder with MapView plan view`~~
+   ~~- Updates `GeologyCanvas.tsx` to render `<MapView>` in read-only mode~~
+     ~~(no CPT/borehole selection wiring, no import bbox drawer).~~
+   ~~- Passes `cpts`, `boreholes`, `sections`, basemap, map state from~~
+     ~~`useShell()`.~~
+   ~~- Sections canvas shows no investigation selection from this view by~~
+     ~~design (see section 3.6).~~
 
 2. `feat(sections): un-gate Seed from stratigraphy in SectionsToolbar`
    - Removes the disabled no-op from `SectionsToolbar.tsx` and wires

@@ -110,10 +110,10 @@ detected" banner; refetched on every contact mutation.
 contact mutations (Create / Update / Delete / Batch update) DO NOT
 auto-run Delaunay; they flip ``formation_surface.is_stale = True``
 on the affected (model, formation) row. Only ``POST /geology/models/
-{mid}/surfaces/rebuild`` (the InterpretationPane "Build model"
-button + auto-fire on File → Save) clears the flag by re-running
-the recompute. The section view renders stale TINs at opacity 0.35
-+ dashed ``6 3`` so the engineer sees "this is your last build,
+{mid}/surfaces/rebuild`` (the "Build 3D model" toolbar button)
+clears the flag by re-running the recompute. File → Save does NOT
+auto-fire a rebuild. The section view renders stale TINs at opacity
+0.35 + dashed ``6 3`` so the engineer sees "this is your last build,
 refresh to update." Distinct from the connect-the-dots fallback
 (dashed ``4 3``, opacity 0.55) and from fresh TIN (solid 0.7).
 Dedupe's auto-recompute is retained (it is a build-shaped intent,
