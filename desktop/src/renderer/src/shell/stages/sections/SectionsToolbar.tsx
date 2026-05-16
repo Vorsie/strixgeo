@@ -11,6 +11,7 @@ import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus } from 'luci
 import { useShell } from '../../ShellContext'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
+import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -63,10 +64,12 @@ export default function SectionsToolbar(): JSX.Element {
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
-  // Sections need a horizontal CRS for their endpoints. Prefer the
-  // project's default; fall back to the imported investigations' CRS so
-  // an unfilled metadata dropdown doesn't dead-end section creation.
-  const canCreate = effectiveHorizontalEpsg != null
+  // Sections need a projected METRIC horizontal CRS — along-distance is
+  // a Euclidean distance in CRS units, so degrees (EPSG:4326) silently
+  // produce garbage geometry (debt #31). Gate on the supported-CRS
+  // allowlist, not merely "a CRS is set".
+  const crsBlockReason = sectionCrsBlockReason(effectiveHorizontalEpsg)
+  const canCreate = crsBlockReason === null
 
   async function handleNew(): Promise<void> {
     if (!canCreate || creating) return
@@ -183,8 +186,8 @@ export default function SectionsToolbar(): JSX.Element {
         onClick={handleNew}
         disabled={!canCreate || creating}
         title={
-          !canCreate
-            ? 'Set a Default horizontal CRS in Project metadata to create sections'
+          crsBlockReason !== null
+            ? crsBlockReason
             : creating
               ? 'Creating…'
               : 'Create a new cross-section (placeholder endpoints)'
