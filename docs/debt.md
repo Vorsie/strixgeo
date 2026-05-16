@@ -14,14 +14,16 @@ sections that follow):
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
 * **C. Current Phase 4 friction / launch-demo blockers:** #30, #29, #31, #33, #32, #34, #35
 * **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43
-* **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50
+* **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50, #51
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
 not here. Numbers stay stable through a debt-fixing campaign (do
 not renumber after each fix); explicit cleanup passes (last done
 **2026-05-16: six-agent codebase audit added #29–#50, #24 deleted
-(Modal semantic-token migration shipped); 43 open items**) compact
+(Modal semantic-token migration shipped) + #51 (inspector token
+migration, de-scoped from the same pass's quick-fix batch); 44 open
+items**) compact
 them. Commit messages and code comments written before a cleanup
 pass continue to reference the OLD numbers — that's an unavoidable
 cost of the renumber. Sections #2–#28 below remain in their prior
@@ -1057,6 +1059,35 @@ surfaces.
 catalogue endpoint is cached server-side. Fix is a two-liner:
 `VALID_MODEL_CODE_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,50}$')` and a
 400 on any non-matching code before fan-out.
+
+## 51. Inspector chrome still on raw Tailwind palette, not semantic tokens (Tier E)
+
+**What.** After the #24 Modal migration, ~49 raw-palette occurrences
+remain across 9 shell-stage files — concentrated in GeologyInspector
+(~21: formation rows, "Boreholes in model", crossings banner use
+`text-gray-*` / `bg-gray-50` / `border-amber-300`) and DataInspector
+(~11: bulk-remove bar uses `bg-red-600` / `bg-blue-50`). On the dark
+inspector surface these are low-contrast — the same class as the
+already-fixed Sidebar gray-800 bug — while their migrated siblings
+render correctly, so the inspectors look half-themed. Found during
+the 2026-05-16 audit; de-scoped from that pass's quick-fix batch
+because a 49-spot migration is a focused refactor, not a slip-in.
+
+**Why deferred.** Functionally readable in both themes; it is a
+contrast/consistency polish gap, not a correctness or
+destructive-action defect. Doing it right is one disciplined pass
+mapping every raw class to its `surface-*` / `text-*` / `status-*`
+token and verifying each inspector in both themes — its own change +
+ux-review, exactly like #24 was.
+
+**When to revisit.** Next dark-mode polish pass, or first time the
+half-themed inspector is reported jarring during dogfeeding. Fix
+shape: `text-gray-*` → `text-text-{primary,secondary,muted}`,
+`bg-gray-50` → `bg-surface-subtle`, `bg-red-600`/`text-red-*` →
+`status-danger`, `border-amber-300` → the amber-unsaved token; then
+verify GeologyInspector + DataInspector + the 7 other flagged files
+in light and dark. Pairs naturally with the deferred leaf dark-mode
+token migration.
 
 ---
 
