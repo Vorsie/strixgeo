@@ -107,7 +107,16 @@ the displayed index back to `display_order = (N-1 - i)`.** Reorder
 lives in GeologyInspector via drag-and-drop (the old InterpretationPane
 was deleted in the G3 sidebar overhaul); the drag-end commit
 renumbers every visible formation 0..N-1 (compact) and PATCHes only
-the rows whose index actually changed. The crossing validator
+the rows whose index actually changed. **The drag-end PATCH also sets
+``pinned_order=True`` on every reordered formation (debt #35): Build's
+``_reorder_by_age`` keeps pinned formations at their exact
+``display_order`` and flows only the non-pinned ones into the free
+slots by inferred age. This makes Build safe for unusual stratigraphy
+(pinch-outs, unconformities, inversion) where the data-driven
+inference is wrong — a manual reorder is no longer silently reverted.
+Undo restores the pre-drag pin state per formation; "Fill from
+boreholes" / seeded formations stay unpinned so they still benefit
+from the inference.** The crossing validator
 (``GET /geology/models/{mid}/validate/crossings``) consumes this
 ordering: it samples each pair of cached TIN surfaces and flags any
 (x, y) where the younger formation dips below the older. Results
@@ -1048,13 +1057,13 @@ See [docs/debt.md](docs/debt.md) for the full backlog. Format conventions stay h
 
 Order is strict priority — top-of-list = highest. Currently open in priority order:
 
-**2026-05-16 — six-agent codebase audit** (senior-code-reviewer, system-architect, security-reviewer, staff-engineer, product-strategy-advisor, ux-reviewer-proxy) added #29–#50 and deleted #24 (Modal semantic-token migration shipped); the quick-fix follow-up de-scoped one item to #51. **Tier C campaign started 2026-05-16: #30 resolved (Export stage hub shipped), #52 filed (PDF report), #29 resolved (Plaxis 2D per-section exporter shipped), #31 resolved (section CRS allowlist guard), #33 resolved (Geology empty-state CTA), #32 resolved (geotech-units round-trip already test-covered), #34 resolved (elevation PATCH stales dependent TINs).** 39 open items. See [docs/debt.md](docs/debt.md) for the full text of every item below.
+**2026-05-16 — six-agent codebase audit** (senior-code-reviewer, system-architect, security-reviewer, staff-engineer, product-strategy-advisor, ux-reviewer-proxy) added #29–#50 and deleted #24 (Modal semantic-token migration shipped); the quick-fix follow-up de-scoped one item to #51. **Tier C campaign started 2026-05-16: #30 resolved (Export stage hub shipped), #52 filed (PDF report), #29 resolved (Plaxis 2D per-section exporter shipped), #31 resolved (section CRS allowlist guard), #33 resolved (Geology empty-state CTA), #32 resolved (geotech-units round-trip already test-covered), #34 resolved (elevation PATCH stales dependent TINs), #35 resolved (pinned_order survives Build). Tier C fully cleared 2026-05-16.** 38 open items. See [docs/debt.md](docs/debt.md) for the full text of every item below.
 
 **Tier A — Phase 4 engineering blocker:** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the shipped DXF + Plaxis-3D exporters. Plaxis 2D is #29 in Tier C, demo-blocking not gate-blocking.)*
 
 **Tier B — Commercial launch gates, pre-paid-revenue:** #2 (bundled Postgres), #3 (license keys), #4 (auth on by-id endpoints; sub of #3), #5 (tamper hardening; sub of #3), #6 (installer + code signing + auto-update), #7 (marketing site + market-facing name), #47 (bundle column auto-enumeration → silent .gmproj format drift; fires at backwards-compat re-arm).
 
-**Tier C — Current Phase 4 friction / launch-demo blockers:** #35 (Build silently overwrites user drag-reorder via age inference). *(#34 resolved 2026-05-16: `GeologyRepository.stale_surfaces_for_investigation` flips dependent TINs `is_stale=True` in the same transaction as `PATCH /cpt|borehole/{id}/elevation`.)* *(#30 Export-stage hub + #29 Plaxis 2D exporter + #31 section-CRS allowlist guard + #33 Geology empty-state CTA resolved 2026-05-16. #33: `geologyEmptyState()` pure helper drives 3-case copy; CPT-only projects get an "Add formation" CTA instead of pointing at the disabled Fill button. #31: `infrastructure/codelists/horizontal_crs.py` ↔ `desktop utils/horizontalCrs.ts` allowlist {31370, 3812, 28992, 25831, 32631}; create/export 400 on non-metric CRS; create-gate tooltip names the offending CRS.)*
+**Tier C — Current Phase 4 friction / launch-demo blockers:** *(none open — all seven items #29–#35 resolved 2026-05-16. #34: `GeologyRepository.stale_surfaces_for_investigation` flips dependent TINs `is_stale=True` in the same transaction as `PATCH /cpt|borehole/{id}/elevation`. #35: `geological_formation.pinned_order` (migration `d1a2b3c4e5f6`) — the drag-end PATCH pins reordered formations; `_reorder_by_age` keeps pinned ones at their exact `display_order` and flows the rest into the free slots.)* *(#30 Export-stage hub + #29 Plaxis 2D exporter + #31 section-CRS allowlist guard + #33 Geology empty-state CTA resolved 2026-05-16. #33: `geologyEmptyState()` pure helper drives 3-case copy; CPT-only projects get an "Add formation" CTA instead of pointing at the disabled Fill button. #31: `infrastructure/codelists/horizontal_crs.py` ↔ `desktop utils/horizontalCrs.ts` allowlist {31370, 3812, 28992, 25831, 32631}; create/export 400 on non-metric CRS; create-gate tooltip names the offending CRS.)*
 
 **Tier D — Post-launch / Phase 5:** #11 (NL / multilingual stratigraphy catalog), #12 (App.tsx → custom hooks split; S3–S7 outstanding), #13 (geotech units in section editor), #36 (excluded_borehole_ids ignored by TIN recompute), #37 (delete_model cascade + unenforced single-model invariant), #38 (geology contact-mutation use cases have no unit tests), #39 (no batch borehole-detail endpoint — N GETs on section open), #44 (cross-stage selection model inconsistency), #43 (Esc no longer closes inspector/canvas detail views), #28 (no interpolation-confidence signal on formation surfaces), #52 (PDF report export — Phase 5 reporting deliverable).
 
