@@ -171,51 +171,6 @@ function buildImageryProvider(source: BasemapSource): Cesium.UrlTemplateImageryP
 }
 
 /**
- * Compute the bounding box of all vertices across a set of surfaces.
- *
- * Parameters
- * ----------
- * surfaces
- *     Surface responses to include.
- * projectEpsg
- *     Horizontal CRS for coordinate transform.
- *
- * Returns
- * -------
- * ``{ minLat, maxLat, minLng, maxLng, minZ, maxZ }`` or ``null`` when the
- * surfaces array is empty.
- */
-function computeBoundingBox(
-  surfaces: FormationSurfaceResponse[],
-  projectEpsg: number,
-): { minLat: number; maxLat: number; minLng: number; maxLng: number; minZ: number; maxZ: number } | null {
-  let minLat = Infinity,
-    maxLat = -Infinity,
-    minLng = Infinity,
-    maxLng = -Infinity,
-    minZ = Infinity,
-    maxZ = -Infinity
-
-  let count = 0
-  for (const surface of surfaces) {
-    for (const [x, y, z] of surface.vertices) {
-      const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
-      if (lat < minLat) minLat = lat
-      if (lat > maxLat) maxLat = lat
-      if (lng < minLng) minLng = lng
-      if (lng > maxLng) maxLng = lng
-      if (z < minZ) minZ = z
-      if (z > maxZ) maxZ = z
-      count++
-    }
-  }
-
-  return count === 0
-    ? null
-    : { minLat, maxLat, minLng, maxLng, minZ, maxZ }
-}
-
-/**
  * Fly the Cesium camera to encompass all formation surfaces.
  *
  * Parameters
@@ -232,29 +187,35 @@ function flyToBounds(
   surfaces: FormationSurfaceResponse[],
   projectEpsg: number,
 ): void {
-  const bb = computeBoundingBox(surfaces, projectEpsg)
-  if (!bb) return
+  // Build a bounding sphere from every surface vertex (ECEF) and let
+  // Cesium fit it to the frustum. The previous manual approach put the
+  // camera straight over the midpoint at a fixed 2×span height with a
+  // -45° pitch, which left the data off-centre and the distance
+  // heuristic wrong ("zoom is off"). flyToBoundingSphere with an
+  // explicit range scaled to the actual extent frames it correctly.
+  const points: Cesium.Cartesian3[] = []
+  for (const surface of surfaces) {
+    for (const [x, y, z] of surface.vertices) {
+      const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+      points.push(Cesium.Cartesian3.fromDegrees(lng, lat, z))
+    }
+  }
+  if (points.length === 0) return
 
-  const midLat = (bb.minLat + bb.maxLat) / 2
-  const midLng = (bb.minLng + bb.maxLng) / 2
-  const midZ = (bb.minZ + bb.maxZ) / 2
+  const sphere = Cesium.BoundingSphere.fromPoints(points)
+  // 2.2× radius (min 600 m) keeps the whole model comfortably in view
+  // without the camera ending up inside thin/flat geology.
+  const range = Math.max(sphere.radius * 2.2, 600)
 
-  // Estimate a sensible camera elevation: 2× the horizontal span, min 500 m.
-  const spanLat = (bb.maxLat - bb.minLat) * 111_320 // metres
-  const spanLng = (bb.maxLng - bb.minLng) * 111_320 * Math.cos((midLat * Math.PI) / 180)
-  const spanMax = Math.max(spanLat, spanLng, 500)
-  const height = midZ + spanMax * 2
-
-  camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(midLng, midLat, height),
-    orientation: {
-      // Slightly oblique look-down for context; straight down is disorienting
-      // for geological surface inspection.
-      pitch: Cesium.Math.toRadians(-45),
-      heading: 0,
-      roll: 0,
-    },
+  camera.flyToBoundingSphere(sphere, {
     duration: 1.5,
+    offset: new Cesium.HeadingPitchRange(
+      0,
+      // Oblique look-down for geological context; straight down is
+      // disorienting for surface inspection.
+      Cesium.Math.toRadians(-45),
+      range,
+    ),
   })
 }
 
@@ -372,6 +333,7 @@ function rebuildSurfacePrimitives(
   surfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>,
   projectEpsg: number,
   groundSurface?: GroundSurfaceBuildResponse | null,
+  hiddenFormationIds?: ReadonlySet<string>,
 ): void {
   scene.primitives.removeAll()
 
@@ -391,6 +353,10 @@ function rebuildSurfacePrimitives(
   }
 
   for (const formation of formations) {
+    // Per-formation visibility toggle (the 3D legend). A hidden
+    // formation's TIN is simply not added, so the next-deeper
+    // formation shows through where it would have been.
+    if (hiddenFormationIds?.has(formation.id)) continue
     const surface = surfacesByFormationId.get(formation.id)
     if (!surface || surface.triangles.length === 0) continue
 
@@ -514,6 +480,8 @@ interface CesiumViewportProps {
   onSceneClick?: (cartesian: Cesium.Cartesian3) => void
   /** DEM ground-surface TIN — rendered below formation surfaces as terrain base. */
   groundSurface?: GroundSurfaceBuildResponse | null
+  /** Formation ids toggled off in the 3D legend — their TIN is not drawn. */
+  hiddenFormationIds?: ReadonlySet<string>
 }
 
 /**
@@ -566,6 +534,7 @@ function CesiumViewport({
   cameraResetRef,
   onSceneClick,
   groundSurface,
+  hiddenFormationIds,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -636,6 +605,7 @@ function CesiumViewport({
       surfacesByFormationId,
       projectEpsg,
       groundSurface,
+      hiddenFormationIds,
     )
 
     // TODO(post-v1.0): per-primitive clipping for Cesium3DTileset/photogrammetric overlays.
@@ -658,7 +628,7 @@ function CesiumViewport({
     // basemap or clipping-plane change. The dep array includes surfaces and
     // groundSurface but not the camera ref — the ref is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formations, surfacesByFormationId, projectEpsg, groundSurface])
+  }, [formations, surfacesByFormationId, projectEpsg, groundSurface, hiddenFormationIds])
 
   // ---------------------------------------------------------------------------
   // Swap imagery layer when basemap changes
@@ -892,6 +862,23 @@ export default function Geology3DViewer({
 
   const [drawState, setDrawState] = useState<DrawState>({ phase: 'idle' })
 
+  // ---------------------------------------------------------------------------
+  // Per-formation 3D visibility (the legend). Session-ephemeral, not
+  // persisted — view chrome like the basemap pick. Hiding a formation
+  // drops its TIN so the next-deeper formation shows through.
+  // ---------------------------------------------------------------------------
+  const [hiddenFormationIds, setHiddenFormationIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+  const toggleFormation = useCallback((id: string) => {
+    setHiddenFormationIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
   const handleViewportClick = useCallback(
     (cartesian: Cesium.Cartesian3) => {
       if (splitMode !== 'single' || splitPlane !== null) return
@@ -941,10 +928,47 @@ export default function Geology3DViewer({
           cameraResetRef={resetCameraRef}
           onSceneClick={primaryClickHandler}
           groundSurface={groundSurface}
+          hiddenFormationIds={hiddenFormationIds}
         />
 
         {/* Basemap picker — only on the primary viewport */}
         <BasemapPanel activeBasemapId={basemapId} onSelect={handleBasemapSelect} />
+
+        {/* Layer legend — per-formation 3D visibility toggle. Click a
+            row to hide/show that formation's TIN in the model. */}
+        {formations.length > 0 && (
+          <div className="absolute top-2 left-2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg max-w-[15rem] py-1 text-xs">
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-text-muted">
+              Layers
+            </div>
+            <ul>
+              {formations.map(f => {
+                const hidden = hiddenFormationIds.has(f.id)
+                const hex = f.color.startsWith('#') ? f.color : `#${f.color}`
+                return (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      onClick={() => toggleFormation(f.id)}
+                      className={`w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-surface-page transition-colors ${hidden ? 'opacity-50' : ''}`}
+                      title={hidden ? 'Show in 3D' : 'Hide in 3D'}
+                    >
+                      <span
+                        className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default"
+                        style={hidden ? { borderColor: hex } : { backgroundColor: hex }}
+                      />
+                      <span
+                        className={`truncate ${hidden ? 'line-through text-text-muted' : 'text-text-primary'}`}
+                      >
+                        {f.name}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
 
         {/* Split-line draw mode hint */}
         {isDrawMode && (
@@ -970,6 +994,7 @@ export default function Geology3DViewer({
               clippingPlane={splitPlane}
               invertClip={true}
               groundSurface={groundSurface}
+              hiddenFormationIds={hiddenFormationIds}
             />
           </div>
         </>
