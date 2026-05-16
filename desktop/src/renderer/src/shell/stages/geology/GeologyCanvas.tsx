@@ -27,7 +27,10 @@ import { Mountain } from 'lucide-react'
 import { api } from '../../../api/client'
 import type { GroundSurfaceBuildResponse } from '../../../api/client'
 import { useShell } from '../../ShellContext'
-import Geology3DViewer, { type SplitMode } from './Geology3DViewer'
+import Geology3DViewer, {
+  type SplitMode,
+  type SplitLine,
+} from './Geology3DViewer'
 
 // ---------------------------------------------------------------------------
 // Cross-component callbacks — module-level refs shared between GeologyCanvas
@@ -87,9 +90,11 @@ export default function GeologyCanvas(): JSX.Element {
 
   const [splitMode, setSplitMode] = useState<SplitMode>('single')
   const [splitPlane, setSplitPlane] = useState<Cesium.Plane | null>(null)
+  const [splitLine, setSplitLine] = useState<SplitLine | null>(null)
 
-  function handleSplitPlaneDrawn(plane: Cesium.Plane): void {
+  function handleSplitPlaneDrawn(plane: Cesium.Plane, line: SplitLine): void {
     setSplitPlane(plane)
+    setSplitLine(line)
     setSplitMode('split')
   }
 
@@ -98,6 +103,7 @@ export default function GeologyCanvas(): JSX.Element {
   resetSplitViewportCallback.current = () => {
     setSplitMode('single')
     setSplitPlane(null)
+    setSplitLine(null)
   }
 
   // ---------------------------------------------------------------------------
@@ -167,11 +173,13 @@ export default function GeologyCanvas(): JSX.Element {
         surfacesByFormationId={surfacesByFormationId}
         projectEpsg={projectEpsg}
         onSplitPlaneDrawn={handleSplitPlaneDrawn}
+        splitLine={splitLine}
         resetCameraRef={resetCameraCallback}
         groundSurface={groundSurface}
         onExitSplit={() => {
           setSplitMode('single')
           setSplitPlane(null)
+          setSplitLine(null)
         }}
       />
     )
