@@ -100,6 +100,14 @@ export interface Coordinator {
    * path (``SectionsInspector``) across hook boundaries.
    */
   sessionImportSectionIds: ReadonlySet<string>
+  /**
+   * Formation IDs created in the current session but not yet saved.
+   *
+   * Drives the per-row amber asterisk in ``GeologyInspector``'s
+   * formation list (wired in G4).  Same coordinator-bus rationale as
+   * ``sessionImportSectionIds`` above.
+   */
+  sessionImportFormationIds: ReadonlySet<string>
 }
 
 /**
