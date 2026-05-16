@@ -50,10 +50,18 @@ interface Props {
 // each Leaflet renders aren't free.
 const MAX_OVERLAYS = 200
 
+// Section overlay pane z-index. Sits ABOVE the basemap-overlay pane
+// (z=210, Geopunt GRB-selectie tiles) and the dem-overlay pane (z=250)
+// so the drawn section line and buffer polygon always render on top of
+// any tile overlay — including the Luchtfoto + GRB hybrid basemap.
+// Sits below investigation-markers (z=640) and tooltipPane (z=650) so
+// marker clicks and hover tooltips still win on the z-stack.
+const SECTION_PANE = 'section-overlays'
+const SECTION_PANE_Z = 420
+
 // Leader-line pane z-index. Slots between the basemap tile pane
-// (z=200) and the marker overlay/marker panes (z=400/600) so leaders
-// render BELOW CPT and borehole markers — clicks on markers must
-// still hit the marker, not the leader sitting on top.
+// (z=200) and the section overlay pane (z=420) so leaders render
+// BELOW the section line itself and BELOW CPT/borehole markers.
 const LEADER_PANE = 'section-leaders'
 const LEADER_PANE_Z = 350
 
@@ -87,9 +95,14 @@ export default function SectionOverlays({
 
   return (
     <>
-      {/* Custom pane so leaders sit BELOW the marker overlay pane
-          (z=400) — marker clicks must still hit the marker, not the
-          thin grey leader sitting on top. */}
+      {/* Section overlays pane — sits above ALL tile overlays (basemap-overlay
+          z=210, dem-overlay z=250) so the section line and buffer polygon are
+          always visible over the Geopunt GRB hybrid and hillshade layers.
+          Below investigation-markers (z=640) and tooltipPane (z=650) so
+          marker clicks and tooltips still win. */}
+      <Pane name={SECTION_PANE} style={{ zIndex: SECTION_PANE_Z }} />
+      {/* Custom pane so leaders sit BELOW the section overlay pane
+          (z=420) — leader clicks must not obscure the section line. */}
       <Pane name={LEADER_PANE} style={{ zIndex: LEADER_PANE_Z }} />
       {leaders.map(leader => (
         <Polyline
@@ -113,22 +126,23 @@ export default function SectionOverlays({
         const selected = item.id === selectedSectionId
         return (
           <Fragment key={item.id}>
+            {/* Buffer corridor — dark blue fill + stroke. Dark blue (#1e3a8a /
+                navy) reads on both aerial/orthophoto and light basemaps without
+                being confused with the green DOV lengteprofiel convention.
+                The corridor is the primary "am I near this section?" affordance;
+                distinct colour from the section line itself (white-cased blue).
+                White casing on the border keeps the polygon edge visible over
+                dark tile pixels (satellite, GRB orthophoto). */}
             <Polygon
+              pane={SECTION_PANE}
               positions={item.bufferLatLngs}
               pathOptions={{
-                // White casing stroke so the buffer polygon reads
-                // over ANY basemap — orthophoto (Geopunt, Esri
-                // satellite), CARTO Voyager, OSM, all share neutral
-                // or greenish tiles where a plain green border
-                // disappears. A white continuous outline of weight 3
-                // gives a light halo under the green interior stroke
-                // that contrasts on everything.
                 color: '#ffffff',
                 weight: selected ? 3 : 2,
-                opacity: selected ? 0.9 : 0.75,
+                opacity: selected ? 0.9 : 0.7,
                 dashArray: selected ? undefined : '6 4',
-                fillColor: selected ? '#22c55e' : '#86efac',
-                fillOpacity: selected ? 0.35 : 0.2,
+                fillColor: selected ? '#1e3a8a' : '#1e40af',
+                fillOpacity: selected ? 0.22 : 0.13,
               }}
               eventHandlers={{ click: () => onSelect(item.id) }}
             >
@@ -138,16 +152,16 @@ export default function SectionOverlays({
                 {item.lengthM.toFixed(0)} m · ±{item.bufferM.toFixed(0)} m
               </Tooltip>
             </Polygon>
-            {/* Green interior stroke rendered as a second polygon with
-                inset weight so the white halo shows around it. Leaflet
-                does not support multi-stroke in a single pathOptions, so
-                we layer two polygons: white casing first, green accent
-                second. Both are non-interactive; only the casing polygon
-                (above) carries the event handlers and tooltip. */}
+            {/* Dark-blue interior stroke rendered as a second polygon.
+                Leaflet does not support multi-stroke in a single pathOptions,
+                so we layer two polygons: white casing first, navy accent
+                second. Both are non-interactive; the casing polygon carries
+                the event handlers and tooltip. */}
             <Polygon
+              pane={SECTION_PANE}
               positions={item.bufferLatLngs}
               pathOptions={{
-                color: selected ? '#16a34a' : '#15803d',
+                color: selected ? '#1e3a8a' : '#1e40af',
                 weight: selected ? 2 : 1.25,
                 opacity: selected ? 0.95 : 0.8,
                 dashArray: selected ? undefined : '6 4',
@@ -155,23 +169,24 @@ export default function SectionOverlays({
                 interactive: false,
               }}
             />
-            {/* Section line — white casing under a dark accent so the
-                line reads on satellite/orthophoto imagery where pure
-                black blends with dark roof/road pixels. Selected goes
-                to amber-red accent with white casing. */}
+            {/* Section line — white casing under a navy accent so the line
+                reads on satellite/orthophoto imagery. Selected goes to a
+                brighter blue (#2563eb) with heavier weight. */}
             <Polyline
+              pane={SECTION_PANE}
               positions={item.lineLatLngs}
               pathOptions={{
                 color: '#ffffff',
                 weight: selected ? 6 : 4.5,
-                opacity: 0.85,
+                opacity: 0.9,
                 interactive: false,
               }}
             />
             <Polyline
+              pane={SECTION_PANE}
               positions={item.lineLatLngs}
               pathOptions={{
-                color: selected ? '#dc2626' : '#1e293b',
+                color: selected ? '#2563eb' : '#1e3a8a',
                 weight: selected ? 3.5 : 2.5,
                 opacity: 0.98,
               }}
