@@ -39,7 +39,7 @@ class BoreholeWfsRow:
     # Coordinates from the WFS row. ``None`` when DOV omitted them — see the
     # nullability invariant above; the orchestrator validates non-null x/y
     # before persisting and rejects rows that lack a placeable position.
-    x: float | None #TODO: these can't be None
+    x: float | None
     y: float | None
     z: float | None  # Z_mTAW; orchestrator uses as fallback when boring XML omits Z.
 
