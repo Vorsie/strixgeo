@@ -124,12 +124,13 @@ export default function DataInspector(): JSX.Element {
     coordinator: {
       selectedId,
       selectedBoreholeId,
-      handleSelect,
-      handleSelectBorehole,
+      setSelectedId,
+      setSelectedBoreholeId,
       outOfViewportCptIds,
       outOfViewportBoreholeIds,
       sessionImportCptIds,
       sessionImportBoreholeIds,
+      marqueeSelectedIds,
     },
     mapState: {
       hiddenCptTypes,
@@ -155,6 +156,27 @@ export default function DataInspector(): JSX.Element {
     setSelectedForRemoval(new Set())
     setRangeAnchorId(null)
   }, [activeTab])
+
+  // Sync list checkboxes from the map marquee selection.
+  //
+  // When the user Shift-drags a rectangle on the map, the resulting set of
+  // investigation IDs replaces selectedForRemoval so the list checkboxes
+  // mirror what is highlighted on the map.  An empty marquee set (cleared by
+  // a subsequent plain click or ESC) resets the list selection to nothing.
+  // The effect only fires when marqueeSelectedIds actually changes identity —
+  // Map referential equality ensures this is once per completed drag, not per
+  // render.
+  useEffect(() => {
+    setSelectedForRemoval(new Set(marqueeSelectedIds))
+    setRangeAnchorId(null)
+    // reason: marqueeSelectedIds is a ReadonlySet coming from coordinator
+    // state; its identity only changes when the marquee drag completes (map
+    // fires setMarqueeSelectedIds).  Including setSelectedForRemoval /
+    // setRangeAnchorId would require stable refs that are already stable in
+    // practice but not guaranteed by TypeScript; the semantic dep is the
+    // marquee set identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marqueeSelectedIds])
 
   // Substring search — ephemeral; resets on tab change.
   const [searchQuery, setSearchQuery] = useState('')
@@ -424,7 +446,7 @@ export default function DataInspector(): JSX.Element {
                   unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
-                  onClick={() => void handleSelect(c.id)}
+                  onClick={() => setSelectedId(c.id)}
                   onRemove={() => handleRemoveCpts([c.id])}
                 />
               ))}
@@ -438,7 +460,7 @@ export default function DataInspector(): JSX.Element {
                   unsaved={sessionImportCptIds?.has(c.id) ?? false}
                   checked={selectedForRemoval.has(c.id)}
                   onToggleCheck={shift => handleCheckboxClick(c.id, shift)}
-                  onClick={() => void handleSelect(c.id)}
+                  onClick={() => setSelectedId(c.id)}
                   onRemove={() => handleRemoveCpts([c.id])}
                 />
               ))}
@@ -467,7 +489,7 @@ export default function DataInspector(): JSX.Element {
                   unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
-                  onClick={() => void handleSelectBorehole(b.id)}
+                  onClick={() => setSelectedBoreholeId(b.id)}
                   onRemove={() => handleRemoveBoreholes([b.id])}
                 />
               ))}
@@ -481,7 +503,7 @@ export default function DataInspector(): JSX.Element {
                   unsaved={sessionImportBoreholeIds?.has(b.id) ?? false}
                   checked={selectedForRemoval.has(b.id)}
                   onToggleCheck={shift => handleCheckboxClick(b.id, shift)}
-                  onClick={() => void handleSelectBorehole(b.id)}
+                  onClick={() => setSelectedBoreholeId(b.id)}
                   onRemove={() => handleRemoveBoreholes([b.id])}
                 />
               ))}
