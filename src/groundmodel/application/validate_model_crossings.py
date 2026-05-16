@@ -86,17 +86,21 @@ class ValidateModelCrossings(GroundModelLogger):
         # at vertex (vx, vy) of formation F maps back to the contact
         # whose anchor sits at (vx, vy) for F.
         #
-        # Contacts are fetched ONE QUERY PER FORMATION (the loop below),
-        # then a single IN-query each for borehole + cpt anchors. The
-        # per-formation fan-out is debt #49 — a single
-        # `list_contacts(model_id)` + Python grouping would collapse it
-        # to one round-trip; fine at v1 cardinality. The ORM doesn't
-        # carry a `borehole`/`cpt` relationship on
-        # FormationContactOrm (debt #9 review: nullable XOR makes the
-        # relationship pair awkward; explicit IN-queries stay clear).
-        contact_rows: list[FormationContactOrm] = []
-        for fid in formation_ids:
-            contact_rows.extend(await self._repo.list_contacts(model_id, formation_id=fid))
+        # Contacts are fetched in ONE query for the whole model, then
+        # filtered in Python to the formations that actually carry a
+        # surface (the only ones the crossing lookup keys on). This
+        # resolved debt #49 — the old code fanned out one query per
+        # formation (N+2 round-trips), which stalled the post-edit
+        # crossings poll on large Phase-5 models. A single
+        # `list_contacts(model_id)` + a set membership test is both
+        # faster and less code. Borehole + cpt anchors are then a
+        # single IN-query each. The ORM doesn't carry a
+        # `borehole`/`cpt` relationship on FormationContactOrm (debt #9
+        # review: nullable XOR makes the relationship pair awkward;
+        # explicit IN-queries stay clear).
+        contact_rows: list[FormationContactOrm] = [
+            c for c in await self._repo.list_contacts(model_id) if c.formation_id in formation_ids
+        ]
         borehole_ids = {c.borehole_id for c in contact_rows if c.borehole_id is not None}
         cpt_ids = {c.cpt_id for c in contact_rows if c.cpt_id is not None}
         boreholes_by_id: dict[UUID, BoreholeOrm] = (
