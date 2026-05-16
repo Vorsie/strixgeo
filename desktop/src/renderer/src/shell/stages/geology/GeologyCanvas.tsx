@@ -22,7 +22,7 @@
 
 import * as Cesium from 'cesium'
 import { useEffect, useState } from 'react'
-import { Mountain } from 'lucide-react'
+import { Mountain, Plus } from 'lucide-react'
 
 import { api } from '../../../api/client'
 import type { GroundSurfaceBuildResponse } from '../../../api/client'
@@ -31,6 +31,7 @@ import Geology3DViewer, {
   type SplitMode,
   type SplitLine,
 } from './Geology3DViewer'
+import { geologyEmptyState } from './geologyEmptyState'
 
 // ---------------------------------------------------------------------------
 // Cross-component callbacks — module-level refs shared between GeologyCanvas
@@ -77,12 +78,32 @@ export const resetSplitViewportCallback: React.MutableRefObject<(() => void) | n
 export default function GeologyCanvas(): JSX.Element {
   const {
     project,
+    visibleBoreholes,
     geoModel: {
       formations,
       surfacesByFormationId,
       activeGeologicalModel,
+      handleInlineCreateFormation,
     },
   } = useShell()
+
+  // Debt #33: a CPT-only project has no boreholes, so "Fill from
+  // boreholes" is permanently disabled — the empty canvas must not
+  // dead-end there. This CTA creates a placeholder formation inline
+  // (same one-click-then-refine pattern as the Sections CTA); the
+  // user renames / recolours it in the inspector. Busy flag so a
+  // double-click can't spawn two rows.
+  const [creatingFormation, setCreatingFormation] = useState(false)
+
+  async function handleAddFormation(): Promise<void> {
+    if (creatingFormation) return
+    setCreatingFormation(true)
+    try {
+      await handleInlineCreateFormation({ name: 'New formation' })
+    } finally {
+      setCreatingFormation(false)
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Split-viewport state (G6) — session-ephemeral
@@ -189,18 +210,32 @@ export default function GeologyCanvas(): JSX.Element {
   // map does NOT appear here (superseded per geology-stage-architecture.md
   // §5 addendum): the Geology canvas is 3D-or-message only; geographic
   // context lives in the Data stage.
-  const hasFormations = formations.length > 0
+  const { guidance, showAddFormation } = geologyEmptyState(
+    formations.length > 0,
+    visibleBoreholes.length > 0,
+  )
+
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400">
+    <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-400">
       <Mountain size={40} className="text-gray-300" />
-      {hasFormations ? (
-        <p className="text-sm text-center max-w-xs leading-snug">
-          No 3D model yet — build it from the stratigraphy.
-        </p>
-      ) : (
-        <p className="text-sm text-center max-w-xs leading-snug">
-          No formations yet — Fill from boreholes or add one, then build the 3D model.
-        </p>
+      <p className="text-sm text-center max-w-sm leading-snug">{guidance}</p>
+      {showAddFormation && (
+        <button
+          type="button"
+          onClick={() => void handleAddFormation()}
+          disabled={creatingFormation}
+          title="Create a placeholder formation — rename and recolour it in the inspector"
+          className={[
+            'inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            creatingFormation
+              ? 'bg-accent/40 text-text-on-accent cursor-not-allowed'
+              : 'bg-accent text-text-on-accent hover:bg-accent-muted',
+          ].join(' ')}
+        >
+          <Plus size={13} />
+          {creatingFormation ? 'Adding…' : 'Add formation'}
+        </button>
       )}
     </div>
   )
