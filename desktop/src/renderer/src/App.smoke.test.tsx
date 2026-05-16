@@ -19,10 +19,83 @@
 // data-loading effects stay dormant. Extending the test to cover a
 // loaded-project mount path is future work (debt #47 escalation).
 
-import { render, waitFor, cleanup } from '@testing-library/react'
+import { render, cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
+import type { UseProject } from './hooks/useProject'
+
+// ---------------------------------------------------------------------------
+// useProject is the project-source gate: project===null → WelcomeScreen,
+// project!==null → AppShell. R1 (debt #12): the original smoke test only
+// ever reached the WelcomeScreen branch, so a TDZ in AppShell / any stage
+// component / the shellContextValue consumption was invisible. We mock
+// useProject behind a per-test toggle so one test keeps the null →
+// WelcomeScreen contract and a second test drives the loaded-project →
+// AppShell subtree. The stub mirrors the real initial shape; useProject's
+// own internals are a separate hook's concern (this smoke test exists for
+// App.tsx-body + render-subtree TDZ, per the file header).
+// ---------------------------------------------------------------------------
+
+const LOADED_PROJECT = {
+  id: 'proj-smoke-1',
+  name: 'Smoke Project',
+  project_number: null,
+  client: null,
+  site_label: null,
+  description: null,
+  tags: [],
+  default_horizontal_epsg: 31370,
+  default_vertical_epsg: 5710,
+  phase: 'design',
+  status: 'active',
+  view_state: {},
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+  archived_at: null,
+}
+
+let mockProjectLoaded = false
+
+function makeUseProjectStub(): UseProject {
+  const project = mockProjectLoaded
+    ? (LOADED_PROJECT as unknown as UseProject['project'])
+    : null
+  const emptySet: ReadonlySet<string> = new Set()
+  return {
+    project,
+    saved: project,
+    dirty: false,
+    filePath: null,
+    manifestCptIds: emptySet,
+    manifestBoreholeIds: emptySet,
+    manifestFormationIds: emptySet,
+    manifestSectionIds: emptySet,
+    newProject: vi.fn().mockResolvedValue(null),
+    openProjectFile: vi.fn().mockResolvedValue(null),
+    pickAndOpenProject: vi.fn().mockResolvedValue({ outcome: 'cancelled' }),
+    addToManifest: vi.fn(),
+    removeFromManifest: vi.fn(),
+    applyMetadataDraft: vi.fn(),
+    applyViewStatePatch: vi.fn().mockResolvedValue(true),
+    saveProject: vi.fn().mockResolvedValue(true),
+    saveAsProject: vi.fn().mockResolvedValue(null),
+    discardEdits: vi.fn(),
+    archiveCurrent: vi.fn().mockResolvedValue(undefined),
+    closeProject: vi.fn(),
+  }
+}
+
+vi.mock('./hooks/useProject', () => ({
+  useProject: () => makeUseProjectStub(),
+}))
+
+// MapView pulls in Leaflet, which does not render in jsdom. The
+// loaded-project path mounts DataCanvas → MapView; stub it so the
+// smoke test exercises the shell + DataInspector/DataToolbar without
+// a Leaflet crash (the architect's R1 note: full MapView render is
+// not needed to catch TDZ in the loaded-project subtree).
+vi.mock('./components/MapView', () => ({ default: () => null }))
 
 // ---------------------------------------------------------------------------
 // Module-level mock of ../api/client.
@@ -166,6 +239,7 @@ function installElectronStub(): void {
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
+  mockProjectLoaded = false
   installElectronStub()
   // React swallows render-time errors that hit an error boundary and
   // reports them via console.error. Spy so the test can fail on any
@@ -200,6 +274,25 @@ describe('App (smoke)', () => {
     // boundary, or by act() in the test harness) can land on
     // the WelcomeScreen branch anyway and look like a pass.
     // Failing on any console.error call surfaces those.
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('mounts the loaded-project AppShell subtree without throwing (R1, debt #12)', async () => {
+    // The escalation the debt called for: with a project loaded, App
+    // renders AppShell → StageSpine + StageToolbar + StageCanvas
+    // (DataCanvas) + Inspector (DataInspector), and the shellContextValue
+    // useMemo is actually CONSUMED. A TDZ / hook-ordering / dep-array
+    // crash anywhere in that subtree unwinds React before the spine
+    // labels land — findByText times out → test failure. The
+    // WelcomeScreen-only test could never see this.
+    mockProjectLoaded = true
+    const { findByText } = render(<App />)
+
+    // StageSpine renders a button per stage with its spineLabel. Seeing
+    // "Geology" proves AppShell + the spine mounted past the project gate.
+    const spineLabel = await findByText('Geology')
+    expect(spineLabel).toBeInTheDocument()
+
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 })
