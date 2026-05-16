@@ -44,34 +44,22 @@ imported directly; the TIFF blob is then decoded by Pillow.
 from __future__ import annotations
 
 from io import BytesIO
-from typing import Final
 
 import httpx
 from PIL import Image
 
 from groundmodel.infrastructure.dem.dem_provider import DemProvider, DemZGrid
 from groundmodel.infrastructure.dem.dem_tile_cache import DemTileCache
+from groundmodel.infrastructure.dem.dem_wcs_constants import (
+    DHMVII_COVERAGE_ID,
+    DHMVII_NODATA,
+    DHMVII_WCS_URL,
+    WCS_BBOX_PADDING_M,
+    WCS_TIMEOUT_SECONDS,
+    WCS_VERSION,
+)
 from groundmodel.infrastructure.dem.dhmvii_sampler import parse_wcs_multipart
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-# Geopunt WCS endpoint constants — same as dhmvii_sampler.py; duplicated here
-# so the cross-section sampler and the tile-based grid sampler can evolve
-# independently (they have different request shapes).
-_WCS_URL: Final = "https://geo.api.vlaanderen.be/DHMV/wcs"
-_COVERAGE_ID: Final = "DHMVII_DTM_1m"
-_WCS_VERSION: Final = "2.0.1"
-
-# DHMVII nodata sentinel — embedded in the GML metadata as
-# ``<swe:nilValue>-9999</swe:nilValue>``.
-_NODATA: Final = -9999.0
-
-# Network timeout.  Large tiles (a few km²) can be several MB; 30 s
-# accommodates a slow link without hanging a Build call indefinitely.
-_TIMEOUT_SECONDS: Final = 30.0
-
-# Padding around the requested bbox to avoid edge-pixel aliasing.  Same
-# value as the cross-section sampler.
-_BBOX_PADDING_M: Final = 2.0
 
 
 class DhmviiDemProvider(DemProvider, GroundModelLogger):
@@ -98,7 +86,7 @@ class DhmviiDemProvider(DemProvider, GroundModelLogger):
         self._client = httpx.AsyncClient(
             http2=True,
             follow_redirects=True,
-            timeout=_TIMEOUT_SECONDS,
+            timeout=WCS_TIMEOUT_SECONDS,
         )
 
     async def __aenter__(self) -> DhmviiDemProvider:
@@ -179,10 +167,10 @@ class DhmviiDemProvider(DemProvider, GroundModelLogger):
         )
 
         # Add padding so edge pixels have a bilinear neighbour.
-        padded_min_x = bbox_min_x - _BBOX_PADDING_M
-        padded_min_y = bbox_min_y - _BBOX_PADDING_M
-        padded_max_x = bbox_max_x + _BBOX_PADDING_M
-        padded_max_y = bbox_max_y + _BBOX_PADDING_M
+        padded_min_x = bbox_min_x - WCS_BBOX_PADDING_M
+        padded_min_y = bbox_min_y - WCS_BBOX_PADDING_M
+        padded_max_x = bbox_max_x + WCS_BBOX_PADDING_M
+        padded_max_y = bbox_max_y + WCS_BBOX_PADDING_M
 
         cached = self._cache.get(
             padded_min_x, padded_min_y, padded_max_x, padded_max_y, resolution_m
@@ -200,9 +188,9 @@ class DhmviiDemProvider(DemProvider, GroundModelLogger):
 
         params = {
             "service": "WCS",
-            "version": _WCS_VERSION,
+            "version": WCS_VERSION,
             "request": "GetCoverage",
-            "coverageId": _COVERAGE_ID,
+            "coverageId": DHMVII_COVERAGE_ID,
             "subset": [
                 f"X({padded_min_x:.3f},{padded_max_x:.3f})",
                 f"Y({padded_min_y:.3f},{padded_max_y:.3f})",
@@ -214,7 +202,7 @@ class DhmviiDemProvider(DemProvider, GroundModelLogger):
             f"X({padded_min_x:.3f},{padded_max_x:.3f}) "
             f"Y({padded_min_y:.3f},{padded_max_y:.3f})"
         )
-        resp = await self._client.get(_WCS_URL, params=params)
+        resp = await self._client.get(DHMVII_WCS_URL, params=params)
         self.debug(f"DHMVII WCS response: status={resp.status_code} size={len(resp.content)} B")
         resp.raise_for_status()
 
@@ -293,7 +281,7 @@ def _decode_tiff(
     for row in range(n_rows):
         for col in range(n_cols):
             v = float(img.getpixel((col, row)))  # type: ignore[arg-type]
-            raw.append(None if v == _NODATA else v)
+            raw.append(None if v == DHMVII_NODATA else v)
 
     return DemZGrid(
         bbox_min_x=bbox_min_x,
