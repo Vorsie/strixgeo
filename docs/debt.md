@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current Phase 4 friction / launch-demo blockers:** #33, #32, #34, #35
+* **C. Current Phase 4 friction / launch-demo blockers:** #32, #34, #35
 * **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50, #51
 
@@ -25,8 +25,9 @@ not renumber after each fix); explicit cleanup passes (last done
 migration, de-scoped from the same pass's quick-fix batch). Tier C
 campaign began 2026-05-16: #30 resolved (Export stage hub shipped),
 #52 filed (PDF report export), #29 resolved (Plaxis 2D per-section
-exporter shipped), #31 resolved (section CRS allowlist guard).
-42 open items**) compact
+exporter shipped), #31 resolved (section CRS allowlist guard),
+#33 resolved (Geology empty-state CTA + 3-case copy). 41 open
+items**) compact
 them. Commit messages and code comments written before a cleanup
 pass continue to reference the OLD numbers — that's an unavoidable
 cost of the renumber. Sections #2–#28 below remain in their prior
@@ -616,30 +617,6 @@ restore round-trip test that builds a project WITH geotech units,
 wipes, restores, and asserts the units (and their formation links)
 reappear. If they don't, the restore endpoint needs a units ingest
 pass parallel to the geology-models pass.
-
-## 33. "Fill from boreholes" dead-ends CPT-only / interpretation-less projects (Tier C — first-run friction)
-
-**What.** Two facets of the same first-run trap. (a) The Geology
-stage's primary verb gates on `visibleBoreholes.length > 0`; a
-CPT-only project (the DOV-bbox + GEF launch-demo spine) has no
-boreholes, so the accent button is permanently disabled and the
-GeologyCanvas empty state still points the user at the disabled
-action — the only working path (GeologyInspector "Add formation") is
-undiscoverable on the canvas. (b) Boreholes imported from a non-DOV
-source (BRO/DINO GEF, common for any NL pilot) have no interpretation
-layers, so Fill silently yields zero formations with no explanation.
-
-**Why deferred.** Manual creation works (via the inspector) and DOV
-is the Flanders happy path, so the stage is not functionally blocked
-— it is a discoverability / first-run-guidance gap.
-
-**When to revisit.** Before the v1.0 launch-demo recording, or the
-first CPT-only / non-DOV dogfeed — whichever first. Fix: (a) an
-"Add formation" CTA on the empty GeologyCanvas mirroring
-SectionsCanvas's CTA card, with empty-state copy that distinguishes
-"no boreholes at all" from "boreholes with no interpretation data";
-(b) disable Fill with an explanatory tooltip rather than silent
-no-op when no interpretation layers exist.
 
 ## 34. `PATCH .../elevation` does not stale dependent TIN surfaces (Tier C — silent wrong geometry)
 
