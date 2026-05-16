@@ -103,6 +103,17 @@ export interface UseGeologicalModelResult {
   ) => Promise<void>
   // Geology toolbar: delete the active geological model (irreversible).
   handleDeleteModel: () => Promise<void>
+  /**
+   * Ensure an active geological model exists, creating the "Default" model
+   * when none is present.  Used by Fill-from-boreholes so the action is
+   * always reachable regardless of bootstrap timing.
+   *
+   * Returns
+   * -------
+   * ``GeologicalModelResponse`` on success, ``null`` when the project is
+   * absent or the API call fails.
+   */
+  ensureActiveGeologicalModel: () => Promise<GeologicalModelResponse | null>
 }
 
 /**
@@ -243,6 +254,14 @@ export function useGeologicalModel({
           setFormations([])
           setContacts([])
           setSurfacesByFormationId(new Map())
+          // Surface a user-visible error so the stage is not silently dead.
+          // The Fill-from-boreholes button's ensureActiveGeologicalModel
+          // provides the self-heal path — the user can click it and the
+          // model will be created/adopted on demand.
+          toast(
+            'error',
+            'Could not load the geological model — check the connection and reopen the project.',
+          )
         }
       }
     })()
@@ -281,6 +300,43 @@ export function useGeologicalModel({
         log.warn('geology', `listSurfaces refetch failed`, err)
       })
   }, [project, activeGeologicalModel])
+
+  // Ensure an active geological model is present, creating "Default" when none
+  // exists. Shares the same create-model logic as the bootstrap effect so
+  // there is a single implementation. This is the self-heal path for
+  // Fill-from-boreholes: the action is always reachable even when the initial
+  // bootstrap raced or failed. Returns null only when project is absent or the
+  // API call genuinely fails.
+  const ensureActiveGeologicalModel = useCallback(
+    async (): Promise<GeologicalModelResponse | null> => {
+      if (!project) return null
+      // Already have one — fast path.
+      if (activeGeologicalModel) return activeGeologicalModel
+      try {
+        const projectId = project.id
+        let models = await api.geology.listModels(projectId)
+        let active = models.find(m => m.is_active) ?? null
+        if (models.length === 0) {
+          const created = await api.geology.createModel(projectId, {
+            name: 'Default',
+            is_active: true,
+          })
+          active = created
+          log.info('geology', `ensureActiveGeologicalModel: created Default model for ${projectId}`)
+        } else if (active === null) {
+          const promoted = await api.geology.activateModel(projectId, models[0].id)
+          active = promoted
+        }
+        setActiveGeologicalModel(active)
+        return active
+      } catch (err) {
+        log.error('geology', 'ensureActiveGeologicalModel failed', err)
+        toast('error', 'Could not create the geological model — check the connection.')
+        return null
+      }
+    },
+    [project, activeGeologicalModel],
+  )
 
   // Auto-refetch surfaces after any contact mutation. ``contacts``
   // identity changes exactly once per mutation handler (each one
@@ -1333,18 +1389,25 @@ export function useGeologicalModel({
   // formation names from the given boreholes' stratigraphy
   // (FORMAL preferred, INFORMAL fallback). Returns the list for
   // FormationSelectionDialog to render. Nothing is created.
+  //
+  // Calls ensureActiveGeologicalModel so Fill-from-boreholes works even
+  // when the bootstrap raced or the model was just deleted — the model is
+  // created on demand and the scan proceeds without requiring the user to
+  // manually recover.
   const discoverBoreholeFormations = useCallback(
     async (boreholeIds: readonly string[]): Promise<FormationCandidate[]> => {
-      if (!project || !activeGeologicalModel) return []
+      if (!project) return []
       if (boreholeIds.length === 0) return []
       log.debug(
         'geology',
         `discoverBoreholeFormations entry boreholes=${boreholeIds.length}`,
       )
+      const model = await ensureActiveGeologicalModel()
+      if (!model) return []
       try {
         const result = await api.geology.discoverFromStratigraphy(
           project.id,
-          activeGeologicalModel.id,
+          model.id,
           boreholeIds,
         )
         log.success(
@@ -1360,7 +1423,7 @@ export function useGeologicalModel({
         return []
       }
     },
-    [project, activeGeologicalModel],
+    [project, ensureActiveGeologicalModel],
   )
 
   // Apply the user's curated formation selection:
@@ -1377,9 +1440,13 @@ export function useGeologicalModel({
       selectedNames: ReadonlySet<string>,
       boreholeIds: readonly string[],
     ): Promise<void> => {
-      if (!project || !activeGeologicalModel) return
+      if (!project) return
+      // Ensure a model exists (handles the case where the user clicks
+      // Fill-from-boreholes before the bootstrap completes or after a Delete).
+      const activeModel = await ensureActiveGeologicalModel()
+      if (!activeModel) return
       const projectId = project.id
-      const modelId = activeGeologicalModel.id
+      const modelId = activeModel.id
       log.info(
         'geology',
         `applyBoreholeFormationSelection entry ` +
@@ -1449,7 +1516,7 @@ export function useGeologicalModel({
     },
     [
       project,
-      activeGeologicalModel,
+      ensureActiveGeologicalModel,
       formations,
       addToManifest,
       removeFromManifest,
@@ -1516,5 +1583,6 @@ export function useGeologicalModel({
     discoverBoreholeFormations,
     applyBoreholeFormationSelection,
     handleDeleteModel,
+    ensureActiveGeologicalModel,
   }
 }
