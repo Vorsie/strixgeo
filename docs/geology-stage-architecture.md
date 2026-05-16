@@ -1140,10 +1140,16 @@ POST /projects/{pid}/geology/models/{mid}/contacts/discover-from-stratigraphy
 Body:  { borehole_ids: string[] }   // 1..500, same limits as auto-populate
 Response: {
   candidates: Array<{
-    name: string            // the formation/layer name as it appears in the
-                            // observation stratigraphy (FORMAL preferred,
-                            // INFORMAL fallback — same priority as auto-populate)
-    borehole_count: number  // how many of the supplied boreholes have this name
+    name: string            // display name — FORMAL counterpart description when
+                            // the observation is formal-stratigraphy, else the
+                            // INFORMAL description itself
+    regional_ref: string | null   // formal stratigraphy code (e.g. "HyEg") when
+                                  // the observation is formal; null for informal
+    key: string             // stable identity: regional_ref when present, else
+                            // name. Two boreholes that share the same regional_ref
+                            // but use different working names produce ONE candidate
+                            // keyed on that ref.
+    borehole_count: number  // how many of the supplied boreholes have this key
   }>
 }
 ```
@@ -1217,10 +1223,19 @@ previous Fill run or from manual creation):
   count comes from diffing `geoModel.formations` against the selected names,
   which will naturally include any manually-added formations not in the
   candidate list.
+  **Sharp-edge note on stable-key identity.** Pre-check and deletion both use
+  the same stable key: `regional_ref ?? name` (lowercased for comparison).
+  `regional_ref` is the formal stratigraphy code from DOV (e.g. `"HyEg"`); for
+  informal-only descriptions the key falls back to the display name. The
+  server derives this key via `_derive_layer_names_and_key()` during `execute()`
+  and during `scan_stratigraphy_candidates()` — the same function in both paths
+  guarantees the key the dialog receives equals the key the server will use when
+  creating/matching formations.
+
   **The build agent must not filter the deletion set to only candidate-named
   formations. The delete-the-rest set is every formation in the current model
-  that is not in the user's selection, regardless of whether it appeared in the
-  candidate list.**
+  whose stable key (`regional_ref ?? name`) is not in the user's selected-key
+  set, regardless of whether it appeared in the candidate list.**
 
 ---
 
@@ -1230,18 +1245,34 @@ Two new actions added to `UseGeologicalModelResult` in `useGeologicalModel.ts`.
 Both are additive — no existing action is removed or renamed.
 
 ```typescript
-/** A candidate formation name discovered from borehole stratigraphy. */
+/** A candidate formation identity discovered from borehole stratigraphy. */
 export interface FormationCandidate {
-  /** Formation name as it appears in the observation stratigraphy. */
+  /**
+   * Display name — FORMAL counterpart description when the observation uses
+   * formal stratigraphy, else the INFORMAL description itself.
+   */
   name: string
-  /** Number of in-scope boreholes that carry this name. */
+  /**
+   * Formal stratigraphy code when the observation is formal (e.g. "HyEg");
+   * null for informal-only descriptions. Two boreholes with the same
+   * regional_ref but different working names share one candidate row.
+   */
+  regional_ref: string | null
+  /**
+   * Stable identity key: regional_ref when present, else name.
+   * This is the value passed to the server in selected_keys on confirm.
+   * Derived by _derive_layer_names_and_key() — guaranteed equal to the
+   * key the server uses in execute() so discover and execute never diverge.
+   */
+  key: string
+  /** Number of in-scope boreholes that carry this stable key. */
   boreholeCount: number
 }
 
 // Add to UseGeologicalModelResult:
 
 /**
- * Scan the given boreholes' stratigraphy for candidate formation names.
+ * Scan the given boreholes' stratigraphy for candidate formation identities.
  * Read-only — nothing is created. Returns the candidate list for the
  * FormationSelectionDialog to render.
  *
@@ -1253,25 +1284,33 @@ discoverBoreholeFormations: (
 
 /**
  * Apply the user's curated selection:
- *   1. Call handleAutoPopulateFromStratigraphy(boreholeIds) to create formations
- *      + contacts for the selected names (idempotent — existing rows skipped).
- *   2. Delete every formation currently in the model whose name is NOT in
- *      selectedNames. Deletions cascade contacts via the existing
- *      DELETE /formations/{fid} endpoint (which cascades at the DB layer).
- *   3. Refresh formations + contacts state.
+ *   1. POST auto-populate with selected_keys so the server creates formations
+ *      + contacts for the selected stable keys only (server-side filter —
+ *      unselected keys are never created, so there is nothing to clean up).
+ *      Idempotent — existing rows are skipped; orphaned FormationContactOrm rows
+ *      with NULL observation_layer_id are purged before the idempotency index
+ *      is built so prior failed runs cannot permanently suppress re-creation.
+ *   2. Refetch the formation list fresh (never filter a stale closure).
+ *   3. Delete every formation in the fresh list whose stable key
+ *      (regional_ref ?? name, lowercased) is NOT in selectedKeys. Deletions
+ *      cascade contacts via the existing DELETE /formations/{fid} endpoint
+ *      (which cascades at the DB layer). Run sequentially to avoid
+ *      race conditions on overlapping contact sets.
+ *   4. Refresh formations + contacts state.
  *
  * The confirm gate (irreversible-action warning) lives in FormationSelectionDialog,
  * not here. This action fires only after the user has confirmed.
  *
  * Parameters
  * ----------
- * selectedNames
- *     The formation names the user chose to keep / create.
+ * selectedKeys
+ *     The stable keys (candidate.key) the user chose to keep / create.
+ *     Passed verbatim as selected_keys to the auto-populate endpoint.
  * boreholeIds
  *     The boreholes in scope (same list passed to discoverBoreholeFormations).
  */
 applyBoreholeFormationSelection: (
-  selectedNames: ReadonlySet<string>,
+  selectedKeys: ReadonlySet<string>,
   boreholeIds: readonly string[]
 ) => Promise<void>
 ```
@@ -1281,13 +1320,23 @@ applyBoreholeFormationSelection: (
 | Action | Endpoints |
 |---|---|
 | `discoverBoreholeFormations` | `POST .../discover-from-stratigraphy` (new additive read-only endpoint) |
-| `applyBoreholeFormationSelection` (step 1) | `POST .../contacts/auto-populate` (existing `handleAutoPopulateFromStratigraphy`) |
-| `applyBoreholeFormationSelection` (step 2) | `DELETE /projects/{pid}/geology/formations/{fid}` per unselected formation (existing endpoint, one call per formation) |
+| `applyBoreholeFormationSelection` (step 1) | `POST .../contacts/auto-populate` with `selected_keys` body field (existing endpoint, additive param) |
+| `applyBoreholeFormationSelection` (step 3) | `DELETE /projects/{pid}/geology/formations/{fid}` per unselected formation (existing endpoint, one call per formation) |
 
-Step 2 runs the deletions sequentially (not in parallel) to avoid cascading
+Step 3 runs the deletions sequentially (not in parallel) to avoid cascading
 race conditions in the backend — a formation delete cascades contacts, and
 parallel deletes on overlapping contact sets are unnecessary risk. Sequential
 is fine at v1 cardinality (typically 5–15 formations).
+
+**Why server-side key filter removes the create-then-delete pattern.** The
+original design called `handleAutoPopulateFromStratigraphy` (no filter) then
+deleted unselected formations. This produced a race condition: the stale
+`formations` closure used to compute `toDelete` did not include the formations
+just created in step 1, so they were immediately deleted in step 2. The
+corrected design passes `selected_keys` to the server so only the chosen
+formations are ever created — there are no unselected formations to clean up
+(they were never created). Step 3's delete-the-rest removes formations that
+pre-existed in the model but are no longer in the selection.
 
 `applyBoreholeFormationSelection` is NOT added to the undo stack. The
 delete-the-rest operation deletes unknown quantities of user data;
@@ -1314,7 +1363,13 @@ interface FormationSelectionDialogProps {
   currentFormations: GeologicalFormationResponse[]
   /** Current contacts in the model — used to compute M in the "M contacts deleted" warning. */
   currentContacts: FormationContactResponse[]
-  onConfirm: (selectedNames: ReadonlySet<string>) => void
+  /**
+   * Fired on "Apply selection" with the set of stable keys (candidate.key)
+   * the user has checked. The hook passes these directly to the server's
+   * selected_keys filter — identity is preserved regardless of working-name
+   * variation across boreholes sharing a formal stratigraphy code.
+   */
+  onConfirm: (selectedKeys: ReadonlySet<string>) => void
   onCancel: () => void
 }
 ```
@@ -1332,9 +1387,10 @@ interface FormationSelectionDialogProps {
 4. **Candidate list** — one row per candidate, checkbox + name +
    `"found in N borehole(s)"` secondary text. Rows sorted by `boreholeCount`
    descending (most-represented first), then alphabetically. Default state:
-   if a candidate's name matches a formation already in the model, it is
-   pre-checked; new candidates are unchecked by default (the user has to
-   opt in to adding new formations, not opt out of deleting things).
+   if a candidate's stable key (`candidate.key`, lowercased) matches the
+   stable key of a formation already in the model (`f.regional_ref ?? f.name`,
+   lowercased), it is pre-checked; new candidates are unchecked by default (the
+   user has to opt in to adding new formations, not opt out of deleting things).
 5. **Deletion warning** — shown only when the current selection would cause
    at least one deletion: `"N formation(s) and M contact(s) will be
    permanently deleted."` in `text-red-600`. N and M are recomputed live as
