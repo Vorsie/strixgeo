@@ -4,11 +4,11 @@
 //   1. Fill from boreholes (primary accent) — opens FormationSelectionDialog
 //      via discoverBoreholeFormations; apply calls applyBoreholeFormationSelection.
 //   2. Separator.
-//   3. Build model — calls handleRebuildSurfaces; amber badge when stale.
+//   3. Build 3D model — calls handleRebuildSurfaces; amber badge when stale.
 //   4. Dedupe — calls handleDedupeContacts (model maintenance verb).
 //   5. Separator.
 //   6. Reset view — collapses split viewport + flies camera to model bounding box.
-//   7. Delete model — irreversible; confirm modal with Cancel default focus.
+//   7. Delete stratigraphy — irreversible; confirm modal with Cancel default focus.
 //
 // Reset wiring: the camera fly-to and split-collapse are performed via
 // module-level ref callbacks exported from GeologyCanvas (resetCameraCallback
@@ -183,8 +183,8 @@ export default function GeologyToolbar(): JSX.Element {
     !discovering && !applying && visibleBoreholes.length > 0
   const staleLabel =
     staleSurfaceCount > 0
-      ? `Build · ${staleSurfaceCount} stale`
-      : 'Build model'
+      ? `Build 3D model · ${staleSurfaceCount} stale`
+      : 'Build 3D model'
 
   // ---------------------------------------------------------------------------
   // Render
@@ -220,7 +220,7 @@ export default function GeologyToolbar(): JSX.Element {
       {/* Separator */}
       <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
 
-      {/* Build model — amber badge when surfaces are stale */}
+      {/* Build 3D model — amber badge when surfaces are stale */}
       <ToolbarButton
         icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
         label={rebuilding ? 'Building…' : staleLabel}
@@ -229,9 +229,9 @@ export default function GeologyToolbar(): JSX.Element {
         amber={staleSurfaceCount > 0 && !rebuilding}
         title={
           !hasModel
-            ? 'No active geological model — create formations and contacts first'
+            ? 'No active stratigraphy — create formations and contacts first'
             : rebuilding
-              ? 'Building surfaces…'
+              ? 'Building 3D model…'
               : staleSurfaceCount > 0
                 ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
                 : 'Rebuild TIN surfaces from current contacts'
@@ -246,7 +246,7 @@ export default function GeologyToolbar(): JSX.Element {
         disabled={!hasModel || deduping}
         title={
           !hasModel
-            ? 'No active geological model'
+            ? 'No active stratigraphy'
             : deduping
               ? 'Cleaning…'
               : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group'
@@ -269,15 +269,15 @@ export default function GeologyToolbar(): JSX.Element {
         disabled={!hasModel}
         title={
           !hasModel
-            ? 'No active geological model'
+            ? 'No active stratigraphy'
             : 'Reset to single 3D view and fly camera to model bounding box'
         }
       />
 
-      {/* Delete model — irreversible; opens a confirm modal */}
+      {/* Delete stratigraphy — irreversible; opens a confirm modal */}
       <ToolbarButton
         icon={<Trash2 size={13} />}
-        label={deletingModel ? 'Deleting…' : 'Delete model'}
+        label={deletingModel ? 'Deleting…' : 'Delete stratigraphy'}
         onClick={() => {
           if (!hasModel || deletingModel) return
           setDeleteModelConfirmOpen(true)
@@ -286,7 +286,7 @@ export default function GeologyToolbar(): JSX.Element {
         danger
         title={
           !hasModel
-            ? 'No active geological model'
+            ? 'No active stratigraphy'
             : 'Permanently delete the active geological model and all its formations, contacts, and surfaces'
         }
       />
