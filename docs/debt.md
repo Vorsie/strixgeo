@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current Phase 4 friction / launch-demo blockers:** #34, #35
+* **C. Current Phase 4 friction / launch-demo blockers:** #35
 * **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50, #51
 
@@ -29,7 +29,8 @@ exporter shipped), #31 resolved (section CRS allowlist guard),
 #33 resolved (Geology empty-state CTA + 3-case copy), #32 resolved
 (geotech-units round-trip already covered by
 ``test_bundle_carries_geotechnical_units`` — confirmed green, no code
-change). 40 open items**) compact
+change), #34 resolved (elevation PATCH stales dependent TINs in-
+transaction). 39 open items**) compact
 them. Commit messages and code comments written before a cleanup
 pass continue to reference the OLD numbers — that's an unavoidable
 cost of the renumber. Sections #2–#28 below remain in their prior
@@ -597,30 +598,6 @@ no nearby data".
 > security-reviewer, staff-engineer, product-strategy-advisor, and
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
-
-## 34. `PATCH .../elevation` does not stale dependent TIN surfaces (Tier C — silent wrong geometry)
-
-**What.** Every formation-contact mutation flips the affected
-`formation_surface.is_stale = True`. But `PATCH /cpt/{id}/elevation`
-and `PATCH /borehole/{id}/elevation` — which change the Z used by
-every contact at that anchor — call `set_elevation` and return
-without touching any surface row. A corrected elevation silently
-leaves stale TINs rendering at full opacity / solid (the freshness
-badge shows nothing), so the 3D viewer and section editor display
-geometrically-wrong surfaces that *look* fresh. `RebuildModelSurfaces`
-documents this as a known hook-coverage gap; flagged independently
-by two audit agents.
-
-**Why deferred.** The elevation routers are project-scoped (no model
-in the URL), so marking stale needs a project→models→affected-
-formations fan-out; judged not worth it for the initial cut, and in
-practice Z is usually set before contacts.
-
-**When to revisit.** Before any non-solo distribution — this is the
-kind of silent inconsistency that is hard to explain to an engineer.
-Fix (~½ day): after `set_elevation`, `SELECT DISTINCT model_id,
-formation_id FROM formation_contact WHERE cpt_id = $1 OR borehole_id
-= $1` and bulk-set `is_stale = True`.
 
 ## 35. "Build model" silently overwrites user drag-reorder via age inference (Tier C — Build is unsafe for unusual stratigraphy)
 
