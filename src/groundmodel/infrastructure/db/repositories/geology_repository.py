@@ -313,23 +313,33 @@ class GeologyRepository(GroundModelLogger):
         return target
 
     async def delete_model(self, model_id: UUID) -> bool:
-        """Delete a model and all project formations.
+        """Delete a model, removing only the formations it actually owns.
 
-        Under the v1 "exactly one geological model per project" invariant
-        (CLAUDE.md §"Modelling hierarchy"), formations are project-scoped
-        rather than model-FK'd — deleting the model does NOT cascade them
-        automatically. We therefore delete all formations for the project
-        first; their ORM-level ``cascade="all, delete-orphan"`` on ``contacts``
-        and ``units`` handles the subordinate rows.
+        Debt #37 — the old behaviour deleted **every** project formation
+        on any model delete. Formations are project-scoped (no model FK,
+        correct as shared vocabulary), and multiple models per project is
+        a designed capability (``set_active_model`` clears siblings), so
+        the blanket delete meant: deleting model A silently destroyed the
+        formations of model B. That is catastrophic, hard-to-explain data
+        loss for a dogfeeding engineer.
 
-        When Phase-5 multi-model support lands, formations will be shared
-        across models and this cascade must become model-aware (only remove
-        formations that are exclusively referenced by this model). Mark that
-        as tech debt before adding a second model creation path.
+        New, model-aware rule:
 
-        The contacts and surfaces of the model itself still cascade via the
-        ``GeologicalModelOrm`` ORM relationships and are dropped by
-        ``session.delete(model)``.
+        * A formation with a contact in THIS model and **none in any
+          other model** is exclusively this model's → delete it (ORM
+          cascade drops its contacts + geotechnical units).
+        * A formation with a contact in another model is shared → KEEP
+          it (the other model still needs it).
+        * A formation with no contacts in any model is unplaced project
+          vocabulary. KEEP it when other models remain; delete it only
+          when this is the project's **last** model — that preserves the
+          original single-model "delete the model = clean slate, no
+          orphan formations stranding a stale inspector badge" intent
+          without touching shared vocabulary in the multi-model case.
+
+        The model's own contacts + surfaces always cascade via the
+        ``GeologicalModelOrm`` ORM relationships when ``session.delete``
+        runs, regardless of formation ownership.
 
         Parameters
         ----------
@@ -339,8 +349,8 @@ class GeologyRepository(GroundModelLogger):
         Returns
         -------
         bool
-            ``True`` when the model existed and was removed, ``False`` when
-            no row matched ``model_id``.
+            ``True`` when the model existed and was removed, ``False``
+            when no row matched ``model_id``.
         """
         self.debug(f"delete_model entry model_id={model_id}")
         model = await self._session.get(GeologicalModelOrm, model_id)
@@ -350,21 +360,82 @@ class GeologyRepository(GroundModelLogger):
 
         project_id = model.app_project_id
 
-        # Delete all project formations first. Their ORM cascade removes
-        # subordinate contacts + geotechnical units automatically.
-        formations = await self.list_formations(project_id)
-        formation_count = len(formations)
-        for formation in formations:
-            await self._session.delete(formation)
-        self.debug(
-            f"delete_model: queued deletion of {formation_count} formation(s) "
-            f"for project {project_id}"
+        # Does the project have any OTHER model? Drives the orphan-
+        # formation rule below (last model → clean slate; otherwise keep
+        # shared vocabulary).
+        sibling_model_ids = [
+            mid
+            for mid in (
+                await self._session.execute(
+                    select(GeologicalModelOrm.id).where(
+                        GeologicalModelOrm.app_project_id == project_id,
+                        GeologicalModelOrm.id != model_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        ]
+        is_last_model = not sibling_model_ids
+
+        # Formation ids with at least one contact in THIS model.
+        fids_here: set[UUID] = set(
+            (
+                await self._session.execute(
+                    select(FormationContactOrm.formation_id)
+                    .where(FormationContactOrm.model_id == model_id)
+                    .distinct()
+                )
+            )
+            .scalars()
+            .all()
         )
+        # Formation ids referenced by ANY sibling model.
+        fids_elsewhere: set[UUID] = set()
+        if sibling_model_ids:
+            fids_elsewhere = set(
+                (
+                    await self._session.execute(
+                        select(FormationContactOrm.formation_id)
+                        .where(FormationContactOrm.model_id.in_(sibling_model_ids))
+                        .distinct()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        formations = await self.list_formations(project_id)
+        deleted = 0
+        kept_shared = 0
+        kept_vocab = 0
+        for formation in formations:
+            here = formation.id in fids_here
+            elsewhere = formation.id in fids_elsewhere
+            if here and not elsewhere:
+                # Exclusively this model's — safe to delete.
+                await self._session.delete(formation)
+                deleted += 1
+            elif elsewhere:
+                # Used by another model — must survive.
+                kept_shared += 1
+            elif is_last_model:
+                # Unplaced vocabulary, no other model → clean slate.
+                await self._session.delete(formation)
+                deleted += 1
+            else:
+                # Unplaced, but other models remain → keep as project
+                # vocabulary they may still use.
+                kept_vocab += 1
 
         # Delete the model — ORM cascade drops its contacts + surfaces.
         await self._session.delete(model)
         await self._session.flush()
-        self.success(f"delete_model ok model_id={model_id} formations_deleted={formation_count}")
+        self.success(
+            f"delete_model ok model_id={model_id} "
+            f"formations_deleted={deleted} kept_shared={kept_shared} "
+            f"kept_vocab={kept_vocab} is_last_model={is_last_model}"
+        )
         return True
 
     # -----------------------------------------------------------------
