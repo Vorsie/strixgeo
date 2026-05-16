@@ -43,7 +43,7 @@ from groundmodel.domain.services.dem_clip_constants import (
     KIND_CONTACT_ABOVE_DEM,
     KIND_DEM_CELL_LOW_CONFIDENCE,
 )
-from groundmodel.domain.services.tin_surface import TinSurface
+from groundmodel.domain.services.tin_surface import ContactPoint3D, TinSurface, compute_tin
 from groundmodel.domain.value_objects.gap_issue import GapIssue
 
 
@@ -202,8 +202,6 @@ def build_ground_surface_tin(
     Uses ``compute_tin`` from ``tin_surface.py`` for the Delaunay step so the
     terrain TIN shares the same degenerate-input handling as formation TINs.
     """
-    from groundmodel.domain.services.tin_surface import ContactPoint3D, compute_tin
-
     if not hull_points:
         return TinSurface(vertices=[], triangles=[])
 
