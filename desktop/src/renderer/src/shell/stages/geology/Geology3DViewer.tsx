@@ -562,8 +562,12 @@ function CesiumViewport({
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
-  // Track the current imagery layer so we can remove it when basemap changes.
+  // Track both imagery layers so we can remove both on basemap swap.
+  // Some basemaps have an overlay (e.g. Geopunt hybrid = base + GRB-selectie
+  // transparent layer); tracking only the primary layer leaks the overlay on
+  // every basemap change.
   const imageryLayerRef = useRef<Cesium.ImageryLayer | null>(null)
+  const imageryOverlayLayerRef = useRef<Cesium.ImageryLayer | null>(null)
   // Track the active click handler so we can remove it on cleanup.
   const clickHandlerRef = useRef<Cesium.ScreenSpaceEventHandler | null>(null)
 
@@ -575,6 +579,10 @@ function CesiumViewport({
     const container = containerRef.current
     if (!container) return
 
+    // StrictMode fires this effect twice (mount → cleanup → re-mount). The
+    // cleanup destroys the widget and nulls widgetRef/cameraResetRef; the
+    // subsequent effects guard via `if (!widget) return`, so no explicit
+    // double-init guard is needed — the null checks are sufficient.
     const widget = new Cesium.CesiumWidget(container, {
       // Flat globe — no Cesium ion terrain. The project elevations are used
       // directly as ellipsoidal heights (the ~45 m geoid offset is shared by
@@ -597,7 +605,14 @@ function CesiumViewport({
     return () => {
       widget.destroy()
       widgetRef.current = null
+      // Null the camera reset ref so callers get null rather than a stale
+      // callback pointing at the destroyed widget's scene.camera.
+      if (cameraResetRef) cameraResetRef.current = null
     }
+    // reason: cameraResetRef is a stable module-level object literal — its
+    // identity never changes, so it is safe to omit from the dep array.
+    // Including it would cause spurious widget remounts on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ---------------------------------------------------------------------------
@@ -616,44 +631,10 @@ function CesiumViewport({
       groundSurface,
     )
 
-    // Apply clipping plane if this is a split viewport.
-    if (clippingPlane) {
-      const clipNormal = invertClip
-        ? Cesium.Cartesian3.negate(clippingPlane.normal, new Cesium.Cartesian3())
-        : clippingPlane.normal
-
-      const clipCollection = new Cesium.ClippingPlaneCollection({
-        planes: [
-          new Cesium.ClippingPlane(clipNormal, clippingPlane.distance),
-        ],
-        // Do not apply to the globe background — only to primitives.
-        enabled: true,
-      })
-
-      // Apply the clipping collection to every primitive. Cesium requires
-      // setting ClippingPlaneCollection per-primitive; there is no scene-
-      // level collection API for Primitive (only for globe/model).
-      // For this viewer, we clip by rendering both scenes and letting each
-      // widget's viewport show only its half of the model — simpler than
-      // per-primitive clipping.
-      // The geometric split is enforced by the camera frustum being set to
-      // cover only the near half (via splitLeftFraction / splitRightFraction)
-      // when two widgets are side by side in the DOM.
-      //
-      // NOTE: ``ClippingPlaneCollection`` on individual Cesium.Primitive is
-      // not part of the public API (it is on Cesium3DTileset and Model). For
-      // a pure Geometry/Primitive-based scene, the practical split-viewport
-      // approach is two side-by-side widgets sharing the same data but with
-      // independent cameras.  The clipping visual is achieved by the DOM
-      // layout (each widget occupies exactly half the container), which is
-      // correct for the intended "two independent inspection windows" UX.
-      //
-      // The ``clipCollection`` variable is retained here as scaffolding for a
-      // post-launch enhancement where Cesium3DTileset-based point clouds or
-      // photogrammetric models are displayed alongside TIN surfaces — those
-      // DO support per-primitive ClippingPlaneCollection.
-      void clipCollection // deliberate no-op for now — see comment above
-    }
+    // TODO(post-v1.0): per-primitive clipping for Cesium3DTileset/photogrammetric overlays.
+    // ClippingPlaneCollection is not part of the public API for raw Geometry/Primitive;
+    // it is supported on Cesium3DTileset and Model. The DOM layout (each widget occupies
+    // exactly half the container) provides the visual split for this viewer.
 
     // Wire the camera reset ref after surfaces are added.
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -680,7 +661,13 @@ function CesiumViewport({
     const widget = widgetRef.current
     if (!widget) return
 
-    // Remove the previous imagery layer.
+    // Remove both the previous base layer and overlay layer before swapping
+    // to the new basemap. Failing to remove the overlay causes it to
+    // accumulate on every swap to a basemap-with-overlay.
+    if (imageryOverlayLayerRef.current) {
+      widget.scene.imageryLayers.remove(imageryOverlayLayerRef.current, true)
+      imageryOverlayLayerRef.current = null
+    }
     if (imageryLayerRef.current) {
       widget.scene.imageryLayers.remove(imageryLayerRef.current, true)
       imageryLayerRef.current = null
@@ -691,7 +678,8 @@ function CesiumViewport({
     imageryLayerRef.current = layer
 
     // If the source has an overlay (e.g. Geopunt hybrid: GRB-selectie
-    // transparent layer over orthophoto), add it as a second imagery layer.
+    // transparent layer over orthophoto), add it as a second imagery layer
+    // and track it separately so the next swap removes it cleanly.
     if (activeBasemap.overlay) {
       const overlayProvider = buildImageryProvider({
         ...activeBasemap,
@@ -700,7 +688,8 @@ function CesiumViewport({
         attribution: activeBasemap.overlay.attribution,
         overlay: undefined,
       })
-      widget.scene.imageryLayers.addImageryProvider(overlayProvider)
+      imageryOverlayLayerRef.current =
+        widget.scene.imageryLayers.addImageryProvider(overlayProvider)
     }
   }, [activeBasemap])
 
@@ -916,7 +905,9 @@ export default function Geology3DViewer({
         }
       }
     },
-    [splitMode, splitPlane, drawState, projectEpsg, onSplitPlaneDrawn],
+    // projectEpsg is intentionally absent: computeSplitPlane works purely
+    // in ECEF/WGS84 and never reads the project CRS.
+    [splitMode, splitPlane, drawState, onSplitPlaneDrawn],
   )
 
   // Only wire the click handler on the primary viewport when in draw mode.
