@@ -1043,15 +1043,15 @@ function BasemapPanel({ activeBasemapId, onSelect }: BasemapPanelProps): JSX.Ele
         onClick={() => setOpen(o => !o)}
         className={[
           'flex items-center gap-1 px-2 py-1 rounded text-xs font-medium',
-          'bg-white/80 backdrop-blur-sm text-gray-700 shadow-sm',
-          'hover:bg-white transition-colors',
+          'bg-surface-overlay/80 backdrop-blur-sm text-text-secondary border border-border-default shadow-sm',
+          'hover:bg-surface-overlay transition-colors',
         ].join(' ')}
         title="Switch basemap"
       >
         {BASEMAP_SOURCES.find(b => b.id === activeBasemapId)?.label ?? 'Basemap'}
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1 bg-white rounded shadow-lg min-w-40 py-1 z-20">
+        <div className="absolute top-full right-0 mt-1 bg-surface-overlay border border-border-default rounded shadow-lg min-w-40 py-1 z-20">
           {BASEMAP_SOURCES.map(b => (
             <button
               key={b.id}
@@ -1063,8 +1063,8 @@ function BasemapPanel({ activeBasemapId, onSelect }: BasemapPanelProps): JSX.Ele
               className={[
                 'w-full text-left px-3 py-1.5 text-xs',
                 b.id === activeBasemapId
-                  ? 'font-semibold text-blue-600 bg-blue-50'
-                  : 'text-gray-700 hover:bg-gray-50',
+                  ? 'font-semibold text-accent bg-surface-card'
+                  : 'text-text-secondary hover:bg-surface-card',
               ].join(' ')}
             >
               {b.label}
