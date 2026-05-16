@@ -538,15 +538,29 @@ async def restore_project_bundle(
         .all()
     )
     new_cpts = 0
-    for cpt_payload in cpts_payload:
+    total_cpts = len(cpts_payload)
+    logger.info(f"restoring {total_cpts} cpt(s) for project {project_id}")
+    skipped_cpts = 0
+    for i, cpt_payload in enumerate(cpts_payload, start=1):
         cpt_id_raw = cpt_payload.get("id")
         if cpt_id_raw is None:
+            # Bulk-loop DoD: log what was NOT restored + why, not just
+            # the happy path — a silent `continue` hides malformed rows.
+            logger.debug(f"[{i}/{total_cpts}] cpt skipped — payload has no id")
+            skipped_cpts += 1
             continue
         cpt_id = UUID(cpt_id_raw) if isinstance(cpt_id_raw, str) else cpt_id_raw
         if cpt_id in existing_cpt_ids:
+            logger.debug(f"[{i}/{total_cpts}] cpt {cpt_id} already present — skipped")
+            skipped_cpts += 1
             continue
         session.add(_build_cpt(cpt_payload, project_id))
         new_cpts += 1
+        logger.debug(f"[{i}/{total_cpts}] cpt {cpt_id} queued for insert")
+    logger.info(
+        f"cpt restore: {new_cpts} new, {skipped_cpts} skipped "
+        f"(of {total_cpts}) for project {project_id}"
+    )
 
     # ---- Boreholes -------------------------------------------------------
     existing_bh_ids = set(
@@ -559,15 +573,27 @@ async def restore_project_bundle(
         .all()
     )
     new_boreholes = 0
-    for bh_payload in boreholes_payload:
+    total_bh = len(boreholes_payload)
+    logger.info(f"restoring {total_bh} borehole(s) for project {project_id}")
+    skipped_bh = 0
+    for i, bh_payload in enumerate(boreholes_payload, start=1):
         bh_id_raw = bh_payload.get("id")
         if bh_id_raw is None:
+            logger.debug(f"[{i}/{total_bh}] borehole skipped — payload has no id")
+            skipped_bh += 1
             continue
         bh_id = UUID(bh_id_raw) if isinstance(bh_id_raw, str) else bh_id_raw
         if bh_id in existing_bh_ids:
+            logger.debug(f"[{i}/{total_bh}] borehole {bh_id} already present — skipped")
+            skipped_bh += 1
             continue
         session.add(_build_borehole(bh_payload, project_id))
         new_boreholes += 1
+        logger.debug(f"[{i}/{total_bh}] borehole {bh_id} queued for insert")
+    logger.info(
+        f"borehole restore: {new_boreholes} new, {skipped_bh} skipped "
+        f"(of {total_bh}) for project {project_id}"
+    )
 
     # ---- Geological formations -------------------------------------------
     # Formations are project-scoped (not nested under a model), so each
