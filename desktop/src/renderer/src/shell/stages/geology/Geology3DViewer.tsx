@@ -139,84 +139,93 @@ const GROUND_SURFACE_COLOR = new Cesium.Color(0.55, 0.52, 0.48, ALPHA_GROUND_SUR
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Geopunt orthophoto WMS (verified live 2026-05-16: serves EPSG:31370
+// + image/png GetMap, layer "Ortho"). One GetMap for the model bbox is
+// the "GIS magic" the user asked for — far more robust than draping a
+// WMTS over the whole Cesium ellipsoid (the GoogleMapsVL matrixset
+// never tiles right under Cesium → the 400-storm + smeared "wall").
+const GEOPUNT_ORTHO_WMS = 'https://geo.api.vlaanderen.be/omwrgbmrvl/wms'
+
+/** A single georeferenced image draped flat as a "lid" on top of the
+ * model: the WGS84 rectangle to place it in, the elevation (top of the
+ * model) to place it at, and the one-shot WMS GetMap image URL. */
+interface BasemapLid {
+  rect: Cesium.Rectangle
+  elevation: number
+  url: string
+}
+
 /**
- * WGS84 rectangle enclosing every vertex across a set of surfaces,
- * padded ~8 %. Used to clip the basemap imagery to the model footprint
- * (a "cutout") so Cesium does NOT drape — and tile-flood 400 — the
- * whole ellipsoid. Returns ``null`` when there are no vertices yet.
+ * Compute the basemap "lid" — one Geopunt orthophoto GetMap image for
+ * the model footprint, placed as a flat textured rectangle at the
+ * model's top elevation (a cap on the geological block, not globe
+ * imagery). Only Belgian Lambert-72 projects (Geopunt's only CRS for
+ * this layer); returns ``null`` otherwise or when there are no
+ * vertices yet.
+ *
+ * Parameters
+ * ----------
+ * surfaces
+ *     Anything with projected ``[x, y, z]`` vertices in ``projectEpsg``
+ *     (formation TINs + the ground surface).
+ * projectEpsg
+ *     Project horizontal CRS. Must be 31370 for the Geopunt ortho.
+ *
+ * Returns
+ * -------
+ * BasemapLid | null
  */
-function surfacesRectangle(
-  surfaces: FormationSurfaceResponse[],
+function buildBasemapLid(
+  surfaces: { vertices: readonly (readonly [number, number, number])[] }[],
   projectEpsg: number,
-): Cesium.Rectangle | null {
-  let minLat = Infinity
-  let maxLat = -Infinity
-  let minLng = Infinity
-  let maxLng = -Infinity
+): BasemapLid | null {
+  if (projectEpsg !== 31370) return null
+  let minE = Infinity
+  let maxE = -Infinity
+  let minN = Infinity
+  let maxN = -Infinity
+  let maxZ = -Infinity
   let n = 0
   for (const s of surfaces) {
-    for (const [x, y] of s.vertices) {
-      const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
-      if (lat < minLat) minLat = lat
-      if (lat > maxLat) maxLat = lat
-      if (lng < minLng) minLng = lng
-      if (lng > maxLng) maxLng = lng
+    for (const [x, y, z] of s.vertices) {
+      if (x < minE) minE = x
+      if (x > maxE) maxE = x
+      if (y < minN) minN = y
+      if (y > maxN) maxN = y
+      if (z > maxZ) maxZ = z
       n++
     }
   }
   if (n === 0) return null
-  const padLat = (maxLat - minLat) * 0.08 || 0.001
-  const padLng = (maxLng - minLng) * 0.08 || 0.001
-  return Cesium.Rectangle.fromDegrees(
-    minLng - padLng,
-    minLat - padLat,
-    maxLng + padLng,
-    maxLat + padLat,
+  const padE = (maxE - minE) * 0.08 || 1
+  const padN = (maxN - minN) * 0.08 || 1
+  minE -= padE
+  maxE += padE
+  minN -= padN
+  maxN += padN
+  const [latSW, lngSW] = projectedToWgs84(minE, minN, projectEpsg)
+  const [latNE, lngNE] = projectedToWgs84(maxE, maxN, projectEpsg)
+  const rect = Cesium.Rectangle.fromDegrees(
+    Math.min(lngSW, lngNE),
+    Math.min(latSW, latNE),
+    Math.max(lngSW, lngNE),
+    Math.max(latSW, latNE),
   )
-}
-
-/**
- * Build a Cesium UrlTemplateImageryProvider for any of the supported
- * basemap sources.
- *
- * Geopunt WMTS endpoints use ``{z}/{y}/{x}`` KVP parameters (TILEROW /
- * TILECOL / TILEMATRIX) which Cesium's ``UrlTemplateImageryProvider``
- * serves correctly via its ``{z}``, ``{x}``, ``{y}`` substitution tokens.
- * Esri MapServer uses ``{z}/{y}/{x}`` (y and x inverted vs OSM/CARTO);
- * the URL templates in ``basemapSources.ts`` are already correct for
- * Leaflet's template syntax, which Cesium uses 1:1.
- *
- * Subdomains: Leaflet uses ``{s}`` with the ``subdomains`` option; Cesium
- * ``UrlTemplateImageryProvider`` uses ``{s}`` natively when
- * ``subdomains`` is passed as an array. We convert the single-string form
- * (e.g. ``'abcd'``) to a char array here.
- *
- * Parameters
- * ----------
- * source
- *     Basemap descriptor from ``BASEMAP_SOURCES``.
- *
- * Returns
- * -------
- * Cesium.UrlTemplateImageryProvider
- *     Provider instance for the base tile layer.
- */
-function buildImageryProvider(
-  source: BasemapSource,
-  rectangle: Cesium.Rectangle,
-): Cesium.UrlTemplateImageryProvider {
-  return new Cesium.UrlTemplateImageryProvider({
-    url: source.url,
-    subdomains: source.subdomains ? source.subdomains.split('') : undefined,
-    credit: new Cesium.Credit(source.attribution, false),
-    // Clip to the model footprint so Cesium never drapes/refines the
-    // whole ellipsoid (the cause of the thousands of Geopunt 400s and
-    // the runaway Level-21 requests). minimumLevel/maximumLevel cap
-    // refinement to sane regional zoom.
-    rectangle,
-    minimumLevel: 11,
-    maximumLevel: 19,
-  })
+  // Image px ~ bbox aspect, capped at 2048 on the long side.
+  const dE = maxE - minE
+  const dN = maxN - minN
+  const longSide = Math.max(dE, dN, 1)
+  const scale = 2048 / longSide
+  const imgW = Math.max(1, Math.round(dE * scale))
+  const imgH = Math.max(1, Math.round(dN * scale))
+  // WMS 1.1.1 — avoids the 1.3.0 EPSG:31370 axis-order trap (1.1.1 is
+  // always minx,miny,maxx,maxy = easting,northing).
+  const url =
+    `${GEOPUNT_ORTHO_WMS}?service=WMS&request=GetMap&version=1.1.1` +
+    `&layers=Ortho&styles=&srs=EPSG:31370&format=image/png` +
+    `&width=${imgW}&height=${imgH}` +
+    `&bbox=${minE},${minN},${maxE},${maxN}`
+  return { rect, elevation: maxZ + 0.5, url }
 }
 
 /**
@@ -383,8 +392,32 @@ function rebuildSurfacePrimitives(
   projectEpsg: number,
   groundSurface?: GroundSurfaceBuildResponse | null,
   hiddenFormationIds?: ReadonlySet<string>,
+  lid?: BasemapLid | null,
 ): void {
   scene.primitives.removeAll()
+
+  // Basemap "lid" — one georeferenced orthophoto image draped flat as
+  // a textured rectangle at the model's top elevation. Added inside
+  // the same removeAll/re-add pass as the TINs so it never leaks and
+  // is always positioned on top of the block (the cap of the cake).
+  if (lid) {
+    scene.primitives.add(
+      new Cesium.Primitive({
+        geometryInstances: new Cesium.GeometryInstance({
+          geometry: new Cesium.RectangleGeometry({
+            rectangle: lid.rect,
+            height: lid.elevation,
+            vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+          }),
+        }),
+        appearance: new Cesium.EllipsoidSurfaceAppearance({
+          aboveGround: true,
+          material: Cesium.Material.fromType('Image', { image: lid.url }),
+        }),
+        asynchronous: false,
+      }),
+    )
+  }
 
   // Ground-surface TIN — rendered first (painter's algorithm: drawn below
   // formation surfaces). Uses a warm-grey earth tone at 45 % alpha so
@@ -578,7 +611,6 @@ function CesiumViewport({
   viewportKey,
   formations,
   surfacesByFormationId,
-  activeBasemap,
   projectEpsg,
   clippingPlane = null,
   invertClip = false,
@@ -590,12 +622,6 @@ function CesiumViewport({
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
-  // Track both imagery layers so we can remove both on basemap swap.
-  // Some basemaps have an overlay (e.g. Geopunt hybrid = base + GRB-selectie
-  // transparent layer); tracking only the primary layer leaks the overlay on
-  // every basemap change.
-  const imageryLayerRef = useRef<Cesium.ImageryLayer | null>(null)
-  const imageryOverlayLayerRef = useRef<Cesium.ImageryLayer | null>(null)
   // Track the active click handler so we can remove it on cleanup.
   const clickHandlerRef = useRef<Cesium.ScreenSpaceEventHandler | null>(null)
 
@@ -651,6 +677,16 @@ function CesiumViewport({
     const widget = widgetRef.current
     if (!widget) return
 
+    // Basemap lid: one Geopunt ortho GetMap over the model footprint,
+    // placed flat at the model top. Off when the user toggled the
+    // basemap off, or no model yet, or non-Belgian CRS.
+    const lidSurfaces: { vertices: readonly (readonly [number, number, number])[] }[] =
+      [...surfacesByFormationId.values()]
+    if (groundSurface && groundSurface.vertices.length > 0) {
+      lidSurfaces.push({ vertices: groundSurface.vertices })
+    }
+    const lid = basemapEnabled ? buildBasemapLid(lidSurfaces, projectEpsg) : null
+
     rebuildSurfacePrimitives(
       widget.scene,
       formations,
@@ -658,6 +694,7 @@ function CesiumViewport({
       projectEpsg,
       groundSurface,
       hiddenFormationIds,
+      lid,
     )
 
     // TODO(post-v1.0): per-primitive clipping for Cesium3DTileset/photogrammetric overlays.
@@ -680,72 +717,13 @@ function CesiumViewport({
     // basemap or clipping-plane change. The dep array includes surfaces and
     // groundSurface but not the camera ref — the ref is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formations, surfacesByFormationId, projectEpsg, groundSurface, hiddenFormationIds])
+  }, [formations, surfacesByFormationId, projectEpsg, groundSurface, hiddenFormationIds, basemapEnabled])
 
-  // ---------------------------------------------------------------------------
-  // Swap imagery layer when basemap changes
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    const widget = widgetRef.current
-    if (!widget) return
-
-    // Remove both the previous base layer and overlay layer before swapping
-    // to the new basemap. Failing to remove the overlay causes it to
-    // accumulate on every swap to a basemap-with-overlay.
-    if (imageryOverlayLayerRef.current) {
-      widget.scene.imageryLayers.remove(imageryOverlayLayerRef.current, true)
-      imageryOverlayLayerRef.current = null
-    }
-    if (imageryLayerRef.current) {
-      widget.scene.imageryLayers.remove(imageryLayerRef.current, true)
-      imageryLayerRef.current = null
-    }
-
-    // Basemap off, or no model footprint yet → no imagery at all. This
-    // is both the user "turn the basemap off" toggle AND the guard that
-    // prevents the whole-ellipsoid tile flood before any surface exists.
-    if (!basemapEnabled) return
-    const surfaces = Array.from(surfacesByFormationId.values())
-    const rectSources =
-      groundSurface && groundSurface.vertices.length > 0
-        ? [...surfaces, { vertices: groundSurface.vertices } as FormationSurfaceResponse]
-        : surfaces
-    const rect = surfacesRectangle(rectSources, projectEpsg)
-    if (!rect) return
-
-    // ImageryLayer.rectangle is read-only post-construction — it must be
-    // passed via the constructor (the layer-level clip that makes the
-    // basemap a true cutout over the model footprint).
-    const provider = buildImageryProvider(activeBasemap, rect)
-    const layer = new Cesium.ImageryLayer(provider, { rectangle: rect })
-    widget.scene.imageryLayers.add(layer)
-    imageryLayerRef.current = layer
-
-    // If the source has an overlay (e.g. Geopunt hybrid: GRB-selectie
-    // transparent layer over orthophoto), add it as a second imagery layer
-    // and track it separately so the next swap removes it cleanly.
-    if (activeBasemap.overlay) {
-      const overlayProvider = buildImageryProvider(
-        {
-          ...activeBasemap,
-          url: activeBasemap.overlay.url,
-          subdomains: undefined,
-          attribution: activeBasemap.overlay.attribution,
-          overlay: undefined,
-        },
-        rect,
-      )
-      const overlayLayer = new Cesium.ImageryLayer(overlayProvider, {
-        rectangle: rect,
-      })
-      widget.scene.imageryLayers.add(overlayLayer)
-      imageryOverlayLayerRef.current = overlayLayer
-    }
-    // reason: surfacesByFormationId / groundSurface drive the clip
-    // rectangle; basemapEnabled toggles imagery on/off.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBasemap, basemapEnabled, surfacesByFormationId, groundSurface, projectEpsg])
+  // (Basemap is no longer a Cesium ImageryLayer — it's a single
+  // georeferenced "lid" primitive built inside rebuildSurfacePrimitives;
+  // see buildBasemapLid. The old whole-ellipsoid tiled-imagery effect
+  // was removed: the Geopunt GoogleMapsVL matrixset never tiled right
+  // under Cesium → 400-storm + edge-on smear instead of a cutout.)
 
   // ---------------------------------------------------------------------------
   // Wire click handler for split-line draw interaction
