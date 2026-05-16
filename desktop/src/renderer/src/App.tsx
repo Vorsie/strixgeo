@@ -314,6 +314,7 @@ export default function App() {
     removeFromManifest,
     addToSessionImports,
     removeFromSessionImports,
+    manifestFormationIds,
   })
   // Local destructure is for App.tsx's own use ONLY. The COMPLETE hook
   // result is handed to the shell as `geoModel: geo` (below) — never a
@@ -648,18 +649,9 @@ export default function App() {
     [boreholes, manifestBoreholeIds, removedBoreholeIds],
   )
 
-  // Manifest-filtered formation list — single source of truth for
-  // "which formations are visible". Injected onto the geoModel bus so
-  // GeologyInspector, GeologyStage badge, and SectionsToolbar Seed gate
-  // all read the same value (Fix 3 — 2026-05-16). Formations have no
-  // removed-set; the manifest is the only filter.
-  const visibleFormations = useMemo(
-    () =>
-      manifestFormationIds !== undefined
-        ? formations.filter(f => manifestFormationIds.has(f.id))
-        : formations,
-    [formations, manifestFormationIds],
-  )
+  // R4 (debt #12): the manifest-filtered formation list moved INTO
+  // useGeologicalModel (it now takes manifestFormationIds). App no
+  // longer post-processes the geo slice — see geoModel: geo below.
 
   // Out-of-viewport sets — empty when the map hasn't reported bounds
   // yet. The Lambert72→WGS84 projection inside ``idsOutsideBounds``
@@ -783,13 +775,13 @@ export default function App() {
     },
     visibleCpts,
     visibleBoreholes,
-    // Whole hook result — see the comment at the useGeologicalModel call.
-    // Re-listing fields here is what dropped Fill's discover/apply.
-    // visibleFormations is overridden here because the hook itself does not
-    // have access to manifestFormationIds (a coordinator-level value). The
-    // spread adds the single extra field without re-listing every other field;
-    // all other geo fields remain exactly as the hook returned them.
-    geoModel: { ...geo, visibleFormations },
+    // Whole hook result, passed through untouched. R4 (debt #12):
+    // visibleFormations is now computed INSIDE useGeologicalModel
+    // (it takes manifestFormationIds), so the old ``{ ...geo,
+    // visibleFormations }`` spread is gone — no App-level
+    // post-processing of the geo slice, and no risk of the spread
+    // dropping a hook field (the bug the prior comment warned about).
+    geoModel: geo,
     sections: {
       sections,
       selectedSectionId,
@@ -880,7 +872,7 @@ export default function App() {
     handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
     visibleCpts, visibleBoreholes,
     // geological model fields
-    activeGeologicalModel, formations, visibleFormations, formationsRefreshCounter,
+    activeGeologicalModel, formations, formationsRefreshCounter,
     contacts, surfacesByFormationId, crossingsRefreshCounter, staleSurfaceCount,
     handleFormationCreated, handleFormationUpdated, handleFormationDeleted,
     handleInlineCreateFormation, refetchFormations,

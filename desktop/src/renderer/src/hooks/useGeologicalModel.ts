@@ -177,6 +177,7 @@ export function useGeologicalModel({
   removeFromManifest,
   addToSessionImports,
   removeFromSessionImports,
+  manifestFormationIds,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error', message: string) => void
@@ -185,6 +186,12 @@ export function useGeologicalModel({
   removeFromManifest: (kind: 'formation', ids: Iterable<string>) => void
   addToSessionImports: (kind: 'formation' | 'contact', ids: string[]) => void
   removeFromSessionImports: (kind: 'formation' | 'contact', ids: string[]) => void
+  // R4 (debt #12): the bundle manifest of formation ids, from
+  // ``useProject``. Injected (not read here directly) because it is a
+  // coordinator-level value; the hook owns the visible-list filter so
+  // App.tsx no longer post-processes the geo slice via a spread.
+  // ``undefined`` ⇒ no project open ⇒ no filter (show everything).
+  manifestFormationIds: ReadonlySet<string> | undefined
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -1679,14 +1686,23 @@ export function useGeologicalModel({
     removeFromSessionImports,
   ])
 
+  // R4 (debt #12): the visible-list filter now lives HERE, not as an
+  // App.tsx post-spread. ``manifestFormationIds`` undefined (no project
+  // open) ⇒ pass everything through, same semantics App.tsx had.
+  // Pure useMemo over [formations, manifestFormationIds] — no effect
+  // depends on it, so there is no identity-update loop.
+  const visibleFormations = useMemo(
+    () =>
+      manifestFormationIds !== undefined
+        ? formations.filter(f => manifestFormationIds.has(f.id))
+        : formations,
+    [formations, manifestFormationIds],
+  )
+
   return {
     activeGeologicalModel,
     formations,
-    // visibleFormations is overridden by App.tsx with the manifest-filtered
-    // list (it has manifestFormationIds; the hook does not). This fallback
-    // of unfiltered formations satisfies the TypeScript contract for any
-    // consumer that uses the hook result directly (e.g. unit tests).
-    visibleFormations: formations,
+    visibleFormations,
     formationsRefreshCounter,
     contacts,
     surfacesByFormationId,
