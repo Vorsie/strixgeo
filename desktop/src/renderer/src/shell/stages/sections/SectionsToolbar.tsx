@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { ToolbarButton, PrimaryToolbarButton } from '../../ToolbarPrimitives'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
@@ -185,6 +186,7 @@ export default function SectionsToolbar(): JSX.Element {
         label={creating ? 'Creating…' : 'New cross-section'}
         onClick={handleNew}
         disabled={!canCreate || creating}
+        busy={creating}
         title={
           crsBlockReason !== null
             ? crsBlockReason
@@ -204,6 +206,7 @@ export default function SectionsToolbar(): JSX.Element {
         label={deleting ? 'Deleting…' : 'Delete'}
         onClick={handleDelete}
         disabled={!hasSection || deleting}
+        busy={deleting}
         danger
         title={
           !hasSection
@@ -223,6 +226,7 @@ export default function SectionsToolbar(): JSX.Element {
         label={exportingDxf ? 'Exporting…' : 'Export DXF'}
         onClick={handleExportDxf}
         disabled={!hasSection || !hasModel || exportingDxf}
+        busy={exportingDxf}
         title={
           !hasSection
             ? 'Select a section to export'
@@ -240,6 +244,7 @@ export default function SectionsToolbar(): JSX.Element {
         label={exportingPlaxis ? 'Exporting…' : 'Plaxis 3D'}
         onClick={handleExportPlaxis}
         disabled={!hasModel || exportingPlaxis}
+        busy={exportingPlaxis}
         title={
           !hasModel
             ? 'No active geological model'
@@ -282,6 +287,7 @@ export default function SectionsToolbar(): JSX.Element {
         label={seeding ? 'Seeding…' : 'Seed'}
         onClick={() => void handleSeed()}
         disabled={!hasModel || seeding}
+        busy={seeding}
         title={
           !hasModel
             ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
@@ -297,6 +303,7 @@ export default function SectionsToolbar(): JSX.Element {
         label={deduping ? 'Cleaning…' : 'Dedupe'}
         onClick={handleDedupe}
         disabled={!hasModel || deduping}
+        busy={deduping}
         title={
           !hasModel
             ? 'No active geological model'
@@ -360,141 +367,5 @@ export default function SectionsToolbar(): JSX.Element {
         </div>
       </Modal>
     </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-interface PrimaryToolbarButtonProps {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  title?: string
-}
-
-/**
- * Accent-filled toolbar button for the primary entry action (New cross-section).
- *
- * Visually separated from the secondary ``ToolbarButton`` verbs so new users
- * can identify the entry action at a glance. Uses the semantic accent colour
- * (blue-600 / dark: blue-400 via CSS vars) rather than a hard-coded hex so
- * both themes work correctly.
- *
- * Parameters
- * ----------
- * icon
- *     Lucide icon element (13 px).
- * label
- *     Short text label rendered next to the icon.
- * onClick
- *     Action handler.
- * disabled
- *     When true, the button is non-interactive and dimmed.
- * title
- *     Tooltip text (full action description).
- *
- * Returns
- * -------
- * JSX.Element
- *     The accent-filled button element.
- */
-function PrimaryToolbarButton({
-  icon,
-  label,
-  onClick,
-  disabled,
-  title,
-}: PrimaryToolbarButtonProps): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      aria-label={title}
-      className={[
-        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        disabled
-          ? 'bg-accent/40 text-text-on-accent cursor-not-allowed'
-          : 'bg-accent text-text-on-accent hover:bg-accent-muted',
-      ].join(' ')}
-    >
-      {icon}
-      {label}
-    </button>
-  )
-}
-
-interface ToolbarButtonProps {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  title?: string
-  /** Render with amber tint (stale-surface badge affordance). */
-  amber?: boolean
-  /** Render with red tint (destructive action affordance). */
-  danger?: boolean
-}
-
-/**
- * Compact toolbar button for the Sections stage verbs.
- *
- * Parameters
- * ----------
- * icon
- *     Lucide icon element (13 px).
- * label
- *     Short text label rendered next to the icon.
- * onClick
- *     Action handler.
- * disabled
- *     When true, the button is non-interactive.
- * title
- *     Tooltip text (full action description).
- * amber
- *     Highlights the button in amber (stale-surface badge affordance).
- * danger
- *     Highlights the button in red (destructive action affordance).
- *
- * Returns
- * -------
- * JSX.Element
- *     The button element.
- */
-function ToolbarButton({
-  icon,
-  label,
-  onClick,
-  disabled,
-  title,
-  amber,
-  danger,
-}: ToolbarButtonProps): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={[
-        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        disabled
-          ? 'text-text-muted cursor-not-allowed'
-          : danger
-            ? 'text-status-danger hover:bg-surface-app'
-            : amber
-              ? 'text-status-amber hover:bg-surface-app'
-              : 'text-text-secondary hover:bg-surface-app hover:text-text-primary',
-      ].join(' ')}
-    >
-      {icon}
-      {label}
-    </button>
   )
 }

@@ -15,9 +15,10 @@
 // and resetSplitViewportCallback).  This avoids a bus extension for
 // session-ephemeral view state that has no meaningful persistence requirement.
 //
-// The PrimaryToolbarButton / ToolbarButton internal components mirror
-// SectionsToolbar.tsx (copy two). Extract to shell/ToolbarPrimitives.tsx
-// on the third copy (Export stage toolbar). See CLAUDE.md extraction rule.
+// PrimaryToolbarButton / ToolbarButton now live in the shared
+// shell/ToolbarPrimitives.tsx (extracted at the rule-of-three window,
+// debt #46) — they carry the in-button ``busy`` spinner every long
+// verb here passes.
 //
 // No props accepted — all state/handlers come from useShell().
 
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { ToolbarButton, PrimaryToolbarButton } from '../../ToolbarPrimitives'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import FormationSelectionDialog from './FormationSelectionDialog'
@@ -210,6 +212,7 @@ export default function GeologyToolbar(): JSX.Element {
         }
         onClick={() => void handleFillFromBoreholes()}
         disabled={!canFill}
+        busy={discovering || applying}
         title={
           visibleBoreholes.length === 0
             ? 'No boreholes visible in this project'
@@ -248,6 +251,7 @@ export default function GeologyToolbar(): JSX.Element {
         label={deduping ? 'Cleaning…' : 'Dedupe'}
         onClick={() => void handleDedupe()}
         disabled={!hasModel || deduping}
+        busy={deduping}
         title={
           !hasModel
             ? 'No active stratigraphy'
@@ -287,6 +291,7 @@ export default function GeologyToolbar(): JSX.Element {
           setDeleteModelConfirmOpen(true)
         }}
         disabled={!hasModel || deletingModel}
+        busy={deletingModel}
         danger
         title={
           !hasModel
@@ -360,137 +365,5 @@ export default function GeologyToolbar(): JSX.Element {
       {/* Plaxis 3D export is NOT here — stays in SectionsToolbar until
           the Export stage ships. See docs/geology-stage-architecture.md §3.3. */}
     </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers — copy 2 of Sections toolbar primitives.
-// Extract to shell/ToolbarPrimitives.tsx on the third copy (Export stage).
-// ---------------------------------------------------------------------------
-
-interface PrimaryToolbarButtonProps {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  title?: string
-}
-
-/**
- * Accent-filled toolbar button for the primary entry action.
- *
- * Parameters
- * ----------
- * icon
- *     Lucide icon element (13 px).
- * label
- *     Short text label rendered next to the icon.
- * onClick
- *     Action handler.
- * disabled
- *     When true, the button is non-interactive and dimmed.
- * title
- *     Tooltip text.
- *
- * Returns
- * -------
- * JSX.Element
- *     The accent-filled button element.
- */
-function PrimaryToolbarButton({
-  icon,
-  label,
-  onClick,
-  disabled,
-  title,
-}: PrimaryToolbarButtonProps): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      aria-label={title}
-      className={[
-        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        disabled
-          ? 'bg-accent/40 text-text-on-accent cursor-not-allowed'
-          : 'bg-accent text-text-on-accent hover:bg-accent-muted',
-      ].join(' ')}
-    >
-      {icon}
-      {label}
-    </button>
-  )
-}
-
-interface ToolbarButtonProps {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  title?: string
-  /** Render with amber tint (stale-surface badge affordance). */
-  amber?: boolean
-  /** Render with red tint (destructive action affordance). */
-  danger?: boolean
-}
-
-/**
- * Compact toolbar button for the Geology stage verbs.
- *
- * Parameters
- * ----------
- * icon
- *     Lucide icon element (13 px).
- * label
- *     Short text label rendered next to the icon.
- * onClick
- *     Action handler.
- * disabled
- *     When true, the button is non-interactive.
- * title
- *     Tooltip text.
- * amber
- *     Highlights the button in amber (stale-surface badge affordance).
- * danger
- *     Highlights the button in red (destructive action affordance).
- *
- * Returns
- * -------
- * JSX.Element
- *     The button element.
- */
-function ToolbarButton({
-  icon,
-  label,
-  onClick,
-  disabled,
-  title,
-  amber,
-  danger,
-}: ToolbarButtonProps): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={[
-        'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        disabled
-          ? 'text-text-muted cursor-not-allowed'
-          : danger
-            ? 'text-status-danger hover:bg-surface-app'
-            : amber
-              ? 'text-status-amber hover:bg-surface-app'
-              : 'text-text-secondary hover:bg-surface-app hover:text-text-primary',
-      ].join(' ')}
-    >
-      {icon}
-      {label}
-    </button>
   )
 }
