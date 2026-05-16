@@ -60,9 +60,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid6 import uuid7
 
-from groundmodel.application.recompute_formation_surface import (
-    RecomputeFormationSurface,
-)
 from groundmodel.domain.value_objects.observation_type import ObservationType
 from groundmodel.infrastructure.codelists.g3dv3_catalog import get_catalog
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -73,6 +70,9 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
+from groundmodel.infrastructure.db.repositories.geology_repository import (
+    GeologyRepository,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -350,6 +350,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         """Initialise with an active ``AsyncSession``."""
         super().__init__(__name__)
         self._session = session
+        self._repo = GeologyRepository(session)
 
     async def execute(
         self,
@@ -525,8 +526,9 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         # the "Modelling hierarchy" convention in CLAUDE.md.
         new_formation_top_depths: dict[UUID, list[float]] = {}
         # Tracks every formation that received a new contact in this
-        # run. Used to scope the post-batch surface recompute to just
-        # the affected pairs (no point recomputing untouched formations).
+        # run. Used to scope the post-batch stale-flip to just the
+        # affected pairs — only formations that already have a built
+        # surface row can go stale; brand-new formations have no row.
         touched_formations: set[UUID] = set()
         skipped_existing = 0
         skipped_unmatched = 0
@@ -731,11 +733,15 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 f"by {ordering_source} (oldest first)"
             )
 
-        # Refresh the TIN cache for every formation the auto-populate
-        # actually touched. ``execute_many`` dedups so each pair runs
-        # one Delaunay call regardless of how many contacts seeded it.
+        # §10 on-click build contract: auto-populate (Seed / Fill) must NOT
+        # trigger Delaunay. Only POST .../surfaces/rebuild clears is_stale.
+        # For touched formations that already have a built surface row, flip
+        # is_stale=True so the section view renders them dashed + faded —
+        # prompting the engineer to click "Build model".  Brand-new formations
+        # have no surface row yet (nothing to mark stale); they render via the
+        # connect-the-dots fallback until the first Build fires.
         await self._session.flush()
-        await RecomputeFormationSurface(self._session).execute_many(
+        stale_count = await self._repo.mark_surfaces_stale(
             (model_id, fid) for fid in touched_formations
         )
         await self._session.commit()
@@ -743,6 +749,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             f"Auto-populate done: model={model_id} "
             f"+{len(created_contact_ids)} contacts, "
             f"+{len(created_formation_ids)} formations, "
+            f"marked {stale_count} surface(s) stale, "
             f"skipped {skipped_existing} existing / "
             f"{skipped_unmatched} unmatched / "
             f"{skipped_no_stratigraphy} no-stratigraphy / "
