@@ -120,6 +120,14 @@ export interface Coordinator {
   marqueeSelectedIds: ReadonlySet<string>
   /** Replace the marquee selection set (called by the map on drag-end). */
   setMarqueeSelectedIds: (ids: Set<string>) => void
+  /**
+   * Investigation id currently hovered in the Data inspector list.
+   * MapView highlights the matching marker (if visible). ``null`` when
+   * nothing is hovered.
+   */
+  hoveredTestId: string | null
+  /** Set / clear the hovered investigation id (DataInspector row hover). */
+  setHoveredTestId: (id: string | null) => void
 }
 
 /**
