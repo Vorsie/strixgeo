@@ -299,7 +299,7 @@ function flyToCutFace(
   camera: Cesium.Camera,
   surfaces: FormationSurfaceResponse[],
   projectEpsg: number,
-  planeNormal: Cesium.Cartesian3,
+  plane: Cesium.Plane,
   keepPositive: boolean,
 ): void {
   const EPS = 1e-6
@@ -336,7 +336,7 @@ function flyToCutFace(
   // -normal side. The inverted half is the mirror. (The previous sign
   // put the camera behind the kept body, showing its outer surface and
   // occluding the cut face entirely.)
-  const n = Cesium.Cartesian3.normalize(planeNormal, new Cesium.Cartesian3())
+  const n = Cesium.Cartesian3.normalize(plane.normal, new Cesium.Cartesian3())
   const viewDir = Cesium.Cartesian3.multiplyByScalar(
     n,
     keepPositive ? 1 : -1,
@@ -1266,7 +1266,7 @@ function CesiumViewport({
               widget.scene.camera,
               allSurfaces,
               projectEpsg,
-              clippingPlane.normal,
+              clippingPlane,
               !invertClip,
             )
         : () => flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
@@ -1281,7 +1281,7 @@ function CesiumViewport({
           widget.scene.camera,
           allSurfaces,
           projectEpsg,
-          clippingPlane.normal,
+          clippingPlane,
           !invertClip,
         )
       }
