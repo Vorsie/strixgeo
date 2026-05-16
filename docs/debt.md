@@ -12,9 +12,9 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #40 — and #12 (S3–S7; system-architect plan in hand), #41 (folds into #12's R-plan) *(#36, #37, #38, #43, #51 resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #40 — and #12 (R1–R5 shipped 2026-05-17, App.tsx 3,200→1,001; STILL open — `<400` needs the net-first coordinator/memo extraction, see #12 + #53), #41 (folds into #12) *(#36, #37, #38, #43, #51 resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
-* **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50
+* **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -40,7 +40,10 @@ velocity/refactor work + cheap dogfeed friction); #37 + #38 + #51
 contact-mutation use cases unit-covered in the pre-commit suite;
 inspector chrome migrated to semantic tokens; Data-stage Esc-to-map
 peel restored; excluded_borehole_ids now filtered in TIN recompute).
-33 open items**) compact them. Commit messages and code comments written
+**2026-05-17:** #12 R1–R5 shipped (App.tsx 3,200→1,001) but #12
+stays OPEN — `<400` needs a net-first coordinator/memo extraction;
+#53 filed (shellContextValue dep-array drift, architect pushback #3).
+34 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -285,6 +288,34 @@ behaviour regressions the green suite missed (dropped
 formation delete). **Resolve this item only when S7 completes**
 (App.tsx reduced to the shell coordinator); until then it stays open
 with S3–S7 outstanding.
+
+**Progress (2026-05-17) — architect R-plan R1–R5 shipped; STILL
+open.** system-architect re-cast S3–S7 as R1 loaded-project smoke →
+R2 rename ``handleSidebarCloseRequest`` → R3 delete Sidebar.tsx
+(+closed #14) → R4 ``visibleFormations`` into ``useGeologicalModel``
+→ R5 render-tree extraction (``AppBootError`` / ``AppLoading`` /
+``AppDialogs``). All five shipped green (587-suite + the new R1
+loaded-project smoke path). **App.tsx 3,200 → 1,001 lines.** The
+architect's DoD condition 1 (``<400 lines``) is **unmet and
+unreachable by render-extraction**: ~600 of the remaining lines are
+the coordinator — 5 cross-hook ``useState``, ~40 cross-hook
+callbacks, and the ~240-line ``shellContextValue`` ``useMemo`` — which
+the architect's own plan says MUST stay in App.tsx (the ShellContext
+circular-dep rationale) and whose dep array MUST NOT be restructured
+in R1–R5 (the documented S7 render-loop incident lived there). The
+honest remaining work to reach <400: **(a)** author a cross-hook
+*state-propagation* test (mount loaded AppShell → mutate via one
+slice → assert a consumer of another slice observes it) — the
+**missing safety net**, because that memo's signature failure (silent
+stale / over-eager context) is invisible to smoke (catches crashes/
+TDZ), tsc (catches missing names), and the unit suite (mocks the
+context); **then (b)** verbatim-relocate the memo + the coordinator
+state/callbacks into ``useShellContextValue`` / two ordered
+``useCoordinator*`` hooks (state before useInvestigationData/
+useSections, callbacks after — the circular-dep needle). Net-first,
+its own focused session — NOT marathon-tail work. Tracked alongside
+the new Tier-E ``shellContextValue`` dep-array-drift item below.
+**#41 (Geology3DViewer pure-helper extract) remains folded here.**
 
 ## 13. Geotechnical units invisible to the section editor (medium — Phase 5 trigger)
 
@@ -877,6 +908,42 @@ generator (ReportLab/WeasyPrint) keeps figures reproducible and
 testable; a renderer-side print-to-PDF reuses the live Cesium/recharts
 views but couples the report to Electron. Lean Python-side unless the
 3D figure fidelity forces the renderer path.
+
+## 53. `shellContextValue` dep array will silently drift as the coordinator grows (Tier E — latent correctness)
+
+**What.** App.tsx's `shellContextValue` `useMemo` lists ~60 individual
+bindings in its dependency array (it depends on individual stable
+fields, NOT the hook-return objects, because most hooks return a fresh
+object literal each render — depending on those would defeat the memo
+and re-render every `useShell()` consumer every render). Every new
+field added to any slice must be hand-added to this array. Omitting
+one → the context serves a **stale value** for that field: a silent
+app-wide correctness bug. It is invisible to the App smoke test
+(catches mount crashes / TDZ), the filtered tsc gate (catches missing
+*names*, not missing *deps*), and the unit suite (mocks the context).
+The documented S7 infinite-render-loop incident lived in exactly this
+class of dep-array hazard. Flagged by system-architect (R-plan
+pushback #3).
+
+**Why deferred.** The array is correct *today*. The architect's
+proposed fix — restructure the memo to depend on the hook-return
+objects directly — is itself a behaviour-change risk (only safe if
+EVERY contributing hook memoises its return; several don't, and adding
+`useMemo` to a hook's return changes its identity for every consumer).
+Doing it safely needs the same missing net debt #12 calls out: a
+cross-hook state-propagation test. Not worth the regression surface
+pre-revenue while the array is hand-maintained and currently right.
+
+**When to revisit.** Pair with debt #12's coordinator extraction
+(they touch the same code) OR the first time a "context value is
+stale after I changed X" bug is observed in dogfeeding — whichever
+first. Fix sequence is net-first: (1) author the cross-hook
+state-propagation test (mount loaded AppShell → mutate via one slice
+→ assert a consumer of another slice sees it); (2) only then
+restructure the memo, auditing each hook's return identity and adding
+`useMemo` where missing. Trigger to escalate out of Tier E: any
+session that adds >2 new fields to the coordinator slice (the
+architect's stated threshold).
 
 ---
 
