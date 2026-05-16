@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +57,7 @@ from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
 from groundmodel.application.build_ground_model_snapshot import (
     BuildGroundModelSnapshot,
 )
+from groundmodel.application.build_ground_surface import BuildGroundSurface
 from groundmodel.application.create_formation_contact import (
     CreateFormationContact,
     DuplicateContactError,
@@ -88,11 +90,17 @@ from groundmodel.infrastructure.db.models.geological_model_orm import (
 from groundmodel.infrastructure.db.models.geotechnical_unit_orm import (
     GeotechnicalUnitOrm,
 )
+from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.infrastructure.dem.dem_provider_factory import (
+    NoDemProviderError,
+    build_dem_provider,
+)
 from groundmodel.infrastructure.exporters.plaxis_exporter import PlaxisExporter
+from groundmodel.shared.config import settings
 from groundmodel.shared.exceptions import ParseError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -952,7 +960,6 @@ async def build_ground_surface(
     # Resolve the project's horizontal EPSG to select the DEM provider.
     # We read the project row directly here — the project ORM is already
     # pulled in by the session for the scope guard above.
-    from groundmodel.infrastructure.db.models.project_orm import ProjectOrm  # noqa: PLC0415
 
     project_row = await session.get(ProjectOrm, project_id)
     epsg: int = (
@@ -960,12 +967,6 @@ async def build_ground_surface(
         if project_row is not None and project_row.default_horizontal_epsg is not None
         else 31370  # default to Belgian Lambert when not set
     )
-
-    from groundmodel.infrastructure.dem.dem_provider_factory import (  # noqa: PLC0415
-        NoDemProviderError,
-        build_dem_provider,
-    )
-    from groundmodel.shared.config import settings  # noqa: PLC0415
 
     try:
         provider = build_dem_provider(
@@ -988,9 +989,6 @@ async def build_ground_surface(
             issues=[],
         )
 
-    import httpx  # noqa: PLC0415
-
-    from groundmodel.application.build_ground_surface import BuildGroundSurface  # noqa: PLC0415
 
     try:
         async with provider:
