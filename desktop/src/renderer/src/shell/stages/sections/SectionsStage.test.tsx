@@ -242,6 +242,9 @@ function makeStubContext(): ShellContextValue {
       sessionImportCptIds: new Set(),
       sessionImportBoreholeIds: new Set(),
       sessionImportSectionIds: new Set(),
+      sessionImportFormationIds: new Set(),
+      marqueeSelectedIds: new Set(),
+      setMarqueeSelectedIds: vi.fn(),
     },
   }
 }
