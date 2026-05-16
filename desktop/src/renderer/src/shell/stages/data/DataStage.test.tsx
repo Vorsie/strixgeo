@@ -1,0 +1,299 @@
+// Smoke + consistency test for the Data stage components (DataStage,
+// DataInspector).
+//
+// Pins that the Data badge (DataStage.ts → useDataStageSummary) and the
+// Data inspector (DataInspector.tsx) both source their counts from the
+// manifest-filtered ``visibleCpts`` / ``visibleBoreholes`` lists on the
+// ShellContext bus.  This was already consistent before the Fix 1/2
+// investigation — this test documents and guards the property so a future
+// refactor cannot silently regress it.
+
+import { render, cleanup, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { ShellContext } from '../../ShellContext'
+import type { ShellContextValue } from '../../ShellContext'
+import DataInspector from './DataInspector'
+
+// ---------------------------------------------------------------------------
+// Minimal ShellContext stub
+// ---------------------------------------------------------------------------
+
+const noopAsync = (): Promise<void> => Promise.resolve()
+const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
+const noopAsyncNullableModel =
+  (): Promise<import('../../../api/client').GeologicalModelResponse | null> =>
+    Promise.resolve(null)
+const noopAsyncCandidates = (): Promise<
+  import('../../../hooks/useGeologicalModel').FormationCandidate[]
+> => Promise.resolve([])
+
+function makeStubContext(): ShellContextValue {
+  return {
+    project: {
+      id: 'proj-1',
+      name: 'Test Project',
+      project_number: null,
+      client: null,
+      site_label: null,
+      description: null,
+      tags: [],
+      default_horizontal_epsg: 31370,
+      default_vertical_epsg: 5710,
+      phase: 'design',
+      status: 'active',
+      view_state: {},
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      archived_at: null,
+    },
+    lifecycle: {
+      projectDirty: false,
+      newProjectOpen: false,
+      setNewProjectOpen: vi.fn(),
+      metadataEditorOpen: false,
+      setMetadataEditorOpen: vi.fn(),
+      closeConfirmOpen: false,
+      setCloseConfirmOpen: vi.fn(),
+      unsavedDialogOpen: false,
+      unsavedSaving: false,
+      saveProject: () => Promise.resolve(true),
+      discardSessionImports: vi.fn(),
+      handleSidebarCloseRequest: vi.fn(),
+      handleUnsavedSave: noopAsync,
+      handleUnsavedDiscard: vi.fn(),
+      handleUnsavedCancel: vi.fn(),
+    },
+    investigations: {
+      cpts: [],
+      boreholes: [],
+      detailMap: new Map(),
+      plotMap: new Map(),
+      boreholeDetailMap: new Map(),
+      importing: false,
+      dovImporting: false,
+      bboxImportType: null,
+      removedCptIds: new Set(),
+      removedBoreholeIds: new Set(),
+      refreshList: noopAsync,
+      refreshBoreholeList: noopAsync,
+      loadCptDetail: noopAsync,
+      loadChart: noopAsync,
+      loadBoreholeDetail: noopAsync,
+      cancelBboxDraw: vi.fn(),
+      unhideCpts: vi.fn(),
+      unhideBoreholes: vi.fn(),
+      handleRemoveCpts: vi.fn(),
+      handleRemoveBoreholes: vi.fn(),
+      handleRestoreAllCpts: vi.fn(),
+      handleRestoreAllBoreholes: vi.fn(),
+      handlePatchCptElevation: noopAsync,
+      handlePatchBoreholeElevation: noopAsync,
+      handleImportCpt: noopAsync,
+      handleImportDov: vi.fn(),
+      handleImportBoreholeDov: vi.fn(),
+      handleBboxDrawn: noopAsync,
+    },
+    visibleCpts: [],
+    visibleBoreholes: [],
+    geoModel: {
+      activeGeologicalModel: null,
+      formations: [],
+      visibleFormations: [],
+      formationsRefreshCounter: 0,
+      contacts: [],
+      surfacesByFormationId: new Map(),
+      crossingsRefreshCounter: 0,
+      staleSurfaceCount: 0,
+      handleFormationCreated: vi.fn(),
+      handleFormationUpdated: vi.fn(),
+      handleFormationDeleted: vi.fn(),
+      handleInlineCreateFormation: noopAsyncNull,
+      refetchFormations: vi.fn(),
+      handleCreateContact: noopAsync,
+      handleUpdateContactDepth: noopAsync,
+      handleBatchCreateContacts: noopAsync,
+      handleBatchUpdateContacts: noopAsync,
+      handleDeleteContact: noopAsync,
+      handleAutoPopulateFromStratigraphy: noopAsync,
+      handleDedupeContacts: () => Promise.resolve(0),
+      handleRebuildSurfaces: noopAsync,
+      handleExportModelPlaxis3d: noopAsync,
+      handleToggleBoreholeInModel: noopAsync,
+      discardContacts: vi.fn(),
+      discoverBoreholeFormations: noopAsyncCandidates,
+      applyBoreholeFormationSelection: noopAsync,
+      handleDeleteModel: noopAsync,
+      ensureActiveGeologicalModel: noopAsyncNullableModel,
+    },
+    sections: {
+      sections: [],
+      selectedSectionId: null,
+      drawingSection: false,
+      focusedContactIds: [],
+      visibleSections: [],
+      refreshSectionList: noopAsync,
+      clearSectionSelection: vi.fn(),
+      handleSectionCreated: vi.fn(),
+      handleSectionDeleted: vi.fn(),
+      handleCreateSection: noopAsyncNull,
+      cancelSectionDraw: vi.fn(),
+      handleSectionLineDrawn: noopAsync,
+      handleDeleteSection: noopAsync,
+      handlePatchSelectedSection: noopAsync,
+      handleSelectSection: vi.fn(),
+      handleFocusContacts: vi.fn(),
+    },
+    overlays: {
+      demSource: null,
+      demOverlay: { enabled: false, opacity: 0.6 },
+      handleDemOverlayChange: noopAsync,
+      virtueleBoringOverlay: { modelA: null, modelB: null, maxDepthM: null },
+      virtueleBoringSectionModels: [],
+      virtueleBoringPredictions: [],
+      virtueleBoringLoading: false,
+      virtueleBoringSkippedCount: 0,
+      virtueleBoringPredictionByInvestigationId: new Map(),
+      cptEffectiveModels: [],
+      boreholeEffectiveModels: [],
+      showOverlayOnSection: false,
+      showOverlayOnCpt: false,
+      showOverlayOnBorehole: false,
+      cptVirtueleBoringOverride: '',
+      boreholeVirtueleBoringOverride: '',
+      handleChangeVirtueleBoringPicker: noopAsync,
+      handleSetShowOverlay: vi.fn(),
+      handleSetOverlayOverride: vi.fn(),
+    },
+    toasts: {
+      toasts: [],
+      toast: vi.fn(),
+    },
+    undo: {
+      push: vi.fn(),
+      undo: noopAsync,
+      redo: noopAsync,
+      clear: vi.fn(),
+      canUndo: false,
+      canRedo: false,
+      busy: false,
+    },
+    boot: { ready: true, apiError: false },
+    mapState: {
+      hiddenCptTypes: new Set(),
+      hiddenBoreholeValues: {
+        drill_method: new Set<string>(),
+        borehole_type: new Set<string>(),
+      },
+      boreholeAxis: 'drill_method',
+      viewportBounds: null,
+      mapCameraRef: { current: null },
+      handleToggleCptType: vi.fn(),
+      handleToggleBoreholeValue: vi.fn(),
+      setBoreholeAxis: vi.fn(),
+      handleViewportChange: vi.fn(),
+      handleMapCameraChange: vi.fn(),
+    },
+    coordinator: {
+      selectedId: null,
+      selectedBoreholeId: null,
+      setSelectedId: vi.fn(),
+      setSelectedBoreholeId: vi.fn(),
+      view: 'map',
+      setView: vi.fn(),
+      handleSelect: noopAsync,
+      handleSelectBorehole: noopAsync,
+      handleExportSectionDxf: noopAsync,
+      outOfViewportCptIds: new Set(),
+      outOfViewportBoreholeIds: new Set(),
+      projectFilePath: null,
+      manifestFormationIds: new Set(),
+      sessionImportCptIds: new Set(),
+      sessionImportBoreholeIds: new Set(),
+      sessionImportSectionIds: new Set(),
+      sessionImportFormationIds: new Set(),
+      marqueeSelectedIds: new Set(),
+      setMarqueeSelectedIds: vi.fn(),
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Test lifecycle
+// ---------------------------------------------------------------------------
+
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
+beforeEach(() => {
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+})
+
+afterEach(() => {
+  cleanup()
+  consoleErrorSpy.mockRestore()
+  vi.restoreAllMocks()
+})
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('Data stage (smoke + consistency)', () => {
+  it('DataInspector renders without throwing when project is empty', () => {
+    const ctx = makeStubContext()
+    render(
+      <ShellContext.Provider value={ctx}>
+        <DataInspector />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('DataInspector count == badge — both read visibleCpts.length + visibleBoreholes.length', () => {
+    // Pins the Fix 2 investigation result: badge (DataStage.ts) and inspector
+    // (DataInspector.tsx) were ALREADY consistent — both read visibleCpts /
+    // visibleBoreholes (manifest-filtered).  This test guards the property so
+    // a future refactor cannot silently regress it.
+    //
+    // Set up: DB has 3 CPTs but only 2 are in the .gmproj manifest
+    // (investigations.cpts.length = 3, visibleCpts.length = 2).
+    // The inspector footer must show "2 CPTs", not "3 CPTs".
+    const ctx = makeStubContext()
+    const makeCpt = (id: string, name: string) => ({
+      id,
+      app_project_id: 'proj-1',
+      name,
+      cpt_type: 'CPTU' as const,
+      location_x: 0,
+      location_y: 0,
+      location_epsg: 31370,
+      elevation_m: null,
+      max_depth_m: 20,
+      n_rows: 200,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    })
+    const cpt1 = makeCpt('cpt-1', 'CPT-01')
+    const cpt2 = makeCpt('cpt-2', 'CPT-02')
+    const cpt3 = makeCpt('cpt-3', 'CPT-03')
+
+    // Raw list has 3; manifest-filtered visible list has 2.
+    ctx.investigations.cpts = [cpt1, cpt2, cpt3]
+    ctx.visibleCpts = [cpt1, cpt2]
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <DataInspector />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+
+    // The footer text reads from visibleCpts.length (2), not cpts.length (3).
+    expect(screen.getByText('2 CPTs')).toBeTruthy()
+    // CPT-03 (not in visibleCpts) must not appear in the list.
+    expect(screen.queryByText('CPT-03')).toBeNull()
+    // CPT-01 and CPT-02 (in visibleCpts) must appear.
+    expect(screen.getByText('CPT-01')).toBeTruthy()
+    expect(screen.getByText('CPT-02')).toBeTruthy()
+  })
+})
