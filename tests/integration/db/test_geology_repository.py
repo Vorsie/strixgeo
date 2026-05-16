@@ -10,16 +10,21 @@ integration, so this is where they get exercised.
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import (
+    FormationContactOrm,
+)
 from groundmodel.infrastructure.db.models.formation_surface_orm import (
     FormationSurfaceOrm,
 )
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
+)
+from groundmodel.infrastructure.db.models.geological_model_orm import (
+    GeologicalModelOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
@@ -622,6 +627,61 @@ async def test_delete_model_removes_project_formations(
         assert remaining is None, f"Contact {cid} still present after delete_model"
 
 
+async def test_delete_model_is_model_aware_with_multiple_models(
+    db_session: AsyncSession,
+) -> None:
+    """Deleting one model must NOT wipe another model's formations (debt #37).
+
+    The pre-#37 behaviour deleted every project formation on any model
+    delete. With two models that silently destroyed model B's data when
+    the user deleted model A. New rule: only formations exclusively
+    owned by the deleted model go; shared + other-model + (with siblings
+    remaining) unplaced formations survive.
+    """
+    project, borehole = await _make_project_with_borehole(db_session)
+    repo = GeologyRepository(db_session)
+
+    excl_a = await repo.create_formation(project.id, name="Excl-A", color="#a11")
+    shared = await repo.create_formation(project.id, name="Shared", color="#1a1")
+    excl_b = await repo.create_formation(project.id, name="Excl-B", color="#11a")
+    # Orphan: created but never placed in any model (unplaced vocabulary).
+    await repo.create_formation(project.id, name="Orphan", color="#999")
+    model_a = await repo.create_model(project.id, name="Model A")
+    model_b = await repo.create_model(project.id, name="Model B")
+    await db_session.commit()
+
+    # Excl-A only in A; Shared in A and B; Excl-B only in B; Orphan
+    # placed nowhere.
+    await repo.create_contact(
+        model_id=model_a.id, formation_id=excl_a.id, borehole_id=borehole.id, depth_top_m=0.0
+    )
+    await repo.create_contact(
+        model_id=model_a.id, formation_id=shared.id, borehole_id=borehole.id, depth_top_m=1.0
+    )
+    await repo.create_contact(
+        model_id=model_b.id, formation_id=shared.id, borehole_id=borehole.id, depth_top_m=1.0
+    )
+    b_only_contact = await repo.create_contact(
+        model_id=model_b.id, formation_id=excl_b.id, borehole_id=borehole.id, depth_top_m=2.0
+    )
+    await db_session.commit()
+
+    ok = await repo.delete_model(model_a.id)
+    await db_session.commit()
+    assert ok is True
+
+    surviving = {f.name for f in await repo.list_formations(project.id)}
+    # Exclusively A's formation is gone...
+    assert "Excl-A" not in surviving
+    # ...everything else survives: shared (B needs it), B-only, and the
+    # unplaced vocabulary (a sibling model still exists).
+    assert surviving == {"Shared", "Excl-B", "Orphan"}
+
+    # Model B and its contact are untouched.
+    assert await db_session.get(GeologicalModelOrm, model_b.id) is not None
+    assert await db_session.get(FormationContactOrm, b_only_contact.id) is not None
+
+
 # ---------------------------------------------------------------------------
 # stale_surfaces_for_investigation (debt #34)
 # ---------------------------------------------------------------------------
@@ -668,12 +728,8 @@ async def test_stale_surfaces_for_investigation_flips_dependent_tin(
     )
     await db_session.commit()
 
-    boom_surface = await _add_fresh_surface(
-        db_session, model_id=model.id, formation_id=boom.id
-    )
-    other_surface = await _add_fresh_surface(
-        db_session, model_id=model.id, formation_id=other.id
-    )
+    boom_surface = await _add_fresh_surface(db_session, model_id=model.id, formation_id=boom.id)
+    other_surface = await _add_fresh_surface(db_session, model_id=model.id, formation_id=other.id)
 
     flipped = await repo.stale_surfaces_for_investigation(borehole_id=borehole.id)
     await db_session.commit()
@@ -705,6 +761,4 @@ async def test_stale_surfaces_for_investigation_requires_xor_anchor(
     with pytest.raises(ValueError, match="exactly one"):
         await repo.stale_surfaces_for_investigation()
     with pytest.raises(ValueError, match="exactly one"):
-        await repo.stale_surfaces_for_investigation(
-            cpt_id=uuid7(), borehole_id=uuid7()
-        )
+        await repo.stale_surfaces_for_investigation(cpt_id=uuid7(), borehole_id=uuid7())
