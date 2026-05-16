@@ -7,6 +7,7 @@ Tests cover:
 - empty borehole list → empty result (early exit, no DB hit)
 - layers with empty/blank description → skipped
 - negative top_m layers → skipped (positive zero allowed)
+- key and regional_ref fields on StratigraphyCandidate (added 2026-05-16)
 
 The DB session is mocked at the ``session.execute`` boundary; no real DB or
 network I/O is performed.
@@ -108,6 +109,8 @@ async def test_happy_path_formal_and_informal():
 
     assert len(candidates) == 1
     assert candidates[0].name == "Boom Klei"
+    assert candidates[0].regional_ref == "HyEg"
+    assert candidates[0].key == "HyEg"
     assert candidates[0].borehole_count == 2
 
 
@@ -129,6 +132,8 @@ async def test_informal_fallback_when_no_formal():
 
     assert len(candidates) == 1
     assert candidates[0].name == "Alluvium"
+    assert candidates[0].regional_ref is None
+    assert candidates[0].key == "Alluvium"
     assert candidates[0].borehole_count == 1
 
 
