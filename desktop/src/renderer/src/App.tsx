@@ -189,6 +189,14 @@ export default function App() {
   const [selectedBoreholeId, setSelectedBoreholeId] = useState<string | null>(null)
   const [view, setView] = useState<View>('map')
 
+  // Map marquee selection — investigation IDs selected by Shift+drag on
+  // the map. Drives the checkbox state in DataInspector so map and list
+  // stay in sync. Cleared when the project changes (cross-project IDs
+  // are semantically undefined). Lives in App (not DataInspector) because
+  // MapView writes it and DataInspector reads it — different components
+  // that cannot share local state without the coordinator bus.
+  const [marqueeSelectedIds, setMarqueeSelectedIds] = useState<Set<string>>(new Set())
+
   // Map layer-visibility, viewport bounds, and Leaflet camera persistence —
   // all lifted to App so the Sidebar can read/write the same state as
   // MapView, but grouped in a hook so App stays a thin coordinator.
@@ -218,6 +226,9 @@ export default function App() {
   // so an earlier effect would hit a TDZ.
   useEffect(() => {
     mapCameraRef.current = null
+    // Also clear the map marquee selection — cross-project IDs are
+    // semantically undefined; start fresh on each project open.
+    setMarqueeSelectedIds(new Set())
   }, [project?.id, mapCameraRef])
 
   // Session imports — records added since the last File → Save. Drives
@@ -324,8 +335,8 @@ export default function App() {
 
   // Project lifecycle — dirty flag, File menu IPC, close-flow dialogs,
   // Save / Discard / window title / OS quit handshake. Wired here (after
-  // useGeologicalModel) because saveProject calls handleRebuildSurfaces
-  // and discardSessionImports calls discardContacts + activeGeologicalModel.
+  // useGeologicalModel) because discardSessionImports calls discardContacts
+  // + activeGeologicalModel.
   const {
     projectDirty,
     newProjectOpen,
@@ -361,7 +372,6 @@ export default function App() {
     closeProject,
     pickAndOpenProject,
     openProjectFile,
-    handleRebuildSurfaces,
     discardContacts,
     activeGeologicalModel,
   })
@@ -779,6 +789,8 @@ export default function App() {
       sessionImportBoreholeIds,
       sessionImportSectionIds,
       sessionImportFormationIds,
+      marqueeSelectedIds,
+      setMarqueeSelectedIds,
     },
   }), [
     project,
@@ -842,6 +854,7 @@ export default function App() {
     projectFilePath, manifestFormationIds,
     sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds,
     sessionImportFormationIds,
+    marqueeSelectedIds, setMarqueeSelectedIds,
   ])
 
   // ---------------------------------------------------------------------------
