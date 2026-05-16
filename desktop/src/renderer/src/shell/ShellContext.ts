@@ -64,6 +64,14 @@ export interface Coordinator {
     sectionName: string,
     modelId: string,
   ) => Promise<void>
+  /** Export the section's geological model as a Plaxis 2D plxscripting
+   *  script (debt #29 — owns the same save-dialog + file-write flow). */
+  handleExportSectionPlaxis2d: (
+    projectId: string,
+    sectionId: string,
+    sectionName: string,
+    modelId: string,
+  ) => Promise<void>
   /** CPT ids that are outside the current map viewport. Empty before the map reports bounds. */
   outOfViewportCptIds: ReadonlySet<string>
   /** Borehole ids outside the current map viewport. */
