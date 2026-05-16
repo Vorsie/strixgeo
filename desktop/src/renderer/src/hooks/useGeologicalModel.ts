@@ -56,6 +56,21 @@ export interface FormationCandidate {
 export interface UseGeologicalModelResult {
   activeGeologicalModel: GeologicalModelResponse | null
   formations: GeologicalFormationResponse[]
+  /**
+   * Manifest-filtered formation list — the single source of truth for
+   * "which formations are visible in this project".
+   *
+   * Computed in App.tsx (which has access to both ``formations`` and
+   * ``manifestFormationIds``) and injected here so every consumer reads the
+   * same filtered value: GeologyInspector, GeologyStage badge, and the Seed
+   * gate in SectionsToolbar.  Avoids the three-site duplication that caused
+   * the badge/inspector/seed desync bug (Fix 3 — 2026-05-16).
+   *
+   * Semantics: when ``manifestFormationIds`` is undefined (no project open),
+   * returns all formations (matches the existing GeologyInspector fallback
+   * behaviour).
+   */
+  visibleFormations: GeologicalFormationResponse[]
   formationsRefreshCounter: number
   contacts: FormationContactResponse[]
   surfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>
@@ -1595,9 +1610,19 @@ export function useGeologicalModel({
         const deletedIds = toDelete.map(f => f.id)
         removeFromManifest('formation', deletedIds)
         removeFromSessionImports('formation', deletedIds)
-        // Newly-created formations need to enter the manifest.
+        // Register ALL surviving formations into the manifest, not only the
+        // newly-created ones. This covers the orphan/reopen path: when a
+        // prior Delete model left orphan formations behind, re-Fill matches
+        // them (skipped_existing > 0, created_formation_ids.length === 0) and
+        // those found formations need to enter the manifest so the inspector's
+        // manifest-filtered visibleFormations shows them. Without this, the
+        // inspector reports "0 formations" even though contacts are visible on
+        // the section (the section reads contacts directly, not the manifest).
+        const allFormationIds = forms.map(f => f.id)
+        addToManifest('formation', allFormationIds)
+        // Only newly-created formations are "unsaved" (session-import amber).
+        // Matched/found formations were already committed in a prior session.
         if (outcome.created_formation_ids.length > 0) {
-          addToManifest('formation', outcome.created_formation_ids)
           addToSessionImports('formation', outcome.created_formation_ids)
         }
         setFormationsRefreshCounter(c => c + 1)
@@ -1657,6 +1682,11 @@ export function useGeologicalModel({
   return {
     activeGeologicalModel,
     formations,
+    // visibleFormations is overridden by App.tsx with the manifest-filtered
+    // list (it has manifestFormationIds; the hook does not). This fallback
+    // of unfiltered formations satisfies the TypeScript contract for any
+    // consumer that uses the hook result directly (e.g. unit tests).
+    visibleFormations: formations,
     formationsRefreshCounter,
     contacts,
     surfacesByFormationId,
