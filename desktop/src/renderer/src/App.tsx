@@ -7,6 +7,7 @@ import { useSections } from './hooks/useSections'
 import { useInvestigationData } from './hooks/useInvestigationData'
 import { useProjectLifecycle } from './hooks/useProjectLifecycle'
 import { useMapState } from './hooks/useMapState'
+import { useShellContextValue } from './hooks/useShellContextValue'
 import { api } from './api/client'
 import { useProject } from './hooks/useProject'
 import { useUndoStack } from './hooks/useUndoStack'
@@ -322,29 +323,16 @@ export default function App() {
   // tsc noise is ignored + Vitest stubs the coordinator, so neither gate
   // caught it. Passing `geo` whole makes that drift structurally
   // impossible.
+  // Only the geo fields App itself still uses are destructured here.
+  // Post-#12: the shellContextValue memo (which referenced the other
+  // ~18) moved to useShellContextValue, which receives `geo` whole and
+  // re-destructures internally — so those are no longer needed in App
+  // scope (pruning them keeps the eslint no-unused-vars gate green).
   const {
     activeGeologicalModel,
     formations,
-    formationsRefreshCounter,
     contacts,
-    surfacesByFormationId,
-    crossingsRefreshCounter,
-    staleSurfaceCount,
-    handleFormationCreated,
-    handleFormationUpdated,
     handleFormationDeleted,
-    handleInlineCreateFormation,
-    refetchFormations,
-    handleCreateContact,
-    handleUpdateContactDepth,
-    handleBatchCreateContacts,
-    handleBatchUpdateContacts,
-    handleDeleteContact,
-    handleAutoPopulateFromStratigraphy,
-    handleDedupeContacts,
-    handleRebuildSurfaces,
-    handleExportModelPlaxis3d,
-    handleToggleBoreholeInModel,
     discardContacts,
   } = geo
 
@@ -720,200 +708,44 @@ export default function App() {
   // only mounts inside the project gate (``if (!project) return <WelcomeScreen />``
   // runs first). The cast is safe at the point AppShell renders.
   // ---------------------------------------------------------------------------
-  const shellContextValue = useMemo((): ShellContextValue => ({
-    // project is non-null here — AppShell is only rendered inside the
-    // project gate below. The loaded-project branch asserts project is truthy.
-    project: project!,
-    lifecycle: {
-      projectDirty,
-      newProjectOpen,
-      setNewProjectOpen,
-      metadataEditorOpen,
-      setMetadataEditorOpen,
-      closeConfirmOpen,
-      setCloseConfirmOpen,
-      unsavedDialogOpen,
-      unsavedSaving,
-      saveProject,
-      discardSessionImports,
-      handleCloseProjectRequest,
-      handleUnsavedSave,
-      handleUnsavedDiscard,
-      handleUnsavedCancel,
-    },
-    investigations: {
-      cpts,
-      detailMap,
-      plotMap,
-      boreholes,
-      boreholeDetailMap,
-      importing,
-      bboxImportType,
-      dovImporting,
-      removedCptIds,
-      removedBoreholeIds,
-      refreshList,
-      refreshBoreholeList,
-      loadCptDetail,
-      loadChart,
-      loadBoreholeDetail,
-      cancelBboxDraw,
-      unhideCpts,
-      unhideBoreholes,
-      handleRemoveCpts,
-      handleRemoveBoreholes,
-      handleRestoreAllCpts,
-      handleRestoreAllBoreholes,
-      handlePatchCptElevation,
-      handlePatchBoreholeElevation,
-      handleImportCpt,
-      handleImportDov,
-      handleImportBoreholeDov,
-      handleBboxDrawn,
-    },
-    visibleCpts,
-    visibleBoreholes,
-    // Whole hook result, passed through untouched. R4 (debt #12):
-    // visibleFormations is now computed INSIDE useGeologicalModel
-    // (it takes manifestFormationIds), so the old ``{ ...geo,
-    // visibleFormations }`` spread is gone — no App-level
-    // post-processing of the geo slice, and no risk of the spread
-    // dropping a hook field (the bug the prior comment warned about).
-    geoModel: geo,
-    sections: {
-      sections,
-      selectedSectionId,
-      drawingSection,
-      focusedContactIds,
-      visibleSections,
-      effectiveHorizontalEpsg,
-      refreshSectionList,
-      clearSectionSelection,
-      handleSectionCreated,
-      handleSectionDeleted,
-      handleCreateSection,
-      cancelSectionDraw,
-      handleSectionLineDrawn,
-      handleDeleteSection,
-      handlePatchSelectedSection,
-      handleSelectSection,
-      handleFocusContacts,
-    },
-    overlays: {
-      demSource,
-      demOverlay,
-      handleDemOverlayChange,
-      virtueleBoringOverlay,
-      virtueleBoringSectionModels,
-      virtueleBoringPredictions,
-      virtueleBoringLoading,
-      virtueleBoringSkippedCount,
-      virtueleBoringPredictionByInvestigationId,
-      cptEffectiveModels,
-      boreholeEffectiveModels,
-      showOverlayOnSection,
-      showOverlayOnCpt,
-      showOverlayOnBorehole,
-      cptVirtueleBoringOverride,
-      boreholeVirtueleBoringOverride,
-      handleChangeVirtueleBoringPicker,
-      handleSetShowOverlay,
-      handleSetOverlayOverride,
-    },
-    toasts: { toasts, toast },
-    undo: undoStack,
-    boot: { ready, apiError },
-    mapState,
-    coordinator: {
-      selectedId,
-      selectedBoreholeId,
-      setSelectedId,
-      setSelectedBoreholeId,
-      view,
-      setView,
-      handleSelect,
-      handleSelectBorehole,
-      handleExportSectionDxf,
-      handleExportSectionPlaxis2d,
-      outOfViewportCptIds,
-      outOfViewportBoreholeIds,
-      projectFilePath,
-      manifestFormationIds,
-      sessionImportCptIds,
-      sessionImportBoreholeIds,
-      sessionImportSectionIds,
-      sessionImportFormationIds,
-      marqueeSelectedIds,
-      setMarqueeSelectedIds,
-      hoveredTestId,
-      setHoveredTestId,
-    },
-  }), [
+  // R5/#12 net-first: the 194-line shellContextValue memo moved to
+  // useShellContextValue (verbatim body+deps; renderHook-netted for
+  // assembly/no-stale/stability — debt #53). App just supplies the
+  // bindings it already has in scope.
+  const shellContextValue = useShellContextValue({
+    // project
     project,
-    // lifecycle fields
-    projectDirty, newProjectOpen, setNewProjectOpen,
-    metadataEditorOpen, setMetadataEditorOpen,
-    closeConfirmOpen, setCloseConfirmOpen,
-    unsavedDialogOpen, unsavedSaving,
-    saveProject, discardSessionImports, handleCloseProjectRequest,
+    // lifecycle
+    projectDirty, newProjectOpen, setNewProjectOpen, metadataEditorOpen, setMetadataEditorOpen, closeConfirmOpen,
+    setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports, handleCloseProjectRequest,
     handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel,
-    // investigation fields
-    cpts, detailMap, plotMap, boreholes, boreholeDetailMap,
-    importing, bboxImportType, dovImporting,
-    removedCptIds, removedBoreholeIds,
-    refreshList, refreshBoreholeList,
-    loadCptDetail, loadChart, loadBoreholeDetail,
-    cancelBboxDraw, unhideCpts, unhideBoreholes,
-    handleRemoveCpts, handleRemoveBoreholes,
-    handleRestoreAllCpts, handleRestoreAllBoreholes,
-    handlePatchCptElevation, handlePatchBoreholeElevation,
+    // investigations
+    cpts, detailMap, plotMap, boreholes, boreholeDetailMap, importing,
+    bboxImportType, dovImporting, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
+    loadCptDetail, loadChart, loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes,
+    handleRemoveCpts, handleRemoveBoreholes, handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation,
     handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
-    visibleCpts, visibleBoreholes,
-    // geological model fields
-    activeGeologicalModel, formations, formationsRefreshCounter,
-    contacts, surfacesByFormationId, crossingsRefreshCounter, staleSurfaceCount,
-    handleFormationCreated, handleFormationUpdated, handleFormationDeleted,
-    handleInlineCreateFormation, refetchFormations,
-    handleCreateContact, handleUpdateContactDepth,
-    handleBatchCreateContacts, handleBatchUpdateContacts, handleDeleteContact,
-    handleAutoPopulateFromStratigraphy, handleDedupeContacts,
-    handleRebuildSurfaces, handleExportModelPlaxis3d,
-    handleToggleBoreholeInModel, discardContacts,
-    // sections fields
-    sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections,
-    refreshSectionList, clearSectionSelection,
-    handleSectionCreated, handleSectionDeleted,
-    handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
-    handleDeleteSection, handlePatchSelectedSection,
-    handleSelectSection, handleFocusContacts,
-    // overlay fields
-    demSource, demOverlay, handleDemOverlayChange,
-    virtueleBoringOverlay, virtueleBoringSectionModels,
-    virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
-    virtueleBoringPredictionByInvestigationId,
-    cptEffectiveModels, boreholeEffectiveModels,
-    showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
-    cptVirtueleBoringOverride, boreholeVirtueleBoringOverride,
-    handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride,
-    // toast + undo + boot
-    toasts, toast,
-    undoStack,
-    ready, apiError,
-    // mapState — object rebuilt each render when layer-visibility changes;
-    // include it so context updates when the user toggles a CPT type or moves the map.
+    // visible + geo
+    visibleCpts, visibleBoreholes, geo,
+    // sections
+    sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg,
+    refreshSectionList, clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw,
+    handleSectionLineDrawn, handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts,
+    // overlays
+    demSource, demOverlay, handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions,
+    virtueleBoringLoading, virtueleBoringSkippedCount, virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection,
+    showOverlayOnCpt, showOverlayOnBorehole, cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay,
+    handleSetOverlayOverride,
+    // toast/undo/boot
+    toasts, toast, undoStack, ready, apiError,
+    // mapState
     mapState,
-    // coordinator slice — all are either useState values or stable useCallback refs.
-    selectedId, selectedBoreholeId, setSelectedId, setSelectedBoreholeId,
-    view, setView,
-    handleSelect, handleSelectBorehole, handleExportSectionDxf,
-    handleExportSectionPlaxis2d,
-    outOfViewportCptIds, outOfViewportBoreholeIds,
-    projectFilePath, manifestFormationIds,
-    sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds,
-    sessionImportFormationIds,
-    marqueeSelectedIds, setMarqueeSelectedIds,
-    hoveredTestId, setHoveredTestId,
-  ])
+    // coordinator
+    selectedId, selectedBoreholeId, setSelectedId, setSelectedBoreholeId, view, setView,
+    handleSelect, handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, outOfViewportCptIds, outOfViewportBoreholeIds,
+    projectFilePath, manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds,
+    marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
+  })
 
   // ---------------------------------------------------------------------------
   // Render
