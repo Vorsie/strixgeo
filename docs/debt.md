@@ -56,7 +56,8 @@ E** (2026-05-17): the pure geometry (`cesiumGeometry.ts`) extracted
 VERBATIM + 13 vitest cases — the 585c714 bug class is now netted; the
 residual component-mount smoke needs a Cesium mock harness, far lower
 value once the math is covered. **Tier C now empty** — current work
-drops to Tier D/E. 32 open items**) compact them. Commit messages and code comments written
+drops to Tier D/E. **#50 resolved 2026-05-17** (Virtuele Boring model
+codes codelist-gated before fan-out). 31 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -770,30 +771,6 @@ as a quick-fix, see below).
 15+-formation model during active editing. Fix is also a
 simplification: one `list_contacts(model_id)` (no formation filter)
 + Python grouping — one round-trip, less code.
-
-## 50. Virtuele Boring model code reaches an outbound URL without a codelist gate (Tier E — security, low; pairs with #4)
-
-**What.** `GET /projects/{pid}/virtuele-boring/predictions?models=…`
-splits the comma-separated `models` param and embeds each raw element
-into the outbound DOV URL path (`virtuele_boring_client.py`:
-`f"{BASE}{PATH}/{model}"`) with no regex/codelist gate. The API caps
-the count (12) but not each code's length or charset. httpx
-URL-normalises traversal so this is not RCE; the real issue is an
-arbitrary user string in a backend-issued HTTP request — server
-probing / behaviour-sensitivity if a proxy is ever interposed. Real
-attacker surface is small (localhost-only API, CORS+TrustedHost block
-external callers, target is an HTTPS government WCS) but it
-contradicts the project's own injection-defence posture.
-
-**Why deferred.** CORS + TrustedHost limit callers to the renderer
-and a local dev; exploitation needs a compromised renderer or a
-deliberate local curl. No regression in the 2026-05-13 audited
-surfaces.
-
-**When to revisit.** With the #4 auth-threading work, or when the
-catalogue endpoint is cached server-side. Fix is a two-liner:
-`VALID_MODEL_CODE_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,50}$')` and a
-400 on any non-matching code before fan-out.
 
 ## 52. PDF report export (Tier D — Phase 5 reporting deliverable)
 
