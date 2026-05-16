@@ -15,9 +15,9 @@
  * filtered list inline from ``formations`` + ``manifestFormationIds`` — the
  * same inputs that feed ``visibleFormations``.
  *
- * **Pending (G4 polish commit):**
- * - Amber unsaved markers for formations — wired when ``sessionImportFormationIds``
- *   is threaded to the formation rows.
+ * Formation rows show an amber left-stripe + asterisk when the formation was
+ * created in the current session and has not yet been committed to the
+ * ``.gmproj`` bundle (``sessionImportFormationIds`` from the coordinator bus).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -41,6 +41,7 @@ import type {
 } from '../../../api/client'
 import { log } from '../../../utils/log'
 import Button from '../../../components/ui/Button'
+import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import Modal from '../../../components/ui/Modal'
 import FormationDialog from '../../../components/interpretation/FormationDialog'
 import { useShell } from '../../ShellContext'
@@ -76,7 +77,7 @@ export default function GeologyInspector(): JSX.Element {
       refetchFormations,
     },
     sections: { handleFocusContacts },
-    coordinator: { manifestFormationIds },
+    coordinator: { manifestFormationIds, sessionImportFormationIds },
     undo: { push: pushUndoCommand },
     visibleBoreholes,
   } = useShell()
@@ -542,6 +543,7 @@ export default function GeologyInspector(): JSX.Element {
             <FormationRow
               key={f.id}
               formation={f}
+              unsaved={sessionImportFormationIds?.has(f.id) ?? false}
               isDragging={draggedId === f.id}
               isDragOver={
                 dragOverId === f.id && draggedId !== null && draggedId !== f.id
@@ -718,6 +720,10 @@ export default function GeologyInspector(): JSX.Element {
 
 interface FormationRowProps {
   formation: GeologicalFormationResponse
+  /** True when this formation was created in the current session and has not
+   *  yet been persisted to the .gmproj bundle.  Renders the amber left-stripe
+   *  and asterisk matching the CPT / borehole unsaved convention. */
+  unsaved: boolean
   isDragging: boolean
   isDragOver: boolean
   reorderBusy: boolean
@@ -737,6 +743,10 @@ interface FormationRowProps {
  * ----------
  * formation
  *     The formation data.
+ * unsaved
+ *     True when this formation was created in the current session and has not
+ *     yet been committed to the .gmproj bundle. Renders an amber left-stripe
+ *     and asterisk so the user can see which formations need a save.
  * isDragging
  *     True when this row is the drag source (dims it).
  * isDragOver
@@ -753,6 +763,7 @@ interface FormationRowProps {
  */
 function FormationRow({
   formation,
+  unsaved,
   isDragging,
   isDragOver,
   reorderBusy,
@@ -775,10 +786,15 @@ function FormationRow({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={[
+        // Unsaved rows get a 4 px amber left-stripe + tinted background,
+        // matching the CPT / borehole unsaved convention in Sidebar.tsx.
+        // A 2 px transparent border keeps layout stable in the saved state.
         'group flex items-center gap-2 px-2 py-1.5 rounded transition-colors',
         isDragOver
           ? 'border-t-2 border-t-blue-500 border-l-2 border-l-transparent'
-          : 'border-l-2 border-l-transparent hover:bg-gray-50',
+          : unsaved
+            ? 'border-l-4 border-l-amber-500 bg-amber-50/60 hover:bg-amber-50/90'
+            : 'border-l-2 border-l-transparent hover:bg-gray-50',
         isDragging ? 'opacity-40' : '',
       ].join(' ')}
     >
@@ -812,6 +828,9 @@ function FormationRow({
           <span className="text-xs font-medium text-gray-800 truncate">
             {formation.name}
           </span>
+          {unsaved && (
+            <DirtyAsterisk title="Created since last save — File → Save to commit" />
+          )}
         </div>
         {formation.regional_ref && (
           <div className="text-[10px] text-gray-400 truncate">
