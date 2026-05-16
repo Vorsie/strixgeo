@@ -70,7 +70,13 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className={`bg-white border border-gray-200 rounded-lg shadow-lg ${cardClassName}`}
+        // Semantic surface tokens (var-driven, .dark-aware) — NOT
+        // bg-white/dark:. Tailwind ``dark:`` keys off OS
+        // prefers-color-scheme, but the app theme is a ``.dark`` class
+        // flipping CSS vars, so ``dark:`` is dead on a light-OS host and
+        // every dialog rendered white. ``surface-overlay`` is the modal
+        // surface in both themes.
+        className={`bg-surface-overlay border border-border-default text-text-primary rounded-lg shadow-lg ${cardClassName}`}
         onClick={e => e.stopPropagation()}
       >
         {children}
