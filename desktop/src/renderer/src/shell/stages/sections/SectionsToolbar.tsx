@@ -31,6 +31,7 @@ export default function SectionsToolbar(): JSX.Element {
     sections: {
       selectedSectionId,
       sections,
+      effectiveHorizontalEpsg,
       handleSelectSection,
       handleCreateSection,
       handleDeleteSection,
@@ -62,8 +63,10 @@ export default function SectionsToolbar(): JSX.Element {
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
-  // Project needs a horizontal EPSG to create sections (endpoints need a CRS).
-  const canCreate = (project.default_horizontal_epsg ?? null) !== null
+  // Sections need a horizontal CRS for their endpoints. Prefer the
+  // project's default; fall back to the imported investigations' CRS so
+  // an unfilled metadata dropdown doesn't dead-end section creation.
+  const canCreate = effectiveHorizontalEpsg != null
 
   async function handleNew(): Promise<void> {
     if (!canCreate || creating) return
