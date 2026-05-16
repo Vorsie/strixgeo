@@ -38,7 +38,11 @@ import 'cesium/Build/Cesium/Widgets/widgets.css'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { GeologicalFormationResponse, FormationSurfaceResponse } from '../../../api/client'
+import type {
+  GeologicalFormationResponse,
+  FormationSurfaceResponse,
+  GroundSurfaceBuildResponse,
+} from '../../../api/client'
 import type { BasemapSource, BasemapId } from '../../../utils/basemapSources'
 import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/basemapSources'
 import { projectedToWgs84 } from '../../../hooks/useWgs84'
@@ -68,6 +72,15 @@ export interface Geology3DViewerProps {
   formations: GeologicalFormationResponse[]
   /** Pre-fetched surface data keyed by formation id. */
   surfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * DEM ground-surface TIN built by ``POST .../ground-surface/build``.
+   *
+   * When provided and non-empty, rendered as an earth-tone semi-transparent
+   * mesh below the formation surfaces — the terrain base for the 3D scene.
+   * ``null`` / ``undefined`` when the build has not completed yet or the
+   * model has no investigations.
+   */
+  groundSurface?: GroundSurfaceBuildResponse | null
   /**
    * Initial basemap to display.  Optional — when omitted the viewer reads
    * the same localStorage key as ``MapView`` so the two views stay in sync
@@ -111,6 +124,13 @@ const ALPHA_STALE = 0.35
 /** Minimum draw-line segment length in metres (projected) to accept as a
  * valid split plane. Prevents degenerate normals from near-zero-length lines. */
 const MIN_SPLIT_LINE_M = 10
+
+/** Alpha for the DEM ground-surface TIN mesh — semi-transparent so formation
+ * surfaces render visibly above the terrain. */
+const ALPHA_GROUND_SURFACE = 0.45
+
+/** Earth-tone colour for the DEM ground-surface TIN (warm grey). */
+const GROUND_SURFACE_COLOR = new Cesium.Color(0.55, 0.52, 0.48, ALPHA_GROUND_SURFACE)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -239,11 +259,91 @@ function flyToBounds(
 }
 
 /**
- * Add TIN surface primitives to a Cesium scene for all formations.
+ * Build a Cesium Primitive from a flat list of ``[x, y, z]`` vertices and
+ * ``[i0, i1, i2]`` triangle index triples.
+ *
+ * Returns ``null`` when ``triangles`` is empty (degenerate or no-data TIN).
+ *
+ * Parameters
+ * ----------
+ * vertices
+ *     ``[x_m, y_m, elevation_m]`` triples in the project's horizontal CRS.
+ * triangles
+ *     Vertex-index triples (counter-clockwise winding).
+ * color
+ *     Cesium.Color (including alpha) for the primitive.
+ * projectEpsg
+ *     Horizontal CRS EPSG code for the coordinate transform.
+ *
+ * Returns
+ * -------
+ * ``Cesium.Primitive`` or ``null``.
+ */
+function buildTinPrimitive(
+  vertices: [number, number, number][],
+  triangles: [number, number, number][],
+  color: Cesium.Color,
+  projectEpsg: number,
+): Cesium.Primitive | null {
+  if (triangles.length === 0) return null
+
+  const positionValues = new Float64Array(vertices.length * 3)
+  let i = 0
+  for (const [x, y, z] of vertices) {
+    const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+    const ecef = Cesium.Cartesian3.fromDegrees(lng, lat, z)
+    positionValues[i++] = ecef.x
+    positionValues[i++] = ecef.y
+    positionValues[i++] = ecef.z
+  }
+
+  const indices = new Uint32Array(triangles.length * 3)
+  let j = 0
+  for (const [i0, i1, i2] of triangles) {
+    indices[j++] = i0
+    indices[j++] = i1
+    indices[j++] = i2
+  }
+
+  const geometry = new Cesium.Geometry({
+    attributes: {
+      position: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+        componentsPerAttribute: 3,
+        values: positionValues,
+      }),
+    },
+    indices,
+    primitiveType: Cesium.PrimitiveType.TRIANGLES,
+    boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
+  })
+
+  return new Cesium.Primitive({
+    geometryInstances: new Cesium.GeometryInstance({
+      geometry,
+      attributes: {
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
+      },
+    }),
+    appearance: new Cesium.PerInstanceColorAppearance({
+      translucent: true,
+      flat: false,
+    }),
+    asynchronous: false,
+  })
+}
+
+/**
+ * Add TIN surface primitives to a Cesium scene for the ground surface and all
+ * formations.
  *
  * Existing primitives in the scene are cleared before adding new ones so
  * the caller can call this function on every dependency change without
  * accumulating duplicates.
+ *
+ * The ground-surface TIN (when present) is added first so it renders below
+ * formation surfaces — Cesium's painter's algorithm renders primitives in
+ * insertion order.
  *
  * Parameters
  * ----------
@@ -255,14 +355,33 @@ function flyToBounds(
  *     Pre-fetched surface data keyed by formation id.
  * projectEpsg
  *     Horizontal CRS EPSG code.
+ * groundSurface
+ *     Optional DEM ground-surface TIN.  When provided and non-empty, rendered
+ *     as an earth-tone semi-transparent mesh below the formation surfaces.
  */
 function rebuildSurfacePrimitives(
   scene: Cesium.Scene,
   formations: GeologicalFormationResponse[],
   surfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>,
   projectEpsg: number,
+  groundSurface?: GroundSurfaceBuildResponse | null,
 ): void {
   scene.primitives.removeAll()
+
+  // Ground-surface TIN — rendered first (painter's algorithm: drawn below
+  // formation surfaces). Uses a warm-grey earth tone at 45 % alpha so
+  // formation bands remain legible above it.
+  if (groundSurface && groundSurface.triangles.length > 0) {
+    const terrainPrimitive = buildTinPrimitive(
+      groundSurface.vertices,
+      groundSurface.triangles,
+      GROUND_SURFACE_COLOR,
+      projectEpsg,
+    )
+    if (terrainPrimitive) {
+      scene.primitives.add(terrainPrimitive)
+    }
+  }
 
   for (const formation of formations) {
     const surface = surfacesByFormationId.get(formation.id)
@@ -272,41 +391,6 @@ function rebuildSurfacePrimitives(
     const alpha = isStale ? ALPHA_STALE : ALPHA_FRESH
     const zOffset = formation.display_order * Z_OFFSET_PER_ORDER
 
-    // Transform vertices from project CRS to ECEF.
-    // The proj4 cache in useWgs84.ts makes repeated calls for the same
-    // (x, y, epsg) tuple essentially free.
-    const positionValues = new Float64Array(surface.vertices.length * 3)
-    let i = 0
-    for (const [x, y, z] of surface.vertices) {
-      const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
-      const ecef = Cesium.Cartesian3.fromDegrees(lng, lat, z + zOffset)
-      positionValues[i++] = ecef.x
-      positionValues[i++] = ecef.y
-      positionValues[i++] = ecef.z
-    }
-
-    // Build flat triangle index array.
-    const indices = new Uint32Array(surface.triangles.length * 3)
-    let j = 0
-    for (const [i0, i1, i2] of surface.triangles) {
-      indices[j++] = i0
-      indices[j++] = i1
-      indices[j++] = i2
-    }
-
-    const geometry = new Cesium.Geometry({
-      attributes: {
-        position: new Cesium.GeometryAttribute({
-          componentDatatype: Cesium.ComponentDatatype.DOUBLE,
-          componentsPerAttribute: 3,
-          values: positionValues,
-        }),
-      },
-      indices,
-      primitiveType: Cesium.PrimitiveType.TRIANGLES,
-      boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
-    })
-
     // Parse the formation's hex colour. Fall back to grey when malformed.
     const hexColor = formation.color.startsWith('#')
       ? formation.color
@@ -314,21 +398,16 @@ function rebuildSurfacePrimitives(
     const csColor = Cesium.Color.fromCssColorString(hexColor) ?? Cesium.Color.GRAY
     csColor.alpha = alpha
 
-    const primitive = new Cesium.Primitive({
-      geometryInstances: new Cesium.GeometryInstance({
-        geometry,
-        attributes: {
-          color: Cesium.ColorGeometryInstanceAttribute.fromColor(csColor),
-        },
-      }),
-      appearance: new Cesium.PerInstanceColorAppearance({
-        translucent: true,
-        flat: false,
-      }),
-      asynchronous: false,
-    })
+    // Apply the per-formation z-offset to vertex elevations before building
+    // the primitive so co-planar surfaces don't z-fight.
+    const offsetVertices: [number, number, number][] = surface.vertices.map(
+      ([x, y, z]) => [x, y, z + zOffset],
+    )
 
-    scene.primitives.add(primitive)
+    const primitive = buildTinPrimitive(offsetVertices, surface.triangles, csColor, projectEpsg)
+    if (primitive) {
+      scene.primitives.add(primitive)
+    }
   }
 }
 
@@ -426,6 +505,8 @@ interface CesiumViewportProps {
    * in the Cesium scene.
    */
   onSceneClick?: (cartesian: Cesium.Cartesian3) => void
+  /** DEM ground-surface TIN — rendered below formation surfaces as terrain base. */
+  groundSurface?: GroundSurfaceBuildResponse | null
 }
 
 /**
@@ -477,6 +558,7 @@ function CesiumViewport({
   invertClip = false,
   cameraResetRef,
   onSceneClick,
+  groundSurface,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -526,7 +608,13 @@ function CesiumViewport({
     const widget = widgetRef.current
     if (!widget) return
 
-    rebuildSurfacePrimitives(widget.scene, formations, surfacesByFormationId, projectEpsg)
+    rebuildSurfacePrimitives(
+      widget.scene,
+      formations,
+      surfacesByFormationId,
+      projectEpsg,
+      groundSurface,
+    )
 
     // Apply clipping plane if this is a split viewport.
     if (clippingPlane) {
@@ -579,10 +667,10 @@ function CesiumViewport({
       flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
     }
     // reason: we only want to fly on mount and data change, not on every
-    // basemap or clipping-plane change. The dep array includes surfaces but
-    // not the camera ref — the ref is stable.
+    // basemap or clipping-plane change. The dep array includes surfaces and
+    // groundSurface but not the camera ref — the ref is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formations, surfacesByFormationId, projectEpsg])
+  }, [formations, surfacesByFormationId, projectEpsg, groundSurface])
 
   // ---------------------------------------------------------------------------
   // Swap imagery layer when basemap changes
@@ -774,6 +862,7 @@ export default function Geology3DViewer({
   projectEpsg,
   onSplitPlaneDrawn,
   resetCameraRef,
+  groundSurface,
 }: Geology3DViewerProps): JSX.Element {
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
@@ -853,6 +942,7 @@ export default function Geology3DViewer({
           invertClip={false}
           cameraResetRef={resetCameraRef}
           onSceneClick={primaryClickHandler}
+          groundSurface={groundSurface}
         />
 
         {/* Basemap picker — only on the primary viewport */}
@@ -881,6 +971,7 @@ export default function Geology3DViewer({
               projectEpsg={projectEpsg}
               clippingPlane={splitPlane}
               invertClip={true}
+              groundSurface={groundSurface}
             />
           </div>
         </>
