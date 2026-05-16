@@ -398,7 +398,11 @@ async def delete_model(
     model_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete a model. Cascades to every contact under it."""
+    """Delete a model and all its dependent data.
+
+    Cascades to: geological formations and their contacts, geotechnical
+    units, and every formation surface (TIN) associated with the model.
+    """
     repo = GeologyRepository(session)
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
