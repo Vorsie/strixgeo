@@ -19,9 +19,11 @@
  * - Apply / Cancel buttons; confirm button text is ``"Apply selection"``,
  *   never "OK".
  *
- * Dark-mode note: the shared Modal primitive is light-only.  Inline
- * ``dark:`` variants are used here instead (same pattern as the Sections
- * delete confirm modal).
+ * Theming: uses the app's semantic CSS-var tokens (``surface-*`` /
+ * ``text-*`` / ``border-*`` / ``status-danger``) which flip with the
+ * ``.dark`` class.  NOT Tailwind ``dark:`` variants — those key off OS
+ * ``prefers-color-scheme`` and are dead on a light-OS host, which is
+ * why this dialog previously rendered white over the dark app.
  */
 
 import { useCallback, useMemo, useState } from 'react'
@@ -192,21 +194,21 @@ export default function FormationSelectionDialog({
       cardClassName="w-[480px] max-h-[80vh] flex flex-col"
     >
       {/* Header */}
-      <div className="px-5 pt-5 pb-3 border-b border-gray-200 dark:border-gray-700">
+      <div className="px-5 pt-5 pb-3 border-b border-border-default">
         <h2
           id="fill-from-boreholes-title"
-          className="text-sm font-semibold text-gray-800 dark:text-gray-100"
+          className="text-sm font-semibold text-text-primary"
         >
           Fill from boreholes
         </h2>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        <p className="mt-1 text-xs text-text-secondary">
           Select the formations to include in the model. Unselected formations
           and their contacts will be permanently deleted.
         </p>
       </div>
 
       {/* Select all / none controls */}
-      <div className="flex justify-end gap-3 px-5 py-2 border-b border-gray-100 dark:border-gray-700">
+      <div className="flex justify-end gap-3 px-5 py-2 border-b border-border-subtle">
         <button
           type="button"
           className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
@@ -226,7 +228,7 @@ export default function FormationSelectionDialog({
       {/* Candidate list — scrollable when tall */}
       <div className="flex-1 overflow-y-auto px-5 py-2 min-h-0">
         {candidates.length === 0 ? (
-          <p className="py-4 text-center text-xs text-gray-400 dark:text-gray-500">
+          <p className="py-4 text-center text-xs text-text-muted">
             No stratigraphy candidates found.
           </p>
         ) : (
@@ -235,18 +237,18 @@ export default function FormationSelectionDialog({
               const isChecked = checked.has(candidate.key)
               return (
                 <li key={candidate.key}>
-                  <label className="flex items-start gap-2.5 py-1.5 px-2 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors select-none">
+                  <label className="flex items-start gap-2.5 py-1.5 px-2 rounded cursor-pointer hover:bg-surface-page transition-colors select-none">
                     <input
                       type="checkbox"
-                      className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 text-accent focus:ring-accent focus:ring-1 shrink-0"
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-border-default text-accent focus:ring-accent focus:ring-1 shrink-0"
                       checked={isChecked}
                       onChange={() => toggle(candidate.key)}
                     />
                     <span className="flex-1 min-w-0">
-                      <span className="block text-xs font-medium text-gray-800 dark:text-gray-100 truncate">
+                      <span className="block text-xs font-medium text-text-primary truncate">
                         {candidate.name}
                       </span>
-                      <span className="block text-xs text-gray-400 dark:text-gray-500">
+                      <span className="block text-xs text-text-muted">
                         found in {candidate.boreholeCount}{' '}
                         {candidate.boreholeCount === 1 ? 'borehole' : 'boreholes'}
                       </span>
@@ -261,8 +263,8 @@ export default function FormationSelectionDialog({
 
       {/* Deletion warning — shown only when at least one formation would be deleted */}
       {willDelete && (
-        <div className="px-5 py-2 border-t border-red-100 dark:border-red-900 bg-red-50 dark:bg-red-950/40">
-          <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+        <div className="px-5 py-2 border-t border-border-default bg-surface-page">
+          <p className="text-xs text-status-danger font-medium">
             {deletedFormationCount} formation{deletedFormationCount === 1 ? '' : 's'} and{' '}
             {deletedContactCount} contact{deletedContactCount === 1 ? '' : 's'} will be
             permanently deleted.
@@ -271,7 +273,7 @@ export default function FormationSelectionDialog({
       )}
 
       {/* Footer */}
-      <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="flex justify-end gap-2 px-5 py-4 border-t border-border-default">
         {/* Cancel has autoFocus when a deletion warning is visible — the safe
             default for a destructive-confirm modal per docs/ux.md. When no
             deletions would occur, the confirm button takes focus instead. */}
