@@ -325,9 +325,16 @@ function buildTinPrimitive(
         color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
       },
     }),
+    // flat: true — geological/terrain bands are translucent fills; per-vertex
+    // lighting normals are neither wanted nor meaningful for subsurface surfaces.
+    // flat: false requires a normal attribute (and Cesium's compressVertices path
+    // then demands compressedAttributes that were never computed), which causes
+    // the "Appearance/Geometry mismatch … 'compressedAttributes'" crash for every
+    // TIN primitive. flat: true uses FLAT_VERTEX_FORMAT (position-only), which
+    // matches the geometry we supply.
     appearance: new Cesium.PerInstanceColorAppearance({
       translucent: true,
-      flat: false,
+      flat: true,
     }),
     asynchronous: false,
   })
