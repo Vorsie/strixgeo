@@ -1267,4 +1267,104 @@ describe('ContactsLayer', () => {
     expect(paths[0].getAttribute('data-testid')).toBe('formation-polyline-f-old')
     expect(paths[1].getAttribute('data-testid')).toBe('formation-polyline-f-young')
   })
+
+  // -----------------------------------------------------------------
+  // 3-state fill contract (§10 on-click build): the SOLID colour band
+  // is gated on a built surface. Fill (Geology stage) creates contacts
+  // but NEVER builds a TIN, so until "Build 3D model" runs the section
+  // must show ONLY the dashed connect-the-dots line — no colour fill.
+  // These pin the gate that regressed (solid bands appeared pre-Build).
+  // -----------------------------------------------------------------
+
+  // Shared fixture: 3 boreholes carrying one contact each for one
+  // formation — enough for a connect-the-dots polyline (and a TIN
+  // slice when a surface is wired). The only variable across the
+  // three cases is the surface (absent / fresh / stale).
+  const fillContacts = [
+    makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
+    makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
+    makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 1 }),
+  ]
+  const fillFormation = makeFormation({ id: 'f', color: '#ff0000' })
+  const fillPlaced = [
+    makeBoreholePlaced('bh-1', 0),
+    makeBoreholePlaced('bh-2', 100),
+    makeBoreholePlaced('bh-3', 50),
+  ]
+  function makeFillSurface(isStale: boolean): FormationSurfaceResponse {
+    return {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 9],
+        [100, -2, 9],
+        [50, 5, 9],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: isStale,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+  }
+
+  it('emits NO solid fill band when contacts exist but no surface is built (Fill, pre-Build)', () => {
+    // The regression: a colour-filled band appeared straight after
+    // Fill, before any Build. Contract: no surface row → no fill,
+    // ONLY the dashed connect-the-dots polyline.
+    const { container } = renderLayer(
+      fillContacts,
+      [fillFormation],
+      fillPlaced,
+      undefined,
+      {
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+        // surfacesByFormationId deliberately omitted — never Built.
+      },
+    )
+    expect(
+      container.querySelectorAll('[data-testid^="formation-fill-"]').length,
+    ).toBe(0)
+    // The draft is still drawn — the connect-the-dots polyline remains.
+    expect(
+      container.querySelector('[data-testid="formation-polyline-f"]'),
+    ).not.toBeNull()
+  })
+
+  it('emits a solid fill band at opacity 0.18 when the surface is freshly built', () => {
+    const { container } = renderLayer(
+      fillContacts,
+      [fillFormation],
+      fillPlaced,
+      undefined,
+      {
+        surfacesByFormationId: new Map([['f', makeFillSurface(false)]]),
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+      },
+    )
+    const band = container.querySelector('[data-testid="formation-fill-f"]')
+    expect(band).not.toBeNull()
+    expect(band!.getAttribute('fill-opacity')).toBe('0.18')
+  })
+
+  it('emits a faded fill band at opacity 0.08 when the surface is stale', () => {
+    const { container } = renderLayer(
+      fillContacts,
+      [fillFormation],
+      fillPlaced,
+      undefined,
+      {
+        surfacesByFormationId: new Map([['f', makeFillSurface(true)]]),
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+      },
+    )
+    const band = container.querySelector('[data-testid="formation-fill-f"]')
+    expect(band).not.toBeNull()
+    expect(band!.getAttribute('fill-opacity')).toBe('0.08')
+  })
 })
