@@ -527,6 +527,76 @@ class GeologyRepository(GroundModelLogger):
             self.debug(f"mark_surfaces_stale: flipped {total} row(s) across {len(unique)} pair(s)")
         return total
 
+    async def stale_surfaces_for_investigation(
+        self,
+        *,
+        cpt_id: UUID | None = None,
+        borehole_id: UUID | None = None,
+    ) -> int:
+        """Stale every TIN that has a contact anchored at this investigation.
+
+        Closes debt #34: a contact's absolute z is
+        ``investigation.elevation_m - depth_top_m``, so editing an
+        investigation's elevation silently invalidates every cached
+        surface that has a contact at that anchor — yet the old
+        ``PATCH .../elevation`` path never flipped ``is_stale``, so the
+        section editor / 3D viewer kept rendering the wrong geometry as
+        if it were fresh. This finds the affected ``(model_id,
+        formation_id)`` pairs (across ALL models — the URL is
+        project-scoped, not model-scoped) and reuses
+        :meth:`mark_surfaces_stale`.
+
+        Exactly one of ``cpt_id`` / ``borehole_id`` must be given —
+        contacts carry an XOR anchor.
+
+        Parameters
+        ----------
+        cpt_id : UUID | None
+            The edited CPT, when the anchor is a CPT.
+        borehole_id : UUID | None
+            The edited borehole, when the anchor is a borehole.
+
+        Returns
+        -------
+        int
+            Number of surface rows flipped to stale (0 when the
+            investigation has no contacts, or its formations have no
+            built TIN yet — both legal no-ops).
+
+        Raises
+        ------
+        ValueError
+            When neither or both anchor ids are supplied (the XOR
+            contract is a programming error, not a user input error).
+        """
+        if (cpt_id is None) == (borehole_id is None):
+            raise ValueError(
+                "stale_surfaces_for_investigation needs exactly one of "
+                "cpt_id / borehole_id (contacts carry an XOR anchor)"
+            )
+        anchor_col = (
+            FormationContactOrm.cpt_id if cpt_id is not None else FormationContactOrm.borehole_id
+        )
+        anchor_val = cpt_id if cpt_id is not None else borehole_id
+        rows = await self._session.execute(
+            select(
+                FormationContactOrm.model_id,
+                FormationContactOrm.formation_id,
+            )
+            .where(anchor_col == anchor_val)
+            .distinct()
+        )
+        pairs = [(m, f) for m, f in rows.all()]
+        if not pairs:
+            return 0
+        flipped = await self.mark_surfaces_stale(pairs)
+        self.debug(
+            f"stale_surfaces_for_investigation("
+            f"{'cpt' if cpt_id is not None else 'borehole'}={anchor_val}): "
+            f"{len(pairs)} (model, formation) pair(s) → {flipped} surface(s) stale"
+        )
+        return flipped
+
     async def delete_contact(self, contact_id: UUID) -> bool:
         """Delete a contact. No cascading children — contacts are leaves."""
         contact = await self._session.get(FormationContactOrm, contact_id)
