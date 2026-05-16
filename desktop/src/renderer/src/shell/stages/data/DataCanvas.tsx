@@ -179,7 +179,7 @@ export default function DataCanvas(): JSX.Element {
               virtueleBoringLoading={virtueleBoringLoading}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-sm text-gray-400">
+            <div className="flex items-center justify-center h-full text-sm text-text-muted">
               Loading borehole…
             </div>
           )
@@ -207,7 +207,7 @@ export default function DataCanvas(): JSX.Element {
             virtueleBoringLoading={virtueleBoringLoading}
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-sm text-gray-400">
+          <div className="flex items-center justify-center h-full text-sm text-text-muted">
             Loading chart…
           </div>
         )}
