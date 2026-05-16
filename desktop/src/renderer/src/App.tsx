@@ -778,6 +778,7 @@ export default function App() {
       sessionImportCptIds,
       sessionImportBoreholeIds,
       sessionImportSectionIds,
+      sessionImportFormationIds,
     },
   }), [
     project,
@@ -840,6 +841,7 @@ export default function App() {
     outOfViewportCptIds, outOfViewportBoreholeIds,
     projectFilePath, manifestFormationIds,
     sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds,
+    sessionImportFormationIds,
   ])
 
   // ---------------------------------------------------------------------------
