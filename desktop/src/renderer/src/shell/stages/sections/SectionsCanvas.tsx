@@ -65,6 +65,7 @@ export default function SectionsCanvas(): JSX.Element {
       selectedSectionId,
       drawingSection,
       focusedContactIds,
+      effectiveHorizontalEpsg,
       clearSectionSelection,
       handlePatchSelectedSection,
       handleSectionLineDrawn,
@@ -114,9 +115,10 @@ export default function SectionsCanvas(): JSX.Element {
   // to the Sections stage) so new users always see the prompt.
   const [ctaDismissed, setCtaDismissed] = useState(false)
 
-  // Project needs a horizontal EPSG to create sections — same gate
-  // as the toolbar's PrimaryToolbarButton.
-  const canCreate = (project.default_horizontal_epsg ?? null) !== null
+  // Sections need a horizontal CRS for endpoints — same gate as the
+  // toolbar. Falls back to the imported investigations' CRS so an
+  // unfilled metadata dropdown doesn't dead-end section creation.
+  const canCreate = effectiveHorizontalEpsg != null
   const [ctaCreating, setCtaCreating] = useState(false)
 
   async function handleCtaNew(): Promise<void> {
