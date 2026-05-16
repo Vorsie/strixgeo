@@ -12,9 +12,9 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current Phase 4 friction / launch-demo blockers:** *(none open — #29/#30/#31/#32/#33/#34/#35 all resolved 2026-05-16)*
-* **D. Post-launch / Phase 5:** #11, #12, #13, #36, #37, #38, #39, #44, #43, #52
-* **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #28, #40, #41, #42, #45, #46, #48, #49, #50, #51
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #37, #38, #12, #41, #43, #51, #40, #36 *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
+* **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -30,13 +30,17 @@ exporter shipped), #31 resolved (section CRS allowlist guard),
 (geotech-units round-trip already covered by
 ``test_bundle_carries_geotechnical_units`` — confirmed green, no code
 change), #34 resolved (elevation PATCH stales dependent TINs in-
-transaction), #35 resolved (pinned_order survives Build). **Tier C
-fully cleared.** 38 open items**) compact
-them. Commit messages and code comments written before a cleanup
-pass continue to reference the OLD numbers — that's an unavoidable
-cost of the renumber. Sections #2–#28 below remain in their prior
-numeric order; #29+ are appended in numeric order — read the
-five-tier list above for true priority.
+transaction), #35 resolved (pinned_order survives Build) — Tier C
+fully cleared. **Same day re-tier:** Tier B (bundling/commercial)
+deferred (app not feature-ready for packaging); Tier C reopened as
+the "current work" tier — #37, #38, #12, #41, #43, #51, #40, #36
+moved up from D/E (data-loss landmine + roadmap-gating
+velocity/refactor work + cheap dogfeed friction). 38 open
+items**) compact them. Commit messages and code comments written
+before a cleanup pass continue to reference the OLD numbers — that's
+an unavoidable cost of the renumber. Sections #2–#28 below remain in
+their prior numeric order; #29+ are appended in numeric order — read
+the five-tier list above for true priority.
 
 ---
 
@@ -226,7 +230,7 @@ must be CORRECT AT CREATE TIME, not via a repair button.** Today
 G3Dv3 makes this true for Flanders projects; the NL extension
 must follow the same rule.
 
-## 12. App.tsx → custom hooks split (medium — smoke-test landed 2026-05-14, split deferred)
+## 12. App.tsx → custom hooks split (Tier C — gates the UI-shell rework; S2 landed, S3–S7 outstanding)
 
 **What landed.** ``App.smoke.test.tsx`` mounts ``<App />`` with stubs
 for window.electron + the full api.* surface + a console.error spy.
@@ -600,7 +604,7 @@ no nearby data".
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
 
-## 36. `excluded_borehole_ids` is ignored by TIN recompute (Tier D — view/surface divergence)
+## 36. `excluded_borehole_ids` is ignored by TIN recompute (Tier C — view/surface divergence)
 
 **What.** `GeologicalModel.excluded_borehole_ids` is applied at
 section projection time (`BuildSectionSnapshot` filters
@@ -622,7 +626,7 @@ exclusion after contacts exist. Fix: add the exclusion filter to the
 `RecomputeFormationSurface` contact query (one WHERE clause; decide
 skip-vs-delete for existing excluded-anchor contacts).
 
-## 37. `delete_model` cascade destroys all project formations; single-model invariant unenforced (Tier D — pre-Phase-5 landmine)
+## 37. `delete_model` cascade destroys all project formations; single-model invariant unenforced (Tier C — DATA-LOSS landmine, top priority)
 
 **What.** `GeologicalFormation` rows are project-scoped with no model
 FK (correct for shared Phase-5 vocabulary). `delete_model` deletes
@@ -642,7 +646,7 @@ contained today.
 cascade model-aware — delete only formations exclusively owned by the
 target model — or add a junction table for model membership.
 
-## 38. Geology contact-mutation use cases have no unit-test coverage (Tier D — pre-commit blind to the hottest write path)
+## 38. Geology contact-mutation use cases have no unit-test coverage (Tier C — pre-commit blind to the hottest write path)
 
 **What.** `CreateFormationContact`, `UpdateFormationContact`,
 `DeleteFormationContact`, `DeduplicateFormationContacts`,
@@ -685,7 +689,7 @@ during dogfeed. Two-part fix: (a) pass `include=` to drop lab trees
 the section doesn't use; (b) add `POST /boreholes/detail-batch`
 mirroring `plot-batch` — one query replaces N.
 
-## 40. `api/routers/geology.py` is a ~1,100-line orchestration monolith (Tier E)
+## 40. `api/routers/geology.py` is a ~1,100-line orchestration monolith (Tier C — gates geology API growth)
 
 **What.** One router file covers formations, geotechnical units,
 models, contacts (CRUD + batch), surface rebuild, gap/crossing
@@ -705,7 +709,7 @@ lines, or on the first merge conflict from two sessions touching
 different parts. Split into `api/routers/geology/{formations,models,
 contacts,surfaces,exports}.py` mounted on a shared `APIRouter`.
 
-## 41. `Geology3DViewer.tsx` (~1,740 lines) is untested; pure geometry helpers not extracted (Tier E)
+## 41. `Geology3DViewer.tsx` (~1,740 lines) is untested; pure geometry helpers not extracted (Tier C — gates the 3D-viewer roadmap work)
 
 **What.** The largest single component in the codebase, growing every
 Phase-4 step, with zero test coverage (Cesium needs WebGL so it can't
@@ -749,7 +753,7 @@ interpolator gives `tin_surface.py` a second compute path. Split
 `formation_contact.py` first (it grows fastest); then the
 `tin_surface` value objects into `domain/value_objects/`.
 
-## 43. Esc no longer closes the inspector / canvas detail views (Tier D — shell-rework keyboard regression)
+## 43. Esc no longer closes the inspector / canvas detail views (Tier C — shell-rework keyboard regression, daily dogfeed friction)
 
 **What.** docs/ux.md makes Esc the global "close detail panel" key
 and requires detail-panel close on "X OR Esc". After the S2–S7 shell
@@ -920,7 +924,7 @@ catalogue endpoint is cached server-side. Fix is a two-liner:
 `VALID_MODEL_CODE_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,50}$')` and a
 400 on any non-matching code before fan-out.
 
-## 51. Inspector chrome still on raw Tailwind palette, not semantic tokens (Tier E)
+## 51. Inspector chrome still on raw Tailwind palette, not semantic tokens (Tier C — half-themed dark mode, demo-visible)
 
 **What.** After the #24 Modal migration, ~49 raw-palette occurrences
 remain across 9 shell-stage files — concentrated in GeologyInspector
