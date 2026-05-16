@@ -48,6 +48,9 @@ vi.mock('../../../components/interpretation/FormationDialog', () => ({
 
 const noopAsync = (): Promise<void> => Promise.resolve()
 const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
+const noopAsyncNullableModel =
+  (): Promise<import('../../../api/client').GeologicalModelResponse | null> =>
+    Promise.resolve(null)
 const noopAsyncCandidates = (): Promise<import('../../../hooks/useGeologicalModel').FormationCandidate[]> =>
   Promise.resolve([])
 
@@ -147,6 +150,7 @@ function makeStubContext(): ShellContextValue {
       discoverBoreholeFormations: noopAsyncCandidates,
       applyBoreholeFormationSelection: noopAsync,
       handleDeleteModel: noopAsync,
+      ensureActiveGeologicalModel: noopAsyncNullableModel,
     },
     sections: {
       sections: [],
