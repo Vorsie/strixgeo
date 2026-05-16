@@ -313,13 +313,58 @@ class GeologyRepository(GroundModelLogger):
         return target
 
     async def delete_model(self, model_id: UUID) -> bool:
-        """Delete a model. Cascade drops every contact under it."""
+        """Delete a model and all project formations.
+
+        Under the v1 "exactly one geological model per project" invariant
+        (CLAUDE.md §"Modelling hierarchy"), formations are project-scoped
+        rather than model-FK'd — deleting the model does NOT cascade them
+        automatically. We therefore delete all formations for the project
+        first; their ORM-level ``cascade="all, delete-orphan"`` on ``contacts``
+        and ``units`` handles the subordinate rows.
+
+        When Phase-5 multi-model support lands, formations will be shared
+        across models and this cascade must become model-aware (only remove
+        formations that are exclusively referenced by this model). Mark that
+        as tech debt before adding a second model creation path.
+
+        The contacts and surfaces of the model itself still cascade via the
+        ``GeologicalModelOrm`` ORM relationships and are dropped by
+        ``session.delete(model)``.
+
+        Parameters
+        ----------
+        model_id
+            Primary key of the model to remove.
+
+        Returns
+        -------
+        bool
+            ``True`` when the model existed and was removed, ``False`` when
+            no row matched ``model_id``.
+        """
+        self.debug(f"delete_model entry model_id={model_id}")
         model = await self._session.get(GeologicalModelOrm, model_id)
         if model is None:
+            self.warning(f"delete_model: model {model_id} not found — nothing to do")
             return False
+
+        project_id = model.app_project_id
+
+        # Delete all project formations first. Their ORM cascade removes
+        # subordinate contacts + geotechnical units automatically.
+        formations = await self.list_formations(project_id)
+        formation_count = len(formations)
+        for formation in formations:
+            await self._session.delete(formation)
+        self.debug(
+            f"delete_model: queued deletion of {formation_count} formation(s) "
+            f"for project {project_id}"
+        )
+
+        # Delete the model — ORM cascade drops its contacts + surfaces.
         await self._session.delete(model)
         await self._session.flush()
-        self.info(f"Model deleted: {model_id}")
+        self.success(f"delete_model ok model_id={model_id} formations_deleted={formation_count}")
         return True
 
     # -----------------------------------------------------------------
