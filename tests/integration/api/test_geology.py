@@ -1644,6 +1644,71 @@ async def test_rebuild_auto_reorders_display_order_by_per_anchor_depth(
     assert rows["Aalbeke"]["display_order"] == 2
 
 
+async def test_rebuild_keeps_pinned_formation_order(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Build must NOT re-order a formation the user pinned (debt #35).
+
+    Engineer creates Aalbeke / Quartair / Antropogeen (creation order
+    → display_order 0 / 1 / 2). Contacts say Antropogeen is youngest
+    (0.5 m), Quartair 3 m, Aalbeke deepest (15 m), so unconstrained
+    age inference would want 0 / 1 / 2 = Antropogeen / Quartair /
+    Aalbeke. But the engineer deliberately pins Aalbeke at the TOP
+    (display_order 0) — an unusual-stratigraphy call the data can't
+    see. Build must leave Aalbeke at 0 and flow only the non-pinned
+    formations into the remaining slots.
+    """
+    project, borehole = project_with_borehole
+    aalbeke = await _create_formation(async_client, project.id, name="Aalbeke")
+    quartair = await _create_formation(async_client, project.id, name="Quartair")
+    antropogeen = await _create_formation(async_client, project.id, name="Antropogeen")
+    model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, model["id"], antropogeen["id"], borehole.id, depth=0.5
+    )
+    await _create_contact(
+        async_client, project.id, model["id"], quartair["id"], borehole.id, depth=3.0
+    )
+    await _create_contact(
+        async_client, project.id, model["id"], aalbeke["id"], borehole.id, depth=15.0
+    )
+
+    # The engineer drag-pins Aalbeke at the top (display_order stays 0,
+    # pinned_order=True) — exactly what the GeologyInspector drag-end
+    # PATCH sends.
+    pin_resp = await async_client.patch(
+        f"/projects/{project.id}/geology/formations/{aalbeke['id']}",
+        json={"display_order": 0, "pinned_order": True},
+    )
+    assert pin_resp.status_code == 200, pin_resp.text
+    assert pin_resp.json()["pinned_order"] is True
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200, resp.text
+    # Aalbeke is skipped (pinned). Antropogeen (was 2) and Quartair
+    # (was 1) flow into free slots {1, 2} in age order → both change.
+    assert resp.json()["formations_reordered"] == 2
+
+    rows = {
+        f["name"]: f
+        for f in (await async_client.get(f"/projects/{project.id}/geology/formations")).json()
+    }
+    # Pinned formation untouched — order AND flag preserved.
+    assert rows["Aalbeke"]["display_order"] == 0
+    assert rows["Aalbeke"]["pinned_order"] is True
+    # Non-pinned re-flowed by age into the slots Aalbeke didn't hold.
+    assert rows["Antropogeen"]["display_order"] == 1
+    assert rows["Quartair"]["display_order"] == 2
+    # A second Build is a no-op — order now matches and the pin holds.
+    resp2 = await async_client.post(
+        f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
+    )
+    assert resp2.json()["formations_reordered"] == 0
+
+
 async def test_rebuild_second_pass_no_op_when_order_already_matches(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
