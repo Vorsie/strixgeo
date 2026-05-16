@@ -57,7 +57,9 @@ VERBATIM + 13 vitest cases — the 585c714 bug class is now netted; the
 residual component-mount smoke needs a Cesium mock harness, far lower
 value once the math is covered. **Tier C now empty** — current work
 drops to Tier D/E. **#50 resolved 2026-05-17** (Virtuele Boring model
-codes codelist-gated before fan-out). 31 open items**) compact them. Commit messages and code comments written
+codes codelist-gated before fan-out). **#49 resolved 2026-05-17**
+(crossings validator collapsed to one model-contacts query). 30 open
+items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -752,25 +754,6 @@ gap, not a correctness one.
 for any functional reason — wrap it in a
 `ProjectBundleService(GroundModelLogger)` and add `[i/total]`
 progress to the CPT/borehole loops in the same change.
-
-## 49. Crossings validator issues N queries per formation (Tier E)
-
-**What.** `ValidateModelCrossings.execute` loops over `formation_ids`
-calling `repo.list_contacts(model_id, formation_id=fid)` once per
-formation (the code comment claims "all formations at once" — it
-isn't). N formations → N+2 round-trips. Invisible at v1 (~10
-formations, <5 ms) but the validator polls after every contact edit,
-so a Phase-5 model with 20+ formations stalls the crossings banner
-during active editing.
-
-**Why deferred.** Read-only, non-blocking, sub-5 ms at current
-cardinality; the misleading comment is the only immediate harm (fixed
-as a quick-fix, see below).
-
-**When to revisit.** When the crossings banner is reported slow on a
-15+-formation model during active editing. Fix is also a
-simplification: one `list_contacts(model_id)` (no formation filter)
-+ Python grouping — one round-trip, less code.
 
 ## 52. PDF report export (Tier D — Phase 5 reporting deliverable)
 
