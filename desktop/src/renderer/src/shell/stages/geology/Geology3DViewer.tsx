@@ -45,7 +45,7 @@ import type {
 } from '../../../api/client'
 import type { BasemapSource, BasemapId } from '../../../utils/basemapSources'
 import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/basemapSources'
-import { projectedToWgs84 } from '../../../hooks/useWgs84'
+import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
 
 // Disable Cesium ion. All basemaps and terrain come from our own providers.
 Cesium.Ion.defaultAccessToken = ''
@@ -96,7 +96,10 @@ export interface Geology3DViewerProps {
    * The viewer emits the computed ``Cesium.Plane`` in ECEF space; the caller
    * stores it and passes it back via ``splitPlane``.
    */
-  onSplitPlaneDrawn: (plane: Cesium.Plane) => void
+  onSplitPlaneDrawn: (plane: Cesium.Plane, line: SplitLine) => void
+  /** The drawn split line in projected CRS, echoed back so the cut-face
+   * caps can sample the formations along it. */
+  splitLine?: SplitLine | null
   /**
    * Ref populated by the viewer so callers (e.g. GeologyToolbar Reset verb)
    * can trigger a camera fly-to without prop drilling.
@@ -275,6 +278,300 @@ function flyToBounds(
       range,
     ),
   })
+}
+
+/** The two endpoints of the user-drawn split line, in the project's
+ * horizontal CRS (projected metres). Used to sample the cut face. */
+export interface SplitLine {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+/**
+ * Frame the camera onto the cut FACE (step 3 — "turn the half
+ * outward to see the inside"). Instead of the oblique top-down
+ * (flyToBounds), look at the split plane head-on from the kept side
+ * with a slight downward tilt so the layered cross-section reads.
+ */
+function flyToCutFace(
+  camera: Cesium.Camera,
+  surfaces: FormationSurfaceResponse[],
+  projectEpsg: number,
+  planeNormal: Cesium.Cartesian3,
+  keepPositive: boolean,
+): void {
+  const points: Cesium.Cartesian3[] = []
+  for (const s of surfaces) {
+    for (const [x, y, z] of s.vertices) {
+      const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+      points.push(Cesium.Cartesian3.fromDegrees(lng, lat, z))
+    }
+  }
+  if (points.length === 0) return
+  const sphere = Cesium.BoundingSphere.fromPoints(points)
+  const C = sphere.center
+  const range = Math.max(sphere.radius * 2.0, 600)
+
+  // Look toward the plane: the kept (+normal) half is viewed from the
+  // +normal side looking in -normal; the inverted half is the mirror.
+  const n = Cesium.Cartesian3.normalize(planeNormal, new Cesium.Cartesian3())
+  const viewDir = Cesium.Cartesian3.multiplyByScalar(
+    n,
+    keepPositive ? -1 : 1,
+    new Cesium.Cartesian3(),
+  )
+  const worldUp = Cesium.Ellipsoid.WGS84.geodeticSurfaceNormal(
+    C,
+    new Cesium.Cartesian3(),
+  )
+  // Tilt ~10° down so the section face is seen slightly from above.
+  Cesium.Cartesian3.subtract(
+    viewDir,
+    Cesium.Cartesian3.multiplyByScalar(worldUp, 0.18, new Cesium.Cartesian3()),
+    viewDir,
+  )
+  Cesium.Cartesian3.normalize(viewDir, viewDir)
+
+  // Orthonormal camera frame.
+  const right = Cesium.Cartesian3.normalize(
+    Cesium.Cartesian3.cross(viewDir, worldUp, new Cesium.Cartesian3()),
+    new Cesium.Cartesian3(),
+  )
+  const up = Cesium.Cartesian3.normalize(
+    Cesium.Cartesian3.cross(right, viewDir, new Cesium.Cartesian3()),
+    new Cesium.Cartesian3(),
+  )
+  const destination = Cesium.Cartesian3.subtract(
+    C,
+    Cesium.Cartesian3.multiplyByScalar(viewDir, range, new Cesium.Cartesian3()),
+    new Cesium.Cartesian3(),
+  )
+  camera.flyTo({
+    destination,
+    orientation: { direction: viewDir, up },
+    duration: 1.2,
+  })
+}
+
+/** Sample a formation TIN's elevation at a projected (x, y) point by
+ * locating the containing triangle (projected XY) and barycentric-
+ * interpolating z. Returns ``null`` when the point is outside the
+ * surface (pinch-out / absent). */
+function sampleTinZ(
+  surface: FormationSurfaceResponse,
+  px: number,
+  py: number,
+): number | null {
+  for (const [i0, i1, i2] of surface.triangles) {
+    const [ax, ay, az] = surface.vertices[i0]
+    const [bx, by, bz] = surface.vertices[i1]
+    const [cx, cy, cz] = surface.vertices[i2]
+    const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+    if (Math.abs(d) < 1e-9) continue
+    const l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d
+    const l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d
+    const l3 = 1 - l1 - l2
+    const EPS = -1e-6
+    if (l1 >= EPS && l2 >= EPS && l3 >= EPS) {
+      return l1 * az + l2 * bz + l3 * cz
+    }
+  }
+  return null
+}
+
+/**
+ * Build the coloured cut-face "caps" (step 2). Samples every formation
+ * TIN at shared stations along the split line and fills a ribbon
+ * between each formation top and the next-deeper present formation
+ * (deepest down to the model base), so the slice reads as a solid
+ * layered cake, not a hollow shell.
+ *
+ * Caps are coplanar with the cut and are rendered in BOTH viewports
+ * (the cut face is shared); each half's other geometry is clipped
+ * away on the far side so it reads as that half's exposed face.
+ */
+function buildCapPrimitives(
+  formations: GeologicalFormationResponse[],
+  surfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>,
+  projectEpsg: number,
+  line: SplitLine,
+  hiddenFormationIds?: ReadonlySet<string>,
+): Cesium.Primitive[] {
+  // Bounding box + base elevation across all surface vertices.
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  let minZ = Infinity
+  for (const s of surfacesByFormationId.values()) {
+    for (const [x, y, z] of s.vertices) {
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+      if (z < minZ) minZ = z
+    }
+  }
+  if (!isFinite(minX)) return []
+  const zBase = minZ - 2
+
+  // Extend the drawn segment to a long line, then clamp its parameter
+  // to the model bbox so stations span the model, not just the click.
+  const dx = line.x1 - line.x0
+  const dy = line.y1 - line.y0
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-6) return []
+  const ux = dx / len
+  const uy = dy / len
+  // Param t (metres from p0). Intersect bbox to get [tMin, tMax].
+  const ts: number[] = []
+  for (const [c, u, lo, hi] of [
+    [line.x0, ux, minX, maxX] as const,
+    [line.y0, uy, minY, maxY] as const,
+  ]) {
+    if (Math.abs(u) < 1e-9) continue
+    ts.push((lo - c) / u, (hi - c) / u)
+  }
+  if (ts.length === 0) return []
+  let tMin = Math.min(...ts)
+  let tMax = Math.max(...ts)
+  if (tMax - tMin < 1) return []
+  // Clamp to the diagonal so we never sample wildly outside.
+  const diag = Math.hypot(maxX - minX, maxY - minY)
+  tMin = Math.max(tMin, -diag)
+  tMax = Math.min(tMax, len + diag)
+
+  const N = 160
+  // Ordered oldest→youngest; we walk top→down per station.
+  const ordered = [...formations]
+    .filter(f => !hiddenFormationIds?.has(f.id))
+    .sort((a, b) => a.display_order - b.display_order)
+
+  // Accumulate quads per formation id.
+  const quadsByFid = new Map<string, number[]>()
+  const colorByFid = new Map<string, Cesium.Color>()
+
+  const stationXY: [number, number][] = []
+  for (let k = 0; k <= N; k++) {
+    const t = tMin + ((tMax - tMin) * k) / N
+    stationXY.push([line.x0 + ux * t, line.y0 + uy * t])
+  }
+
+  // Per-station top→down list of (z, fid).
+  const profiles: { z: number; fid: string }[][] = stationXY.map(([px, py]) => {
+    const col: { z: number; fid: string }[] = []
+    for (const f of ordered) {
+      const surf = surfacesByFormationId.get(f.id)
+      if (!surf || surf.triangles.length === 0) continue
+      const z = sampleTinZ(surf, px, py)
+      if (z === null) continue
+      col.push({ z: z + f.display_order * Z_OFFSET_PER_ORDER, fid: f.id })
+    }
+    col.sort((a, b) => b.z - a.z) // top first
+    return col
+  })
+
+  const pushQuad = (
+    fid: string,
+    p1: [number, number, number],
+    p2: [number, number, number],
+    p3: [number, number, number],
+    p4: [number, number, number],
+  ) => {
+    let arr = quadsByFid.get(fid)
+    if (!arr) {
+      arr = []
+      quadsByFid.set(fid, arr)
+    }
+    // Two triangles (1,2,3) (1,3,4); positions stored projected,
+    // converted to ECEF when the primitive is built.
+    arr.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4)
+  }
+
+  for (const f of ordered) {
+    if (!colorByFid.has(f.id)) {
+      const hex = f.color.startsWith('#') ? f.color : `#${f.color}`
+      const c = Cesium.Color.fromCssColorString(hex) ?? Cesium.Color.GRAY
+      colorByFid.set(f.id, c)
+    }
+  }
+
+  for (let k = 0; k < N; k++) {
+    const ca = profiles[k]
+    const cb = profiles[k + 1]
+    const [ax, ay] = stationXY[k]
+    const [bx, by] = stationXY[k + 1]
+    // Walk the shallower of the two columns; band i spans z_i down to
+    // the next-deeper formation top (or zBase for the deepest).
+    const depth = Math.max(ca.length, cb.length)
+    for (let i = 0; i < depth; i++) {
+      const a = ca[i]
+      const b = cb[i]
+      if (!a && !b) continue
+      const fid = (a ?? b)!.fid
+      const aTop = a ? a.z : (b as { z: number }).z
+      const bTop = b ? b.z : (a as { z: number }).z
+      const aBot = ca[i + 1]?.z ?? zBase
+      const bBot = cb[i + 1]?.z ?? zBase
+      pushQuad(
+        fid,
+        [ax, ay, aTop],
+        [bx, by, bTop],
+        [bx, by, bBot],
+        [ax, ay, aBot],
+      )
+    }
+  }
+
+  const prims: Cesium.Primitive[] = []
+  for (const [fid, flat] of quadsByFid) {
+    if (flat.length === 0) continue
+    const positions = new Float64Array((flat.length / 3) * 3)
+    const indices = new Uint32Array(flat.length / 3)
+    let pi = 0
+    let ii = 0
+    for (let v = 0; v < flat.length; v += 3) {
+      const [lat, lng] = projectedToWgs84(flat[v], flat[v + 1], projectEpsg)
+      const ecef = Cesium.Cartesian3.fromDegrees(lng, lat, flat[v + 2])
+      positions[pi++] = ecef.x
+      positions[pi++] = ecef.y
+      positions[pi++] = ecef.z
+      indices[ii] = ii
+      ii++
+    }
+    const color = colorByFid.get(fid) ?? Cesium.Color.GRAY
+    prims.push(
+      new Cesium.Primitive({
+        geometryInstances: new Cesium.GeometryInstance({
+          geometry: new Cesium.Geometry({
+            attributes: {
+              position: new Cesium.GeometryAttribute({
+                componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+                componentsPerAttribute: 3,
+                values: positions,
+              }),
+            },
+            indices,
+            primitiveType: Cesium.PrimitiveType.TRIANGLES,
+            boundingSphere: Cesium.BoundingSphere.fromVertices(
+              Array.from(positions),
+            ),
+          }),
+          attributes: {
+            color: Cesium.ColorGeometryInstanceAttribute.fromColor(color),
+          },
+        }),
+        appearance: new Cesium.PerInstanceColorAppearance({
+          flat: true,
+          translucent: false,
+        }),
+        asynchronous: false,
+      }),
+    )
+  }
+  return prims
 }
 
 /**
@@ -476,6 +773,7 @@ function rebuildSurfacePrimitives(
   lid?: BasemapLid | null,
   clippingPlane?: Cesium.Plane | null,
   invertClip?: boolean,
+  splitLine?: SplitLine | null,
 ): void {
   scene.primitives.removeAll()
 
@@ -485,6 +783,21 @@ function rebuildSurfacePrimitives(
   const clip = clippingPlane
     ? { plane: clippingPlane, keepPositive: !invertClip }
     : undefined
+
+  // Step 2 — coloured cut-face caps. Shared geometry rendered in both
+  // halves (each half's far side is clipped away, so it reads as that
+  // half's exposed cross-section).
+  if (clip && splitLine) {
+    for (const cap of buildCapPrimitives(
+      formations,
+      surfacesByFormationId,
+      projectEpsg,
+      splitLine,
+      hiddenFormationIds,
+    )) {
+      scene.primitives.add(cap)
+    }
+  }
 
   // Basemap "lid" — one georeferenced orthophoto image draped flat as
   // a textured rectangle at the model's top elevation. Kept during the
@@ -652,6 +965,8 @@ interface CesiumViewportProps {
   clippingPlane?: Cesium.Plane | null
   /** Invert the clipping half (right viewport clips the left half). */
   invertClip?: boolean
+  /** Projected split line (for the cut-face caps). */
+  splitLine?: SplitLine | null
   /** Ref populated with a fly-to-bounds callback. */
   cameraResetRef?: React.MutableRefObject<(() => void) | null>
   /**
@@ -714,6 +1029,7 @@ function CesiumViewport({
   projectEpsg,
   clippingPlane = null,
   invertClip = false,
+  splitLine = null,
   cameraResetRef,
   onSceneClick,
   groundSurface,
@@ -727,6 +1043,9 @@ function CesiumViewport({
   // Last surface-set signature the camera was framed to — gates
   // flyToBounds so re-clipping / toggles don't re-frame the view.
   const lastFitKeyRef = useRef<string | null>(null)
+  // Last split plane the cut-face camera framed — re-frame once per
+  // newly-drawn plane, not on every basemap/visibility toggle.
+  const lastSplitPlaneRef = useRef<Cesium.Plane | null>(null)
 
   // ---------------------------------------------------------------------------
   // Mount / unmount the CesiumWidget
@@ -763,6 +1082,7 @@ function CesiumViewport({
     // the StrictMode-recreated (and secondary) viewport actually fly
     // to the model instead of staying on the bare globe.
     lastFitKeyRef.current = null
+    lastSplitPlaneRef.current = null
 
     return () => {
       widget.destroy()
@@ -805,27 +1125,53 @@ function CesiumViewport({
       lid,
       clippingPlane,
       invertClip,
+      splitLine,
     )
 
-    // Wire the camera reset ref after surfaces are added.
     const allSurfaces = Array.from(surfacesByFormationId.values())
+    const hasSurfaces = allSurfaces.some(s => s.vertices.length > 0)
+
+    // Camera. Split active → look at the cut FACE head-on (step 3);
+    // single → oblique bounds fit. Reset verb mirrors the active mode.
     if (cameraResetRef) {
-      cameraResetRef.current = () => flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
+      cameraResetRef.current = clippingPlane
+        ? () =>
+            flyToCutFace(
+              widget.scene.camera,
+              allSurfaces,
+              projectEpsg,
+              clippingPlane.normal,
+              !invertClip,
+            )
+        : () => flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
     }
 
-    // Fly to bounds only when the surface SET changes — not on a
-    // clip / basemap / visibility toggle (which re-run this effect but
-    // must not yank the camera). Key on a cheap surface signature.
-    const fitKey = `${projectEpsg}|${allSurfaces
-      .map(s => s.vertices.length)
-      .join(',')}|${groundSurface?.vertices.length ?? 0}`
-    const hasSurfaces = allSurfaces.some(s => s.vertices.length > 0)
-    if (hasSurfaces && lastFitKeyRef.current !== fitKey) {
-      lastFitKeyRef.current = fitKey
-      flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
+    if (clippingPlane) {
+      // Re-frame to the cut once per newly-drawn plane (object
+      // identity changes per draw) — not on basemap/visibility toggles.
+      if (hasSurfaces && lastSplitPlaneRef.current !== clippingPlane) {
+        lastSplitPlaneRef.current = clippingPlane
+        flyToCutFace(
+          widget.scene.camera,
+          allSurfaces,
+          projectEpsg,
+          clippingPlane.normal,
+          !invertClip,
+        )
+      }
+    } else {
+      lastSplitPlaneRef.current = null
+      // Single view: fly only when the surface SET changes.
+      const fitKey = `${projectEpsg}|${allSurfaces
+        .map(s => s.vertices.length)
+        .join(',')}|${groundSurface?.vertices.length ?? 0}`
+      if (hasSurfaces && lastFitKeyRef.current !== fitKey) {
+        lastFitKeyRef.current = fitKey
+        flyToBounds(widget.scene.camera, allSurfaces, projectEpsg)
+      }
     }
-    // reason: clippingPlane/invertClip drive the per-half clip; the
-    // fitKey ref gates the camera fly so re-clipping doesn't re-frame.
+    // reason: clippingPlane/invertClip/splitLine drive the per-half
+    // clip + cut-face caps + camera; the refs gate re-framing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     formations,
@@ -836,6 +1182,7 @@ function CesiumViewport({
     basemapEnabled,
     clippingPlane,
     invertClip,
+    splitLine,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
@@ -1011,6 +1358,7 @@ export default function Geology3DViewer({
   activeBasemap: initialBasemap,
   projectEpsg,
   onSplitPlaneDrawn,
+  splitLine = null,
   resetCameraRef,
   groundSurface,
   onExitSplit,
@@ -1084,15 +1432,25 @@ export default function Geology3DViewer({
         const plane = computeSplitPlane(drawState.first, cartesian)
         setDrawState({ phase: 'idle' })
         if (plane) {
-          onSplitPlaneDrawn(plane)
+          // Project both ECEF endpoints back to the project CRS so the
+          // cut-face caps can sample formation TINs along the line.
+          const toProjected = (c: Cesium.Cartesian3): [number, number] => {
+            const cg = Cesium.Cartographic.fromCartesian(c)
+            return wgs84ToProjected(
+              Cesium.Math.toDegrees(cg.latitude),
+              Cesium.Math.toDegrees(cg.longitude),
+              projectEpsg,
+            )
+          }
+          const [x0, y0] = toProjected(drawState.first)
+          const [x1, y1] = toProjected(cartesian)
+          onSplitPlaneDrawn(plane, { x0, y0, x1, y1 })
           setSplitArmed(false)
         }
         // Segment too short → stay armed, idle: the user re-clicks.
       }
     },
-    // projectEpsg is intentionally absent: computeSplitPlane works purely
-    // in ECEF/WGS84 and never reads the project CRS.
-    [splitMode, splitPlane, drawState, onSplitPlaneDrawn],
+    [splitMode, splitPlane, drawState, onSplitPlaneDrawn, projectEpsg],
   )
 
   // Draw mode is active only while explicitly armed (and we're in single
@@ -1117,6 +1475,7 @@ export default function Geology3DViewer({
           projectEpsg={projectEpsg}
           clippingPlane={splitPlane}
           invertClip={false}
+          splitLine={splitLine}
           cameraResetRef={resetCameraRef}
           onSceneClick={primaryClickHandler}
           groundSurface={groundSurface}
@@ -1241,6 +1600,7 @@ export default function Geology3DViewer({
               projectEpsg={projectEpsg}
               clippingPlane={splitPlane}
               invertClip={true}
+              splitLine={splitLine}
               groundSurface={groundSurface}
               hiddenFormationIds={hiddenFormationIds}
           basemapEnabled={basemapEnabled}
