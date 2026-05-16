@@ -332,6 +332,55 @@ describe('Sections stage (smoke)', () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
+  it('SectionsInspector count matches badge — both read visibleSections.length', () => {
+    // Pins the Fix 1 convergence: badge (SectionsStage.ts) and inspector
+    // (SectionsInspector.tsx) must both compute their count from
+    // sections.visibleSections, not the unfiltered sections list.
+    //
+    // Set up: DB has 2 sections, but only 1 is in the .gmproj manifest
+    // (i.e. visibleSections.length === 1).  The inspector must show "(1)"
+    // in the section-list header, not "(2)" from the raw list.
+    const ctx = makeStubContext()
+    const sectionA = {
+      id: 'sec-visible',
+      app_project_id: 'proj-1',
+      name: 'Section A-A',
+      description: null,
+      start_x: 0,
+      start_y: 0,
+      end_x: 100,
+      end_y: 0,
+      epsg: 31370,
+      projection_buffer_m: 50,
+      vertical_exaggeration: 2,
+      excluded_borehole_ids: [],
+      excluded_cpt_ids: [],
+      min_depth_m: null,
+      max_depth_m: null,
+      display_order: 0,
+      view_state: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    const sectionB = { ...sectionA, id: 'sec-not-in-manifest', name: 'Section B-B', display_order: 1 }
+    // sections = 2 (raw DB list), visibleSections = 1 (manifest-gated)
+    ctx.sections.sections = [sectionA, sectionB]
+    ctx.sections.visibleSections = [sectionA]
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsInspector />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    // Inspector header shows "(1)" — the visible count, not "(2)" from the raw list.
+    expect(screen.getByText('(1)')).toBeTruthy()
+    // The invisible section must not appear in the list.
+    expect(screen.queryByText('Section B-B')).toBeNull()
+    // The visible section must appear.
+    expect(screen.getByText('Section A-A')).toBeTruthy()
+  })
+
   // Delete confirm modal — replaced window.confirm() with Modal pattern.
   // Three paths: open, confirm (deletes), cancel (no delete).
   describe('SectionsToolbar delete confirm modal', () => {
