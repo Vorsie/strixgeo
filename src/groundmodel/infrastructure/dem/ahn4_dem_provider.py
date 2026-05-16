@@ -34,32 +34,21 @@ max_northing), which is the same as the X/Y convention in Belgian Lambert.
 from __future__ import annotations
 
 from io import BytesIO
-from typing import Final
 
 import httpx
 from PIL import Image
 
 from groundmodel.infrastructure.dem.dem_provider import DemProvider, DemZGrid
 from groundmodel.infrastructure.dem.dem_tile_cache import DemTileCache
+from groundmodel.infrastructure.dem.dem_wcs_constants import (
+    AHN4_COVERAGE_ID,
+    AHN4_NODATA_THRESHOLD,
+    AHN4_WCS_URL,
+    WCS_BBOX_PADDING_M,
+    WCS_TIMEOUT_SECONDS,
+    WCS_VERSION,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-
-# PDOK WCS endpoint (verified against GetCapabilities).
-_WCS_URL: Final = "https://service.pdok.nl/rws/ahn/wcs/v1_0"
-_COVERAGE_ID: Final = "dtm_05m"
-_WCS_VERSION: Final = "2.0.1"
-
-# AHN4 NoData sentinel: IEEE 754 single-precision max (approximately
-# 3.403e+38).  Pillow reads float32 TIFFs, so we compare with a threshold
-# rather than exact equality to guard against float32→float64 precision
-# expansion.
-_NODATA_THRESHOLD: Final = 1e37
-
-# Network timeout — AHN4 tiles for urban project areas can be multi-MB;
-# 30 s is the same ceiling as the DHMVII provider.
-_TIMEOUT_SECONDS: Final = 30.0
-
-# Padding around the requested bbox for edge-pixel bilinear stability.
-_BBOX_PADDING_M: Final = 2.0
 
 
 class Ahn4DemProvider(DemProvider, GroundModelLogger):
@@ -86,7 +75,7 @@ class Ahn4DemProvider(DemProvider, GroundModelLogger):
         self._client = httpx.AsyncClient(
             http2=True,
             follow_redirects=True,
-            timeout=_TIMEOUT_SECONDS,
+            timeout=WCS_TIMEOUT_SECONDS,
         )
 
     async def __aenter__(self) -> Ahn4DemProvider:
@@ -161,10 +150,10 @@ class Ahn4DemProvider(DemProvider, GroundModelLogger):
             f"res={resolution_m}m"
         )
 
-        padded_min_x = bbox_min_x - _BBOX_PADDING_M
-        padded_min_y = bbox_min_y - _BBOX_PADDING_M
-        padded_max_x = bbox_max_x + _BBOX_PADDING_M
-        padded_max_y = bbox_max_y + _BBOX_PADDING_M
+        padded_min_x = bbox_min_x - WCS_BBOX_PADDING_M
+        padded_min_y = bbox_min_y - WCS_BBOX_PADDING_M
+        padded_max_x = bbox_max_x + WCS_BBOX_PADDING_M
+        padded_max_y = bbox_max_y + WCS_BBOX_PADDING_M
 
         cached = self._cache.get(
             padded_min_x, padded_min_y, padded_max_x, padded_max_y, resolution_m
@@ -183,9 +172,9 @@ class Ahn4DemProvider(DemProvider, GroundModelLogger):
         # PDOK WCS 2.0 uses E/N axis names for EPSG:28992.
         params = {
             "service": "WCS",
-            "version": _WCS_VERSION,
+            "version": WCS_VERSION,
             "request": "GetCoverage",
-            "coverageId": _COVERAGE_ID,
+            "coverageId": AHN4_COVERAGE_ID,
             "subset": [
                 f"E({padded_min_x:.3f},{padded_max_x:.3f})",
                 f"N({padded_min_y:.3f},{padded_max_y:.3f})",
@@ -197,7 +186,7 @@ class Ahn4DemProvider(DemProvider, GroundModelLogger):
             f"E({padded_min_x:.3f},{padded_max_x:.3f}) "
             f"N({padded_min_y:.3f},{padded_max_y:.3f})"
         )
-        resp = await self._client.get(_WCS_URL, params=params)
+        resp = await self._client.get(AHN4_WCS_URL, params=params)
         self.debug(f"AHN4 PDOK WCS response: status={resp.status_code} size={len(resp.content)} B")
         resp.raise_for_status()
 
@@ -278,7 +267,7 @@ def _decode_tiff(
     for row in range(n_rows):
         for col in range(n_cols):
             v = float(img.getpixel((col, row)))  # type: ignore[arg-type]
-            raw.append(None if v >= _NODATA_THRESHOLD else v)
+            raw.append(None if v >= AHN4_NODATA_THRESHOLD else v)
 
     return DemZGrid(
         bbox_min_x=bbox_min_x,
