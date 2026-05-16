@@ -216,8 +216,8 @@ export default function GeologyCanvas(): JSX.Element {
   )
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-400">
-      <Mountain size={40} className="text-gray-300" />
+    <div className="flex flex-col items-center justify-center h-full gap-4 text-text-muted">
+      <Mountain size={40} className="text-text-muted" />
       <p className="text-sm text-center max-w-sm leading-snug">{guidance}</p>
       {showAddFormation && (
         <button
