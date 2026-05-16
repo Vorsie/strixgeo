@@ -169,6 +169,10 @@ export default function GeologyCanvas(): JSX.Element {
         onSplitPlaneDrawn={handleSplitPlaneDrawn}
         resetCameraRef={resetCameraCallback}
         groundSurface={groundSurface}
+        onExitSplit={() => {
+          setSplitMode('single')
+          setSplitPlane(null)
+        }}
       />
     )
   }
