@@ -277,11 +277,23 @@ export interface AutoPopulateFromStratigraphyResponse {
   skipped_no_stratigraphy: number
 }
 
-/** One candidate formation name returned by discover-from-stratigraphy. */
+/** One candidate formation returned by discover-from-stratigraphy. */
 export interface FormationCandidateItem {
-  /** Formation name as found in the observation stratigraphy. */
+  /** Working display name (informal description preferred; formal as fallback). */
   name: string
-  /** Number of in-scope boreholes that carry this name. */
+  /**
+   * Formal stratigraphy code when present; null for informal-only boreholes.
+   * Matches the server's ``regional_ref`` field on the ORM row.
+   */
+  regional_ref: string | null
+  /**
+   * Stable cross-borehole identity key: ``regional_ref`` when present, else
+   * ``name``.  The ``selected_keys`` filter on the auto-populate endpoint is
+   * expressed in these keys so discover and execute use the same identity,
+   * regardless of working-name variation across boreholes sharing a formal code.
+   */
+  key: string
+  /** Number of in-scope boreholes that carry this key. */
   borehole_count: number
 }
 
@@ -1216,14 +1228,22 @@ export const api = {
     // Idempotent — re-running with the same scope reports the
     // dedup hits in ``skipped_existing``. Caller refreshes the local
     // formations + contacts state from the returned counts.
+    //
+    // ``selectedKeys`` is optional: when provided, only layers whose
+    // stable key is in the set are processed (Fill-from-boreholes path).
+    // When omitted / null, all layers are processed (Sections Seed path).
     autoPopulateFromStratigraphy: (
       projectId: string,
       modelId: string,
       boreholeIds: readonly string[],
+      selectedKeys?: readonly string[],
     ): Promise<AutoPopulateFromStratigraphyResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
-        { borehole_ids: boreholeIds },
+        {
+          borehole_ids: boreholeIds,
+          ...(selectedKeys !== undefined ? { selected_keys: selectedKeys } : {}),
+        },
       ),
 
     // Read-only scan: returns candidate formation names derived from
