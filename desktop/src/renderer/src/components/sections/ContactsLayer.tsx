@@ -956,12 +956,22 @@ export default function ContactsLayer({
           points.unshift({ x: left.x - fillBufferPx, y: left.y })
           points.push({ x: right.x + fillBufferPx, y: right.y })
         }
+        // 3-state fill contract (§10 on-click build):
+        //   fresh surface (exists + !is_stale + triangles > 0) → solid 0.18
+        //   stale surface (exists + is_stale)                   → faded 0.08
+        //   no surface row (Fill ran but Build never fired)     → NO fill
+        // hasSurface gates the outer render; isStale controls the opacity.
+        const surface = surfacesByFormationId?.get(line.formationId)
+        const hasSurface = surface !== undefined
+        const isStale = surface?.is_stale === true
+        const hasTriangles = (surface?.triangles.length ?? 0) > 0
         return {
           formationId: line.formationId,
           color: line.color,
           points,
-          isStale:
-            surfacesByFormationId?.get(line.formationId)?.is_stale === true,
+          hasSurface,
+          isStale,
+          hasTriangles,
         }
       })
       .filter(p => p.points.length >= 2)
@@ -982,6 +992,12 @@ export default function ContactsLayer({
     }[] = []
     for (let i = 0; i < annotated.length; i++) {
       const younger = annotated[i].line
+      // Gate: no surface row → no fill. Fresh surface with empty triangles
+      // (0-contact or all-NaN-elevation edge case) → no fill. Stale surface
+      // → faded hint fill regardless of triangle count (prior build geometry
+      // exists and the engineer should see "refresh needed").
+      if (!younger.hasSurface) continue
+      if (!younger.isStale && !younger.hasTriangles) continue
       // All formations older than this one, in age order
       // (immediate-next-older first) — fed to buildFillBand as the
       // pinch-out fallback chain.
