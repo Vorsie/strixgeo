@@ -146,7 +146,15 @@ export default function SectionOverlays({
               }}
               eventHandlers={{ click: () => onSelect(item.id) }}
             >
-              <Tooltip sticky direction="top" opacity={0.95}>
+              {/* pane: Leaflet's default tooltipPane sits under the
+                  Geopunt GRB overlay in this app — same fix as the
+                  marker tooltips. marker-tooltips pane = z 660. */}
+              <Tooltip
+                pane="marker-tooltips"
+                sticky
+                direction="top"
+                opacity={0.95}
+              >
                 <strong>{item.name}</strong>
                 <br />
                 {item.lengthM.toFixed(0)} m · ±{item.bufferM.toFixed(0)} m
