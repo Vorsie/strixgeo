@@ -167,15 +167,26 @@ class DiscoverFromStratigraphyRequest(BaseModel):
 
 
 class FormationCandidateItem(BaseModel):
-    """One candidate formation name returned by the discover endpoint.
+    """One candidate formation returned by the discover endpoint.
 
-    The ``name`` matches the working name the auto-populate use case would
-    assign (informal description preferred; formal as fallback). The
-    ``borehole_count`` lets the dialog sort by prevalence and show
-    ``"found in N borehole(s)"`` secondary text.
+    ``name`` is the working display name (informal description preferred;
+    formal as fallback).  ``key`` is the stable cross-borehole identity key
+    (``regional_ref`` when formal stratigraphy is present, ``name``
+    otherwise) — the frontend passes ``selected_keys`` on confirm using
+    these, not the display names, so discover and auto-populate use the
+    same stable identity regardless of informal-name variation across
+    boreholes.
+
+    ``regional_ref`` and ``key`` are additive new fields (optional on read
+    for old callers, always present in new serialisations).
+
+    ``borehole_count`` lets the dialog show ``"found in N borehole(s)"``
+    secondary text.
     """
 
     name: str
+    regional_ref: str | None = None
+    key: str = ""  # server always sets this; default for schema compatibility
     borehole_count: int
 
 
@@ -201,9 +212,21 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
     valid. Idempotent: re-running with the same scope is a no-op
     because every contact carries its source ``observation_layer_id``
     and the use case skips layers already used.
+
+    ``selected_keys`` is an additive optional field.  When provided, only
+    layers whose stable key (``regional_ref`` when present, else ``name``)
+    is in this set are processed; other layers are silently skipped.  This
+    is the mechanism used by the "Fill from boreholes" curated-selection
+    dialog — the caller passes the keys the user checked, and the
+    auto-populate creates ONLY those formations.
+
+    When ``None`` (omitted), all layers are processed — the pre-existing
+    behaviour of ``handleAutoPopulateFromStratigraphy`` (Sections "Seed
+    from stratigraphy") is unaffected.
     """
 
     borehole_ids: list[UUID] = Field(min_length=1, max_length=500)
+    selected_keys: list[str] | None = None
 
 
 class AutoPopulateFromStratigraphyResponse(BaseModel):
