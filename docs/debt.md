@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #40 — and #12 (R1–R5 shipped 2026-05-17, App.tsx 3,200→1,001; STILL open — `<400` needs the net-first coordinator/memo extraction, see #12 + #53), #41 (folds into #12) *(#36, #37, #38, #43, #51 resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #12 (R1–R5 shipped 2026-05-17, App.tsx 3,200→1,001; STILL open — `<400` needs the net-first coordinator/memo extraction, see #12 + #53), #41 (folds into #12) *(#36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — Tier C now down to the net-first #12 extraction + #41)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
@@ -43,7 +43,10 @@ peel restored; excluded_borehole_ids now filtered in TIN recompute).
 **2026-05-17:** #12 R1–R5 shipped (App.tsx 3,200→1,001) but #12
 stays OPEN — `<400` needs a net-first coordinator/memo extraction;
 #53 filed (shellContextValue dep-array drift, architect pushback #3).
-34 open items**) compact them. Commit messages and code comments written
+**#40 resolved** — geology.py monolith split into a per-cluster
+package (75 integration tests green, 27 routes byte-identical). Tier
+C now: only #12 (net-first extraction) + #41 (folds into #12). 33
+open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -658,26 +661,6 @@ before the user notices.
 during dogfeed. Two-part fix: (a) pass `include=` to drop lab trees
 the section doesn't use; (b) add `POST /boreholes/detail-batch`
 mirroring `plot-batch` — one query replaces N.
-
-## 40. `api/routers/geology.py` is a ~1,100-line orchestration monolith (Tier C — gates geology API growth)
-
-**What.** One router file covers formations, geotechnical units,
-models, contacts (CRUD + batch), surface rebuild, gap/crossing
-validation, ground-surface build, and Plaxis-3D export — the
-API-layer analogue of pre-S2 App.tsx. Any new geology operation
-(Plaxis 2D #29, G3Dv3 seed, per-unit contacts) has the whole file as
-blast radius. `build_ground_surface` alone is ~122 lines of
-error-mapping + provider-factory wiring that belongs in an
-application use case, not a route handler.
-
-**Why deferred.** Splitting it (sub-routers for formations / models /
-contacts / surfaces / exports) carries real merge-conflict risk
-during active Phase-4 feature work.
-
-**When to revisit.** When a Phase-5 op would push it past ~1,400
-lines, or on the first merge conflict from two sessions touching
-different parts. Split into `api/routers/geology/{formations,models,
-contacts,surfaces,exports}.py` mounted on a shared `APIRouter`.
 
 ## 41. `Geology3DViewer.tsx` (~1,740 lines) is untested; pure geometry helpers not extracted (Tier C — gates the 3D-viewer roadmap work)
 
