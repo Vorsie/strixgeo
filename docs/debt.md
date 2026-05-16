@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #38, #12, #41, #43, #51, #40, #36 *(#37 data-loss landmine resolved 2026-05-16 — `delete_model` is now model-aware)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #12, #41, #43, #51, #40, #36 *(#37 data-loss landmine + #38 contact-mutation unit coverage resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50
 
@@ -35,8 +35,9 @@ fully cleared. **Same day re-tier:** Tier B (bundling/commercial)
 deferred (app not feature-ready for packaging); Tier C reopened as
 the "current work" tier — #37, #38, #12, #41, #43, #51, #40, #36
 moved up from D/E (data-loss landmine + roadmap-gating
-velocity/refactor work + cheap dogfeed friction); #37 resolved same
-day (model-aware `delete_model`). 37 open items**) compact them. Commit messages and code comments written
+velocity/refactor work + cheap dogfeed friction); #37 + #38 resolved
+same day (model-aware `delete_model`; contact-mutation use cases now
+unit-covered in the pre-commit suite). 36 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -625,29 +626,6 @@ show/hide is wired to `excluded_borehole_ids` and the user can flip
 exclusion after contacts exist. Fix: add the exclusion filter to the
 `RecomputeFormationSurface` contact query (one WHERE clause; decide
 skip-vs-delete for existing excluded-anchor contacts).
-
-## 38. Geology contact-mutation use cases have no unit-test coverage (Tier C — pre-commit blind to the hottest write path)
-
-**What.** `CreateFormationContact`, `UpdateFormationContact`,
-`DeleteFormationContact`, `DeduplicateFormationContacts`,
-`RebuildModelSurfaces`, `ValidateModelCrossings`,
-`BuildSectionSnapshot`, `BuildGroundModelSnapshot` have no unit
-tests — only integration tests that need a live Postgres and so do
-NOT run in the pre-commit hook (`pytest tests/unit -q`). This is the
-highest-frequency write path in the Phase-4 MVP with the most domain
-logic (XOR anchor check, `DuplicateContactError`, stale-flag
-propagation, checksum short-circuit, `projected_by_id` filter). A
-regression here passes the unit suite silently. Flagged by two audit
-agents independently; DoD §4 requires this coverage.
-
-**Why deferred.** All depend on a real `AsyncSession`; the repository
-isn't behind a Protocol/ABC, making mock-based unit tests awkward —
-not worth the refactor mid-build.
-
-**When to revisit.** Before any non-solo user can mutate contacts.
-Fix: introduce a `GeologyRepositoryProtocol` (structural `Protocol`)
-so tests pass an `AsyncMock`; cover `DuplicateContactError`, the
-stale-pair set, dedup determinism, and the snapshot contact filter.
 
 ## 39. No batch borehole-detail endpoint — N parallel GETs on section open (Tier D — latent perf cliff)
 
