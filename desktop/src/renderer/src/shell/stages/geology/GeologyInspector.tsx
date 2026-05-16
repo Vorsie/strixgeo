@@ -873,7 +873,7 @@ function FormationRow({
       <button
         onClick={onDelete}
         title="Delete formation"
-        className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={11} />
       </button>
