@@ -32,6 +32,14 @@ describe('EmptyState (debt #45)', () => {
     ).toBeInTheDocument()
   })
 
+  it('compact variant still renders icon + title (in-list use)', () => {
+    render(
+      <EmptyState compact icon={<svg data-testid="ci" />} title="No matches" />,
+    )
+    expect(screen.getByTestId('ci')).toBeInTheDocument()
+    expect(screen.getByText('No matches')).toBeInTheDocument()
+  })
+
   it('omits the hint paragraph when not provided', () => {
     render(<EmptyState icon={<svg />} title="Only title" />)
     expect(screen.getByText('Only title')).toBeInTheDocument()

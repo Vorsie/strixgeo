@@ -28,6 +28,7 @@ import {
   ArrowUp,
   Drill,
   EyeOff,
+  Inbox,
   MapPin,
   Search,
   Trash2,
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import { EmptyState as SharedEmptyState } from '../../EmptyState'
 import { usePersistedJSON } from '../../../hooks/usePersistedJSON'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import { isTypingTarget } from '../../../utils/keyboard'
@@ -857,10 +859,30 @@ function BoreholeRow({
   )
 }
 
-function EmptyState({ label }: { label: string }) {
+/**
+ * Compact empty row for the CPT/borehole lists.
+ *
+ * Adopts the shared EmptyState primitive (debt #45) so the inspector
+ * empties carry an icon instead of bare centred text — a "no results"
+ * search uses the Search glyph, every other emptiness uses Inbox.
+ *
+ * Parameters
+ * ----------
+ * label
+ *     The empty-state line (preserved API — call sites unchanged).
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The compact empty-state block.
+ */
+function EmptyState({ label }: { label: string }): JSX.Element {
+  const isSearch = label.toLowerCase().includes('match')
   return (
-    <div className="flex items-center justify-center h-24 text-xs text-[--color-text-muted] px-4 text-center">
-      {label}
-    </div>
+    <SharedEmptyState
+      compact
+      icon={isSearch ? <Search /> : <Inbox />}
+      title={label}
+    />
   )
 }

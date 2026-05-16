@@ -20,6 +20,9 @@ export interface EmptyStateProps {
   hint?: string
   /** Optional CTA / extra content rendered under the text. */
   children?: React.ReactNode
+  /** Compact variant for in-list / in-panel empties (smaller icon,
+   * fixed shorter height) vs the default full-pane centred block. */
+  compact?: boolean
 }
 
 /**
@@ -39,6 +42,8 @@ export interface EmptyStateProps {
  *     Optional secondary guidance line.
  * children
  *     Optional CTA / extra content.
+ * compact
+ *     Smaller icon + fixed shorter height for in-list / in-panel use.
  *
  * Returns
  * -------
@@ -50,12 +55,33 @@ export function EmptyState({
   title,
   hint,
   children,
+  compact,
 }: EmptyStateProps): JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 text-text-muted">
-      <div className="text-text-muted [&>svg]:h-10 [&>svg]:w-10">{icon}</div>
+    <div
+      className={[
+        'flex flex-col items-center justify-center text-text-muted',
+        compact ? 'h-24 gap-2 px-4' : 'h-full gap-4',
+      ].join(' ')}
+    >
+      <div
+        className={
+          compact
+            ? 'text-text-muted [&>svg]:h-5 [&>svg]:w-5'
+            : 'text-text-muted [&>svg]:h-10 [&>svg]:w-10'
+        }
+      >
+        {icon}
+      </div>
       <div className="flex flex-col items-center gap-1 max-w-sm text-center">
-        <p className="text-sm leading-snug text-text-secondary">{title}</p>
+        <p
+          className={[
+            'leading-snug text-text-secondary',
+            compact ? 'text-xs' : 'text-sm',
+          ].join(' ')}
+        >
+          {title}
+        </p>
         {hint !== undefined && (
           <p className="text-xs leading-snug text-text-muted">{hint}</p>
         )}
