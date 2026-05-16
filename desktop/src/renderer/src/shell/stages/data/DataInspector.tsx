@@ -388,10 +388,10 @@ export default function DataInspector(): JSX.Element {
       {/* Bulk-action bar — visible when ≥1 checkbox is ticked */}
       {selectedCount > 0 && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-100 dark:border-blue-900/40 text-[11px] flex-shrink-0">
-          <span className="text-blue-700 dark:text-blue-300 font-medium">{selectedCount} selected</span>
+          <span className="text-accent font-medium">{selectedCount} selected</span>
           <button
             onClick={bulkRemove}
-            className="ml-auto px-2 py-0.5 rounded bg-red-600 dark:bg-red-500 text-white hover:bg-red-700 dark:hover:bg-red-400 transition-colors text-[10px] font-semibold uppercase tracking-wide"
+            className="ml-auto px-2 py-0.5 rounded bg-status-danger text-white hover:opacity-90 transition-opacity text-[10px] font-semibold uppercase tracking-wide"
           >
             Remove
           </button>
@@ -589,7 +589,7 @@ function SortControl({
       <select
         value={sort.key}
         onChange={e => onChange({ ...sort, key: e.target.value as SortKey })}
-        className="bg-transparent text-[--color-text-secondary] cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300 rounded"
+        className="bg-transparent text-[--color-text-secondary] cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent rounded"
       >
         <option value="default">Default</option>
         <option value="name">Name</option>
@@ -708,7 +708,7 @@ function CptRow({
       onMouseLeave={() => onHover?.(false)}
       className={[
         'group relative flex items-center border-b border-[--color-border-subtle] transition-colors',
-        unsaved ? 'border-l-4 border-l-amber-500' : 'border-l-2 border-l-transparent',
+        unsaved ? 'border-l-4 border-l-status-amber' : 'border-l-2 border-l-transparent',
         selected
           ? 'bg-blue-50 dark:bg-blue-950/30'
           : checked
@@ -740,7 +740,7 @@ function CptRow({
           )}
           {cpt.elevation_m == null && (
             <span title="No surface elevation — needs manual Z entry">
-              <AlertTriangle size={10} className="text-amber-500 shrink-0" />
+              <AlertTriangle size={10} className="text-status-amber shrink-0" />
             </span>
           )}
         </div>
@@ -756,7 +756,7 @@ function CptRow({
       <button
         onClick={handleRemove}
         title="Remove from project"
-        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-status-danger hover:bg-surface-app opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
       </button>
@@ -799,7 +799,7 @@ function BoreholeRow({
       onMouseLeave={() => onHover?.(false)}
       className={[
         'group relative flex items-center border-b border-[--color-border-subtle] transition-colors',
-        unsaved ? 'border-l-4 border-l-amber-500' : 'border-l-2 border-l-transparent',
+        unsaved ? 'border-l-4 border-l-status-amber' : 'border-l-2 border-l-transparent',
         selected
           ? 'bg-blue-50 dark:bg-blue-950/30'
           : checked
@@ -831,7 +831,7 @@ function BoreholeRow({
           )}
           {noZ && (
             <span title="No surface elevation — needs manual Z entry">
-              <AlertTriangle size={10} className="text-amber-500 shrink-0" />
+              <AlertTriangle size={10} className="text-status-amber shrink-0" />
             </span>
           )}
         </div>
@@ -849,7 +849,7 @@ function BoreholeRow({
       <button
         onClick={handleRemove}
         title="Remove from project"
-        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-[--color-text-muted] hover:text-status-danger hover:bg-surface-app opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Trash2 size={12} />
       </button>
