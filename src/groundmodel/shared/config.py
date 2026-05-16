@@ -10,6 +10,11 @@ def _default_dov_cache_dir() -> Path:
     return Path.home() / ".groundmodel" / "dov_cache"
 
 
+def _default_dem_cache_dir() -> Path:
+    """Return the default DEM GeoTIFF tile cache directory under the user's home."""
+    return Path.home() / ".groundmodel" / "dem_cache"
+
+
 class Settings(BaseSettings):
     """Application configuration, resolved in this priority order:
 
@@ -35,6 +40,16 @@ class Settings(BaseSettings):
     # cap. Default 256 MiB × 5 instances ≈ 1.25 GiB total ceiling on
     # disk. Overridable via DOV_CACHE_MAX_BYTES (0 disables eviction).
     dov_cache_max_bytes: int = 256 * 1024 * 1024
+    # Where to cache DEM GeoTIFF tiles fetched from WCS providers
+    # (DHMVII for BE, AHN4 for NL). Tiles are keyed by (provider, bbox,
+    # resolution) and are valid indefinitely — public LiDAR surveys
+    # change on decade timescales, not daily. Override via DEM_CACHE_DIR.
+    dem_cache_dir: Path = _default_dem_cache_dir()
+    # Soft size cap per provider sub-directory (bytes).
+    # Default 512 MiB — DEM tiles are larger than DOV XMLs (multi-MB
+    # GeoTIFFs for urban extents); 512 MiB accommodates ~50–200 tiles.
+    # Overridable via DEM_CACHE_MAX_BYTES (0 disables eviction).
+    dem_cache_max_bytes: int = 512 * 1024 * 1024
 
     model_config = {"env_file": ".env"}
 
