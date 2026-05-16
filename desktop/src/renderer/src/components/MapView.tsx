@@ -590,6 +590,13 @@ export default function MapView({
             tooltipPane (650) / popupPane (700) so hover tooltips + popups
             still render above the markers. Both marker layers below pin
             to this pane explicitly so the order is unconditional. */}
+        {/* Marker hover tooltips. Leaflet's default tooltipPane proved
+            as unreliable here as the default marker panes were (the
+            hover box rendered UNDER the Geopunt GRB-selectie overlay).
+            Pin to an explicit pane at z=660: above the markers (640)
+            and every basemap/DEM overlay, below popupPane (700) so
+            popups still win. Both <Tooltip> elements set pane to this. */}
+        <Pane name="marker-tooltips" style={{ zIndex: 660 }} />
         <Pane name="investigation-markers" style={{ zIndex: 640 }} />
         {demSource && demOverlay?.enabled && (
           <WMSTileLayer
@@ -677,7 +684,12 @@ export default function MapView({
               }}
               eventHandlers={{ click: () => onSelectCpt(m.id) }}
             >
-              <Tooltip direction="top" offset={[0, -4]} opacity={0.95}>
+              <Tooltip
+                pane="marker-tooltips"
+                direction="top"
+                offset={[0, -4]}
+                opacity={0.95}
+              >
                 <strong>{m.name}</strong>
                 <br />
                 {m.type} · {m.depth != null ? `${m.depth.toFixed(1)} m` : '—'}
@@ -706,7 +718,12 @@ export default function MapView({
               icon={squareDivIcon(color, selected, marqueeSelected)}
               eventHandlers={{ click: () => onSelectBorehole(m.id) }}
             >
-              <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
+              <Tooltip
+                pane="marker-tooltips"
+                direction="top"
+                offset={[0, -8]}
+                opacity={0.95}
+              >
                 <strong>{m.name}</strong>
                 <br />
                 {m.drillMethod ?? '—'} ·{' '}
