@@ -541,3 +541,78 @@ async def test_formation_constraint_unused_variable_silenced() -> None:
     # ``__mapper__`` walks miss the table. This no-op test pins the
     # import so future cleanups don't drop it accidentally.
     assert GeologicalFormationOrm.__tablename__ == "geological_formation"
+
+
+# ---------------------------------------------------------------------------
+# delete_model cascades — Fix 1 regression guard
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_model_removes_project_formations(
+    db_session: AsyncSession,
+) -> None:
+    """Deleting a model also removes the project's formations and their contacts.
+
+    Formations are project-scoped (no FK to the model); ``delete_model``
+    must issue the explicit formation delete before dropping the model row so
+    the project is left in a clean state (no orphan formations).  This test
+    guards against regression of the Fix-1 bug where model-delete left
+    formations behind, causing re-Fill to match orphans and show a stale
+    "0 formations" badge in the inspector.
+    """
+    project, borehole = await _make_project_with_borehole(db_session)
+    repo = GeologyRepository(db_session)
+
+    # Create 3 formations, a model, and one contact per formation.
+    f1 = await repo.create_formation(project.id, name="Quaternary", color="#d4b896")
+    f2 = await repo.create_formation(project.id, name="Boom Klei", color="#5a4a3a")
+    f3 = await repo.create_formation(project.id, name="Diest Zand", color="#c8a96e")
+    model = await repo.create_model(project.id, name="Default")
+    await db_session.commit()
+
+    c1 = await repo.create_contact(
+        model_id=model.id,
+        formation_id=f1.id,
+        borehole_id=borehole.id,
+        depth_top_m=0.0,
+    )
+    c2 = await repo.create_contact(
+        model_id=model.id,
+        formation_id=f2.id,
+        borehole_id=borehole.id,
+        depth_top_m=2.0,
+    )
+    c3 = await repo.create_contact(
+        model_id=model.id,
+        formation_id=f3.id,
+        borehole_id=borehole.id,
+        depth_top_m=6.0,
+    )
+    await db_session.commit()
+
+    # Sanity: all three formations exist.
+    before = await repo.list_formations(project.id)
+    assert len(before) == 3
+
+    # Delete the model.
+    ok = await repo.delete_model(model.id)
+    await db_session.commit()
+
+    assert ok is True
+
+    # Formations are gone — no orphans left.
+    after = await repo.list_formations(project.id)
+    assert after == [], f"Expected 0 formations after delete_model, got {len(after)}"
+
+    # Formation rows gone by primary key.
+    from groundmodel.infrastructure.db.models.formation_contact_orm import (
+        FormationContactOrm,
+    )
+
+    for fid in (f1.id, f2.id, f3.id):
+        assert await repo.get_formation(fid) is None, f"Formation {fid} still present"
+
+    # Contacts cascaded from the formations are gone too.
+    for cid in (c1.id, c2.id, c3.id):
+        remaining = await db_session.get(FormationContactOrm, cid)
+        assert remaining is None, f"Contact {cid} still present after delete_model"
