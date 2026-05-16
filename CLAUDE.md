@@ -900,8 +900,19 @@ per (borehole, layer) with the contact's absolute z. Formations
 absent at a borehole emit a zero-thickness layer (top z inherits
 the next-deeper present formation's top z). Endpoint:
 `GET /projects/{pid}/geology/models/{mid}/export/plaxis3d`.
-Plaxis 2D per-section exporter is a Phase 4 follow-on; same data
-shape with investigations projected onto the section line.
+
+**Plaxis 2D per-section exporter — shipped 2026-05-16 (debt #29).**
+`PlaxisSectionExporter` consumes a `SectionSnapshot` (investigations
+already projected onto the section line) and emits the same shape of
+`plxscripting` script as the 3D exporter, but with Plaxis 2D's
+single-coordinate `g_i.borehole(x)` placed at each column's
+along-section distance. Columns without a surface elevation are
+dropped (a Plaxis borehole needs an absolute Head) and counted in
+the script's print summary. Endpoint:
+`GET /projects/{pid}/sections/{sid}/export/plaxis2d?model_id=...`
+(mirrors the section DXF endpoint). Surfaced as a card in the
+Export stage hub alongside section DXF; the model-wide Plaxis 3D
+export stays its own card.
 
 ---
 
@@ -1037,13 +1048,13 @@ See [docs/debt.md](docs/debt.md) for the full backlog. Format conventions stay h
 
 Order is strict priority — top-of-list = highest. Currently open in priority order:
 
-**2026-05-16 — six-agent codebase audit** (senior-code-reviewer, system-architect, security-reviewer, staff-engineer, product-strategy-advisor, ux-reviewer-proxy) added #29–#50 and deleted #24 (Modal semantic-token migration shipped); the quick-fix follow-up de-scoped one item to #51. **Tier C campaign started 2026-05-16: #30 resolved (Export stage hub shipped), #52 filed (PDF report).** 44 open items. See [docs/debt.md](docs/debt.md) for the full text of every item below.
+**2026-05-16 — six-agent codebase audit** (senior-code-reviewer, system-architect, security-reviewer, staff-engineer, product-strategy-advisor, ux-reviewer-proxy) added #29–#50 and deleted #24 (Modal semantic-token migration shipped); the quick-fix follow-up de-scoped one item to #51. **Tier C campaign started 2026-05-16: #30 resolved (Export stage hub shipped), #52 filed (PDF report), #29 resolved (Plaxis 2D per-section exporter shipped).** 43 open items. See [docs/debt.md](docs/debt.md) for the full text of every item below.
 
 **Tier A — Phase 4 engineering blocker:** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the shipped DXF + Plaxis-3D exporters. Plaxis 2D is #29 in Tier C, demo-blocking not gate-blocking.)*
 
 **Tier B — Commercial launch gates, pre-paid-revenue:** #2 (bundled Postgres), #3 (license keys), #4 (auth on by-id endpoints; sub of #3), #5 (tamper hardening; sub of #3), #6 (installer + code signing + auto-update), #7 (marketing site + market-facing name), #47 (bundle column auto-enumeration → silent .gmproj format drift; fires at backwards-compat re-arm).
 
-**Tier C — Current Phase 4 friction / launch-demo blockers:** #29 (Plaxis 2D per-section exporter missing), #31 (no project-CRS validation on section create/export — silent garbage geometry), #33 (Fill-from-boreholes dead-ends CPT-only / non-DOV projects), #32 (.gmproj geotech-units round-trip unverified — MVP-gate data loss), #34 (PATCH elevation does not stale dependent TIN surfaces — silent wrong geometry), #35 (Build silently overwrites user drag-reorder via age inference). *(#30 Export-stage hub resolved 2026-05-16 — ExportCanvas surfaces DXF + Plaxis-3D as actionable cards.)*
+**Tier C — Current Phase 4 friction / launch-demo blockers:** #31 (no project-CRS validation on section create/export — silent garbage geometry), #33 (Fill-from-boreholes dead-ends CPT-only / non-DOV projects), #32 (.gmproj geotech-units round-trip unverified — MVP-gate data loss), #34 (PATCH elevation does not stale dependent TIN surfaces — silent wrong geometry), #35 (Build silently overwrites user drag-reorder via age inference). *(#30 Export-stage hub + #29 Plaxis 2D per-section exporter resolved 2026-05-16 — ExportCanvas surfaces DXF + Plaxis 2D + Plaxis 3D as actionable cards.)*
 
 **Tier D — Post-launch / Phase 5:** #11 (NL / multilingual stratigraphy catalog), #12 (App.tsx → custom hooks split; S3–S7 outstanding), #13 (geotech units in section editor), #36 (excluded_borehole_ids ignored by TIN recompute), #37 (delete_model cascade + unenforced single-model invariant), #38 (geology contact-mutation use cases have no unit tests), #39 (no batch borehole-detail endpoint — N GETs on section open), #44 (cross-stage selection model inconsistency), #43 (Esc no longer closes inspector/canvas detail views), #28 (no interpolation-confidence signal on formation surfaces), #52 (PDF report export — Phase 5 reporting deliverable).
 
