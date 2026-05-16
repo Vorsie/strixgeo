@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #12, #41, #43, #51, #40, #36 *(#37 data-loss landmine + #38 contact-mutation unit coverage resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #43, #40, #36 — and #12 (S3–S7; system-architect plan in hand), #41 (folds into #12's R-plan) *(#37, #38, #51 resolved 2026-05-16)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50
 
@@ -35,9 +35,10 @@ fully cleared. **Same day re-tier:** Tier B (bundling/commercial)
 deferred (app not feature-ready for packaging); Tier C reopened as
 the "current work" tier — #37, #38, #12, #41, #43, #51, #40, #36
 moved up from D/E (data-loss landmine + roadmap-gating
-velocity/refactor work + cheap dogfeed friction); #37 + #38 resolved
-same day (model-aware `delete_model`; contact-mutation use cases now
-unit-covered in the pre-commit suite). 36 open items**) compact them. Commit messages and code comments written
+velocity/refactor work + cheap dogfeed friction); #37 + #38 + #51
+resolved same day (model-aware `delete_model`; contact-mutation use
+cases unit-covered in the pre-commit suite; inspector chrome migrated
+to semantic tokens). 35 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -881,35 +882,6 @@ surfaces.
 catalogue endpoint is cached server-side. Fix is a two-liner:
 `VALID_MODEL_CODE_RE = re.compile(r'^[A-Za-z0-9_.\-]{1,50}$')` and a
 400 on any non-matching code before fan-out.
-
-## 51. Inspector chrome still on raw Tailwind palette, not semantic tokens (Tier C — half-themed dark mode, demo-visible)
-
-**What.** After the #24 Modal migration, ~49 raw-palette occurrences
-remain across 9 shell-stage files — concentrated in GeologyInspector
-(~21: formation rows, "Boreholes in model", crossings banner use
-`text-gray-*` / `bg-gray-50` / `border-amber-300`) and DataInspector
-(~11: bulk-remove bar uses `bg-red-600` / `bg-blue-50`). On the dark
-inspector surface these are low-contrast — the same class as the
-already-fixed Sidebar gray-800 bug — while their migrated siblings
-render correctly, so the inspectors look half-themed. Found during
-the 2026-05-16 audit; de-scoped from that pass's quick-fix batch
-because a 49-spot migration is a focused refactor, not a slip-in.
-
-**Why deferred.** Functionally readable in both themes; it is a
-contrast/consistency polish gap, not a correctness or
-destructive-action defect. Doing it right is one disciplined pass
-mapping every raw class to its `surface-*` / `text-*` / `status-*`
-token and verifying each inspector in both themes — its own change +
-ux-review, exactly like #24 was.
-
-**When to revisit.** Next dark-mode polish pass, or first time the
-half-themed inspector is reported jarring during dogfeeding. Fix
-shape: `text-gray-*` → `text-text-{primary,secondary,muted}`,
-`bg-gray-50` → `bg-surface-subtle`, `bg-red-600`/`text-red-*` →
-`status-danger`, `border-amber-300` → the amber-unsaved token; then
-verify GeologyInspector + DataInspector + the 7 other flagged files
-in light and dark. Pairs naturally with the deferred leaf dark-mode
-token migration.
 
 ## 52. PDF report export (Tier D — Phase 5 reporting deliverable)
 
