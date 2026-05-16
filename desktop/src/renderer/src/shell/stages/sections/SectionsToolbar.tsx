@@ -321,12 +321,12 @@ export default function SectionsToolbar(): JSX.Element {
         <div className="p-5">
           <h2
             id="delete-section-title"
-            className="text-sm font-semibold text-gray-800 mb-1"
+            className="text-sm font-semibold text-text-primary mb-1"
           >
             Delete cross-section?
           </h2>
-          <p className="text-xs text-gray-500 mb-4">
-            <span className="font-medium text-gray-700">
+          <p className="text-xs text-text-muted mb-4">
+            <span className="font-medium text-text-secondary">
               {selectedSection?.name ?? 'This section'}
             </span>{' '}
             will be permanently deleted. Formation contacts placed on it are also removed.
