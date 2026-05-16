@@ -23,7 +23,11 @@ import GeologyInspector from './GeologyInspector'
  */
 function useGeologyStageSummary(): StageSummary {
   const { geoModel } = useShell()
-  const count = geoModel.formations.length
+  // Use visibleFormations (manifest-filtered) so the badge count matches the
+  // inspector list and drops to 0 after Delete model. Previously read
+  // formations.length (unfiltered) which stayed stale after delete because
+  // orphan rows remained in the DB pre-Fix-1.
+  const count = geoModel.visibleFormations.length
   const stale = geoModel.staleSurfaceCount
   const label = `${count} formation${count !== 1 ? 's' : ''}`
   const badge = stale > 0 ? `${stale} stale` : count > 0 ? `${count}` : null
