@@ -453,10 +453,10 @@ export default function GeologyInspector(): JSX.Element {
         {activeGeologicalModel && (
           <div
             className="text-[10px] text-gray-400 pl-5 truncate"
-            title="Active geological model — every formation pick belongs to this model"
+            title="Active stratigraphy — every formation pick belongs to this model"
           >
-            Model:{' '}
-            <span className="text-gray-600">{activeGeologicalModel.name}</span>
+            Stratigraphy{' '}
+            <span className="text-gray-600">· {activeGeologicalModel.name}</span>
           </div>
         )}
       </div>
@@ -530,9 +530,8 @@ export default function GeologyInspector(): JSX.Element {
       {/* Empty-state guidance */}
       {visibleFormations.length === 0 && (
         <div className="text-[11px] text-gray-500 leading-snug">
-          No formations yet. Use "Fill from boreholes" in the toolbar to
-          discover names from borehole stratigraphy, or click "Add formation"
-          to create one manually.
+          No formations yet — Fill from boreholes or add one, then build the
+          3D model.
         </div>
       )}
 
