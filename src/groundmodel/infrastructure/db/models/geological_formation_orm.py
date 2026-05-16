@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -46,6 +46,15 @@ class GeologicalFormationOrm(Base):
     # Top-to-bottom hint for the legend / borelog ordering. Ties are
     # tolerated and broken by name in the UI.
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Debt #35: when True, the user has manually drag-reordered this
+    # formation and Build's age-inference (``_reorder_by_age``) MUST
+    # leave its ``display_order`` untouched. Set by the drag-end PATCH.
+    # Default False so seeded / auto-populated formations still get the
+    # data-driven ordering they benefit from.
+    pinned_order: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Opaque pointer to whatever public source seeded this formation
     # (G3Dv3 formation id in Flanders, BRO-NL DGM unit code, etc.).
