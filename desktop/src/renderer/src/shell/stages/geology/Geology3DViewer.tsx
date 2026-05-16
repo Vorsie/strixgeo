@@ -137,6 +137,42 @@ const GROUND_SURFACE_COLOR = new Cesium.Color(0.55, 0.52, 0.48, ALPHA_GROUND_SUR
 // ---------------------------------------------------------------------------
 
 /**
+ * WGS84 rectangle enclosing every vertex across a set of surfaces,
+ * padded ~8 %. Used to clip the basemap imagery to the model footprint
+ * (a "cutout") so Cesium does NOT drape — and tile-flood 400 — the
+ * whole ellipsoid. Returns ``null`` when there are no vertices yet.
+ */
+function surfacesRectangle(
+  surfaces: FormationSurfaceResponse[],
+  projectEpsg: number,
+): Cesium.Rectangle | null {
+  let minLat = Infinity
+  let maxLat = -Infinity
+  let minLng = Infinity
+  let maxLng = -Infinity
+  let n = 0
+  for (const s of surfaces) {
+    for (const [x, y] of s.vertices) {
+      const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      n++
+    }
+  }
+  if (n === 0) return null
+  const padLat = (maxLat - minLat) * 0.08 || 0.001
+  const padLng = (maxLng - minLng) * 0.08 || 0.001
+  return Cesium.Rectangle.fromDegrees(
+    minLng - padLng,
+    minLat - padLat,
+    maxLng + padLng,
+    maxLat + padLat,
+  )
+}
+
+/**
  * Build a Cesium UrlTemplateImageryProvider for any of the supported
  * basemap sources.
  *
@@ -162,11 +198,21 @@ const GROUND_SURFACE_COLOR = new Cesium.Color(0.55, 0.52, 0.48, ALPHA_GROUND_SUR
  * Cesium.UrlTemplateImageryProvider
  *     Provider instance for the base tile layer.
  */
-function buildImageryProvider(source: BasemapSource): Cesium.UrlTemplateImageryProvider {
+function buildImageryProvider(
+  source: BasemapSource,
+  rectangle: Cesium.Rectangle,
+): Cesium.UrlTemplateImageryProvider {
   return new Cesium.UrlTemplateImageryProvider({
     url: source.url,
     subdomains: source.subdomains ? source.subdomains.split('') : undefined,
     credit: new Cesium.Credit(source.attribution, false),
+    // Clip to the model footprint so Cesium never drapes/refines the
+    // whole ellipsoid (the cause of the thousands of Geopunt 400s and
+    // the runaway Level-21 requests). minimumLevel/maximumLevel cap
+    // refinement to sane regional zoom.
+    rectangle,
+    minimumLevel: 11,
+    maximumLevel: 19,
   })
 }
 
@@ -482,6 +528,8 @@ interface CesiumViewportProps {
   groundSurface?: GroundSurfaceBuildResponse | null
   /** Formation ids toggled off in the 3D legend — their TIN is not drawn. */
   hiddenFormationIds?: ReadonlySet<string>
+  /** When false, no basemap imagery is added (the 3D "Basemap" toggle). */
+  basemapEnabled?: boolean
 }
 
 /**
@@ -535,6 +583,7 @@ function CesiumViewport({
   onSceneClick,
   groundSurface,
   hiddenFormationIds,
+  basemapEnabled = true,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -650,25 +699,45 @@ function CesiumViewport({
       imageryLayerRef.current = null
     }
 
-    const provider = buildImageryProvider(activeBasemap)
+    // Basemap off, or no model footprint yet → no imagery at all. This
+    // is both the user "turn the basemap off" toggle AND the guard that
+    // prevents the whole-ellipsoid tile flood before any surface exists.
+    if (!basemapEnabled) return
+    const surfaces = Array.from(surfacesByFormationId.values())
+    const rectSources =
+      groundSurface && groundSurface.vertices.length > 0
+        ? [...surfaces, { vertices: groundSurface.vertices } as FormationSurfaceResponse]
+        : surfaces
+    const rect = surfacesRectangle(rectSources, projectEpsg)
+    if (!rect) return
+
+    const provider = buildImageryProvider(activeBasemap, rect)
     const layer = widget.scene.imageryLayers.addImageryProvider(provider)
+    layer.rectangle = rect
     imageryLayerRef.current = layer
 
     // If the source has an overlay (e.g. Geopunt hybrid: GRB-selectie
     // transparent layer over orthophoto), add it as a second imagery layer
     // and track it separately so the next swap removes it cleanly.
     if (activeBasemap.overlay) {
-      const overlayProvider = buildImageryProvider({
-        ...activeBasemap,
-        url: activeBasemap.overlay.url,
-        subdomains: undefined,
-        attribution: activeBasemap.overlay.attribution,
-        overlay: undefined,
-      })
-      imageryOverlayLayerRef.current =
-        widget.scene.imageryLayers.addImageryProvider(overlayProvider)
+      const overlayProvider = buildImageryProvider(
+        {
+          ...activeBasemap,
+          url: activeBasemap.overlay.url,
+          subdomains: undefined,
+          attribution: activeBasemap.overlay.attribution,
+          overlay: undefined,
+        },
+        rect,
+      )
+      const overlayLayer = widget.scene.imageryLayers.addImageryProvider(overlayProvider)
+      overlayLayer.rectangle = rect
+      imageryOverlayLayerRef.current = overlayLayer
     }
-  }, [activeBasemap])
+    // reason: surfacesByFormationId / groundSurface drive the clip
+    // rectangle; basemapEnabled toggles imagery on/off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBasemap, basemapEnabled, surfacesByFormationId, groundSurface, projectEpsg])
 
   // ---------------------------------------------------------------------------
   // Wire click handler for split-line draw interaction
@@ -878,6 +947,8 @@ export default function Geology3DViewer({
       return next
     })
   }, [])
+  // Basemap on/off (the user toggle). Default on.
+  const [basemapEnabled, setBasemapEnabled] = useState(true)
 
   const handleViewportClick = useCallback(
     (cartesian: Cesium.Cartesian3) => {
@@ -929,19 +1000,37 @@ export default function Geology3DViewer({
           onSceneClick={primaryClickHandler}
           groundSurface={groundSurface}
           hiddenFormationIds={hiddenFormationIds}
+          basemapEnabled={basemapEnabled}
         />
 
         {/* Basemap picker — only on the primary viewport */}
         <BasemapPanel activeBasemapId={basemapId} onSelect={handleBasemapSelect} />
 
-        {/* Layer legend — per-formation 3D visibility toggle. Click a
-            row to hide/show that formation's TIN in the model. */}
-        {formations.length > 0 && (
+        {/* Layer legend — basemap on/off + per-formation 3D visibility.
+            Click a row to hide/show that layer in the model. */}
+        {
           <div className="absolute top-2 left-2 z-10 bg-surface-overlay/95 border border-border-default rounded shadow-lg max-w-[15rem] py-1 text-xs">
             <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-text-muted">
               Layers
             </div>
             <ul>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setBasemapEnabled(v => !v)}
+                  className={`w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-surface-page transition-colors ${!basemapEnabled ? 'opacity-50' : ''}`}
+                  title={basemapEnabled ? 'Hide basemap' : 'Show basemap'}
+                >
+                  <span
+                    className="inline-block w-3 h-3 rounded-sm shrink-0 border border-border-default bg-text-secondary"
+                  />
+                  <span
+                    className={`truncate ${!basemapEnabled ? 'line-through text-text-muted' : 'text-text-primary'}`}
+                  >
+                    Basemap
+                  </span>
+                </button>
+              </li>
               {formations.map(f => {
                 const hidden = hiddenFormationIds.has(f.id)
                 const hex = f.color.startsWith('#') ? f.color : `#${f.color}`
@@ -968,7 +1057,7 @@ export default function Geology3DViewer({
               })}
             </ul>
           </div>
-        )}
+        }
 
         {/* Split-line draw mode hint */}
         {isDrawMode && (
@@ -995,6 +1084,7 @@ export default function Geology3DViewer({
               invertClip={true}
               groundSurface={groundSurface}
               hiddenFormationIds={hiddenFormationIds}
+          basemapEnabled={basemapEnabled}
             />
           </div>
         </>
