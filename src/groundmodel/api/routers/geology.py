@@ -641,6 +641,7 @@ async def auto_populate_from_stratigraphy(
         project_id=project_id,
         model_id=model_id,
         borehole_ids=request.borehole_ids,
+        selected_keys=request.selected_keys,
     )
     return AutoPopulateFromStratigraphyResponse(
         created_contact_ids=outcome.created_contact_ids,
@@ -711,7 +712,13 @@ async def discover_from_stratigraphy(
     )
     return DiscoverFromStratigraphyResponse(
         candidates=[
-            FormationCandidateItem(name=c.name, borehole_count=c.borehole_count) for c in candidates
+            FormationCandidateItem(
+                name=c.name,
+                regional_ref=c.regional_ref,
+                key=c.key,
+                borehole_count=c.borehole_count,
+            )
+            for c in candidates
         ]
     )
 
@@ -988,7 +995,6 @@ async def build_ground_surface(
             from_cache=False,
             issues=[],
         )
-
 
     try:
         async with provider:
