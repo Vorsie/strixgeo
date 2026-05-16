@@ -24,6 +24,9 @@ from groundmodel.application.import_cpt_dov import ImportCptDov
 from groundmodel.domain.services.cpt_corrections import calculate_qt_series
 from groundmodel.domain.services.cpt_interpretation import calculate_ic_series
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
+from groundmodel.infrastructure.db.repositories.geology_repository import (
+    GeologyRepository,
+)
 from groundmodel.infrastructure.db.repositories.investigation_review_repository import (
     InvestigationReviewRepository,
 )
@@ -329,6 +332,15 @@ async def patch_cpt_elevation(
     if cpt is None:
         logger.warning(f"PATCH /cpt/{cpt_id}/elevation → 404 (not found)")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+    # Debt #34: a contact's absolute z is elevation_m − depth_top_m, so
+    # changing this CPT's elevation invalidates every cached TIN that
+    # has a contact anchored here. Flip those surfaces stale in the SAME
+    # transaction as the elevation write so the section editor / 3D
+    # viewer correctly show "needs rebuild" instead of rendering the
+    # old geometry as fresh.
+    flipped = await GeologyRepository(session).stale_surfaces_for_investigation(cpt_id=cpt_id)
+    if flipped:
+        logger.info(f"PATCH /cpt/{cpt_id}/elevation: staled {flipped} dependent surface(s)")
     await session.commit()
     return CptResponse(
         id=cpt.id,
