@@ -86,9 +86,12 @@ class ValidateModelCrossings(GroundModelLogger):
         # at vertex (vx, vy) of formation F maps back to the contact
         # whose anchor sits at (vx, vy) for F.
         #
-        # One query per concern: contacts for all formations at once,
+        # Contacts are fetched ONE QUERY PER FORMATION (the loop below),
         # then a single IN-query each for borehole + cpt anchors. The
-        # ORM doesn't carry a `borehole`/`cpt` relationship on
+        # per-formation fan-out is debt #49 — a single
+        # `list_contacts(model_id)` + Python grouping would collapse it
+        # to one round-trip; fine at v1 cardinality. The ORM doesn't
+        # carry a `borehole`/`cpt` relationship on
         # FormationContactOrm (debt #9 review: nullable XOR makes the
         # relationship pair awkward; explicit IN-queries stay clear).
         contact_rows: list[FormationContactOrm] = []
