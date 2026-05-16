@@ -23,8 +23,10 @@
 // model-definition surface; the Data stage is the inspection surface.
 
 import * as Cesium from 'cesium'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { api } from '../../../api/client'
+import type { GroundSurfaceBuildResponse } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import MapView from '../../../components/MapView'
 import Geology3DViewer, { type SplitMode } from './Geology3DViewer'
@@ -63,6 +65,7 @@ export default function GeologyCanvas(): JSX.Element {
     geoModel: {
       formations,
       surfacesByFormationId,
+      activeGeologicalModel,
     },
     mapState: {
       hiddenCptTypes,
@@ -102,6 +105,43 @@ export default function GeologyCanvas(): JSX.Element {
   }
 
   // ---------------------------------------------------------------------------
+  // Ground-surface TIN (G7) — fetch when active model changes
+  //
+  // The build call is fire-and-forget on model change. The result is session-
+  // local (not persisted to the bundle). An empty surface (vertices=[]) is
+  // returned when the model has no in-scope investigations or the EPSG has no
+  // DEM provider — in both cases the terrain mesh is simply absent and the
+  // scene base falls back to the flat ellipsoid.
+  // ---------------------------------------------------------------------------
+
+  const [groundSurface, setGroundSurface] = useState<GroundSurfaceBuildResponse | null>(null)
+
+  useEffect(() => {
+    if (!project || !activeGeologicalModel) {
+      setGroundSurface(null)
+      return
+    }
+    const projectId = project.id
+    const modelId = activeGeologicalModel.id
+    let cancelled = false
+
+    api.geology
+      .buildGroundSurface(projectId, modelId)
+      .then(result => {
+        if (!cancelled) setGroundSurface(result)
+      })
+      .catch(() => {
+        // DEM provider unavailable or network error — fall back to flat
+        // ellipsoid. The viewer renders correctly without terrain.
+        if (!cancelled) setGroundSurface(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [project, activeGeologicalModel])
+
+  // ---------------------------------------------------------------------------
   // 3D-or-2D decision
   // ---------------------------------------------------------------------------
 
@@ -128,6 +168,7 @@ export default function GeologyCanvas(): JSX.Element {
         projectEpsg={projectEpsg}
         onSplitPlaneDrawn={handleSplitPlaneDrawn}
         resetCameraRef={resetCameraCallback}
+        groundSurface={groundSurface}
       />
     )
   }
