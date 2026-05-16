@@ -125,6 +125,7 @@ function makeStubContext(): ShellContextValue {
     geoModel: {
       activeGeologicalModel: null,
       formations: [],
+      visibleFormations: [],
       formationsRefreshCounter: 0,
       contacts: [],
       surfacesByFormationId: new Map(),
@@ -291,20 +292,22 @@ describe('Geology stage (smoke)', () => {
 
   it('GeologyInspector renders formation list without throwing', () => {
     const ctx = makeStubContext()
-    ctx.geoModel.formations = [
-      {
-        id: 'form-1',
-        app_project_id: 'proj-1',
-        name: 'Boom Klei',
-        color: '#b45309',
-        code: null,
-        regional_ref: 'BmKi',
-        description: null,
-        display_order: 0,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
-      },
-    ]
+    const formation = {
+      id: 'form-1',
+      app_project_id: 'proj-1',
+      name: 'Boom Klei',
+      color: '#b45309',
+      code: null,
+      regional_ref: 'BmKi',
+      description: null,
+      display_order: 0,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    ctx.geoModel.formations = [formation]
+    // visibleFormations mirrors formations when all are in the manifest.
+    // This is the shared bus value that the inspector reads (Fix 3).
+    ctx.geoModel.visibleFormations = [formation]
     ctx.coordinator.manifestFormationIds = new Set(['form-1'])
     render(
       <ShellContext.Provider value={ctx}>
@@ -314,6 +317,37 @@ describe('Geology stage (smoke)', () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     // Formation name must appear in the list.
     expect(screen.getByText('Boom Klei')).toBeTruthy()
+  })
+
+  it('GeologyInspector shows 0 formations when manifest is empty (post-delete)', () => {
+    // Guards Fix 3: after Delete model, visibleFormations = [] even when
+    // formations list has stale entries. The inspector renders no rows.
+    const ctx = makeStubContext()
+    ctx.geoModel.formations = [
+      {
+        id: 'form-1',
+        app_project_id: 'proj-1',
+        name: 'Boom Klei',
+        color: '#b45309',
+        code: null,
+        regional_ref: null,
+        description: null,
+        display_order: 0,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    // manifest is empty → visibleFormations is empty on the bus
+    ctx.geoModel.visibleFormations = []
+    ctx.coordinator.manifestFormationIds = new Set()
+    render(
+      <ShellContext.Provider value={ctx}>
+        <GeologyInspector />
+      </ShellContext.Provider>,
+    )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    // Formation must NOT appear — the bus visible list is empty.
+    expect(screen.queryByText('Boom Klei')).toBeNull()
   })
 
   describe('GeologyToolbar Delete model confirm modal', () => {
