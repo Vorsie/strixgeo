@@ -48,6 +48,7 @@ export default function SectionsInspector(): JSX.Element {
     project,
     sections: {
       sections,
+      visibleSections,
       selectedSectionId,
       handleSelectSection,
       handleCreateSection,
@@ -79,8 +80,11 @@ export default function SectionsInspector(): JSX.Element {
   // parity with CPT and borehole rows in DataInspector.
 
   const selectedSection = useMemo(
-    () => (selectedSectionId ? sections.find(s => s.id === selectedSectionId) ?? null : null),
-    [selectedSectionId, sections],
+    () =>
+      selectedSectionId
+        ? (visibleSections.find(s => s.id === selectedSectionId) ?? null)
+        : null,
+    [selectedSectionId, visibleSections],
   )
 
   const canCreate = (project.default_horizontal_epsg ?? null) !== null
@@ -88,13 +92,14 @@ export default function SectionsInspector(): JSX.Element {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* ------------------------------------------------------------------ */}
-      {/* Section list — uses ALL sections, not the manifest-gated           */}
-      {/* visibleSections, so newly-drawn sections appear immediately in     */}
-      {/* the list without waiting for the next File → Save round-trip.     */}
+      {/* Section list — manifest-gated via visibleSections, matching the   */}
+      {/* badge count in SectionsStage.ts. Newly drawn sections appear       */}
+      {/* immediately because handleSectionCreated adds the id to the        */}
+      {/* manifest synchronously on create (same guarantee as Geology).      */}
       {/* ------------------------------------------------------------------ */}
-      <InspectorSection label="Cross-sections" count={sections.length}>
+      <InspectorSection label="Cross-sections" count={visibleSections.length}>
         <SectionList
-          sections={sections}
+          sections={visibleSections}
           selectedId={selectedSectionId}
           onSelect={handleSelectSection}
           onCreate={handleCreateSection}
