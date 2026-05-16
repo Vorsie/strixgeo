@@ -170,12 +170,20 @@ export default function GeologyInspector(): JSX.Element {
         manifestFormationIds === undefined
           ? formations
           : formations.filter(f => manifestFormationIds.has(f.id))
-      const sourceIndex = previous.findIndex(f => f.id === sourceId)
+      // The inspector presents formations YOUNGEST-first (borehole-log /
+      // stratigraphic-column reading order), which is the REVERSE of
+      // ``display_order`` (ascending = older = the section/3D paint order;
+      // see CLAUDE.md "Stratigraphic order"). Run the reorder in this
+      // displayed space, then map the displayed index back to
+      // ``display_order = (N-1 - i)`` so the data contract and every
+      // renderer are unchanged — only the human-facing list flips.
+      const displayed = [...previous].reverse()
+      const sourceIndex = displayed.findIndex(f => f.id === sourceId)
       if (sourceIndex < 0) {
         setReorderBusy(false)
         return
       }
-      const without = previous.filter(f => f.id !== sourceId)
+      const without = displayed.filter(f => f.id !== sourceId)
       const insertAt =
         targetId === 'end'
           ? without.length
@@ -186,19 +194,24 @@ export default function GeologyInspector(): JSX.Element {
       }
       const reordered = [
         ...without.slice(0, insertAt),
-        previous[sourceIndex],
+        displayed[sourceIndex],
         ...without.slice(insertAt),
       ]
+      const total = reordered.length
       const changes = reordered
-        .map((f, i) => ({ id: f.id, oldOrder: f.display_order, newOrder: i }))
+        .map((f, i) => ({
+          id: f.id,
+          oldOrder: f.display_order,
+          newOrder: total - 1 - i,
+        }))
         .filter(c => c.oldOrder !== c.newOrder)
       if (changes.length === 0) {
         setReorderBusy(false)
         return
       }
-      // Optimistic local update.
+      // Optimistic local update (same displayed→display_order inversion).
       setFormations(prev => {
-        const byId = new Map(reordered.map((f, i) => [f.id, i]))
+        const byId = new Map(reordered.map((f, i) => [f.id, total - 1 - i]))
         return sortFormations(
           prev.map(f => {
             const idx = byId.get(f.id)
@@ -279,6 +292,16 @@ export default function GeologyInspector(): JSX.Element {
     if (manifestFormationIds === undefined) return formations
     return formations.filter(f => manifestFormationIds.has(f.id))
   }, [formations, manifestFormationIds])
+
+  // Reading order for the list UI: youngest-first, like a borehole log /
+  // stratigraphic column. ``visibleFormations`` is ascending display_order
+  // (oldest-first — the section/3D paint order). Reverse ONLY for the
+  // human-facing list; reorder math inverts back to display_order in
+  // reorderFormations so the data contract is untouched.
+  const displayedFormations = useMemo(
+    () => [...visibleFormations].reverse(),
+    [visibleFormations],
+  )
 
   // ---------------------------------------------------------------------------
   // Create / update handlers
@@ -538,7 +561,7 @@ export default function GeologyInspector(): JSX.Element {
       {/* Formation list with drag-reorder */}
       {visibleFormations.length > 0 && (
         <ul className="flex flex-col gap-1">
-          {visibleFormations.map(f => (
+          {displayedFormations.map(f => (
             <FormationRow
               key={f.id}
               formation={f}
@@ -587,7 +610,7 @@ export default function GeologyInspector(): JSX.Element {
                 'h-3 mx-2 rounded-sm border-t-2 border-dashed transition-colors',
                 dragOverId === 'end' ? 'border-blue-500' : 'border-gray-300',
               ].join(' ')}
-              aria-label="Drop here to place at end (youngest)"
+              aria-label="Drop here to place at the bottom (oldest)"
             />
           )}
         </ul>
