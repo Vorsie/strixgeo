@@ -355,6 +355,20 @@ GET    /projects/{pid}/sections/{sid}/export/dxf
                                             naming the section. 404 when the
                                             section / model / project
                                             resolution fails.
+GET    /projects/{pid}/sections/{sid}/export/plaxis2d
+                                            Stream the section's drawn
+                                            geological model as a runnable
+                                            Plaxis 2D ``plxscripting`` Python
+                                            script (debt #29). Same
+                                            ``model_id`` query param + 404
+                                            contract as the DXF export. One
+                                            ``g_i.borehole(x)`` per projected
+                                            column at its along-section
+                                            distance; columns without surface
+                                            Z are dropped + counted.
+                                            ``text/x-python`` body with a
+                                            ``<section>_plaxis2d.py``
+                                            ``Content-Disposition``.
 
 GET    /projects/{pid}/reviews              List every per-(project,
                                             investigation) decision row
