@@ -1435,7 +1435,6 @@ export function useGeologicalModel({
   }, [])
 
   // Read-only discovery scan — queries the backend for candidate
-  // Read-only discovery scan — queries the backend for candidate
   // formations from the given boreholes' stratigraphy
   // (FORMAL preferred, INFORMAL fallback). Returns the list for
   // FormationSelectionDialog to render. Nothing is created.
