@@ -21,9 +21,10 @@ const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
 const noopAsyncNullableModel =
   (): Promise<import('../../../api/client').GeologicalModelResponse | null> =>
     Promise.resolve(null)
-const noopAsyncCandidates = (): Promise<
-  import('../../../hooks/useGeologicalModel').FormationCandidate[]
-> => Promise.resolve([])
+const noopAsyncCandidates = (): Promise<{
+  candidates: import('../../../hooks/useGeologicalModel').FormationCandidate[]
+  collisions: import('../../../hooks/useGeologicalModel').LumpingCollision[]
+}> => Promise.resolve({ candidates: [], collisions: [] })
 
 function makeStubContext(): ShellContextValue {
   return {
@@ -60,6 +61,7 @@ function makeStubContext(): ShellContextValue {
       handleUnsavedSave: noopAsync,
       handleUnsavedDiscard: vi.fn(),
       handleUnsavedCancel: vi.fn(),
+      writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
     },
     investigations: {
       cpts: [],

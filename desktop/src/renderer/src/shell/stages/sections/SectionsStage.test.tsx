@@ -102,6 +102,7 @@ function makeStubContext(): ShellContextValue {
       handleUnsavedSave: noopAsync,
       handleUnsavedDiscard: vi.fn(),
       handleUnsavedCancel: vi.fn(),
+      writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
     },
     investigations: {
       cpts: [],
@@ -172,7 +173,7 @@ function makeStubContext(): ShellContextValue {
       handleExportModelPlaxis3d: noopAsync,
       handleToggleBoreholeInModel: noopAsync,
       discardContacts: vi.fn(),
-      discoverBoreholeFormations: async () => [],
+      discoverBoreholeFormations: async () => ({ candidates: [], collisions: [] }),
       applyBoreholeFormationSelection: noopAsync,
       handleDeleteModel: noopAsync,
       ensureActiveGeologicalModel: async () => null,

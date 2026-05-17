@@ -83,6 +83,7 @@ function makeUseProjectStub(): UseProject {
     discardEdits: vi.fn(),
     archiveCurrent: vi.fn().mockResolvedValue(undefined),
     closeProject: vi.fn(),
+    writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
   }
 }
 

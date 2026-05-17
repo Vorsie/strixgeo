@@ -114,6 +114,7 @@ function makeCtx(overrides: {
       handleUnsavedSave: noopAsync,
       handleUnsavedDiscard: vi.fn(),
       handleUnsavedCancel: vi.fn(),
+      writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
     },
     investigations: {
       cpts: [],
@@ -195,7 +196,7 @@ function makeCtx(overrides: {
       handleExportModelPlaxis3d: noopAsync,
       handleToggleBoreholeInModel: noopAsync,
       discardContacts: vi.fn(),
-      discoverBoreholeFormations: () => Promise.resolve([]),
+      discoverBoreholeFormations: () => Promise.resolve({ candidates: [], collisions: [] }),
       applyBoreholeFormationSelection: noopAsync,
       handleDeleteModel: noopAsync,
       ensureActiveGeologicalModel: () => Promise.resolve(null),
