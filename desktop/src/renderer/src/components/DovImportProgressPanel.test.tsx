@@ -19,6 +19,7 @@ const running = (
   kind: 'cpt',
   latest: { phase: phase as import('../hooks/useDovImportStream').ImportPhase, done, total },
   highestPhaseIndex: 1,
+  pendingPins: [],
 })
 
 const done: DovImportState = {

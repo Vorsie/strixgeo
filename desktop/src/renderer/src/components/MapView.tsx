@@ -21,6 +21,7 @@ import type {
   CrossSectionResponse,
 } from '../api/client'
 import { lambertToWgs84 } from '../hooks/useWgs84'
+import type { PendingPin } from '../hooks/useDovImportStream'
 import type { DemOverlayState, DemSource } from '../utils/demSources'
 import {
   BASEMAP_SOURCES,
@@ -136,6 +137,16 @@ interface Props {
   // marker (if rendered — only visible ones are) gets the same ring
   // highlight as a marquee selection so the list↔map link is obvious.
   hoveredTestId?: string | null
+  /**
+   * CPT positions discovered by the DOV WFS query that have not yet been
+   * downloaded and persisted.  Emitted by the backend ``"pins"`` SSE event
+   * immediately after WFS discovery (~1 s), before the heavy download phase.
+   *
+   * Rendered as small amber circles so the user sees all N pending locations
+   * right away.  Discarded wholesale when the import transitions to ``done``
+   * — the post-import ``GET /cpt/`` refresh repopulates the real markers.
+   */
+  pendingCptPins?: PendingPin[]
 }
 
 type OpenCategory = 'cpt' | 'borehole' | 'terrain' | 'basemap' | null
@@ -398,6 +409,7 @@ export default function MapView({
   marqueeSelectedIds,
   onMarqueeSelect,
   hoveredTestId,
+  pendingCptPins = [],
 }: Props) {
   // Basemap selection — persisted in localStorage, seeded on first run
   // from the resolved theme (dark → geopunt_hybrid, light → osm).
@@ -743,7 +755,52 @@ export default function MapView({
             </Marker>
           )
         })}
+
+        {/* Pending CPT pins — amber circles emitted immediately after DOV WFS
+            discovery, before any XML download.  Rendered at a slightly smaller
+            radius than confirmed CPT markers and with reduced opacity so the
+            user can distinguish them from persisted data at a glance.
+            Discarded wholesale when the import transitions to ``done``
+            (state shape change drops ``pendingCptPins`` from the running
+            slice) and the real ``GET /cpt/`` refresh repopulates the map. */}
+        {pendingCptPins.map(pin => {
+          const [lat, lng] = lambertToWgs84(pin.x_lambert72, pin.y_lambert72)
+          if (!isFinite(lat) || !isFinite(lng)) return null
+          return (
+            <CircleMarker
+              key={`pending-${pin.permkey}`}
+              pane="investigation-markers"
+              center={[lat, lng]}
+              radius={RADIUS - 1}
+              pathOptions={{
+                color: '#92400e',
+                weight: 1,
+                fillColor: '#f59e0b',
+                fillOpacity: 0.55,
+              }}
+            >
+              <Tooltip pane="marker-tooltips" direction="top" offset={[0, -4]} opacity={0.9}>
+                <em>Pending: {pin.name}</em>
+              </Tooltip>
+            </CircleMarker>
+          )
+        })}
       </MapContainer>
+
+      {/* ARIA live region — announces the pending pin count so screen-reader
+          users know how many CPT locations were discovered without needing to
+          inspect the map.  The count changes in one step (0 → N on the
+          "pins" event) and then to 0 again when the import finishes. */}
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {pendingCptPins.length > 0
+          ? `${pendingCptPins.length} CPT location${pendingCptPins.length === 1 ? '' : 's'} pending import`
+          : ''}
+      </span>
 
       {/* Layer control — top-right, dropdown UX (Option B). Always
           renders when ``onDemOverlayChange`` is wired so the Terrain

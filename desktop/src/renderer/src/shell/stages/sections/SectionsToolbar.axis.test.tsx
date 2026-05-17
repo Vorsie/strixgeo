@@ -146,6 +146,7 @@ function makeCtx(overrides: {
       handleImportDov: vi.fn(),
       handleImportBoreholeDov: vi.fn(),
       handleBboxDrawn: noopAsync,
+      pendingCptPins: [],
     },
     visibleCpts: [],
     visibleBoreholes: [],

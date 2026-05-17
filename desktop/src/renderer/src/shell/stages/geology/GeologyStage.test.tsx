@@ -121,6 +121,7 @@ function makeStubContext(): ShellContextValue {
       handleImportDov: vi.fn(),
       handleImportBoreholeDov: vi.fn(),
       handleBboxDrawn: noopAsync,
+      pendingCptPins: [],
     },
     visibleCpts: [],
     visibleBoreholes: [],

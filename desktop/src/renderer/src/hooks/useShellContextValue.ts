@@ -50,6 +50,7 @@ export interface UseShellContextValueArgs {
   handleImportDov: ShellContextValue['investigations']['handleImportDov']
   handleImportBoreholeDov: ShellContextValue['investigations']['handleImportBoreholeDov']
   handleBboxDrawn: ShellContextValue['investigations']['handleBboxDrawn']
+  pendingCptPins: ShellContextValue['investigations']['pendingCptPins']
   visibleCpts: ShellContextValue['visibleCpts']
   visibleBoreholes: ShellContextValue['visibleBoreholes']
   // Whole hook result; the body passes it as geoModel and the dep
@@ -150,7 +151,7 @@ export function useShellContextValue(
     removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList, loadCptDetail, loadChart,
     loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes, handleRemoveCpts, handleRemoveBoreholes,
     handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation, handleImportCpt, handleImportDov,
-    handleImportBoreholeDov, handleBboxDrawn, visibleCpts, visibleBoreholes, geo, sections,
+    handleImportBoreholeDov, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, geo, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, sectionModelAxis, setSectionModelAxis, demSource, demOverlay,
@@ -225,6 +226,7 @@ export function useShellContextValue(
       handleImportDov,
       handleImportBoreholeDov,
       handleBboxDrawn,
+      pendingCptPins,
     },
     visibleCpts,
     visibleBoreholes,
@@ -325,6 +327,7 @@ export function useShellContextValue(
     handleRestoreAllCpts, handleRestoreAllBoreholes,
     handlePatchCptElevation, handlePatchBoreholeElevation,
     handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
+    pendingCptPins,
     visibleCpts, visibleBoreholes,
     // geological model fields
     activeGeologicalModel, formations, formationsRefreshCounter,

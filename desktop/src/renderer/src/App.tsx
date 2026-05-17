@@ -417,6 +417,7 @@ export default function App() {
     handleImportDov,
     handleImportBoreholeDov,
     handleBboxDrawn,
+    pendingCptPins,
   } = useInvestigationData({
     project,
     ready,
@@ -736,6 +737,7 @@ export default function App() {
     loadCptDetail, loadChart, loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes,
     handleRemoveCpts, handleRemoveBoreholes, handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation,
     handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
+    pendingCptPins,
     // visible + geo
     visibleCpts, visibleBoreholes, geo,
     // sections

@@ -51,6 +51,7 @@ export default function DataCanvas(): JSX.Element {
       handleBboxDrawn,
       handlePatchCptElevation,
       handlePatchBoreholeElevation,
+      pendingCptPins,
     },
     coordinator: {
       selectedId,
@@ -160,6 +161,7 @@ export default function DataCanvas(): JSX.Element {
             marqueeSelectedIds={marqueeSelectedIds}
             onMarqueeSelect={setMarqueeSelectedIds}
             hoveredTestId={hoveredTestId}
+            pendingCptPins={pendingCptPins}
           />
         ) : selectedBoreholeId ? (
           boreholeDetailMap.has(selectedBoreholeId) ? (
