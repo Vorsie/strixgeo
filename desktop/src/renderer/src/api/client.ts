@@ -344,6 +344,13 @@ export interface AutoPopulateFromStratigraphyResponse {
   skipped_existing: number
   skipped_unmatched: number
   skipped_no_stratigraphy: number
+  /**
+   * Lumping collisions that occurred during execute when ``manual_map`` was
+   * provided.  Empty list when no map was provided or no collision occurred.
+   * Mirrors the collision list returned by the discover preview, so the dialog
+   * can confirm the same warnings before the user clicks Apply.
+   */
+  collisions: LumpingCollisionItem[]
 }
 
 /** One candidate formation returned by discover-from-stratigraphy. */
@@ -366,8 +373,32 @@ export interface FormationCandidateItem {
   borehole_count: number
 }
 
+/**
+ * One lumping collision returned by the discover or auto-populate endpoint.
+ *
+ * A collision occurs when multiple primary layers within a single borehole
+ * resolve to the same effective formation key after the ``manual_map`` is
+ * applied.  The server keeps the shallowest boundary and drops the rest.
+ */
+export interface LumpingCollisionItem {
+  /** UUID of the borehole where the collision occurred. */
+  borehole_id: string
+  /** Normalised effective key that multiple raw names mapped to. */
+  target_formation_key: string
+  /** Display name of the target formation after lumping. */
+  target_formation_name: string
+  /** All raw description strings (kept + dropped) that resolved to the key. */
+  colliding_raw_names: string[]
+  /** Top depth (m) of the surviving (shallowest) boundary. */
+  kept_top_m: number
+  /** Number of deeper duplicate boundaries that were dropped. */
+  dropped_count: number
+}
+
 export interface DiscoverFromStratigraphyResponse {
   candidates: FormationCandidateItem[]
+  /** Populated only when ``manual_map`` was provided and collisions occurred. */
+  collisions: LumpingCollisionItem[]
 }
 
 export interface DeduplicateContactsResponse {
@@ -1301,17 +1332,26 @@ export const api = {
     // ``selectedKeys`` is optional: when provided, only layers whose
     // stable key is in the set are processed (Fill-from-boreholes path).
     // When omitted / null, all layers are processed (Sections Seed path).
+    //
+    // ``manualMap`` is optional: when provided, all raw candidate keys that
+    // appear as map keys are lumped under the target name before contacts
+    // are created.  Same map used in the preceding discoverFromStratigraphy
+    // preview call to preserve the discover ≡ apply invariant.
     autoPopulateFromStratigraphy: (
       projectId: string,
       modelId: string,
       boreholeIds: readonly string[],
       selectedKeys?: readonly string[],
+      manualMap?: Record<string, string>,
     ): Promise<AutoPopulateFromStratigraphyResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
         {
           borehole_ids: boreholeIds,
           ...(selectedKeys !== undefined ? { selected_keys: selectedKeys } : {}),
+          ...(manualMap !== undefined && Object.keys(manualMap).length > 0
+            ? { manual_map: manualMap }
+            : {}),
         },
       ),
 
@@ -1319,14 +1359,24 @@ export const api = {
     // borehole stratigraphy observations (FORMAL preferred, INFORMAL
     // fallback). No DB mutation — the endpoint just runs the same scan
     // as auto-populate and returns what it would have created.
+    //
+    // ``manualMap`` is optional: when provided, the server lumps candidate
+    // keys using the map and returns collisions in the response.  The
+    // dialog passes this on every re-preview when the user edits groups.
     discoverFromStratigraphy: (
       projectId: string,
       modelId: string,
       boreholeIds: readonly string[],
+      manualMap?: Record<string, string>,
     ): Promise<DiscoverFromStratigraphyResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/discover-from-stratigraphy`,
-        { borehole_ids: boreholeIds },
+        {
+          borehole_ids: boreholeIds,
+          ...(manualMap !== undefined && Object.keys(manualMap).length > 0
+            ? { manual_map: manualMap }
+            : {}),
+        },
       ),
 
     // List every cached TIN surface in the model. Section consumer
