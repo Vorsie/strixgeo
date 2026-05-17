@@ -22,6 +22,7 @@
 // useShell() and delegates.
 
 import { useCallback, useMemo, useState } from 'react'
+import { Loader2, Route } from 'lucide-react'
 
 import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
@@ -403,6 +404,10 @@ export default function SectionsCanvas(): JSX.Element {
           <div
             className="pointer-events-auto bg-surface-overlay border border-border-default rounded-lg shadow-lg px-5 py-4 max-w-sm text-center"
           >
+            <Route
+              className="h-5 w-5 text-text-muted mx-auto mb-2"
+              aria-hidden="true"
+            />
             <p className="text-sm font-medium text-text-primary mb-1">
               No cross-sections yet
             </p>
@@ -429,12 +434,22 @@ export default function SectionsCanvas(): JSX.Element {
                       : 'Create a new cross-section with placeholder endpoints'
                 }
               >
-                + New cross-section
+                {ctaCreating ? (
+                  <>
+                    <Loader2
+                      className="h-3 w-3 animate-spin"
+                      aria-hidden="true"
+                    />
+                    Creating…
+                  </>
+                ) : (
+                  '+ New cross-section'
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => setCtaDismissed(true)}
-                className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+                className="text-xs text-text-muted hover:text-text-secondary transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Dismiss
               </button>
