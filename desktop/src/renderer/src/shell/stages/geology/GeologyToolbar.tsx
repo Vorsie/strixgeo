@@ -122,7 +122,22 @@ export default function GeologyToolbar(): JSX.Element {
     if (boreholeIds.length === 0) return
     setDiscovering(true)
     try {
-      const { candidates: found, collisions: cols } = await discoverBoreholeFormations(boreholeIds)
+      // WHY initial-discover-carries-persisted-map: the dialog opens with
+      // the persisted aliases already applied so the collision panel and
+      // candidate list are immediately consistent.  Without this, the first
+      // discover computes candidates/collisions WITHOUT the map, the dialog
+      // opens in a transient wrong state, and the dialog's own useEffect
+      // re-discovers with the restored map after a ~300 ms debounce — a
+      // visible stale-collision window the user can see.  Passing the map
+      // here makes the initial preview ≡ the post-useEffect preview.
+      const persistedMap =
+        currentLumping?.map && Object.keys(currentLumping.map).length > 0
+          ? currentLumping.map
+          : undefined
+      const { candidates: found, collisions: cols } = await discoverBoreholeFormations(
+        boreholeIds,
+        persistedMap,
+      )
       if (found.length === 0) {
         // No stratigraphy data — opening an empty dialog would be a silent
         // dead end on the stage's primary entry action (§10.4 / debt #33).

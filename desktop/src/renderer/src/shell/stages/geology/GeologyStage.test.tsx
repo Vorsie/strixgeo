@@ -10,7 +10,7 @@
 // Scope: smoke-render only.  Behavioural correctness is covered by the
 // backend unit tests and future integration tests.
 
-import { render, cleanup, screen, fireEvent } from '@testing-library/react'
+import { render, cleanup, screen, fireEvent, act } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
@@ -92,6 +92,7 @@ function makeStubContext(): ShellContextValue {
       handleUnsavedDiscard: vi.fn(),
       handleUnsavedCancel: vi.fn(),
       writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
+      currentLumping: null,
     },
     investigations: {
       cpts: [],
@@ -378,6 +379,102 @@ describe('Geology stage (smoke)', () => {
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     // Formation must NOT appear — the bus visible list is empty.
     expect(screen.queryByText('Boom Klei')).toBeNull()
+  })
+
+  // C-3: initial discover carries the persisted alias map so the dialog
+  // opens already-consistent (no ~300 ms wrong-state window).
+  describe('GeologyToolbar handleFillFromBoreholes — initial discover carries persisted map', () => {
+    it('calls discoverBoreholeFormations WITHOUT a map when currentLumping is null', async () => {
+      const ctx = makeStubContext()
+      // A borehole is required for the Fill button to be enabled.
+      ctx.visibleBoreholes = [
+        {
+          id: 'bh-1',
+          name: 'BH-1',
+          test_id: 'BH-001',
+          location_x: 0,
+          location_y: 0,
+          epsg: 31370,
+          elevation_m: null,
+          z_epsg: null,
+          elevation_source: 'none',
+          drill_method: null,
+          borehole_type: null,
+          total_depth_m: null,
+          start_date: null,
+          n_drill_segments: null,
+          n_field_log_intervals: null,
+        },
+      ]
+      // currentLumping is null → no map passed
+      ctx.lifecycle.currentLumping = null
+      const discoverSpy = vi.fn().mockResolvedValue({ candidates: [], collisions: [] })
+      ctx.geoModel.discoverBoreholeFormations = discoverSpy
+
+      render(
+        <ShellContext.Provider value={ctx}>
+          <GeologyToolbar />
+        </ShellContext.Provider>,
+      )
+      const fillBtn = screen.getByTitle(
+        'Discover formation names from borehole stratigraphy and select which to keep',
+      )
+      await act(async () => {
+        fireEvent.click(fillBtn)
+      })
+
+      // First positional arg = boreholeIds, second = manualMap (must be undefined).
+      expect(discoverSpy).toHaveBeenCalledTimes(1)
+      expect(discoverSpy).toHaveBeenCalledWith(['bh-1'], undefined)
+    })
+
+    it('calls discoverBoreholeFormations WITH the persisted map when currentLumping is non-empty', async () => {
+      const ctx = makeStubContext()
+      ctx.visibleBoreholes = [
+        {
+          id: 'bh-1',
+          name: 'BH-1',
+          test_id: 'BH-001',
+          location_x: 0,
+          location_y: 0,
+          epsg: 31370,
+          elevation_m: null,
+          z_epsg: null,
+          elevation_source: 'none',
+          drill_method: null,
+          borehole_type: null,
+          total_depth_m: null,
+          start_date: null,
+          n_drill_segments: null,
+          n_field_log_intervals: null,
+        },
+      ]
+      const persistedMap: Record<string, string> = { 'boom klei': 'Quartair' }
+      ctx.lifecycle.currentLumping = {
+        schema_version: 1,
+        applied_at: '2026-05-17T10:00:00.000Z',
+        map: persistedMap,
+      }
+      const discoverSpy = vi.fn().mockResolvedValue({ candidates: [], collisions: [] })
+      ctx.geoModel.discoverBoreholeFormations = discoverSpy
+
+      render(
+        <ShellContext.Provider value={ctx}>
+          <GeologyToolbar />
+        </ShellContext.Provider>,
+      )
+      const fillBtn = screen.getByTitle(
+        'Discover formation names from borehole stratigraphy and select which to keep',
+      )
+      await act(async () => {
+        fireEvent.click(fillBtn)
+      })
+
+      // The persisted map must be forwarded as the second arg so the server
+      // computes candidates + collisions with the aliases already applied.
+      expect(discoverSpy).toHaveBeenCalledTimes(1)
+      expect(discoverSpy).toHaveBeenCalledWith(['bh-1'], persistedMap)
+    })
   })
 
   describe('GeologyToolbar Delete model confirm modal', () => {
