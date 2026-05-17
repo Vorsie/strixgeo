@@ -312,6 +312,7 @@ async def auto_populate_from_stratigraphy(
     return AutoPopulateFromStratigraphyResponse(
         created_contact_ids=outcome.created_contact_ids,
         created_formation_ids=outcome.created_formation_ids,
+        deleted_formation_ids=outcome.deleted_formation_ids,
         skipped_existing=outcome.skipped_existing,
         skipped_unmatched=outcome.skipped_unmatched,
         skipped_no_stratigraphy=outcome.skipped_no_stratigraphy,
