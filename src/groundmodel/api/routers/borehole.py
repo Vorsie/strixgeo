@@ -24,6 +24,7 @@ from groundmodel.api.schemas.borehole.import_borehole_dov_response import (
 )
 from groundmodel.api.schemas.elevation_patch_request import ElevationPatchRequest
 from groundmodel.application.import_borehole_dov import ImportBoreholeDov
+from groundmodel.application.job_registry import JobRegistry, get_job_registry
 from groundmodel.infrastructure.db.repositories.borehole_repository import (
     LAB_TEST_RELATIONSHIPS,
     BoreholeRepository,
@@ -31,7 +32,7 @@ from groundmodel.infrastructure.db.repositories.borehole_repository import (
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
-from groundmodel.infrastructure.db.session import get_session
+from groundmodel.infrastructure.db.session import AsyncSessionFactory, get_session
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Friendly URL aliases for the ``?include=`` query param. The URL form
@@ -153,148 +154,192 @@ async def import_borehole_dov(
     )
 
 
-async def _borehole_dov_event_generator(
+def _make_borehole_dov_import_coro(
     request: ImportBoreholeDovRequest,
-    session: AsyncSession,
-) -> AsyncGenerator[str, None]:
-    """Run a borehole DOV import and yield SSE-formatted progress events.
+) -> AsyncGenerator[asyncio.Queue[dict | None], None]:
+    """Return a coroutine-factory for the borehole DOV import background task.
 
-    Mirrors ``_cpt_dov_event_generator`` in ``cpt.py``.  Progress events
-    carry the borehole-specific phases (``"interpretations"``,
-    ``"samples"``) in addition to the shared phases.
-
-    Event shapes:
-
-    Progress tick:
-        ``{"phase": "wfs"|"download"|"dedup"|"persist"|
-                   "interpretations"|"samples"|"commit",
-           "done": int, "total": int}``
-
-    Completion:
-        ``{"type": "done", "imported": int, "duplicates": int,
-           "failed": int, "borehole_ids": [...],
-           "interpretations_attached": int, ...}``
-
-    Error:
-        ``{"type": "error", "message": str}``
+    Mirrors ``_make_cpt_dov_import_coro`` in ``cpt.py``.  The factory
+    accepts an ``asyncio.Queue`` and returns a coroutine that creates
+    its own ``AsyncSession``, runs the import, and puts events + a
+    terminal ``None`` sentinel on the queue.
 
     Parameters
     ----------
     request : ImportBoreholeDovRequest
         Bounding box + optional project_id.
-    session : AsyncSession
-        DB session injected by the route; shared with the import task.
+
+    Returns
+    -------
+    Callable[[asyncio.Queue], Coroutine[None]]
+        Factory suitable for ``JobRegistry.start``.
+    """
+
+    def factory(queue: asyncio.Queue) -> object:  # -> Coroutine
+        async def run_import() -> None:
+            async def progress_cb(phase: str, done: int, total: int) -> None:
+                await queue.put({"phase": phase, "done": done, "total": total})
+
+            async with AsyncSessionFactory() as session:
+                try:
+                    result = await ImportBoreholeDov(session).execute(
+                        west=request.west,
+                        south=request.south,
+                        east=request.east,
+                        north=request.north,
+                        app_project_id=request.project_id,
+                        progress_cb=progress_cb,
+                    )
+                    await queue.put(
+                        {
+                            "type": "done",
+                            "imported": result.imported,
+                            "duplicates": result.duplicates,
+                            "failed": result.failed,
+                            "borehole_ids": [str(bid) for bid in result.borehole_ids],
+                            "interpretations_attached": result.interpretations_attached,
+                            "interpretations_failed": result.interpretations_failed,
+                            "samples_attached": result.samples_attached,
+                            "samples_failed": result.samples_failed,
+                            "grain_sizes_attached": result.grain_sizes_attached,
+                            "grain_sizes_failed": result.grain_sizes_failed,
+                            "atterberg_attached": result.atterberg_attached,
+                            "atterberg_failed": result.atterberg_failed,
+                            "caco3_attached": result.caco3_attached,
+                            "caco3_failed": result.caco3_failed,
+                            "organic_attached": result.organic_attached,
+                            "organic_failed": result.organic_failed,
+                            "water_content_attached": result.water_content_attached,
+                            "water_content_failed": result.water_content_failed,
+                            "scalar_lab_tests_attached": result.scalar_lab_tests_attached,
+                            "scalar_lab_tests_failed": result.scalar_lab_tests_failed,
+                        }
+                    )
+                except httpx.TimeoutException as exc:
+                    logger.warning(f"DOV borehole stream timeout: {type(exc).__name__}: {exc}")
+                    await queue.put({"type": "error", "message": "DOV did not respond in time"})
+                except httpx.ConnectError as exc:
+                    logger.warning(
+                        f"DOV borehole stream connect error: {type(exc).__name__}: {exc}"
+                    )
+                    await queue.put(
+                        {
+                            "type": "error",
+                            "message": "Cannot reach DOV — check your internet connection",
+                        }
+                    )
+                except httpx.HTTPStatusError as exc:
+                    logger.warning(
+                        f"DOV borehole stream upstream {exc.response.status_code}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    await queue.put(
+                        {
+                            "type": "error",
+                            "message": f"DOV returned HTTP {exc.response.status_code}",
+                        }
+                    )
+                except httpx.RequestError as exc:
+                    logger.warning(
+                        f"DOV borehole stream request error: {type(exc).__name__}: {exc}"
+                    )
+                    await queue.put({"type": "error", "message": "DOV request failed"})
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        f"DOV borehole stream unexpected error: {type(exc).__name__}: {exc}"
+                    )
+                    await queue.put({"type": "error", "message": "Import failed unexpectedly"})
+                finally:
+                    await queue.put(None)
+
+        return run_import()
+
+    return factory  # type: ignore[return-value]
+
+
+async def _borehole_sse_from_registry(
+    job_id: UUID,
+    registry: JobRegistry,
+) -> AsyncGenerator[str, None]:
+    """Drain a borehole job's event queue as SSE-formatted frames.
+
+    Parameters
+    ----------
+    job_id : UUID
+        Job-id registered by ``POST /borehole/import-dov/stream``.
+    registry : JobRegistry
+        The shared in-process job registry.
 
     Yields
     ------
     str
-        SSE-formatted event frames ending with a double newline.
+        SSE frames ``data: <json>\\n\\n``.
     """
-    queue: asyncio.Queue[dict | None] = asyncio.Queue()
-
-    async def progress_cb(phase: str, done: int, total: int) -> None:
-        await queue.put({"phase": phase, "done": done, "total": total})
-
-    async def run_import() -> None:
-        try:
-            result = await ImportBoreholeDov(session).execute(
-                west=request.west,
-                south=request.south,
-                east=request.east,
-                north=request.north,
-                app_project_id=request.project_id,
-                progress_cb=progress_cb,
-            )
-            await queue.put(
-                {
-                    "type": "done",
-                    "imported": result.imported,
-                    "duplicates": result.duplicates,
-                    "failed": result.failed,
-                    "borehole_ids": [str(bid) for bid in result.borehole_ids],
-                    "interpretations_attached": result.interpretations_attached,
-                    "interpretations_failed": result.interpretations_failed,
-                    "samples_attached": result.samples_attached,
-                    "samples_failed": result.samples_failed,
-                    "grain_sizes_attached": result.grain_sizes_attached,
-                    "grain_sizes_failed": result.grain_sizes_failed,
-                    "atterberg_attached": result.atterberg_attached,
-                    "atterberg_failed": result.atterberg_failed,
-                    "caco3_attached": result.caco3_attached,
-                    "caco3_failed": result.caco3_failed,
-                    "organic_attached": result.organic_attached,
-                    "organic_failed": result.organic_failed,
-                    "water_content_attached": result.water_content_attached,
-                    "water_content_failed": result.water_content_failed,
-                    "scalar_lab_tests_attached": result.scalar_lab_tests_attached,
-                    "scalar_lab_tests_failed": result.scalar_lab_tests_failed,
-                }
-            )
-        except httpx.TimeoutException as exc:
-            logger.warning(f"DOV borehole stream timeout: {type(exc).__name__}: {exc}")
-            await queue.put({"type": "error", "message": "DOV did not respond in time"})
-        except httpx.ConnectError as exc:
-            logger.warning(f"DOV borehole stream connect error: {type(exc).__name__}: {exc}")
-            await queue.put(
-                {"type": "error", "message": "Cannot reach DOV — check your internet connection"}
-            )
-        except httpx.HTTPStatusError as exc:
-            logger.warning(
-                f"DOV borehole stream upstream {exc.response.status_code}: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            await queue.put(
-                {"type": "error", "message": f"DOV returned HTTP {exc.response.status_code}"}
-            )
-        except httpx.RequestError as exc:
-            logger.warning(f"DOV borehole stream request error: {type(exc).__name__}: {exc}")
-            await queue.put({"type": "error", "message": "DOV request failed"})
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"DOV borehole stream unexpected error: {type(exc).__name__}: {exc}")
-            await queue.put({"type": "error", "message": "Import failed unexpectedly"})
-        finally:
-            await queue.put(None)
-
-    task = asyncio.create_task(run_import())
-    try:
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
-            yield f"data: {json.dumps(event)}\n\n"
-    finally:
-        task.cancel()
+    async for event in registry.stream(job_id):
+        yield f"data: {json.dumps(event)}\n\n"
 
 
-@router.post("/import-dov/stream")
+@router.post("/import-dov/stream", status_code=status.HTTP_202_ACCEPTED)
 async def import_borehole_dov_stream(
     request: ImportBoreholeDovRequest,
-    session: AsyncSession = Depends(get_session),
-) -> StreamingResponse:
-    """Stream borehole DOV import progress as Server-Sent Events.
+    registry: JobRegistry = Depends(get_job_registry),
+) -> dict:
+    """Spawn a borehole DOV import as a background task and return its job-id.
 
-    Identical import semantics to ``POST /borehole/import-dov`` — same
-    atomic-commit contract, same error handling.  Progress events
-    include the borehole-specific ``"interpretations"`` and
-    ``"samples"`` phases in addition to the shared phases.
-
-    The client should close the connection after receiving the terminal
-    ``{"type": "done", ...}`` or ``{"type": "error", ...}`` event.
+    Mirrors ``POST /cpt/import-dov/stream``.  The import runs in its own
+    ``asyncio.Task`` with an independent ``AsyncSession`` so the spawning
+    request completes immediately with ``202 Accepted``.  Connect to
+    ``GET /borehole/import-dov/stream/{job_id}`` to receive the SSE stream.
 
     Parameters
     ----------
     request : ImportBoreholeDovRequest
-        Bounding box (west, south, east, north) + optional project_id.
-    session : AsyncSession
-        Database session, injected.
+        Bounding box + optional project_id.
+    registry : JobRegistry
+        In-process job registry, injected.
+
+    Returns
+    -------
+    dict
+        ``{"job_id": "<uuid>"}``
+    """
+    factory = _make_borehole_dov_import_coro(request)
+    job_id = registry.start(factory)
+    logger.info(f"DOV borehole import job {job_id} spawned")
+    return {"job_id": str(job_id)}
+
+
+@router.get("/import-dov/stream/{job_id}")
+async def get_borehole_dov_stream(
+    job_id: UUID,
+    registry: JobRegistry = Depends(get_job_registry),
+) -> StreamingResponse:
+    """Drain the SSE event queue for a running borehole DOV import job.
+
+    Parameters
+    ----------
+    job_id : UUID
+        Job-id returned by ``POST /borehole/import-dov/stream``.
+    registry : JobRegistry
+        In-process job registry, injected.
 
     Returns
     -------
     StreamingResponse
-        ``Content-Type: text/event-stream`` response.
+        ``Content-Type: text/event-stream``.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no job with that id is registered.
     """
+    if job_id not in registry._jobs:  # noqa: SLF001
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No active import job with id {job_id}",
+        )
     return StreamingResponse(
-        _borehole_dov_event_generator(request, session),
+        _borehole_sse_from_registry(job_id, registry),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
