@@ -24,6 +24,7 @@ from .formation_contact_update_request import FormationContactUpdateRequest
 from .formation_surface_response import FormationSurfaceResponse
 from .gap_issue_response import GapIssueResponse
 from .gap_validation_response import GapValidationResponse
+from .lumping_collision_item import LumpingCollisionItem
 from .rebuild_surfaces_response import RebuildSurfacesResponse
 
 __all__ = [
@@ -46,4 +47,5 @@ __all__ = [
     "GapIssueResponse",
     "GapValidationResponse",
     "CrossingValidationResponse",
+    "LumpingCollisionItem",
 ]
