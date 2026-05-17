@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+# manual_map / selected_keys originate from a .gmproj file's lumping
+# snapshot, which is attacker-controlled on the restore path. Bound them so
+# a crafted payload cannot allocate an arbitrarily large dict/list during
+# Pydantic validation. A real project has a few hundred formation names; the
+# 500-borehole cap already on borehole_ids sets the scale precedent.
+_MAP_MAX_ENTRIES = 2_000
+_KEY_STR_MAX = 512
 
 
 class AutoPopulateFromStratigraphyRequest(BaseModel):
@@ -41,8 +50,16 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
     """
 
     borehole_ids: list[UUID] = Field(min_length=1, max_length=500)
-    selected_keys: list[str] | None = None
-    manual_map: dict[str, str] | None = None
+    selected_keys: list[Annotated[str, Field(max_length=_KEY_STR_MAX)]] | None = Field(
+        default=None, max_length=_MAP_MAX_ENTRIES
+    )
+    manual_map: (
+        dict[
+            Annotated[str, Field(max_length=_KEY_STR_MAX)],
+            Annotated[str, Field(max_length=_KEY_STR_MAX)],
+        ]
+        | None
+    ) = Field(default=None, max_length=_MAP_MAX_ENTRIES)
     """Optional ``{ normalize_formation_key(raw) -> target_formation_name }`` map.
 
     Built by the lumping dialog and sent on confirm so the write path uses
