@@ -65,6 +65,7 @@ function makeCtx(): ShellContextValue {
       handleUnsavedDiscard: vi.fn(),
       handleUnsavedCancel: vi.fn(),
       writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
+      currentLumping: null,
     },
     investigations: {
       cpts: [],
