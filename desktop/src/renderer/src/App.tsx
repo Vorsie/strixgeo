@@ -91,6 +91,7 @@ export default function App() {
     saveProject: saveMetadata,
     saveAsProject,
     closeProject,
+    writeLumpingSnapshot,
   } = useProject()
 
   // Toast notifications — extracted to useToasts so ``toast`` is
@@ -380,6 +381,7 @@ export default function App() {
     openProjectFile,
     discardContacts,
     activeGeologicalModel,
+    writeLumpingSnapshot,
   })
 
   // CPT + borehole data, import flows, hide/restore, elevation edits.
@@ -730,7 +732,7 @@ export default function App() {
     // lifecycle
     projectDirty, newProjectOpen, setNewProjectOpen, metadataEditorOpen, setMetadataEditorOpen, closeConfirmOpen,
     setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports, handleCloseProjectRequest,
-    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel,
+    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot,
     // investigations
     cpts, detailMap, plotMap, boreholes, boreholeDetailMap, importing,
     bboxImportType, dovImporting, dovImportState, resetDovImport, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
