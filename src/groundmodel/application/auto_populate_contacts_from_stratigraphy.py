@@ -107,56 +107,39 @@ class StratigraphyCandidate:
 
 
 _NON_ALNUM_RUN = re.compile(r"[\W_]+", re.UNICODE)
-# Matches "lid van <member...>" anywhere in a normalised (already folded +
-# dash-collapsed) key string. After normalisation dashes and spaces are
-# collapsed to a single space, so the separator before "lid" is always a
-# space (or the start of the string).
-_LID_VAN_RE = re.compile(r"\blid van .+")
 
 
 def normalize_formation_key(raw: str) -> str:
     """Canonicalise a stratigraphy description into a dedup / merge key.
 
-    The DOV descriptions that back formation identity vary in ways that
-    are visually identical but byte-distinct, which split one formation
-    into duplicate ``FormationSelectionDialog`` rows AND duplicate
-    persisted formations:
+    **Typographic-only normalisation** (owner directive, 2026-05-17 reversal).
 
-      * Unicode dash variants (``-`` U+002D vs ``–`` U+2013), non-
-        breaking spaces, double spaces, mixed case.
-      * A chronostratigraphic prefix before a colon — the SAME
-        lithostratigraphic unit appears as ``Paleogeen: <X>`` in one
-        borehole/stream and ``Tertiair - Eoceen: <X>`` in another. The
-        chrono backbone is presentation; the part after the last colon
-        is the identity (owner directive 2026-05-17).
-      * The same lithostratigraphic member appears under different
-        parent formations in different boreholes, e.g.:
-          ``Tertiair: Lid van Oedelem``
-          ``Paleogeen: Formatie van Aalter - Lid van Oedelem``
-        Both resolve to ``lid van oedelem`` so a single cross-borehole
-        candidate is returned by the discover scan (owner directive
-        2026-05-17 — aggressive recall; the false-merge risk of two
-        units sharing a member name under different parents is accepted
-        because the alternative — failing to merge — forces the user to
-        delete duplicates manually on every Fill run).
+    The two semantic steps that were present in the prior implementation —
+    (a) dropping everything before the last ``:`` and (b) reducing to
+    ``lid van <member>`` — have been REMOVED. Reason: both steps caused
+    the machine to silently decide that two strings were the same unit when
+    they were not, which is exactly the class of decision the owner
+    reserved for the user's manual lumping tool.  After the reversal:
 
-    Normalisation steps:
-      1. NFKC — folds NBSP→space, fullwidth / ligature forms.
-      2. Drop everything up to and including the LAST ``:``.
-      3. ``casefold`` — Unicode-aware lower.
-      4. Collapse every run of non-alphanumeric characters (dashes,
-         punctuation, whitespace) to a single space; strip.
-      5. If the result contains ``lid van <member>``, reduce the key to
-         that trailing segment — this eliminates the "Formatie van X -"
-         prefix that differs across chrono systems while keeping the
-         member name as the stable cross-borehole anchor. Strings with
-         no ``lid van`` keep their full normalised key.
+      * ``"Formatie van Aalter - Lid van Oedelem"`` and
+        ``"Lid van Oedelem"`` are DISTINCT keys.
+      * ``"Paleogeen: Formatie van Aalter"`` and
+        ``"Tertiair: Formatie van Aalter"`` are DISTINCT keys.
 
-    Used ONLY as the merge / identity key — the raw first-seen
-    description is still what the dialog shows and what is persisted as
-    the formation ``name``. An empty result (pathological ``":"``-only
-    description) falls back to the whole normalised string so unrelated
-    rows don't collapse into one blank key.
+    The only remaining normalisation is typographic — it collapses
+    characters that are byte-distinct but visually identical, preventing
+    accidental splits between boreholes where the same string was typed
+    in two slightly different ways:
+
+      * NFKC — folds NBSP (U+00A0) → regular space, en-dash (U+2013)
+        and em-dash (U+2014) → ``-``, fullwidth / ligature forms.
+      * ``casefold`` — Unicode-aware lower (handles non-ASCII letters).
+      * Collapse every run of non-alphanumeric characters (punctuation,
+        whitespace) to a single space; strip.
+
+    Used ONLY as the merge / identity key inside the discover scan and
+    the write path.  The raw first-seen description is still the display
+    name and the persisted ``name``.
 
     Parameters
     ----------
@@ -166,24 +149,14 @@ def normalize_formation_key(raw: str) -> str:
     Returns
     -------
     str
-        The canonical key. Two descriptions that an engineer would call
-        "the same unit, written differently / under a different chrono
-        system" map to the same string.
+        The typographically normalised key.  An empty input returns an
+        empty string; callers must guard against empty descriptions before
+        calling this function.
     """
+    # NFKC folds NBSP, en-dash, em-dash, ligatures, fullwidth chars.
     nfkc = unicodedata.normalize("NFKC", raw)
-    tail = nfkc.rsplit(":", 1)[-1] if ":" in nfkc else nfkc
-    folded = _NON_ALNUM_RUN.sub(" ", tail.casefold()).strip()
-    if not folded:
-        folded = _NON_ALNUM_RUN.sub(" ", nfkc.casefold()).strip()
-    # Step 5: reduce to "lid van <member>" when present.
-    # Deliberate aggressive-recall tradeoff (owner directive 2026-05-17):
-    # two units sharing a member name under different parent formations
-    # will merge. The owner accepted this over the alternative of forcing
-    # manual duplicate cleanup on every Fill run.
-    m = _LID_VAN_RE.search(folded)
-    if m:
-        return m.group(0)
-    return folded
+    # Casefold → Unicode-aware lower.  Collapse non-alnum runs → space.
+    return _NON_ALNUM_RUN.sub(" ", nfkc.casefold()).strip()
 
 
 def _derive_layer_names_and_key(
