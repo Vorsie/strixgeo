@@ -51,6 +51,7 @@ stable keys, not in display names.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import unicodedata
 from collections.abc import Iterable
@@ -104,6 +105,49 @@ class StratigraphyCandidate:
     regional_ref: str | None
     key: str
     borehole_count: int
+
+
+@dataclass(frozen=True)
+class LumpingCollision:
+    """Per-borehole warning emitted when manual lumping produces duplicate formation tops.
+
+    A collision occurs when ≥2 primary stratigraphy layers within the SAME borehole
+    resolve to the SAME formation key after the manual map is applied.  A formation
+    surface needs exactly ONE top depth per borehole; two tops would corrupt the TIN
+    and produce broken exported geometry.
+
+    Resolution rule (owner-specified, data-integrity critical): keep ONLY the contact
+    at the SHALLOWEST top depth (smallest ``top_m`` value) for the colliding
+    (borehole, formation) pair; drop all deeper duplicates.
+
+    WHY shallowest wins: the shallowest contact is the formation's top boundary —
+    if two layers lump to the same formation, the topmost one is where that formation
+    first appears.  Dropping the deeper duplicate is equivalent to saying "this
+    formation is represented once at the depth it first starts".
+
+    Attributes
+    ----------
+    borehole_id : UUID
+        The borehole where the collision occurred.
+    target_formation_key : str
+        The normalised formation key that multiple raw names mapped to.
+    target_formation_name : str
+        The display name that will be used for the formation.
+    colliding_raw_names : list[str]
+        All raw description strings that mapped to ``target_formation_key``
+        in this borehole (both the kept and dropped layers).
+    kept_top_m : float
+        Top depth of the surviving contact (the shallowest).
+    dropped_count : int
+        Number of deeper duplicate boundaries that were dropped.
+    """
+
+    borehole_id: UUID
+    target_formation_key: str
+    target_formation_name: str
+    colliding_raw_names: list[str]
+    kept_top_m: float
+    dropped_count: int
 
 
 _NON_ALNUM_RUN = re.compile(r"[\W_]+", re.UNICODE)
@@ -217,12 +261,56 @@ def _derive_layer_names_and_key(
     return name, regional_ref, key
 
 
+def _resolve_effective_key(
+    raw_key: str,
+    manual_map: dict[str, str] | None,
+) -> tuple[str, str]:
+    """Apply the manual lump map to a raw normalised key.
+
+    Returns ``(effective_key, effective_name)`` where:
+      * ``effective_key`` is the normalised form of the target name when the
+        raw key is in ``manual_map``, otherwise equals ``raw_key``.
+      * ``effective_name`` is the display name for the formation after lumping.
+
+    The map stores ``{ normalize_formation_key(raw) -> target_formation_name }``
+    as sent by the dialog.  The effective key is ``normalize_formation_key``
+    applied to the target name, so the discover preview and the write path
+    converge on identical effective keys regardless of how the target name
+    was typed.
+
+    WHY normalise the target: two raw names lumped to "Holoceen" must produce
+    the same effective key as a raw name that IS "Holoceen" — the effective key
+    is the FORMATION identity, and the formation identity is the typographic
+    normalisation of whatever name the user chose.
+
+    Parameters
+    ----------
+    raw_key : str
+        The typographically normalised key produced by ``_derive_layer_names_and_key``.
+    manual_map : dict[str, str] or None
+        Optional ``{ raw_key -> target_formation_name }`` mapping.  ``None``
+        means no lumping was requested; the raw key is returned unchanged.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(effective_key, effective_name)`` pair.
+    """
+    if manual_map is None:
+        return raw_key, raw_key
+    target_name = manual_map.get(raw_key)
+    if target_name is None:
+        return raw_key, raw_key
+    return normalize_formation_key(target_name), target_name
+
+
 async def scan_stratigraphy_candidates(
     session: AsyncSession,
     *,
     project_id: UUID,
     borehole_ids: Iterable[UUID],
-) -> list[StratigraphyCandidate]:
+    manual_map: dict[str, str] | None = None,
+) -> tuple[list[StratigraphyCandidate], list[LumpingCollision]]:
     """Scan borehole stratigraphy and return unique formation candidates.
 
     Runs the same FORMAL_STRATIGRAPHY-preferred / INFORMAL_STRATIGRAPHY-
@@ -230,6 +318,10 @@ async def scan_stratigraphy_candidates(
     ``AutoPopulateContactsFromStratigraphy.execute()`` but performs NO DB
     write.  Used by the discover-from-stratigraphy endpoint to populate the
     ``FormationSelectionDialog`` without committing anything.
+
+    The ``discover≡apply`` invariant is maintained: passing the same
+    ``manual_map`` here and to ``execute()`` produces identical effective
+    keys, collision warnings, and per-borehole contact choices.
 
     Parameters
     ----------
@@ -240,16 +332,26 @@ async def scan_stratigraphy_candidates(
     borehole_ids : Iterable[UUID]
         Boreholes to scan.  Caller is responsible for scoping; borehole ids
         outside the project are silently filtered by the WHERE clause.
+    manual_map : dict[str, str] or None, optional
+        Optional ``{ normalize_formation_key(raw) -> target_formation_name }``
+        mapping built by the user's lumping dialog.  When provided, layers
+        whose raw key is in the map are merged under the target formation.
+        ``None`` (default) = no lumping; every key remains its own candidate.
 
     Returns
     -------
-    list[StratigraphyCandidate]
-        Unique candidates sorted by ``borehole_count`` descending, then
-        ``name`` ascending.  Empty when no borehole carries stratigraphy.
+    tuple[list[StratigraphyCandidate], list[LumpingCollision]]
+        A pair of:
+        - Candidates sorted by ``borehole_count`` descending then ``name``
+          ascending.  Empty when no borehole carries stratigraphy.
+        - Collision warnings — one per (borehole, target_formation_key) pair
+          where ≥2 raw names resolved to the same effective key within one
+          borehole and only the shallowest is kept.  Empty when no manual_map
+          is provided or when no collisions occur.
     """
     borehole_id_list = list(borehole_ids)
     if not borehole_id_list:
-        return []
+        return [], []
 
     # Load boreholes with observations + layers in one round-trip.
     bh_stmt = (
@@ -262,10 +364,12 @@ async def scan_stratigraphy_candidates(
     )
     boreholes = list((await session.execute(bh_stmt)).scalars().all())
 
-    # key → (first seen name, first seen regional_ref, set of borehole ids).
-    # Keyed on stable key, not on display name — the same key from two
-    # boreholes with different working names must merge into one candidate.
+    # effective_key → (first seen display name, first seen regional_ref, set of borehole ids).
+    # Keyed on the EFFECTIVE key (after applying manual_map) so lumped names merge.
     key_to_data: dict[str, tuple[str, str | None, set[UUID]]] = {}
+    # Collision detection: per borehole, track (effective_key → list of (top_m, raw_name)).
+    # Used to find cases where ≥2 layers in one borehole map to the same formation.
+    borehole_key_layers: dict[UUID, dict[str, list[tuple[float, str]]]] = {}
 
     for borehole in boreholes:
         formal_obs = _find_observation(borehole.observations, ObservationType.FORMAL_STRATIGRAPHY)
@@ -280,6 +384,8 @@ async def scan_stratigraphy_candidates(
         assert primary_obs is not None
         primary_is_formal = formal_obs is not None
         other_layers = list(other_obs.layers) if other_obs is not None else []
+
+        borehole_layers: dict[str, list[tuple[float, str]]] = {}
 
         for layer in primary_obs.layers:
             if layer.top_m < 0.0:
@@ -296,27 +402,66 @@ async def scan_stratigraphy_candidates(
             # Single shared derivation: name/regional_ref/key from the same
             # function used by execute(). Key divergence was the root cause of
             # the discover-execute mismatch (bug fixed 2026-05-16).
-            name, regional_ref, key = _derive_layer_names_and_key(
+            name, regional_ref, raw_key = _derive_layer_names_and_key(
                 primary_is_formal=primary_is_formal,
                 primary_desc=primary_desc,
                 counterpart_desc=counterpart_desc,
             )
 
-            if key not in key_to_data:
-                key_to_data[key] = (name, regional_ref, set())
-            key_to_data[key][2].add(borehole.id)
+            # Apply manual lump map — may redirect raw_key to a user-chosen target.
+            effective_key, effective_name = _resolve_effective_key(raw_key, manual_map)
+            # Use effective_name as display name when lumped; fall back to derived name.
+            display_name = effective_name if manual_map and raw_key in manual_map else name
 
-    return sorted(
-        [
-            StratigraphyCandidate(
-                name=name,
-                regional_ref=regional_ref,
-                key=key,
-                borehole_count=len(bids),
+            if effective_key not in key_to_data:
+                key_to_data[effective_key] = (display_name, regional_ref, set())
+            key_to_data[effective_key][2].add(borehole.id)
+
+            # Track per-borehole layer positions for collision detection.
+            borehole_layers.setdefault(effective_key, []).append((layer.top_m, primary_desc))
+
+        if borehole_layers:
+            borehole_key_layers[borehole.id] = borehole_layers
+
+    # Build collision warnings: any (borehole, effective_key) with > 1 layer.
+    # WHY shallowest wins: the shallowest contact is the formation's first
+    # appearance; deeper layers that also map to the same formation are merged
+    # downward into it.  Two tops for one formation would corrupt the TIN.
+    collisions: list[LumpingCollision] = []
+    for bh_id, key_layers in borehole_key_layers.items():
+        for eff_key, layer_list in key_layers.items():
+            if len(layer_list) < 2:
+                continue
+            # Sort ascending by top_m — smallest = shallowest.
+            layer_list_sorted = sorted(layer_list, key=lambda t: t[0])
+            kept_top_m = layer_list_sorted[0][0]
+            raw_names = [desc for _, desc in layer_list]
+            target_name = key_to_data[eff_key][0]
+            collisions.append(
+                LumpingCollision(
+                    borehole_id=bh_id,
+                    target_formation_key=eff_key,
+                    target_formation_name=target_name,
+                    colliding_raw_names=raw_names,
+                    kept_top_m=kept_top_m,
+                    dropped_count=len(layer_list) - 1,
+                )
             )
-            for key, (name, regional_ref, bids) in key_to_data.items()
-        ],
-        key=lambda c: (-c.borehole_count, c.name),
+
+    return (
+        sorted(
+            [
+                StratigraphyCandidate(
+                    name=name,
+                    regional_ref=regional_ref,
+                    key=key,
+                    borehole_count=len(bids),
+                )
+                for key, (name, regional_ref, bids) in key_to_data.items()
+            ],
+            key=lambda c: (-c.borehole_count, c.name),
+        ),
+        collisions,
     )
 
 
@@ -414,6 +559,14 @@ class AutoPopulateOutcome:
         Layers skipped due to an empty description.
     skipped_no_stratigraphy : int
         Boreholes skipped because they carried no stratigraphy observation.
+    collisions : list[LumpingCollision]
+        Per-borehole warnings where manual lumping caused ≥2 raw names to
+        resolve to the same formation key within one borehole.  Only the
+        shallowest contact was kept; deeper duplicates were silently
+        dropped to preserve one-formation-one-top-per-borehole invariant.
+        Empty when no ``manual_map`` was provided or when no collision
+        occurred.  The discover scan produces an identical set so the user
+        sees the warnings in the preview before committing.
     """
 
     created_contact_ids: list[UUID]
@@ -422,6 +575,7 @@ class AutoPopulateOutcome:
     skipped_existing: int
     skipped_unmatched: int
     skipped_no_stratigraphy: int
+    collisions: list[LumpingCollision] = dataclasses.field(default_factory=list)
 
 
 class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
@@ -440,6 +594,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         model_id: UUID,
         borehole_ids: Iterable[UUID],
         selected_keys: list[str] | None = None,
+        manual_map: dict[str, str] | None = None,
     ) -> AutoPopulateOutcome:
         """Walk every borehole in scope and seed contacts.
 
@@ -456,8 +611,8 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             the active cross-section. Caller is responsible for
             scoping; this use case doesn't filter further.
         selected_keys : list[str] or None, optional
-            When provided, only layers whose stable key (``regional_ref``
-            when present, else ``name``) is in this set are processed.
+            When provided, only layers whose effective key (after
+            applying ``manual_map``) is in this set are processed.
             Layers for other keys are silently skipped.  Additionally,
             this method deletes — in the same transaction — every
             formation that (a) already exists in this project, (b) has
@@ -478,6 +633,20 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             ``observation_layer_id`` is NULL (orphaned from a prior failed
             run) are deleted before the idempotency check so they cannot
             suppress re-creation.
+        manual_map : dict[str, str] or None, optional
+            Optional ``{ normalize_formation_key(raw) -> target_formation_name }``
+            mapping built by the user's lumping dialog.  When provided,
+            layers whose raw key is in the map are folded into the target
+            formation instead of creating a separate formation per raw name.
+
+            The dialog sends the SAME map it used for the discover preview
+            (``scan_stratigraphy_candidates``), which ensures the
+            discover≡apply invariant: the user sees exactly the same
+            effective keys, formation names, and collision warnings in the
+            preview that the write path will produce.
+
+            ``None`` (default) = no lumping; every raw key becomes its own
+            formation (today's behaviour, fully backward-compatible).
 
         Returns
         -------
@@ -501,7 +670,8 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         )
         self.info(
             f"Auto-populate: model={model_id} boreholes={len(borehole_id_list)} "
-            f"selected_keys={len(selected_key_set) if selected_key_set is not None else 'all'}"
+            f"selected_keys={len(selected_key_set) if selected_key_set is not None else 'all'} "
+            f"manual_map={len(manual_map) if manual_map else 0}"
         )
         if not borehole_id_list and selected_key_set_norm is None:
             # No boreholes + no key filter → nothing to do (unfiltered Seed path).
@@ -635,6 +805,18 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         skipped_unmatched = 0
         skipped_no_stratigraphy = 0
         skipped_key_filter = 0
+        skipped_collision = 0
+        # Per-borehole collision tracking: borehole_id → effective_key → shallowest top_m seen.
+        # When a second layer in the SAME borehole resolves to an already-occupied
+        # (borehole, effective_key) slot, it is a duplicate top — keep only the
+        # shallowest one (per the owner-specified shallowest-wins rule).
+        borehole_occupied_keys: dict[UUID, dict[str, float]] = {}
+        # Collision accumulator for the outcome; mirrors the structure produced by
+        # scan_stratigraphy_candidates so discover≡apply holds.
+        write_collisions: list[LumpingCollision] = []
+        # Staging dict for collision assembly: per (borehole, effective_key), collect
+        # every raw_desc that contributed so the LumpingCollision can report them all.
+        collision_raw_names: dict[tuple[UUID, str], list[str]] = {}
 
         for borehole in boreholes:
             # Resolve both streams. Formal is the authoritative regional
@@ -689,36 +871,63 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     counterpart_desc=counterpart_desc,
                 )
 
-                # Apply the selected-key filter when the caller provided
-                # one. stable_key is already normalised by
-                # _derive_layer_names_and_key, and selected_key_set_norm
-                # was normalised through the same function — compare
-                # canonical-to-canonical, no per-layer re-casing.
-                if selected_key_set_norm is not None and stable_key not in selected_key_set_norm:
+                # Apply manual lump map — may redirect stable_key to a user-chosen target.
+                # WHY normalise the target: two different raw names lumped to "Holoceen"
+                # must land on the same formation as a raw name that IS "Holoceen".
+                # _resolve_effective_key applies normalize_formation_key to the target.
+                effective_key, effective_name = _resolve_effective_key(stable_key, manual_map)
+                display_name = effective_name if manual_map and stable_key in manual_map else name
+
+                # Apply the selected-key filter when the caller provided one.
+                # Compare effective_key (post-lump) against the normalised set so
+                # the filter sees the same keys the discover preview returned.
+                if selected_key_set_norm is not None and effective_key not in selected_key_set_norm:
                     skipped_key_filter += 1
                     self.debug(
                         f"Borehole {borehole.id} layer {layer.id}: "
-                        f"key '{stable_key}' not in selected_keys, skipped"
+                        f"key '{effective_key}' not in selected_keys, skipped"
                     )
                     continue
 
-                # Find or create on the single normalised key. Same
-                # canonical identity as the scan + the existing-formation
-                # index → dash/space/case/chrono-prefix variants resolve
-                # to ONE formation instead of re-splitting on write.
-                formation: GeologicalFormationOrm | None = formations_by_key.get(stable_key)
+                # Per-borehole collision safeguard (data-integrity critical, owner-specified).
+                # After manual lumping, ≥2 layers in the SAME borehole may resolve to the
+                # SAME effective_key — e.g. "Quartair: Holoceen veen" and "Quartair: Vlaamse
+                # Vallei" both lumped to "Holoceen".  Two tops for one formation corrupt the
+                # TIN.  Rule: keep only the SHALLOWEST top (smallest top_m); drop deeper ones.
+                # WHY shallowest wins: the shallowest contact is the formation's first
+                # appearance; deeper redundant boundaries are interior detail, not a new top.
+                bh_keys = borehole_occupied_keys.setdefault(borehole.id, {})
+                collision_slot = (borehole.id, effective_key)
+                # Always record this raw description for potential collision reporting.
+                collision_raw_names.setdefault(collision_slot, []).append(primary_desc)
+                if effective_key in bh_keys:
+                    # Collision: this (borehole, effective_key) already has a contact.
+                    skipped_collision += 1
+                    self.debug(
+                        f"Borehole {borehole.id} layer {layer.id}: "
+                        f"collision on effective_key '{effective_key}' "
+                        f"(kept top={bh_keys[effective_key]:.3f}m, "
+                        f"dropping top={layer.top_m:.3f}m), skipped"
+                    )
+                    continue
+                bh_keys[effective_key] = layer.top_m
+
+                # Find or create on the effective key. Same canonical identity as the
+                # scan + the existing-formation index → dash/space/case/chrono-prefix
+                # variants and manually lumped names resolve to ONE formation.
+                formation: GeologicalFormationOrm | None = formations_by_key.get(effective_key)
                 if formation is None:
                     formation = GeologicalFormationOrm(
                         id=uuid7(),
                         app_project_id=project_id,
-                        name=name,
+                        name=display_name,
                         regional_ref=regional_ref,
-                        color=_palette_colour_for(regional_ref or name),
+                        color=_palette_colour_for(regional_ref or display_name),
                         display_order=next_display_order,
                     )
                     next_display_order += 1
                     self._session.add(formation)
-                    formations_by_key[stable_key] = formation
+                    formations_by_key[effective_key] = formation
                     created_formation_ids.append(formation.id)
                     created_formation_ids_set.add(formation.id)
 
@@ -896,6 +1105,31 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     + ("..." if len(delete_ids) > 5 else "")
                 )
 
+        # Build collision warnings from the per-borehole tracking accumulated
+        # in the write loop.  Any (borehole, effective_key) slot with > 1
+        # raw description contributed means a collision occurred.  The first
+        # entry in collision_raw_names is always the KEPT layer (the loop
+        # adds descriptions in walk order; the kept layer's description is
+        # the first one recorded for each slot because the collision guard
+        # skips subsequent entries without creating a contact).
+        for (bh_id, eff_key), raw_names in collision_raw_names.items():
+            if len(raw_names) < 2:
+                continue
+            kept_top_m = borehole_occupied_keys.get(bh_id, {}).get(eff_key, 0.0)
+            target_name = (
+                formations_by_key[eff_key].name if eff_key in formations_by_key else eff_key
+            )
+            write_collisions.append(
+                LumpingCollision(
+                    borehole_id=bh_id,
+                    target_formation_key=eff_key,
+                    target_formation_name=target_name,
+                    colliding_raw_names=raw_names,
+                    kept_top_m=kept_top_m,
+                    dropped_count=len(raw_names) - 1,
+                )
+            )
+
         await self._session.commit()
         self.success(
             f"Auto-populate done: model={model_id} "
@@ -906,7 +1140,9 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             f"skipped {skipped_existing} existing / "
             f"{skipped_unmatched} unmatched / "
             f"{skipped_no_stratigraphy} no-stratigraphy / "
-            f"{skipped_key_filter} key-filtered"
+            f"{skipped_key_filter} key-filtered / "
+            f"{skipped_collision} collision-dropped, "
+            f"{len(write_collisions)} collision warning(s)"
         )
         return AutoPopulateOutcome(
             created_contact_ids=created_contact_ids,
@@ -915,6 +1151,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             skipped_existing=skipped_existing,
             skipped_unmatched=skipped_unmatched,
             skipped_no_stratigraphy=skipped_no_stratigraphy,
+            collisions=write_collisions,
         )
 
     # Delegate to module-level helpers shared with scan_stratigraphy_candidates.
