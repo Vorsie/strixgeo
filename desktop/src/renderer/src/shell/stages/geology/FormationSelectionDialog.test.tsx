@@ -380,4 +380,185 @@ describe('FormationSelectionDialog', () => {
 
     expect(screen.queryByRole('listbox')).toBeNull()
   })
+
+  // -------------------------------------------------------------------------
+  // Bug 1 — effective selected keys on confirm (lumping-coherence gap fix)
+  //
+  // Root cause: a row pre-checked from currentFormations (source key in
+  // ``checked``) that the user reassigns (source → target) remains in
+  // ``checked`` because the checkbox becomes disabled.  The old handleConfirm
+  // forwarded ``checked`` verbatim: the source key reached selected_keys →
+  // backend kept the source formation instead of deleting it.
+  //
+  // Fix: at confirm time, compute effectiveSelectedKeys by substituting
+  // source key → target key for 'candidate' reassignments and omitting the
+  // source key for 'custom' reassignments.
+  // -------------------------------------------------------------------------
+
+  it('Bug1a: reassigned source→target candidate: onConfirm emits target key, NOT source key', () => {
+    const onConfirm = vi.fn()
+    // Pre-check "Formatie van Diest" as an existing model formation.
+    const existingDiest = {
+      id: 'f-diest',
+      app_project_id: 'proj-1',
+      name: 'Formatie van Diest',
+      color: '#000',
+      code: null,
+      display_order: 0,
+      pinned_order: false,
+      regional_ref: null,
+      description: null,
+      lithology: null,
+      nad_class: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ onConfirm, currentFormations: [existingDiest] })}
+      />,
+    )
+
+    // "Formatie van Diest" should be pre-checked (it is in currentFormations).
+    const diestCb = screen.getByRole('checkbox', { name: 'Formatie van Diest' }) as HTMLInputElement
+    expect(diestCb.checked).toBe(true)
+
+    // Reassign "Boom Klei" → "Formatie van Diest".
+    fireEvent.click(screen.getByRole('button', { name: /Reassign "Boom Klei"/ }))
+    fireEvent.click(screen.getByRole('option', { name: 'Formatie van Diest' }))
+
+    // "Boom Klei" is NOT in checked (never clicked), so it won't appear in
+    // checked at all.  But "Formatie van Diest" IS in checked (pre-checked).
+    // Apply selection — effectiveSelectedKeys must contain 'formatie van diest'
+    // (the target key) and NOT 'boom klei' (the source key, which was never
+    // directly checked).
+    fireEvent.click(screen.getByRole('button', { name: 'Apply selection' }))
+    expect(onConfirm).toHaveBeenCalledOnce()
+    const [selectedKeys] = onConfirm.mock.calls[0] as [ReadonlySet<string>, Record<string, string>]
+    // Target key must be present.
+    expect(selectedKeys.has('formatie van diest')).toBe(true)
+    // Source key must NOT appear in effective keys.
+    expect(selectedKeys.has('boom klei')).toBe(false)
+  })
+
+  it('Bug1b: pre-checked source key reassigned to candidate → target key replaces source in onConfirm', () => {
+    // This is the exact Bug 1 scenario: user had "Boom Klei" in the model
+    // (so it is pre-checked), then reassigns it to "Formatie van Diest".
+    // The RAW checked set still contains 'boom klei' (disabled checkbox).
+    // effectiveSelectedKeys must substitute 'boom klei' → 'formatie van diest'.
+    const onConfirm = vi.fn()
+    const existingBoom = {
+      id: 'f-boom',
+      app_project_id: 'proj-1',
+      name: 'Boom Klei',
+      color: '#000',
+      code: null,
+      display_order: 0,
+      pinned_order: false,
+      regional_ref: null,
+      description: null,
+      lithology: null,
+      nad_class: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ onConfirm, currentFormations: [existingBoom] })}
+      />,
+    )
+
+    // "Boom Klei" is pre-checked (it is in currentFormations).
+    const boomCb = screen.getByRole('checkbox', { name: 'Boom Klei' }) as HTMLInputElement
+    expect(boomCb.checked).toBe(true)
+
+    // Reassign "Boom Klei" → "Formatie van Diest".
+    fireEvent.click(screen.getByRole('button', { name: /Reassign "Boom Klei"/ }))
+    fireEvent.click(screen.getByRole('option', { name: 'Formatie van Diest' }))
+
+    // Also check "Formatie van Diest" to include the target in the selection.
+    const diestCb = screen.getByRole('checkbox', { name: 'Formatie van Diest' }) as HTMLInputElement
+    // diestCb may be enabled; click to check it.
+    if (!diestCb.checked) fireEvent.click(diestCb)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply selection' }))
+    expect(onConfirm).toHaveBeenCalledOnce()
+    const [selectedKeys] = onConfirm.mock.calls[0] as [ReadonlySet<string>, Record<string, string>]
+
+    // Target key appears (either from 'boom klei' substitution or from the
+    // direct 'formatie van diest' check — both paths converge to this key).
+    expect(selectedKeys.has('formatie van diest')).toBe(true)
+    // The RAW source key from the pre-checked formation must NOT survive in
+    // the effective set (it was substituted by the target key).
+    // NOTE: if 'boom klei' is still in effective keys, the backend would
+    // keep the source formation — the bug this test guards against.
+    expect(selectedKeys.has('boom klei')).toBe(false)
+  })
+
+  // -------------------------------------------------------------------------
+  // Bug 3 — dialog prefill from initialReassignments (lumping-coherence gap)
+  //
+  // Root cause: reassignments state always initialized as new Map() → user's
+  // previously applied aliases are never shown on reopen.
+  // Fix: accept initialReassignments prop and reconstruct RowReassignments.
+  // -------------------------------------------------------------------------
+
+  it('Bug3a: initialReassignments prefills row dropdowns from persisted map', () => {
+    // The persisted map says 'boom klei' was reassigned to 'Formatie van Diest'.
+    const initialReassignments: Record<string, string> = {
+      'boom klei': 'Formatie van Diest',
+    }
+
+    const onManualMapChange = vi.fn()
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ initialReassignments, onManualMapChange })}
+      />,
+    )
+
+    // On mount, onManualMapChange should be called with the restored map
+    // (the useEffect fires once after the initial render).
+    expect(onManualMapChange).toHaveBeenCalledWith({
+      'boom klei': 'Formatie van Diest',
+    })
+  })
+
+  it('Bug3b: initialReassignments skips stale entries not in current candidates', () => {
+    // 'old key from prior session' is not in CANDIDATES → must be silently ignored.
+    const initialReassignments: Record<string, string> = {
+      'boom klei': 'Formatie van Diest',
+      'old key from prior session': 'Some Formation',
+    }
+
+    const onManualMapChange = vi.fn()
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ initialReassignments, onManualMapChange })}
+      />,
+    )
+
+    // Only the valid entry survives; the stale key is not forwarded.
+    expect(onManualMapChange).toHaveBeenCalledWith({
+      'boom klei': 'Formatie van Diest',
+    })
+  })
+
+  it('Bug3c: initialReassignments with unknown targetName → restored as custom target', () => {
+    // 'Bespoke Canonical Name' is not in CANDIDATES → restored as custom.
+    const initialReassignments: Record<string, string> = {
+      'boom klei': 'Bespoke Canonical Name',
+    }
+
+    const onManualMapChange = vi.fn()
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ initialReassignments, onManualMapChange })}
+      />,
+    )
+
+    // The custom name propagates verbatim to the manual_map wire format.
+    expect(onManualMapChange).toHaveBeenCalledWith({
+      'boom klei': 'Bespoke Canonical Name',
+    })
+  })
 })
