@@ -809,6 +809,62 @@ worthwhile (the restructure). Trigger to escalate out of Tier E:
 unchanged — any session adding >2 new fields to the coordinator slice
 should also extend the net + audit the dep array.
 
+## 54. Litho subsystem — API layer imports domain constants directly (Tier E — layer purity)
+
+**What.** Senior-review S3/S4 (litho slices, 2026-05-17). Three API-
+layer files import constants/enums straight from the domain layer,
+violating CLAUDE.md "Architecture" (API → Application → Domain):
+`api/routers/geology/models.py` imports `REQUIRED_PARENT_KIND` from
+`domain.value_objects.model_kind`; `api/routers/geology/formations.py`
+imports `BASE_LITHOLOGIES`/`ADMIXTURE_QUALIFIERS`/`NAD_CLASSES` from
+`domain.services.litho_constants`; `api/schemas/project/
+litho_suggestion/litho_layer_suggestion_item.py` imports
+`SuggestionConfidence` from `domain.services.litho_segmentation`.
+
+**Why deferred.** Behaviour-neutral (constants, not logic) — the
+imports work and the values are correct. The clean fix is to relocate
+the shared constant/enum modules to `shared/` (explicitly cross-layer-
+permitted), which touches every importer across domain / application /
+infrastructure / api. Doing that as a multi-file move at the tail of
+the litho-build session is the exact rushed-mega-edit pattern that
+shipped the slice-3 bugs. Lower risk to do as its own focused pass.
+
+**When to revisit.** Next time `shared/` gets a constants home built
+for any reason, OR before the first non-solo contributor (the layer
+rule is an onboarding-legibility contract). Fix: move
+`model_kind.py` + `litho_constants.py` + `SuggestionConfidence` to
+`shared/constants/`, update importers, leave a re-export shim only if
+an external `.gmproj`/API contract depended on the old path (it does
+not — these are internal).
+
+## 55. Litho slice 4 — section-editor ghost-suggestion UI not built (Tier C — dogfeed gap)
+
+**What.** Litho slices 1–3 (backend) + 4a/4b (frontend api types +
+kind-safe model resolution) shipped. The user-facing piece — a
+"Suggest litho" section-editor action that calls `suggestLitho`,
+renders the returned layers as accept/reject ghost lines (mirroring
+`VirtueleBoringGhostColumns`), and on accept resolves/creates a
+formation per lithology then creates contacts — is NOT built.
+
+**Why deferred.** It depends on model-management UX that does not
+exist: there is no model picker, and slice 1 made `is_active`
+per-kind so the user needs a way to create + select the active
+lithostratigraphic model. Building a picker + litho-model lifecycle
+UI + an interactive overlay on the 1,655-line SectionPanel /
+2,013-line ContactsLayer as one tail-of-session change is how slice 3
+shipped two bugs. The backend is fully usable via the API today.
+
+**When to revisit.** Next focused session on the litho feature. This
+is genuinely a `ux-reviewer` piece (new interaction, ghost overlay,
+accept/reject affordance, the formation-resolution-on-accept flow) —
+sequence it: (1) minimal model-kind picker / "create litho model"
+affordance, (2) the ghost overlay component (fork
+`VirtueleBoringGhostColumns`, dashed + interactive), (3) the
+accept→ensure-formation→create-contact path reusing
+`handleInlineCreateFormation` + `handleCreateContact`. The
+`activeLithoModel` hook field lands WITH (1), not before (don't
+pre-build the selector for UI that isn't there).
+
 ---
 
 ## Historical note — 2026-05-13 security-reviewer audit pass
