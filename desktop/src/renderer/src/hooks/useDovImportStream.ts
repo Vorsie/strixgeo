@@ -286,6 +286,21 @@ export function useDovImportStream(): UseDovImportStreamResult {
               return
             }
 
+            // Pins event — ``{ type: "pins", items: [...] }``
+            // Fires once after WFS discovery, before any XML download.
+            // Populates pendingPins so the map renders all N investigation
+            // locations immediately; discarded wholesale on "done" when the
+            // real GET /cpt/ list refresh repopulates the real markers.
+            if (event.type === 'pins' && Array.isArray(event.items)) {
+              const pins = event.items as PendingPin[]
+              log.info('dov-stream', `pins event: ${pins.length} pending markers`)
+              setState(prev => {
+                if (prev.status !== 'running') return prev
+                return { ...prev, pendingPins: pins }
+              })
+              continue
+            }
+
             // Progress tick — ``{ phase, done, total }``
             if (typeof event.phase === 'string') {
               const tick: ProgressTick = {
