@@ -94,13 +94,43 @@ async def create_contact(
     request: FormationContactCreateRequest,
     session: AsyncSession = Depends(get_session),
 ) -> FormationContactOrm:
-    """Create a new formation contact under a model."""
+    """Create a new formation contact under a model.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Geological model — must belong to ``project_id``.
+    request : FormationContactCreateRequest
+        Body with anchor, formation, depth, and an optional
+        ``section_id`` (explicit-content invariant).
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    FormationContactOrm
+        The created contact row (HTTP 201).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(409)
+        When a contact for this (anchor, formation) already exists
+        in the model.  The response body carries ``existing_contact_id``
+        so the frontend can offer "move" instead of a hard failure.
+    HTTPException(400)
+        When both anchor fields are set or both are null (XOR violated
+        by a non-API caller that bypassed the Pydantic schema check).
+    """
     # Guard: model must exist and belong to the project.
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
     )
     try:
-        return await CreateFormationContact(session).execute(
+        contact = await CreateFormationContact(session).execute(
             model_id=model_id,
             formation_id=request.formation_id,
             depth_top_m=request.depth_top_m,
@@ -118,6 +148,10 @@ async def create_contact(
         # this borehole" and offer a "move it here" action via PATCH
         # rather than asking the user to manually find + delete the
         # duplicate.
+        #
+        # Explicit-content invariant: do NOT seed the section when the
+        # contact is a duplicate — the existing contact already owns the
+        # anchor, and the 409 tells the caller which id to navigate to.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -136,6 +170,39 @@ async def create_contact(
         # boundary, so reaching here means a non-API caller bypassed
         # the request schema.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
+
+    # Explicit-content invariant (owner directive 2026-05-17).
+    # When the user manually draws a contact on a section the editor
+    # passes section_id so we append the new contact's id to that
+    # section's seeded_formation_contact_ids.  Only on a true 201 (new
+    # contact created above) — never on the 409 path.
+    # Mirror P2-D's union pattern: existing ∪ {new} so re-drawing
+    # after an undo does not lose the rest of the seeded set.
+    # A missing or out-of-project section is a warning, not an error
+    # — the contact was created, the client still gets 201.
+    if request.section_id is not None:
+        section_repo = CrossSectionRepository(session)
+        section = await section_repo.get(request.section_id)
+        if section is not None and section.app_project_id == project_id:
+            existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
+            merged = list(existing_seeded | {contact.id})
+            await section_repo.update(
+                request.section_id,
+                {"seeded_formation_contact_ids": merged},
+            )
+            await session.commit()
+            logger.info(
+                f"create_contact: seeded section {request.section_id} "
+                f"with new contact {contact.id} — "
+                f"{len(merged)} id(s) total"
+            )
+        else:
+            logger.warning(
+                f"create_contact: section_id {request.section_id} not found "
+                f"in project {project_id} — seeded set not updated"
+            )
+
+    return contact
 
 
 @router.get(

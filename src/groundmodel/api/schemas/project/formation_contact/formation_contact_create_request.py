@@ -28,6 +28,12 @@ class FormationContactCreateRequest(BaseModel):
     observation_id: UUID | None = None
     observation_layer_id: UUID | None = None
     notes: str | None = None
+    # Explicit-content invariant (owner directive 2026-05-17).
+    # When the user manually draws a contact on a section, the section editor
+    # passes its section_id here so the router appends the new contact's id to
+    # the section's seeded_formation_contact_ids in the same request.
+    # When absent (None), the contact is created without touching any section.
+    section_id: UUID | None = None
 
     @model_validator(mode="after")
     def _exactly_one_anchor(self) -> FormationContactCreateRequest:
