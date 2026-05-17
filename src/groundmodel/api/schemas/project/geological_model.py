@@ -7,19 +7,30 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from groundmodel.domain.value_objects.model_kind import ModelKind
+
 
 class GeologicalModelCreateRequest(BaseModel):
     """Body of ``POST /projects/{id}/geology/models``.
 
     A project can have multiple interpretation models. ``is_active``
     defaults to False — call ``POST .../models/{id}/activate`` to flip
-    the active flag (which clears it on every sibling).
+    the active flag (which clears it on every SAME-KIND sibling).
+
+    ``kind`` selects the hierarchy level (default ``geological``).
+    ``parent_geological_model_id`` is required for non-geological
+    kinds (a lithostratigraphic model refines a geological one; a
+    geotechnical model refines a lithostratigraphic one) and is
+    rejected for ``geological`` — enforced at the endpoint, 422 on
+    violation. ``kind``/parent are immutable post-create (no PATCH).
     """
 
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
     is_active: bool = False
     excluded_borehole_ids: list[UUID] = Field(default_factory=list)
+    kind: ModelKind = "geological"
+    parent_geological_model_id: UUID | None = None
 
 
 class GeologicalModelUpdateRequest(BaseModel):
@@ -50,5 +61,7 @@ class GeologicalModelResponse(BaseModel):
     description: str | None
     is_active: bool
     excluded_borehole_ids: list[UUID]
+    kind: str
+    parent_geological_model_id: UUID | None
     created_at: datetime
     updated_at: datetime

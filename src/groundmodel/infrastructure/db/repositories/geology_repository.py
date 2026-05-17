@@ -69,6 +69,8 @@ class GeologyRepository(GroundModelLogger):
         display_order: int = 0,
         regional_ref: str | None = None,
         description: str | None = None,
+        lithology: str | None = None,
+        nad_class: int | None = None,
     ) -> GeologicalFormationOrm:
         """Insert a new formation row under the given project."""
         formation = GeologicalFormationOrm(
@@ -80,6 +82,8 @@ class GeologyRepository(GroundModelLogger):
             display_order=display_order,
             regional_ref=regional_ref,
             description=description,
+            lithology=lithology,
+            nad_class=nad_class,
         )
         self._session.add(formation)
         await self._session.flush()
@@ -229,8 +233,15 @@ class GeologyRepository(GroundModelLogger):
         description: str | None = None,
         is_active: bool = False,
         excluded_borehole_ids: list[UUID] | None = None,
+        kind: str = "geological",
+        parent_geological_model_id: UUID | None = None,
     ) -> GeologicalModelOrm:
-        """Insert a new geological model under the given project."""
+        """Insert a new geological model under the given project.
+
+        The caller (creation endpoint) is responsible for enforcing the
+        ``REQUIRED_PARENT_KIND`` invariant before calling this — the
+        repository persists what it is given.
+        """
         model = GeologicalModelOrm(
             id=uuid7(),
             app_project_id=app_project_id,
@@ -238,6 +249,8 @@ class GeologyRepository(GroundModelLogger):
             description=description,
             is_active=is_active,
             excluded_borehole_ids=excluded_borehole_ids or [],
+            kind=kind,
+            parent_geological_model_id=parent_geological_model_id,
         )
         self._session.add(model)
         await self._session.flush()
@@ -289,21 +302,29 @@ class GeologyRepository(GroundModelLogger):
     async def set_active_model(
         self, app_project_id: UUID, model_id: UUID
     ) -> GeologicalModelOrm | None:
-        """Mark one model as active and clear the flag on every sibling.
+        """Mark one model active and clear the flag on every SAME-KIND sibling.
 
-        The DB doesn't enforce "one active per project" so this is the
-        app-level guard. Implemented as a bulk UPDATE on the project's
-        models followed by a single-row UPDATE on the target — cheaper
-        and atomic-enough for our scale.
+        "One active per project" became "one active **per kind**" with
+        the three-level hierarchy: activating a lithostratigraphic
+        model must NOT deactivate the geological model the section
+        editor references (each kind has its own active pointer). The
+        sibling clear is therefore scoped to ``target.kind`` — this is
+        a deliberate behaviour change to a pre-existing operation.
+
+        Implemented as a bulk UPDATE on the project's same-kind models
+        followed by a single-row UPDATE on the target — atomic-enough
+        for our scale.
         """
         target = await self._session.get(GeologicalModelOrm, model_id)
         if target is None or target.app_project_id != app_project_id:
             return None
-        # Clear every sibling first, then set the target. Order matters
-        # so the target isn't briefly NOT active inside the same flush.
+        # Clear every SAME-KIND sibling first, then set the target.
+        # Order matters so the target isn't briefly NOT active inside
+        # the same flush. Cross-kind models are untouched.
         await self._session.execute(
             update(GeologicalModelOrm)
             .where(GeologicalModelOrm.app_project_id == app_project_id)
+            .where(GeologicalModelOrm.kind == target.kind)
             .where(GeologicalModelOrm.id != model_id)
             .values(is_active=False)
         )
@@ -311,6 +332,20 @@ class GeologyRepository(GroundModelLogger):
         await self._session.flush()
         self.info(f"Active model set: {model_id}")
         return target
+
+    async def has_child_models(self, model_id: UUID) -> bool:
+        """True if any model declares ``model_id`` as its parent.
+
+        Used by the delete endpoint to surface a 409 BEFORE attempting
+        the delete (deterministic, clear message) rather than letting
+        the ``ON DELETE RESTRICT`` FK raise a raw IntegrityError on
+        commit. A lithostratigraphic model pins its geological parent;
+        a geotechnical model pins its lithostratigraphic parent.
+        """
+        stmt = select(GeologicalModelOrm.id).where(
+            GeologicalModelOrm.parent_geological_model_id == model_id
+        )
+        return (await self._session.execute(stmt)).first() is not None
 
     async def delete_model(self, model_id: UUID) -> bool:
         """Delete a model, removing only the formations it actually owns.

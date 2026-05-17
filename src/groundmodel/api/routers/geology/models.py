@@ -18,6 +18,7 @@ from groundmodel.api.schemas.project.geological_model import (
     GeologicalModelResponse,
     GeologicalModelUpdateRequest,
 )
+from groundmodel.domain.value_objects.model_kind import REQUIRED_PARENT_KIND
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
@@ -49,7 +50,47 @@ async def create_model(
     request: GeologicalModelCreateRequest,
     session: AsyncSession = Depends(get_session),
 ) -> GeologicalModelOrm:
-    """Create a new geological model under the given project."""
+    """Create a model, enforcing the three-level parent invariant.
+
+    ``geological`` → must have NO parent. ``lithostratigraphic`` /
+    ``geotechnical`` → ``parent_geological_model_id`` is required and
+    must point at an existing same-project model of the required
+    parent kind (geological / lithostratigraphic respectively). Any
+    violation is a 422 — this is where "not optional for litho/geotech"
+    is enforced (the column is DB-nullable; see model_kind.py).
+    """
+    required_parent_kind = REQUIRED_PARENT_KIND[request.kind]
+    parent_id = request.parent_geological_model_id
+
+    if required_parent_kind is None:
+        if parent_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="A geological model cannot have a parent model.",
+            )
+    else:
+        if parent_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"A {request.kind} model requires "
+                    f"parent_geological_model_id (a {required_parent_kind} model)."
+                ),
+            )
+        parent = await session.get(GeologicalModelOrm, parent_id)
+        if (
+            parent is None
+            or parent.app_project_id != project_id
+            or parent.kind != required_parent_kind
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"parent_geological_model_id must reference an existing "
+                    f"{required_parent_kind} model in this project."
+                ),
+            )
+
     repo = GeologyRepository(session)
     model = await repo.create_model(
         project_id,
@@ -57,6 +98,8 @@ async def create_model(
         description=request.description,
         is_active=request.is_active,
         excluded_borehole_ids=request.excluded_borehole_ids,
+        kind=request.kind,
+        parent_geological_model_id=parent_id,
     )
     await session.commit()
     await session.refresh(model)
@@ -121,11 +164,25 @@ async def delete_model(
 
     Cascades to: geological formations and their contacts, geotechnical
     units, and every formation surface (TIN) associated with the model.
+
+    Blocked with 409 when another model refines this one (a
+    lithostratigraphic model pins its geological parent; a geotechnical
+    model pins its lithostratigraphic parent). Pre-checked here so the
+    user gets a clear message instead of a raw ON DELETE RESTRICT
+    IntegrityError on commit.
     """
     repo = GeologyRepository(session)
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
     )
+    if await repo.has_child_models(model_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This model cannot be deleted while another model refines "
+                "it. Delete the dependent (lithostratigraphic / "
+                "geotechnical) model first."
+            ),
+        )
     await repo.delete_model(model_id)
     await session.commit()
-

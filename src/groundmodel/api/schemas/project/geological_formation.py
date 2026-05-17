@@ -25,6 +25,12 @@ class GeologicalFormationCreateRequest(BaseModel):
     pinned_order: bool = False
     regional_ref: str | None = Field(default=None, max_length=200)
     description: str | None = None
+    # Three-level hierarchy unit attributes — NULL on a geological
+    # formation; set on litho (lithology) / geotech (nad_class) units.
+    # Vocabulary validation lands with slice 2; the column is
+    # free-text here so the schema doesn't gate ahead of the codelist.
+    lithology: str | None = Field(default=None, max_length=20)
+    nad_class: int | None = Field(default=None, ge=1, le=31)
 
 
 class GeologicalFormationUpdateRequest(BaseModel):
@@ -44,6 +50,8 @@ class GeologicalFormationUpdateRequest(BaseModel):
     pinned_order: bool | None = None
     regional_ref: str | None = Field(default=None, max_length=200)
     description: str | None = None
+    lithology: str | None = Field(default=None, max_length=20)
+    nad_class: int | None = Field(default=None, ge=1, le=31)
 
 
 class GeologicalFormationResponse(BaseModel):
@@ -60,5 +68,7 @@ class GeologicalFormationResponse(BaseModel):
     pinned_order: bool
     regional_ref: str | None
     description: str | None
+    lithology: str | None
+    nad_class: int | None
     created_at: datetime
     updated_at: datetime

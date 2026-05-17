@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, Index, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -50,6 +50,27 @@ class GeologicalModelOrm(Base):
     # but adds joins for negligible value at v1's scale.
     excluded_borehole_ids: Mapped[list[UUID]] = mapped_column(
         ARRAY(PG_UUID(as_uuid=True)), nullable=False, default=list
+    )
+
+    # Three-level hierarchy discriminator (CLAUDE.md "Modelling
+    # hierarchy"): 'geological' (backbone, default) |
+    # 'lithostratigraphic' | 'geotechnical'. Plain VARCHAR + app-layer
+    # validation (same pattern as source/confidence/method). Gates the
+    # crossing validator, Build's auto-age reorder, and is_active
+    # scoping — see domain/value_objects/model_kind.py.
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="geological")
+
+    # Self-FK: a lithostratigraphic model REFINES a geological model;
+    # a geotechnical model refines a lithostratigraphic one. NULL only
+    # for geological models (no parent). ON DELETE RESTRICT — the
+    # parent cannot be deleted while a child references it (API → 409).
+    # "Not optional for litho/geotech" is enforced at creation
+    # (REQUIRED_PARENT_KIND), not by DB NOT NULL, because geological
+    # models legitimately share this nullable column with no parent.
+    parent_geological_model_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("geological_model.id", ondelete="RESTRICT"),
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

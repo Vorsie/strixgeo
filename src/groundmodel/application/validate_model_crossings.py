@@ -24,6 +24,7 @@ from groundmodel.domain.services.geology_validator import (
 )
 from groundmodel.domain.services.tin_surface import TinSurface
 from groundmodel.domain.value_objects.gap_issue import GapIssue
+from groundmodel.domain.value_objects.model_kind import NON_STRATIGRAPHIC_KINDS
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -31,6 +32,9 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import (
 )
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
+)
+from groundmodel.infrastructure.db.models.geological_model_orm import (
+    GeologicalModelOrm,
 )
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
@@ -59,6 +63,19 @@ class ValidateModelCrossings(GroundModelLogger):
         validator and contribute no pairs.
         """
         self.info(f"validate_model_crossings: model={model_id}")
+        # Crossing validation only means something for the geological
+        # backbone. Lithostratigraphic / geotechnical models have
+        # interfingering units (sand both above and below a clay at
+        # different locations) — that is real geology, not a
+        # superposition error, so the rule is skipped for those kinds
+        # (the frontend's empty-list path shows no banner).
+        model = await self._session.get(GeologicalModelOrm, model_id)
+        if model is not None and model.kind in NON_STRATIGRAPHIC_KINDS:
+            self.debug(
+                f"validate_model_crossings: model={model_id} kind="
+                f"{model.kind} — crossing check skipped (non-stratigraphic)"
+            )
+            return []
         surface_rows = await self._repo.list_surfaces(model_id)
         if not surface_rows:
             self.debug(f"validate_model_crossings: model={model_id} has no cached surfaces")

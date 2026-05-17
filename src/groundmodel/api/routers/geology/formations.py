@@ -67,6 +67,8 @@ async def create_formation(
         display_order=request.display_order,
         regional_ref=request.regional_ref,
         description=request.description,
+        lithology=request.lithology,
+        nad_class=request.nad_class,
     )
     await session.commit()
     await session.refresh(formation)
@@ -245,4 +247,3 @@ async def delete_unit(
     )
     await repo.delete_unit(unit_id)
     await session.commit()
-

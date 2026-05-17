@@ -62,6 +62,17 @@ class GeologicalFormationOrm(Base):
     regional_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Three-level hierarchy unit attributes (the geological_formation
+    # table is shared across all model kinds). NULL for a
+    # geological-model formation (Boom Klei has no single lithology).
+    # ``lithology`` = GRIND/ZAND/SILT/KLEI/VEEN (+ admixture, slice 2
+    # vocabulary). ``nad_class`` = Belgian NAD class 1..31 for a
+    # geotechnical-model unit; the per-class parameter values
+    # (γ/φ′/c′/cu/m) are the Phase-5 Scilab/xlsx port, not stored here
+    # yet — the class number is the future join key.
+    lithology: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    nad_class: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
