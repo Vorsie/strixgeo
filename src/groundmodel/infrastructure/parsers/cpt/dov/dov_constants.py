@@ -69,3 +69,16 @@ DOV_WFS_LAYER = "dov-pub:Sonderingen"
 # Verified live 2026-05-07: redirect target is deterministic for every sondering.
 DOV_FICHE_URL_PREFIX = "/data/sondering/"
 DOV_PROXY_URL_PREFIX = "/xdov/proxy/export/sondering/"
+
+# ----------------------------------------------------------------------
+# Parse offload threshold
+# ----------------------------------------------------------------------
+
+# Minimum uncompressed XML size (bytes) before a parse task is offloaded
+# to the ProcessPoolExecutor.  Below this threshold, the ~0.1 ms IPC
+# overhead + pool task-scheduling cost exceeds the ~1–3 ms parse time.
+# 50 kB is well below a typical DOV sondering (~500 kB) so effectively
+# every network download gets offloaded; cache hits for very small XMLs
+# run inline on the event loop without pool overhead.
+# Tune by measuring ``phase 2 (download + parse)`` log lines in CLAUDE.local.md.
+PARSE_OFFLOAD_MIN_BYTES = 50_000
