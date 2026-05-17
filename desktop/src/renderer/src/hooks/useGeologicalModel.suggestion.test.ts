@@ -197,6 +197,8 @@ function makeArgs() {
       addToSessionImports,
       removeFromSessionImports,
       manifestFormationIds: undefined as Set<string> | undefined,
+      currentLumping: null as import('../utils/projectFile').StratigraphyLumping | null,
+      writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
     },
     toast,
   }
