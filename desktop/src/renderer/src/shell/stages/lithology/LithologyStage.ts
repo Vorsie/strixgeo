@@ -7,7 +7,7 @@
 // (future) 3D-view surface; the actual contact editing happens on
 // the Sections stage scoped to the active litho model (slice 2).
 
-import { Layers3 } from 'lucide-react'
+import { Rows3 } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import { useShell } from '../../ShellContext'
@@ -43,7 +43,11 @@ function useLithologyStageSummary(): StageSummary {
 
 const LithologyStage: StageDescriptor = {
   id: 'lithology',
-  icon: Layers3,
+  // Rows3 (flat stacked beds) — deliberately a different glyph family
+  // from Sections' Layers (perspective planes) + Geology's Mountain,
+  // so the adjacent spine buttons are unambiguous at 20px
+  // (ux-review SF-1).
+  icon: Rows3,
   spineLabel: 'Litho',
   useStageSummary: useLithologyStageSummary,
   CanvasComponent: LithologyCanvas,

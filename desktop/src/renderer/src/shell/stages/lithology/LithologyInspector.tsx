@@ -41,7 +41,7 @@ export default function LithologyInspector(): JSX.Element {
           <ModelKindPicker />
           <p className="text-[11px] leading-snug text-text-muted">
             {activeLithoModel === null
-              ? 'Create a lithology model above, then open the Sections stage to draw its contacts (a geology ↔ lithology axis toggle lands there next).'
+              ? 'Create a lithology model above, then open the Sections stage to draw its contacts.'
               : `Active: ${activeLithoModel.name}. Build it on the Sections stage — draw contacts or accept CPT-based suggestions, scoped to this model.`}
           </p>
         </>

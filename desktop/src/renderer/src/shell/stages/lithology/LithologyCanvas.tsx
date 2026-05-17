@@ -24,7 +24,7 @@ export default function LithologyCanvas(): JSX.Element {
     <EmptyState
       icon={<Layers3 />}
       title="Lithostratigraphic model"
-      hint="Select or create a lithology model in the inspector → on the right. You build it by drawing/accepting contacts on the Sections stage (a geology ↔ lithology axis toggle lands there next). Surfaces appear here once contacts are placed and the model is built."
+      hint="Select or create a lithology model in the right panel. To place contacts, open the Sections stage and draw them there — lithostratigraphic contacts are always placed in the context of a cross-section. Once placed and built, the 3D surfaces appear here."
     />
   )
 }
