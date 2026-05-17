@@ -285,35 +285,50 @@ describe('useSections ordinal (L4)', () => {
     expect(`Cross-section ${result.current.sections.length + 1}`).toBe('Cross-section 4')
   })
 
-  it('L4-b — after handleSectionDeleted removes the only visible section, removeFromManifest fires → ordinal drops to 1', async () => {
-    // Single visible section. After it is deleted, removeFromManifest is
-    // called. In production this re-gates visibleSections → length 0.
-    // We verify: (a) the callback fires, (b) visibleSections arithmetic
-    // at length 0 gives ordinal 1.
+  it('L4-b — after handleSectionDeleted removes the only visible section, visibleSections drops to 0 → ordinal = 1', async () => {
+    // Single visible section. After it is deleted removeFromManifest fires
+    // and — once the caller re-injects an updated manifest — visibleSections
+    // re-gates to 0.  We verify both the callback contract AND that the hook's
+    // visibleSections reaches 0 (making the next ordinal 1).
     mockSectionList.mockResolvedValue([makeSection('sec-1')])
 
-    const { args, removeFromManifest } = makeArgs({
-      manifestSectionIds: new Set(['sec-1']),
-      ready: true,
-    })
-    const { result } = renderHook(() => useSections(args))
+    // Use the initialProps overload so we can mutate manifestSectionIds via
+    // rerender without rebuilding the stable callbacks (the hook treats them
+    // as stable deps).
+    const { args, removeFromManifest } = makeArgs({ ready: true })
+
+    const { result, rerender } = renderHook(
+      ({ manifest }: { manifest: ReadonlySet<string> }) =>
+        useSections({ ...args, manifestSectionIds: manifest }),
+      { initialProps: { manifest: new Set(['sec-1']) as ReadonlySet<string> } },
+    )
 
     await act(async () => {
       await new Promise(r => setTimeout(r, 0))
     })
 
+    // Precondition: one visible section.
     expect(result.current.visibleSections.length).toBe(1)
 
+    // Delete act — fires removeFromManifest and setSessionImportSectionIds.
     act(() => {
       result.current.handleSectionDeleted('sec-1')
     })
 
-    // removeFromManifest fires — this is what causes visibleSections to
-    // shrink to 0 in production (manifestSectionIds is the injected prop).
+    // (a) Callback contract: removeFromManifest called with the deleted id.
     expect(removeFromManifest).toHaveBeenCalledWith('section', ['sec-1'])
 
-    // With 0 visible sections the next ordinal = 0 + 1 = 1.
-    expect(`Cross-section ${0 + 1}`).toBe('Cross-section 1')
+    // (b) Simulate the parent re-injecting the updated manifest (empty after
+    // the delete) — mirrors what App does in production when the bundle state
+    // updates.  visibleSections must re-gate to 0.
+    rerender({ manifest: new Set() as ReadonlySet<string> })
+
+    expect(result.current.visibleSections.length).toBe(0)
+
+    // With 0 visible sections the ordinal a new draw would use = 1.
+    // Reading the REAL hook value (not a hardcoded literal) means this
+    // assertion fails if manifest-gating regresses and visibleSections stays > 0.
+    expect(`Cross-section ${result.current.visibleSections.length + 1}`).toBe('Cross-section 1')
   })
 })
 
