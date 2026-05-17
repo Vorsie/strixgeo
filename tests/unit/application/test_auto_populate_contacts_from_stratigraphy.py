@@ -1156,3 +1156,138 @@ async def test_execute_no_collision_without_manual_map():
     assert len(outcome.created_formation_ids) == 2
     assert len(outcome.created_contact_ids) == 2
     assert outcome.collisions == []
+
+
+# ---------------------------------------------------------------------------
+# B1 regression — deep-first layer ordering must not corrupt kept_top_m
+#
+# Before the B1 fix, the write loop iterated primary_obs.layers in ORM
+# result order (no guaranteed ORDER BY top_m).  When the ORM happened to
+# deliver the deeper layer first, bh_keys[effective_key] recorded the
+# DEEPER depth as "kept", while the discover scan (which sorts ascending)
+# would report the SHALLOWER depth — breaking the discover≡apply invariant.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_execute_deep_first_layers_keeps_shallowest_contact():
+    """B1 regression: layers supplied DEEP-FIRST must still yield the shallowest contact.
+
+    Scenario:
+    - One borehole with two informal layers.
+    - ORM delivers them deep-first: top_m=2.0 appears BEFORE top_m=0.0 in the list.
+    - Both are lumped to the same formation via manual_map.
+    - After the B1 fix (sort ascending before the loop):
+
+      (a) Exactly ONE contact is created (shallowest wins).
+      (b) The contact's depth is 0.0 m (the shallowest layer wins).
+      (c) The LumpingCollision's ``kept_top_m`` equals 0.0 (the written depth).
+      (d) The discover scan on the same input also reports kept_top_m=0.0
+          — discover≡apply depth parity.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    # Deep-first: top_m=2.0 comes BEFORE top_m=0.0 in the ORM result.
+    layer_deep = _layer(top_m=2.0, base_m=8.0, description="Vlaamse Vallei")
+    layer_shallow = _layer(top_m=0.0, base_m=2.0, description="Holoceen veen")
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [layer_deep, layer_shallow],  # deep-first ordering
+            )
+        ]
+    )
+
+    # Both raw names lump to the same effective formation.
+    manual_map = {
+        normalize_formation_key("Vlaamse Vallei"): "Quartair",
+        normalize_formation_key("Holoceen veen"): "Quartair",
+    }
+
+    session = _make_session_with_formations(boreholes=[bh], existing_formations=[])
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh.id],
+            manual_map=manual_map,
+        )
+
+    # (a) Exactly one contact — the deeper duplicate is dropped.
+    assert len(outcome.created_contact_ids) == 1
+    # One formation created for the effective key "Quartair".
+    assert len(outcome.created_formation_ids) == 1
+    # (b) + (c) The collision entry's kept_top_m must be 0.0.
+    assert len(outcome.collisions) == 1
+    col = outcome.collisions[0]
+    assert col.kept_top_m == 0.0, (
+        f"B1: shallowest-wins violated — kept_top_m={col.kept_top_m!r}, expected 0.0"
+    )
+    assert col.dropped_count == 1
+
+    # (d) discover≡apply depth parity: the scan on the same input must also
+    # report kept_top_m=0.0 for the (borehole, "quartair") pair.
+    session2 = _make_session([bh])
+    scan_candidates, scan_collisions = await scan_stratigraphy_candidates(
+        session2, project_id=project_id, borehole_ids=[bh.id], manual_map=manual_map
+    )
+    assert len(scan_collisions) == 1
+    scan_col = scan_collisions[0]
+    assert scan_col.kept_top_m == 0.0, (
+        f"B1 discover≡apply: scan kept_top_m={scan_col.kept_top_m!r}, expected 0.0"
+    )
+    # Both sides must agree.
+    assert col.kept_top_m == scan_col.kept_top_m, (
+        f"B1: write kept_top_m={col.kept_top_m!r} != scan kept_top_m={scan_col.kept_top_m!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# S2 — _resolve_effective_key must guard blank/empty manual_map targets
+#
+# An empty or whitespace-only target normalises to "" via
+# normalize_formation_key and would create a GeologicalFormationOrm with
+# name="".  The guard treats such targets as unmapped — the raw key is
+# returned unchanged.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_effective_key_empty_target_treated_as_unmapped():
+    """Empty target string in manual_map → raw key returned (no nameless formation)."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_effective_key,
+        normalize_formation_key,
+    )
+
+    raw_key = normalize_formation_key("Boom Klei")
+    # Empty target: normalize_formation_key("") == "" → guard fires.
+    eff_key, eff_name = _resolve_effective_key(raw_key, {raw_key: ""})
+    assert eff_key == raw_key, "empty target must not override the raw key"
+    assert eff_name == raw_key, "empty target must not override the display name"
+
+
+def test_resolve_effective_key_blank_target_treated_as_unmapped():
+    """Whitespace-only target in manual_map → raw key returned (no nameless formation)."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_effective_key,
+        normalize_formation_key,
+    )
+
+    raw_key = normalize_formation_key("Boom Klei")
+    # Whitespace-only target: normalize_formation_key("   ") == "" → guard fires.
+    eff_key, eff_name = _resolve_effective_key(raw_key, {raw_key: "   "})
+    assert eff_key == raw_key, "blank target must not override the raw key"
+    assert eff_name == raw_key, "blank target must not override the display name"
