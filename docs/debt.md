@@ -321,24 +321,65 @@ devtools console; user-side crashes are invisible to us.
 
 **When.** Before any non-solo user.
 
-## 17. Backfill `dov_permkey` for legacy rows (low)
+## 17. Legacy `dov_permkey = NULL` rows — documented recovery, no backfill code (low)
 
-**What.** Refresh-on-duplicate (resolved in an earlier PR) keys
-per-row dedup on `dov_permkey`. Children stored before that PR landed have
-`dov_permkey = NULL` and don't participate in dedup, so the first
+**What.** Refresh-on-duplicate keys per-row dedup on `dov_permkey`
+(partial UNIQUE `(parent_id, dov_permkey) WHERE dov_permkey IS NOT
+NULL`). Rows stored before that PR have `dov_permkey = NULL`;
+`dov_dedup.py` filters NULL out, so they never dedup → the first
 re-import of a previously-imported bbox creates duplicate observation
 / sample / lab-test rows for those legacy boreholes.
 
-**Why deferred.** Solo-dev wiped the DB on 2026-05-10, so all
-locally-stored data is post-PR and has permkeys. The trade-off only
-bites when a non-solo user receives the migration on top of an
-existing dataset.
+**Resolution (2026-05-17, system-architect review): document-and-defer,
+do NOT build a backfill.** Rationale:
 
-**When.** Before any non-solo user inherits an existing DB. The fix
-shape is well-defined: a one-off backfill that walks
-`observation` / `sample` / 6 lab-test families, derives the
-`dov_permkey` from a re-fetch of the parent's source XML or WFS row,
-and stamps the column. ~Half a day of work plus a careful run.
+* **Affected population is currently zero.** Dev DB wiped 2026-05-10;
+  all local rows are post-PR. Pre-ship distribution is coworker-only
+  fresh installs (`project_coworker_distribution.md`) — nobody has a
+  pre-PR DB.
+* **A network-rematch backfill is more dangerous than the bug.** The
+  true permkey is `last_path_segment(fiche_url)` — not reconstructable
+  from stored domain values, so it needs a DOV re-fetch + heuristic
+  re-match. NULL = visible recoverable duplicate; a *wrong* permkey =
+  silent dedup against the wrong upstream identity (data corruption).
+  The migration author already chose NULL-over-guess for this reason.
+* **Folding the heal into the re-import dedup path is unsafe on the
+  six lab families.** Their only unambiguous identifier *is* the
+  permkey: a sample can carry multiple legitimate runs of the same
+  test type, so a `(sample_id, test_type)` domain key collides and
+  would silently merge genuinely-distinct lab tests. Permanent
+  complexity on the critical ingest path for zero current users.
+
+**Recovery runbook (if a legacy-NULL DB ever exists).** Per-project
+re-import, not a script: open the affected project, delete the
+permkey-less observations/samples/lab-tests (or wipe the project and
+re-import the bbox). The import re-fetches from DOV and stamps
+permkeys on every row; refresh-on-duplicate fills missing children.
+Wipe-and-reimport sidesteps the match ambiguity entirely. For a
+coworker-beta DB (a few dozen boreholes) this is a five-minute action.
+
+**When (precise trigger).** Only if a build is handed to someone who
+has been running a **pre-permkey-PR binary against a non-empty DB**
+(not merely "a non-solo user" — a fresh install has no legacy NULLs).
+If that fires and the runbook is judged too heavy, build the
+**standalone one-off script** (`scripts/`, NOT an Alembic migration —
+it does network I/O), dry-run default, with this safety bar baked in:
+
+* Per parent, re-fetch + re-parse the DOV source; stamp ONLY on an
+  unambiguous exact match (re-parsed child count == NULL-row count and
+  stable-key sequence matches exactly). Any count mismatch / ambiguity
+  → stamp nothing for that parent, log a WARNING with the parent id +
+  affected row ids.
+* Per-family stable match key (medium confidence): observation /
+  sample = `(parent_id, type, depth_top_m, depth_base_m)` with ~1 mm
+  float tolerance. **The six lab families MUST refuse to backfill** —
+  domain-key collision risk is unacceptable; instruct wipe-and-reimport
+  for those instead.
+* Tests: SQLite-fixture unit tests — stamps the lone NULL match;
+  leaves an already-stamped row untouched; count-mismatch (0 or 2
+  parsed vs 1 NULL) → no stamp + WARNING; lab-family backfiller →
+  always no-stamp + instruct-reimport. No live-DOV integration test
+  needed before the trigger.
 
 ## 18. Crossings validator — suppress / qualify when surfaces are stale (low — UX consistency)
 
