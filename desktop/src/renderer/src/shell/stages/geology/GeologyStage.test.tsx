@@ -198,6 +198,7 @@ function makeStubContext(): ShellContextValue {
       handlePatchSelectedSection: noopAsync,
       handleSelectSection: vi.fn(),
       handleFocusContacts: vi.fn(),
+      applyUpdatedSection: vi.fn(),
     },
     overlays: {
       demSource: null,

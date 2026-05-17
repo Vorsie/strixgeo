@@ -237,6 +237,7 @@ function makeCtx(overrides: {
       handlePatchSelectedSection: noopAsync,
       handleSelectSection: vi.fn(),
       handleFocusContacts: vi.fn(),
+      applyUpdatedSection: vi.fn(),
     },
     overlays: {
       demSource: null,
