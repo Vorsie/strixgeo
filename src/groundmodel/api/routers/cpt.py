@@ -508,6 +508,11 @@ async def list_cpts(
             elevation_m=c.elevation_m,
             z_epsg=c.z_epsg,
             elevation_source=c.elevation_source,
+            # Pass-through: file_date is a raw String(20) column written by the
+            # DOV/GEF parser. No re-parsing here — the frontend normalises via
+            # parseInvestigationDate (Data Integrity Rule §2: pass-through values
+            # are NOT derived; they are measurements and must not be re-expressed).
+            start_date=c.file_date,
         )
         for c in cpts
     ]

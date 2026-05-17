@@ -23,6 +23,15 @@ class CptListItem(BaseModel):
         Deepest measurement depth in metres.
     n_rows:
         Number of data rows in the series table.
+    start_date:
+        Date the CPT was performed, as stored in the source file
+        (``file_date`` from the GEF/DOV parser — raw pass-through, no
+        re-parsing here per Data Integrity Rule §2). ``None`` when the
+        source omitted it or the GEF file did not include a date.
+        Format varies by source: DOV typically delivers an ISO-ish string
+        (``"2019-03-14"``); GEF may omit it entirely.  Named ``start_date``
+        for symmetry with ``BoreholeListItem.start_date``; the frontend
+        normalises both to a comparable date via ``parseInvestigationDate``.
     """
 
     id: UUID
@@ -45,3 +54,7 @@ class CptListItem(BaseModel):
     # sidebar can render a tiny "(DOV)" / "(manual)" tag next to the Z
     # value without a second GET /cpt/{id} fetch. Debt #8.
     elevation_source: str
+    # Raw pass-through from ``cpt_orm.file_date`` (String(20) column).
+    # No parsing or conversion — consumers normalise. Optional so the field
+    # can be absent on older bundle snapshots without breaking deserialisers.
+    start_date: str | None = None
