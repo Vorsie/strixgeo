@@ -33,3 +33,10 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
 
     borehole_ids: list[UUID] = Field(min_length=1, max_length=500)
     selected_keys: list[str] | None = None
+    manual_map: dict[str, str] | None = None
+    """Optional ``{ normalize_formation_key(raw) -> target_formation_name }`` map.
+
+    Built by the lumping dialog and sent on confirm so the write path uses
+    the identical mapping that was used for the discover preview
+    (``discover≡apply`` invariant).  ``None`` (omitted) = no lumping.
+    """
