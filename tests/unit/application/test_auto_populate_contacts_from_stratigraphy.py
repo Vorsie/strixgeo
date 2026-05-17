@@ -600,6 +600,34 @@ def test_normalize_distinct_members_stay_separate():
     assert normalize_formation_key("Tertiair: Lid van Vlierzele") == "lid van vlierzele"
 
 
+def test_normalize_lid_van_re_greedy_keeps_qualifier():
+    """S2: ``_LID_VAN_RE`` is greedy, so any qualifier after the member name is
+    preserved in the key.
+
+    ``"Tertiair: Lid van Oedelem - Subtype X"`` normalises to
+    ``"lid van oedelem subtype x"`` — the greedy ``.+`` consumes the entire
+    post-``lid van`` tail including the subtype qualifier.
+
+    This pins the contract so that a future DOV qualifier change (e.g.
+    ``"Lid van Oedelem - Subtype X"`` → ``"Lid van Oedelem - Subtype Y"``)
+    breaks this test and is caught explicitly, rather than silently producing
+    a different key that causes new formations to be created instead of
+    merging with the existing ones.
+    """
+    key = normalize_formation_key("Tertiair: Lid van Oedelem - Subtype X")
+    # Greedy match: "lid van oedelem" + the collapsed remainder.
+    assert key == "lid van oedelem subtype x"
+    # Two different qualifiers under the same member DO produce different
+    # keys — they are not merged.
+    key_y = normalize_formation_key("Tertiair: Lid van Oedelem - Subtype Y")
+    assert key != key_y
+    # The base form without a qualifier still resolves to "lid van oedelem".
+    base = normalize_formation_key("Tertiair: Lid van Oedelem")
+    assert base == "lid van oedelem"
+    # Verify the greedy tail does NOT collapse the qualifier into the base form.
+    assert key != base
+
+
 # ---------------------------------------------------------------------------
 # execute — server-side delete of unselected formations (Fix 1 / da98053)
 # ---------------------------------------------------------------------------
@@ -625,14 +653,32 @@ def _formation_stub(
 def _make_session_with_formations(
     boreholes: list,
     existing_formations: list,
+    *,
+    in_model_formations: list | None = None,
 ) -> AsyncMock:
     """Mock session that serves *existing_formations* on the formations-load call.
 
-    Call sequence inside execute() when ``selected_keys`` is provided:
+    Parameters
+    ----------
+    boreholes : list
+        Borehole stubs returned on the first execute() call.
+    existing_formations : list
+        Formation stubs returned on the formations-load call.
+    in_model_formations : list or None, optional
+        Subset of ``existing_formations`` that have contacts in the model under
+        test.  These ids populate the contacts-load result so that
+        ``model_formation_ids`` is built correctly after the B1 fix.  When
+        ``None`` (the default), ALL ``existing_formations`` are treated as
+        belonging to this model — preserving the pre-B1 test semantics for
+        tests that don't need cross-model isolation.
+
+    Call sequence inside execute() when ``selected_keys`` is provided and
+    the orphan-purge step is skipped (no matching surviving formation ids):
       1. borehole load
       2. formations load
       3. max display_order
-      4+. orphan DELETE / contacts load / formation DELETE — generic mock
+      4. contacts load  ← serves synthetic rows for *in_model_formations*
+      5+. formation DELETE — generic mock
     """
     bh_result = MagicMock()
     bh_result.scalars.return_value.all.return_value = boreholes
@@ -645,6 +691,12 @@ def _make_session_with_formations(
         (f.display_order for f in existing_formations), default=0
     )
 
+    # Build synthetic contact rows: (observation_layer_id, borehole_id, formation_id).
+    # One row per in-model formation, enough for model_formation_ids to be populated.
+    model_scope = in_model_formations if in_model_formations is not None else existing_formations
+    contacts_result = MagicMock()
+    contacts_result.all.return_value = [(None, uuid4(), f.id) for f in model_scope]
+
     call_count = 0
 
     async def side_effect(stmt, **kwargs):
@@ -656,7 +708,15 @@ def _make_session_with_formations(
             return formations_result
         if call_count == 3:
             return max_order_result
-        # Remaining calls: orphan DELETE, contacts load, formation DELETE.
+        # Calls 4 and 5 are either (orphan DELETE, contacts load) or
+        # (contacts load, formation DELETE), depending on whether the orphan-purge
+        # step fires (it fires when any existing formation's key IS in selected_keys).
+        # Returning contacts_result for both calls is safe: the DELETE result is
+        # discarded (only rowcount is used), and the contacts SELECT gets the right
+        # rows on whichever call it lands on.
+        if call_count in (4, 5):
+            return contacts_result
+        # Remaining calls: formation DELETE — generic mock.
         generic = MagicMock()
         generic.all.return_value = []
         generic.scalars.return_value.all.return_value = []
@@ -794,3 +854,68 @@ async def test_execute_deleted_ids_returned_in_outcome():
     assert set(outcome.deleted_formation_ids) == {deleted_a.id, deleted_b.id}
     assert kept.id not in outcome.deleted_formation_ids
     assert len(outcome.created_formation_ids) == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_sibling_model_formation_not_deleted():
+    """B1 regression: a formation whose ONLY contacts belong to a DIFFERENT
+    model_id must never appear in ``deleted_formation_ids``, even when its
+    canonical key is NOT in ``selected_keys``.
+
+    Before B1 the delete candidate set was scoped to ``app_project_id`` only,
+    so sibling-model formations were silently CASCADE-deleted alongside their
+    contacts and surfaces.
+
+    Scenario:
+      - ``sibling_formation``: only has contacts in ``other_model_id`` (not in
+        the model under test).  Its key is NOT in selected_keys.
+        → must NOT be deleted.
+      - ``in_model_formation``: has a contact in the model under test.  Its key
+        IS in selected_keys.
+        → must NOT be deleted.
+      - ``unselected_in_model_formation``: has a contact in the model under
+        test.  Its key is NOT in selected_keys.
+        → MUST be deleted.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    sibling_formation = _formation_stub(name="Sibling Only Formation")
+    in_model_formation = _formation_stub(name="Boom Klei")
+    unselected_in_model = _formation_stub(name="Diest Zand")
+
+    # ``in_model_formations`` lists only the two formations that have contacts
+    # in the model under test; sibling_formation is intentionally absent so the
+    # contacts-load result (call 4) does NOT include its id in model_formation_ids.
+    session = _make_session_with_formations(
+        boreholes=[],
+        existing_formations=[sibling_formation, in_model_formation, unselected_in_model],
+        in_model_formations=[in_model_formation, unselected_in_model],
+    )
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[],
+            # Only "boom klei" is selected; "diest zand" and "sibling only formation"
+            # are not in the set.
+            selected_keys=["boom klei"],
+        )
+
+    # The in-this-model unselected formation IS deleted.
+    assert unselected_in_model.id in outcome.deleted_formation_ids
+    # The sibling-model-only formation is NOT deleted (no contacts in this model).
+    assert sibling_formation.id not in outcome.deleted_formation_ids
+    # The selected in-model formation is NOT deleted.
+    assert in_model_formation.id not in outcome.deleted_formation_ids
+    assert len(outcome.deleted_formation_ids) == 1
