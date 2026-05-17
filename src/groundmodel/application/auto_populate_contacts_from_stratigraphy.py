@@ -419,10 +419,33 @@ def _palette_colour_for(name: str) -> str:
 
 @dataclass(frozen=True)
 class AutoPopulateOutcome:
-    """Summary of a single auto-populate run."""
+    """Summary of a single auto-populate run.
+
+    Attributes
+    ----------
+    created_contact_ids : list[UUID]
+        IDs of newly-created ``FormationContact`` rows.
+    created_formation_ids : list[UUID]
+        IDs of newly-created ``GeologicalFormation`` rows.
+    deleted_formation_ids : list[UUID]
+        IDs of ``GeologicalFormation`` rows deleted in the same
+        transaction because their stable key was NOT in
+        ``selected_keys``.  Empty when ``selected_keys`` is ``None``
+        (the unfiltered "Seed from stratigraphy" path does not delete
+        anything).  The client uses this list to update its manifest,
+        session-import cache, and local state without issuing separate
+        DELETE calls.
+    skipped_existing : int
+        Layers skipped because a contact already existed.
+    skipped_unmatched : int
+        Layers skipped due to an empty description.
+    skipped_no_stratigraphy : int
+        Boreholes skipped because they carried no stratigraphy observation.
+    """
 
     created_contact_ids: list[UUID]
     created_formation_ids: list[UUID]
+    deleted_formation_ids: list[UUID]
     skipped_existing: int
     skipped_unmatched: int
     skipped_no_stratigraphy: int
@@ -503,8 +526,19 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             f"Auto-populate: model={model_id} boreholes={len(borehole_id_list)} "
             f"selected_keys={len(selected_key_set) if selected_key_set is not None else 'all'}"
         )
-        if not borehole_id_list:
-            return AutoPopulateOutcome([], [], 0, 0, 0)
+        if not borehole_id_list and selected_key_set_norm is None:
+            # No boreholes + no key filter → nothing to do (unfiltered Seed path).
+            # When selected_keys IS provided we must still run the delete step
+            # even with an empty borehole list (e.g. the user deselected all
+            # formations after a prior Fill run).
+            return AutoPopulateOutcome(
+                created_contact_ids=[],
+                created_formation_ids=[],
+                deleted_formation_ids=[],
+                skipped_existing=0,
+                skipped_unmatched=0,
+                skipped_no_stratigraphy=0,
+            )
 
         # Eager-load every observation + every layer for every borehole
         # in scope in one round-trip. Stratigraphy streams are small
@@ -828,11 +862,46 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         stale_count = await self._repo.mark_surfaces_stale(
             (model_id, fid) for fid in touched_formations
         )
+
+        # When selected_keys is provided, delete every project formation whose
+        # stable key is NOT in the selected set.  This runs server-side so
+        # the client never has to recompute canonical keys from raw names —
+        # the divergent-client-key freeze bug (da98053) was exactly that mismatch.
+        # DB CASCADE handles formation_contact, formation_surface, and
+        # geotechnical_unit rows that reference the deleted formations.
+        # Safety scoping: only formations belonging to this project are
+        # considered; formations in other projects are invisible to this query.
+        deleted_formation_ids: list[UUID] = []
+        if selected_key_set_norm is not None:
+            to_delete: list[GeologicalFormationOrm] = []
+            for f in existing_formations:
+                fkey = normalize_formation_key(f.regional_ref if f.regional_ref else f.name)
+                if fkey not in selected_key_set_norm:
+                    to_delete.append(f)
+            # Also exclude newly-created formations (they ARE in selected_key_set_norm
+            # by construction — the write loop only creates within the selected set —
+            # but guard explicitly to avoid deleting a formation we just added in this
+            # same session, which would turn the transaction into a no-op.
+            created_set: frozenset[UUID] = frozenset(created_formation_ids)
+            to_delete = [f for f in to_delete if f.id not in created_set]
+            if to_delete:
+                delete_ids = [f.id for f in to_delete]
+                await self._session.execute(
+                    delete(GeologicalFormationOrm).where(GeologicalFormationOrm.id.in_(delete_ids))
+                )
+                deleted_formation_ids = delete_ids
+                self.info(
+                    f"Auto-populate: deleted {len(delete_ids)} unselected formation(s): "
+                    + ", ".join(str(fid) for fid in delete_ids[:5])
+                    + ("..." if len(delete_ids) > 5 else "")
+                )
+
         await self._session.commit()
         self.success(
             f"Auto-populate done: model={model_id} "
             f"+{len(created_contact_ids)} contacts, "
             f"+{len(created_formation_ids)} formations, "
+            f"-{len(deleted_formation_ids)} unselected formations, "
             f"marked {stale_count} surface(s) stale, "
             f"skipped {skipped_existing} existing / "
             f"{skipped_unmatched} unmatched / "
@@ -842,6 +911,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         return AutoPopulateOutcome(
             created_contact_ids=created_contact_ids,
             created_formation_ids=created_formation_ids,
+            deleted_formation_ids=deleted_formation_ids,
             skipped_existing=skipped_existing,
             skipped_unmatched=skipped_unmatched,
             skipped_no_stratigraphy=skipped_no_stratigraphy,
