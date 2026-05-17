@@ -272,6 +272,13 @@ export interface FormationContactCreatePayload {
   observation_id?: string | null
   observation_layer_id?: string | null
   notes?: string | null
+  /**
+   * Explicit-content invariant (owner directive 2026-05-17).
+   * When drawing a contact on a section, pass the section's id so the
+   * router appends the created contact to seeded_formation_contact_ids.
+   * Omit when creating contacts from the Geology stage (no section context).
+   */
+  section_id?: string | null
 }
 
 // Lithostratigraphic-suggestion (litho slice 3/4). One read-only
@@ -351,6 +358,13 @@ export interface AutoPopulateFromStratigraphyResponse {
    * can confirm the same warnings before the user clicks Apply.
    */
   collisions: LumpingCollisionItem[]
+  /**
+   * Updated section row after Seed patched seeded_formation_contact_ids.
+   * Non-null only on the Seed-from-stratigraphy path (section_id was provided).
+   * The frontend patches local section state from this without a separate GET.
+   * Null on the Fill-from-boreholes path.
+   */
+  updated_section: CrossSectionResponse | null
 }
 
 /** One candidate formation returned by discover-from-stratigraphy. */
@@ -786,6 +800,13 @@ export interface CrossSectionResponse {
    * before the column landed; frontend defaults apply via
    * ``readCptChannels`` and similar. */
   view_state: Record<string, unknown> | null
+  /**
+   * Explicit-content invariant (owner directive 2026-05-17).
+   * Only contact ids present in this set render on this section.
+   * Empty array = freshly-drawn section, no formation content.
+   * Populated by Seed-from-stratigraphy and manual-draw actions.
+   */
+  seeded_formation_contact_ids: string[]
   created_at: string
   updated_at: string
 }
@@ -1343,6 +1364,12 @@ export const api = {
       boreholeIds: readonly string[],
       selectedKeys?: readonly string[],
       manualMap?: Record<string, string>,
+      // Explicit-content invariant (owner directive 2026-05-17): when called
+      // from the Sections Seed button the section's id is passed so the server
+      // appends the created contact ids to seeded_formation_contact_ids and
+      // returns the updated section row in updated_section.  Omit on the
+      // Fill-from-boreholes path (Geology stage) where no section context exists.
+      sectionId?: string | null,
     ): Promise<AutoPopulateFromStratigraphyResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
@@ -1352,6 +1379,7 @@ export const api = {
           ...(manualMap !== undefined && Object.keys(manualMap).length > 0
             ? { manual_map: manualMap }
             : {}),
+          ...(sectionId != null ? { section_id: sectionId } : {}),
         },
       ),
 
