@@ -28,6 +28,8 @@ export interface UseShellContextValueArgs {
   importing: ShellContextValue['investigations']['importing']
   bboxImportType: ShellContextValue['investigations']['bboxImportType']
   dovImporting: ShellContextValue['investigations']['dovImporting']
+  dovImportState: ShellContextValue['investigations']['dovImportState']
+  resetDovImport: ShellContextValue['investigations']['resetDovImport']
   removedCptIds: ShellContextValue['investigations']['removedCptIds']
   removedBoreholeIds: ShellContextValue['investigations']['removedBoreholeIds']
   refreshList: ShellContextValue['investigations']['refreshList']
@@ -144,6 +146,7 @@ export function useShellContextValue(
     closeConfirmOpen, setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports,
     handleCloseProjectRequest, handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, cpts, detailMap,
     plotMap, boreholes, boreholeDetailMap, importing, bboxImportType, dovImporting,
+    dovImportState, resetDovImport,
     removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList, loadCptDetail, loadChart,
     loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes, handleRemoveCpts, handleRemoveBoreholes,
     handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation, handleImportCpt, handleImportDov,
@@ -200,6 +203,8 @@ export function useShellContextValue(
       importing,
       bboxImportType,
       dovImporting,
+      dovImportState,
+      resetDovImport,
       removedCptIds,
       removedBoreholeIds,
       refreshList,
@@ -311,7 +316,7 @@ export function useShellContextValue(
     handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel,
     // investigation fields
     cpts, detailMap, plotMap, boreholes, boreholeDetailMap,
-    importing, bboxImportType, dovImporting,
+    importing, bboxImportType, dovImporting, dovImportState, resetDovImport,
     removedCptIds, removedBoreholeIds,
     refreshList, refreshBoreholeList,
     loadCptDetail, loadChart, loadBoreholeDetail,
