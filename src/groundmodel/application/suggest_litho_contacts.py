@@ -128,13 +128,17 @@ class SuggestLithoContacts(GroundModelLogger):
             f"SuggestLithoContacts.execute_for_cpt: model={model_id}, "
             f"cpt={cpt_id}, min_thickness={minimum_layer_thickness_m}m"
         )
-        await self._assert_litho_model(model_id)
+        project_id = await self._assert_litho_model(model_id)
 
-        cpt: CptOrm | None = await self._session.get(
-            CptOrm,
-            cpt_id,
-            options=[selectinload(CptOrm.series)],
-        )
+        # Project-scoped load (B2): a CPT from another project must NOT
+        # be segmentable against this model.
+        cpt = (
+            await self._session.execute(
+                select(CptOrm)
+                .where(CptOrm.id == cpt_id, CptOrm.app_project_id == project_id)
+                .options(selectinload(CptOrm.series))
+            )
+        ).scalar_one_or_none()
         if cpt is None or cpt.series is None:
             raise InvestigationNotFoundError(cpt_id, "CPT")
 
@@ -210,14 +214,21 @@ class SuggestLithoContacts(GroundModelLogger):
             f"SuggestLithoContacts.execute_for_borehole: model={model_id}, "
             f"borehole={borehole_id}, min_thickness={minimum_layer_thickness_m}m"
         )
-        await self._assert_litho_model(model_id)
+        project_id = await self._assert_litho_model(model_id)
 
-        # Load borehole with observations + layers (eager to avoid MissingGreenlet).
-        borehole: BoreholeOrm | None = await self._session.get(
-            BoreholeOrm,
-            borehole_id,
-            options=[selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers)],
-        )
+        # Project-scoped load (B2): a borehole from another project must
+        # NOT be segmentable against this model. Eager-load
+        # observations + layers to avoid MissingGreenlet.
+        borehole = (
+            await self._session.execute(
+                select(BoreholeOrm)
+                .where(
+                    BoreholeOrm.id == borehole_id,
+                    BoreholeOrm.app_project_id == project_id,
+                )
+                .options(selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers))
+            )
+        ).scalar_one_or_none()
         if borehole is None:
             raise InvestigationNotFoundError(borehole_id, "Borehole")
 
@@ -263,13 +274,23 @@ class SuggestLithoContacts(GroundModelLogger):
     # Private helpers
     # ------------------------------------------------------------------
 
-    async def _assert_litho_model(self, model_id: UUID) -> None:
-        """Raise ``InvalidModelKindError`` when the model is not lithostratigraphic.
+    async def _assert_litho_model(self, model_id: UUID) -> UUID:
+        """Validate the model is lithostratigraphic; return its project id.
+
+        The returned ``app_project_id`` is the scope the investigation
+        loads MUST be filtered by — without it a caller could segment a
+        CPT/borehole from a different project against this model
+        (cross-project read, senior-review B2 / debt #4 class).
 
         Parameters
         ----------
         model_id : UUID
             Geological model to check.
+
+        Returns
+        -------
+        UUID
+            The model's ``app_project_id`` (investigation-scope guard).
 
         Raises
         ------
@@ -277,9 +298,15 @@ class SuggestLithoContacts(GroundModelLogger):
             When the model does not exist or has a non-lithostratigraphic kind.
         """
         row = await self._session.execute(
-            select(GeologicalModelOrm.kind).where(GeologicalModelOrm.id == model_id)
+            select(GeologicalModelOrm.kind, GeologicalModelOrm.app_project_id).where(
+                GeologicalModelOrm.id == model_id
+            )
         )
-        kind: str | None = row.scalar_one_or_none()
-        if kind is None or kind != "lithostratigraphic":
-            raise InvalidModelKindError(model_id, kind or "<not found>")
-        self.debug(f"Model {model_id} kind='{kind}' — OK")
+        result = row.one_or_none()
+        if result is None or result.kind != "lithostratigraphic":
+            raise InvalidModelKindError(
+                model_id, result.kind if result is not None else "<not found>"
+            )
+        self.debug(f"Model {model_id} kind='{result.kind}' — OK")
+        app_project_id: UUID = result.app_project_id
+        return app_project_id

@@ -17,6 +17,8 @@ Requires the Docker DB on localhost:5433.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -879,3 +881,119 @@ async def test_restore_skips_units_when_payload_omits_them(
         .all()
     )
     assert list(units_after) == []
+
+
+async def test_bundle_round_trips_kind_parent_lithology_nad_class(
+    db_session: AsyncSession,
+) -> None:
+    """Senior-review S7: the four slice-1/2 columns survive build→restore,
+    and S6: a bundled model with an unknown ``kind`` restores coerced to
+    'geological' (never silently mis-behaving in the crossing validator).
+    """
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.geological_model_orm import (
+        GeologicalModelOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    geo = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Geo backbone",
+        is_active=True,
+        excluded_borehole_ids=[],
+        kind="geological",
+    )
+    db_session.add(geo)
+    await db_session.flush()
+    litho = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho refinement",
+        is_active=True,
+        excluded_borehole_ids=[],
+        kind="lithostratigraphic",
+        parent_geological_model_id=geo.id,
+    )
+    sand_unit = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="ZAND unit",
+        code=None,
+        color="#e8d44a",
+        display_order=0,
+        lithology="ZAND",
+        nad_class=7,
+    )
+    db_session.add_all([litho, sand_unit])
+    await db_session.commit()
+    geo_id, litho_id, unit_id = geo.id, litho.id, sand_unit.id
+
+    bundle = await build_project_bundle(db_session, source)
+
+    # S6: inject an unknown kind into the bundled payload before restore.
+    bundle["geological_models"].append(
+        {
+            "id": str(uuid7()),
+            "app_project_id": str(source.id),
+            "name": "Bogus kind",
+            "is_active": False,
+            "excluded_borehole_ids": [],
+            "kind": "totally-not-a-kind",
+            "parent_geological_model_id": None,
+            "contacts": [],
+        }
+    )
+    bogus_id = bundle["geological_models"][-1]["id"]
+
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+    )
+    await db_session.commit()
+
+    models = {
+        m.id: m
+        for m in (
+            await db_session.execute(
+                select(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+            )
+        )
+        .scalars()
+        .all()
+    }
+    # S7: kind + parent FK survived verbatim.
+    assert models[geo_id].kind == "geological"
+    assert models[geo_id].parent_geological_model_id is None
+    assert models[litho_id].kind == "lithostratigraphic"
+    assert models[litho_id].parent_geological_model_id == geo_id
+    # S6: the unknown kind was coerced to the safe geological default.
+    assert models[UUID(bogus_id)].kind == "geological"
+
+    # S7: lithology + nad_class survived verbatim.
+    unit = (
+        await db_session.execute(
+            select(GeologicalFormationOrm).where(GeologicalFormationOrm.id == unit_id)
+        )
+    ).scalar_one()
+    assert unit.lithology == "ZAND"
+    assert unit.nad_class == 7

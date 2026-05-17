@@ -248,11 +248,13 @@ export function useGeologicalModel({
     // kind (legacy rows / pre-slice-1 fixtures) is treated as
     // geological, matching the backend column default — so this stays
     // backward-compatible with every existing project + test.
-    const isGeological = (m: GeologicalModelResponse): boolean =>
-      m.is_active && (m.kind === 'geological' || m.kind == null)
-    let active = models.find(isGeological) ?? null
+    // ``== null`` (not ``=== null``) intentionally also matches
+    // ``undefined`` — pre-slice-1 rows / test fixtures have no kind.
     const isGeologicalKind = (m: GeologicalModelResponse): boolean =>
       m.kind === 'geological' || m.kind == null
+    const isActiveGeological = (m: GeologicalModelResponse): boolean =>
+      m.is_active && isGeologicalKind(m)
+    let active = models.find(isActiveGeological) ?? null
     const geologicalModels = models.filter(isGeologicalKind)
     if (geologicalModels.length === 0) {
       // No geological backbone (empty project, or somehow only

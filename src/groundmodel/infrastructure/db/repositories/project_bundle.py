@@ -46,6 +46,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from groundmodel.domain.value_objects.model_kind import (
+    MODEL_KIND_GEOLOGICAL,
+    MODEL_KINDS,
+)
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -704,6 +708,21 @@ async def restore_project_bundle(
         contacts_payload = m_payload.get("contacts") or []
         model_kwargs = _apply_json_to_kwargs(GeologicalModelOrm, m_payload)
         model_kwargs["app_project_id"] = project_id
+        # Senior-review S6: ``kind`` is a plain VARCHAR with no DB CHECK.
+        # A bundle from a future build (or a hand-edited .strix) with an
+        # unknown kind would restore silently and then behave as
+        # ``geological`` in the crossing validator
+        # (``kind in NON_STRATIGRAPHIC_KINDS`` is False for an unknown
+        # value). Coerce an unrecognised kind to the geological backbone
+        # — the safe default (it KEEPS crossing validation rather than
+        # silently disabling it) — and log it loudly.
+        bundled_kind = model_kwargs.get("kind")
+        if bundled_kind is not None and bundled_kind not in MODEL_KINDS:
+            logger.warning(
+                f"restore: model {m_id} has unknown kind "
+                f"{bundled_kind!r} — coercing to 'geological'"
+            )
+            model_kwargs["kind"] = MODEL_KIND_GEOLOGICAL
         model = GeologicalModelOrm(**model_kwargs)
         valid_contacts: list[FormationContactOrm] = []
         for c in contacts_payload:

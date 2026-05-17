@@ -420,15 +420,24 @@ def segment_cpt(
         dr_pct: float | None = None
         nad_class: int | None = None
         if lithology == "ZAND":
-            # Compute per-point Dr for points satisfying Ic<2.45 AND FR<1.2,
-            # then average. This mirrors the .sce per-point condition.
+            # Compute per-point Dr for points satisfying Ic<2.45 AND
+            # FR<1.2, then average. ``FR`` here is the RAW friction
+            # ratio ``fs/qc*100`` (CPTE_2025.sce M-matrix column 4),
+            # NOT the Robertson-normalised ``F`` (= fs*100000/net_qc).
+            # The .sce sand gate (line ~375) is ``Ic<2.45 & FR(i)<1.2``
+            # on raw FR; using normalised F (which is ≥ raw FR) would
+            # wrongly exclude deep loose sands — exactly the NAD case
+            # that matters most. (Senior-review B1, 2026-05-17.)
             dr_values: list[float] = []
             for k in range(s, e):
                 r = qtn_results[k]
                 sr = stress[k]
                 if r is None:
                     continue
-                if r.ic < 2.45 and r.f_pct < 1.2:
+                fs_k = fs_mpa[k]
+                qc_k = qc_mpa[k]
+                fr_raw = (fs_k / qc_k * 100.0) if (fs_k is not None and qc_k > 0) else float("inf")
+                if r.ic < 2.45 and fr_raw < 1.2:
                     dr_k = relative_density_sand(qc_mpa[k], sr.seff_kpa, dr_compression_factor)
                     if dr_k is not None:
                         dr_values.append(dr_k)
