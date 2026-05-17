@@ -706,22 +706,18 @@ describe('useProject', () => {
     expect(written).not.toContain('"bh-orphan"')
   })
 
-  // S5 regression — stratigraphy_lumping must survive a File → Save
+  // -----------------------------------------------------------------------
+  // S5 — two-stage save model for stratigraphy lumping
   //
-  // Before the fix, saveProject called buildProjectFile(trimmedBundle) without
-  // passing the lumping state, so every File → Save after a writeLumpingSnapshot
-  // overwrote the user's lumping map with null. The fix tracks currentLumping in
-  // useState and passes it to buildProjectFile.
-  it('S5: saveProject preserves stratigraphy_lumping written by writeLumpingSnapshot', async () => {
-    const { api } = await import('../api/client')
-    const lumpingMap = { 'boom klei': 'Quartair', 'vlaamse vallei': 'Quartair' }
-    const lumping: StratigraphyLumping = {
-      schema_version: 1,
-      applied_at: '2026-05-17T10:00:00.000Z',
-      map: lumpingMap,
-    }
+  // New contract (owner directive): stageLumping flips dirty (no disk
+  // write), File→Save persists it, close-without-save loses it.
+  // The old writeLumpingSnapshot wrote the .gmproj immediately on Apply,
+  // which violated the two-stage save model.
+  // -----------------------------------------------------------------------
 
-    // File on disk has no lumping (simulates a project opened before the Fill dialog ran).
+  // S5-a: stageLumping flips dirty and does NOT write to disk.
+  it('S5-a: stageLumping flips dirty=true and does not write the file', async () => {
+    const { api } = await import('../api/client')
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({
         format_version: 3,
@@ -737,11 +733,93 @@ describe('useProject', () => {
     )
     ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
-    // writeLumpingSnapshot reads the current file and patches it.
-    // After the patch write, it reads the file back (the same mock returns
-    // the patched JSON on the second call — we simulate this by returning
-    // the patched content on all subsequent readProjectFile calls).
-    const patchedFileContent = JSON.stringify({
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+    // After open: project is clean (no unsaved lumping).
+    expect(result.current.dirty).toBe(false)
+    expect(result.current.currentLumping).toBeNull()
+
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
+
+    // Apply lumping — stageLumping is synchronous.
+    const lumping: StratigraphyLumping = {
+      schema_version: 1,
+      applied_at: '2026-05-17T10:00:00.000Z',
+      map: { 'boom klei': 'Quartair', 'vlaamse vallei': 'Quartair' },
+    }
+    act(() => {
+      result.current.stageLumping(lumping)
+    })
+
+    // Dirty must be true now — the lumping changed without a save.
+    expect(result.current.dirty).toBe(true)
+    expect(result.current.currentLumping).toEqual(lumping)
+    // No disk write on stageLumping — that is the whole point.
+    expect(window.electron.writeProjectFile).not.toHaveBeenCalled()
+  })
+
+  // S5-b: File→Save persists the staged lumping and clears dirty.
+  it('S5-b: saveProject writes stratigraphy_lumping and dirty becomes false', async () => {
+    const { api } = await import('../api/client')
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+        stratigraphy_lumping: null,
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+
+    const lumping: StratigraphyLumping = {
+      schema_version: 1,
+      applied_at: '2026-05-17T10:00:00.000Z',
+      map: { 'boom klei': 'Quartair', 'vlaamse vallei': 'Quartair' },
+    }
+    act(() => { result.current.stageLumping(lumping) })
+    expect(result.current.dirty).toBe(true)
+
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
+    await act(async () => { await result.current.saveProject() })
+
+    // dirty cleared after save.
+    expect(result.current.dirty).toBe(false)
+
+    // Written file must contain the lumping map.
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    const [, savedContent] = (
+      window.electron.writeProjectFile as ReturnType<typeof vi.fn>
+    ).mock.calls[0] as [string, string]
+    expect(savedContent).toContain('"stratigraphy_lumping"')
+    expect(savedContent).toContain('"boom klei"')
+    expect(savedContent).toContain('"Quartair"')
+  })
+
+  // S5-c: close-without-save → reopen → lumping is absent (discard-doesn't-stick).
+  //
+  // stageLumping does NOT write to disk; the on-disk file still has
+  // stratigraphy_lumping: null from when the project was last saved.
+  // Reopening the file nulls currentLumping from the file content,
+  // so the unsaved lumping is gone — exactly like an unsaved import.
+  it('S5-c: discard (close without save) then reopen → currentLumping is null', async () => {
+    const { api } = await import('../api/client')
+    const fileWithNoLumping = JSON.stringify({
       format_version: 3,
       project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
       cpts: [],
@@ -750,8 +828,13 @@ describe('useProject', () => {
       geological_models: [],
       cross_sections: [],
       investigation_reviews: [],
-      stratigraphy_lumping: lumping,
+      stratigraphy_lumping: null,
     })
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      fileWithNoLumping,
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useProject())
@@ -759,42 +842,82 @@ describe('useProject', () => {
       await result.current.openProjectFile('C:/path/site.gmproj')
     })
 
-    // Simulate the user running Fill from boreholes → writeLumpingSnapshot fires.
-    // The second read (inside writeLumpingSnapshot) returns the patched content.
+    // Stage lumping without saving.
+    const lumping: StratigraphyLumping = {
+      schema_version: 1,
+      applied_at: '2026-05-17T10:00:00.000Z',
+      map: { 'boom klei': 'Quartair' },
+    }
+    act(() => { result.current.stageLumping(lumping) })
+    expect(result.current.dirty).toBe(true)
+    expect(result.current.currentLumping).not.toBeNull()
+
+    // Close without saving (discard path).
+    act(() => { result.current.closeProject() })
+    expect(result.current.project).toBeNull()
+
+    // Reopen from the SAME file on disk (which was never written with lumping).
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+
+    // The file on disk has no lumping → reopen nulls currentLumping.
+    expect(result.current.currentLumping).toBeNull()
+    expect(result.current.savedLumping).toBeNull()
+    // dirty must be false after a clean open.
+    expect(result.current.dirty).toBe(false)
+  })
+
+  // S5-d: no buildProjectFile call site drops currentLumping (S5-regression guard).
+  // saveProject carries currentLumping; saveAsProject also carries it.
+  // This test is the generalised S5-regression guard: the last written file
+  // content must always contain the lumping the user staged, regardless of
+  // which save path fires.
+  it('S5-d: saveProject and saveAsProject both include staged lumping in the written file', async () => {
+    const { api } = await import('../api/client')
     ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
-      patchedFileContent,
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+        stratigraphy_lumping: null,
+      }),
     )
-    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
 
+    const { result } = renderHook(() => useProject())
     await act(async () => {
-      await result.current.writeLumpingSnapshot(lumping)
+      await result.current.openProjectFile('C:/path/site.gmproj')
     })
 
-    // writeLumpingSnapshot wrote once (the patch write).
-    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    const lumping: StratigraphyLumping = {
+      schema_version: 1,
+      applied_at: '2026-05-17T10:00:00.000Z',
+      map: { 'boom klei': 'Quartair' },
+    }
+    act(() => { result.current.stageLumping(lumping) })
 
-    // Now File → Save — saveProject must include the lumping in the written file.
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
-    await act(async () => {
-      await result.current.saveProject()
-    })
+    await act(async () => { await result.current.saveProject() })
 
-    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
-    const [, savedContent] = (
+    const [, saveContent] = (
       window.electron.writeProjectFile as ReturnType<typeof vi.fn>
     ).mock.calls[0] as [string, string]
-    // The saved file must contain the lumping map keys/values.
-    // Before the S5 fix this assertion would fail because buildProjectFile
-    // was called without currentLumping and wrote stratigraphy_lumping: null.
-    expect(savedContent).toContain('"stratigraphy_lumping"')
-    expect(savedContent).toContain('"boom klei"')
-    expect(savedContent).toContain('"Quartair"')
+    // saveProject must write the lumping.
+    expect(saveContent).toContain('"boom klei"')
   })
 
   it('S5: openProjectFile seeds stratigraphy_lumping from the file so saveProject preserves it', async () => {
     // Tests the companion path: when a .gmproj already has stratigraphy_lumping
     // on disk (saved in a prior session), opening the file should seed currentLumping
-    // so the VERY FIRST File → Save (before any writeLumpingSnapshot call) still
+    // so the VERY FIRST File → Save (before any stageLumping call) still
     // includes the lumping.
     const { api } = await import('../api/client')
     const existingLumping = {
@@ -825,7 +948,12 @@ describe('useProject', () => {
       await result.current.openProjectFile('C:/path/site-with-lumping.gmproj')
     })
 
-    // saveProject without any writeLumpingSnapshot call in between.
+    // After open: lumping seeded from file, dirty is false (current === saved).
+    expect(result.current.currentLumping).toEqual(existingLumping)
+    expect(result.current.savedLumping).toEqual(existingLumping)
+    expect(result.current.dirty).toBe(false)
+
+    // saveProject without any stageLumping call in between.
     ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
     await act(async () => {
       await result.current.saveProject()
@@ -910,6 +1038,121 @@ describe('useProject', () => {
     expect(written).toContain('"boom klei"')
     expect(written).toContain('"Quartair"')
     expect(written).not.toContain('"stratigraphy_lumping": null')
+  })
+
+  // S5-e: newProject must reset lumping from a previously-open project.
+  //
+  // If the user opens a project that had stratigraphy_lumping saved, then
+  // creates a new project, currentLumping must be null — not the previous
+  // project's map. Before the fix, setCurrentLumping/setSavedLumping were
+  // not called in newProject, so the old snapshot leaked into the new file.
+  it('S5-e: newProject resets lumping from a prior project to null', async () => {
+    const { api } = await import('../api/client')
+    const priorLumping: StratigraphyLumping = {
+      schema_version: 1,
+      applied_at: '2026-05-17T09:00:00.000Z',
+      map: { 'boom klei': 'Quartair' },
+    }
+
+    // Open a project that has lumping in the file.
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-OLD', name: 'Old Project', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+        stratigraphy_lumping: priorLumping,
+      }),
+    )
+    const oldProject = { ...created, id: '01k-OLD', name: 'Old Project' }
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(oldProject)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(oldProject))
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/old.gmproj')
+    })
+    expect(result.current.currentLumping).toEqual(priorLumping)
+
+    // Now create a brand-new project.
+    const newCreated = { ...created, id: '01k-NEW', name: 'Brand New' }
+    ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(newCreated)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(newCreated))
+    ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'C:/path/brand-new.gmproj',
+    )
+
+    await act(async () => {
+      await result.current.newProject({ name: 'Brand New' })
+    })
+
+    // Lumping must be null — a new project has no stratigraphy decisions.
+    expect(result.current.currentLumping).toBeNull()
+    expect(result.current.savedLumping).toBeNull()
+    expect(result.current.dirty).toBe(false)
+  })
+
+  // S5-f: saveAsProject leaves dirty=false when lumping was staged before Save As.
+  //
+  // Before the fix, setSavedLumping was not called in saveAsProject. A user who
+  // applied Fill (stageLumping) and then immediately chose File → Save As would
+  // find the project marked dirty again straight after the save — because
+  // savedLumping still pointed at the old value.
+  it('S5-f: saveAsProject leaves dirty=false when lumping was staged before Save As', async () => {
+    const { api } = await import('../api/client')
+    // Open a project with no lumping.
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+        stratigraphy_lumping: null,
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+
+    // Stage lumping without a File → Save (simulates user doing Fill then Save As).
+    const lumping: StratigraphyLumping = {
+      schema_version: 1,
+      applied_at: '2026-05-17T10:00:00.000Z',
+      map: { 'boom klei': 'Quartair' },
+    }
+    act(() => { result.current.stageLumping(lumping) })
+    expect(result.current.dirty).toBe(true)
+
+    // Set up Save As mocks.
+    const duplicated = { ...created, id: '01k-DUP', name: 'Copy of Site A' }
+    ;(api.project.duplicate as ReturnType<typeof vi.fn>).mockResolvedValue(duplicated)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(duplicated))
+    ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'C:/path/copy-of-site-a.gmproj',
+    )
+
+    await act(async () => {
+      await result.current.saveAsProject()
+    })
+
+    // After Save As the duplicate project is live and must be clean.
+    expect(result.current.dirty).toBe(false)
+    expect(result.current.currentLumping).toEqual(lumping)
+    expect(result.current.savedLumping).toEqual(lumping)
   })
 
   it('discardEdits reverts project back to saved (drops in-memory edits)', async () => {

@@ -61,7 +61,7 @@ function makeStubContext(): ShellContextValue {
       handleUnsavedSave: noopAsync,
       handleUnsavedDiscard: vi.fn(),
       handleUnsavedCancel: vi.fn(),
-      writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
+      stageLumping: vi.fn(),
     },
     investigations: {
       cpts: [],

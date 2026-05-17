@@ -135,7 +135,7 @@ function makeHook() {
     pushUndo: vi.fn(),
     toast: vi.fn(),
     currentLumping: null,
-    writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
+    stageLumping: vi.fn(),
   }))
 }
 
