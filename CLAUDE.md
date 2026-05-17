@@ -23,8 +23,20 @@ This platform's job is to deliver a clean, validated **ground model + derived pa
 - EC7 / Eurocode design rule application (we do not target EC7 design conformance)
 
 **Deferred to the final phase (preview implementations may exist earlier):**
-- Robertson Ic / Soil Behaviour Type classification
-- Auto soil profiling (merging Ic into layers)
+- Robertson Ic / Soil Behaviour Type classification — **as a PRODUCED
+  parameter / committed interpretation.** Carve-out (owner-approved
+  2026-05-17): Robertson SBT zone classification is permitted in
+  Phase 4 strictly as a **segmentation INPUT** for lithostratigraphic-
+  model suggestions (the litho segmenter classifies each CPT depth to
+  propose layer boundaries the user accepts/edits — it never commits
+  an interpretation; the preview Ic already exists in-codebase). The
+  full param port (qc → cu / OCR / E50 / Vs / G0 / M, per-layer unit
+  weights, NAD parameter values) stays Phase 5. See
+  `memory/project_litho_geotech_three_level_model.md`.
+- Auto soil profiling (merging Ic into layers) — as an *automatic*
+  model. The litho segmenter's assisted-manual suggestion flow
+  (user-accepted ghost nodes, not auto-correlation) is Phase 4 per
+  the carve-out above.
 - Per-layer unit weights from Robertson SBT
 - Per-CPT validation that requires geotech judgement (RF range checks, qc spike detection, hybrid-method detection)
 
@@ -37,7 +49,7 @@ This platform's job is to deliver a clean, validated **ground model + derived pa
 - **Queue-ready, not queue-first** — abstract the queue from day one, add a broker when needed
 - **No premature optimisation** — Python + Polars first; Rust only where profiling proves it is needed
 - **Never design a layer you haven't needed yet** — build, feel the pain, then abstract
-- **Engineering interpretation last** — soil behaviour type, layer detection, derived parameters all happen after data plumbing is solid
+- **Engineering interpretation last** — soil behaviour type, layer detection, derived parameters all happen after data plumbing is solid. *Carve-out (2026-05-17): Robertson SBT as a litho-segmentation INPUT is Phase 4 (assisted-manual suggestions, never committed interpretation); the produced-parameter port stays Phase 5. See Scope.*
 - **Backwards compatibility, always** — see the dedicated section below; the short version is: a .gmproj file written by yesterday's build must open in tomorrow's build, forever.
 
 ---
@@ -72,19 +84,40 @@ feel the pain of legacy tools (gINT, D-Series, GeoStudio).
 
 ### Modelling hierarchy (load-bearing for the v1.0 design)
 
-The data model has two distinct levels, not one:
+The data model has **three distinct levels** (revised 2026-05-17 —
+owner directive; was two. The geological→geotechnical split is
+unchanged, a lithostratigraphic level is inserted between them
+because formation-only is too coarse for geotechnical deliverables).
+Realised as **sibling `GeologicalModel` rows discriminated by a
+`kind` column**, NOT a schema fork — the whole contact → on-click
+build → TIN → section-slice → DXF/Plaxis-export → `.gmproj` pipeline
+is reused at every level. See
+`memory/project_litho_geotech_three_level_model.md`:
 
-1. **Geological model** — formations are the substrate entities
-   (Boom Klei, Diest Zand, Quaternary deposits, ...). Each carries a
-   surface defined at known points (borehole/CPT contacts) and
-   interpolated between them. Initially manual; in Flanders the
-   public G3Dv3 model can seed the default formation set + baseline
-   surfaces (post-v1.0 import, big differentiator at launch).
-2. **Geotechnical model** — derived from the geological. A single
-   geological unit often contains multiple geotechnical units with
-   different parameter sets (e.g. weathered crust of Boom Klei vs
-   undisturbed clay below). Subdivision lives here, parameters land
-   in Phase 5.
+1. **Geological model** (`kind='geological'`) — formations are the
+   substrate entities (Boom Klei, Diest Zand, Quaternary deposits,
+   ...). Each carries a surface defined at known points
+   (borehole/CPT contacts) and interpolated between them. Initially
+   manual; in Flanders the public G3Dv3 model can seed the default
+   formation set + baseline surfaces (post-v1.0 import, big
+   differentiator at launch). The regional/chrono backbone.
+2. **Lithostratigraphic model** (`kind='lithostratigraphic'`) —
+   refines a geological model into lithology + admixture units
+   (ZAND / KLEI / SILT / GRIND / VEEN, silt-/kleihoudend). Sourced
+   from borehole `ObservationLayer` descriptions + an assisted-manual
+   CPT Robertson-SBT segmenter (user-accepted ghost nodes, never
+   auto-correlation). `parent_geological_model_id` is mandatory
+   (enforced at creation — a litho model cannot exist without its
+   geological parent; the column is DB-nullable only because
+   geological models share it and have no parent). The
+   geotechnically-actionable detail level.
+3. **Geotechnical model** (`kind='geotechnical'`) — derived from the
+   lithostratigraphic model. A lithology is subdivided by **packing
+   density / consistency** into a Belgian **NAD** class (1–31:
+   los/matig/dicht/zeer dicht for sand, weinig-vast→vast for fines),
+   driven by CPT qc/Dr. Subdivision structure is Phase 4; the NAD
+   parameter values (γ/φ′/c′/cu/m, the Scilab/xlsx port) are Phase 5.
+   Example: weathered crust of Boom Klei vs undisturbed clay below.
 
 **Cross-sections are the editing surface, not the data primitive.**
 Pick a slice through the project, see the investigations projected
@@ -789,8 +822,8 @@ Engineering interpretation (Robertson Ic, soil profiling, derived per-layer para
 | 1 | Thin slice: import GEF → parse → store → FastAPI CPT routes ✓ |
 | 2 | Electron + React desktop; project system; map; DOV chart; multi-file GEF + DOV bbox import + persistent XML cache ✓ |
 | 3 | Data sources expansion: borehole + samples + lab ✓ (monitoring / DMT / pressuremeter deferred to post-v1.0) |
-| **4 (v1.0 commercial MVP gate)** | **Geological model** (formations + surfaces); **geotechnical subdivision** (formations → units, structure only); **cross-sections** as the edit/view surface; **DXF + Plaxis exports** of the layer geometry. **G3Dv3 Flanders import** lands alongside or just after launch. The product is sellable here. Commercial-readiness work (license keys, signed installer, auto-update, marketing site) lives as separate debt items; it ships alongside the MVP feature gate, not before. |
-| 5 (post-v1.0) | Engineering interpretation: Robertson Ic (production), auto soil profiling, per-layer unit weights, derived parameters, statistics, Rust hotspots for batch compute. Additional data sources: monitoring (piezometer / inclinometer), DMT, pressuremeter. Additional exports: D-Stability (`.stix` via GEOLib), D-Sheet, GeoStudio, IFC. PDF reports. Optional SaaS layer with cloud sync over the .gmproj bundle. |
+| **4 (v1.0 commercial MVP gate)** | **Geological model** (formations + surfaces); **lithostratigraphic model** (refines geological → lithology units; borehole `ObservationLayer` + assisted-manual CPT Robertson-SBT segmenter, user-set min layer thickness); **geotechnical subdivision** (lithology → NAD class by packing density, structure only — parameter values Phase 5); **cross-sections** as the edit/view surface; **DXF + Plaxis exports** of the layer geometry. **G3Dv3 Flanders import** lands alongside or just after launch. The product is sellable here. Commercial-readiness work (license keys, signed installer, auto-update, marketing site) lives as separate debt items; it ships alongside the MVP feature gate, not before. |
+| 5 (post-v1.0) | Engineering interpretation **as produced parameters**: Robertson Ic (production param port), the NAD/Scilab parameter values (γ/φ′/c′/cu/m per class), per-layer unit weights, derived parameters, statistics, Rust hotspots for batch compute. Sedimentological feature-shapes (true interfingering lenses between control points). Additional data sources: monitoring (piezometer / inclinometer), DMT, pressuremeter. Additional exports: D-Stability (`.stix` via GEOLib), D-Sheet, GeoStudio, IFC. PDF reports. Optional SaaS layer with cloud sync over the .gmproj bundle. |
 
 **Out of scope at every phase:** Eurocode (EC7) design calculations, bearing capacity, settlement, slope stability, pile/wall design. Those belong in the downstream tools we export to.
 
