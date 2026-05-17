@@ -20,6 +20,7 @@ export interface UseShellContextValueArgs {
   handleUnsavedSave: ShellContextValue['lifecycle']['handleUnsavedSave']
   handleUnsavedDiscard: ShellContextValue['lifecycle']['handleUnsavedDiscard']
   handleUnsavedCancel: ShellContextValue['lifecycle']['handleUnsavedCancel']
+  writeLumpingSnapshot: ShellContextValue['lifecycle']['writeLumpingSnapshot']
   cpts: ShellContextValue['investigations']['cpts']
   detailMap: ShellContextValue['investigations']['detailMap']
   plotMap: ShellContextValue['investigations']['plotMap']
@@ -145,7 +146,7 @@ export function useShellContextValue(
   const {
     project, projectDirty, newProjectOpen, setNewProjectOpen, metadataEditorOpen, setMetadataEditorOpen,
     closeConfirmOpen, setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports,
-    handleCloseProjectRequest, handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, cpts, detailMap,
+    handleCloseProjectRequest, handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot, cpts, detailMap,
     plotMap, boreholes, boreholeDetailMap, importing, bboxImportType, dovImporting,
     dovImportState, resetDovImport,
     removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList, loadCptDetail, loadChart,
@@ -194,6 +195,7 @@ export function useShellContextValue(
       handleUnsavedSave,
       handleUnsavedDiscard,
       handleUnsavedCancel,
+      writeLumpingSnapshot,
     },
     investigations: {
       cpts,
@@ -315,7 +317,7 @@ export function useShellContextValue(
     closeConfirmOpen, setCloseConfirmOpen,
     unsavedDialogOpen, unsavedSaving,
     saveProject, discardSessionImports, handleCloseProjectRequest,
-    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel,
+    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot,
     // investigation fields
     cpts, detailMap, plotMap, boreholes, boreholeDetailMap,
     importing, bboxImportType, dovImporting, dovImportState, resetDovImport,
