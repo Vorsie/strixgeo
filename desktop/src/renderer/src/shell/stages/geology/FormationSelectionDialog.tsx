@@ -173,6 +173,21 @@ export interface FormationSelectionDialogProps {
   /** Candidate formation names from the discovery scan. */
   candidates: FormationCandidate[]
   /**
+   * Previously applied lumping map — pre-populates the row reassignment
+   * dropdowns when the user reopens the dialog.
+   *
+   * Shape: ``{ candidateKey → targetDisplayName }`` — the same wire format
+   * emitted by ``buildManualMap`` and persisted in the ``.gmproj`` bundle
+   * under ``stratigraphy_lumping.map``.  Only entries whose ``candidateKey``
+   * is present in the current ``candidates`` list are applied; stale entries
+   * (from a prior discover run with different boreholes) are silently ignored.
+   *
+   * A candidate target whose ``targetDisplayName`` exactly matches an
+   * existing candidate's ``name`` is restored as ``{kind: 'candidate', key}``;
+   * otherwise it is restored as ``{kind: 'custom', name}``.
+   */
+  initialReassignments?: Record<string, string>
+  /**
    * Collision warnings from the last discover scan with the current
    * ``manual_map``.  Rendered as an amber non-blocking panel.  Updated
    * live as the user edits reassignments because the parent re-runs discover
@@ -240,6 +255,9 @@ export interface FormationSelectionDialogProps {
  *     Whether the dialog is visible.
  * candidates
  *     Formation name candidates returned by the discovery scan.
+ * initialReassignments
+ *     Previously applied lumping map (``currentLumping.map``) — prefills
+ *     the row reassignment dropdowns on reopen.  Absent on first open.
  * collisions
  *     Lumping collisions from the last discover scan — rendered as warnings.
  * currentFormations
@@ -264,6 +282,7 @@ export interface FormationSelectionDialogProps {
 export default function FormationSelectionDialog({
   open,
   candidates,
+  initialReassignments,
   collisions,
   currentFormations,
   currentContacts,
@@ -302,7 +321,36 @@ export default function FormationSelectionDialog({
   // collisions on arbitrary formation names.
   // ---------------------------------------------------------------------------
 
-  const [reassignments, setReassignments] = useState<RowReassignments>(new Map())
+  // Bug 3 fix: restore previously applied reassignments from the persisted
+  // lumping snapshot.  Only entries whose candidateKey exists in the current
+  // candidates list are applied — stale entries (from a discover run with
+  // different boreholes) are silently ignored.
+  //
+  // A candidate target is matched by name against the current candidates list
+  // to determine the correct ReassignTarget discriminant:
+  //   - Exact name match → {kind: 'candidate', key} so the downstream
+  //     buildManualMap resolves the wire name from the live candidate object
+  //     (survives name drift between sessions).
+  //   - No match → {kind: 'custom', name} (user-typed canonical name; kept
+  //     verbatim).
+  const [reassignments, setReassignments] = useState<RowReassignments>(() => {
+    if (!initialReassignments || Object.keys(initialReassignments).length === 0) {
+      return new Map()
+    }
+    const result: RowReassignments = new Map()
+    const candidateKeySet = new Set(candidates.map(c => c.key))
+    for (const [candidateKey, targetName] of Object.entries(initialReassignments)) {
+      // Skip entries whose source key is no longer in the current candidate list.
+      if (!candidateKeySet.has(candidateKey)) continue
+      const matchingCandidate = candidates.find(c => c.name === targetName)
+      if (matchingCandidate) {
+        result.set(candidateKey, { kind: 'candidate', key: matchingCandidate.key })
+      } else {
+        result.set(candidateKey, { kind: 'custom', name: targetName })
+      }
+    }
+    return result
+  })
 
   // ---------------------------------------------------------------------------
   // Parent notification — GROUP D state-update purity fix.
@@ -387,7 +435,24 @@ export default function FormationSelectionDialog({
   }, [])
 
   // ---------------------------------------------------------------------------
-  // Confirm: pass both checked keys and the current manual_map.
+  // Confirm: pass EFFECTIVE selected keys and the current manual_map.
+  //
+  // Bug 1 fix: ``checked`` stores RAW source keys.  A reassigned row whose
+  // source key was pre-checked (because the source formation existed in the
+  // model before this dialog opened) still retains its source key in
+  // ``checked`` — the checkbox becomes disabled on reassignment (no toggle
+  // fires).  If we forward the raw ``checked`` set, the backend's
+  // model-scoped delete sees the source key in ``selected_keys`` and keeps
+  // the source formation instead of deleting it.
+  //
+  // Effective-key transformation:
+  //   - Row has NO reassignment → pass source key through unchanged.
+  //   - Row has 'candidate' reassignment → replace source key with TARGET key
+  //     (the target is the formation that will survive; the source key should
+  //     not appear in selected_keys, or the backend will keep the source).
+  //   - Row has 'custom' reassignment → OMIT source key entirely.  The
+  //     backend creates the custom-named formation via manual_map; the source
+  //     should be deleted (not in selected_keys).
   //
   // WHY pass the map at confirm time: the parent sends the SAME map that was
   // used for the last preview (discover) call.  This eliminates the race
@@ -397,7 +462,19 @@ export default function FormationSelectionDialog({
   // ---------------------------------------------------------------------------
 
   const handleConfirm = useCallback(() => {
-    onConfirm(checked, buildManualMap(reassignments, candidates))
+    // Compute effective selected keys (see Bug 1 comment above).
+    const effectiveKeys = new Set<string>()
+    for (const key of checked) {
+      const target = reassignments.get(key) ?? null
+      if (target === null) {
+        effectiveKeys.add(key)
+      } else if (target.kind === 'candidate') {
+        // Replace source key with target key.
+        effectiveKeys.add(target.key)
+      }
+      // custom reassignment → omit (backend creates it via manualMap).
+    }
+    onConfirm(effectiveKeys, buildManualMap(reassignments, candidates))
   }, [checked, reassignments, candidates, onConfirm])
 
   // ---------------------------------------------------------------------------
