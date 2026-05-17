@@ -70,12 +70,18 @@ export default function Modal({
   // of <body> the scrim covers the entire window above all chrome and the
   // UI is genuinely cleared.
   return createPortal(
-    // ``z-[1100]`` puts the modal above Leaflet's stacked controls
-    // (Leaflet sets z-index 1000 on its zoom + layer controls and ~700
-    // on popups). Now also above the app shell chrome since it is
-    // body-portaled.
+    // ``z-[1100]`` clears Leaflet's stack (the app clamps .leaflet-pane
+    // to z-index 10 / controls to 20 in index.css) and, since this is
+    // body-portaled, also the app-shell chrome.
+    //
+    // Scrim strength: bg-black/30 was effectively invisible over the
+    // dark satellite basemap + dark theme, so a correctly-covering
+    // backdrop still read as "nothing changed". bg-black/70 +
+    // backdrop-blur-sm is the unambiguous "the UI is blocked" signal on
+    // any theme — and makes a stale renderer trivially obvious (if you
+    // don't see a strong blurred dim, the new bundle isn't loaded).
     <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/30"
+      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={() => !busy && onCancel()}
     >
       <div
