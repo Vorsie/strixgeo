@@ -25,6 +25,7 @@ from groundmodel.api.schemas.project.formation_contact import (
     FormationContactCreateRequest,
     FormationContactResponse,
     FormationContactUpdateRequest,
+    LumpingCollisionItem,
 )
 from groundmodel.api.schemas.project.litho_suggestion import (
     LithoLayerSuggestionItem,
@@ -308,6 +309,7 @@ async def auto_populate_from_stratigraphy(
         model_id=model_id,
         borehole_ids=request.borehole_ids,
         selected_keys=request.selected_keys,
+        manual_map=request.manual_map,
     )
     return AutoPopulateFromStratigraphyResponse(
         created_contact_ids=outcome.created_contact_ids,
@@ -316,6 +318,17 @@ async def auto_populate_from_stratigraphy(
         skipped_existing=outcome.skipped_existing,
         skipped_unmatched=outcome.skipped_unmatched,
         skipped_no_stratigraphy=outcome.skipped_no_stratigraphy,
+        collisions=[
+            LumpingCollisionItem(
+                borehole_id=col.borehole_id,
+                target_formation_key=col.target_formation_key,
+                target_formation_name=col.target_formation_name,
+                colliding_raw_names=col.colliding_raw_names,
+                kept_top_m=col.kept_top_m,
+                dropped_count=col.dropped_count,
+            )
+            for col in outcome.collisions
+        ],
     )
 
 
@@ -370,12 +383,14 @@ async def discover_from_stratigraphy(
         project_id,
         detail="Model not found",
     )
-    candidates = await DiscoverFormationsFromStratigraphy(session).execute(
+    candidates, collisions = await DiscoverFormationsFromStratigraphy(session).execute(
         project_id=project_id,
         borehole_ids=request.borehole_ids,
+        manual_map=request.manual_map,
     )
     logger.info(
-        f"discover-from-stratigraphy done: {len(candidates)} candidate(s) for model={model_id}"
+        f"discover-from-stratigraphy done: {len(candidates)} candidate(s), "
+        f"{len(collisions)} collision(s) for model={model_id}"
     )
     return DiscoverFromStratigraphyResponse(
         candidates=[
@@ -386,7 +401,18 @@ async def discover_from_stratigraphy(
                 borehole_count=c.borehole_count,
             )
             for c in candidates
-        ]
+        ],
+        collisions=[
+            LumpingCollisionItem(
+                borehole_id=col.borehole_id,
+                target_formation_key=col.target_formation_key,
+                target_formation_name=col.target_formation_name,
+                colliding_raw_names=col.colliding_raw_names,
+                kept_top_m=col.kept_top_m,
+                dropped_count=col.dropped_count,
+            )
+            for col in collisions
+        ],
     )
 
 
