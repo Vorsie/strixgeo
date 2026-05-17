@@ -509,4 +509,43 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(result.current.lithoSuggestionAccepted.has(0)).toBe(true)
     expect(result.current.lithoSuggestionAccepted.has(1)).toBe(true)
   })
+
+  it('S7 — switching the active litho model clears a showing suggestion overlay (B-1)', async () => {
+    // Data-integrity regression (senior-review B-1): a ghost overlay
+    // left showing across a model switch would accept onto the NEW
+    // model while the suggestion still references the old
+    // investigation. The .id-keyed effect must wipe it on switch.
+    geoApi.suggestLitho.mockResolvedValueOnce({
+      layers: [makeSuggestion('ZAND', 0.0)],
+    })
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+    expect(result.current.lithoSuggestions).toHaveLength(1)
+    expect(result.current.lithoSuggestionInvestigationId).toBe('bh-1')
+
+    // Switch the active litho model: refreshModels now resolves a
+    // DIFFERENT active litho id → activeLithoModelId changes → the
+    // B-1 effect must clear the stale overlay.
+    geoApi.listModels.mockResolvedValue([
+      makeModel('geo-model-1', 'geological'),
+      makeModel('litho-model-2', 'lithostratigraphic'),
+    ])
+    geoApi.activateModel.mockResolvedValueOnce(
+      makeModel('litho-model-2', 'lithostratigraphic'),
+    )
+    await act(async () => {
+      await result.current.handleActivateLithoModel('litho-model-2')
+    })
+
+    expect(result.current.lithoSuggestions).toHaveLength(0)
+    expect(result.current.lithoSuggestionInvestigationId).toBeNull()
+    expect(result.current.lithoSuggestionAnchorKind).toBeNull()
+  })
 })

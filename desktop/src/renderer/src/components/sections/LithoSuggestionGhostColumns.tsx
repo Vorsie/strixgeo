@@ -20,6 +20,11 @@
 import type { LithoLayerSuggestion } from '../../api/client'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
+import {
+  LITHOLOGY_COLORS,
+  LITHOLOGY_FALLBACK_COLOR,
+  LITHOLOGY_LABELS,
+} from '../../utils/lithoConstants'
 
 // ---------------------------------------------------------------------------
 // Visual constants
@@ -36,29 +41,8 @@ const GHOST_OPACITY_REJECTED = 0.2
 const LABEL_FONT_SIZE = 9
 const HEADER_FONT_SIZE = 8
 
-/**
- * Standard sediment colours for the 5 Belgian NEN base lithologies.
- * Derived from international convention (BS 1377 / NEN-EN ISO 14688).
- * Hex literals only — no Tailwind classes (SVG fill attribute).
- */
-const LITHOLOGY_COLORS: Record<string, string> = {
-  GRIND: '#d97706', // amber / orange-brown — gravel
-  ZAND: '#fbbf24',  // yellow — sand
-  SILT: '#84cc16',  // lime-green — silt
-  KLEI: '#6b7280',  // blue-grey — clay
-  VEEN: '#92400e',  // dark brown — peat
-}
-
-const LITHOLOGY_LABELS: Record<string, string> = {
-  GRIND: 'Gravel',
-  ZAND: 'Sand',
-  SILT: 'Silt',
-  KLEI: 'Clay',
-  VEEN: 'Peat',
-}
-
 function lithoFill(lithology: string): string {
-  return LITHOLOGY_COLORS[lithology] ?? '#9ca3af'
+  return LITHOLOGY_COLORS[lithology] ?? LITHOLOGY_FALLBACK_COLOR
 }
 
 function lithoLabel(lithology: string): string {
@@ -269,7 +253,10 @@ function LithoSuggestionLayer({
   function handleContextMenu(e: React.MouseEvent): void {
     e.preventDefault()
     e.stopPropagation()
-    if (accepted) return  // accepted layers cannot be un-accepted here
+    // Accepted layers can't be un-accepted here; already-rejected
+    // layers shouldn't re-fire onReject (senior-review C-2 — avoids a
+    // spurious no-op state update + log line).
+    if (accepted || rejected) return
     onReject(idx)
   }
 

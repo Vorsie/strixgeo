@@ -188,6 +188,17 @@ export default function SectionsToolbar(): JSX.Element {
   const hasModel = isLitho
     ? activeLithoModel !== null
     : activeGeologicalModel !== null
+  // B-2 (senior-review): Build / Seed / Dedupe / Plaxis-3D are
+  // GEOLOGICAL-model operations — their handlers act on
+  // activeGeologicalModel regardless of axis. On the litho axis
+  // hasModel reads the LITHO model, which would leave them enabled
+  // and silently writing to the geological model. Gate them on the
+  // geological model + the geology axis explicitly; the litho axis's
+  // equivalent build flow is Suggest/accept, not these verbs.
+  const geoVerbDisabled = isLitho || activeGeologicalModel === null
+  const geoVerbHint = isLitho
+    ? 'Switch to the Geology axis — Build / Seed / Dedupe / Plaxis-3D act on the geological model'
+    : null
   const staleLabel =
     staleSurfaceCount > 0
       ? `Build · ${staleSurfaceCount} stale`
@@ -374,14 +385,15 @@ export default function SectionsToolbar(): JSX.Element {
         icon={<Cpu size={13} />}
         label={exportingPlaxis ? 'Exporting…' : 'Plaxis 3D'}
         onClick={handleExportPlaxis}
-        disabled={!hasModel || exportingPlaxis}
+        disabled={geoVerbDisabled || exportingPlaxis}
         busy={exportingPlaxis}
         title={
-          !hasModel
+          geoVerbHint ??
+          (activeGeologicalModel === null
             ? 'No active geological model'
             : exportingPlaxis
               ? 'Exporting…'
-              : 'Export the geological model as a Plaxis 3D plxscripting Python script'
+              : 'Export the geological model as a Plaxis 3D plxscripting Python script')
         }
       />
 
@@ -393,16 +405,17 @@ export default function SectionsToolbar(): JSX.Element {
         icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
         label={rebuilding ? 'Building…' : staleLabel}
         onClick={handleBuild}
-        disabled={rebuilding || !hasModel}
-        amber={staleSurfaceCount > 0 && !rebuilding}
+        disabled={rebuilding || geoVerbDisabled}
+        amber={staleSurfaceCount > 0 && !rebuilding && !isLitho}
         title={
-          !hasModel
+          geoVerbHint ??
+          (activeGeologicalModel === null
             ? 'No active geological model — create formations and contacts first'
             : rebuilding
-            ? 'Building surfaces…'
-            : staleSurfaceCount > 0
-              ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
-              : 'Rebuild TIN surfaces from current contacts'
+              ? 'Building surfaces…'
+              : staleSurfaceCount > 0
+                ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
+                : 'Rebuild TIN surfaces from current contacts')
         }
       />
 
@@ -417,14 +430,15 @@ export default function SectionsToolbar(): JSX.Element {
         icon={<Sparkles size={13} />}
         label={seeding ? 'Seeding…' : 'Seed'}
         onClick={() => void handleSeed()}
-        disabled={!hasModel || seeding}
+        disabled={geoVerbDisabled || seeding}
         busy={seeding}
         title={
-          !hasModel
+          geoVerbHint ??
+          (activeGeologicalModel === null
             ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
             : seeding
               ? 'Seeding contacts from borehole stratigraphy…'
-              : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear'
+              : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear')
         }
       />
 
@@ -433,14 +447,15 @@ export default function SectionsToolbar(): JSX.Element {
         icon={<Eraser size={13} />}
         label={deduping ? 'Cleaning…' : 'Dedupe'}
         onClick={handleDedupe}
-        disabled={!hasModel || deduping}
+        disabled={geoVerbDisabled || deduping}
         busy={deduping}
         title={
-          !hasModel
+          geoVerbHint ??
+          (activeGeologicalModel === null
             ? 'No active geological model'
             : deduping
               ? 'Cleaning…'
-              : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group'
+              : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group')
         }
       />
 

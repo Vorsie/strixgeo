@@ -35,6 +35,11 @@ import type {
 import type { UndoCommand } from './useUndoStack'
 import { addAllToSet } from '../utils/sets'
 import { log } from '../utils/log'
+import {
+  LITHOLOGY_COLORS,
+  LITHOLOGY_FALLBACK_COLOR,
+  LITHOLOGY_LABELS,
+} from '../utils/lithoConstants'
 
 /** Payload accepted by the ContactsLayer batch-copy handler. */
 export type ContactCopyPayload = import('../components/sections/ContactsLayer').ContactCopyPayload
@@ -515,7 +520,16 @@ export function useGeologicalModel({
           api.geology.listSurfaces(projectId, modelId),
         ])
         if (cancelled) return
-        setLithoFormations(forms)
+        // S-4 (senior-review, data-integrity): listFormations is
+        // PROJECT-scoped — it returns geological + litho + geotech
+        // formations. Geological formations carry lithology=null;
+        // litho units always carry a lithology token (the same
+        // discriminator handleAcceptLithoSuggestion's reuse step uses).
+        // Filtering here keeps geological formations out of the litho
+        // picker AND out of the reuse-match. Empty before the first
+        // accept is correct — every accept then creates, and the
+        // refetch brings the new litho formation back in scope.
+        setLithoFormations(forms.filter(f => f.lithology != null))
         setLithoContacts(conts)
         const sm = new Map<string, FormationSurfaceResponse>()
         for (const s of surfs) sm.set(s.formation_id, s)
@@ -2101,11 +2115,29 @@ export function useGeologicalModel({
     setLithoSuggestionAnchorKind(null)
     setLithoSuggestionAccepted(new Set())
     setLithoSuggestionRejected(new Set())
+    // S-1 (senior-review): also release the Suggest button — if Clear
+    // is hit while a suggest fetch is in flight, the spinner would
+    // otherwise stay stuck until the orphaned fetch settles.
+    setLithoSuggesting(false)
     // New suggestion session → drop the per-session reuse caches so a
     // fresh segmentation cannot reuse a stale prior formation map.
     acceptedFormationByLithoRef.current.clear()
     lithoFormationInFlightRef.current.clear()
   }, [])
+
+  // B-1 (senior-review, data-integrity): a ghost overlay left showing
+  // when the active litho model SWITCHES would accept onto the new
+  // model (activeLithoModelRef points at the new one) while the
+  // suggestion/anchor still reference the old investigation — a
+  // contact written to the wrong model. The litho-data effect (above)
+  // can't reach clearLithoSuggestions (declared here, far below it —
+  // TDZ). Keyed on the model ID (a primitive) NOT the object, so a
+  // refreshModels that returns a new-but-same model object does not
+  // wipe an in-progress overlay; only a real model change clears it.
+  const activeLithoModelId = activeLithoModel?.id ?? null
+  useEffect(() => {
+    clearLithoSuggestions()
+  }, [activeLithoModelId, clearLithoSuggestions])
 
   // Fetch suggestions for one investigation against the active litho model.
   // Replaces any prior suggestion set (one investigation at a time).
@@ -2202,22 +2234,12 @@ export function useGeologicalModel({
           // 4. Nobody has it — create it. Register the in-flight
           //    promise SYNCHRONOUSLY before awaiting so a racing accept
           //    hits step 3 rather than starting a second create.
-          const LITHO_LABELS: Record<string, string> = {
-            GRIND: 'Gravel',
-            ZAND: 'Sand',
-            SILT: 'Silt',
-            KLEI: 'Clay',
-            VEEN: 'Peat',
-          }
-          const LITHO_COLORS: Record<string, string> = {
-            GRIND: '#d97706',
-            ZAND: '#fbbf24',
-            SILT: '#84cc16',
-            KLEI: '#6b7280',
-            VEEN: '#92400e',
-          }
-          const name = LITHO_LABELS[layer.suggested_lithology] ?? layer.suggested_lithology
-          const color = LITHO_COLORS[layer.suggested_lithology] ?? '#9ca3af'
+          // Shared name/colour tables (senior-review S-2) so the
+          // created formation matches what the ghost overlay showed.
+          const name =
+            LITHOLOGY_LABELS[layer.suggested_lithology] ?? layer.suggested_lithology
+          const color =
+            LITHOLOGY_COLORS[layer.suggested_lithology] ?? LITHOLOGY_FALLBACK_COLOR
           const createPromise: Promise<string | null> =
             handleInlineLithoCreateFormation({
               name,
