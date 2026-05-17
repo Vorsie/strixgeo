@@ -98,6 +98,10 @@ function makeStubContext(): ShellContextValue {
     visibleBoreholes: [],
     geoModel: {
       activeGeologicalModel: null,
+      models: [],
+      activeLithoModel: null,
+      handleCreateLithoModel: async () => null,
+      handleActivateLithoModel: async () => {},
       formations: [],
       visibleFormations: [],
       formationsRefreshCounter: 0,

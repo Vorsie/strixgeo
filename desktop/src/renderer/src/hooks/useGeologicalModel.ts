@@ -55,6 +55,21 @@ export interface FormationCandidate {
 
 export interface UseGeologicalModelResult {
   activeGeologicalModel: GeologicalModelResponse | null
+  // Three-level hierarchy (#55, model-kind picker). The geological
+  // model is the v1 single backbone (above); these expose the
+  // lithostratigraphic sibling lifecycle. ``models`` is the full
+  // project list (all kinds) for the picker; ``activeLithoModel`` is
+  // the active kind='lithostratigraphic' model the suggest-litho /
+  // ghost-overlay flow targets (null until the user creates one).
+  models: GeologicalModelResponse[]
+  activeLithoModel: GeologicalModelResponse | null
+  /** Create a lithostratigraphic model under the active geological
+   * backbone (backend enforces the parent invariant). Returns the
+   * created model, or null on failure (toasts the error). */
+  handleCreateLithoModel: (name: string) => Promise<GeologicalModelResponse | null>
+  /** Activate a model (backend clears same-kind siblings). Refreshes
+   * the list + the active-litho pointer. */
+  handleActivateLithoModel: (modelId: string) => Promise<void>
   formations: GeologicalFormationResponse[]
   /**
    * Manifest-filtered formation list — the single source of truth for
@@ -195,6 +210,13 @@ export function useGeologicalModel({
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
+  // #55 model-kind picker: the full project model list (all kinds) +
+  // the active lithostratigraphic sibling. Kept separate from the
+  // race-guarded geological bootstrap so that delicate path is
+  // untouched — these are refreshed additively via refreshModels.
+  const [models, setModels] = useState<GeologicalModelResponse[]>([])
+  const [activeLithoModel, setActiveLithoModel] =
+    useState<GeologicalModelResponse | null>(null)
   const [formations, setFormations] = useState<GeologicalFormationResponse[]>([])
   // Refresh signal for InterpretationPane. The pane keeps its own
   // formations cache; bumping this counter forces a refetch.
@@ -222,6 +244,29 @@ export function useGeologicalModel({
   useEffect(() => {
     activeGeologicalModelRef.current = activeGeologicalModel
   }, [activeGeologicalModel])
+
+  // #55: single source of truth for the model list + the active
+  // lithostratigraphic pointer. Called from the bootstrap effect and
+  // after every create/activate. Deliberately does NOT touch
+  // activeGeologicalModel (owned by the race-guarded resolve path) —
+  // it only derives the litho pointer (treat absent kind as
+  // geological, matching the backend default → never mis-picks a
+  // legacy row as the litho model).
+  const refreshModels = useCallback(async (): Promise<
+    GeologicalModelResponse[]
+  > => {
+    if (!project) {
+      setModels([])
+      setActiveLithoModel(null)
+      return []
+    }
+    const ms = await api.geology.listModels(project.id)
+    setModels(ms)
+    setActiveLithoModel(
+      ms.find(m => m.is_active && m.kind === 'lithostratigraphic') ?? null,
+    )
+    return ms
+  }, [project])
 
   // Shared in-flight guard: if a list→adopt→create-Default operation
   // is already running (bootstrap or ensureActiveGeologicalModel),
@@ -300,6 +345,8 @@ export function useGeologicalModel({
   useEffect(() => {
     if (!project) {
       setActiveGeologicalModel(null)
+      setModels([])
+      setActiveLithoModel(null)
       setFormations([])
       setContacts([])
       setSurfacesByFormationId(new Map())
@@ -338,10 +385,19 @@ export function useGeologicalModel({
         const sm = new Map<string, FormationSurfaceResponse>()
         for (const s of surfs) sm.set(s.formation_id, s)
         setSurfacesByFormationId(sm)
+        // #55: populate the model list + active-litho pointer for the
+        // picker. Non-fatal — a list-fetch failure must not blank the
+        // (already-resolved) geological flow, so it is awaited inside
+        // the same try but its own failure is swallowed by the outer
+        // catch only if it throws before the geological state is set
+        // (it is set above, so the picker just stays empty on failure).
+        await refreshModels()
       } catch (err) {
         log.warn('geology', `model bootstrap failed for ${project.id}`, err)
         if (!cancelled) {
           setActiveGeologicalModel(null)
+          setModels([])
+          setActiveLithoModel(null)
           setFormations([])
           setContacts([])
           setSurfacesByFormationId(new Map())
@@ -359,7 +415,10 @@ export function useGeologicalModel({
     return () => {
       cancelled = true
     }
-  }, [project])
+    // refreshModels is useCallback([project]) — stable per project, so
+    // including it does not add re-runs beyond the existing [project]
+    // key; satisfies exhaustive-deps without a suppression.
+  }, [project, refreshModels])
 
   const refetchFormations = useCallback(() => {
     if (!project) return
@@ -1709,6 +1768,54 @@ export function useGeologicalModel({
     removeFromSessionImports,
   ])
 
+  // #55 model-kind picker — create a lithostratigraphic model under
+  // the active geological backbone. The backend enforces the parent
+  // invariant (422 if parent missing / wrong kind); we surface that
+  // as a toast and return null rather than throwing into the UI.
+  const handleCreateLithoModel = useCallback(
+    async (name: string): Promise<GeologicalModelResponse | null> => {
+      if (!project) return null
+      const parent = activeGeologicalModelRef.current
+      if (!parent) {
+        toast('error', 'Create a geological model before adding a lithostratigraphic one.')
+        return null
+      }
+      try {
+        const created = await api.geology.createModel(project.id, {
+          name,
+          kind: 'lithostratigraphic',
+          parent_geological_model_id: parent.id,
+          is_active: true,
+        })
+        await refreshModels()
+        log.success('geology', `created litho model ${created.id} (${name})`)
+        return created
+      } catch (err) {
+        log.error('geology', `handleCreateLithoModel failed (${name})`, err)
+        toast('error', 'Could not create the lithostratigraphic model.')
+        return null
+      }
+    },
+    [project, refreshModels, toast],
+  )
+
+  // #55 — activate a lithostratigraphic model (backend clears the
+  // same-kind sibling only; the geological backbone is untouched).
+  const handleActivateLithoModel = useCallback(
+    async (modelId: string): Promise<void> => {
+      if (!project) return
+      try {
+        await api.geology.activateModel(project.id, modelId)
+        await refreshModels()
+        log.success('geology', `activated litho model ${modelId}`)
+      } catch (err) {
+        log.error('geology', `handleActivateLithoModel failed ${modelId}`, err)
+        toast('error', 'Could not activate the lithostratigraphic model.')
+      }
+    },
+    [project, refreshModels, toast],
+  )
+
   // R4 (debt #12): the visible-list filter now lives HERE, not as an
   // App.tsx post-spread. ``manifestFormationIds`` undefined (no project
   // open) ⇒ pass everything through, same semantics App.tsx had.
@@ -1724,6 +1831,10 @@ export function useGeologicalModel({
 
   return {
     activeGeologicalModel,
+    models,
+    activeLithoModel,
+    handleCreateLithoModel,
+    handleActivateLithoModel,
     formations,
     visibleFormations,
     formationsRefreshCounter,
