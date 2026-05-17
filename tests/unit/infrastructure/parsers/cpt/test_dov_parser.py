@@ -286,6 +286,28 @@ def test_multiple_rows_preserved_in_order():
     assert df["qc_mpa"].to_list() == pytest.approx([1.5, 2.0, 2.5])
 
 
+def test_column_first_nonnull_after_inference_window():
+    """Regression: a DOV CPTU where fs/u/Qt are absent for the first
+    120 rows then start mid-sounding. Polars' default
+    ``infer_schema_length=100`` typed those columns ``Null`` and then
+    raised ``ComputeError`` on the first real value — silently dropping
+    the entire CPT (observed on the ``GEO-22/040-S*CPT-U`` files in a
+    323-CPT bbox import). The explicit Float64 schema makes the parse
+    robust to where the first non-null appears.
+    """
+    qc_only = "".join(_row(f"{i * 0.02:.2f}", qc="1.5") for i in range(1, 121))
+    with_sensors = "".join(
+        _row(f"{(120 + i) * 0.02:.2f}", qc="2.0", fs="40", u="12", qt="9.36") for i in range(1, 6)
+    )
+    result = DovParser().parse(_xml(rows=qc_only + with_sensors))
+    df = result.data
+    assert len(df) == 125
+    # The deep fs/u/Qt values must survive — not be lost to a Null column.
+    assert df["fs_mpa"].drop_nulls().to_list() == pytest.approx([0.040] * 5)
+    assert df["u2_mpa"].drop_nulls().to_list() == pytest.approx([0.012] * 5)
+    assert df["qt_mpa"].drop_nulls().to_list() == pytest.approx([9.36] * 5)
+
+
 # ------------------------------------------------------------------
 # Error handling
 # ------------------------------------------------------------------

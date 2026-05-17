@@ -325,6 +325,10 @@ class DovParser(GroundModelLogger):
             first_fields = [c.tag for c in measurement_elements[0]]
             self.debug(f"DOV XML '{name}': first row fields: {first_fields}")
 
+        # qt is routed to one of two columns by cone type — mirror the key
+        # _extract_rows writes so the explicit schema below matches the dicts.
+        qt_key = "q_total_mpa" if cone_type_code == 1 else "qt_mpa"
+
         rows, skipped = self._extract_rows(measurement_elements, name, cone_type_code)
 
         if skipped:
@@ -341,7 +345,24 @@ class DovParser(GroundModelLogger):
             )
             return empty, issues
 
-        df = pl.DataFrame(rows)
+        # Explicit schema, NOT inference. Every row dict carries the same five
+        # float|None keys, but a column can be None for the first 100+ rows
+        # then carry a value deeper down (seen on DOV CPTU files where fs/u/Qt
+        # start mid-sounding). Polars' default infer_schema_length=100 would
+        # type that column Null and then raise ComputeError ("could not append
+        # value 0.247 of type f64 to the builder") on the first real value —
+        # silently dropping the whole CPT. Pinning Float64 makes it robust to
+        # where the first non-null appears.
+        df = pl.DataFrame(
+            rows,
+            schema={
+                "depth_m": pl.Float64,
+                "qc_mpa": pl.Float64,
+                "fs_mpa": pl.Float64,
+                "u2_mpa": pl.Float64,
+                qt_key: pl.Float64,
+            },
+        )
 
         # Calculate Rf (%) from qc and fs since DOV doesn't store it directly.
         if "fs_mpa" in df.columns:
