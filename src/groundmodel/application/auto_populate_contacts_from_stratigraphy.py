@@ -51,6 +51,8 @@ stable keys, not in display names.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from uuid import UUID
@@ -104,6 +106,58 @@ class StratigraphyCandidate:
     borehole_count: int
 
 
+_NON_ALNUM_RUN = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def normalize_formation_key(raw: str) -> str:
+    """Canonicalise a stratigraphy description into a dedup / merge key.
+
+    The DOV descriptions that back formation identity vary in ways that
+    are visually identical but byte-distinct, which split one formation
+    into duplicate ``FormationSelectionDialog`` rows AND duplicate
+    persisted formations:
+
+      * Unicode dash variants (``-`` U+002D vs ``–`` U+2013), non-
+        breaking spaces, double spaces, mixed case.
+      * A chronostratigraphic prefix before a colon — the SAME
+        lithostratigraphic unit appears as ``Paleogeen: <X>`` in one
+        borehole/stream and ``Tertiair - Eoceen: <X>`` in another. The
+        chrono backbone is presentation; the part after the last colon
+        is the identity (owner directive 2026-05-17).
+
+    Normalisation steps:
+      1. NFKC — folds NBSP→space, fullwidth / ligature forms.
+      2. Drop everything up to and including the LAST ``:``.
+      3. ``casefold`` — Unicode-aware lower.
+      4. Collapse every run of non-alphanumeric characters (dashes,
+         punctuation, whitespace) to a single space; strip.
+
+    Used ONLY as the merge / identity key — the raw first-seen
+    description is still what the dialog shows and what is persisted as
+    the formation ``name``. An empty result (pathological ``":"``-only
+    description) falls back to the whole normalised string so unrelated
+    rows don't collapse into one blank key.
+
+    Parameters
+    ----------
+    raw : str
+        Raw (already ``.strip()``-ed) layer description or regional ref.
+
+    Returns
+    -------
+    str
+        The canonical key. Two descriptions that an engineer would call
+        "the same unit, written differently / under a different chrono
+        system" map to the same string.
+    """
+    nfkc = unicodedata.normalize("NFKC", raw)
+    tail = nfkc.rsplit(":", 1)[-1] if ":" in nfkc else nfkc
+    folded = _NON_ALNUM_RUN.sub(" ", tail.casefold()).strip()
+    if folded:
+        return folded
+    return _NON_ALNUM_RUN.sub(" ", nfkc.casefold()).strip()
+
+
 def _derive_layer_names_and_key(
     *,
     primary_is_formal: bool,
@@ -155,7 +209,10 @@ def _derive_layer_names_and_key(
         regional_ref = None
         name = primary_desc
 
-    key = regional_ref if regional_ref else name
+    # Single source of truth for identity: normalised so dash/space/
+    # case variants and chrono-prefix variants of the same unit merge
+    # on BOTH the discover scan and the write path.
+    key = normalize_formation_key(regional_ref if regional_ref else name)
     return name, regional_ref, key
 
 
@@ -404,13 +461,15 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         selected_key_set: frozenset[str] | None = (
             frozenset(selected_keys) if selected_keys is not None else None
         )
-        # Pre-compute the lower-case form once so the per-layer filter checks
-        # below (two sites) are O(N) total instead of O(N × |selected_key_set|).
-        # The set rebuild `{k.lower() for k in selected_key_set}` at each layer
-        # was an inadvertent O(N²) pattern introduced when the case-insensitive
-        # check was added.  None when selected_key_set is None (all-keys path).
-        selected_key_set_lower: frozenset[str] | None = (
-            frozenset(k.lower() for k in selected_key_set) if selected_key_set is not None else None
+        # Normalise the incoming keys through the SAME function the scan
+        # used to mint them, so the filter is robust even if a client
+        # round-trips a raw description. Pre-computed once → the two
+        # per-layer checks below stay O(N) total, not O(N²). None on the
+        # all-keys path.
+        selected_key_set_norm: frozenset[str] | None = (
+            frozenset(normalize_formation_key(k) for k in selected_key_set)
+            if selected_key_set is not None
+            else None
         )
         self.info(
             f"Auto-populate: model={model_id} boreholes={len(borehole_id_list)} "
@@ -442,12 +501,15 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             GeologicalFormationOrm.app_project_id == project_id
         )
         existing_formations = list((await self._session.execute(formations_stmt)).scalars().all())
-        formations_by_regional_ref: dict[str, GeologicalFormationOrm] = {
-            f.regional_ref.lower(): f for f in existing_formations if f.regional_ref
-        }
-        formations_by_name: dict[str, GeologicalFormationOrm] = {
-            f.name.lower(): f for f in existing_formations
-        }
+        # Single normalised-key index. Keying on the SAME canonical key
+        # the scan returns means two existing formations that differ
+        # only by dash/space/case or chrono prefix collapse to one slot,
+        # so the write path stops re-creating the duplicate the dialog
+        # already merged. First-seen wins on collision.
+        formations_by_key: dict[str, GeologicalFormationOrm] = {}
+        for f in existing_formations:
+            fkey = normalize_formation_key(f.regional_ref if f.regional_ref else f.name)
+            formations_by_key.setdefault(fkey, f)
         next_display_order = (
             await self._session.execute(
                 select(func.coalesce(func.max(GeologicalFormationOrm.display_order), -1)).where(
@@ -465,10 +527,10 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         # Fill run.  We only purge within the selected-key scope so we never
         # touch user-placed contacts on formations the caller did not request.
         surviving_formation_ids_for_selected: set[UUID] = set()
-        if selected_key_set is not None and selected_key_set_lower is not None:
+        if selected_key_set_norm is not None:
             for f in existing_formations:
-                stable_key = f.regional_ref if f.regional_ref else f.name
-                if stable_key in selected_key_set or stable_key.lower() in selected_key_set_lower:
+                stable_key = normalize_formation_key(f.regional_ref if f.regional_ref else f.name)
+                if stable_key in selected_key_set_norm:
                     surviving_formation_ids_for_selected.add(f.id)
             if surviving_formation_ids_for_selected:
                 orphan_del = delete(FormationContactOrm).where(
@@ -588,12 +650,12 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     counterpart_desc=counterpart_desc,
                 )
 
-                # Apply the selected-key filter when the caller provided one.
-                # Case-insensitive comparison — DOV descriptions arrive in mixed case.
-                if (
-                    selected_key_set_lower is not None
-                    and stable_key.lower() not in selected_key_set_lower
-                ):
+                # Apply the selected-key filter when the caller provided
+                # one. stable_key is already normalised by
+                # _derive_layer_names_and_key, and selected_key_set_norm
+                # was normalised through the same function — compare
+                # canonical-to-canonical, no per-layer re-casing.
+                if selected_key_set_norm is not None and stable_key not in selected_key_set_norm:
                     skipped_key_filter += 1
                     self.debug(
                         f"Borehole {borehole.id} layer {layer.id}: "
@@ -601,15 +663,11 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     )
                     continue
 
-                # Find or create. regional_ref is the cross-borehole
-                # key when present (same formal code = same formation,
-                # even if a different borehole used a different working
-                # name). Falls back to the name index when no formal.
-                formation: GeologicalFormationOrm | None = None
-                if regional_ref:
-                    formation = formations_by_regional_ref.get(regional_ref.lower())
-                if formation is None:
-                    formation = formations_by_name.get(name.lower())
+                # Find or create on the single normalised key. Same
+                # canonical identity as the scan + the existing-formation
+                # index → dash/space/case/chrono-prefix variants resolve
+                # to ONE formation instead of re-splitting on write.
+                formation: GeologicalFormationOrm | None = formations_by_key.get(stable_key)
                 if formation is None:
                     formation = GeologicalFormationOrm(
                         id=uuid7(),
@@ -621,9 +679,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     )
                     next_display_order += 1
                     self._session.add(formation)
-                    if regional_ref:
-                        formations_by_regional_ref[regional_ref.lower()] = formation
-                    formations_by_name[name.lower()] = formation
+                    formations_by_key[stable_key] = formation
                     created_formation_ids.append(formation.id)
                     created_formation_ids_set.add(formation.id)
 

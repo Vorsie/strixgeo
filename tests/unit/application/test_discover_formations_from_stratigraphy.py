@@ -110,7 +110,7 @@ async def test_happy_path_formal_and_informal():
     assert len(candidates) == 1
     assert candidates[0].name == "Boom Klei"
     assert candidates[0].regional_ref == "HyEg"
-    assert candidates[0].key == "HyEg"
+    assert candidates[0].key == "hyeg"  # normalize_formation_key(regional_ref)
     assert candidates[0].borehole_count == 2
 
 
@@ -133,7 +133,7 @@ async def test_informal_fallback_when_no_formal():
     assert len(candidates) == 1
     assert candidates[0].name == "Alluvium"
     assert candidates[0].regional_ref is None
-    assert candidates[0].key == "Alluvium"
+    assert candidates[0].key == "alluvium"  # normalize_formation_key(name)
     assert candidates[0].borehole_count == 1
 
 

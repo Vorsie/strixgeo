@@ -43,6 +43,7 @@ import pytest
 
 from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
     _derive_layer_names_and_key,
+    normalize_formation_key,
     scan_stratigraphy_candidates,
 )
 from groundmodel.domain.value_objects.observation_type import ObservationType
@@ -108,7 +109,7 @@ def test_derive_formal_with_informal_counterpart():
     )
     assert name == "Boom Klei"
     assert regional_ref == "HyEg"
-    assert key == "HyEg"  # key = regional_ref
+    assert key == "hyeg"  # key = normalize_formation_key(regional_ref)
 
 
 def test_derive_formal_no_counterpart():
@@ -120,7 +121,7 @@ def test_derive_formal_no_counterpart():
     )
     assert name == "HyEg"
     assert regional_ref == "HyEg"
-    assert key == "HyEg"
+    assert key == "hyeg"
 
 
 def test_derive_informal_only():
@@ -132,7 +133,7 @@ def test_derive_informal_only():
     )
     assert name == "Alluvium"
     assert regional_ref is None
-    assert key == "Alluvium"  # key = name when no regional_ref
+    assert key == "alluvium"  # key = normalize_formation_key(name) when no regional_ref
 
 
 def test_derive_informal_with_counterpart_ignored():
@@ -146,7 +147,7 @@ def test_derive_informal_with_counterpart_ignored():
     )
     assert name == "Zand"
     assert regional_ref is None
-    assert key == "Zand"
+    assert key == "zand"
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +177,7 @@ async def test_scan_formal_informal_returns_key_and_regional_ref():
     c = candidates[0]
     assert c.name == "Boom Klei"
     assert c.regional_ref == "HyEg"
-    assert c.key == "HyEg"
+    assert c.key == "hyeg"
     assert c.borehole_count == 1
 
 
@@ -200,7 +201,7 @@ async def test_scan_informal_only_key_equals_name():
     c = candidates[0]
     assert c.name == "Alluvium"
     assert c.regional_ref is None
-    assert c.key == "Alluvium"
+    assert c.key == "alluvium"
 
 
 @pytest.mark.asyncio
@@ -248,7 +249,7 @@ async def test_scan_same_formal_code_different_informal_names_merge():
     # Must be ONE candidate (merged on formal key "HyEg"), NOT two.
     assert len(candidates) == 1
     c = candidates[0]
-    assert c.key == "HyEg"
+    assert c.key == "hyeg"
     assert c.regional_ref == "HyEg"
     assert c.borehole_count == 2
     # name comes from the first borehole encountered
@@ -509,3 +510,52 @@ async def test_auto_populate_does_not_build_tin_marks_existing_surfaces_stale():
     pairs = list(call_args[0][0])  # first positional arg is the generator
     assert len(pairs) == 1
     assert pairs[0][0] == model_id
+
+
+# ---------------------------------------------------------------------------
+# normalize_formation_key — the dedup / merge canonicaliser
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_collapses_dash_space_case_variants():
+    """The dogfeed duplicate: 'Formatie van Aalter – Lid van Oedelem' showed
+    twice because one borehole used an en-dash / double space / different
+    case. All such variants must map to ONE key."""
+    canonical = normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Oedelem")
+    variants = [
+        "Paleogeen: Formatie van Aalter – Lid van Oedelem",  # en-dash
+        "Paleogeen: Formatie van Aalter  -  Lid  van Oedelem",  # double spaces
+        "Paleogeen: Formatie van Aalter - Lid van Oedelem",  # NBSP after colon
+        "PALEOGEEN: FORMATIE VAN AALTER - LID VAN OEDELEM",  # upper-case
+        "  Paleogeen: Formatie van Aalter - Lid van Oedelem  ",  # outer ws
+    ]
+    for v in variants:
+        assert normalize_formation_key(v) == canonical, v
+
+
+def test_normalize_strips_chronostratigraphic_prefix_before_last_colon():
+    """Owner directive 2026-05-17: the chrono backbone before the colon is
+    presentation; the same lithostratigraphic unit under 'Paleogeen:' and
+    'Tertiair - Eoceen:' must merge."""
+    assert normalize_formation_key(
+        "Paleogeen: Formatie van Aalter - Lid van Oedelem"
+    ) == normalize_formation_key("Tertiair - Eoceen: Formatie van Aalter - Lid van Oedelem")
+    # Multiple colons → split on the LAST one only.
+    assert (
+        normalize_formation_key("Aangebracht/geroerd of Quartair: Holocene afzettingen")
+        == "holocene afzettingen"
+    )
+
+
+def test_normalize_no_colon_uses_whole_string():
+    """No colon → the whole string is the identity (just folded)."""
+    assert normalize_formation_key("Quartair") == "quartair"
+    assert normalize_formation_key("Ma") == "ma"
+
+
+def test_normalize_trailing_colon_falls_back_to_content():
+    """A description whose post-colon part is empty must fall back to the
+    whole normalised string, not become a blank key that merges unrelated
+    rows."""
+    assert normalize_formation_key("Boom:") == "boom"
+    assert normalize_formation_key("Quartair :") == "quartair"
