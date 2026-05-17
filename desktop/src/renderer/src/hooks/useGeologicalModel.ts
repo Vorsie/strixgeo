@@ -1756,28 +1756,26 @@ export function useGeologicalModel({
 
   // Apply the user's curated formation selection (Fill-from-boreholes confirm).
   //
-  // Corrected pipeline (2026-05-16 — third attempt, root cause confirmed):
+  // Pipeline (2026-05-17 — server-side delete, fixes da98053 freeze):
   //
   //   Step 1: POST auto-populate with selected stable keys.
-  //           The server creates ONLY the formations whose stable key is in the
-  //           set — no bulk create-then-delete dance, no key identity mismatch.
+  //           The server creates ONLY the formations whose canonical key is in
+  //           the set AND deletes every existing project formation whose key
+  //           is NOT in the set — both in the same transaction.
+  //           The response carries deleted_formation_ids so the client never
+  //           has to recompute canonical keys from raw names. The previous
+  //           client-side approach (raw .toLowerCase()) diverged from the
+  //           server's normalize_formation_key() after da98053 introduced
+  //           chrono-prefix stripping + lid-van reduction, causing the key
+  //           comparison to miss every name with a dash/colon/space and
+  //           delete the entire freshly-created formation list, hard-freezing
+  //           the UI for minutes.
   //
-  //   Step 2: Refetch the FRESH formation list from the server.
-  //           Never filter the stale pre-Fill ``formations`` closure — that was
-  //           the stale-closure delete bug (created formations got deleted
-  //           because the pre-Fill closure didn't know about them yet).
-  //
-  //   Step 3: Delete every formation whose stable key is NOT in selectedKeys,
-  //           computed against the FRESH list (Fork E: non-kept formations,
-  //           incl. manually-added ones, are removed). Stable key =
-  //           regional_ref when present, else name — same rule as server.
-  //           Sequential deletes (cascade-safe).
-  //
-  //   Step 4: If auto-populate returned +0 formations AND skipped_existing > 0,
+  //   Step 2: If auto-populate returned +0 formations AND skipped_existing > 0,
   //           surface a clear toast ("already populated — dedupe or delete to
   //           reset") so the user isn't silently confused by a no-op.
   //
-  //   Step 5: Final refresh of formations + contacts + surfaces state.
+  //   Step 3: Final refresh of formations + contacts state.
   //
   // NOT on the undo stack — irreversible at unknown scale; confirm dialog is
   // the safeguard. Mirrors handleDedupeContacts' exclusion for the same reason.
@@ -1797,9 +1795,10 @@ export function useGeologicalModel({
           `selected=${selectedKeys.size} boreholes=${boreholeIds.length}`,
       )
       try {
-        // Step 1: auto-populate with selected stable keys (server-side filter).
-        // The server creates only formations whose key is in selectedKeys, so
-        // there is no unselected-formation creation to clean up afterwards.
+        // Step 1: auto-populate + server-side delete in one transaction.
+        // The server uses normalize_formation_key() for both operations so
+        // the canonical key is identical on the create side and the delete
+        // side — no client-side key recomputation needed.
         const outcome = await api.geology.autoPopulateFromStratigraphy(
           projectId,
           modelId,
@@ -1811,33 +1810,11 @@ export function useGeologicalModel({
           `applyBoreholeFormationSelection auto-populate: ` +
             `+${outcome.created_formation_ids.length} formations, ` +
             `+${outcome.created_contact_ids.length} contacts, ` +
+            `-${outcome.deleted_formation_ids.length} unselected, ` +
             `skipped_existing=${outcome.skipped_existing}`,
         )
 
-        // Step 2: fetch the FRESH formation list — never filter the pre-Fill
-        // closure (stale-closure delete was the prior bug).
-        const freshForms = await api.geology.listFormations(projectId)
-
-        // Step 3: delete every formation whose stable key (regional_ref ?? name)
-        // is NOT in selectedKeys — includes manually-added formations the user
-        // did not select. Sequential to avoid cascade race conditions.
-        const selectedKeyLower = new Set(
-          Array.from(selectedKeys).map(k => k.toLowerCase()),
-        )
-        const toDelete = freshForms.filter(f => {
-          const stableKey = (f.regional_ref ?? f.name).toLowerCase()
-          return !selectedKeyLower.has(stableKey)
-        })
-        log.info(
-          'geology',
-          `applyBoreholeFormationSelection deleting ${toDelete.length} formation(s)`,
-        )
-        for (const f of toDelete) {
-          await api.geology.deleteFormation(projectId, f.id)
-          log.debug('geology', `deleted formation id=${f.id} name="${f.name}"`)
-        }
-
-        // Step 4: surface feedback when auto-populate created nothing despite
+        // Step 2: surface feedback when auto-populate created nothing despite
         // the user selecting formations — this means orphaned contacts from a
         // prior run were suppressing creation (should now be fixed by the server-
         // side orphan purge, but keep the toast for observability).
@@ -1852,7 +1829,7 @@ export function useGeologicalModel({
           )
         }
 
-        // Step 5: final refresh — fetch post-delete state.
+        // Step 3: final refresh — fetch post-populate state.
         const [forms, conts] = await Promise.all([
           api.geology.listFormations(projectId),
           api.geology.listContacts(projectId, modelId),
@@ -1861,9 +1838,9 @@ export function useGeologicalModel({
         setContacts(conts)
 
         // Manifest + session-import housekeeping.
-        const deletedIds = toDelete.map(f => f.id)
-        removeFromManifest('formation', deletedIds)
-        removeFromSessionImports('formation', deletedIds)
+        // Use server-returned deleted ids — no client key recomputation.
+        removeFromManifest('formation', outcome.deleted_formation_ids)
+        removeFromSessionImports('formation', outcome.deleted_formation_ids)
         // Register ALL surviving formations into the manifest, not only the
         // newly-created ones. This covers the orphan/reopen path: when a
         // prior Delete model left orphan formations behind, re-Fill matches
@@ -1883,7 +1860,8 @@ export function useGeologicalModel({
         log.success(
           'geology',
           `applyBoreholeFormationSelection done ` +
-            `formations=${forms.length} deleted=${toDelete.length} ` +
+            `formations=${forms.length} ` +
+            `deleted=${outcome.deleted_formation_ids.length} ` +
             `created=${outcome.created_formation_ids.length}`,
         )
       } catch (err) {
