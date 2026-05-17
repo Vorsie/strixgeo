@@ -107,6 +107,11 @@ class StratigraphyCandidate:
 
 
 _NON_ALNUM_RUN = re.compile(r"[\W_]+", re.UNICODE)
+# Matches "lid van <member...>" anywhere in a normalised (already folded +
+# dash-collapsed) key string. After normalisation dashes and spaces are
+# collapsed to a single space, so the separator before "lid" is always a
+# space (or the start of the string).
+_LID_VAN_RE = re.compile(r"\blid van .+")
 
 
 def normalize_formation_key(raw: str) -> str:
@@ -124,6 +129,16 @@ def normalize_formation_key(raw: str) -> str:
         borehole/stream and ``Tertiair - Eoceen: <X>`` in another. The
         chrono backbone is presentation; the part after the last colon
         is the identity (owner directive 2026-05-17).
+      * The same lithostratigraphic member appears under different
+        parent formations in different boreholes, e.g.:
+          ``Tertiair: Lid van Oedelem``
+          ``Paleogeen: Formatie van Aalter - Lid van Oedelem``
+        Both resolve to ``lid van oedelem`` so a single cross-borehole
+        candidate is returned by the discover scan (owner directive
+        2026-05-17 — aggressive recall; the false-merge risk of two
+        units sharing a member name under different parents is accepted
+        because the alternative — failing to merge — forces the user to
+        delete duplicates manually on every Fill run).
 
     Normalisation steps:
       1. NFKC — folds NBSP→space, fullwidth / ligature forms.
@@ -131,6 +146,11 @@ def normalize_formation_key(raw: str) -> str:
       3. ``casefold`` — Unicode-aware lower.
       4. Collapse every run of non-alphanumeric characters (dashes,
          punctuation, whitespace) to a single space; strip.
+      5. If the result contains ``lid van <member>``, reduce the key to
+         that trailing segment — this eliminates the "Formatie van X -"
+         prefix that differs across chrono systems while keeping the
+         member name as the stable cross-borehole anchor. Strings with
+         no ``lid van`` keep their full normalised key.
 
     Used ONLY as the merge / identity key — the raw first-seen
     description is still what the dialog shows and what is persisted as
@@ -153,9 +173,17 @@ def normalize_formation_key(raw: str) -> str:
     nfkc = unicodedata.normalize("NFKC", raw)
     tail = nfkc.rsplit(":", 1)[-1] if ":" in nfkc else nfkc
     folded = _NON_ALNUM_RUN.sub(" ", tail.casefold()).strip()
-    if folded:
-        return folded
-    return _NON_ALNUM_RUN.sub(" ", nfkc.casefold()).strip()
+    if not folded:
+        folded = _NON_ALNUM_RUN.sub(" ", nfkc.casefold()).strip()
+    # Step 5: reduce to "lid van <member>" when present.
+    # Deliberate aggressive-recall tradeoff (owner directive 2026-05-17):
+    # two units sharing a member name under different parent formations
+    # will merge. The owner accepted this over the alternative of forcing
+    # manual duplicate cleanup on every Fill run.
+    m = _LID_VAN_RE.search(folded)
+    if m:
+        return m.group(0)
+    return folded
 
 
 def _derive_layer_names_and_key(
