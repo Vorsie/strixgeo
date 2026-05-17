@@ -27,55 +27,23 @@ repository's loader) maps ORM rows to ``ContactDepth`` /
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Sequence
 from uuid import UUID
 
-from groundmodel.domain.services.tin_surface import TinSurface, evaluate_tin_at
+from groundmodel.domain.services.tin_surface import evaluate_tin_at
+
+# Value objects moved to domain/value_objects/ (one class per file,
+# debt #42); re-exported so existing
+# ``from ...services.geology_validator import ContactDepth`` importers
+# and this module's own GeologyValidator resolve unchanged.
+from groundmodel.domain.value_objects.contact_depth import ContactDepth
+from groundmodel.domain.value_objects.formation_surface_input import (
+    FormationSurfaceInput,
+)
 from groundmodel.domain.value_objects.gap_issue import GapIssue
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
-
-@dataclass(frozen=True)
-class ContactDepth:
-    """Minimal projection of a formation contact for the validator.
-
-    Carries only the fields the no-gaps check needs — id (so issues
-    can point back at the offending row) and depth_top_m. Keeping
-    the shape narrow means the validator has no opinion on how
-    contacts are stored or rehydrated.
-    """
-
-    id: UUID
-    depth_top_m: float
-
-
-@dataclass(frozen=True)
-class FormationSurfaceInput:
-    """Minimal projection of a formation's TIN for the crossing check.
-
-    Carries the formation's id (so issues can name the offenders),
-    its display name (so the issue ``detail`` is readable), its
-    stratigraphic order (lower = older — drives the "younger should
-    sit above" rule), and the cached TIN. The validator never
-    recomputes the TIN; it consumes whatever the cache holds.
-
-    The optional ``contact_lookup`` maps each TIN vertex back to the
-    formation_contact row that produced it, so a detected crossing
-    can surface "which picks are wrong" rather than just "these two
-    formations intersect". Key = ``(round(x_m, 2), round(y_m, 2))``
-    (cm precision — enough to disambiguate any realistic survey
-    grid; matches the same rounding used to build the map upstream
-    in the application layer). When empty, crossings still get
-    detected but ``GapIssue.contact_ids`` stays empty (graceful
-    degradation — the banner remains non-clickable).
-    """
-
-    formation_id: UUID
-    name: str
-    display_order: int
-    surface: TinSurface
-    contact_lookup: Mapping[tuple[float, float], UUID] = field(default_factory=dict)
+__all__ = ["ContactDepth", "FormationSurfaceInput", "GeologyValidator"]
 
 
 class GeologyValidator(GroundModelLogger):
