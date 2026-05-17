@@ -1,6 +1,6 @@
 // Behavioral net for the slice-2 (#55) axis toggle in SectionsToolbar.
 //
-// Three claims pinned here:
+// Claims pinned here:
 //   B1  When activeLithoModel is null, the "Litho" radio button is disabled
 //       and its title surfaces the "create a model first" hint.
 //   B2  When activeLithoModel is present, the "Litho" radio button is enabled
@@ -8,6 +8,11 @@
 //   B3  Clicking the "Geology" button when the axis is already 'geological'
 //       calls setSectionModelAxis('geological') (idempotent write; no guard).
 //       When the axis is 'lithostratigraphic', clicking Geology switches back.
+//   B4  (P1-C) When activeLithoModel is null the inline hint paragraph renders;
+//       when a litho model exists the hint is absent.
+//   B5  (P1-C) The tooltip text "Create a lithostratigraphic model…" is on the
+//       span wrapper (not the disabled button) so Chromium/Electron can surface
+//       it on hover — verified by querying the span's title attribute.
 //
 // Rendering SectionsToolbar via ShellContext.Provider — same pattern as
 // SectionsStage.test.tsx.  The non-interacting components (MapView, SectionPanel)
@@ -337,10 +342,10 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
 
     const lithoBtn = screen.getByRole('radio', { name: /litho/i })
     expect(lithoBtn).toBeDisabled()
-    expect(lithoBtn).toHaveAttribute(
-      'title',
-      'Create a lithostratigraphic model in the Lithology stage first',
-    )
+
+    // The tooltip text moves to the span wrapper (P1-C fix) so Chromium/Electron
+    // can surface it on hover — disabled buttons do not fire mouse events.
+    // The span-level assertion lives in B5; here we only verify disabled state.
   })
 
   it('B2 — Litho button is enabled and calls setSectionModelAxis when activeLithoModel exists', () => {
@@ -373,5 +378,54 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
 
     fireEvent.click(geoBtn)
     expect(setSectionModelAxis).toHaveBeenCalledWith('geological')
+  })
+})
+
+describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
+  it('B4 — inline hint renders when activeLithoModel is null; disappears when model exists', () => {
+    // No litho model → hint paragraph visible.
+    const ctxNoModel = makeCtx({ activeLithoModel: null })
+    const { unmount } = renderToolbar(ctxNoModel)
+
+    expect(
+      screen.getByText(/no lithostratigraphic model/i),
+    ).toBeInTheDocument()
+
+    unmount()
+
+    // Litho model present → hint absent.
+    const ctxWithModel = makeCtx({ activeLithoModel: makeLithoModel() })
+    renderToolbar(ctxWithModel)
+
+    expect(
+      screen.queryByText(/no lithostratigraphic model/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('B5 — tooltip text is on the span wrapper so Chromium can surface it on hover over a disabled button', () => {
+    // WHY: Chromium/Electron does not fire mouse events on disabled elements,
+    // so a `title` on the <button disabled> is never shown. The fix wraps it
+    // in a non-disabled <span role="presentation" title="…"> so hover works.
+    // We verify the span carries the title (not the button) so this contract
+    // cannot silently regress back to the button-only form.
+    const ctx = makeCtx({ activeLithoModel: null })
+    renderToolbar(ctx)
+
+    const lithoBtn = screen.getByRole('radio', { name: /litho/i })
+    expect(lithoBtn).toBeDisabled()
+
+    // The button itself must NOT carry the tooltip (it would be invisible
+    // on hover in Chromium when disabled).
+    expect(lithoBtn).not.toHaveAttribute('title')
+
+    // The span wrapper must carry the tooltip text.
+    // The span has role="presentation" so it is not in the accessibility
+    // tree by role — query by its title attribute directly.
+    const tooltipSpan = lithoBtn.closest('[title]')
+    expect(tooltipSpan).not.toBeNull()
+    expect(tooltipSpan).toHaveAttribute(
+      'title',
+      'Create a lithostratigraphic model in the Lithology stage first',
+    )
   })
 })
