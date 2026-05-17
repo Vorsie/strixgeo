@@ -636,9 +636,15 @@ export function useProject(): UseProject {
       // bundle endpoint returns everything we need. No trim applied
       // because the duplicate is freshly minted (no extras yet).
       dupBundle = await api.project.bundle(duplicated.id)
+      // WHY carry currentLumping: the lumping map is keyed on NORMALISED
+      // STRATIGRAPHY NAMES (not borehole or CPT instance ids), so it is
+      // valid for a duplicate — the copy has the same stratigraphy names.
+      // Dropping it would silently lose a per-project engineering decision
+      // and violate the bundle-is-the-anchor invariant documented in
+      // memory/project_decisions_in_bundle.md.
       await window.electron.writeProjectFile(
         path,
-        serialiseProjectFile(buildProjectFile(dupBundle)),
+        serialiseProjectFile(buildProjectFile(dupBundle, currentLumping)),
       )
     } catch (err) {
       log.error('project', 'saveAsProject: writeProjectFile failed, rolling back', err)
@@ -664,7 +670,7 @@ export function useProject(): UseProject {
     setManifestSectionIds(new Set(idsFromBundle(dupBundle.cross_sections)))
     log.info('project', `saved-as ${duplicated.name} → ${path}`)
     return duplicated
-  }, [project, adopt])
+  }, [project, adopt, currentLumping])
 
   function clearAllManifests(): void {
     setManifestCptIds(new Set())

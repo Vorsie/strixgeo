@@ -841,6 +841,77 @@ describe('useProject', () => {
     expect(savedContent).toContain('"Holoceen"')
   })
 
+  // C-5: saveAsProject must carry the lumping into the duplicate's .gmproj.
+  //
+  // The lumping map is keyed on normalised stratigraphy NAMES (not instance ids),
+  // so it remains valid for a duplicated project (same stratigraphy names).
+  // Before the fix, buildProjectFile(dupBundle) was called without currentLumping,
+  // and a Save-As'd copy silently lost the user's aliases — violating the
+  // bundle-is-the-anchor invariant.
+  it('C-5: saveAsProject carries stratigraphy_lumping into the duplicate file', async () => {
+    const { api } = await import('../api/client')
+    const existingLumping = {
+      schema_version: 1 as const,
+      applied_at: '2026-05-17T09:00:00.000Z',
+      map: { 'boom klei': 'Quartair', 'pleistoceen': 'Quartair' },
+    }
+
+    // Open a project whose file already has stratigraphy_lumping — this seeds
+    // currentLumping so saveAsProject can carry it into the duplicate file.
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+        stratigraphy_lumping: existingLumping,
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+
+    // The duplicate DB row returned by POST /projects/{id}/duplicate.
+    const duplicated = { ...created, id: '01k-DUP', name: 'Copy of Site A' }
+    ;(api.project.duplicate as ReturnType<typeof vi.fn>).mockResolvedValue(duplicated)
+
+    // Bundle for the duplicate — empty project; the lumping is not in the bundle
+    // (it lives client-side) so buildProjectFile must add it from currentLumping.
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(duplicated))
+    ;(window.electron.showProjectSaveDialog as ReturnType<typeof vi.fn>).mockResolvedValue(
+      'C:/Users/robin/copy-of-site-a.gmproj',
+    )
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+
+    // Clear previous writeProjectFile calls (the open flow doesn't write, but
+    // be defensive in case the hook shape changes).
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
+
+    await act(async () => {
+      await result.current.saveAsProject()
+    })
+
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    const [, written] = (
+      window.electron.writeProjectFile as ReturnType<typeof vi.fn>
+    ).mock.calls[0] as [string, string]
+
+    // The duplicate file must carry the lumping — not null.
+    // Before the C-5 fix this assertion would fail because buildProjectFile
+    // was called without currentLumping and wrote stratigraphy_lumping: null.
+    expect(written).toContain('"stratigraphy_lumping"')
+    expect(written).toContain('"boom klei"')
+    expect(written).toContain('"Quartair"')
+    expect(written).not.toContain('"stratigraphy_lumping": null')
+  })
+
   it('discardEdits reverts project back to saved (drops in-memory edits)', async () => {
     const { api } = await import('../api/client')
     ;(api.project.create as ReturnType<typeof vi.fn>).mockResolvedValue(created)
