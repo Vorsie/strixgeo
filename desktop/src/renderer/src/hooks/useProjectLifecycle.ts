@@ -58,6 +58,15 @@ export interface UseProjectLifecycleResult {
    * Promise<void>
    */
   writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
+  /**
+   * In-memory mirror of the lumping snapshot last written via
+   * ``writeLumpingSnapshot`` or seeded from the file on open.
+   * Null when no lumping has been applied to this project yet.
+   * Exposed here so ``GeologyToolbar`` (which reads the lifecycle
+   * slice) can prefill ``FormationSelectionDialog`` without a
+   * separate file read.
+   */
+  currentLumping: StratigraphyLumping | null
 }
 
 /**
@@ -116,6 +125,14 @@ export interface UseProjectLifecycleResult {
  *     From ``useGeologicalModel`` — removes unsaved contacts from cache.
  * activeGeologicalModel
  *     From ``useGeologicalModel`` — needed for contact cleanup on discard.
+ * writeLumpingSnapshot
+ *     From ``useProject`` — atomically patches the .gmproj with a new lumping
+ *     map; threaded here so callers can access it through the lifecycle slice.
+ * currentLumping
+ *     From ``useProject`` — the in-memory lumping snapshot (null until the
+ *     user applies a Fill-from-boreholes confirm with aliases).  Threaded
+ *     through the lifecycle slice so ``GeologyToolbar`` can prefill the
+ *     ``FormationSelectionDialog`` without a separate file read.
  *
  * Returns
  * -------
@@ -144,6 +161,7 @@ export function useProjectLifecycle({
   discardContacts,
   activeGeologicalModel,
   writeLumpingSnapshot,
+  currentLumping,
 }: {
   project: { id: string; name: string } | null
   metadataDirty: boolean
@@ -166,6 +184,7 @@ export function useProjectLifecycle({
   discardContacts: (ids: ReadonlySet<string>) => void
   activeGeologicalModel: ActiveModel | null
   writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
+  currentLumping: StratigraphyLumping | null
 }): UseProjectLifecycleResult {
   // ---------------------------------------------------------------------------
   // Dialog state
@@ -493,5 +512,6 @@ export function useProjectLifecycle({
     handleUnsavedDiscard,
     handleUnsavedCancel,
     writeLumpingSnapshot,
+    currentLumping,
   }
 }
