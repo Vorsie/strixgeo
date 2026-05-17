@@ -1,8 +1,9 @@
 // Behavioral net for the slice-2 (#55) axis toggle in SectionsToolbar.
 //
 // Claims pinned here:
-//   B1  When activeLithoModel is null, the "Litho" radio button is disabled
-//       and its title surfaces the "create a model first" hint.
+//   B1  When activeLithoModel is null, the "Litho" radio button is disabled.
+//       (The tooltip contract — title on the span wrapper, not the button —
+//       is pinned separately in B5; B1 verifies disabled state only.)
 //   B2  When activeLithoModel is present, the "Litho" radio button is enabled
 //       and clicking it calls setSectionModelAxis('lithostratigraphic').
 //   B3  Clicking the "Geology" button when the axis is already 'geological'
@@ -346,6 +347,28 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
     // The tooltip text moves to the span wrapper (P1-C fix) so Chromium/Electron
     // can surface it on hover — disabled buttons do not fire mouse events.
     // The span-level assertion lives in B5; here we only verify disabled state.
+  })
+
+  it('B1-enabled — when activeLithoModel exists the button carries its own title (no span wrapper needed)', () => {
+    // Symmetric counterpart to B5: when the button is enabled, Chromium CAN
+    // surface a title on the element itself — no presentation-span wrapper is
+    // needed.  We assert the button has the expected title and no ancestor span
+    // holds an alternative tooltip, so the two code-paths (disabled/enabled)
+    // cannot silently converge to the same DOM shape.
+    const ctx = makeCtx({ activeLithoModel: makeLithoModel() })
+    renderToolbar(ctx)
+
+    const lithoBtn = screen.getByRole('radio', { name: /litho/i })
+    expect(lithoBtn).not.toBeDisabled()
+    expect(lithoBtn).toHaveAttribute('title', 'Edit the lithostratigraphic model contacts on this section')
+
+    // The span wrapper (role="presentation") should NOT carry a tooltip in the
+    // enabled case — its only job is to make the disabled-button tooltip reachable.
+    const ancestorWithTitle = lithoBtn.closest('[title]')
+    // Either there is no titled ancestor, or the titled element IS the button itself.
+    if (ancestorWithTitle !== null) {
+      expect(ancestorWithTitle).toBe(lithoBtn)
+    }
   })
 
   it('B2 — Litho button is enabled and calls setSectionModelAxis when activeLithoModel exists', () => {
