@@ -26,6 +26,11 @@ from groundmodel.api.schemas.project.formation_contact import (
     FormationContactResponse,
     FormationContactUpdateRequest,
 )
+from groundmodel.api.schemas.project.litho_suggestion import (
+    LithoLayerSuggestionItem,
+    LithoSuggestionRequest,
+    LithoSuggestionResponse,
+)
 from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
     AutoPopulateContactsFromStratigraphy,
 )
@@ -39,6 +44,11 @@ from groundmodel.application.deduplicate_formation_contacts import (
 from groundmodel.application.delete_formation_contact import DeleteFormationContact
 from groundmodel.application.discover_formations_from_stratigraphy import (
     DiscoverFormationsFromStratigraphy,
+)
+from groundmodel.application.suggest_litho_contacts import (
+    InvalidModelKindError,
+    InvestigationNotFoundError,
+    SuggestLithoContacts,
 )
 from groundmodel.application.update_formation_contact import UpdateFormationContact
 from groundmodel.application.update_formation_contacts_batch import (
@@ -413,3 +423,105 @@ async def dedupe_existing_contacts(
     )
 
 
+@router.post(
+    "/models/{model_id}/contacts/suggest-litho",
+    response_model=LithoSuggestionResponse,
+)
+async def suggest_litho_contacts(
+    project_id: UUID,
+    model_id: UUID,
+    request: LithoSuggestionRequest,
+    session: AsyncSession = Depends(get_session),
+) -> LithoSuggestionResponse:
+    """Suggest lithostratigraphic layer contacts for one CPT or borehole.
+
+    Read-only — returns a ranked list of suggested layer intervals
+    derived from Robertson 2015/2009 SBT segmentation (CPT) or DOV
+    hoofdnaam→lithology mapping (borehole).  Nothing is written; the
+    user accepts suggestions via the normal contact-create flow.
+
+    The model must have ``kind='lithostratigraphic'``; any other kind
+    returns 422. The target investigation must exist and have usable
+    series data; a missing investigation returns 404.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Lithostratigraphic model to target.
+    request : LithoSuggestionRequest
+        Body with exactly one of ``cpt_id`` / ``borehole_id`` plus
+        optional segmenter tuning parameters.
+
+    Returns
+    -------
+    LithoSuggestionResponse
+        ``layers`` list ordered top to bottom; empty list when no
+        layers can be resolved (undefined data, sub-threshold series).
+
+    Raises
+    ------
+    HTTPException(422)
+        When the model is not ``kind='lithostratigraphic'``.
+    HTTPException(404)
+        When the model does not belong to the project, or the
+        investigation does not exist / has no usable data.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+
+    use_case = SuggestLithoContacts(session)
+    try:
+        if request.cpt_id is not None:
+            layers = await use_case.execute_for_cpt(
+                model_id=model_id,
+                cpt_id=request.cpt_id,
+                minimum_layer_thickness_m=request.minimum_layer_thickness_m,
+                gunsat_kNm3=request.gunsat_kNm3,
+                gwater_kNm3=request.gwater_kNm3,
+                dr_compression_factor=request.dr_compression_factor,
+            )
+            investigation_type = "cpt"
+        else:
+            layers = await use_case.execute_for_borehole(
+                model_id=model_id,
+                borehole_id=request.borehole_id,  # type: ignore[arg-type]
+                minimum_layer_thickness_m=request.minimum_layer_thickness_m,
+            )
+            investigation_type = "borehole"
+    except InvalidModelKindError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_model_kind",
+                "message": str(exc),
+                "actual_kind": exc.actual_kind,
+            },
+        ) from exc
+    except InvestigationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return LithoSuggestionResponse(
+        investigation_type=investigation_type,
+        minimum_layer_thickness_m=request.minimum_layer_thickness_m,
+        layers=[
+            LithoLayerSuggestionItem(
+                depth_top_m=lyr.depth_top_m,
+                depth_base_m=lyr.depth_base_m,
+                suggested_lithology=lyr.suggested_lithology,
+                suggested_nad_class=lyr.suggested_nad_class,
+                mean_qc_mpa=lyr.mean_qc_mpa,
+                dr_pct=lyr.dr_pct,
+                confidence=lyr.confidence,
+                source=lyr.source,
+            )
+            for lyr in layers
+        ],
+    )

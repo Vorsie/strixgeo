@@ -478,6 +478,17 @@ usable (Ic curve/labels legible again in both themes).
 raw-curve detail chart into the parameter view there; the raw
 CptChart then shows only measured curves.
 
+**Related (litho slice 3, 2026-05-17):** the litho segmenter
+classifies CPT lithology via a faithful port of Daniel Verastegui's
+Robertson **2015** Qtn/F/Ic + **2009** chart-zone method
+(``domain/services/robertson_2015.py``). The ``CptChart.tsx`` Ic
+panel still shows the older Robertson **1990** preview
+(``cpt_interpretation.py``, deliberately frozen). The two methods can
+disagree at zone boundaries — a known, accepted divergence. Reconcile
+when this item is actioned: repoint the chart panel at the 2015/2009
+path so the whole app is consistent on Daniel's method (owner
+decision 2026-05-17 — option "port 2015, switch chart later").
+
 ## 23. Stage toolbars clip silently at narrow window widths (low — Tier E)
 
 **What.** `StageToolbar`'s left zone is `flex items-center flex-1

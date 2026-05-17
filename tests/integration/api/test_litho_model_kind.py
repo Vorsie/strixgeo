@@ -17,6 +17,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 
@@ -317,3 +319,122 @@ async def test_codelist_route_not_shadowed_by_dynamic_formation_route(
     )
     assert resp.status_code == 200
     assert "lithologies" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# suggest-litho endpoint (slice 3) — wiring + kind guard
+# ---------------------------------------------------------------------------
+
+
+async def _cpt_with_sand_over_clay(db_session: AsyncSession, project: ProjectOrm) -> CptOrm:
+    """A CPT whose series is a clean-sand block over a soft-clay block."""
+    depths: list[float] = []
+    qc: list[float] = []
+    fs: list[float] = []
+    z = 0.0
+    while z < 4.0 - 1e-9:  # dense sand
+        depths.append(round(z, 2))
+        qc.append(22.0)
+        fs.append(0.10)
+        z += 0.1
+    while z < 8.0 - 1e-9:  # soft clay
+        depths.append(round(z, 2))
+        qc.append(0.7)
+        fs.append(0.045)
+        z += 0.1
+    cpt = CptOrm(
+        id=uuid7(),
+        name="CPT-LITHO",
+        cpt_type="CPTU",
+        project_id="GEF",
+        test_id="GEF/LITHO",
+        app_project_id=project.id,
+        location_x=150000.0,
+        location_y=200000.0,
+        elevation_m=10.0,
+        z_epsg=5710,
+        epsg=31370,
+        max_depth_m=8.0,
+    )
+    cpt.series = CptSeriesOrm(
+        depths_m=depths,
+        qc_mpa=qc,
+        fs_mpa=fs,
+        u2_mpa=None,
+        rf_pct=None,
+        q_total_mpa=None,
+    )
+    db_session.add(cpt)
+    await db_session.commit()
+    return cpt
+
+
+async def test_suggest_litho_returns_layers_for_a_cpt(
+    async_client: AsyncClient, project: ProjectOrm, db_session: AsyncSession
+) -> None:
+    """Happy path: a litho model + a sand-over-clay CPT → ordered,
+    contiguous layers, sand on top, a fine soil below."""
+    geo = await _create_model(async_client, project.id)
+    litho = await _create_model(
+        async_client, project.id, kind="lithostratigraphic", parent_id=geo["id"]
+    )
+    cpt = await _cpt_with_sand_over_clay(db_session, project)
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho['id']}/contacts/suggest-litho",
+        json={"cpt_id": str(cpt.id), "minimum_layer_thickness_m": 0.5},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["investigation_type"] == "cpt"
+    layers = body["layers"]
+    assert len(layers) >= 2
+    # Ordered, contiguous (shared boundaries — true partition).
+    for a, b in zip(layers, layers[1:], strict=False):
+        assert b["depth_top_m"] == a["depth_base_m"]
+    assert layers[0]["suggested_lithology"] == "ZAND"
+    assert layers[-1]["suggested_lithology"] in ("KLEI", "SILT", "VEEN")
+
+
+async def test_suggest_litho_rejects_non_lithostratigraphic_model(
+    async_client: AsyncClient, project: ProjectOrm, db_session: AsyncSession
+) -> None:
+    """The kind guard: suggest-litho on a geological model → 422."""
+    geo = await _create_model(async_client, project.id)
+    cpt = await _cpt_with_sand_over_clay(db_session, project)
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{geo['id']}/contacts/suggest-litho",
+        json={"cpt_id": str(cpt.id)},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "invalid_model_kind"
+
+
+async def test_suggest_litho_missing_cpt_is_404(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """A litho model but a non-existent CPT → 404."""
+    geo = await _create_model(async_client, project.id)
+    litho = await _create_model(
+        async_client, project.id, kind="lithostratigraphic", parent_id=geo["id"]
+    )
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho['id']}/contacts/suggest-litho",
+        json={"cpt_id": str(uuid4())},
+    )
+    assert resp.status_code == 404
+
+
+async def test_suggest_litho_requires_exactly_one_anchor(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """Neither cpt_id nor borehole_id (or both) → 422 (request validator)."""
+    geo = await _create_model(async_client, project.id)
+    litho = await _create_model(
+        async_client, project.id, kind="lithostratigraphic", parent_id=geo["id"]
+    )
+    url = f"/projects/{project.id}/geology/models/{litho['id']}/contacts/suggest-litho"
+    assert (await async_client.post(url, json={})).status_code == 422
+    assert (
+        await async_client.post(url, json={"cpt_id": str(uuid4()), "borehole_id": str(uuid4())})
+    ).status_code == 422
