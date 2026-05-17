@@ -15,11 +15,17 @@
  *   G5  Confirm fires onConfirm with (selectedKeys, manualMap) — the same
  *       map used in the last preview, not re-computed from internal state.
  *   G6  All options remain reachable via typeahead
- *       (rank-reorders-never-filters invariant).
+ *       (rank-reorders-never-filters invariant); the row's OWN name is
+ *       absent from its dropdown (no self-reassignment invariant).
  *   G7  Collision warnings render when collisions are provided.
+ *   B1  A reassigned row's checkbox reflects the ACTUAL target candidate's
+ *       checked state, not the first match by display name — regression guard
+ *       for the isChecked find()-on-name bug under duplicate display names.
  *   B2  Two candidates with identical display names but different keys both
  *       remain selectable with their own keys (regression guard for the
  *       earlier .find()-on-name bug that collapsed both to the first match).
+ *   B3  Dropdown closes on pointerdown outside (outside-click dismissal).
+ *   B4  Dropdown closes on Esc even when the typeahead is NOT focused.
  */
 
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
@@ -141,7 +147,8 @@ describe('FormationSelectionDialog', () => {
     // Pick "Formatie van Diest" as target
     fireEvent.click(screen.getByRole('option', { name: 'Formatie van Diest' }))
 
-    // onManualMapChange must be called with the key (not display name) → target name
+    // onManualMapChange must be called with the key (not display name) → target name.
+    // The effect fires after state commit; the last call carries the settled map.
     expect(onManualMapChange).toHaveBeenCalledWith({
       'boom klei': 'Formatie van Diest',
     })
@@ -181,9 +188,10 @@ describe('FormationSelectionDialog', () => {
     const onConfirm = vi.fn()
     render(<FormationSelectionDialog {...makeProps({ onConfirm })} />)
 
-    // Check Boom Klei
-    const [boomCheckbox] = screen.getAllByRole('checkbox') as HTMLInputElement[]
-    fireEvent.click(boomCheckbox!)
+    // S4 fix: query checkbox by accessible name (candidate name label)
+    // rather than positional index so a fixture reorder can't silently pass.
+    const boomCheckbox = screen.getByRole('checkbox', { name: 'Boom Klei' }) as HTMLInputElement
+    fireEvent.click(boomCheckbox)
 
     // Apply selection — no reassignments, manualMap should be empty
     fireEvent.click(screen.getByRole('button', { name: 'Apply selection' }))
@@ -198,10 +206,11 @@ describe('FormationSelectionDialog', () => {
     const onConfirm = vi.fn()
     render(<FormationSelectionDialog {...makeProps({ onConfirm })} />)
 
-    // Check "Formatie van Diest" (the target row) so Apply is enabled.
-    const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
-    // Second checkbox corresponds to "Formatie van Diest" in the candidate order.
-    fireEvent.click(checkboxes[1]!)
+    // S4 fix: query by accessible name, not positional index.
+    const diestCheckbox = screen.getByRole('checkbox', {
+      name: 'Formatie van Diest',
+    }) as HTMLInputElement
+    fireEvent.click(diestCheckbox)
 
     // Reassign "Boom Klei" → "Formatie van Diest"
     fireEvent.click(
@@ -232,6 +241,10 @@ describe('FormationSelectionDialog', () => {
     expect(screen.getByRole('option', { name: 'Formatie van Diest' })).toBeDefined()
     expect(screen.getByRole('option', { name: 'Lid van Orchies' })).toBeDefined()
     expect(screen.getByRole('option', { name: 'Keep separate' })).toBeDefined()
+
+    // S5 fix: the row's OWN name ("Boom Klei") must NOT appear as an option —
+    // self-reassignment is not permitted (peer list excludes the row itself).
+    expect(screen.queryByRole('option', { name: 'Boom Klei' })).toBeNull()
   })
 
   it('G7: collision warnings render when collisions are provided', () => {
@@ -246,6 +259,49 @@ describe('FormationSelectionDialog', () => {
   it('G7: no collision section when collisions is empty', () => {
     render(<FormationSelectionDialog {...makeProps({ collisions: [] })} />)
     expect(screen.queryByText(/had layers lumping/)).toBeNull()
+  })
+
+  // B1 regression — isChecked resolves by candidate KEY not display name.
+  //
+  // Before the discriminated-union fix, isChecked used:
+  //   candidates.find(c => c.name === reassignedTo)
+  // When two candidates share the same display name but have different keys,
+  // .find() always returns the FIRST — the reassigned row's checkbox read the
+  // FIRST candidate's checked state even if the target was the SECOND.  The
+  // new model stores a { kind: 'candidate', key } and resolves by key.
+  it('B1: isChecked resolves by target key — correct even under duplicate display names', () => {
+    const DUP: FormationCandidate[] = [
+      { name: 'Klei', key: 'klei-a', boreholeCount: 3 },
+      { name: 'Klei', key: 'klei-b', boreholeCount: 2 },
+      { name: 'Zand', key: 'zand', boreholeCount: 1 },
+    ]
+
+    render(<FormationSelectionDialog {...makeProps({ candidates: DUP })} />)
+
+    // Check ONLY the second Klei row (klei-b) by accessible name.
+    // Both share the display name "Klei" — we use getAllByRole and pick the
+    // second checkbox (index 1, which corresponds to klei-b by render order).
+    const kleiCheckboxes = screen.getAllByRole('checkbox', { name: 'Klei' }) as HTMLInputElement[]
+    expect(kleiCheckboxes).toHaveLength(2)
+    // Check only the second one (klei-b).
+    fireEvent.click(kleiCheckboxes[1]!)
+    expect(kleiCheckboxes[1]!.checked).toBe(true)
+    expect(kleiCheckboxes[0]!.checked).toBe(false)
+
+    // Reassign Zand → klei-b (the SECOND Klei, which IS checked).
+    // Open the Zand row's dropdown and pick the second "Klei" option.
+    fireEvent.click(screen.getByRole('button', { name: /Reassign "Zand"/ }))
+    // The listbox shows both "Klei" entries.  Pick the second one — the
+    // dropdown options for "Zand" exclude "Zand" itself so we get exactly two
+    // "Klei" options.
+    const kleiOptions = screen.getAllByRole('option', { name: 'Klei' })
+    expect(kleiOptions).toHaveLength(2)
+    fireEvent.click(kleiOptions[1]!)   // pick the second Klei (klei-b)
+
+    // Zand's checkbox must now reflect klei-b's checked state (true).
+    // If the bug were present it would incorrectly read klei-a's state (false).
+    const zandCheckbox = screen.getByRole('checkbox', { name: 'Zand' }) as HTMLInputElement
+    expect(zandCheckbox.checked).toBe(true)
   })
 
   // B2 regression — duplicate display names must not collapse to the wrong candidate.
@@ -289,5 +345,39 @@ describe('FormationSelectionDialog', () => {
     expect(selectedKeys.has('klei-boom')).toBe(true)
     expect(selectedKeys.has('klei-diest')).toBe(true)
     expect(selectedKeys.has('zand')).toBe(true)
+  })
+
+  // B3 — dropdown closes on pointerdown outside.
+  it('B3: dropdown closes on pointerdown outside the container', () => {
+    render(
+      <div>
+        <div data-testid="outside">Outside area</div>
+        <FormationSelectionDialog {...makeProps()} />
+      </div>,
+    )
+
+    // Open dropdown
+    fireEvent.click(screen.getByRole('button', { name: /Reassign "Boom Klei"/ }))
+    expect(screen.getByRole('listbox')).toBeDefined()
+
+    // Pointerdown on the outside element
+    fireEvent.pointerDown(screen.getByTestId('outside'))
+
+    // Dropdown must be closed
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  // B4 — Esc closes the dropdown even when focus is NOT in the typeahead.
+  it('B4: Esc closes dropdown when focus is not in the typeahead input', () => {
+    render(<FormationSelectionDialog {...makeProps()} />)
+
+    // Open dropdown
+    fireEvent.click(screen.getByRole('button', { name: /Reassign "Boom Klei"/ }))
+    expect(screen.getByRole('listbox')).toBeDefined()
+
+    // Fire Esc on the document — simulates focus being elsewhere
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 })
