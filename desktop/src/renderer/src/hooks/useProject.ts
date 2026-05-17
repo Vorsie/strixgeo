@@ -42,6 +42,7 @@ import {
   projectIdFromFile,
   serialiseProjectFile,
 } from '../utils/projectFile'
+import type { StratigraphyLumping } from '../utils/projectFile'
 
 interface UseProjectState {
   /** Live in-memory project state — what the editor sees. */
@@ -118,6 +119,27 @@ interface UseProjectActions {
   discardEdits: () => void
   archiveCurrent: () => Promise<void>
   closeProject: () => void
+  /**
+   * Atomically write the manual lumping snapshot into the current .gmproj
+   * file without triggering a full File→Save cycle.  Called immediately
+   * after a Fill-from-boreholes Apply confirm so the user's grouping is
+   * persisted before the dialog closes, even if the user never File→Saves.
+   *
+   * No-op when no project file is open (``filePath`` is null) — the
+   * lumping was still applied to the DB, only the file snapshot is skipped.
+   *
+   * Parameters
+   * ----------
+   * lumping
+   *     The lumping snapshot to embed in the file.
+   *
+   * Returns
+   * -------
+   * Promise<void>
+   *     Resolves when the write succeeds or is a no-op (no filePath).
+   *     Rejects on Electron IPC / write failure — caller should log + toast.
+   */
+  writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
 }
 
 export type UseProject = UseProjectState & UseProjectActions
@@ -646,6 +668,45 @@ export function useProject(): UseProject {
     clearAllManifests()
   }, [])
 
+  // Atomically embed the lumping snapshot into the current .gmproj without
+  // triggering a full bundle refetch or metadata PATCH.
+  //
+  // Strategy: read the current file from disk → parse → splice in the new
+  // ``stratigraphy_lumping`` field → write back.  Using the on-disk content
+  // rather than rebuilding from the bundle preserves any unsaved metadata
+  // edits the user has in flight without requiring a save-first gate.
+  //
+  // WHY read-splice-write and not re-build from bundle: a full bundle GET
+  // after every Fill confirm is expensive (~100ms round-trip) and races
+  // with any in-flight metadata edits (the two-stage save model).  Reading
+  // the file and patching one field is the minimal, side-effect-free update.
+  const writeLumpingSnapshot = useCallback(
+    async (lumping: StratigraphyLumping): Promise<void> => {
+      if (filePath === null) {
+        // No file open yet — the DB is already updated; skip the file write.
+        log.debug('project', 'writeLumpingSnapshot: no filePath, skipping file write')
+        return
+      }
+      log.debug('project', `writeLumpingSnapshot: patching ${filePath}`)
+      let raw: string
+      try {
+        raw = await window.electron.readProjectFile(filePath)
+      } catch (err) {
+        log.warn('project', 'writeLumpingSnapshot: readProjectFile failed — file may have moved', err)
+        return
+      }
+      const parsed = parseProjectFile(raw)
+      if (parsed === null) {
+        log.warn('project', 'writeLumpingSnapshot: file could not be parsed — skipping lumping write')
+        return
+      }
+      const patched = { ...parsed, stratigraphy_lumping: lumping }
+      await window.electron.writeProjectFile(filePath, serialiseProjectFile(patched))
+      log.success('project', `writeLumpingSnapshot: wrote lumping snapshot to ${filePath}`)
+    },
+    [filePath],
+  )
+
   return {
     project,
     saved,
@@ -667,5 +728,6 @@ export function useProject(): UseProject {
     discardEdits,
     archiveCurrent,
     closeProject,
+    writeLumpingSnapshot,
   }
 }
