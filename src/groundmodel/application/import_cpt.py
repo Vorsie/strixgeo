@@ -1,5 +1,6 @@
 """CPT import use case — parse a GEF file and persist it to the database."""
 
+import time
 from pathlib import Path
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from groundmodel.infrastructure.parsers.cpt.gef.gef_parse_result import GEFParse
 from groundmodel.infrastructure.parsers.cpt.gef.gef_parser import GEFParser
 from groundmodel.shared.exceptions import DuplicateCptError, ParseError
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+from groundmodel.shared.timing import ms_since
 
 
 class ImportCpt(GroundModelLogger):
@@ -131,13 +133,17 @@ class ImportCpt(GroundModelLogger):
                 )
 
         cpt_id: UUID = uuid7()
+        t_map = time.perf_counter()
         cpt_orm = self._to_orm(cpt_id, name, result, app_project_id)
+        self.debug(f"ORM mapping: {ms_since(t_map)} ms ({len(result.data)} rows)")
 
         # In batch mode (commit=False) skip the per-row flush too — the final
         # commit will batch all INSERTs into one network exchange.
+        t_save = time.perf_counter()
         await self._repo.save(cpt_orm, flush=commit)
         if commit:
             await self._session.commit()
+        self.debug(f"DB save+{'commit' if commit else 'no-commit'}: {ms_since(t_save)} ms")
 
         n_err = sum(1 for i in result.issues if i.level == "error")
         n_warn = sum(1 for i in result.issues if i.level == "warning")
