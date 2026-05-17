@@ -164,7 +164,17 @@ export interface UseGeologicalModelResult {
   handleBatchCreateContacts: (creates: readonly ContactCopyPayload[]) => Promise<void>
   handleBatchUpdateContacts: (updates: readonly FormationContactBatchUpdateEntry[]) => Promise<void>
   handleDeleteContact: (contactId: string) => Promise<void>
-  handleAutoPopulateFromStratigraphy: (boreholeIds: readonly string[]) => Promise<void>
+  /**
+   * Seed the active geological model with contacts from borehole stratigraphy.
+   * When called from the Sections stage, pass ``sectionId`` and
+   * ``onSectionUpdated`` so the router seeds the section's explicit-content
+   * set and the local section state is patched without a refetch.
+   */
+  handleAutoPopulateFromStratigraphy: (
+    boreholeIds: readonly string[],
+    sectionId?: string | null,
+    onSectionUpdated?: (updated: import('../api/client').CrossSectionResponse) => void,
+  ) => Promise<void>
   handleDedupeContacts: () => Promise<number>
   handleRebuildSurfaces: () => Promise<void>
   handleExportModelPlaxis3d: () => Promise<void>
@@ -1370,19 +1380,37 @@ export function useGeologicalModel({
   // and more correct than reconstructing from the returned id
   // lists).
   const handleAutoPopulateFromStratigraphy = useCallback(
-    async (boreholeIds: readonly string[]): Promise<void> => {
+    async (
+      boreholeIds: readonly string[],
+      sectionId?: string | null,
+      onSectionUpdated?: (updated: import('../api/client').CrossSectionResponse) => void,
+    ): Promise<void> => {
       if (!project || !activeGeologicalModel) return
       if (boreholeIds.length === 0) return
       log.debug(
         'geology',
-        `autoPopulateFromStratigraphy entry boreholes=${boreholeIds.length}`,
+        `autoPopulateFromStratigraphy entry boreholes=${boreholeIds.length}` +
+          (sectionId ? ` section=${sectionId}` : ''),
       )
       try {
         const outcome = await api.geology.autoPopulateFromStratigraphy(
           project.id,
           activeGeologicalModel.id,
           boreholeIds,
+          undefined, // selectedKeys — absent on the Seed path
+          undefined, // manualMap — absent on the Seed path
+          sectionId,
         )
+        // P2-G: when the Seed response carries an updated section row
+        // (server patched seeded_formation_contact_ids), patch local
+        // section state without a round-trip GET.
+        if (outcome.updated_section != null && onSectionUpdated != null) {
+          onSectionUpdated(outcome.updated_section)
+          log.debug(
+            'geology',
+            `autoPopulateFromStratigraphy: section ${sectionId} seeded set applied locally`,
+          )
+        }
         // Refresh formations + contacts state. The auto-populate
         // path can have created either / both — re-fetching is the
         // simplest path to consistency.
