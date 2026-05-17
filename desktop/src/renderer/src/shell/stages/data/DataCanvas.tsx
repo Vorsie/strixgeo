@@ -15,6 +15,8 @@ import { LoadingState } from '../../EmptyState'
 import MapView from '../../../components/MapView'
 import CptChart from '../../../components/CptChart'
 import BoreholeLog from '../../../components/BoreholeLog'
+import Modal from '../../../components/ui/Modal'
+import DovImportProgressPanel from '../../../components/DovImportProgressPanel'
 
 /**
  * Center canvas for the Data stage.
@@ -43,6 +45,8 @@ export default function DataCanvas(): JSX.Element {
       plotMap,
       boreholeDetailMap,
       bboxImportType,
+      dovImportState,
+      resetDovImport,
       cancelBboxDraw,
       handleBboxDrawn,
       handlePatchCptElevation,
@@ -209,6 +213,57 @@ export default function DataCanvas(): JSX.Element {
           <LoadingState label="Loading chart…" />
         )}
       </div>
+
+      {/* DOV import progress modal — shown while an SSE import stream is
+          running, and kept open on done/error so the user can read the
+          result summary or error message before dismissing.
+          The modal is non-dismissable while running (busy=true) so the
+          user can't accidentally cancel by pressing Esc or clicking the
+          backdrop mid-import. */}
+      <Modal
+        open={dovImportState.status !== 'idle'}
+        onCancel={resetDovImport}
+        labelledBy="dov-import-progress-title"
+        busy={dovImportState.status === 'running'}
+        cardClassName="w-80"
+      >
+        <div className="px-5 py-4 flex flex-col gap-3">
+          <h2
+            id="dov-import-progress-title"
+            className="text-sm font-semibold text-text-primary"
+          >
+            {dovImportState.status === 'running'
+              ? dovImportState.kind === 'cpt'
+                ? 'Importing CPTs from DOV…'
+                : 'Importing boreholes from DOV…'
+              : dovImportState.status === 'done'
+              ? 'Import complete'
+              : 'Import failed'}
+          </h2>
+
+          <DovImportProgressPanel state={dovImportState} />
+
+          {/* Dismiss button — only shown once the stream has terminated so
+              the user can acknowledge the result without accidentally closing
+              a running import. */}
+          {dovImportState.status !== 'running' && (
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={resetDovImport}
+                className="px-3 py-1.5 text-xs font-medium rounded bg-surface-card text-text-primary hover:bg-border-default transition-colors"
+                // reason: autoFocus is the only accessible way to let
+                // keyboard users dismiss without mousing to the button.
+                // The import is terminal (done/error) at this point, so
+                // focus landing here is the natural next action.
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+              >
+                Close
+              </button>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }
