@@ -240,9 +240,23 @@ export function useGeologicalModel({
   //
   // Returns the active model or throws on API failure.
   const resolveActiveModel = async (projectId: string): Promise<GeologicalModelResponse> => {
-    let models = await api.geology.listModels(projectId)
-    let active = models.find(m => m.is_active) ?? null
-    if (models.length === 0) {
+    const models = await api.geology.listModels(projectId)
+    // Slice-1 made is_active scoped PER KIND — a project can now have
+    // an active geological AND an active lithostratigraphic model at
+    // once. The section editor / Build / crossings flow operates on
+    // the GEOLOGICAL backbone, so select that one specifically. Absent
+    // kind (legacy rows / pre-slice-1 fixtures) is treated as
+    // geological, matching the backend column default — so this stays
+    // backward-compatible with every existing project + test.
+    const isGeological = (m: GeologicalModelResponse): boolean =>
+      m.is_active && (m.kind === 'geological' || m.kind == null)
+    let active = models.find(isGeological) ?? null
+    const isGeologicalKind = (m: GeologicalModelResponse): boolean =>
+      m.kind === 'geological' || m.kind == null
+    const geologicalModels = models.filter(isGeologicalKind)
+    if (geologicalModels.length === 0) {
+      // No geological backbone (empty project, or somehow only
+      // litho/geotech models) — bootstrap a Default geological one.
       const created = await api.geology.createModel(projectId, {
         name: 'Default',
         is_active: true,
@@ -250,10 +264,17 @@ export function useGeologicalModel({
       active = created
       log.info('geology', `resolveActiveModel: created Default model for ${projectId}`)
     } else if (active === null) {
-      // Models exist but none is active — activate the first
-      // (alphabetical by name is fine; v1 has at most one).
-      const promoted = await api.geology.activateModel(projectId, models[0].id)
+      // Geological models exist but none active — promote the first
+      // GEOLOGICAL one (never a litho/geotech sibling).
+      const promoted = await api.geology.activateModel(projectId, geologicalModels[0].id)
       active = promoted
+    }
+    if (active === null) {
+      // Unreachable: the branches above assign on every path
+      // (create when no geological model exists, promote when one
+      // exists but is inactive, otherwise the find() already hit).
+      // Explicit so the return type stays non-null for callers.
+      throw new Error('resolveActiveModel: no geological model could be resolved')
     }
     return active
   }
