@@ -849,29 +849,50 @@ phantom-token blocker + contrast + busy-guard + an actionable empty
 CTA. 6 picker tests; geological-model SWITCHING deliberately out of
 scope (v1 single backbone).
 
-**Steps 2-3 REMAIN.** (2) the ghost-suggestion overlay — a "Suggest
-litho" section action that calls `suggestLitho` for the
-focused/selected investigation and renders the returned layers as
-accept/reject ghost lines (fork `VirtueleBoringGhostColumns`, dashed
-+ interactive); (3) accept→ensure-formation→create-contact reusing
-`handleInlineCreateFormation` + `handleCreateContact` (a suggestion
-has `suggested_lithology`/`nad_class` but no `formation_id` — resolve
-or create a litho-model formation per distinct lithology on accept).
+**RE-SCOPED 2026-05-17 (owner directive, dogfeed feedback).** The
+step-1 inspector-header picker confirmed the ux-review S2 finding by
+dogfooding: selecting a litho model in the *Geology inspector* does
+nothing because the inspector is not an editing surface (CLAUDE.md:
+"cross-sections are the editing surface, not the data primitive").
+Owner locked a better structure:
 
-**Open UX question (deferred from the step-1 ux-review, S2).** The
-picker currently sits as a peer row in the GeologyInspector header.
-gINT/LeapFrog/D-Series put scenario/model pickers at panel-level
-prominence. Re-evaluate the picker's placement/prominence when step 2
-lands and the full pick-on-section flow is visible — do NOT redesign
-the inspector prominence speculatively before then.
+* **Lithology becomes a new peer left-rail stage** between Geology
+  and Geotech (peer to the existing Geotech stub) — its own
+  StageDescriptor + canvas + inspector + toolbar. The
+  `ModelKindPicker` relocates here (the inspector-header placement is
+  superseded; the **hook layer — models/activeLithoModel/create/
+  activate — is reused as-is**, only the UI moves).
+* **The cross-section editor is the litho editing surface.** The
+  Lithology stage's canvas is a 3D-view + model-management surface
+  (mirror the Geology stage's 3D viewer), NOT the primary editor.
+  The suggest/ghost/accept flow lives on the **Sections editor
+  scoped to the active litho model**, via a **model-axis picker on
+  the section editor** (geology ↔ lithology toggle) — that is where
+  "select a model and something happens" actually holds.
 
-**Why steps 2-3 deferred.** An interactive overlay on the 1,655-line
-SectionPanel / 2,013-line ContactsLayer is the exact surface where
-slice 3 shipped two bugs when rushed; it is its own focused
-ux-reviewed session. Backend + the model picker are fully usable
-today.
+**Remaining work (3 slices, design-first via system-architect, then
+build, ux-reviewer on the UI):**
+1. **Lithology peer stage** scaffolding (StageDescriptor + canvas +
+   inspector + toolbar; relocate ModelKindPicker; reuse the Geology
+   3D viewer for its canvas). Supersedes the inspector-header picker.
+2. **Section-editor model-axis picker** (geology ↔ lithology) — the
+   Sections editor renders/edits the chosen model's contacts.
+3. **Suggest/ghost/accept on the section**: a "Suggest litho" action
+   calling `suggestLitho` for the focused investigation → accept/
+   reject ghost lines (fork `VirtueleBoringGhostColumns`, dashed +
+   interactive) → accept→ensure-formation→create-contact reusing
+   `handleInlineCreateFormation` + `handleCreateContact` (a
+   suggestion carries `suggested_lithology`/`nad_class` but no
+   `formation_id` — resolve/create a litho-model formation per
+   distinct lithology on accept).
 
-**When to revisit.** Next focused litho session — start step 2.
+**Why design-first.** A new shell stage is a load-bearing structural
+change (CLAUDE.md → system-architect before build); the section-editor
+work touches the 1,655-line SectionPanel / 2,013-line ContactsLayer —
+the exact surface where the rushed slice-3 delegation shipped two
+bugs. Backend + the (relocating) picker hook are fully usable today.
+
+**When to revisit.** Now — architect the stage, then build slice 1.
 
 ---
 
