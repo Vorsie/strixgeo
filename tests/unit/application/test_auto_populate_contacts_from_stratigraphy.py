@@ -29,6 +29,9 @@ Orphan suppression:
   formations that already have a surface row, and skips brand-new formations
   (no surface row to mark stale yet).
 
+``normalize_formation_key`` — typographic-only (2026-05-17 reversal):
+- NFKC + casefold + collapse non-alnum runs; no colon-strip; no lid-van reduction.
+
 The DB session is mocked at the ``session.execute`` / ``session.add`` boundary;
 no real DB or network I/O is performed.
 """
@@ -513,21 +516,26 @@ async def test_auto_populate_does_not_build_tin_marks_existing_surfaces_stale():
 
 
 # ---------------------------------------------------------------------------
-# normalize_formation_key — the dedup / merge canonicaliser
+# normalize_formation_key — typographic-only (2026-05-17 reversal)
+#
+# The colon-strip and lid-van reduction steps have been REMOVED.  The
+# function now only collapses byte-distinct but visually identical forms
+# (NFKC + casefold + non-alnum run → single space).  "Formatie van Aalter -
+# Lid van Oedelem" and "Lid van Oedelem" remain DISTINCT keys; the user
+# decides equivalence manually via the lumping tool.
 # ---------------------------------------------------------------------------
 
 
-def test_normalize_collapses_dash_space_case_variants():
-    """The dogfeed duplicate: 'Formatie van Aalter - Lid van Oedelem' showed
-    twice because one borehole used an en-dash / double space / different
-    case. All such variants must map to ONE key.
+def test_normalize_collapses_typographic_variants_only():
+    """Typographic variants of the SAME string (dash variants, NBSP,
+    double spaces, mixed case) must map to ONE key.
 
-    After step 5 ('lid van' reduction, owner directive 2026-05-17) the
-    canonical key for any 'Lid van Oedelem'-bearing description is
-    'lid van oedelem', regardless of the parent formation prefix.
+    After the 2026-05-17 reversal, the key for a colon-bearing description
+    is the WHOLE string lowercased (colon is treated as punctuation collapsed
+    to space), NOT the post-colon tail.
     """
     canonical = normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Oedelem")
-    assert canonical == "lid van oedelem"
+    # Typographic variants of the EXACT same string must produce the same key.
     variants = [
         "Paleogeen: Formatie van Aalter – Lid van Oedelem",  # en-dash (U+2013)
         "Paleogeen: Formatie van Aalter  -  Lid  van Oedelem",  # double spaces
@@ -539,93 +547,66 @@ def test_normalize_collapses_dash_space_case_variants():
         assert normalize_formation_key(v) == canonical, v
 
 
-def test_normalize_strips_chronostratigraphic_prefix_before_last_colon():
-    """Owner directive 2026-05-17: the chrono backbone before the colon is
-    presentation; the same lithostratigraphic unit under 'Paleogeen:' and
-    'Tertiair - Eoceen:' must merge."""
-    assert normalize_formation_key(
-        "Paleogeen: Formatie van Aalter - Lid van Oedelem"
-    ) == normalize_formation_key("Tertiair - Eoceen: Formatie van Aalter - Lid van Oedelem")
-    # Multiple colons -> split on the LAST one only.
-    assert (
-        normalize_formation_key("Aangebracht/geroerd of Quartair: Holocene afzettingen")
-        == "holocene afzettingen"
+def test_normalize_colon_is_not_stripped():
+    """After the 2026-05-17 reversal, colons are NOT stripped.
+
+    'Paleogeen: Formatie van Aalter' and 'Tertiair: Formatie van Aalter'
+    produce DIFFERENT keys because they contain different text before the
+    colon.  The machine no longer decides they refer to the same unit.
+    """
+    key_paleo = normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Oedelem")
+    key_tertiary = normalize_formation_key(
+        "Tertiair - Eoceen: Formatie van Aalter - Lid van Oedelem"
     )
+    # These are DISTINCT — the chrono-prefix divergence is intentionally kept.
+    assert key_paleo != key_tertiary
 
-
-def test_normalize_no_colon_uses_whole_string():
-    """No colon -> the whole string is the identity (just folded)."""
+    # The whole string including the colon-containing prefix is the key.
     assert normalize_formation_key("Quartair") == "quartair"
     assert normalize_formation_key("Ma") == "ma"
 
 
-def test_normalize_trailing_colon_falls_back_to_content():
-    """A description whose post-colon part is empty must fall back to the
-    whole normalised string, not become a blank key that merges unrelated
-    rows."""
-    assert normalize_formation_key("Boom:") == "boom"
-    assert normalize_formation_key("Quartair :") == "quartair"
-
-
-def test_normalize_lid_van_reduces_to_member():
-    """Owner directive 2026-05-17: 'Tertiair: Lid van Oedelem' and
-    'Paleogeen: Formatie van Aalter - Lid van Oedelem' must both produce
-    'lid van oedelem' so the same member merges across different parent
-    formations in the discover-scan dialog."""
-    assert normalize_formation_key("Tertiair: Lid van Oedelem") == "lid van oedelem"
-    assert (
-        normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Oedelem")
-        == "lid van oedelem"
-    )
-
-
-def test_normalize_no_lid_van_keeps_full_key():
-    """Strings without 'lid van' are unaffected by step 5 -- their full
-    normalised key is returned unchanged."""
+def test_normalize_no_colon_uses_whole_string():
+    """No colon → the whole string is the identity (just folded)."""
     assert normalize_formation_key("Quartair") == "quartair"
+    assert normalize_formation_key("Ma") == "ma"
+
+
+def test_normalize_lid_van_strings_are_distinct():
+    """After the 2026-05-17 reversal, 'Tertiair: Lid van Oedelem' and
+    'Paleogeen: Formatie van Aalter - Lid van Oedelem' produce DIFFERENT
+    keys.  The machine no longer reduces them to 'lid van oedelem'.
+
+    Equivalence across these strings is the user's responsibility via the
+    manual lumping tool.
+    """
+    key_a = normalize_formation_key("Tertiair: Lid van Oedelem")
+    key_b = normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Oedelem")
+    assert key_a != key_b
+
+    # Each is a typographically stable key of itself.
+    assert key_a == normalize_formation_key("TERTIAIR: LID VAN OEDELEM")
+    assert key_b == normalize_formation_key("PALEOGEEN: FORMATIE VAN AALTER - LID VAN OEDELEM")
+
+
+def test_normalize_distinct_strings_stay_separate():
+    """Two different formation names with no typographic overlap stay separate."""
+    assert normalize_formation_key(
+        "Formatie van Aalter - Lid van Oedelem"
+    ) != normalize_formation_key("Formatie van Aalter - Lid van Vlierzele")
+
+
+def test_normalize_informal_names_unchanged():
+    """Plain informal names (no colon) are normalised to lowercased collapsed forms."""
+    assert normalize_formation_key("Quartair") == "quartair"
+    assert normalize_formation_key("Boom Klei") == "boom klei"
     assert (
         normalize_formation_key("Formatie van Maldegem of Formatie van Aalter")
         == "formatie van maldegem of formatie van aalter"
     )
-    assert normalize_formation_key("Ma") == "ma"
-
-
-def test_normalize_distinct_members_stay_separate():
-    """Two different members under the same parent formation produce different
-    keys -- 'lid van' reduction does NOT over-merge distinct units."""
-    assert normalize_formation_key(
-        "Paleogeen: Formatie van Aalter - Lid van Oedelem"
-    ) != normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Vlierzele")
-    assert normalize_formation_key("Tertiair: Lid van Oedelem") == "lid van oedelem"
-    assert normalize_formation_key("Tertiair: Lid van Vlierzele") == "lid van vlierzele"
-
-
-def test_normalize_lid_van_re_greedy_keeps_qualifier():
-    """S2: ``_LID_VAN_RE`` is greedy, so any qualifier after the member name is
-    preserved in the key.
-
-    ``"Tertiair: Lid van Oedelem - Subtype X"`` normalises to
-    ``"lid van oedelem subtype x"`` — the greedy ``.+`` consumes the entire
-    post-``lid van`` tail including the subtype qualifier.
-
-    This pins the contract so that a future DOV qualifier change (e.g.
-    ``"Lid van Oedelem - Subtype X"`` → ``"Lid van Oedelem - Subtype Y"``)
-    breaks this test and is caught explicitly, rather than silently producing
-    a different key that causes new formations to be created instead of
-    merging with the existing ones.
-    """
-    key = normalize_formation_key("Tertiair: Lid van Oedelem - Subtype X")
-    # Greedy match: "lid van oedelem" + the collapsed remainder.
-    assert key == "lid van oedelem subtype x"
-    # Two different qualifiers under the same member DO produce different
-    # keys — they are not merged.
-    key_y = normalize_formation_key("Tertiair: Lid van Oedelem - Subtype Y")
-    assert key != key_y
-    # The base form without a qualifier still resolves to "lid van oedelem".
-    base = normalize_formation_key("Tertiair: Lid van Oedelem")
-    assert base == "lid van oedelem"
-    # Verify the greedy tail does NOT collapse the qualifier into the base form.
-    assert key != base
+    assert normalize_formation_key("HyEg") == "hyeg"
+    assert normalize_formation_key("Alluvium") == "alluvium"
+    assert normalize_formation_key("Zand") == "zand"
 
 
 # ---------------------------------------------------------------------------
@@ -775,13 +756,15 @@ async def test_execute_unselected_formation_deleted():
 @pytest.mark.asyncio
 async def test_execute_selected_canonical_variant_not_deleted():
     """A formation whose canonical key IS in selected_keys must not be deleted
-    even when its raw ``regional_ref`` uses a dash-bearing DOV name.
+    even when its raw ``regional_ref`` uses dashes and punctuation.
 
-    This is the exact scenario that caused the da98053 freeze: a formation with
-    ``regional_ref = "Paleogeen: Formatie van Aalter - Lid van Oedelem"`` has
-    canonical key ``"lid van oedelem"`` (after normalize_formation_key).  The
-    old client-side ``".toLowerCase()"`` produced the full raw string, which did
-    not match the server-minted key, so the formation was wrongly deleted.
+    After the 2026-05-17 typographic-only reversal, the canonical key for
+    ``"Paleogeen: Formatie van Aalter - Lid van Oedelem"`` is the full
+    typographically-normalised string (``"paleogeen formatie van aalter lid
+    van oedelem"``), NOT the former ``"lid van oedelem"`` reduction.
+
+    Passing the correct typographic key in ``selected_keys`` must protect
+    the formation from deletion.
     """
     from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
         AutoPopulateContactsFromStratigraphy,
@@ -790,12 +773,18 @@ async def test_execute_selected_canonical_variant_not_deleted():
     project_id = uuid4()
     model_id = uuid4()
 
+    regional_ref = "Paleogeen: Formatie van Aalter - Lid van Oedelem"
     formation = _formation_stub(
         name="Boom Klei",
-        regional_ref="Paleogeen: Formatie van Aalter - Lid van Oedelem",
+        regional_ref=regional_ref,
     )
 
     session = _make_session_with_formations(boreholes=[], existing_formations=[formation])
+
+    # Canonical key is the full typographic normalisation of the regional_ref.
+    # Using normalize_formation_key ensures the test stays in sync with the
+    # implementation rather than hardcoding the expected string twice.
+    expected_key = normalize_formation_key(regional_ref)
 
     with patch(
         "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
@@ -807,8 +796,7 @@ async def test_execute_selected_canonical_variant_not_deleted():
             project_id=project_id,
             model_id=model_id,
             borehole_ids=[],
-            # Canonical key for the formation above is "lid van oedelem".
-            selected_keys=["lid van oedelem"],
+            selected_keys=[expected_key],
         )
 
     assert formation.id not in outcome.deleted_formation_ids
