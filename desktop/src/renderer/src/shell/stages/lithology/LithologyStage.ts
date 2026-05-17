@@ -26,16 +26,20 @@ function LithologyToolbar(): null {
  * Returns
  * -------
  * StageSummary
- *     Count of lithostratigraphic models in the project (badge), or a
- *     neutral label when none exist yet.
+ *     Count of units in the ACTIVE litho model — mirrors the Geology
+ *     stage badge (``visibleFormations.length``) so every spine badge
+ *     consistently counts that stage's content, not its containers.
+ *     An empty/new litho model (nothing drawn yet) → no badge, which
+ *     is what the engineer expects ("I added nothing"). The mere
+ *     existence of model containers is NOT content and must not show.
  */
 function useLithologyStageSummary(): StageSummary {
   const {
-    geoModel: { models },
+    geoModel: { lithoFormations },
   } = useShell()
-  const count = models.filter(m => m.kind === 'lithostratigraphic').length
+  const count = lithoFormations.length
   return {
-    label: 'Lithology models',
+    label: 'Lithology units',
     badge: count > 0 ? String(count) : null,
     badgeIntent: 'neutral',
   }
