@@ -29,6 +29,15 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
     When ``None`` (omitted), all layers are processed — the pre-existing
     behaviour of ``handleAutoPopulateFromStratigraphy`` (Sections "Seed
     from stratigraphy") is unaffected.
+
+    ``section_id`` is the "Seed from stratigraphy" path trigger.  When
+    provided, the endpoint additionally PATCHes that section's
+    ``seeded_formation_contact_ids`` to the union of the existing set and
+    the ids of every contact created or found during this run (created ∪
+    found).  The updated section row is returned in ``updated_section``
+    so the frontend can patch local state in one round-trip without a
+    separate GET.  When ``None`` (the Fill-from-boreholes path), no
+    section is touched and ``updated_section`` is ``null`` in the response.
     """
 
     borehole_ids: list[UUID] = Field(min_length=1, max_length=500)
@@ -40,3 +49,9 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
     the identical mapping that was used for the discover preview
     (``discover≡apply`` invariant).  ``None`` (omitted) = no lumping.
     """
+    # The section whose seeded set this Seed run should populate.
+    # When provided, the endpoint unions created ∪ found contact ids
+    # into section.seeded_formation_contact_ids and returns the updated
+    # section row so the frontend can patch state in one round-trip.
+    # Absent on the Fill-from-boreholes path — Fill does not touch seeds.
+    section_id: UUID | None = None
