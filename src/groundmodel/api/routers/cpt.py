@@ -25,6 +25,7 @@ from groundmodel.api.schemas.elevation_patch_request import ElevationPatchReques
 from groundmodel.api.schemas.validation_issue_schema import ValidationIssueSchema
 from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_dov import ImportCptDov
+from groundmodel.application.job_registry import JobRegistry, get_job_registry
 from groundmodel.domain.services.cpt_corrections import calculate_qt_series
 from groundmodel.domain.services.cpt_interpretation import calculate_ic_series
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
@@ -34,7 +35,7 @@ from groundmodel.infrastructure.db.repositories.geology_repository import (
 from groundmodel.infrastructure.db.repositories.investigation_review_repository import (
     InvestigationReviewRepository,
 )
-from groundmodel.infrastructure.db.session import get_session
+from groundmodel.infrastructure.db.session import AsyncSessionFactory, get_session
 from groundmodel.infrastructure.parsers.cpt.dov.dov_client import WfsIndexEntry
 from groundmodel.shared.exceptions import DuplicateCptError, ParseError
 from groundmodel.shared.logging.logger_factory import LoggerFactory
@@ -230,165 +231,221 @@ async def import_cpt_dov(
     )
 
 
-async def _cpt_dov_event_generator(
+def _make_cpt_dov_import_coro(
     request: ImportDovRequest,
-    session: AsyncSession,
-) -> AsyncGenerator[str, None]:
-    """Run a CPT DOV import and yield SSE-formatted progress events.
+) -> AsyncGenerator[asyncio.Queue[dict | None], None]:
+    """Return a coroutine-factory for the CPT DOV import background task.
 
-    Each event is a bare ``data: <json>\\n\\n`` line (no ``event:`` or
-    ``id:`` fields — the client's ``onmessage`` handler parses the
-    ``type`` field in the payload). Three message shapes are possible:
+    The returned factory accepts an ``asyncio.Queue`` and returns a
+    coroutine.  ``JobRegistry.start`` calls it to create the task.
+    The import coroutine:
 
-    Pins (emitted once, immediately after WFS discovery):
-        ``{"type": "pins", "items": [{"permkey": str, "name": str,
-           "x_lambert72": float, "y_lambert72": float}, ...]}``
-
-    Progress tick:
-        ``{"phase": "wfs"|"download"|"dedup"|"persist"|"commit",
-           "done": int, "total": int}``
-
-    Completion:
-        ``{"type": "done", "imported": int, "duplicates": int,
-           "failed": int, "cpt_ids": [...]}``
-
-    Error:
-        ``{"type": "error", "message": str}``
-
-    The import runs in the same asyncio event loop as the generator.
-    The callbacks put event dicts on an asyncio.Queue; the generator
-    drains that queue and serialises to SSE frames.  A sentinel value
-    (``None``) on the queue signals that the import task has finished
-    (either result or exception).
+    * Creates its own ``AsyncSession`` (independent of the spawning
+      request's session — that session is closed when the ``202``
+      response is sent).
+    * Puts progress event dicts + a terminal ``None`` sentinel on the queue.
 
     Parameters
     ----------
     request : ImportDovRequest
         Bounding box + optional project_id.
-    session : AsyncSession
-        DB session injected by the route; shared with the import task.
+
+    Returns
+    -------
+    Callable[[asyncio.Queue], Coroutine[None]]
+        Factory suitable for ``JobRegistry.start``.
+    """
+
+    def factory(queue: asyncio.Queue) -> object:  # -> Coroutine
+        async def run_import() -> None:
+            async def progress_cb(phase: str, done: int, total: int) -> None:
+                await queue.put({"phase": phase, "done": done, "total": total})
+
+            async def pins_cb(index: list[WfsIndexEntry]) -> None:
+                # Emit a structured "pins" event so the frontend can render all N
+                # pending map markers before any XML download has started.
+                await queue.put(
+                    {
+                        "type": "pins",
+                        "items": [
+                            {
+                                "permkey": e.permkey,
+                                "name": e.name,
+                                "x_lambert72": e.x_lambert72,
+                                "y_lambert72": e.y_lambert72,
+                            }
+                            for e in index
+                        ],
+                    }
+                )
+
+            # Background task owns its own session so the spawning request's
+            # session can be closed immediately (with the 202 response) without
+            # holding a DB connection for the full import duration (~60 s cold).
+            async with AsyncSessionFactory() as session:
+                try:
+                    result = await ImportCptDov(session).execute(
+                        west=request.west,
+                        south=request.south,
+                        east=request.east,
+                        north=request.north,
+                        app_project_id=request.project_id,
+                        progress_cb=progress_cb,
+                        pins_cb=pins_cb,
+                    )
+                    await queue.put(
+                        {
+                            "type": "done",
+                            "imported": result.imported,
+                            "duplicates": result.duplicates,
+                            "failed": result.failed,
+                            "cpt_ids": [str(cid) for cid in result.cpt_ids],
+                        }
+                    )
+                except httpx.TimeoutException as exc:
+                    logger.warning(f"DOV stream import timeout: {type(exc).__name__}: {exc}")
+                    await queue.put({"type": "error", "message": "DOV did not respond in time"})
+                except httpx.ConnectError as exc:
+                    logger.warning(f"DOV stream import connect error: {type(exc).__name__}: {exc}")
+                    await queue.put(
+                        {
+                            "type": "error",
+                            "message": "Cannot reach DOV — check your internet connection",
+                        }
+                    )
+                except httpx.HTTPStatusError as exc:
+                    logger.warning(
+                        f"DOV stream import upstream {exc.response.status_code}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    await queue.put(
+                        {
+                            "type": "error",
+                            "message": f"DOV returned HTTP {exc.response.status_code}",
+                        }
+                    )
+                except httpx.RequestError as exc:
+                    logger.warning(f"DOV stream import request error: {type(exc).__name__}: {exc}")
+                    await queue.put({"type": "error", "message": "DOV request failed"})
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(f"DOV stream import unexpected error: {type(exc).__name__}: {exc}")
+                    await queue.put({"type": "error", "message": "Import failed unexpectedly"})
+                finally:
+                    # Sentinel: the SSE generator exits on None.
+                    await queue.put(None)
+
+        return run_import()
+
+    return factory  # type: ignore[return-value]
+
+
+async def _sse_from_registry(
+    job_id: UUID,
+    registry: JobRegistry,
+) -> AsyncGenerator[str, None]:
+    """Drain a job's event queue as SSE-formatted frames.
+
+    Parameters
+    ----------
+    job_id : UUID
+        Job-id registered by ``POST /import-dov/stream``.
+    registry : JobRegistry
+        The shared in-process job registry.
 
     Yields
     ------
     str
-        SSE-formatted event frames ending with a double newline.
+        SSE frames ``data: <json>\\n\\n``.
     """
-    queue: asyncio.Queue[dict | None] = asyncio.Queue()
-
-    async def progress_cb(phase: str, done: int, total: int) -> None:
-        await queue.put({"phase": phase, "done": done, "total": total})
-
-    async def pins_cb(index: list[WfsIndexEntry]) -> None:
-        # Emit a structured "pins" event so the frontend can render all N pending
-        # map markers immediately — before any XML download has started.  The
-        # wholesale swap on "done" (existing GET /cpt/ list refresh) replaces them.
-        await queue.put(
-            {
-                "type": "pins",
-                "items": [
-                    {
-                        "permkey": e.permkey,
-                        "name": e.name,
-                        "x_lambert72": e.x_lambert72,
-                        "y_lambert72": e.y_lambert72,
-                    }
-                    for e in index
-                ],
-            }
-        )
-
-    async def run_import() -> None:
-        try:
-            result = await ImportCptDov(session).execute(
-                west=request.west,
-                south=request.south,
-                east=request.east,
-                north=request.north,
-                app_project_id=request.project_id,
-                progress_cb=progress_cb,
-                pins_cb=pins_cb,
-            )
-            await queue.put(
-                {
-                    "type": "done",
-                    "imported": result.imported,
-                    "duplicates": result.duplicates,
-                    "failed": result.failed,
-                    "cpt_ids": [str(cid) for cid in result.cpt_ids],
-                }
-            )
-        except httpx.TimeoutException as exc:
-            logger.warning(f"DOV stream import timeout: {type(exc).__name__}: {exc}")
-            await queue.put({"type": "error", "message": "DOV did not respond in time"})
-        except httpx.ConnectError as exc:
-            logger.warning(f"DOV stream import connect error: {type(exc).__name__}: {exc}")
-            await queue.put(
-                {"type": "error", "message": "Cannot reach DOV — check your internet connection"}
-            )
-        except httpx.HTTPStatusError as exc:
-            logger.warning(
-                f"DOV stream import upstream {exc.response.status_code}: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            await queue.put(
-                {"type": "error", "message": f"DOV returned HTTP {exc.response.status_code}"}
-            )
-        except httpx.RequestError as exc:
-            logger.warning(f"DOV stream import request error: {type(exc).__name__}: {exc}")
-            await queue.put({"type": "error", "message": "DOV request failed"})
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"DOV stream import unexpected error: {type(exc).__name__}: {exc}")
-            await queue.put({"type": "error", "message": "Import failed unexpectedly"})
-        finally:
-            # Sentinel: the generator loop exits on None.
-            await queue.put(None)
-
-    task = asyncio.create_task(run_import())
-    try:
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
-            yield f"data: {json.dumps(event)}\n\n"
-    finally:
-        # If the client disconnects early, cancel the import task so DOV
-        # downloads don't linger after the connection is gone.
-        task.cancel()
+    async for event in registry.stream(job_id):
+        yield f"data: {json.dumps(event)}\n\n"
 
 
-@router.post("/import-dov/stream")
+@router.post("/import-dov/stream", status_code=status.HTTP_202_ACCEPTED)
 async def import_cpt_dov_stream(
     request: ImportDovRequest,
-    session: AsyncSession = Depends(get_session),
-) -> StreamingResponse:
-    """Stream CPT DOV import progress as Server-Sent Events.
+    registry: JobRegistry = Depends(get_job_registry),
+) -> dict:
+    """Spawn a CPT DOV import as a background task and return its job-id.
 
-    Identical import semantics to ``POST /cpt/import-dov`` — same
-    atomic-commit contract, same error handling.  The difference is
-    the response: instead of blocking until the import completes, this
-    endpoint opens a ``text/event-stream`` connection and emits one
-    progress event per phase tick, followed by a final
-    ``{"type": "done", ...}`` or ``{"type": "error", ...}`` event.
+    The import runs in the same asyncio event loop but in its own
+    ``asyncio.Task`` with an independent ``AsyncSession``.  The spawning
+    request completes immediately with ``202 Accepted``; the client
+    connects to ``GET /cpt/import-dov/stream/{job_id}`` to receive the
+    SSE progress stream.
 
-    The client (``EventSource`` or manual ``fetch`` + reader) should
-    close the connection after receiving the terminal event.
+    Decoupling the session from the connection lifetime means the import
+    no longer holds a DB connection open for the full ~60 s cold-cache
+    duration.  Cancellation via ``DELETE /jobs/{job_id}`` leaves every
+    XML already written to the on-disk cache intact so subsequent imports
+    of the same bbox are cache-warm.
 
     Parameters
     ----------
     request : ImportDovRequest
         Bounding box (west, south, east, north) + optional project_id.
-    session : AsyncSession
-        Database session, injected.
+    registry : JobRegistry
+        In-process job registry, injected.
+
+    Returns
+    -------
+    dict
+        ``{"job_id": "<uuid>"}``
+    """
+    factory = _make_cpt_dov_import_coro(request)
+    job_id = registry.start(factory)
+    logger.info(f"DOV CPT import job {job_id} spawned")
+    return {"job_id": str(job_id)}
+
+
+@router.get("/import-dov/stream/{job_id}")
+async def get_cpt_dov_stream(
+    job_id: UUID,
+    registry: JobRegistry = Depends(get_job_registry),
+) -> StreamingResponse:
+    """Drain the SSE event queue for a running CPT DOV import job.
+
+    The client opens this endpoint after receiving the job-id from
+    ``POST /cpt/import-dov/stream``.  Events are identical in shape to
+    the former inline SSE stream:
+
+    Pins (once, immediately after WFS discovery):
+        ``{"type": "pins", "items": [...]}``
+
+    Progress tick:
+        ``{"phase": "...", "done": int, "total": int}``
+
+    Completion:
+        ``{"type": "done", "imported": int, ...}``
+
+    Error:
+        ``{"type": "error", "message": str}``
+
+    Parameters
+    ----------
+    job_id : UUID
+        Job-id returned by ``POST /cpt/import-dov/stream``.
+    registry : JobRegistry
+        In-process job registry, injected.
 
     Returns
     -------
     StreamingResponse
-        ``Content-Type: text/event-stream`` response with
-        ``Cache-Control: no-cache`` and ``X-Accel-Buffering: no``
-        (disables Nginx buffering for proxied deployments).
+        ``Content-Type: text/event-stream``.
+
+    Raises
+    ------
+    HTTPException(404)
+        When no job with that id is registered (already finished and
+        cleaned up, or never existed).
     """
+    if job_id not in registry._jobs:  # noqa: SLF001 — registry is a plain dict wrapper
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No active import job with id {job_id}",
+        )
     return StreamingResponse(
-        _cpt_dov_event_generator(request, session),
+        _sse_from_registry(job_id, registry),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
