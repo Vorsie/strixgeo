@@ -21,12 +21,14 @@
 // wired from the bus.  The component never gains a direct prop; it reads from
 // useShell() and delegates.
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
+import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import MapView from '../../../components/MapView'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
+import { log } from '../../../utils/log'
 
 /**
  * Center canvas for the Sections stage.
@@ -91,6 +93,7 @@ export default function SectionsCanvas(): JSX.Element {
       cancelSectionDraw,
       handleSelectSection,
       handleCreateSection,
+      applyUpdatedSection,
     },
     overlays: {
       virtueleBoringSectionModels,
@@ -177,6 +180,72 @@ export default function SectionsCanvas(): JSX.Element {
   const axisCreateContact = isLitho ? handleCreateLithoContact : handleCreateContact
   const axisCreateFormation = isLitho ? handleInlineLithoCreateFormation : handleInlineCreateFormation
 
+  // P2-F — explicit-content filter (owner directive 2026-05-17).
+  //
+  // WHY filter at this data-boundary:
+  //   The contacts list is loaded model-wide (all contacts in the active
+  //   geological/litho model), which is correct for the Build/TIN path
+  //   (Delaunay needs ALL anchors across the model). The section render
+  //   and export path must only show contacts the user explicitly placed on
+  //   THIS section via Seed or manual draw — stored in
+  //   seeded_formation_contact_ids. Without this filter every contact in
+  //   the model renders on every section, violating the owner directive:
+  //   "nothing on a section without the user clicking a button on that section".
+  //
+  // Stale-id tolerance mirrors Option (b) from the snapshot rule: a contact
+  // deleted from the model after being seeded is simply absent from axisContacts
+  // — filtering by id-membership naturally skips it, no crash.
+  const sectionContactIds = useMemo(
+    () => new Set(selectedSection?.seeded_formation_contact_ids ?? []),
+    [selectedSection],
+  )
+  const sectionContacts = useMemo(
+    () =>
+      selectedSection !== null && sectionContactIds.size > 0
+        ? axisContacts.filter(c => sectionContactIds.has(c.id))
+        : [],
+    [selectedSection, sectionContactIds, axisContacts],
+  )
+
+  // P2-H — section-aware contact draw.
+  //
+  // The plain axisCreateContact passes no section context.  This wrapper
+  // passes section_id so the backend (P2-E) seeds seeded_formation_contact_ids,
+  // then fetches the updated section row and calls applyUpdatedSection so P2-F's
+  // filter immediately reflects the new contact on this render cycle.
+  //
+  // WHY a GET after draw (not optimistic): handleCreateContact does not
+  // expose the created contact id to its caller (returns void); the backend
+  // seeds the section in the same request (union pattern), so one GET is the
+  // authoritative post-draw state.  For a single manual draw this is cheap.
+  const sectionAwareCreateContact = useCallback(
+    async (
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      depth_m: number,
+      formationId: string,
+      snapped: boolean,
+    ): Promise<void> => {
+      if (selectedSection === null) return
+      await axisCreateContact(anchorKind, anchorId, depth_m, formationId, snapped)
+      // Fetch the authoritative section row so seeded_formation_contact_ids
+      // includes the contact that was just drawn (backend seeded it in P2-E).
+      try {
+        const refreshed = await api.section.get(project.id, selectedSection.id)
+        applyUpdatedSection(refreshed)
+        log.debug(
+          'section',
+          `sectionAwareCreateContact: section ${selectedSection.id} seeded set refreshed`,
+        )
+      } catch (err) {
+        // Non-fatal: the contact exists in the model; only the section's
+        // rendered contact list is stale.  A Seed or page refresh corrects it.
+        log.warn('section', 'sectionAwareCreateContact: section refresh after draw failed', err)
+      }
+    },
+    [selectedSection, axisCreateContact, project.id, applyUpdatedSection],
+  )
+
   // Slice 3 (#55): resolve the surface elevation for the suggestion target so
   // the ghost overlay can convert depth-below-surface → absolute mTAW level.
   // Searches both visible lists; null when the investigation isn't loaded yet.
@@ -224,12 +293,12 @@ export default function SectionsCanvas(): JSX.Element {
         onClose={clearSectionSelection}
         onSelectCpt={handleSelect}
         onSelectBorehole={handleSelectBorehole}
-        contacts={axisContacts}
+        contacts={sectionContacts}
         formations={axisFormations}
         surfacesByFormationId={axisSurfacesByFormationId}
         focusedContactIds={focusedContactIds}
         excludedBoreholeIds={axisExcludedBoreholeIds}
-        onCreateContact={axisCreateContact}
+        onCreateContact={sectionAwareCreateContact}
         onUpdateContactDepth={handleUpdateContactDepth}
         onDeleteContact={handleDeleteContact}
         onBatchUpdateContacts={handleBatchUpdateContacts}
@@ -237,8 +306,21 @@ export default function SectionsCanvas(): JSX.Element {
         // Seed from stratigraphy: only available on the geological axis
         // (the litho axis has its own suggest-litho flow). On the litho
         // axis the prop is undefined and the button stays disabled.
+        //
+        // P2-G: pass selectedSection.id as sectionId so the router seeds
+        // seeded_formation_contact_ids and returns updated_section.
+        // applyUpdatedSection patches local section state from the response
+        // without a refetch GET — the section's seeded set is immediately
+        // current so P2-F's filter picks up the new contacts on the next render.
         onAutoPopulateFromStratigraphy={
-          !isLitho && formations.length > 0 ? handleAutoPopulateFromStratigraphy : undefined
+          !isLitho && formations.length > 0
+            ? (boreholeIds) =>
+                handleAutoPopulateFromStratigraphy(
+                  boreholeIds,
+                  selectedSection.id,
+                  applyUpdatedSection,
+                )
+            : undefined
         }
         onCreateFormation={axisCreateFormation}
         onExportDxf={
