@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useProject } from './useProject'
+import type { StratigraphyLumping } from '../utils/projectFile'
 
 // Tests for the file-aware ``useProject`` hook. We mock the two
 // boundary surfaces it calls into:
@@ -703,6 +704,141 @@ describe('useProject', () => {
     expect(written).toContain('"cpt-keep"')
     expect(written).not.toContain('"cpt-orphan"')
     expect(written).not.toContain('"bh-orphan"')
+  })
+
+  // S5 regression — stratigraphy_lumping must survive a File → Save
+  //
+  // Before the fix, saveProject called buildProjectFile(trimmedBundle) without
+  // passing the lumping state, so every File → Save after a writeLumpingSnapshot
+  // overwrote the user's lumping map with null. The fix tracks currentLumping in
+  // useState and passes it to buildProjectFile.
+  it('S5: saveProject preserves stratigraphy_lumping written by writeLumpingSnapshot', async () => {
+    const { api } = await import('../api/client')
+    const lumpingMap = { 'boom klei': 'Quartair', 'vlaamse vallei': 'Quartair' }
+    const lumping: StratigraphyLumping = {
+      schema_version: 1,
+      applied_at: '2026-05-17T10:00:00.000Z',
+      map: lumpingMap,
+    }
+
+    // File on disk has no lumping (simulates a project opened before the Fill dialog ran).
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+        stratigraphy_lumping: null,
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
+    // writeLumpingSnapshot reads the current file and patches it.
+    // After the patch write, it reads the file back (the same mock returns
+    // the patched JSON on the second call — we simulate this by returning
+    // the patched content on all subsequent readProjectFile calls).
+    const patchedFileContent = JSON.stringify({
+      format_version: 3,
+      project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
+      cpts: [],
+      boreholes: [],
+      geological_formations: [],
+      geological_models: [],
+      cross_sections: [],
+      investigation_reviews: [],
+      stratigraphy_lumping: lumping,
+    })
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site.gmproj')
+    })
+
+    // Simulate the user running Fill from boreholes → writeLumpingSnapshot fires.
+    // The second read (inside writeLumpingSnapshot) returns the patched content.
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      patchedFileContent,
+    )
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
+
+    await act(async () => {
+      await result.current.writeLumpingSnapshot(lumping)
+    })
+
+    // writeLumpingSnapshot wrote once (the patch write).
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+
+    // Now File → Save — saveProject must include the lumping in the written file.
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
+    await act(async () => {
+      await result.current.saveProject()
+    })
+
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    const [, savedContent] = (
+      window.electron.writeProjectFile as ReturnType<typeof vi.fn>
+    ).mock.calls[0] as [string, string]
+    // The saved file must contain the lumping map keys/values.
+    // Before the S5 fix this assertion would fail because buildProjectFile
+    // was called without currentLumping and wrote stratigraphy_lumping: null.
+    expect(savedContent).toContain('"stratigraphy_lumping"')
+    expect(savedContent).toContain('"boom klei"')
+    expect(savedContent).toContain('"Quartair"')
+  })
+
+  it('S5: openProjectFile seeds stratigraphy_lumping from the file so saveProject preserves it', async () => {
+    // Tests the companion path: when a .gmproj already has stratigraphy_lumping
+    // on disk (saved in a prior session), opening the file should seed currentLumping
+    // so the VERY FIRST File → Save (before any writeLumpingSnapshot call) still
+    // includes the lumping.
+    const { api } = await import('../api/client')
+    const existingLumping = {
+      schema_version: 1,
+      applied_at: '2026-05-16T09:00:00.000Z',
+      map: { 'holoceen veen': 'Holoceen' },
+    }
+
+    ;(window.electron.readProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({
+        format_version: 3,
+        project: { id: '01k-NEW', name: 'Site A', status: 'active', tags: [] },
+        cpts: [],
+        boreholes: [],
+        geological_formations: [],
+        geological_models: [],
+        cross_sections: [],
+        investigation_reviews: [],
+        stratigraphy_lumping: existingLumping,
+      }),
+    )
+    ;(api.project.get as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(api.project.bundle as ReturnType<typeof vi.fn>).mockResolvedValue(emptyBundle(created))
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+
+    const { result } = renderHook(() => useProject())
+    await act(async () => {
+      await result.current.openProjectFile('C:/path/site-with-lumping.gmproj')
+    })
+
+    // saveProject without any writeLumpingSnapshot call in between.
+    ;(window.electron.writeProjectFile as ReturnType<typeof vi.fn>).mockClear()
+    await act(async () => {
+      await result.current.saveProject()
+    })
+
+    expect(window.electron.writeProjectFile).toHaveBeenCalledTimes(1)
+    const [, savedContent] = (
+      window.electron.writeProjectFile as ReturnType<typeof vi.fn>
+    ).mock.calls[0] as [string, string]
+    // The lumping seeded from the file must be in the written bundle.
+    expect(savedContent).toContain('"stratigraphy_lumping"')
+    expect(savedContent).toContain('"holoceen veen"')
+    expect(savedContent).toContain('"Holoceen"')
   })
 
   it('discardEdits reverts project back to saved (drops in-memory edits)', async () => {
