@@ -837,33 +837,41 @@ rule is an onboarding-legibility contract). Fix: move
 an external `.gmproj`/API contract depended on the old path (it does
 not — these are internal).
 
-## 55. Litho slice 4 — section-editor ghost-suggestion UI not built (Tier C — dogfeed gap)
+## 55. Litho slice 4 — ghost-suggestion overlay + accept→contact (Tier C — steps 2-3 of 3)
 
-**What.** Litho slices 1–3 (backend) + 4a/4b (frontend api types +
-kind-safe model resolution) shipped. The user-facing piece — a
-"Suggest litho" section-editor action that calls `suggestLitho`,
-renders the returned layers as accept/reject ghost lines (mirroring
-`VirtueleBoringGhostColumns`), and on accept resolves/creates a
-formation per lithology then creates contacts — is NOT built.
+**Step 1 DONE (2026-05-17, ux-reviewed).** The model-kind picker
+shipped: `useGeologicalModel` exposes `models` / `activeLithoModel` /
+`handleCreateLithoModel` / `handleActivateLithoModel` (additive — the
+race-guarded geological bootstrap untouched); `ModelKindPicker.tsx`
+in the GeologyInspector header (select/create the active litho model,
+backend enforces the parent invariant). ux-reviewer pass fixed a
+phantom-token blocker + contrast + busy-guard + an actionable empty
+CTA. 6 picker tests; geological-model SWITCHING deliberately out of
+scope (v1 single backbone).
 
-**Why deferred.** It depends on model-management UX that does not
-exist: there is no model picker, and slice 1 made `is_active`
-per-kind so the user needs a way to create + select the active
-lithostratigraphic model. Building a picker + litho-model lifecycle
-UI + an interactive overlay on the 1,655-line SectionPanel /
-2,013-line ContactsLayer as one tail-of-session change is how slice 3
-shipped two bugs. The backend is fully usable via the API today.
+**Steps 2-3 REMAIN.** (2) the ghost-suggestion overlay — a "Suggest
+litho" section action that calls `suggestLitho` for the
+focused/selected investigation and renders the returned layers as
+accept/reject ghost lines (fork `VirtueleBoringGhostColumns`, dashed
++ interactive); (3) accept→ensure-formation→create-contact reusing
+`handleInlineCreateFormation` + `handleCreateContact` (a suggestion
+has `suggested_lithology`/`nad_class` but no `formation_id` — resolve
+or create a litho-model formation per distinct lithology on accept).
 
-**When to revisit.** Next focused session on the litho feature. This
-is genuinely a `ux-reviewer` piece (new interaction, ghost overlay,
-accept/reject affordance, the formation-resolution-on-accept flow) —
-sequence it: (1) minimal model-kind picker / "create litho model"
-affordance, (2) the ghost overlay component (fork
-`VirtueleBoringGhostColumns`, dashed + interactive), (3) the
-accept→ensure-formation→create-contact path reusing
-`handleInlineCreateFormation` + `handleCreateContact`. The
-`activeLithoModel` hook field lands WITH (1), not before (don't
-pre-build the selector for UI that isn't there).
+**Open UX question (deferred from the step-1 ux-review, S2).** The
+picker currently sits as a peer row in the GeologyInspector header.
+gINT/LeapFrog/D-Series put scenario/model pickers at panel-level
+prominence. Re-evaluate the picker's placement/prominence when step 2
+lands and the full pick-on-section flow is visible — do NOT redesign
+the inspector prominence speculatively before then.
+
+**Why steps 2-3 deferred.** An interactive overlay on the 1,655-line
+SectionPanel / 2,013-line ContactsLayer is the exact surface where
+slice 3 shipped two bugs when rushed; it is its own focused
+ux-reviewed session. Backend + the model picker are fully usable
+today.
+
+**When to revisit.** Next focused litho session — start step 2.
 
 ---
 
