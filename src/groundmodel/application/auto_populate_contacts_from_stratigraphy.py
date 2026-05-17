@@ -502,6 +502,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         borehole_ids: Iterable[UUID],
         selected_keys: list[str] | None = None,
         manual_map: dict[str, str] | None = None,
+        section_id: UUID | None = None,
     ) -> AutoPopulateOutcome:
         """Walk every borehole in scope and seed contacts.
 
@@ -554,6 +555,17 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
 
             ``None`` (default) = no lumping; every raw key becomes its own
             formation (today's behaviour, fully backward-compatible).
+        section_id : UUID or None, optional
+            When provided (the "Seed from stratigraphy" path), the use case
+            additionally collects ``found_contact_ids`` — ids of contacts
+            that already existed in the model for the processed borehole
+            scope and were skipped for idempotency.  The caller (the router)
+            unions ``created_contact_ids ∪ found_contact_ids`` and PATCHes
+            the section's ``seeded_formation_contact_ids`` so pre-existing
+            contacts from a prior Fill or manual draw are also seeded.
+            When ``None`` (the Fill-from-boreholes path), ``found_contact_ids``
+            is always empty — Fill manages its own formation lifecycle and
+            does not touch section seeds.
 
         Returns
         -------
@@ -592,6 +604,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 skipped_existing=0,
                 skipped_unmatched=0,
                 skipped_no_stratigraphy=0,
+                found_contact_ids=[],
             )
 
         # Eager-load every observation + every layer for every borehole
@@ -680,6 +693,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             (
                 await self._session.execute(
                     select(
+                        FormationContactOrm.id,
                         FormationContactOrm.observation_layer_id,
                         FormationContactOrm.borehole_id,
                         FormationContactOrm.formation_id,
@@ -687,12 +701,33 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 )
             ).all()
         )
-        used_layer_ids: set[UUID] = {row[0] for row in contact_rows if row[0] is not None}
+        used_layer_ids: set[UUID] = {row[1] for row in contact_rows if row[1] is not None}
         occupied_anchor_formation: set[tuple[UUID, UUID]] = {
-            (row[1], row[2]) for row in contact_rows if row[1] is not None
+            (row[2], row[3]) for row in contact_rows if row[2] is not None
         }
+        # When section_id is provided, build two reverse-lookup dicts so found_contact_ids
+        # can be populated for BOTH skip paths (observation_layer_id idempotency AND
+        # occupied_anchor_formation).  Built once before the borehole loop.
+        # layer_id_to_contact_id: covers the used_layer_ids skip (idempotent auto-populate).
+        # anchor_formation_to_contact_id: covers the occupied_anchor_formation skip (user-placed).
+        layer_id_to_contact_id: dict[UUID, UUID] = (
+            {row[1]: row[0] for row in contact_rows if row[1] is not None}
+            if section_id is not None
+            else {}
+        )
+        anchor_formation_to_contact_id: dict[tuple[UUID, UUID], UUID] = (
+            {(row[2], row[3]): row[0] for row in contact_rows if row[2] is not None}
+            if section_id is not None
+            else {}
+        )
 
         created_contact_ids: list[UUID] = []
+        # Contacts that already existed in the model for the processed
+        # borehole scope — skipped for idempotency.  The Seed router
+        # unions these with created_contact_ids to build the section's
+        # seeded set so pre-existing contacts are also seeded.  Empty
+        # when section_id is None (the Fill path does not touch seeds).
+        found_contact_ids: list[UUID] = []
         created_formation_ids: list[UUID] = []
         # O(1) membership check for the post-walk depth-based reorder
         # (parallels created_formation_ids; the list keeps insertion
@@ -762,6 +797,13 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     continue
                 if layer.id in used_layer_ids:
                     skipped_existing += 1
+                    # When the Seed handler needs found ids (section_id provided),
+                    # record the contact that sourced from this layer so the router
+                    # can union it into the section's seeded set.
+                    if section_id is not None:
+                        existing_id = layer_id_to_contact_id.get(layer.id)
+                        if existing_id is not None:
+                            found_contact_ids.append(existing_id)
                     continue
                 primary_desc = (layer.description or "").strip()
                 if not primary_desc:
@@ -859,6 +901,13 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                         f"Borehole {borehole.id} formation {formation.id}: "
                         f"existing contact preserved, layer auto-create skipped"
                     )
+                    # When the Seed handler needs found ids (section_id provided),
+                    # record the existing contact so the router can union it into
+                    # the section's seeded set alongside created_contact_ids.
+                    if section_id is not None:
+                        existing_id = anchor_formation_to_contact_id.get(anchor_formation_key)
+                        if existing_id is not None:
+                            found_contact_ids.append(existing_id)
                     continue
 
                 contact = FormationContactOrm(
@@ -995,7 +1044,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             # this model by construction (created in the write loop above), and
             # must be in scope so the created_set guard below is consistent.
             model_formation_ids: frozenset[UUID] = frozenset(
-                row[2] for row in contact_rows if row[2] is not None
+                row[3] for row in contact_rows if row[3] is not None
             ) | frozenset(created_formation_ids)
             to_delete: list[GeologicalFormationOrm] = []
             for f in existing_formations:
@@ -1069,6 +1118,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             skipped_unmatched=skipped_unmatched,
             skipped_no_stratigraphy=skipped_no_stratigraphy,
             collisions=write_collisions,
+            found_contact_ids=found_contact_ids,
         )
 
     # Delegate to module-level helpers shared with scan_stratigraphy_candidates.
