@@ -967,7 +967,7 @@ function RowReassignDropdown({
           'text-xs rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent px-1.5 py-0.5 border transition-colors',
           currentTargetLabel !== null
             ? 'text-accent border-accent/40 bg-accent/5'
-            : 'text-text-muted border-border-subtle hover:text-accent hover:border-accent/40 opacity-0 group-hover/row:opacity-100',
+            : 'text-text-muted border-border-subtle hover:text-accent hover:border-accent/40 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100',
         ].join(' ')}
         onClick={open ? handleClose : handleOpen}
       >
