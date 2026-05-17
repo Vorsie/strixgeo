@@ -243,6 +243,18 @@ describe('injectDepthGaps', () => {
     expect(result).toHaveLength(3)
   })
 
+  it('inserts a sentinel when step is one increment above the threshold', () => {
+    // S3 boundary: 0.21 m is strictly greater than 0.20 m → sentinel inserted.
+    // Pins the strictly-greater-than semantics at the first value above the boundary
+    // (the adjacent test asserts 0.20 m does NOT insert — this test is the upper side).
+    const rows = [makePoint(0.0), makePoint(0.21)]
+    const result = injectDepthGaps(rows)
+    expect(result).toHaveLength(3) // two original rows + one sentinel
+    const sentinel = result[1]
+    expect(sentinel.qc).toBeNull()
+    expect(sentinel.depth).toBeCloseTo(0.105) // midpoint of 0.0..0.21
+  })
+
   it('inserts sentinels at every gap in a multi-gap series', () => {
     // Three gaps: 0.02→3.0 (2.98 m), 3.02→6.0 (2.98 m), 6.0→10.0 (4.0 m).
     // All three exceed the 0.20 m default threshold.
