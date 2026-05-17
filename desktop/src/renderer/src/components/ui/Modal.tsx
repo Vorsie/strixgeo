@@ -16,6 +16,7 @@
 //   * Submit logic + the ``busy`` flag during async actions
 
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 interface Props {
   open: boolean
@@ -54,14 +55,25 @@ export default function Modal({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [open, busy, onCancel])
 
+  // Early-return BEFORE the portal so a closed modal renders nothing
+  // anywhere (keeps the closed-state `container.querySelector` test
+  // assertions valid and avoids an empty body node).
   if (!open) return null
 
-  return (
+  // Portal to document.body. Without this the overlay is a descendant of
+  // whatever stage canvas opened it; the map/section canvas sits in its
+  // own stacking + containing-block context (a positioned/`transform`ed
+  // ancestor), so `fixed inset-0` was clipped to the canvas region — the
+  // backdrop dimmed only the map while the left rail / top bar / basemap
+  // panel stayed fully lit, so a "modal" read as a floating card over a
+  // live UI (reported on the DOV-import progress box). As a direct child
+  // of <body> the scrim covers the entire window above all chrome and the
+  // UI is genuinely cleared.
+  return createPortal(
     // ``z-[1100]`` puts the modal above Leaflet's stacked controls
     // (Leaflet sets z-index 1000 on its zoom + layer controls and ~700
-    // on popups). Without this, opening the metadata editor in windowed
-    // mode shows the legend / layer-toggle bleeding through the modal —
-    // disorienting and easy to mis-click.
+    // on popups). Now also above the app shell chrome since it is
+    // body-portaled.
     <div
       className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/30"
       onClick={() => !busy && onCancel()}
@@ -81,6 +93,7 @@ export default function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
