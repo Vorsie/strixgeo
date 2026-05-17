@@ -11,15 +11,14 @@
 // All state is sourced from useShell() — no props accepted.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Pencil, Slash, Trash2 } from 'lucide-react'
+import { AlertTriangle, Info, Pencil, Slash, Trash2 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
-import { api } from '../../../api/client'
-import type { CrossSectionResponse, GapIssueResponse } from '../../../api/client'
+import type { CrossSectionResponse } from '../../../api/client'
+import { useCrossingsValidation } from '../../../hooks/useCrossingsValidation'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import VirtueleBoringStrip from '../../../components/sections/VirtueleBoringStrip'
 import { hashHexColor } from '../../../utils/hashColor'
-import { log } from '../../../utils/log'
 
 // Natural sort — matches the ordering used in Sidebar.tsx's SectionList.
 const NATURAL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -728,11 +727,13 @@ interface CrossingsBannerProps {
 }
 
 /**
- * Amber warning banner listing surface-crossing issues for the active model.
+ * Surface-crossing banner for the active model.
  *
- * Fetches from ``GET /projects/{pid}/geology/models/{mid}/validate/crossings``
- * on mount and whenever ``refreshSignal`` changes.  Renders nothing when
- * there are no issues.
+ * Validation is stale-gated (debt #18) via ``useCrossingsValidation``:
+ * when ``staleSurfaceCount`` > 0 the cached TIN is NOT validated and a
+ * neutral "Build to validate" line is shown; once Build clears the
+ * stale flag the hook re-fetches and the amber warning (if any)
+ * appears. Renders nothing when the model is fresh and clean.
  *
  * Parameters
  * ----------
@@ -743,7 +744,8 @@ interface CrossingsBannerProps {
  * refreshSignal
  *     Bumped by ``useGeologicalModel`` after every contact mutation.
  * staleSurfaceCount
- *     When > 0, qualifies the banner with "(as of last build)".
+ *     When > 0, validation is suppressed and the pending-build line
+ *     is shown instead (debt #18).
  *
  * Returns
  * -------
@@ -757,24 +759,36 @@ function CrossingsBanner({
   staleSurfaceCount,
   onFocusContacts,
 }: CrossingsBannerProps): JSX.Element | null {
-  const [issues, setIssues] = useState<GapIssueResponse[]>([])
+  // Stale-gated fetch (debt #18): a stale cache is not validated; the
+  // hook exposes pendingBuild so we show a neutral "Build to check"
+  // line instead of an untrustworthy amber warning, and re-validates
+  // automatically once Build clears staleSurfaceCount.
+  const { crossingIssues: issues, pendingBuild } = useCrossingsValidation(
+    projectId,
+    modelId,
+    refreshSignal,
+    staleSurfaceCount,
+  )
 
-  useEffect(() => {
-    let cancelled = false
-    api.geology
-      .validateCrossings(projectId, modelId)
-      .then(resp => {
-        if (cancelled) return
-        setIssues(resp.issues)
-      })
-      .catch(err => {
-        log.warn('geology', `validateCrossings failed for ${modelId}`, err)
-        if (!cancelled) setIssues([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [projectId, modelId, refreshSignal])
+  if (pendingBuild) {
+    return (
+      <div className="px-3 py-2 border-b border-border-subtle">
+        <div
+          className="rounded border border-border-subtle bg-surface-app px-2 py-1.5 text-[11px] text-text-muted"
+          role="status"
+          aria-label="Surface validation pending"
+        >
+          <div className="flex items-center gap-1.5">
+            <Info size={12} />
+            <span>
+              Surface crossings not checked — Build the 3D model to
+              validate.
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (issues.length === 0) return null
 
@@ -793,11 +807,6 @@ function CrossingsBanner({
           <AlertTriangle size={12} />
           <span>
             {issues.length} surface crossing{issues.length === 1 ? '' : 's'} detected
-            {staleSurfaceCount > 0 && (
-              <span className="font-normal italic">
-                {' '}(as of last build — click Build to refresh)
-              </span>
-            )}
           </span>
         </div>
         <ul className="mt-1 ml-5 list-disc space-y-0.5">

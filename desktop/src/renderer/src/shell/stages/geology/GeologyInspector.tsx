@@ -27,6 +27,7 @@ import {
   ChevronRight,
   Drill,
   GripVertical,
+  Info,
   Layers,
   Plus,
   Trash2,
@@ -34,12 +35,12 @@ import {
 
 import { api } from '../../../api/client'
 import type {
-  GapIssueResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalFormationUpdatePayload,
 } from '../../../api/client'
 import { log } from '../../../utils/log'
+import { useCrossingsValidation } from '../../../hooks/useCrossingsValidation'
 import Button from '../../../components/ui/Button'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import Modal from '../../../components/ui/Modal'
@@ -112,8 +113,17 @@ export default function GeologyInspector(): JSX.Element {
   // Borehole scope sub-section collapse state.
   const [scopeOpen, setScopeOpen] = useState(false)
 
-  // Cross-formation crossing-validator results.
-  const [crossingIssues, setCrossingIssues] = useState<readonly GapIssueResponse[]>([])
+  // Cross-formation crossing-validator results. Gated on surface
+  // freshness (debt #18): a stale cache is not validated — the hook
+  // exposes pendingBuild instead so the banner says "Build to check"
+  // rather than showing an untrustworthy amber warning.
+  const { crossingIssues, pendingBuild: crossingsPendingBuild } =
+    useCrossingsValidation(
+      projectId,
+      activeGeologicalModel?.id ?? null,
+      crossingsRefreshCounter,
+      staleSurfaceCount,
+    )
 
   // ---------------------------------------------------------------------------
   // Sync from bus on formationsRefreshCounter change.
@@ -124,30 +134,8 @@ export default function GeologyInspector(): JSX.Element {
     setFormations(sortFormations(busFormations))
   }, [busFormations, formationsRefreshCounter])
 
-  // ---------------------------------------------------------------------------
-  // Crossings validator — re-fetch on active model change or contact mutation.
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    if (!activeGeologicalModel) {
-      setCrossingIssues([])
-      return
-    }
-    const modelId = activeGeologicalModel.id
-    let cancelled = false
-    api.geology
-      .validateCrossings(projectId, modelId)
-      .then(resp => {
-        if (cancelled) return
-        setCrossingIssues(resp.issues)
-      })
-      .catch(err => {
-        log.warn('geology', `validateCrossings failed for ${modelId}`, err)
-        if (!cancelled) setCrossingIssues([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [projectId, activeGeologicalModel, crossingsRefreshCounter])
+  // (Crossings validation lives in useCrossingsValidation above —
+  // debt #18 stale-gating + auto re-fetch on Build.)
 
   // ---------------------------------------------------------------------------
   // Excluded borehole set — derived from the active model's exclusion list.
@@ -542,9 +530,35 @@ export default function GeologyInspector(): JSX.Element {
         </Button>
       </div>
 
+      {/* Validation-pending state (debt #18): surfaces are stale, so
+          the cached TIN was deliberately NOT validated. Neutral info
+          tone — NOT an amber alarm — because there is no known
+          problem, only an unbuilt model. Clears automatically once
+          Build refreshes the TINs (staleSurfaceCount → 0 re-runs the
+          hook). */}
+      {crossingsPendingBuild && (
+        <div
+          className="rounded border border-border-subtle bg-surface-app px-2 py-1.5 text-[11px] text-text-muted"
+          role="status"
+          aria-label="Surface validation pending"
+          data-testid="crossings-pending-banner"
+        >
+          <div className="flex items-center gap-1.5">
+            <Info size={12} />
+            <span>
+              Surface crossings not checked — Build the 3D model to
+              validate.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Surface crossings banner — amber warning, refetched on every contact
-          mutation (crossingsRefreshCounter bumps). Click an issue row to
-          highlight the offending contacts on the section canvas. */}
+          mutation (crossingsRefreshCounter bumps). Only shown for a FRESH
+          model: when surfaces are stale the hook suppresses the fetch and
+          the pending banner above is shown instead (debt #18), so this is
+          always a trustworthy result. Click an issue row to highlight the
+          offending contacts on the section canvas. */}
       {crossingIssues.length > 0 && (
         <div
           className="rounded border border-status-amber bg-amber-50 dark:bg-amber-950/30 px-2 py-1.5 text-[11px] text-text-primary"
@@ -557,12 +571,6 @@ export default function GeologyInspector(): JSX.Element {
             <span>
               {crossingIssues.length} surface crossing
               {crossingIssues.length === 1 ? '' : 's'} detected
-              {staleSurfaceCount > 0 ? (
-                <span className="font-normal italic">
-                  {' '}
-                  (as of last build — click Build in the toolbar to refresh)
-                </span>
-              ) : null}
             </span>
           </div>
           <ul className="mt-1 ml-5 list-disc space-y-0.5">
