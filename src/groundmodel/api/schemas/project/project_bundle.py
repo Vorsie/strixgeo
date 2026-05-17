@@ -45,6 +45,35 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+
+class StratigraphyLumping(BaseModel):
+    """Snapshot of the manual lumping map last applied via Fill from boreholes.
+
+    Stored in the bundle so the user's grouping for this project is remembered
+    and pre-populates the next Fill dialog.  This is metadata only — the
+    formations and contacts in the bundle ARE the already-applied result.  On
+    restore the map is stored as-is; it is NEVER re-applied (doing so would
+    create duplicate contacts on top of the restored rows).
+
+    Attributes
+    ----------
+    schema_version : int
+        Versioning for this sub-object (currently 1).  Allows additive
+        evolution without bumping the top-level ``format_version``.
+    applied_at : str
+        ISO-8601 timestamp (UTC) of the last successful Apply that produced
+        this map, so the UI can show "last lumped at …".
+    map : dict[str, str]
+        ``{ normalised_candidate_key: target_formation_name }`` — the exact
+        map sent to the server on the last confirm.  Keys are
+        ``normalize_formation_key()`` output (server-side).
+    """
+
+    schema_version: int = 1
+    applied_at: str
+    map: dict[str, str] = Field(default_factory=dict)
+
+
 # Current bundle format version. Bumped when the bundle shape changes
 # in a way readers must branch on. New saves always emit this version.
 BUNDLE_FORMAT_VERSION = 3
@@ -135,6 +164,11 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_INVESTIGATION_REVIEWS_PER_BUNDLE,
     )
+    # Manual lumping map from the last Fill-from-boreholes confirm.
+    # Nullable — absent in bundles saved before this field existed.
+    # On restore: stored as bundle metadata only; NEVER re-applied
+    # (formations + contacts are the already-applied result).
+    stratigraphy_lumping: StratigraphyLumping | None = None
 
 
 class ProjectBundleResponse(BaseModel):
@@ -153,3 +187,6 @@ class ProjectBundleResponse(BaseModel):
     geological_models: list[dict[str, Any]] = Field(default_factory=list)
     cross_sections: list[dict[str, Any]] = Field(default_factory=list)
     investigation_reviews: list[dict[str, Any]] = Field(default_factory=list)
+    # Manual lumping map from the last Fill-from-boreholes confirm.
+    # Nullable — bundles saved before this field existed carry null.
+    stratigraphy_lumping: StratigraphyLumping | None = None
