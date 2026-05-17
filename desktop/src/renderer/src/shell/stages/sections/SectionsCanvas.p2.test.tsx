@@ -42,6 +42,10 @@ vi.mock('../../../components/MapView', () => ({
   default: () => null,
 }))
 
+// api.section.list is used by useSections' auto-load effect (T4b).
+// Default resolves to [] so T1–T3/T5 are unaffected by pending fetches.
+const mockSectionList = vi.fn().mockResolvedValue([])
+
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
   return {
@@ -55,6 +59,7 @@ vi.mock('../../../api/client', async () => {
         getModels: vi.fn().mockResolvedValue([]),
       },
       section: {
+        list: (...args: unknown[]) => mockSectionList(...args),
         get: vi.fn(),
       },
     },
@@ -345,6 +350,8 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   capturedContacts = undefined
+  // Reset to [] so T1–T3/T5 (render-based, no section list needed) are clean.
+  mockSectionList.mockResolvedValue([])
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -415,22 +422,20 @@ describe('P2 explicit-content invariant — SectionsCanvas contact filtering', (
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('T4: applyUpdatedSection from useSections replaces the section in local state', async () => {
-    // Verify the applyUpdatedSection callback (P2-G/P2-H) updates the section
-    // in local state so the seeded set is immediately current.  Tests the
-    // useSections hook directly via renderHook.
+  it('T4: applyUpdatedSection no-ops when section id is absent (defensive guard)', async () => {
+    // Verify the defensive branch of applyUpdatedSection (P2-G/P2-H):
+    // calling it when sections = [] must be a no-op and leave sections empty.
     const { useSections } = await import('../../../hooks/useSections')
 
-    const initialSection = makeSection({ seeded_formation_contact_ids: [] })
     const updatedSection = makeSection({ seeded_formation_contact_ids: ['contact-aaa'] })
 
     const { result } = renderHook(() =>
       useSections({
         project: { id: 'proj-1', name: 'Test', default_horizontal_epsg: 31370 },
-        ready: false, // don't auto-fetch
+        ready: false, // don't auto-fetch — sections stays []
         toast: vi.fn(),
         pushUndo: vi.fn(),
-        manifestSectionIds: new Set([initialSection.id]),
+        manifestSectionIds: new Set<string>(),
         addToManifest: vi.fn(),
         removeFromManifest: vi.fn(),
         setSessionImportSectionIds: vi.fn(),
@@ -443,31 +448,69 @@ describe('P2 explicit-content invariant — SectionsCanvas contact filtering', (
       }),
     )
 
-    // Seed the initial section into local state via setSections-equivalent path.
-    // Use the refreshSectionList stub by setting sections directly via act.
-    // Since we can't call setSections directly, we test applyUpdatedSection
-    // on an existing sections array set via a fresh render with injected state.
-    //
-    // Alternative: call applyUpdatedSection directly — when sections = [],
-    // it should no-op (id not found, defensive).  Then add via a mock that
-    // pre-populates state.  The simpler test is: applyUpdatedSection on an
-    // empty list does not throw and leaves sections empty.
     act(() => {
       result.current.applyUpdatedSection(updatedSection)
     })
-    // No match → no-op, sections stays []
+    // No match → no-op; sections remains empty.
     expect(result.current.sections).toHaveLength(0)
+  })
 
-    // The key invariant we want to assert is that applyUpdatedSection is
-    // a stable identity (memoized) and doesn't cause stale-closure issues.
-    // Capture the ref and confirm it's the same after a re-render.
-    const ref1 = result.current.applyUpdatedSection
-    // Force a re-render via a harmless state path — setSectionModelAxis is
-    // a stable setter that doesn't affect applyUpdatedSection's identity.
-    act(() => {
-      result.current.setSectionModelAxis('geological')
+  it('T4b: applyUpdatedSection replaces the matching section by id and leaves others untouched', async () => {
+    // The REPLACE-BY-ID path: `setSections(prev => prev.map(s => s.id === updated.id ? updated : s))`.
+    // Drive the auto-load path (ready=true + manifestSectionIds contains both ids)
+    // so `sections` is populated before calling applyUpdatedSection.
+    // Then assert result.current.sections (real hook state) reflects the update —
+    // this assertion fails if the map regresses to a no-op or replaces the wrong row.
+    const { useSections } = await import('../../../hooks/useSections')
+
+    const sec1Initial = makeSection({ id: 'sec-1', seeded_formation_contact_ids: [] })
+    const sec2 = makeSection({ id: 'sec-2', seeded_formation_contact_ids: [] })
+
+    // Inject via the module-level mockSectionList so the auto-load effect
+    // resolves to [sec1Initial, sec2] when the hook mounts with ready=true.
+    mockSectionList.mockResolvedValue([sec1Initial, sec2])
+
+    const { result } = renderHook(() =>
+      useSections({
+        project: { id: 'proj-1', name: 'Test', default_horizontal_epsg: 31370 },
+        ready: true, // triggers auto-load via api.section.list
+        toast: vi.fn(),
+        pushUndo: vi.fn(),
+        manifestSectionIds: new Set(['sec-1', 'sec-2']),
+        addToManifest: vi.fn(),
+        removeFromManifest: vi.fn(),
+        setSessionImportSectionIds: vi.fn(),
+        contacts: [],
+        lithoContacts: [],
+        boreholes: [],
+        cpts: [],
+        setSelectedId: vi.fn(),
+        setSelectedBoreholeId: vi.fn(),
+      }),
+    )
+
+    // Wait for the auto-load effect to resolve.
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
     })
-    expect(result.current.applyUpdatedSection).toBe(ref1)
+
+    // Precondition: both sections loaded with empty seeded sets.
+    expect(result.current.sections).toHaveLength(2)
+    expect(result.current.sections.find(s => s.id === 'sec-1')!.seeded_formation_contact_ids).toEqual([])
+    expect(result.current.sections.find(s => s.id === 'sec-2')!.seeded_formation_contact_ids).toEqual([])
+
+    // Apply the updated section — only sec-1's seeded set changes.
+    const sec1Updated = makeSection({ id: 'sec-1', seeded_formation_contact_ids: ['contact-aaa'] })
+    act(() => {
+      result.current.applyUpdatedSection(sec1Updated)
+    })
+
+    // Assert real hook state — reads result.current.sections, NOT a hardcoded constant.
+    // Fails if the replace-by-id map regressed to a no-op (sec-1 stays empty)
+    // or replaced every row (sec-2 would also carry ['contact-aaa']).
+    expect(result.current.sections.find(s => s.id === 'sec-1')!.seeded_formation_contact_ids).toEqual(['contact-aaa'])
+    // sec-2 is left untouched — map only replaces the matching id.
+    expect(result.current.sections.find(s => s.id === 'sec-2')!.seeded_formation_contact_ids).toEqual([])
   })
 
   it('T5: sectionAwareCreateContact calls axisCreateContact then fetches updated section', async () => {
