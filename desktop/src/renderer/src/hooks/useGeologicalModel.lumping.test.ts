@@ -134,6 +134,8 @@ function makeHook() {
     removeFromSessionImports: vi.fn(),
     pushUndo: vi.fn(),
     toast: vi.fn(),
+    currentLumping: null,
+    writeLumpingSnapshot: vi.fn().mockResolvedValue(undefined),
   }))
 }
 
