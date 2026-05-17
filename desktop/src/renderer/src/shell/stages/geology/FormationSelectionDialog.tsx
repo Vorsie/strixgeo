@@ -143,6 +143,12 @@ export interface FormationSelectionDialogProps {
    */
   currentContacts: FormationContactResponse[]
   /**
+   * True while the parent is re-running discoverBoreholeFormations after a
+   * manual-map change.  Drives the "Updating…" indicator on the collision
+   * panel so the user sees the dialog is reacting to their edit.
+   */
+  collisionsUpdating?: boolean
+  /**
    * Fired when the manual_map changes so the parent can re-run discover
    * with the new map to get updated collision warnings.
    *
@@ -212,6 +218,7 @@ export default function FormationSelectionDialog({
   collisions,
   currentFormations,
   currentContacts,
+  collisionsUpdating = false,
   onManualMapChange,
   onConfirm,
   onCancel,
@@ -293,10 +300,24 @@ export default function FormationSelectionDialog({
 
   const rankedCandidates = useMemo(() => {
     if (searchQuery.trim() === '') return candidates
-    // rankByPartialMatch returns every name — never filters.
-    return rankByPartialMatch(searchQuery, candidates.map(c => c.name)).map(ranked =>
-      candidates.find(c => c.name === ranked.name)!,
-    )
+    // Build a name→score map from rankByPartialMatch and sort candidates by
+    // their score. We never round-trip through .find() so:
+    //   (a) duplicate display names receive the same score (correct — they
+    //       rank equally by name match) and both remain selectable with their
+    //       own distinct ``key`` values, and
+    //   (b) there is no unguarded non-null assertion that could hide a missing
+    //       candidate when names diverge between the ranked array and the list.
+    const scored = rankByPartialMatch(searchQuery, candidates.map(c => c.name))
+    // name → best score (last-write-wins; duplicate names share the same score
+    // so any ordering among duplicates is equally valid).
+    const scoreByName = new Map<string, number>(scored.map(r => [r.name, r.score]))
+    return [...candidates]
+      .map(c => ({ candidate: c, score: scoreByName.get(c.name) ?? 0 }))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score
+        return a.candidate.name.localeCompare(b.candidate.name)
+      })
+      .map(({ candidate }) => candidate)
   }, [searchQuery, candidates])
 
   // ---------------------------------------------------------------------------
@@ -598,19 +619,25 @@ export default function FormationSelectionDialog({
         </section>
 
         {/* ── Collision warnings ───────────────────────────────────────── */}
-        {collisions.length > 0 && (
+        {(collisions.length > 0 || collisionsUpdating) && (
           <section
             aria-label="Lumping collision warnings"
             className="px-5 pb-4 pt-2 border-t border-border-subtle"
           >
             <h3 className="text-xs font-semibold text-status-warning uppercase tracking-wide mb-2 mt-2 flex items-center gap-1">
               <span aria-hidden="true">⚠</span>
-              {collisions.length} borehole{collisions.length === 1 ? '' : 's'} had
-              layers lumping to the same formation — kept shallowest, dropped{' '}
-              {totalDropped}{' '}
-              {totalDropped === 1 ? 'boundary' : 'boundaries'}; review your grouping
+              {collisionsUpdating ? (
+                <span className="text-text-muted normal-case font-normal">Updating…</span>
+              ) : (
+                <>
+                  {collisions.length} borehole{collisions.length === 1 ? '' : 's'} had
+                  layers lumping to the same formation — kept shallowest, dropped{' '}
+                  {totalDropped}{' '}
+                  {totalDropped === 1 ? 'boundary' : 'boundaries'}; review your grouping
+                </>
+              )}
             </h3>
-            <ul className="space-y-1.5" role="list">
+            {!collisionsUpdating && <ul className="space-y-1.5" role="list">
               {collisions.map((col, i) => (
                 <li
                   key={i}
@@ -633,7 +660,7 @@ export default function FormationSelectionDialog({
                   </span>
                 </li>
               ))}
-            </ul>
+            </ul>}
           </section>
         )}
       </div>
