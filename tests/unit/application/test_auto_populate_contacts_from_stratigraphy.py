@@ -172,11 +172,12 @@ async def test_scan_formal_informal_returns_key_and_regional_ref():
     )
 
     session = _make_session([bh])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session, project_id=project_id, borehole_ids=[bh.id]
     )
 
     assert len(candidates) == 1
+    assert collisions == []
     c = candidates[0]
     assert c.name == "Boom Klei"
     assert c.regional_ref == "HyEg"
@@ -196,11 +197,12 @@ async def test_scan_informal_only_key_equals_name():
     )
 
     session = _make_session([bh])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session, project_id=project_id, borehole_ids=[bh.id]
     )
 
     assert len(candidates) == 1
+    assert collisions == []
     c = candidates[0]
     assert c.name == "Alluvium"
     assert c.regional_ref is None
@@ -245,12 +247,13 @@ async def test_scan_same_formal_code_different_informal_names_merge():
     )
 
     session = _make_session([bh1, bh2])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session, project_id=project_id, borehole_ids=[bh1.id, bh2.id]
     )
 
     # Must be ONE candidate (merged on formal key "HyEg"), NOT two.
     assert len(candidates) == 1
+    assert collisions == []
     c = candidates[0]
     assert c.key == "hyeg"
     assert c.regional_ref == "HyEg"
@@ -907,3 +910,249 @@ async def test_execute_sibling_model_formation_not_deleted():
     # The selected in-model formation is NOT deleted.
     assert in_model_formation.id not in outcome.deleted_formation_ids
     assert len(outcome.deleted_formation_ids) == 1
+
+
+# ---------------------------------------------------------------------------
+# scan_stratigraphy_candidates — manual_map + collision detection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scan_manual_map_merges_candidates():
+    """Passing manual_map folds two distinct raw keys under one effective key.
+
+    Two informal layers "Holoceen veen" and "Vlaamse Vallei" in the SAME
+    borehole are both mapped to "Holoceen". The scan must return ONE candidate
+    for "Holoceen" (borehole_count=1) and emit ONE LumpingCollision.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [
+                    _layer(top_m=0.0, base_m=2.0, description="Holoceen veen"),
+                    _layer(top_m=2.0, base_m=8.0, description="Vlaamse Vallei"),
+                ],
+            )
+        ]
+    )
+
+    # Both raw keys map to "Holoceen".
+    manual_map = {
+        normalize_formation_key("Holoceen veen"): "Holoceen",
+        normalize_formation_key("Vlaamse Vallei"): "Holoceen",
+    }
+
+    session = _make_session([bh])
+    candidates, collisions = await scan_stratigraphy_candidates(
+        session, project_id=project_id, borehole_ids=[bh.id], manual_map=manual_map
+    )
+
+    # Only ONE effective candidate ("Holoceen").
+    assert len(candidates) == 1
+    c = candidates[0]
+    assert c.name == "Holoceen"
+    assert c.key == normalize_formation_key("Holoceen")
+    assert c.borehole_count == 1
+
+    # Exactly one collision — the borehole had two layers colliding on "Holoceen".
+    assert len(collisions) == 1
+    col = collisions[0]
+    assert col.borehole_id == bh.id
+    assert col.target_formation_key == normalize_formation_key("Holoceen")
+    assert col.target_formation_name == "Holoceen"
+    # Both raw descriptions contributed.
+    assert set(col.colliding_raw_names) == {"Holoceen veen", "Vlaamse Vallei"}
+    # Shallowest top wins: top_m=0.0 < top_m=2.0.
+    assert col.kept_top_m == 0.0
+    assert col.dropped_count == 1
+
+
+@pytest.mark.asyncio
+async def test_scan_no_collision_when_different_boreholes():
+    """Two boreholes each with ONE layer lumped to "Holoceen" — no collision.
+
+    A collision requires ≥2 layers resolving to the same key WITHIN one
+    borehole.  Across boreholes is the normal multi-borehole scenario.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    bh1 = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=3.0, description="Holoceen veen")],
+            )
+        ]
+    )
+    bh2 = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=4.0, description="Vlaamse Vallei")],
+            )
+        ]
+    )
+    manual_map = {
+        normalize_formation_key("Holoceen veen"): "Holoceen",
+        normalize_formation_key("Vlaamse Vallei"): "Holoceen",
+    }
+
+    session = _make_session([bh1, bh2])
+    candidates, collisions = await scan_stratigraphy_candidates(
+        session,
+        project_id=project_id,
+        borehole_ids=[bh1.id, bh2.id],
+        manual_map=manual_map,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].borehole_count == 2
+    # No collision — each borehole contributes exactly one "Holoceen" layer.
+    assert collisions == []
+
+
+@pytest.mark.asyncio
+async def test_scan_no_manual_map_no_collision():
+    """Without a manual_map, no collision can occur regardless of borehole content."""
+    project_id = uuid4()
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [
+                    _layer(top_m=0.0, base_m=2.0, description="Holoceen veen"),
+                    _layer(top_m=2.0, base_m=8.0, description="Vlaamse Vallei"),
+                ],
+            )
+        ]
+    )
+
+    session = _make_session([bh])
+    candidates, collisions = await scan_stratigraphy_candidates(
+        session, project_id=project_id, borehole_ids=[bh.id]
+    )
+
+    # Two distinct keys — no merge, no collision.
+    assert len(candidates) == 2
+    assert collisions == []
+
+
+# ---------------------------------------------------------------------------
+# execute — manual_map collision safeguard (shallowest-wins rule)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_execute_collision_keeps_shallowest_emits_warning():
+    """When manual lumping causes two layers in one borehole to share a key,
+    only the shallowest contact is created and a LumpingCollision is returned.
+
+    Scenario: borehole has "Holoceen veen" (top 0.0 m) and "Vlaamse Vallei"
+    (top 2.0 m); both mapped to "Holoceen". The write path must create exactly
+    ONE contact (at 0.0 m) and report one collision warning.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [
+                    _layer(top_m=0.0, base_m=2.0, description="Holoceen veen"),
+                    _layer(top_m=2.0, base_m=8.0, description="Vlaamse Vallei"),
+                ],
+            )
+        ]
+    )
+
+    manual_map = {
+        normalize_formation_key("Holoceen veen"): "Holoceen",
+        normalize_formation_key("Vlaamse Vallei"): "Holoceen",
+    }
+
+    session = _make_session_with_formations(boreholes=[bh], existing_formations=[])
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh.id],
+            manual_map=manual_map,
+        )
+
+    # One formation created for the effective key "Holoceen".
+    assert len(outcome.created_formation_ids) == 1
+    # One contact created (the shallowest — the deeper duplicate is dropped).
+    assert len(outcome.created_contact_ids) == 1
+    # One collision warning emitted.
+    assert len(outcome.collisions) == 1
+    col = outcome.collisions[0]
+    assert col.borehole_id == bh.id
+    assert col.target_formation_name == "Holoceen"
+    assert col.kept_top_m == 0.0
+    assert col.dropped_count == 1
+    assert set(col.colliding_raw_names) == {"Holoceen veen", "Vlaamse Vallei"}
+
+
+@pytest.mark.asyncio
+async def test_execute_no_collision_without_manual_map():
+    """Without manual_map, two layers in one borehole create two separate
+    formations with no collision warning.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [
+                    _layer(top_m=0.0, base_m=2.0, description="Holoceen veen"),
+                    _layer(top_m=2.0, base_m=8.0, description="Vlaamse Vallei"),
+                ],
+            )
+        ]
+    )
+
+    session = _make_session_with_formations(boreholes=[bh], existing_formations=[])
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh.id],
+        )
+
+    # Two distinct formations and two contacts — no merging.
+    assert len(outcome.created_formation_ids) == 2
+    assert len(outcome.created_contact_ids) == 2
+    assert outcome.collisions == []
