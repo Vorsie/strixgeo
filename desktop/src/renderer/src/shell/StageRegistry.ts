@@ -8,6 +8,7 @@ import type { StageId, StageDescriptor } from './StageDescriptor'
 import DataStage from './stages/data/DataStage'
 import SectionsStage from './stages/sections/SectionsStage'
 import GeologyStage from './stages/geology/GeologyStage'
+import LithologyStage from './stages/lithology/LithologyStage'
 import GeotechnicalStage from './stages/geotechnical/GeotechnicalStage'
 import ExportStage from './stages/export/ExportStage'
 
@@ -16,12 +17,13 @@ import ExportStage from './stages/export/ExportStage'
  *
  * Order determines the spine button order (top to bottom) and must reflect
  * the engineering workflow sequence: Data → Sections → Geology →
- * Geotechnical → Export.
+ * Lithology → Geotechnical → Export.
  */
 export const STAGE_ORDER: readonly StageId[] = [
   'data',
   'sections',
   'geology',
+  'lithology',
   'geotechnical',
   'export',
 ] as const
@@ -36,6 +38,7 @@ export const STAGE_REGISTRY: ReadonlyMap<StageId, StageDescriptor> = new Map([
   ['data', DataStage],
   ['sections', SectionsStage],
   ['geology', GeologyStage],
+  ['lithology', LithologyStage],
   ['geotechnical', GeotechnicalStage],
   ['export', ExportStage],
 ])

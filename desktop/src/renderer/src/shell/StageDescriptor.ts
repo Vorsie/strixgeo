@@ -17,9 +17,15 @@ import type { LucideIcon } from 'lucide-react'
  * Identifier for each workflow stage in the spine.
  *
  * Order here mirrors the engineering process order the spine communicates
- * (Data → Sections → Geology → Geotechnical → Export).
+ * (Data → Sections → Geology → Lithology → Geotechnical → Export).
  */
-export type StageId = 'data' | 'sections' | 'geology' | 'geotechnical' | 'export'
+export type StageId =
+  | 'data'
+  | 'sections'
+  | 'geology'
+  | 'lithology'
+  | 'geotechnical'
+  | 'export'
 
 /**
  * Computed summary shown in the spine button tooltip and inspector header.

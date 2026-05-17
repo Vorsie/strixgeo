@@ -46,7 +46,6 @@ import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import Modal from '../../../components/ui/Modal'
 import FormationDialog from '../../../components/interpretation/FormationDialog'
 import { useShell } from '../../ShellContext'
-import ModelKindPicker from './ModelKindPicker'
 
 // ---------------------------------------------------------------------------
 // Component
@@ -512,9 +511,9 @@ export default function GeologyInspector(): JSX.Element {
             <span className="text-text-secondary">· {activeGeologicalModel.name}</span>
           </div>
         )}
-        {/* #55 — lithostratigraphic model picker (refines the
-            geological backbone above). */}
-        <ModelKindPicker />
+        {/* #55: the lithostratigraphic model picker moved to the
+            dedicated Lithology peer stage (a stage inspector is not an
+            editing surface — dogfeed feedback). */}
       </div>
 
       {/* Add formation entry button */}
