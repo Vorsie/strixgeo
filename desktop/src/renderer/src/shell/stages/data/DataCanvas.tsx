@@ -15,7 +15,6 @@ import { LoadingState } from '../../EmptyState'
 import MapView from '../../../components/MapView'
 import CptChart from '../../../components/CptChart'
 import BoreholeLog from '../../../components/BoreholeLog'
-import Modal from '../../../components/ui/Modal'
 import DovImportProgressPanel from '../../../components/DovImportProgressPanel'
 
 /**
@@ -216,24 +215,24 @@ export default function DataCanvas(): JSX.Element {
         )}
       </div>
 
-      {/* DOV import progress modal — shown while an SSE import stream is
-          running, and kept open on done/error so the user can read the
-          result summary or error message before dismissing.
-          The modal is non-dismissable while running (busy=true) so the
-          user can't accidentally cancel by pressing Esc or clicking the
-          backdrop mid-import. */}
-      <Modal
-        open={dovImportState.status !== 'idle'}
-        onCancel={resetDovImport}
-        labelledBy="dov-import-progress-title"
-        busy={dovImportState.status === 'running'}
-        cardClassName="w-80"
-      >
-        <div className="px-5 py-4 flex flex-col gap-3">
-          <h2
-            id="dov-import-progress-title"
-            className="text-sm font-semibold text-text-primary"
-          >
+      {/* DOV import status — NON-blocking, bottom-centre. The import runs
+          as a background job (architect Phase 2); this is a status report
+          only. Deliberately NOT a Modal: no backdrop, no pointer-events
+          overlay, no role="dialog", no focus steal — the user can pan the
+          map and inspect other tests while the import streams. Shown while
+          running and kept up after done/error until the user dismisses so
+          they can read the summary. Pins still render on the map behind
+          it. z-[1100] matches the toast-notification convention. */}
+      {dovImportState.status !== 'idle' && (
+        <div
+          // role=status + the panel's own aria-live regions announce
+          // progress/result without trapping focus — correct semantics
+          // for a non-blocking status, unlike the prior role=dialog.
+          role="status"
+          aria-label="DOV import status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1100] w-80 bg-surface-overlay border border-border-default text-text-primary rounded-lg shadow-lg px-5 py-4 flex flex-col gap-3"
+        >
+          <h2 className="text-sm font-semibold text-text-primary">
             {dovImportState.status === 'running'
               ? dovImportState.kind === 'cpt'
                 ? 'Importing CPTs from DOV…'
@@ -245,27 +244,21 @@ export default function DataCanvas(): JSX.Element {
 
           <DovImportProgressPanel state={dovImportState} />
 
-          {/* Dismiss button — only shown once the stream has terminated so
-              the user can acknowledge the result without accidentally closing
-              a running import. */}
+          {/* Dismiss only once terminal so the running import can't be
+              closed by a stray click; no autoFocus — a non-blocking
+              status must never steal focus from the map/list. */}
           {dovImportState.status !== 'running' && (
             <div className="flex justify-end pt-1">
               <button
                 onClick={resetDovImport}
                 className="px-3 py-1.5 text-xs font-medium rounded bg-surface-card text-text-primary hover:bg-border-default transition-colors"
-                // reason: autoFocus is the only accessible way to let
-                // keyboard users dismiss without mousing to the button.
-                // The import is terminal (done/error) at this point, so
-                // focus landing here is the natural next action.
-                // eslint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
               >
                 Close
               </button>
             </div>
           )}
         </div>
-      </Modal>
+      )}
     </div>
   )
 }
