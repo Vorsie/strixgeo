@@ -21,7 +21,8 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import type { CptPlotResponse, CptResponse } from '../api/client'
-import CptChart from './CptChart'
+import CptChart, { injectDepthGaps } from './CptChart'
+import type { CptDataPoint } from './CptChart'
 
 function makePlot(overrides: Partial<CptPlotResponse> = {}): CptPlotResponse {
   return {
@@ -204,5 +205,79 @@ describe('CptChart — elevation editor surface', () => {
       />,
     )
     expect(screen.getByText('Z missing')).toBeInTheDocument()
+  })
+})
+
+// ── injectDepthGaps — pure unit tests (no rendering needed) ──────────────────
+
+function makePoint(depth: number, qc: number | null = 1.0): CptDataPoint {
+  return { depth, qc, fs: null, rf: null, u2_kpa: null, qt: null, ic: null }
+}
+
+describe('injectDepthGaps', () => {
+  it('returns the original array when all steps are within threshold', () => {
+    // Regular 0.02 m DOV step — no sentinels expected.
+    const rows = [0, 0.02, 0.04, 0.06, 0.08].map(d => makePoint(d))
+    const result = injectDepthGaps(rows)
+    expect(result).toHaveLength(5)
+    expect(result.map(r => r.depth)).toEqual([0, 0.02, 0.04, 0.06, 0.08])
+  })
+
+  it('inserts a null-sentinel at the midpoint of a large depth jump', () => {
+    // 0 m → 5 m: CPT pushed to refusal, borehole drilled through, CPT continued.
+    const rows = [makePoint(0.0), makePoint(5.0), makePoint(5.02)]
+    const result = injectDepthGaps(rows)
+    // Three original rows + one sentinel between 0.0 and 5.0.
+    expect(result).toHaveLength(4)
+    const sentinel = result[1]
+    expect(sentinel.depth).toBeCloseTo(2.5)
+    expect(sentinel.qc).toBeNull()
+    expect(sentinel.fs).toBeNull()
+    expect(sentinel.u2_kpa).toBeNull()
+  })
+
+  it('inserts no sentinel when step equals the threshold exactly', () => {
+    // Step of exactly 0.20 m is NOT a gap (must be strictly greater).
+    const rows = [makePoint(0.0), makePoint(0.20), makePoint(0.40)]
+    const result = injectDepthGaps(rows)
+    expect(result).toHaveLength(3)
+  })
+
+  it('inserts sentinels at every gap in a multi-gap series', () => {
+    // Three gaps: 0.02→3.0 (2.98 m), 3.02→6.0 (2.98 m), 6.0→10.0 (4.0 m).
+    // All three exceed the 0.20 m default threshold.
+    const rows = [
+      makePoint(0.0),
+      makePoint(0.02),
+      makePoint(3.0),   // gap after 0.02
+      makePoint(3.02),
+      makePoint(6.0),   // gap after 3.02
+      makePoint(10.0),  // gap after 6.0
+    ]
+    const result = injectDepthGaps(rows)
+    const sentinels = result.filter(r => r.qc === null)
+    expect(sentinels).toHaveLength(3)
+    expect(sentinels[0].depth).toBeCloseTo(1.51)  // midpoint of 0.02..3.0
+    expect(sentinels[1].depth).toBeCloseTo(4.51)  // midpoint of 3.02..6.0
+    expect(sentinels[2].depth).toBeCloseTo(8.0)   // midpoint of 6.0..10.0
+  })
+
+  it('handles a single-row input without throwing', () => {
+    const rows = [makePoint(0.0)]
+    expect(injectDepthGaps(rows)).toHaveLength(1)
+  })
+
+  it('handles an empty input without throwing', () => {
+    expect(injectDepthGaps([])).toHaveLength(0)
+  })
+
+  it('respects a custom gapThresholdM override', () => {
+    // With threshold=1.0 m, a 0.5 m jump is NOT a gap; a 1.5 m jump IS.
+    const rows = [makePoint(0.0), makePoint(0.5), makePoint(2.0)]
+    const result = injectDepthGaps(rows, 1.0)
+    expect(result).toHaveLength(4) // one sentinel inserted between 0.5 and 2.0
+    const sentinel = result[2]
+    expect(sentinel.qc).toBeNull()
+    expect(sentinel.depth).toBeCloseTo(1.25)
   })
 })
