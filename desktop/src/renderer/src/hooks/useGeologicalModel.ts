@@ -59,6 +59,29 @@ export interface FormationCandidate {
   boreholeCount: number
 }
 
+/**
+ * Frontend-normalised representation of a lumping collision returned by
+ * the discover or auto-populate endpoint.
+ *
+ * A collision occurs when ≥2 primary layers in a single borehole resolve to
+ * the same effective formation key after the ``manual_map`` is applied.  The
+ * server keeps the shallowest boundary and drops the rest.
+ */
+export interface LumpingCollision {
+  /** UUID string of the borehole where the collision occurred. */
+  boreholeId: string
+  /** Normalised effective key that multiple raw names mapped to. */
+  targetFormationKey: string
+  /** Display name of the target formation after lumping. */
+  targetFormationName: string
+  /** All raw description strings (kept + dropped) that resolved to the key. */
+  collidingRawNames: string[]
+  /** Top depth (m) of the surviving (shallowest) boundary. */
+  keptTopM: number
+  /** Number of deeper duplicate boundaries that were dropped. */
+  droppedCount: number
+}
+
 export interface UseGeologicalModelResult {
   activeGeologicalModel: GeologicalModelResponse | null
   // Three-level hierarchy (#55, model-kind picker). The geological
@@ -153,17 +176,25 @@ export interface UseGeologicalModelResult {
   // without owning the internal setContacts setter.
   discardContacts: (ids: ReadonlySet<string>) => void
   // Fill-from-boreholes: discover candidate names (read-only).
+  // ``manualMap`` is optional — when provided the server lumps candidate keys
+  // using the map and returns collisions in the result so the dialog can show
+  // warnings before the user confirms.
   discoverBoreholeFormations: (
     boreholeIds: readonly string[],
-  ) => Promise<FormationCandidate[]>
+    manualMap?: Record<string, string>,
+  ) => Promise<{ candidates: FormationCandidate[]; collisions: LumpingCollision[] }>
   // Fill-from-boreholes: apply the curated selection (destructive).
   // Calls auto-populate with selected stable keys (server creates only
   // those formations), then refetches the fresh formation list and
   // deletes any formation whose stable key is NOT in the selected set.
   // The confirm gate lives in FormationSelectionDialog.
+  // ``manualMap`` is the SAME map that was used for the last preview call —
+  // never re-discovered between dialog confirm and the apply call, preserving
+  // the discover ≡ apply invariant the backend enforces.
   applyBoreholeFormationSelection: (
     selectedKeys: ReadonlySet<string>,
     boreholeIds: readonly string[],
+    manualMap?: Record<string, string>,
   ) => Promise<void>
   // Geology toolbar: delete the active geological model (irreversible).
   handleDeleteModel: () => Promise<void>
@@ -1718,26 +1749,32 @@ export function useGeologicalModel({
   // on error, masquerading as "no stratigraphy data" and giving the user no
   // feedback on what went wrong.
   const discoverBoreholeFormations = useCallback(
-    async (boreholeIds: readonly string[]): Promise<FormationCandidate[]> => {
-      if (!project) return []
-      if (boreholeIds.length === 0) return []
+    async (
+      boreholeIds: readonly string[],
+      manualMap?: Record<string, string>,
+    ): Promise<{ candidates: FormationCandidate[]; collisions: LumpingCollision[] }> => {
+      if (!project) return { candidates: [], collisions: [] }
+      if (boreholeIds.length === 0) return { candidates: [], collisions: [] }
+      const mapSize = manualMap ? Object.keys(manualMap).length : 0
       log.debug(
         'geology',
-        `discoverBoreholeFormations entry boreholes=${boreholeIds.length}`,
+        `discoverBoreholeFormations entry boreholes=${boreholeIds.length} map_entries=${mapSize}`,
       )
       const model = await ensureActiveGeologicalModel()
-      if (!model) return []
+      if (!model) return { candidates: [], collisions: [] }
       try {
         const result = await api.geology.discoverFromStratigraphy(
           project.id,
           model.id,
           boreholeIds,
+          mapSize > 0 ? manualMap : undefined,
         )
+        const collisionCount = result.collisions?.length ?? 0
         log.success(
           'geology',
-          `discoverBoreholeFormations ok candidates=${result.candidates.length}`,
+          `discoverBoreholeFormations ok candidates=${result.candidates.length} collisions=${collisionCount}`,
         )
-        return result.candidates.map(c => ({
+        const candidates: FormationCandidate[] = result.candidates.map(c => ({
           name: c.name,
           // key falls back to name for old server responses that pre-date the
           // stable-key field (empty-string default on the schema); name is the
@@ -1745,6 +1782,15 @@ export function useGeologicalModel({
           key: c.key || c.name,
           boreholeCount: c.borehole_count,
         }))
+        const collisions: LumpingCollision[] = (result.collisions ?? []).map(col => ({
+          boreholeId: col.borehole_id,
+          targetFormationKey: col.target_formation_key,
+          targetFormationName: col.target_formation_name,
+          collidingRawNames: col.colliding_raw_names,
+          keptTopM: col.kept_top_m,
+          droppedCount: col.dropped_count,
+        }))
+        return { candidates, collisions }
       } catch (err) {
         log.error('geology', 'discoverBoreholeFormations failed', err)
         toast('error', 'Could not scan borehole stratigraphy — check the connection.')
@@ -1783,27 +1829,33 @@ export function useGeologicalModel({
     async (
       selectedKeys: ReadonlySet<string>,
       boreholeIds: readonly string[],
+      manualMap?: Record<string, string>,
     ): Promise<void> => {
       if (!project) return
       const activeModel = await ensureActiveGeologicalModel()
       if (!activeModel) return
       const projectId = project.id
       const modelId = activeModel.id
+      const mapSize = manualMap ? Object.keys(manualMap).length : 0
       log.info(
         'geology',
         `applyBoreholeFormationSelection entry ` +
-          `selected=${selectedKeys.size} boreholes=${boreholeIds.length}`,
+          `selected=${selectedKeys.size} boreholes=${boreholeIds.length} map_entries=${mapSize}`,
       )
       try {
         // Step 1: auto-populate + server-side delete in one transaction.
         // The server uses normalize_formation_key() for both operations so
         // the canonical key is identical on the create side and the delete
         // side — no client-side key recomputation needed.
+        // ``manualMap`` is the SAME map used in the preceding discover call
+        // (passed through unchanged from the dialog confirm) so the backend's
+        // discover ≡ apply invariant is preserved.
         const outcome = await api.geology.autoPopulateFromStratigraphy(
           projectId,
           modelId,
           boreholeIds,
           Array.from(selectedKeys),
+          mapSize > 0 ? manualMap : undefined,
         )
         log.debug(
           'geology',
