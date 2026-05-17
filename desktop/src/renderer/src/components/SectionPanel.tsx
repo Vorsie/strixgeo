@@ -37,6 +37,7 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
+  LithoLayerSuggestion,
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
 import { verticalDatumShort } from '../utils/verticalDatum'
@@ -63,6 +64,7 @@ import {
 } from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
+import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import VirtueleBoringGhostColumns, {
   virtueleBoringGhostRailWidth,
 } from './sections/VirtueleBoringGhostColumns'
@@ -233,6 +235,29 @@ interface Props {
     maxDepthM: number | null
   }) => void
   onChangeVirtueleBoringShowOnSection?: (next: boolean) => void
+  /**
+   * Litho-suggestion ghost state (slice 3, #55).  When present, a ghost
+   * column overlay renders to the LEFT of the targeted investigation's band
+   * showing the segmenter's layer boundaries — click to accept, right-click
+   * to reject.  Absent / undefined = no overlay (zero regression for callers
+   * that don't use the litho axis).
+   */
+  lithoGhostState?: {
+    /** Suggestion layers ordered top→bottom from the segmenter. */
+    suggestions: readonly LithoLayerSuggestion[]
+    /** Id of the CPT or borehole whose suggestions are shown. */
+    investigationId: string
+    /** mTAW surface elevation used to convert depth→absolute level. */
+    surfaceElevationM: number | null
+    /** Indices already accepted (contact created). */
+    acceptedIndices: ReadonlySet<number>
+    /** Indices explicitly rejected. */
+    rejectedIndices: ReadonlySet<number>
+    /** Fire when the user left-clicks a pending layer to accept it. */
+    onAccept: (idx: number) => void
+    /** Fire when the user right-clicks / Shift-clicks to reject. */
+    onReject: (idx: number) => void
+  }
 }
 
 export default function SectionPanel({
@@ -265,6 +290,7 @@ export default function SectionPanel({
   virtueleBoringShowOnSection = true,
   onChangeVirtueleBoringPicker,
   onChangeVirtueleBoringShowOnSection,
+  lithoGhostState,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -1459,6 +1485,28 @@ export default function SectionPanel({
                 plotBottom={MARGIN.top + plotHeight}
                 bandHalfWidth={bandHalfWidth}
                 maxDepthMBelowSurface={virtueleBoringMaxDepthM}
+              />
+            )}
+
+            {/* Litho-suggestion ghost column (slice 3, #55) — interactive
+                overlay to the LEFT of the targeted investigation showing
+                the Robertson-2015/borehole segmenter output. Click a
+                layer to accept (creates contact + formation), right-click
+                to reject. Renders nothing when the prop is absent. */}
+            {lithoGhostState && lithoGhostState.suggestions.length > 0 && (
+              <LithoSuggestionGhostColumns
+                columns={visibleColumns}
+                investigationId={lithoGhostState.investigationId}
+                suggestions={lithoGhostState.suggestions}
+                levelToScreen={levelToScreen}
+                surfaceElevationM={lithoGhostState.surfaceElevationM}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                bandHalfWidth={bandHalfWidth}
+                acceptedIndices={lithoGhostState.acceptedIndices}
+                rejectedIndices={lithoGhostState.rejectedIndices}
+                onAccept={lithoGhostState.onAccept}
+                onReject={lithoGhostState.onReject}
               />
             )}
 

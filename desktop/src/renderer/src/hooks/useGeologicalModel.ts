@@ -29,6 +29,7 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   GeologicalModelResponse,
+  LithoLayerSuggestion,
   ProjectResponse,
 } from '../api/client'
 import type { UndoCommand } from './useUndoStack'
@@ -172,6 +173,41 @@ export interface UseGeologicalModelResult {
    * absent or the API call fails.
    */
   ensureActiveGeologicalModel: () => Promise<GeologicalModelResponse | null>
+  // -------------------------------------------------------------------------
+  // Litho suggestion ghost state (slice 3, #55).
+  // Ephemeral — not persisted to .gmproj. Cleared on model switch.
+  // -------------------------------------------------------------------------
+  /** Current layer suggestions from the segmenter. Empty = no active suggestion. */
+  lithoSuggestions: LithoLayerSuggestion[]
+  /** The investigation id (CPT or borehole) whose suggestions are loaded. */
+  lithoSuggestionInvestigationId: string | null
+  /** Whether the anchor is a CPT or borehole (null when no suggestion is active). */
+  lithoSuggestionAnchorKind: 'cpt' | 'borehole' | null
+  /** Layer indices the user has accepted (contact was created successfully). */
+  lithoSuggestionAccepted: ReadonlySet<number>
+  /** Layer indices the user has explicitly rejected (dismissed). */
+  lithoSuggestionRejected: ReadonlySet<number>
+  /** Whether a suggestion fetch is in flight. */
+  lithoSuggesting: boolean
+  /**
+   * Fetch lithostratigraphic suggestions for one investigation.
+   * Stores results in ``lithoSuggestions`` for the ghost overlay.
+   * Clears any prior accepted/rejected state.
+   */
+  handleSuggestLitho: (
+    anchorKind: 'cpt' | 'borehole',
+    anchorId: string,
+  ) => Promise<void>
+  /**
+   * Accept suggestion layer ``idx``: ensure the formation exists in the
+   * litho model (reuse if present, create if absent), then create a contact
+   * at ``depth_top_m``.  Marks the layer accepted on success.
+   */
+  handleAcceptLithoSuggestion: (idx: number) => Promise<void>
+  /** Reject suggestion layer ``idx`` — marks it rejected (no network call). */
+  handleRejectLithoSuggestion: (idx: number) => void
+  /** Clear all suggestion state (close the ghost overlay). */
+  clearLithoSuggestions: () => void
 }
 
 /**
@@ -2012,6 +2048,191 @@ export function useGeologicalModel({
     [project, toast],
   )
 
+  // -------------------------------------------------------------------------
+  // Slice 3, #55: ephemeral litho-suggestion state (suggest/ghost/accept).
+  //
+  // Session-only — not persisted to .gmproj. Cleared on litho model switch
+  // (the useEffect that loads litho data resets it via clearLithoSuggestions
+  // in its cleanup). Independent state atoms so acceptance of one layer
+  // never triggers a re-render of the whole geological model state.
+  // -------------------------------------------------------------------------
+
+  const [lithoSuggestions, setLithoSuggestions] = useState<LithoLayerSuggestion[]>([])
+  const [lithoSuggestionInvestigationId, setLithoSuggestionInvestigationId] = useState<
+    string | null
+  >(null)
+  const [lithoSuggestionAnchorKind, setLithoSuggestionAnchorKind] = useState<
+    'cpt' | 'borehole' | null
+  >(null)
+  const [lithoSuggestionAccepted, setLithoSuggestionAccepted] = useState<ReadonlySet<number>>(
+    new Set(),
+  )
+  const [lithoSuggestionRejected, setLithoSuggestionRejected] = useState<ReadonlySet<number>>(
+    new Set(),
+  )
+  const [lithoSuggesting, setLithoSuggesting] = useState(false)
+
+  // Stable ref to lithoFormations — lets handleAcceptLithoSuggestion close
+  // over it without listing the array as a dep (which would recreate the
+  // callback on every formation change). Mirrors the activeLithoModelRef pattern.
+  const lithoFormationsRef = useRef<GeologicalFormationResponse[]>([])
+  useEffect(() => {
+    lithoFormationsRef.current = lithoFormations
+  }, [lithoFormations])
+
+  const clearLithoSuggestions = useCallback((): void => {
+    setLithoSuggestions([])
+    setLithoSuggestionInvestigationId(null)
+    setLithoSuggestionAnchorKind(null)
+    setLithoSuggestionAccepted(new Set())
+    setLithoSuggestionRejected(new Set())
+  }, [])
+
+  // Fetch suggestions for one investigation against the active litho model.
+  // Replaces any prior suggestion set (one investigation at a time).
+  const handleSuggestLitho = useCallback(
+    async (anchorKind: 'cpt' | 'borehole', anchorId: string): Promise<void> => {
+      const model = activeLithoModelRef.current
+      if (!project || !model) return
+      log.debug(
+        'geology',
+        `handleSuggestLitho entry kind=${anchorKind} anchor=${anchorId} model=${model.id}`,
+      )
+      setLithoSuggesting(true)
+      // Clear prior suggestion before the fetch so stale data never shows.
+      clearLithoSuggestions()
+      try {
+        const body =
+          anchorKind === 'cpt'
+            ? { cpt_id: anchorId }
+            : { borehole_id: anchorId }
+        const resp = await api.geology.suggestLitho(project.id, model.id, body)
+        log.success(
+          'geology',
+          `suggestLitho ok ${resp.layers.length} layers for ${anchorKind} ${anchorId}`,
+        )
+        setLithoSuggestions(resp.layers)
+        setLithoSuggestionInvestigationId(anchorId)
+        setLithoSuggestionAnchorKind(anchorKind)
+      } catch (err) {
+        log.error('geology', `handleSuggestLitho failed for ${anchorId}`, err)
+        toast('error', 'Could not fetch lithostratigraphic suggestions.')
+      } finally {
+        setLithoSuggesting(false)
+      }
+    },
+    [project, clearLithoSuggestions, toast],
+  )
+
+  // Accept one suggestion layer: reuse an existing litho formation with the
+  // same base lithology, or create one. Then create the contact at depth_top_m.
+  // Marks the layer accepted (green tick) on success.
+  const handleAcceptLithoSuggestion = useCallback(
+    async (idx: number): Promise<void> => {
+      const model = activeLithoModelRef.current
+      const layers = lithoSuggestions
+      if (!project || !model || idx < 0 || idx >= layers.length) return
+      const layer = layers[idx]
+      const anchorKind = lithoSuggestionAnchorKind
+      const anchorId = lithoSuggestionInvestigationId
+      if (!anchorKind || !anchorId) return
+      log.debug(
+        'geology',
+        `acceptLithoSuggestion idx=${idx} lithology=${layer.suggested_lithology} depth=${layer.depth_top_m.toFixed(2)}m`,
+      )
+      try {
+        // Reuse-not-duplicate: find an existing litho formation with the
+        // same base lithology (token match, case-insensitive just in case).
+        const existing = lithoFormationsRef.current.find(
+          f =>
+            f.lithology != null &&
+            f.lithology.toUpperCase() === layer.suggested_lithology.toUpperCase(),
+        )
+        let formationId: string
+        if (existing) {
+          formationId = existing.id
+          log.debug(
+            'geology',
+            `acceptLithoSuggestion reuse formation id=${formationId} name="${existing.name}"`,
+          )
+        } else {
+          // Create a formation named after the English lithology label.
+          const LITHO_LABELS: Record<string, string> = {
+            GRIND: 'Gravel',
+            ZAND: 'Sand',
+            SILT: 'Silt',
+            KLEI: 'Clay',
+            VEEN: 'Peat',
+          }
+          const LITHO_COLORS: Record<string, string> = {
+            GRIND: '#d97706',
+            ZAND: '#fbbf24',
+            SILT: '#84cc16',
+            KLEI: '#6b7280',
+            VEEN: '#92400e',
+          }
+          const name = LITHO_LABELS[layer.suggested_lithology] ?? layer.suggested_lithology
+          const color = LITHO_COLORS[layer.suggested_lithology] ?? '#9ca3af'
+          const result = await handleInlineLithoCreateFormation({
+            name,
+            color,
+            lithology: layer.suggested_lithology,
+            nad_class: layer.suggested_nad_class ?? undefined,
+          })
+          if (!result) return  // toast already fired by handleInlineLithoCreateFormation
+          formationId = result.id
+        }
+        // Create the contact at the suggested top depth.
+        await handleCreateLithoContact(
+          anchorKind,
+          anchorId,
+          layer.depth_top_m,
+          formationId,
+          // Borehole-path suggestions come from observed stratigraphy —
+          // treat as snapped (high confidence). CPT is a model output —
+          // medium confidence (manual_pick equivalent).
+          anchorKind === 'borehole',
+        )
+        // Mark accepted so the ghost overlay shows the tick.
+        setLithoSuggestionAccepted(prev => {
+          const next = new Set(prev)
+          next.add(idx)
+          return next
+        })
+        log.success(
+          'geology',
+          `acceptLithoSuggestion ok idx=${idx} formation=${formationId}`,
+        )
+      } catch (err) {
+        log.error('geology', `acceptLithoSuggestion failed idx=${idx}`, err)
+        toast('error', 'Could not accept the litho suggestion.')
+      }
+    },
+    // reason: lithoSuggestions / lithoSuggestionAnchorKind / lithoSuggestionInvestigationId
+    // are read synchronously inside the callback body via closure. They are listed as deps
+    // so the callback identity refreshes when the active suggestion changes (a new suggest
+    // replaces all of them at once). lithoFormationsRef is a ref (stable identity).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      project,
+      lithoSuggestions,
+      lithoSuggestionAnchorKind,
+      lithoSuggestionInvestigationId,
+      handleInlineLithoCreateFormation,
+      handleCreateLithoContact,
+      toast,
+    ],
+  )
+
+  const handleRejectLithoSuggestion = useCallback((idx: number): void => {
+    setLithoSuggestionRejected(prev => {
+      const next = new Set(prev)
+      next.add(idx)
+      return next
+    })
+    log.debug('geology', `rejectLithoSuggestion idx=${idx}`)
+  }, [])
+
   // R4 (debt #12): the visible-list filter now lives HERE, not as an
   // App.tsx post-spread. ``manifestFormationIds`` undefined (no project
   // open) ⇒ pass everything through, same semantics App.tsx had.
@@ -2063,5 +2284,15 @@ export function useGeologicalModel({
     applyBoreholeFormationSelection,
     handleDeleteModel,
     ensureActiveGeologicalModel,
+    lithoSuggestions,
+    lithoSuggestionInvestigationId,
+    lithoSuggestionAnchorKind,
+    lithoSuggestionAccepted,
+    lithoSuggestionRejected,
+    lithoSuggesting,
+    handleSuggestLitho,
+    handleAcceptLithoSuggestion,
+    handleRejectLithoSuggestion,
+    clearLithoSuggestions,
   }
 }

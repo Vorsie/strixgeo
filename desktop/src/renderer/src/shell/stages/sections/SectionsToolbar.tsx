@@ -49,8 +49,14 @@ export default function SectionsToolbar(): JSX.Element {
       handleDedupeContacts,
       handleExportModelPlaxis3d,
       handleAutoPopulateFromStratigraphy,
+      lithoSuggesting,
+      lithoSuggestions,
+      handleSuggestLitho,
+      clearLithoSuggestions,
     },
     coordinator: {
+      selectedId,
+      selectedBoreholeId,
       handleExportSectionDxf,
     },
   } = useShell()
@@ -187,6 +193,24 @@ export default function SectionsToolbar(): JSX.Element {
       ? `Build · ${staleSurfaceCount} stale`
       : 'Build model'
 
+  // Suggest litho — fetches Robertson-2015/borehole segmenter suggestions for
+  // the currently selected CPT or borehole. Only enabled on the litho axis
+  // when a section is selected AND an investigation is selected (the source).
+  // "Clear" dismisses the ghost overlay without requiring a section interaction.
+  const focusedAnchorKind: 'cpt' | 'borehole' | null = selectedId
+    ? 'cpt'
+    : selectedBoreholeId
+      ? 'borehole'
+      : null
+  const focusedAnchorId = selectedId ?? selectedBoreholeId ?? null
+  const canSuggest = isLitho && activeLithoModel !== null && hasSection && focusedAnchorId !== null
+  const hasSuggestions = lithoSuggestions.length > 0
+
+  async function handleSuggest(): Promise<void> {
+    if (!canSuggest || lithoSuggesting || !focusedAnchorKind || !focusedAnchorId) return
+    await handleSuggestLitho(focusedAnchorKind, focusedAnchorId)
+  }
+
   // Handler for the axis toggle — validate the target axis before
   // switching so a disabled "Litho" segment can't be clicked.
   function handleAxisChange(axis: SectionModelAxis): void {
@@ -246,6 +270,43 @@ export default function SectionsToolbar(): JSX.Element {
 
       {/* Separator */}
       <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+
+      {/* Suggest litho (slice 3, #55) — only shown on the litho axis.
+          Calls the Robertson-2015/borehole segmenter for the selected CPT
+          or borehole; the resulting ghost overlay renders in SectionPanel.
+          "Clear" dismisses the overlay without any network call. */}
+      {isLitho && (
+        <>
+          <ToolbarButton
+            icon={<Sparkles size={13} />}
+            label={lithoSuggesting ? 'Suggesting…' : 'Suggest litho'}
+            onClick={() => void handleSuggest()}
+            disabled={!canSuggest || lithoSuggesting}
+            busy={lithoSuggesting}
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : !hasSection
+                  ? 'Open a cross-section to use Suggest litho'
+                  : !focusedAnchorId
+                    ? 'Select a CPT or borehole on the section to suggest layers for'
+                    : lithoSuggesting
+                      ? 'Fetching suggestions…'
+                      : 'Suggest lithostratigraphic layers for the selected investigation'
+            }
+          />
+          {hasSuggestions && (
+            <ToolbarButton
+              icon={<Eraser size={13} />}
+              label="Clear"
+              onClick={clearLithoSuggestions}
+              title="Dismiss the current litho suggestion overlay"
+            />
+          )}
+          {/* Separator after litho-specific actions */}
+          <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+        </>
+      )}
 
       {/* New cross-section — primary entry action, visually distinct from
           the secondary verbs so first-time users can find it immediately.

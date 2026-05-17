@@ -66,6 +66,12 @@ export default function SectionsCanvas(): JSX.Element {
       lithoSurfacesByFormationId,
       handleCreateLithoContact,
       handleInlineLithoCreateFormation,
+      lithoSuggestions,
+      lithoSuggestionInvestigationId,
+      lithoSuggestionAccepted,
+      lithoSuggestionRejected,
+      handleAcceptLithoSuggestion,
+      handleRejectLithoSuggestion,
     },
     sections: {
       sections,
@@ -165,6 +171,42 @@ export default function SectionsCanvas(): JSX.Element {
   const axisCreateContact = isLitho ? handleCreateLithoContact : handleCreateContact
   const axisCreateFormation = isLitho ? handleInlineLithoCreateFormation : handleInlineCreateFormation
 
+  // Slice 3 (#55): resolve the surface elevation for the suggestion target so
+  // the ghost overlay can convert depth-below-surface → absolute mTAW level.
+  // Searches both visible lists; null when the investigation isn't loaded yet.
+  const lithoGhostSurfaceElevationM = useMemo(() => {
+    if (!lithoSuggestionInvestigationId) return null
+    const cpt = visibleCpts.find(c => c.id === lithoSuggestionInvestigationId)
+    if (cpt) return cpt.elevation_m
+    const bh = visibleBoreholes.find(b => b.id === lithoSuggestionInvestigationId)
+    return bh?.elevation_m ?? null
+  }, [lithoSuggestionInvestigationId, visibleCpts, visibleBoreholes])
+
+  // Build the lithoGhostState bundle passed to SectionPanel.
+  // Only populated on the litho axis when suggestions are loaded for an
+  // investigation — zero regression on the geological axis.
+  const lithoGhostState = useMemo(() => {
+    if (!isLitho || lithoSuggestions.length === 0 || !lithoSuggestionInvestigationId) return undefined
+    return {
+      suggestions: lithoSuggestions,
+      investigationId: lithoSuggestionInvestigationId,
+      surfaceElevationM: lithoGhostSurfaceElevationM,
+      acceptedIndices: lithoSuggestionAccepted,
+      rejectedIndices: lithoSuggestionRejected,
+      onAccept: handleAcceptLithoSuggestion,
+      onReject: handleRejectLithoSuggestion,
+    }
+  }, [
+    isLitho,
+    lithoSuggestions,
+    lithoSuggestionInvestigationId,
+    lithoGhostSurfaceElevationM,
+    lithoSuggestionAccepted,
+    lithoSuggestionRejected,
+    handleAcceptLithoSuggestion,
+    handleRejectLithoSuggestion,
+  ])
+
   if (selectedSection !== null) {
     return (
       <SectionPanel
@@ -214,6 +256,7 @@ export default function SectionsCanvas(): JSX.Element {
         onChangeVirtueleBoringShowOnSection={next =>
           handleSetShowOverlay('section', next)
         }
+        lithoGhostState={lithoGhostState}
       />
     )
   }
