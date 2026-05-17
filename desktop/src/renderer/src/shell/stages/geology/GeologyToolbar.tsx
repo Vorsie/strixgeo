@@ -22,7 +22,7 @@
 //
 // No props accepted — all state/handlers come from useShell().
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Eraser,
   RefreshCw,
@@ -86,6 +86,17 @@ export default function GeologyToolbar(): JSX.Element {
   // after manual_map changes and when applying the confirmed selection.
   const [pendingBoreholeIds, setPendingBoreholeIds] = useState<string[]>([])
   const [applying, setApplying] = useState(false)
+  // True while a map-change re-discover is in flight — drives the "Updating…"
+  // label on the collision panel so the user sees feedback during the debounce
+  // window and the subsequent network round-trip.
+  const [updatingCollisions, setUpdatingCollisions] = useState(false)
+  // Debounce timer for handleManualMapChange re-discovers.  A new group edit
+  // cancels any pending timer before scheduling a fresh one, so rapid typing
+  // fires at most one discover per 300 ms trailing edge.
+  const mapChangeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Monotonic request counter for last-write-wins: if a slow response arrives
+  // after a newer one has already set state, it is discarded.
+  const discoverRequestIdRef = useRef(0)
 
   const [rebuilding, setRebuilding] = useState(false)
   const [deduping, setDeduping] = useState(false)
@@ -135,15 +146,40 @@ export default function GeologyToolbar(): JSX.Element {
   // Re-run discover with the updated manual_map when the user edits groups.
   // Called by FormationSelectionDialog.onManualMapChange. Does NOT close the
   // dialog — only updates the collision panel inside it.
-  async function handleManualMapChange(manualMap: Record<string, string>): Promise<void> {
+  //
+  // Debounced (300 ms trailing edge) so that rapid group edits (rename + add
+  // member in quick succession) fire at most one network round-trip per burst.
+  // Last-write-wins via discoverRequestIdRef: if a slow response arrives after
+  // a newer one has already updated state, the stale response is discarded
+  // rather than overwriting fresh data with phantom collisions.
+  function handleManualMapChange(manualMap: Record<string, string>): void {
     if (pendingBoreholeIds.length === 0) return
-    try {
-      const { collisions: cols } = await discoverBoreholeFormations(pendingBoreholeIds, manualMap)
-      setCollisions(cols)
-    } catch {
-      // Silently ignore — the collision panel will just show stale data.
-      // The error is already logged inside discoverBoreholeFormations.
+    // Cancel any pending debounce timer from an earlier edit in the same burst.
+    if (mapChangeDebounceRef.current !== null) {
+      clearTimeout(mapChangeDebounceRef.current)
     }
+    // Show "Updating…" immediately so the user sees the dialog is reacting to
+    // their edit, even before the debounce window elapses.
+    setUpdatingCollisions(true)
+    mapChangeDebounceRef.current = setTimeout(() => {
+      mapChangeDebounceRef.current = null
+      const requestId = ++discoverRequestIdRef.current
+      void discoverBoreholeFormations(pendingBoreholeIds, manualMap)
+        .then(({ collisions: cols }) => {
+          // Discard stale responses — a newer request has already resolved.
+          if (requestId !== discoverRequestIdRef.current) return
+          setCollisions(cols)
+        })
+        .catch(() => {
+          // Silently ignore — the collision panel will just show stale data.
+          // The error is already logged inside discoverBoreholeFormations.
+        })
+        .finally(() => {
+          if (requestId === discoverRequestIdRef.current) {
+            setUpdatingCollisions(false)
+          }
+        })
+    }, 300)
   }
 
   // 2. Build model.
@@ -178,6 +214,14 @@ export default function GeologyToolbar(): JSX.Element {
     manualMap: Record<string, string>,
   ): Promise<void> {
     setSelectionDialogOpen(false)
+    // Cancel any pending debounce timer — the dialog is closing; stale
+    // collision updates arriving after this point would be discarded by the
+    // requestId guard anyway, but cancelling the timer avoids the network call.
+    if (mapChangeDebounceRef.current !== null) {
+      clearTimeout(mapChangeDebounceRef.current)
+      mapChangeDebounceRef.current = null
+    }
+    setUpdatingCollisions(false)
     setApplying(true)
     try {
       await applyBoreholeFormationSelection(
@@ -358,12 +402,18 @@ export default function GeologyToolbar(): JSX.Element {
         collisions={collisions}
         currentFormations={formations}
         currentContacts={contacts}
-        onManualMapChange={map => void handleManualMapChange(map)}
+        collisionsUpdating={updatingCollisions}
+        onManualMapChange={handleManualMapChange}
         onConfirm={(selectedKeys, manualMap) => void handleSelectionConfirm(selectedKeys, manualMap)}
         onCancel={() => {
           setSelectionDialogOpen(false)
           setPendingBoreholeIds([])
           setCollisions([])
+          setUpdatingCollisions(false)
+          if (mapChangeDebounceRef.current !== null) {
+            clearTimeout(mapChangeDebounceRef.current)
+            mapChangeDebounceRef.current = null
+          }
         }}
       />
 
