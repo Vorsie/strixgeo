@@ -74,6 +74,19 @@ class CrossSectionOrm(Base):
         ARRAY(PG_UUID(as_uuid=True)), nullable=False, default=list
     )
 
+    # Explicit-content invariant (owner directive 2026-05-17).
+    # A section shows formation contacts ONLY whose id appears in this
+    # set.  Empty array (the default) means "nothing seeded — show
+    # investigations only".  The set grows when the user clicks "Seed
+    # from stratigraphy" or manually draws a contact on this section.
+    # Model-level contacts that are NOT in this set are invisible on the
+    # section even if they are in the corridor — see
+    # BuildSectionSnapshot and CLAUDE.md "Cross-sections are the editing
+    # surface…Seed from stratigraphy".
+    seeded_formation_contact_ids: Mapped[list[UUID]] = mapped_column(
+        ARRAY(PG_UUID(as_uuid=True)), nullable=False, default=list
+    )
+
     # Optional view-window depths. NULL means "auto-fit to the deepest
     # projected investigation on render".
     min_depth_m: Mapped[float | None] = mapped_column(Double, nullable=True)

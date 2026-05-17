@@ -51,7 +51,12 @@ class CrossSectionRepository(GroundModelLogger):
         display_order: int = 0,
         view_state: dict[str, Any] | None = None,
     ) -> CrossSectionOrm:
-        """Insert a new cross-section under the given project."""
+        """Insert a new cross-section under the given project.
+
+        ``seeded_formation_contact_ids`` is always empty on create —
+        a freshly-drawn section shows investigations only.  Formation
+        content appears only after an explicit Seed or manual draw action.
+        """
         section = CrossSectionOrm(
             id=uuid7(),
             app_project_id=app_project_id,
@@ -66,6 +71,7 @@ class CrossSectionRepository(GroundModelLogger):
             vertical_exaggeration=vertical_exaggeration,
             excluded_borehole_ids=excluded_borehole_ids or [],
             excluded_cpt_ids=excluded_cpt_ids or [],
+            seeded_formation_contact_ids=[],
             min_depth_m=min_depth_m,
             max_depth_m=max_depth_m,
             display_order=display_order,

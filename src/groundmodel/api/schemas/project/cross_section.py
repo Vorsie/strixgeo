@@ -89,6 +89,9 @@ class CrossSectionCreateRequest(BaseModel):
     max_depth_m: float | None = None
     display_order: int = 0
     view_state: dict[str, Any] | None = None
+    # seeded_formation_contact_ids is NOT in the create request.
+    # A freshly-drawn section always starts with an empty set — formation
+    # content only appears after an explicit Seed or manual draw action.
 
     @model_validator(mode="after")
     def _endpoints_distinct(self) -> CrossSectionCreateRequest:
@@ -145,6 +148,12 @@ class CrossSectionUpdateRequest(BaseModel):
     # serialises via ``model_dump(exclude_none=True)`` to preserve
     # the partial-update contract.
     view_state: SectionViewState | None = None
+    # Replaces the seeded set wholesale.  The Seed handler and
+    # manual-draw handler both PATCH via the union pattern (existing
+    # ∪ new), not direct assignment, so they pass the full merged set
+    # here.  When absent (None) the column is untouched by the generic
+    # repo.update() loop — correct for all other PATCH callers.
+    seeded_formation_contact_ids: list[UUID] | None = None
 
 
 class CrossSectionResponse(BaseModel):
@@ -169,5 +178,9 @@ class CrossSectionResponse(BaseModel):
     max_depth_m: float | None
     display_order: int
     view_state: dict[str, Any] | None = None
+    # Explicit-content included set — see ORM docstring + CLAUDE.md
+    # "Cross-sections are the editing surface".  Empty list = nothing
+    # seeded; formation contacts appear only when their id is in this set.
+    seeded_formation_contact_ids: list[UUID]
     created_at: datetime
     updated_at: datetime
