@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -62,9 +63,27 @@ async def _probe_database() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """FastAPI lifespan — runs the DB probe before serving requests."""
+    """FastAPI lifespan — starts the parse pool, runs the DB probe, tears down cleanly.
+
+    A ``ProcessPoolExecutor`` is started here and stored on ``_app.state.parse_pool``
+    so the DOV CPT router can access it via ``request.app.state.parse_pool``.
+    The pool is shut down gracefully (``wait=True``) on application exit so
+    in-flight parse tasks complete before the process exits.
+    """
+    # Pre-import the worker module in the main process so the pickled
+    # function reference is resolvable when the child processes start.
+    import groundmodel.infrastructure.parsers.cpt.dov.dov_parse_worker  # noqa: F401
+
+    pool = ProcessPoolExecutor(max_workers=4)
+    _app.state.parse_pool = pool
+    logger.info("DOV parse pool started (max_workers=4)")
+
     await _probe_database()
-    yield
+    try:
+        yield
+    finally:
+        pool.shutdown(wait=True)
+        logger.info("DOV parse pool shut down")
 
 
 # Max bytes any single request body may carry. 256 MiB is well above
