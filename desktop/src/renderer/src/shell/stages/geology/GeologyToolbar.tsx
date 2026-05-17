@@ -58,6 +58,7 @@ export default function GeologyToolbar(): JSX.Element {
   const {
     visibleBoreholes,
     toasts: { toast },
+    lifecycle: { writeLumpingSnapshot },
     geoModel: {
       activeGeologicalModel,
       formations,
@@ -78,6 +79,12 @@ export default function GeologyToolbar(): JSX.Element {
   const [discovering, setDiscovering] = useState(false)
   const [selectionDialogOpen, setSelectionDialogOpen] = useState(false)
   const [candidates, setCandidates] = useState<FormationCandidate[]>([])
+  // Collisions from the last discover scan — rendered in the dialog as warnings.
+  // Updated live when the user edits manual groups (onManualMapChange re-runs discover).
+  const [collisions, setCollisions] = useState<import('../../../hooks/useGeologicalModel').LumpingCollision[]>([])
+  // boreholeIds captured at discover time — reused when re-running discover
+  // after manual_map changes and when applying the confirmed selection.
+  const [pendingBoreholeIds, setPendingBoreholeIds] = useState<string[]>([])
   const [applying, setApplying] = useState(false)
 
   const [rebuilding, setRebuilding] = useState(false)
@@ -104,8 +111,8 @@ export default function GeologyToolbar(): JSX.Element {
     if (boreholeIds.length === 0) return
     setDiscovering(true)
     try {
-      const result = await discoverBoreholeFormations(boreholeIds)
-      if (result.length === 0) {
+      const { candidates: found, collisions: cols } = await discoverBoreholeFormations(boreholeIds)
+      if (found.length === 0) {
         // No stratigraphy data — opening an empty dialog would be a silent
         // dead end on the stage's primary entry action (§10.4 / debt #33).
         // Surface the reason AND the alternative path so the user isn't
@@ -116,10 +123,26 @@ export default function GeologyToolbar(): JSX.Element {
         )
         return
       }
-      setCandidates(result)
+      setCandidates(found)
+      setCollisions(cols)
+      setPendingBoreholeIds(boreholeIds)
       setSelectionDialogOpen(true)
     } finally {
       setDiscovering(false)
+    }
+  }
+
+  // Re-run discover with the updated manual_map when the user edits groups.
+  // Called by FormationSelectionDialog.onManualMapChange. Does NOT close the
+  // dialog — only updates the collision panel inside it.
+  async function handleManualMapChange(manualMap: Record<string, string>): Promise<void> {
+    if (pendingBoreholeIds.length === 0) return
+    try {
+      const { collisions: cols } = await discoverBoreholeFormations(pendingBoreholeIds, manualMap)
+      setCollisions(cols)
+    } catch {
+      // Silently ignore — the collision panel will just show stale data.
+      // The error is already logged inside discoverBoreholeFormations.
     }
   }
 
@@ -146,15 +169,39 @@ export default function GeologyToolbar(): JSX.Element {
   }
 
   // 4. Confirm handler for FormationSelectionDialog.
-  //    Receives stable keys (not display names) from the dialog.
+  //    Receives stable keys (not display names) AND the manual_map at confirm
+  //    time.  The SAME map used for the last preview is forwarded directly to
+  //    the apply call — no re-discover between dialog confirm and the API call.
+  //    This preserves the discover ≡ apply invariant the backend enforces.
   async function handleSelectionConfirm(
     selectedKeys: ReadonlySet<string>,
+    manualMap: Record<string, string>,
   ): Promise<void> {
     setSelectionDialogOpen(false)
     setApplying(true)
     try {
-      const boreholeIds = visibleBoreholes.map(b => b.id)
-      await applyBoreholeFormationSelection(selectedKeys, boreholeIds)
+      await applyBoreholeFormationSelection(
+        selectedKeys,
+        pendingBoreholeIds,
+        Object.keys(manualMap).length > 0 ? manualMap : undefined,
+      )
+      // Atomically write the lumping snapshot into the .gmproj file so the
+      // user's grouping is remembered the next time they open Fill from boreholes
+      // on this project — even if they never File→Save before closing.
+      // Only written when the user provided a non-empty map (no-lump path
+      // produces the same contacts whether or not a snapshot is stored).
+      if (Object.keys(manualMap).length > 0) {
+        try {
+          await writeLumpingSnapshot({
+            schema_version: 1,
+            applied_at: new Date().toISOString(),
+            map: manualMap,
+          })
+        } catch {
+          // Non-fatal: the apply succeeded; the lumping map just won't be
+          // pre-populated next time.  Error is logged inside writeLumpingSnapshot.
+        }
+      }
     } catch (err) {
       // applyBoreholeFormationSelection logs + throws; toast the failure here
       // so the Geology stage surfaces it even when the error originates deep
@@ -162,6 +209,8 @@ export default function GeologyToolbar(): JSX.Element {
       toast('error', 'Could not apply formation selection — check the connection.')
     } finally {
       setApplying(false)
+      setPendingBoreholeIds([])
+      setCollisions([])
     }
   }
 
@@ -300,14 +349,22 @@ export default function GeologyToolbar(): JSX.Element {
         }
       />
 
-      {/* Formation selection dialog — opened after a successful discovery scan */}
+      {/* Formation selection dialog — opened after a successful discovery scan.
+          onManualMapChange re-runs discover with the current map so the
+          collision panel inside the dialog stays live as the user edits groups. */}
       <FormationSelectionDialog
         open={selectionDialogOpen}
         candidates={candidates}
+        collisions={collisions}
         currentFormations={formations}
         currentContacts={contacts}
-        onConfirm={selectedNames => void handleSelectionConfirm(selectedNames)}
-        onCancel={() => setSelectionDialogOpen(false)}
+        onManualMapChange={map => void handleManualMapChange(map)}
+        onConfirm={(selectedKeys, manualMap) => void handleSelectionConfirm(selectedKeys, manualMap)}
+        onCancel={() => {
+          setSelectionDialogOpen(false)
+          setPendingBoreholeIds([])
+          setCollisions([])
+        }}
       />
 
       {/* Delete model confirm modal — irreversible; default focus on Cancel */}
