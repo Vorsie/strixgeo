@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+    LumpingCollision,
     StratigraphyCandidate,
     scan_stratigraphy_candidates,
 )
@@ -45,12 +46,19 @@ class DiscoverFormationsFromStratigraphy(GroundModelLogger):
         *,
         project_id: UUID,
         borehole_ids: Iterable[UUID],
-    ) -> list[StratigraphyCandidate]:
+        manual_map: dict[str, str] | None = None,
+    ) -> tuple[list[StratigraphyCandidate], list[LumpingCollision]]:
         """Scan borehole stratigraphy and return unique candidate names.
 
         Delegates the full scan to ``scan_stratigraphy_candidates`` —
         the shared helper that mirrors ``AutoPopulateContactsFromStratigraphy``
         but without the contact-creation side effects.
+
+        The ``discover≡apply`` invariant: passing the same ``manual_map``
+        here and to ``AutoPopulateContactsFromStratigraphy.execute`` produces
+        identical effective keys, formation names, and collision warnings.
+        The dialog must send the same map it used for the preview when
+        confirming the apply, to eliminate any race between preview and write.
 
         Parameters
         ----------
@@ -60,26 +68,35 @@ class DiscoverFormationsFromStratigraphy(GroundModelLogger):
         borehole_ids : Iterable[UUID]
             The boreholes to scan (typically all boreholes visible in the
             project).
+        manual_map : dict[str, str] or None, optional
+            Optional ``{ normalize_formation_key(raw) -> target_formation_name }``
+            mapping built by the user's lumping dialog.  When provided, raw
+            names that appear in the map are merged under the target formation
+            in the candidate list.  ``None`` (default) = no lumping.
 
         Returns
         -------
-        list[StratigraphyCandidate]
-            Unique candidates sorted by ``borehole_count`` descending then
-            ``name`` ascending.  Empty list when no borehole carries
-            stratigraphy data.
+        tuple[list[StratigraphyCandidate], list[LumpingCollision]]
+            Pair of (candidates, collisions).  Candidates are sorted by
+            ``borehole_count`` descending then ``name`` ascending.  Collisions
+            are empty when no ``manual_map`` is provided or when no two layers
+            in any single borehole resolve to the same effective key.
         """
         borehole_id_list = list(borehole_ids)
         self.info(
             f"DiscoverFormationsFromStratigraphy: project={project_id} "
-            f"boreholes={len(borehole_id_list)}"
+            f"boreholes={len(borehole_id_list)} "
+            f"manual_map={len(manual_map) if manual_map else 0}"
         )
-        candidates = await scan_stratigraphy_candidates(
+        candidates, collisions = await scan_stratigraphy_candidates(
             self._session,
             project_id=project_id,
             borehole_ids=borehole_id_list,
+            manual_map=manual_map,
         )
         self.success(
             f"DiscoverFormationsFromStratigraphy done: "
-            f"{len(candidates)} candidate(s) from {len(borehole_id_list)} borehole(s)"
+            f"{len(candidates)} candidate(s) from {len(borehole_id_list)} borehole(s), "
+            f"{len(collisions)} collision(s)"
         )
-        return candidates
+        return candidates, collisions
