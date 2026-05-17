@@ -72,8 +72,11 @@ class ImportCptDov(GroundModelLogger):
     Parameters
     ----------
     session : AsyncSession
-        Database session; each CPT is committed individually so a single parse
-        failure does not roll back already-imported records.
+        Database session. All parsed CPTs are staged without committing during
+        the persist loop and flushed in a single ``session.commit()`` at the
+        final phase — the deliberate atomic-import contract: a per-CPT parse or
+        persist failure rolls the whole batch back rather than leaving a
+        partially-imported project (see docs/parsers-dov.md).
     """
 
     def __init__(self, session: AsyncSession) -> None:

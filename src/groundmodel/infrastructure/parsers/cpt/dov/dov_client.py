@@ -409,7 +409,11 @@ class DovClient(GroundModelLogger):
             # Gzip-compress before IPC: a typical DOV XML (~500 kB) shrinks to
             # ~50 kB at level=1, reducing pipe overhead ~10× with minimal CPU cost.
             compressed = gzip.compress(xml_bytes, compresslevel=1)
-            loop = asyncio.get_event_loop()
+            # get_running_loop(), not get_event_loop(): we are inside a running
+            # coroutine. get_event_loop() in this context is deprecated on
+            # Python 3.12+ and becomes a hard error — see CLAUDE.md Python
+            # upgrade-path watch item.
+            loop = asyncio.get_running_loop()
             # parse_cpt_xml is a top-level function in dov_parse_worker — picklable
             # on Windows spawn. The return type is always GEFParseResult regardless
             # of the ProcessFn[_T] generic; callers that pass a non-DovParser

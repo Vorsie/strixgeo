@@ -110,6 +110,44 @@ def test_happy_path_data_row_values():
 
 
 # ---------------------------------------------------------------------------
+# Real ProcessPoolExecutor round-trip — the production dispatch path
+# ---------------------------------------------------------------------------
+
+
+def test_real_process_pool_roundtrip_matches_inline():
+    """Exercise the ACTUAL production path: submit parse_cpt_xml to a real
+    ProcessPoolExecutor and assert the GEFParseResult pickles back from the
+    spawned worker identical to an inline parse.
+
+    The 740-green unit suite never reaches ``loop.run_in_executor(pool, ...)``
+    (every importer test mocks fetch_bbox_processed or calls the worker
+    in-process), so the pickle round-trip of GEFParseResult — Polars frame
+    (→ Arrow IPC) + by-value enums + ValidationIssue list — was previously
+    unverified. ``asyncio.gather(return_exceptions=True)`` swallows a
+    PicklingError as a per-CPT "download failed", which would present as
+    silent data loss. This pins that path on Windows ``spawn`` semantics.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    xml = _xml(rows=_row("0.50", qc="3.2", fs="45", u="12"))
+    compressed = _compress(xml)
+
+    inline = parse_cpt_xml(compressed, "POOL-CPT")
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        pooled = pool.submit(parse_cpt_xml, compressed, "POOL-CPT").result(timeout=60)
+
+    # Salient header fields survive the spawn + pickle round-trip.
+    assert pooled.header.test_id == inline.header.test_id
+    assert pooled.header.x == pytest.approx(inline.header.x)
+    assert pooled.header.y == pytest.approx(inline.header.y)
+    assert pooled.cpt_type == inline.cpt_type
+    assert pooled.has_errors == inline.has_errors
+    assert len(pooled.issues) == len(inline.issues)
+    # The Polars depth-series frame is byte-faithful across the process boundary.
+    assert pooled.data.equals(inline.data)
+
+
+# ---------------------------------------------------------------------------
 # Variant detection
 # ---------------------------------------------------------------------------
 

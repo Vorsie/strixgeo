@@ -76,4 +76,14 @@ def parse_cpt_xml(compressed_bytes: bytes, name: str) -> GEFParseResult:
     from groundmodel.infrastructure.parsers.cpt.dov.dov_parser import DovParser
 
     xml_bytes = gzip.decompress(compressed_bytes)
+    # SPEC DEVIATION (architect brief wanted a primitive ParseWorkerResult —
+    # header scalars + row dicts + issue tuples — rebuilt in the parent). We
+    # return the full GEFParseResult instead: it pickles cleanly today (plain
+    # dataclass + Polars frame [→ Arrow IPC] + by-value enums), it is the
+    # permitted infra→domain direction, and the round-trip is correctness-
+    # preserving. Trade-off: the result pipe carries the materialised frame
+    # (~0.3–0.8 MB for a 10k-row CPT) vs the ~50 kB primitive design — fine at
+    # current project scope, but it scales with row count.
+    # TODO(perf): switch to the primitive ParseWorkerResult if pooled batch
+    # imports of 500+ deep CPTs become the common path (IPC then dominates).
     return DovParser().parse(xml_bytes, name)
