@@ -6,11 +6,12 @@ import asyncio
 import json
 import tempfile
 from collections.abc import AsyncGenerator
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -233,6 +234,7 @@ async def import_cpt_dov(
 
 def _make_cpt_dov_import_coro(
     request: ImportDovRequest,
+    pool: ProcessPoolExecutor | None = None,
 ) -> AsyncGenerator[asyncio.Queue[dict | None], None]:
     """Return a coroutine-factory for the CPT DOV import background task.
 
@@ -249,6 +251,10 @@ def _make_cpt_dov_import_coro(
     ----------
     request : ImportDovRequest
         Bounding box + optional project_id.
+    pool : ProcessPoolExecutor | None
+        Optional process pool for offloading CPU-bound XML parsing.
+        Passed through to ``ImportCptDov.execute()``.  ``None`` keeps
+        the original single-process behaviour.
 
     Returns
     -------
@@ -292,6 +298,7 @@ def _make_cpt_dov_import_coro(
                         app_project_id=request.project_id,
                         progress_cb=progress_cb,
                         pins_cb=pins_cb,
+                        pool=pool,
                     )
                     await queue.put(
                         {
@@ -364,6 +371,7 @@ async def _sse_from_registry(
 @router.post("/import-dov/stream", status_code=status.HTTP_202_ACCEPTED)
 async def import_cpt_dov_stream(
     request: ImportDovRequest,
+    http_request: Request,
     registry: JobRegistry = Depends(get_job_registry),
 ) -> dict:
     """Spawn a CPT DOV import as a background task and return its job-id.
@@ -384,6 +392,8 @@ async def import_cpt_dov_stream(
     ----------
     request : ImportDovRequest
         Bounding box (west, south, east, north) + optional project_id.
+    http_request : Request
+        FastAPI ``Request`` object; used to access ``app.state.parse_pool``.
     registry : JobRegistry
         In-process job registry, injected.
 
@@ -392,7 +402,11 @@ async def import_cpt_dov_stream(
     dict
         ``{"job_id": "<uuid>"}``
     """
-    factory = _make_cpt_dov_import_coro(request)
+    # Retrieve the parse pool from app state (set in lifespan). Falls back to
+    # None gracefully if the attribute is absent (e.g. in unit tests that don't
+    # go through lifespan).
+    pool: ProcessPoolExecutor | None = getattr(http_request.app.state, "parse_pool", None)
+    factory = _make_cpt_dov_import_coro(request, pool=pool)
     job_id = registry.start(factory)
     logger.info(f"DOV CPT import job {job_id} spawned")
     return {"job_id": str(job_id)}
