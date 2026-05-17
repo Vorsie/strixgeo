@@ -27,7 +27,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Layers } from 'lucide-react'
 
+import { EmptyState } from '../shell/EmptyState'
 import type {
   BoreholeListItem,
   CptListItem,
@@ -1612,6 +1614,25 @@ export default function SectionPanel({
             >
               ✕
             </button>
+          </div>
+        )}
+        {/* Seed hint — never-seeded section is the common case after
+            the P2 explicit-content gate: nothing appears on a section
+            without the user clicking a button on that section. Show a
+            compact overlay so the engineer knows what to do next.
+            pointer-events-none keeps the SVG pan/zoom fully interactive
+            through the hint. */}
+        {contacts.length === 0 && size && (
+          <div
+            className="absolute inset-0 flex items-end justify-center pb-8 pointer-events-none"
+            aria-hidden="true"
+          >
+            <EmptyState
+              compact
+              icon={<Layers />}
+              title="No formation contacts on this section"
+              hint="Click 'Seed' in the toolbar to populate from the active model, or draw contacts manually."
+            />
           </div>
         )}
         <CanvasHints />
