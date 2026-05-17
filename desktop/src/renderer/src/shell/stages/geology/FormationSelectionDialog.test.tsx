@@ -181,4 +181,59 @@ describe('FormationSelectionDialog', () => {
     // "Show all" link should disappear when query is cleared
     expect(screen.queryByRole('button', { name: 'Show all' })).toBeNull()
   })
+
+  // B2 regression — duplicate display names must not collapse to the wrong candidate
+  //
+  // Before the fix, rankedCandidates used:
+  //   candidates.find(c => c.name === ranked.name)!
+  // When two candidates share the same display name but have different keys,
+  // .find() always returns the FIRST match — the second candidate's checkbox
+  // built a manual_map entry with the FIRST candidate's key, so the lump
+  // silently targeted the wrong formation.  The fix sorts candidates by score
+  // directly (no .find() round-trip) so both remain selectable with their OWN keys.
+  it('B2: two candidates with identical name but different key both remain selectable with their own keys', () => {
+    // Two candidates that share the same display name but have different stable keys.
+    // This can happen when DOV ships the same informal description for two
+    // formally-distinct units (the fix must handle the underlying FormationCandidate
+    // objects, not the display strings).
+    const DUPLICATE_NAME_CANDIDATES: FormationCandidate[] = [
+      { name: 'Klei', key: 'klei-boom', boreholeCount: 3 },
+      { name: 'Klei', key: 'klei-diest', boreholeCount: 2 },
+      { name: 'Zand', key: 'zand', boreholeCount: 1 },
+    ]
+
+    const onConfirm = vi.fn()
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ candidates: DUPLICATE_NAME_CANDIDATES, onConfirm })}
+      />,
+    )
+
+    // Search for "klei" — both Klei candidates must still be in the DOM.
+    const searchInput = screen.getByPlaceholderText('Search to reorder…')
+    fireEvent.change(searchInput, { target: { value: 'klei' } })
+
+    // Both "Klei" rows remain visible (rank-reorders-never-filters).
+    const kleiCells = screen.getAllByText('Klei')
+    expect(kleiCells.length).toBe(2)
+
+    // Check all three checkboxes and confirm — the confirmed selectedKeys must
+    // contain BOTH distinct Klei keys (not just the first one duplicated).
+    const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
+    // We have 3 candidates → 3 checkboxes (plus potentially a Select all / none
+    // which has a different role or name — take the first 3 candidate ones).
+    // Click all of them.
+    for (const cb of checkboxes) {
+      if (!cb.checked) fireEvent.click(cb)
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Apply selection' }))
+
+    expect(onConfirm).toHaveBeenCalledOnce()
+    const [selectedKeys] = onConfirm.mock.calls[0] as [ReadonlySet<string>, Record<string, string>]
+    // Both distinct Klei keys must be present — if B2 were still broken, only
+    // 'klei-boom' would appear (the first match) and 'klei-diest' would be missing.
+    expect(selectedKeys.has('klei-boom')).toBe(true)
+    expect(selectedKeys.has('klei-diest')).toBe(true)
+    expect(selectedKeys.has('zand')).toBe(true)
+  })
 })
