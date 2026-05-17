@@ -485,14 +485,18 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         selected_keys : list[str] or None, optional
             When provided, only layers whose stable key (``regional_ref``
             when present, else ``name``) is in this set are processed.
-            Layers for other keys are silently skipped — the caller
-            (``applyBoreholeFormationSelection``) owns the delete step
-            for non-selected formations, so this filter is the mechanism
-            that creates ONLY the user's chosen formations.
+            Layers for other keys are silently skipped.  Additionally,
+            this method deletes — in the same transaction — every
+            formation that (a) already exists in this project, (b) has
+            at least one contact in THIS model (model-scoped, never
+            cross-model), and (c) whose canonical key is NOT in this set.
+            The delete is server-side so the client never needs to
+            recompute canonical keys from raw names.
 
-            When ``None`` (default), all layers are processed — preserving
-            the existing behaviour of ``handleAutoPopulateFromStratigraphy``
-            (the Sections "Seed from stratigraphy" path), which is unaffected
+            When ``None`` (default), all layers are processed and NO
+            formations are deleted — preserving the existing behaviour
+            of ``handleAutoPopulateFromStratigraphy`` (the Sections
+            "Seed from stratigraphy" path), which is unaffected
             by this change.
 
             Orphan safety: when ``selected_keys`` is provided, any
@@ -869,14 +873,37 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         # the divergent-client-key freeze bug (da98053) was exactly that mismatch.
         # DB CASCADE handles formation_contact, formation_surface, and
         # geotechnical_unit rows that reference the deleted formations.
-        # Safety scoping: only formations belonging to this project are
-        # considered; formations in other projects are invisible to this query.
+        #
+        # MODEL-SCOPED DELETE — critical correctness constraint (B1):
+        # GeologicalFormation has NO model FK (formations are a project-wide
+        # vocabulary shared across the geological/litho/geotechnical sibling
+        # models — see CLAUDE.md "Modelling hierarchy").  Scoping to
+        # app_project_id == project_id alone would include formations that
+        # belong exclusively to OTHER models in the same project, causing
+        # silent cross-model data loss via CASCADE on formation_contact and
+        # formation_surface.  The delete candidate set is therefore restricted
+        # to formations that have at least one contact row in THIS model —
+        # i.e. ``formation_id in model_formation_ids``.  Formations that only
+        # appear in sibling models are invisible to this delete and are never
+        # touched.  Newly-created formations are always in selected_key_set_norm
+        # by construction (the write loop only creates within the selected set)
+        # and are excluded by the fkey check; the explicit created_set guard is
+        # a belt-and-suspenders safety net.
         deleted_formation_ids: list[UUID] = []
         if selected_key_set_norm is not None:
+            # Derive the set of formation IDs that belong to THIS model from the
+            # contact_rows already loaded above (index 2 = formation_id).  This
+            # reuses the existing round-trip instead of issuing a second query.
+            # Newly-created formations are added here too: they have contacts in
+            # this model by construction (created in the write loop above), and
+            # must be in scope so the created_set guard below is consistent.
+            model_formation_ids: frozenset[UUID] = frozenset(
+                row[2] for row in contact_rows if row[2] is not None
+            ) | frozenset(created_formation_ids)
             to_delete: list[GeologicalFormationOrm] = []
             for f in existing_formations:
                 fkey = normalize_formation_key(f.regional_ref if f.regional_ref else f.name)
-                if fkey not in selected_key_set_norm:
+                if fkey not in selected_key_set_norm and f.id in model_formation_ids:
                     to_delete.append(f)
             # Also exclude newly-created formations (they ARE in selected_key_set_norm
             # by construction — the write loop only creates within the selected set —
