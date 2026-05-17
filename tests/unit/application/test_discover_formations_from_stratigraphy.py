@@ -101,13 +101,14 @@ async def test_happy_path_formal_and_informal():
     )
 
     session = _make_session([bh1, bh2])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session,
         project_id=project_id,
         borehole_ids=[bh1.id, bh2.id],
     )
 
     assert len(candidates) == 1
+    assert collisions == []
     assert candidates[0].name == "Boom Klei"
     assert candidates[0].regional_ref == "HyEg"
     assert candidates[0].key == "hyeg"  # normalize_formation_key(regional_ref)
@@ -126,11 +127,12 @@ async def test_informal_fallback_when_no_formal():
     )
 
     session = _make_session([bh])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session, project_id=project_id, borehole_ids=[bh.id]
     )
 
     assert len(candidates) == 1
+    assert collisions == []
     assert candidates[0].name == "Alluvium"
     assert candidates[0].regional_ref is None
     assert candidates[0].key == "alluvium"  # normalize_formation_key(name)
@@ -144,11 +146,12 @@ async def test_no_stratigraphy_returns_empty():
     bh = _borehole([])  # no observations at all
 
     session = _make_session([bh])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session, project_id=project_id, borehole_ids=[bh.id]
     )
 
     assert candidates == []
+    assert collisions == []
 
 
 @pytest.mark.asyncio
@@ -158,9 +161,12 @@ async def test_empty_borehole_ids_returns_empty_without_db_hit():
     session = AsyncMock()
     session.execute = AsyncMock()
 
-    candidates = await scan_stratigraphy_candidates(session, project_id=project_id, borehole_ids=[])
+    candidates, collisions = await scan_stratigraphy_candidates(
+        session, project_id=project_id, borehole_ids=[]
+    )
 
     assert candidates == []
+    assert collisions == []
     session.execute.assert_not_called()
 
 
@@ -180,11 +186,12 @@ async def test_blank_description_layer_is_skipped():
     )
 
     session = _make_session([bh])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session, project_id=project_id, borehole_ids=[bh.id]
     )
 
     assert len(candidates) == 1
+    assert collisions == []
     assert candidates[0].name == "Diest Zand"
 
 
@@ -201,11 +208,12 @@ async def test_negative_top_m_layer_is_skipped():
     )
 
     session = _make_session([bh])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session, project_id=project_id, borehole_ids=[bh.id]
     )
 
     assert len(candidates) == 1
+    assert collisions == []
     assert candidates[0].name == "Quaternary"
 
 
@@ -241,13 +249,14 @@ async def test_sort_order_by_borehole_count_then_name():
     )
 
     session = _make_session([bh1, bh2])
-    candidates = await scan_stratigraphy_candidates(
+    candidates, collisions = await scan_stratigraphy_candidates(
         session, project_id=project_id, borehole_ids=[bh1.id, bh2.id]
     )
 
     names = [c.name for c in candidates]
     # "Boom Klei" (count=2) first; then "Alluvium" and "Zand" (count=1) alphabetically
     assert names == ["Boom Klei", "Alluvium", "Zand"]
+    assert collisions == []
     assert candidates[0].borehole_count == 2
     assert candidates[1].borehole_count == 1
     assert candidates[2].borehole_count == 1
