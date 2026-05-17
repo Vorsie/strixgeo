@@ -675,11 +675,11 @@ def _make_session_with_formations(
         (f.display_order for f in existing_formations), default=0
     )
 
-    # Build synthetic contact rows: (observation_layer_id, borehole_id, formation_id).
+    # Build synthetic contact rows: (id, observation_layer_id, borehole_id, formation_id).
     # One row per in-model formation, enough for model_formation_ids to be populated.
     model_scope = in_model_formations if in_model_formations is not None else existing_formations
     contacts_result = MagicMock()
-    contacts_result.all.return_value = [(None, uuid4(), f.id) for f in model_scope]
+    contacts_result.all.return_value = [(uuid4(), None, uuid4(), f.id) for f in model_scope]
 
     call_count = 0
 
@@ -1291,3 +1291,191 @@ def test_resolve_effective_key_blank_target_treated_as_unmapped():
     eff_key, eff_name = _resolve_effective_key(raw_key, {raw_key: "   "})
     assert eff_key == raw_key, "blank target must not override the raw key"
     assert eff_name == raw_key, "blank target must not override the display name"
+
+
+# ---------------------------------------------------------------------------
+# P2-D: found_contact_ids — Seed handler seeded-set union (owner directive 2026-05-17)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_seed_with_section_id_found_contact_ids_populated():
+    """P2-D: when section_id is provided, a contact that already exists in the model
+    (skipped via occupied_anchor_formation) appears in found_contact_ids so the
+    Seed router can union it into the section's seeded set.
+
+    Scenario: a borehole has one informal layer "Boom Klei".  A contact already
+    exists for (borehole, formation=Boom Klei) in the model (pre-existing Fill
+    contact).  The execute() call skips it as a duplicate but must record its id
+    in found_contact_ids (not in created_contact_ids).
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+    borehole_id = uuid4()
+    formation_id = uuid4()
+    existing_contact_id = uuid4()
+    layer_id = uuid4()
+
+    # The borehole carries one informal layer "Boom Klei" (top=0, base=5).
+    layer = SimpleNamespace(
+        id=layer_id,
+        top_m=0.0,
+        base_m=5.0,
+        description="Boom Klei",
+    )
+    obs = SimpleNamespace(
+        id=uuid4(),
+        observation_type=ObservationType.INFORMAL_STRATIGRAPHY.value,
+        layers=[layer],
+    )
+    borehole = SimpleNamespace(id=borehole_id, observations=[obs])
+
+    # Existing formation for "Boom Klei".
+    formation = SimpleNamespace(
+        id=formation_id, name="Boom Klei", regional_ref=None, display_order=0
+    )
+
+    # Contact row already in the model: (id, observation_layer_id, borehole_id, formation_id).
+    # This simulates the pre-existing Fill contact.
+    pre_existing_contact_row = (existing_contact_id, layer_id, borehole_id, formation_id)
+
+    # Call sequence:
+    # 1. borehole load (scalars.all)
+    # 2. formations load (scalars.all)
+    # 3. max display_order (scalar_one)
+    # 4. contacts load (.all) — returns the pre-existing row
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = [borehole]
+
+    formations_result = MagicMock()
+    formations_result.scalars.return_value.all.return_value = [formation]
+
+    max_order_result = MagicMock()
+    max_order_result.scalar_one.return_value = 0
+
+    contacts_result = MagicMock()
+    contacts_result.all.return_value = [pre_existing_contact_row]
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return formations_result
+        if call_count == 3:
+            return max_order_result
+        # contacts load (and any orphan-delete result — both safe to return contacts_result)
+        return contacts_result
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock()
+    session.new = []
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    section_id = uuid4()
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        outcome = await AutoPopulateContactsFromStratigraphy(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[borehole_id],
+            section_id=section_id,
+        )
+
+    # The pre-existing contact was skipped (idempotency) and must appear in found_contact_ids.
+    assert existing_contact_id in outcome.found_contact_ids, (
+        "Pre-existing contact must appear in found_contact_ids for the Seed router"
+    )
+    # No new contact was created — the existing one was preserved.
+    assert existing_contact_id not in outcome.created_contact_ids, (
+        "Pre-existing contact must NOT appear in created_contact_ids"
+    )
+    assert len(outcome.created_contact_ids) == 0
+
+
+@pytest.mark.asyncio
+async def test_seed_without_section_id_found_contact_ids_empty():
+    """P2-D: when section_id is None (the Fill path), found_contact_ids is always
+    empty — Fill does not touch section seeds.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+    borehole_id = uuid4()
+    formation_id = uuid4()
+    existing_contact_id = uuid4()
+    layer_id = uuid4()
+
+    layer = SimpleNamespace(id=layer_id, top_m=0.0, base_m=5.0, description="Boom Klei")
+    obs = SimpleNamespace(
+        id=uuid4(),
+        observation_type=ObservationType.INFORMAL_STRATIGRAPHY.value,
+        layers=[layer],
+    )
+    borehole = SimpleNamespace(id=borehole_id, observations=[obs])
+    formation = SimpleNamespace(
+        id=formation_id, name="Boom Klei", regional_ref=None, display_order=0
+    )
+    pre_existing_row = (existing_contact_id, layer_id, borehole_id, formation_id)
+
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = [borehole]
+    formations_result = MagicMock()
+    formations_result.scalars.return_value.all.return_value = [formation]
+    max_order_result = MagicMock()
+    max_order_result.scalar_one.return_value = 0
+    contacts_result = MagicMock()
+    contacts_result.all.return_value = [pre_existing_row]
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return formations_result
+        if call_count == 3:
+            return max_order_result
+        return contacts_result
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock()
+    session.new = []
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        # section_id=None → Fill path, found_contact_ids must be empty.
+        outcome = await AutoPopulateContactsFromStratigraphy(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[borehole_id],
+            section_id=None,
+        )
+
+    assert outcome.found_contact_ids == [], (
+        "found_contact_ids must be empty when section_id is None (Fill path)"
+    )
