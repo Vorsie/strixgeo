@@ -181,25 +181,33 @@ async def create_contact(
     # A missing or out-of-project section is a warning, not an error
     # — the contact was created, the client still gets 201.
     if request.section_id is not None:
-        section_repo = CrossSectionRepository(session)
-        section = await section_repo.get(request.section_id)
-        if section is not None and section.app_project_id == project_id:
-            existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
-            merged = list(existing_seeded | {contact.id})
-            await section_repo.update(
-                request.section_id,
-                {"seeded_formation_contact_ids": merged},
-            )
-            await session.commit()
-            logger.info(
-                f"create_contact: seeded section {request.section_id} "
-                f"with new contact {contact.id} — "
-                f"{len(merged)} id(s) total"
-            )
-        else:
+        # Non-fatal: the contact was already committed above; a failure here
+        # leaves the section's seeded set stale but must not turn 201 → 500.
+        try:
+            section_repo = CrossSectionRepository(session)
+            section = await section_repo.get(request.section_id)
+            if section is not None and section.app_project_id == project_id:
+                existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
+                merged = list(existing_seeded | {contact.id})
+                await section_repo.update(
+                    request.section_id,
+                    {"seeded_formation_contact_ids": merged},
+                )
+                await session.commit()
+                logger.info(
+                    f"create_contact: seeded section {request.section_id} "
+                    f"with new contact {contact.id} — "
+                    f"{len(merged)} id(s) total"
+                )
+            else:
+                logger.warning(
+                    f"create_contact: section_id {request.section_id} not found "
+                    f"in project {project_id} — seeded set not updated"
+                )
+        except Exception as exc:
             logger.warning(
-                f"create_contact: section_id {request.section_id} not found "
-                f"in project {project_id} — seeded set not updated"
+                f"create_contact: section seeding failed — contact {contact.id} "
+                f"created but section {request.section_id} seeded set not updated: {exc!r}"
             )
 
     return contact
@@ -396,30 +404,42 @@ async def auto_populate_from_stratigraphy(
     # commit doesn't interleave with contact creation.
     updated_section_response: CrossSectionResponse | None = None
     if request.section_id is not None:
-        section_repo = CrossSectionRepository(session)
-        section = await section_repo.get(request.section_id)
-        if section is not None and section.app_project_id == project_id:
-            # Build the union set: existing seeded ids ∪ newly created ∪ found (pre-existing).
-            existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
-            new_ids = frozenset(outcome.created_contact_ids) | frozenset(outcome.found_contact_ids)
-            merged = list(existing_seeded | new_ids)
-            updated = await section_repo.update(
-                request.section_id,
-                {"seeded_formation_contact_ids": merged},
-            )
-            await session.commit()
-            if updated is not None:
-                await session.refresh(updated)
-                updated_section_response = CrossSectionResponse.model_validate(updated)
-                logger.info(
-                    f"Seed: section {request.section_id} seeded_formation_contact_ids "
-                    f"updated — {len(merged)} id(s) total "
-                    f"({len(new_ids)} new, {len(existing_seeded)} pre-existing)"
+        # Non-fatal: the Seed use case already committed its own transaction
+        # (contacts + stale flags). A failure in this seeding-patch block must
+        # not turn a successful Seed into a 500 — the section's seeded set is
+        # left stale but contacts exist and the client can retry.
+        try:
+            section_repo = CrossSectionRepository(session)
+            section = await section_repo.get(request.section_id)
+            if section is not None and section.app_project_id == project_id:
+                # Build the union set: existing seeded ids ∪ newly created ∪ found (pre-existing).
+                existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
+                new_ids = frozenset(outcome.created_contact_ids) | frozenset(
+                    outcome.found_contact_ids
                 )
-        else:
+                merged = list(existing_seeded | new_ids)
+                updated = await section_repo.update(
+                    request.section_id,
+                    {"seeded_formation_contact_ids": merged},
+                )
+                await session.commit()
+                if updated is not None:
+                    await session.refresh(updated)
+                    updated_section_response = CrossSectionResponse.model_validate(updated)
+                    logger.info(
+                        f"Seed: section {request.section_id} seeded_formation_contact_ids "
+                        f"updated — {len(merged)} id(s) total "
+                        f"({len(new_ids)} new, {len(existing_seeded)} pre-existing)"
+                    )
+            else:
+                logger.warning(
+                    f"Seed: section_id {request.section_id} not found in project "
+                    f"{project_id} — seeded set not updated"
+                )
+        except Exception as exc:
             logger.warning(
-                f"Seed: section_id {request.section_id} not found in project "
-                f"{project_id} — seeded set not updated"
+                f"Seed: section seeding failed — contacts created but section "
+                f"{request.section_id} seeded set not updated: {exc!r}"
             )
 
     return AutoPopulateFromStratigraphyResponse(
