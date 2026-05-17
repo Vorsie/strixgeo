@@ -77,6 +77,7 @@ export default function App() {
     saved: savedProject,
     dirty: metadataDirty,
     filePath: projectFilePath,
+    currentLumping,
     manifestCptIds,
     manifestBoreholeIds,
     manifestFormationIds,
@@ -315,6 +316,8 @@ export default function App() {
     addToSessionImports,
     removeFromSessionImports,
     manifestFormationIds,
+    currentLumping,
+    writeLumpingSnapshot,
   })
   // Local destructure is for App.tsx's own use ONLY. The COMPLETE hook
   // result is handed to the shell as `geoModel: geo` (below) — never a
@@ -382,6 +385,7 @@ export default function App() {
     discardContacts,
     activeGeologicalModel,
     writeLumpingSnapshot,
+    currentLumping,
   })
 
   // CPT + borehole data, import flows, hide/restore, elevation edits.
@@ -733,7 +737,7 @@ export default function App() {
     // lifecycle
     projectDirty, newProjectOpen, setNewProjectOpen, metadataEditorOpen, setMetadataEditorOpen, closeConfirmOpen,
     setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports, handleCloseProjectRequest,
-    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot,
+    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot, currentLumping,
     // investigations
     cpts, detailMap, plotMap, boreholes, boreholeDetailMap, importing,
     bboxImportType, dovImporting, dovImportState, resetDovImport, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
