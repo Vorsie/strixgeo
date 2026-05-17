@@ -63,6 +63,7 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
     wfs_features_json,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+from groundmodel.shared.progress import ProgressCallback, fire_progress
 
 _T = TypeVar("_T")
 ProcessFn = Callable[[bytes, str], _T]
@@ -97,6 +98,8 @@ class DovBoreholeClient(GroundModelLogger):
         east: float,
         north: float,
         process: ProcessFn[_T],
+        *,
+        progress_cb: ProgressCallback | None = None,
     ) -> list[tuple[BoreholeWfsRow, _T]]:
         """Stream-parse: download every boring XML in the bbox and process inline.
 
@@ -112,6 +115,11 @@ class DovBoreholeClient(GroundModelLogger):
         process : ProcessFn[_T]
             Callable invoked as ``process(xml_bytes, test_id)``. Typically
             ``DovBoringParser().parse``, returning a ``BoreholeParseResult``.
+        progress_cb : ProgressCallback | None
+            Optional progress callback.  Receives ``("wfs", total, total)``
+            after WFS discovery and ``("download", done, total)`` periodically
+            during the download phase.  Default ``None`` preserves the
+            existing no-callback behaviour for all callers that don't opt in.
 
         Returns
         -------
@@ -141,6 +149,9 @@ class DovBoreholeClient(GroundModelLogger):
             logger=self,
         )
         self.info(f"DOV WFS: {len(rows)} unique boreholes found in bbox")
+        # Report WFS discovery complete so the UI can show "N boreholes found".
+        await fire_progress(progress_cb, "wfs", len(rows), len(rows))
+
         # ``parallel_download_and_process`` expects a ``(row, xml_bytes)``
         # callback; this client's existing ``ProcessFn`` is the legacy
         # ``(xml_bytes, test_id)`` shape (kept stable because the
@@ -157,6 +168,7 @@ class DovBoreholeClient(GroundModelLogger):
             label="DOV",
             logger=self,
             error_id_of=lambda r: f"'{r.test_id}'",
+            progress_cb=progress_cb,
         )
 
     # ------------------------------------------------------------------
