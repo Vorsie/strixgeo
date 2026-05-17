@@ -25,6 +25,7 @@ import type { UseInvestigationDataResult } from '../hooks/useInvestigationData'
 import type { UseUndoStackResult } from '../hooks/useUndoStack'
 import type { UseMapStateResult } from '../hooks/useMapState'
 import type { CptListItem, BoreholeListItem, ProjectResponse } from '../api/client'
+import type { StratigraphyLumping } from '../utils/projectFile'
 
 /**
  * App-level cross-hook coordinator state.
