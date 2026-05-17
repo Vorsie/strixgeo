@@ -58,7 +58,7 @@ export default function GeologyToolbar(): JSX.Element {
   const {
     visibleBoreholes,
     toasts: { toast },
-    lifecycle: { writeLumpingSnapshot },
+    lifecycle: { currentLumping },
     geoModel: {
       activeGeologicalModel,
       formations,
@@ -229,23 +229,10 @@ export default function GeologyToolbar(): JSX.Element {
         pendingBoreholeIds,
         Object.keys(manualMap).length > 0 ? manualMap : undefined,
       )
-      // Atomically write the lumping snapshot into the .gmproj file so the
-      // user's grouping is remembered the next time they open Fill from boreholes
-      // on this project — even if they never File→Save before closing.
-      // Only written when the user provided a non-empty map (no-lump path
-      // produces the same contacts whether or not a snapshot is stored).
-      if (Object.keys(manualMap).length > 0) {
-        try {
-          await writeLumpingSnapshot({
-            schema_version: 1,
-            applied_at: new Date().toISOString(),
-            map: manualMap,
-          })
-        } catch {
-          // Non-fatal: the apply succeeded; the lumping map just won't be
-          // pre-populated next time.  Error is logged inside writeLumpingSnapshot.
-        }
-      }
+      // Persist-on-apply is now handled inside applyBoreholeFormationSelection:
+      // it calls writeLumpingSnapshot (injected into useGeologicalModel from
+      // App.tsx) so the alias map is durable regardless of whether File→Save
+      // is called.  No duplicate write here.
     } catch (err) {
       // applyBoreholeFormationSelection logs + throws; toast the failure here
       // so the Geology stage surfaces it even when the error originates deep
@@ -399,6 +386,10 @@ export default function GeologyToolbar(): JSX.Element {
       <FormationSelectionDialog
         open={selectionDialogOpen}
         candidates={candidates}
+        // Bug 3 fix: prefill the row reassignment dropdowns from the last
+        // persisted lumping snapshot so the user sees their prior aliases
+        // when they reopen "Fill from boreholes" on an already-applied project.
+        initialReassignments={currentLumping?.map}
         collisions={collisions}
         currentFormations={formations}
         currentContacts={contacts}
