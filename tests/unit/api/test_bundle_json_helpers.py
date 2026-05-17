@@ -14,7 +14,7 @@ the moment any model has a cached surface.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timezone
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from groundmodel.infrastructure.db.repositories.project_bundle import (
@@ -81,3 +81,38 @@ def test_list_of_uuids_converts_element_wise() -> None:
         "00000000-0000-0000-0000-000000000001",
         "00000000-0000-0000-0000-000000000002",
     ]
+
+
+def test_seeded_formation_contact_ids_round_trip() -> None:
+    """seeded_formation_contact_ids (ARRAY(UUID)) serialises and survives restore.
+
+    The column is the same type as excluded_borehole_ids: ARRAY(PG_UUID).
+    _to_json converts each UUID to a string; _from_json(value, list) passes
+    the string list through unchanged so the DB layer receives it.
+    PostgreSQL's asyncpg driver coerces string UUIDs back to the native UUID
+    type on insert — this test verifies the _to_json / _from_json contract
+    matches that expectation (same behaviour as excluded_borehole_ids which is
+    already DB-round-trip tested in test_bundle_carries_cross_sections).
+    """
+    contact_ids = [
+        UUID("11111111-1111-1111-1111-111111111111"),
+        UUID("22222222-2222-2222-2222-222222222222"),
+    ]
+    serialised = _to_json(contact_ids)
+    assert serialised == [
+        "11111111-1111-1111-1111-111111111111",
+        "22222222-2222-2222-2222-222222222222",
+    ], "seeded_formation_contact_ids UUIDs must serialise to lowercase strings"
+
+    # _from_json with python_type=list passes the list through unchanged.
+    # The string list is what _apply_json_to_kwargs hands to the ORM constructor;
+    # asyncpg then coerces the strings back to UUID on insert.
+    restored = _from_json(serialised, list)
+    assert restored == serialised, (
+        "_from_json(list_of_strings, list) must pass through unchanged "
+        "so the ORM constructor accepts it"
+    )
+
+    # Empty set is the common case (freshly-drawn, never-seeded section).
+    assert _to_json([]) == []
+    assert _from_json([], list) == []

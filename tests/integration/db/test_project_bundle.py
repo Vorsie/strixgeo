@@ -599,6 +599,9 @@ async def test_bundle_carries_cross_sections(db_session: AsyncSession) -> None:
     # One realistic section + one minimal section so the test exercises
     # both populated optional fields and the defaults.
     excluded_bh = uuid7()
+    # P2-I: a seeded contact id — simulates a section that has been
+    # Seed-from-stratigraphy'd so seeded_formation_contact_ids is non-empty.
+    seeded_contact_id = uuid7()
     section_a = CrossSectionOrm(
         id=uuid7(),
         app_project_id=source.id,
@@ -613,6 +616,7 @@ async def test_bundle_carries_cross_sections(db_session: AsyncSession) -> None:
         vertical_exaggeration=2.5,
         excluded_borehole_ids=[excluded_bh],
         excluded_cpt_ids=[],
+        seeded_formation_contact_ids=[seeded_contact_id],
         min_depth_m=-5.0,
         max_depth_m=40.0,
         display_order=0,
@@ -690,6 +694,13 @@ async def test_bundle_carries_cross_sections(db_session: AsyncSession) -> None:
     assert restored_a.min_depth_m == -5.0
     assert restored_a.max_depth_m == 40.0
     assert restored_a.description == "Profile through the port area"
+    # P2-I: seeded_formation_contact_ids (UUID array) must survive the
+    # _column_to_json → _apply_json_to_kwargs round-trip.  The explicit-
+    # content invariant depends on this: if the set were silently dropped
+    # every re-open would show zero contacts even on a seeded section.
+    assert restored_a.seeded_formation_contact_ids == [seeded_contact_id], (
+        "seeded_formation_contact_ids must survive the bundle JSON round-trip"
+    )
 
 
 async def test_restore_skips_sections_when_payload_omits_them(
