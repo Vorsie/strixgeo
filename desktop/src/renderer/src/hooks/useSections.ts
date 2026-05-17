@@ -75,6 +75,16 @@ export interface UseSectionsResult {
   }) => Promise<void>
   handleSelectSection: (id: string) => void
   handleFocusContacts: (contactIds: readonly string[]) => void
+  /**
+   * Apply a fully-resolved section row returned by the server (e.g. the
+   * ``updated_section`` from a Seed response or the section patched after a
+   * manual contact draw) to local state without a round-trip GET.
+   *
+   * Replaces the matching entry in the ``sections`` list by id.  No-ops
+   * when the id is not found (defensive: Seed could theoretically return
+   * a section from a different project if something went wrong server-side).
+   */
+  applyUpdatedSection: (updated: CrossSectionResponse) => void
 }
 
 /** Shape of a borehole list-item as seen by the hook (x/y only needed). */
@@ -583,6 +593,16 @@ export function useSections({
     setSelectedSectionId(null)
   }, [])
 
+  // P2-G / P2-H: apply a server-returned updated section to local state
+  // without a round-trip GET.  Replaces the matching entry in the sections
+  // list by id.  Used by the Seed handler (updated_section from the auto-
+  // populate response) and the manual-draw handler (GET response after the
+  // section-seeding PATCH).  No-op when the id is not found (defensive).
+  const applyUpdatedSection = useCallback((updated: CrossSectionResponse) => {
+    setSections(prev => prev.map(s => (s.id === updated.id ? updated : s)))
+    log.debug('section', `applyUpdatedSection: ${updated.id} seeded set updated`)
+  }, [])
+
   return {
     sections,
     selectedSectionId,
@@ -603,5 +623,6 @@ export function useSections({
     handlePatchSelectedSection,
     handleSelectSection,
     handleFocusContacts,
+    applyUpdatedSection,
   }
 }
