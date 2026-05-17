@@ -61,7 +61,7 @@
  * ``.dark`` class.  NOT Tailwind ``dark:`` variants.
  */
 
-import { useCallback, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type { FormationCandidate, LumpingCollision } from '../../../hooks/useGeologicalModel'
 import type {
@@ -77,16 +77,47 @@ import { rankByPartialMatch } from '../../../utils/partialMatch'
 // ---------------------------------------------------------------------------
 
 /**
+ * Discriminated target for a per-row reassignment.
+ *
+ * - ``'candidate'`` — the user picked an existing candidate identified by
+ *   its stable ``key``.  The wire-format name is derived from the candidate
+ *   at emit time (``buildManualMap``), so renaming a candidate object does
+ *   not silently produce a stale entry.
+ *
+ * - ``'custom'`` — the user typed a free-form canonical name not in the
+ *   candidate list.  The wire-format name is exactly ``name``.
+ *
+ * WHY discriminated union instead of bare string: storing a display NAME
+ * as the target caused two bugs —
+ *
+ *   B1  ``isChecked`` used ``candidates.find(c => c.name === reassignedTo)``
+ *       which resolves to the FIRST of several duplicate-named candidates,
+ *       producing the wrong checkbox state.
+ *
+ *   S2  A custom canonical name always fell through to the ``targetCandidate``
+ *       not-found branch and silently rendered as unchecked + disabled even
+ *       though it WILL be created on Apply — a misleading UI state.
+ *
+ *   C1  Entering an exact candidate display name in the typeahead triggered
+ *       ``handleCustom`` instead of selecting the candidate, creating a
+ *       phantom custom entry in the map.
+ *
+ * Storing a discriminated target and resolving the display name only at
+ * ``buildManualMap`` time eliminates all three.
+ */
+type ReassignTarget =
+  | { kind: 'candidate'; key: string }
+  | { kind: 'custom'; name: string }
+
+/**
  * Per-row reassignment state.
  *
- * The key is the reassigned candidate's ``FormationCandidate.key`` (normalised).
- * The value is the target display name the user picked.
+ * The map key is the reassigned candidate's ``FormationCandidate.key``
+ * (normalised).  The value is a discriminated ``ReassignTarget``.
  *
- * WHY key-on-normalized-not-raw: see module docstring.  Using raw display
- * strings would break the discover ≡ apply invariant when a candidate name
- * contains diacritics or unusual capitalisation.
+ * WHY key-on-normalized-not-raw: see module docstring.
  */
-type RowReassignments = Map<string, string>
+type RowReassignments = Map<string, ReassignTarget>
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,23 +126,39 @@ type RowReassignments = Map<string, string>
 /**
  * Derive the ``manual_map`` object from the current row-level reassignment map.
  *
+ * Wire shape is ``{ candidateKey → targetDisplayName }`` — byte-identical to
+ * the pre-discriminated-union contract so the backend and the discover ≡ apply
+ * invariant are unaffected.
+ *
  * Parameters
  * ----------
  * reassignments
- *     Per-candidate-key → target-name map built from the inline row dropdowns.
+ *     Per-candidate-key → ``ReassignTarget`` map built from the inline row
+ *     dropdowns.
+ * candidates
+ *     Full candidate list — needed to resolve a ``'candidate'`` target's
+ *     display name from its key.
  *
  * Returns
  * -------
  * Record<string, string>
  *     Object suitable for sending to the server as ``manual_map``.
  */
-function buildManualMap(reassignments: RowReassignments): Record<string, string> {
+function buildManualMap(
+  reassignments: RowReassignments,
+  candidates: FormationCandidate[],
+): Record<string, string> {
   const map: Record<string, string> = {}
   for (const [key, target] of reassignments) {
     // WHY key-on-normalized-not-raw: see module docstring.  The key field on
     // FormationCandidate already equals normalize_formation_key() on the server,
     // so shipping keys here ensures the discover ≡ apply invariant holds.
-    map[key] = target
+    if (target.kind === 'candidate') {
+      const candidate = candidates.find(c => c.key === target.key)
+      if (candidate) map[key] = candidate.name
+    } else {
+      map[key] = target.name
+    }
   }
   return map
 }
@@ -248,8 +295,8 @@ export default function FormationSelectionDialog({
   // ---------------------------------------------------------------------------
   // Per-row reassignment state
   //
-  // Maps each reassigned candidate key to the target display name.  An absent
-  // entry means "keep separate" (no lumping for that row).
+  // Maps each reassigned candidate key to a discriminated ReassignTarget.
+  // An absent entry means "keep separate" (no lumping for that row).
   //
   // WHY Map-not-object: Map iterates in insertion order and avoids prototype
   // collisions on arbitrary formation names.
@@ -257,17 +304,30 @@ export default function FormationSelectionDialog({
 
   const [reassignments, setReassignments] = useState<RowReassignments>(new Map())
 
-  /** Notify the parent of a map change so it can refresh collision warnings. */
-  const notifyMapChange = useCallback(
-    (next: RowReassignments) => {
-      onManualMapChange(buildManualMap(next))
-    },
-    [onManualMapChange],
-  )
+  // ---------------------------------------------------------------------------
+  // Parent notification — GROUP D state-update purity fix.
+  //
+  // WHY effect-not-updater: calling notifyMapChange inside the setReassignments
+  // updater is an impure updater (side effect inside a pure transform).  Under
+  // React StrictMode that updater fires twice, double-firing the parent
+  // callback and creating non-deterministic ordering relative to the state
+  // commit.  The effect runs once, after commit, with the settled state.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    onManualMapChange(buildManualMap(reassignments, candidates))
+    // reason: we intentionally skip `candidates` from deps — it is only needed
+    // to resolve candidate display names at notification time; its identity
+    // changes when the parent re-renders after a discover call, which would
+    // re-fire the notification and trigger a new discover, creating a loop.
+    // The candidates list is stable between the user's reassignment gestures
+    // (the dialog stays open; candidates only change on open/close).  We rely
+    // on reassignments being the sole trigger here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reassignments, onManualMapChange])
 
   /** Set a row's reassignment target.  Clears the entry when ``target`` is null. */
   const setReassignment = useCallback(
-    (candidateKey: string, target: string | null) => {
+    (candidateKey: string, target: ReassignTarget | null) => {
       setReassignments(prev => {
         const next = new Map(prev)
         if (target === null) {
@@ -275,11 +335,10 @@ export default function FormationSelectionDialog({
         } else {
           next.set(candidateKey, target)
         }
-        notifyMapChange(next)
         return next
       })
     },
-    [notifyMapChange],
+    [],
   )
 
   // ---------------------------------------------------------------------------
@@ -338,8 +397,8 @@ export default function FormationSelectionDialog({
   // ---------------------------------------------------------------------------
 
   const handleConfirm = useCallback(() => {
-    onConfirm(checked, buildManualMap(reassignments))
-  }, [checked, reassignments, onConfirm])
+    onConfirm(checked, buildManualMap(reassignments, candidates))
+  }, [checked, reassignments, candidates, onConfirm])
 
   // ---------------------------------------------------------------------------
   // Derived: total collision count for the header summary
@@ -351,25 +410,44 @@ export default function FormationSelectionDialog({
   )
 
   // ---------------------------------------------------------------------------
-  // Build the target-name list for each row's reassignment dropdown.
+  // Build the ranked peer candidate list for each row's reassignment dropdown.
   //
-  // The dropdown for row X shows every OTHER candidate name, ranked by
+  // The dropdown for row X shows every OTHER candidate, ranked by
   // rankByPartialMatch(X.name, otherNames) so the most-similar likely-
   // synonym appears first.  Zero-score names are still in the list —
   // rank-reorders-never-filters.
+  //
+  // WHY FormationCandidate[] not string[]: using display-name strings makes
+  // two candidates with the same display name indistinguishable in the option
+  // list — handlePickCandidate would always resolve to the FIRST matching
+  // candidate regardless of which option the user clicked.  Carrying the full
+  // candidate (including its unique key) through the option list ensures the
+  // pick always resolves by key.
   // ---------------------------------------------------------------------------
 
-  /** Map from candidate.key → ranked list of OTHER candidate display names. */
+  /** Map from candidate.key → ranked list of OTHER candidates (by similarity). */
   const rankedTargetsByKey = useMemo(() => {
-    const result = new Map<string, string[]>()
+    const result = new Map<string, FormationCandidate[]>()
     for (const self of candidates) {
-      const otherNames = candidates
-        .filter(c => c.key !== self.key)
-        .map(c => c.name)
-      // Use a single call to rankByPartialMatch with the row's own name as the
-      // query so the most-similar peer ranks first in the dropdown.
+      const others = candidates.filter(c => c.key !== self.key)
+      const otherNames = others.map(c => c.name)
+      // Rank by partial-match similarity to this row's own name.
       const ranked = rankByPartialMatch(self.name, otherNames)
-      result.set(self.key, ranked.map(r => r.name))
+      // Re-map ranked names back to their candidates.  When two candidates
+      // share a display name, rankByPartialMatch deduplicates names, so we
+      // need to re-attach ALL candidates matching each ranked name in their
+      // original relative order.
+      const seen = new Set<string>()
+      const orderedCandidates: FormationCandidate[] = []
+      for (const r of ranked) {
+        for (const c of others) {
+          if (c.name === r.name && !seen.has(c.key)) {
+            seen.add(c.key)
+            orderedCandidates.push(c)
+          }
+        }
+      }
+      result.set(self.key, orderedCandidates)
     }
     return result
   }, [candidates])
@@ -432,46 +510,64 @@ export default function FormationSelectionDialog({
           ) : (
             <ul className="space-y-0.5" role="list">
               {candidates.map(candidate => {
-                const reassignedTo = reassignments.get(candidate.key) ?? null
+                const target = reassignments.get(candidate.key) ?? null
                 // A reassigned row's include-checkbox follows the target:
                 // included iff the target row is included.  WHY: the raw name
                 // will be created as the target on the section; it is
                 // meaningless to "include" the raw but "exclude" the target.
-                const isChecked = reassignedTo !== null
-                  ? (() => {
-                      const targetCandidate = candidates.find(c => c.name === reassignedTo)
-                      return targetCandidate ? checked.has(targetCandidate.key) : checked.has(candidate.key)
-                    })()
-                  : checked.has(candidate.key)
+                //
+                // WHY resolve by key not name (GROUP A / B1): two candidates may
+                // share the same display name but carry distinct keys.
+                // Resolving by key makes the correct candidate's checked state
+                // unambiguous regardless of name collisions.
+                //
+                // WHY 'custom' renders checked + disabled (GROUP A / S2): a
+                // custom canonical name WILL be created on Apply; showing it
+                // unchecked was misleading.  The row is included (the custom
+                // name is the creation target) so we show it checked.
+                const isChecked =
+                  target === null
+                    ? checked.has(candidate.key)
+                    : target.kind === 'candidate'
+                      ? checked.has(target.key)
+                      : true  // custom target — always included (will be created)
+                // Display label shown inline next to the candidate name.
+                const targetLabel =
+                  target === null
+                    ? null
+                    : target.kind === 'candidate'
+                      ? (candidates.find(c => c.key === target.key)?.name ?? null)
+                      : target.name
                 return (
                   <li key={candidate.key} className="group/row">
                     <div className={[
                       'flex items-start gap-2 py-1.5 px-2 rounded transition-colors',
-                      reassignedTo !== null
+                      target !== null
                         ? 'bg-surface-page/60 pl-6'   // indented when reassigned
                         : 'hover:bg-surface-page',
                     ].join(' ')}>
                       <label className="flex items-start gap-2 flex-1 min-w-0 cursor-pointer select-none">
                         <input
                           type="checkbox"
+                          aria-label={candidate.name}
                           className="mt-0.5 h-3.5 w-3.5 rounded border-border-default text-accent focus:ring-accent focus:ring-1 shrink-0"
                           checked={isChecked}
-                          disabled={reassignedTo !== null}
+                          disabled={target !== null}
                           onChange={() => {
                             // Only toggle when not reassigned; when reassigned the
                             // checkbox follows the target row's state.
-                            if (reassignedTo === null) toggle(candidate.key)
+                            if (target === null) toggle(candidate.key)
                           }}
                         />
                         <span className="flex-1 min-w-0">
                           <span className={[
                             'block text-xs font-medium truncate',
-                            reassignedTo !== null ? 'text-text-muted' : 'text-text-primary',
+                            target !== null ? 'text-text-muted' : 'text-text-primary',
                           ].join(' ')}>
                             {candidate.name}
-                            {reassignedTo !== null && (
+                            {targetLabel !== null && (
                               <span className="ml-1.5 text-xs text-accent font-normal not-italic">
-                                → {reassignedTo}
+                                → {targetLabel}
                               </span>
                             )}
                           </span>
@@ -487,7 +583,8 @@ export default function FormationSelectionDialog({
                         <RowReassignDropdown
                           candidateKey={candidate.key}
                           candidateName={candidate.name}
-                          currentTarget={reassignedTo}
+                          candidates={candidates}
+                          currentTarget={target}
                           rankedTargets={rankedTargetsByKey.get(candidate.key) ?? []}
                           onSelect={setReassignment}
                         />
@@ -605,18 +702,33 @@ export default function FormationSelectionDialog({
  * this row's own display name.  A typeahead input re-ranks as the user types
  * but NEVER removes any option — full list always reachable.
  *
+ * ARIA: the trigger is a button with ``aria-haspopup="listbox"`` +
+ * ``aria-expanded``.  The popup root IS the ``role="listbox"``; there is no
+ * intermediate ``role="dialog"`` wrapper (that was a broken hybrid violating
+ * WCAG 2.2 AA).  Options are ``<li role="option">`` on non-button elements
+ * so the listbox owns keyboard semantics correctly.
+ *
+ * Outside-click and Esc (regardless of focus location) both close the
+ * dropdown.
+ *
  * Parameters
  * ----------
  * candidateKey
  *     The normalised key for this candidate (used as the manual_map key).
  * candidateName
  *     Display name — used as the partial-match query for initial ranking.
+ * candidates
+ *     Full candidate list — needed to resolve a ``'candidate'`` target's
+ *     display name for the trigger label, and to detect when a typed query
+ *     exactly matches an existing candidate name (C1 fix).
  * currentTarget
- *     Currently selected target name, or null if "Keep separate".
+ *     Currently selected ``ReassignTarget``, or null if "Keep separate".
  * rankedTargets
- *     Other candidate names pre-ranked by similarity to this row.
+ *     Other candidates pre-ranked by similarity to this row.  Each entry
+ *     carries its unique ``key`` so duplicate display names are distinguishable.
  * onSelect
- *     Callback fired with (candidateKey, target | null) — null = keep separate.
+ *     Callback fired with (candidateKey, ReassignTarget | null) — null =
+ *     keep separate.
  *
  * Returns
  * -------
@@ -625,25 +737,47 @@ export default function FormationSelectionDialog({
 function RowReassignDropdown({
   candidateKey,
   candidateName,
+  candidates,
   currentTarget,
   rankedTargets,
   onSelect,
 }: {
   candidateKey: string
   candidateName: string
-  currentTarget: string | null
-  rankedTargets: string[]
-  onSelect: (key: string, target: string | null) => void
+  candidates: FormationCandidate[]
+  currentTarget: ReassignTarget | null
+  rankedTargets: FormationCandidate[]
+  onSelect: (key: string, target: ReassignTarget | null) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const buttonId = useId()
+  const listboxId = useId()
 
   // Re-rank as the user types.  NEVER removes options — rank-reorders-never-filters.
-  const displayedTargets = useMemo(() => {
+  // WHY re-rank on FormationCandidate[]: we rank by display name (the partial-
+  // match query is against names), then re-attach the full candidate so the
+  // option can always resolve by key.  When two candidates share a name they
+  // both survive the ranking and preserve their distinct keys.
+  const displayedTargets = useMemo<FormationCandidate[]>(() => {
     if (query.trim() === '') return rankedTargets
-    return rankByPartialMatch(query, rankedTargets).map(r => r.name)
+    const names = rankedTargets.map(c => c.name)
+    const ranked = rankByPartialMatch(query, names)
+    // Re-map to candidates in ranked-name order; preserve all candidates with
+    // that name so duplicates are not collapsed.
+    const seen = new Set<string>()
+    const result: FormationCandidate[] = []
+    for (const r of ranked) {
+      for (const c of rankedTargets) {
+        if (c.name === r.name && !seen.has(c.key)) {
+          seen.add(c.key)
+          result.push(c)
+        }
+      }
+    }
+    return result
   }, [query, rankedTargets])
 
   const handleOpen = useCallback(() => {
@@ -658,52 +792,114 @@ function RowReassignDropdown({
     setQuery('')
   }, [])
 
-  const handlePick = useCallback(
-    (target: string | null) => {
-      onSelect(candidateKey, target)
+  // Outside-click handler (GROUP B).  Attached to document while open;
+  // cleaned up on close/unmount.  Uses pointerdown so it fires before the
+  // browser delivers focus/click — matching the standard dismissible-popover
+  // contract for comboboxes.
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        handleClose()
+      }
+    }
+    document.addEventListener('pointerdown', handler)
+    return () => document.removeEventListener('pointerdown', handler)
+  }, [open, handleClose])
+
+  // Esc-close regardless of focus (GROUP B).  Separate from the input's
+  // onKeyDown so it fires even when focus is on an option button or elsewhere
+  // inside the dropdown.
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        handleClose()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [open, handleClose])
+
+  const handlePickCandidate = useCallback(
+    (targetKey: string) => {
+      onSelect(candidateKey, { kind: 'candidate', key: targetKey })
       handleClose()
     },
     [candidateKey, onSelect, handleClose],
   )
 
-  const handleCustom = useCallback(() => {
+  const handleKeepSeparate = useCallback(() => {
+    onSelect(candidateKey, null)
+    handleClose()
+  }, [candidateKey, onSelect, handleClose])
+
+  // Enter in the typeahead:
+  //   - If the typed string exactly matches a candidate display name → resolve
+  //     to that candidate ('candidate' kind), not custom (GROUP A / C1 fix).
+  //   - Otherwise → custom canonical name.
+  const handleTypeaheadEnter = useCallback(() => {
+    const trimmed = query.trim()
+    if (trimmed === '' || trimmed === candidateName) {
+      handleClose()
+      return
+    }
+    const exactCandidate = candidates.find(c => c.name === trimmed && c.key !== candidateKey)
+    if (exactCandidate) {
+      onSelect(candidateKey, { kind: 'candidate', key: exactCandidate.key })
+    } else {
+      onSelect(candidateKey, { kind: 'custom', name: trimmed })
+    }
+    handleClose()
+  }, [query, candidateName, candidateKey, candidates, onSelect, handleClose])
+
+  const handleCustomPick = useCallback(() => {
     const trimmed = query.trim()
     if (trimmed !== '' && trimmed !== candidateName) {
-      onSelect(candidateKey, trimmed)
+      onSelect(candidateKey, { kind: 'custom', name: trimmed })
     }
     handleClose()
   }, [query, candidateName, candidateKey, onSelect, handleClose])
 
+  // Resolve the trigger label from the discriminated target.
+  const currentTargetLabel =
+    currentTarget === null
+      ? null
+      : currentTarget.kind === 'candidate'
+        ? (candidates.find(c => c.key === currentTarget.key)?.name ?? null)
+        : currentTarget.name
+
+  // Determine aria-selected for the "Keep separate" option.
+  const keepSeparateSelected = currentTarget === null
+
   return (
-    <div className="relative shrink-0">
+    <div ref={containerRef} className="relative shrink-0">
       <button
         id={buttonId}
         type="button"
         aria-label={
-          currentTarget !== null
-            ? `Reassigned to "${currentTarget}" — click to change`
+          currentTargetLabel !== null
+            ? `Reassigned to "${currentTargetLabel}" — click to change`
             : `Reassign "${candidateName}" to another formation`
         }
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
         className={[
           'text-xs rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent px-1.5 py-0.5 border transition-colors',
-          currentTarget !== null
+          currentTargetLabel !== null
             ? 'text-accent border-accent/40 bg-accent/5'
             : 'text-text-muted border-border-subtle hover:text-accent hover:border-accent/40 opacity-0 group-hover/row:opacity-100',
         ].join(' ')}
         onClick={open ? handleClose : handleOpen}
       >
-        {currentTarget !== null ? `→ ${currentTarget}` : '→ same as'}
+        {currentTargetLabel !== null ? `→ ${currentTargetLabel}` : '→ same as'}
       </button>
 
       {open && (
-        <div
-          role="dialog"
-          aria-label="Reassign to formation"
-          className="absolute right-0 top-full z-20 mt-1 w-56 bg-surface-overlay border border-border-default rounded shadow-lg flex flex-col"
-        >
-          {/* Typeahead input */}
+        <div className="absolute right-0 top-full z-20 mt-1 w-56 bg-surface-overlay border border-border-default rounded shadow-lg flex flex-col">
+          {/* Typeahead input — sits above the listbox, not inside it */}
           <div className="p-1.5 border-b border-border-subtle">
             <input
               ref={inputRef}
@@ -711,8 +907,10 @@ function RowReassignDropdown({
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Escape') { e.stopPropagation(); handleClose() }
-                if (e.key === 'Enter') { e.preventDefault(); handleCustom() }
+                // Esc handled by the document-level effect; stop bubbling here
+                // so the modal's own Esc handler doesn't also fire.
+                if (e.key === 'Escape') { e.stopPropagation() }
+                if (e.key === 'Enter') { e.preventDefault(); handleTypeaheadEnter() }
               }}
               placeholder="Type to re-rank or enter name…"
               aria-label="Filter or type a target formation name"
@@ -720,66 +918,72 @@ function RowReassignDropdown({
             />
           </div>
 
-          {/* Option list — scrollable */}
+          {/* Option list — the popup root IS the listbox (WCAG 2.2 AA combobox
+              pattern).  Options are <li role="option"> on non-button elements so
+              the listbox owns keyboard semantics; onClick on each <li> handles
+              selection.  No intermediate role="dialog" wrapper. */}
           <ul
+            id={listboxId}
             role="listbox"
             aria-label="Target formation options"
             className="max-h-44 overflow-y-auto"
           >
             {/* Keep separate option — always first */}
-            <li>
-              <button
-                role="option"
-                aria-selected={currentTarget === null}
-                type="button"
-                className={[
-                  'w-full text-left px-3 py-1.5 text-xs transition-colors',
-                  currentTarget === null
-                    ? 'bg-accent/10 text-accent font-medium'
-                    : 'text-text-muted hover:bg-surface-page',
-                ].join(' ')}
-                onClick={() => handlePick(null)}
-              >
-                Keep separate
-              </button>
+            <li
+              role="option"
+              aria-selected={keepSeparateSelected}
+              className={[
+                'w-full text-left px-3 py-1.5 text-xs transition-colors cursor-pointer',
+                keepSeparateSelected
+                  ? 'bg-accent/10 text-accent font-medium'
+                  : 'text-text-muted hover:bg-surface-page',
+              ].join(' ')}
+              onClick={handleKeepSeparate}
+            >
+              Keep separate
             </li>
 
-            {/* Custom-name option — only when user typed something new */}
+            {/* Custom-name option — only when user typed something new that
+                does not exactly match any existing candidate's display name */}
             {query.trim() !== '' &&
-              !rankedTargets.includes(query.trim()) &&
+              !rankedTargets.some(c => c.name === query.trim()) &&
               query.trim() !== candidateName && (
-                <li>
-                  <button
-                    role="option"
-                    aria-selected={currentTarget === query.trim()}
-                    type="button"
-                    className="w-full text-left px-3 py-1.5 text-xs text-text-primary italic hover:bg-surface-page transition-colors"
-                    onClick={handleCustom}
-                  >
-                    Use "{query.trim()}"
-                  </button>
+                <li
+                  role="option"
+                  aria-selected={
+                    currentTarget?.kind === 'custom' && currentTarget.name === query.trim()
+                  }
+                  className="w-full text-left px-3 py-1.5 text-xs text-text-primary italic hover:bg-surface-page transition-colors cursor-pointer"
+                  onClick={handleCustomPick}
+                >
+                  Use "{query.trim()}"
                 </li>
               )}
 
-            {/* Ranked peer options */}
-            {displayedTargets.map(name => (
-              <li key={name}>
-                <button
+            {/* Ranked peer options — each carries a unique key so two
+                candidates with the same display name are always distinct. */}
+            {displayedTargets.map(peer => {
+              const isSelected =
+                currentTarget !== null &&
+                currentTarget.kind === 'candidate' &&
+                currentTarget.key === peer.key
+              return (
+                <li
+                  key={peer.key}
                   role="option"
-                  aria-selected={currentTarget === name}
-                  type="button"
+                  aria-selected={isSelected}
                   className={[
-                    'w-full text-left px-3 py-1.5 text-xs transition-colors',
-                    currentTarget === name
+                    'w-full text-left px-3 py-1.5 text-xs transition-colors cursor-pointer',
+                    isSelected
                       ? 'bg-accent/10 text-accent font-medium'
                       : 'text-text-primary hover:bg-surface-page',
                   ].join(' ')}
-                  onClick={() => handlePick(name)}
+                  onClick={() => handlePickCandidate(peer.key)}
                 >
-                  {name}
-                </button>
-              </li>
-            ))}
+                  {peer.name}
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}
