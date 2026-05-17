@@ -1631,7 +1631,11 @@ export default function SectionPanel({
               compact
               icon={<Layers />}
               title="No formation contacts on this section"
-              hint="Click 'Seed' in the toolbar to populate from the active model, or draw contacts manually."
+              hint={
+                onAutoPopulateFromStratigraphy
+                  ? "Click 'Seed' in the toolbar to populate from the active model, or draw contacts manually."
+                  : 'Define formations in the Geology stage first, then return here to seed or draw contacts manually.'
+              }
             />
           </div>
         )}
