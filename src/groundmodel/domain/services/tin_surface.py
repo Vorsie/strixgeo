@@ -44,48 +44,32 @@ from __future__ import annotations
 import hashlib
 import struct
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 import numpy as np
 from scipy.spatial import Delaunay  # type: ignore[import-untyped]
 
+# Value objects moved to domain/value_objects/ (one class per file,
+# debt #42); re-exported here so existing
+# ``from ...services.tin_surface import ContactPoint3D`` importers and
+# this module's own functions resolve unchanged.
+from groundmodel.domain.value_objects.contact_point_3d import ContactPoint3D
+from groundmodel.domain.value_objects.section_line_2d import SectionLine2D
+from groundmodel.domain.value_objects.slice_point import SlicePoint
+from groundmodel.domain.value_objects.tin_surface import TinSurface
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 logger = LoggerFactory.get_logger(__name__)
 
-
-@dataclass(frozen=True)
-class ContactPoint3D:
-    """One source point for the TIN — a contact's (x, y, elevation_m).
-
-    The TIN compute treats contact_id as opaque metadata so the
-    cache-validity checksum can include it (and detect a "swap one
-    contact for another at the same xyz" change, which would have
-    the same triangulation but different downstream interpretation).
-    """
-
-    contact_id: str
-    x_m: float
-    y_m: float
-    elevation_m: float
-
-
-@dataclass(frozen=True)
-class TinSurface:
-    """Interpolated surface as a triangulated mesh.
-
-    ``vertices``: list of (x_m, y_m, elevation_m) tuples — same order
-    as the input contacts (filtered to those with valid xyz).
-    ``triangles``: list of (i, j, k) tuples — vertex indices,
-    counter-clockwise.
-
-    Empty-input contract: a TIN with fewer than 3 valid points has
-    ``vertices = [...the points...]`` but ``triangles = []``. Slice
-    queries against an empty TIN return an empty polyline.
-    """
-
-    vertices: list[tuple[float, float, float]]
-    triangles: list[tuple[int, int, int]]
+__all__ = [
+    "ContactPoint3D",
+    "TinSurface",
+    "SectionLine2D",
+    "SlicePoint",
+    "compute_tin",
+    "checksum_contacts",
+    "evaluate_tin_at",
+    "slice_tin",
+]
 
 
 def compute_tin(contacts: Sequence[ContactPoint3D]) -> TinSurface:
@@ -194,34 +178,6 @@ def checksum_contacts(contacts: Sequence[ContactPoint3D]) -> bytes:
         h.update(c.contact_id.encode("utf-8"))
         h.update(struct.pack("<ddd", c.x_m, c.y_m, c.elevation_m))
     return h.digest()
-
-
-@dataclass(frozen=True)
-class SectionLine2D:
-    """Section endpoints in the project's horizontal CRS.
-
-    Slice queries project the TIN onto this line and return a
-    polyline of (along_distance_m, elevation_m) — one point per
-    triangle edge crossing.
-    """
-
-    start_x: float
-    start_y: float
-    end_x: float
-    end_y: float
-
-    @property
-    def length_m(self) -> float:
-        """Horizontal length in metres."""
-        return float(np.hypot(self.end_x - self.start_x, self.end_y - self.start_y))
-
-
-@dataclass(frozen=True)
-class SlicePoint:
-    """One point on a section-slice polyline."""
-
-    along_m: float
-    elevation_m: float
 
 
 def evaluate_tin_at(surface: TinSurface, x: float, y: float) -> float | None:
