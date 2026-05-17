@@ -21,6 +21,7 @@ export interface UseShellContextValueArgs {
   handleUnsavedDiscard: ShellContextValue['lifecycle']['handleUnsavedDiscard']
   handleUnsavedCancel: ShellContextValue['lifecycle']['handleUnsavedCancel']
   writeLumpingSnapshot: ShellContextValue['lifecycle']['writeLumpingSnapshot']
+  currentLumping: ShellContextValue['lifecycle']['currentLumping']
   cpts: ShellContextValue['investigations']['cpts']
   detailMap: ShellContextValue['investigations']['detailMap']
   plotMap: ShellContextValue['investigations']['plotMap']
@@ -147,7 +148,7 @@ export function useShellContextValue(
   const {
     project, projectDirty, newProjectOpen, setNewProjectOpen, metadataEditorOpen, setMetadataEditorOpen,
     closeConfirmOpen, setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports,
-    handleCloseProjectRequest, handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot, cpts, detailMap,
+    handleCloseProjectRequest, handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot, currentLumping, cpts, detailMap,
     plotMap, boreholes, boreholeDetailMap, importing, bboxImportType, dovImporting,
     dovImportState, resetDovImport,
     removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList, loadCptDetail, loadChart,
@@ -197,6 +198,7 @@ export function useShellContextValue(
       handleUnsavedDiscard,
       handleUnsavedCancel,
       writeLumpingSnapshot,
+      currentLumping,
     },
     investigations: {
       cpts,
@@ -319,7 +321,7 @@ export function useShellContextValue(
     closeConfirmOpen, setCloseConfirmOpen,
     unsavedDialogOpen, unsavedSaving,
     saveProject, discardSessionImports, handleCloseProjectRequest,
-    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot,
+    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot, currentLumping,
     // investigation fields
     cpts, detailMap, plotMap, boreholes, boreholeDetailMap,
     importing, bboxImportType, dovImporting, dovImportState, resetDovImport,
