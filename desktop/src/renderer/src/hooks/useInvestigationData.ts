@@ -6,7 +6,8 @@
 // the section-selection hook (which also needs those setters). The
 // view-navigation signal (setView) is similarly injected.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 
 import {
   api,
@@ -22,6 +23,8 @@ import type {
 import { addAllToSet } from '../utils/sets'
 import { log } from '../utils/log'
 import type { UndoCommand } from './useUndoStack'
+import type { DovImportState, PendingPin } from './useDovImportStream'
+import { useDovImportStream } from './useDovImportStream'
 
 export interface UseInvestigationDataResult {
   // CPT state
@@ -35,6 +38,22 @@ export interface UseInvestigationDataResult {
   importing: boolean
   bboxImportType: 'cpt' | 'borehole' | null
   dovImporting: boolean
+  /** Full SSE import state — status / phase / done / total / result / error.
+   *  ``dovImporting`` is derived from this as ``dovImportState.status === 'running'``
+   *  and is kept for backward compat with all existing callers. */
+  dovImportState: DovImportState
+  /**
+   * Pending CPT pin markers emitted by the backend ``"pins"`` SSE event.
+   *
+   * Non-empty only while a CPT import stream is running and the WFS
+   * discovery phase has completed.  Empty for borehole imports and
+   * when the stream is idle / done / error.  The map renders these as
+   * amber pending circles; they are discarded wholesale on ``"done"``.
+   */
+  pendingCptPins: PendingPin[]
+  /** Reset the SSE import state back to idle (e.g. after the progress
+   *  panel's Close button is clicked post-import). */
+  resetDovImport: () => void
   // Removed-set counts (sidebar badges)
   removedCptIds: Set<string>
   removedBoreholeIds: Set<string>
@@ -72,7 +91,7 @@ export interface UseInvestigationDataResult {
     south: number,
     east: number,
     north: number,
-  ) => Promise<void>
+  ) => void
 }
 
 /**
@@ -137,8 +156,8 @@ export function useInvestigationData({
   toast: (type: 'success' | 'error', message: string) => void
   pushUndo: (cmd: UndoCommand) => void
   addToManifest: (kind: 'cpt' | 'borehole', ids: string[]) => void
-  setSessionImportCptIds: (updater: (prev: Set<string>) => Set<string>) => void
-  setSessionImportBoreholeIds: (updater: (prev: Set<string>) => Set<string>) => void
+  setSessionImportCptIds: Dispatch<SetStateAction<Set<string>>>
+  setSessionImportBoreholeIds: Dispatch<SetStateAction<Set<string>>>
   selectedId: string | null
   setSelectedId: (id: string | null) => void
   selectedBoreholeId: string | null
@@ -161,6 +180,8 @@ export function useInvestigationData({
   const [importing, setImporting] = useState(false)
   const [bboxImportType, setBboxImportType] = useState<'cpt' | 'borehole' | null>(null)
   const [dovImporting, setDovImporting] = useState(false)
+  const { state: dovImportState, start: startDovStream, reset: resetDovStream } =
+    useDovImportStream()
 
   // Project-local hide sets. Re-seeded from the review API on every
   // project change so the is_hidden state survives .gmproj round-trips.
@@ -665,114 +686,131 @@ export function useInvestigationData({
     setBboxImportType('borehole')
   }, [setView])
 
-  // ``bboxImportType`` is read inside the async body. Reading from state
-  // in an async callback can see a stale value if the state mutates while
-  // the async code is suspended. Here we snapshot it immediately (first
-  // line of the function body) before any await — safe.
+  // Snapshot of ids present BEFORE a DOV import starts so we can diff
+  // for session-imports tagging (only genuinely-new rows dirty the project).
+  // Stored in a ref so the completion effect can read it without being in
+  // the dep array (it never changes the ids — just reads them once).
+  const beforeImportIdsRef = useRef<{ cptIds: Set<string>; boreholeIds: Set<string> }>({
+    cptIds: new Set(),
+    boreholeIds: new Set(),
+  })
+
+  // Effect: when the SSE stream transitions to done/error, run the
+  // post-import state updates (toast, manifest, list refresh, selection)
+  // and sync ``dovImporting`` back to false. This mirrors the old
+  // handleBboxDrawn's ``finally`` block but decoupled from the async
+  // callback so the progress panel can render mid-stream.
+  useEffect(() => {
+    if (dovImportState.status === 'error') {
+      log.error('import', `DOV stream error: ${dovImportState.message}`)
+      toast('error', dovImportState.message)
+      setDovImporting(false)
+      return
+    }
+
+    if (dovImportState.status !== 'done') return
+    const { kind, result } = dovImportState
+    setDovImporting(false)
+
+    if (kind === 'cpt') {
+      const cptResult = result as import('./useDovImportStream').CptImportDonePayload
+      const beforeIds = beforeImportIdsRef.current.cptIds
+      const parts: string[] = []
+      if (cptResult.imported > 0) parts.push(`${cptResult.imported} imported`)
+      if (cptResult.duplicates > 0) parts.push(`${cptResult.duplicates} already existed`)
+      if (cptResult.failed > 0) parts.push(`${cptResult.failed} failed`)
+      toast(
+        cptResult.failed > 0 && cptResult.imported === 0 ? 'error' : 'success',
+        parts.join(', ') || 'No CPTs found in this area',
+      )
+      unhideCpts(cptResult.cpt_ids)
+      addToManifest('cpt', cptResult.cpt_ids)
+      addAllToSet(
+        setSessionImportCptIds,
+        cptResult.cpt_ids.filter(id => !beforeIds.has(id)),
+      )
+      void refreshList().then(() => {
+        if (cptResult.imported === 1 && cptResult.cpt_ids.length > 0) {
+          const id = cptResult.cpt_ids[0]
+          setSelectedId(id)
+          setSelectedBoreholeId(null)
+          void loadChart(id).then(() => setView('chart'))
+        }
+      })
+    } else {
+      const bhResult = result as import('./useDovImportStream').BoreholeImportDonePayload
+      const beforeIds = beforeImportIdsRef.current.boreholeIds
+      const parts: string[] = []
+      if (bhResult.imported > 0) parts.push(`${bhResult.imported} imported`)
+      if (bhResult.duplicates > 0) parts.push(`${bhResult.duplicates} already existed`)
+      if (bhResult.failed > 0) parts.push(`${bhResult.failed} failed`)
+      const extras: string[] = []
+      if (bhResult.interpretations_attached)
+        extras.push(`${bhResult.interpretations_attached} obs`)
+      if (bhResult.samples_attached) extras.push(`${bhResult.samples_attached} samples`)
+      if (bhResult.grain_sizes_attached)
+        extras.push(`${bhResult.grain_sizes_attached} grain-size`)
+      const summary = parts.join(', ') || 'No boreholes found in this area'
+      const detail = extras.length > 0 ? ` (+ ${extras.join(', ')})` : ''
+      toast(
+        bhResult.failed > 0 && bhResult.imported === 0 ? 'error' : 'success',
+        summary + detail,
+      )
+      unhideBoreholes(bhResult.borehole_ids)
+      addToManifest('borehole', bhResult.borehole_ids)
+      addAllToSet(
+        setSessionImportBoreholeIds,
+        bhResult.borehole_ids.filter(id => !beforeIds.has(id)),
+      )
+      void refreshBoreholeList().then(() => {
+        if (bhResult.imported === 1 && bhResult.borehole_ids.length > 0) {
+          const id = bhResult.borehole_ids[0]
+          setSelectedBoreholeId(id)
+          setSelectedId(null)
+          void loadBoreholeDetail(id).then(() => setView('chart'))
+        }
+      })
+    }
+    // reason: toast / addToManifest / setSession* / unhide* / load* are all
+    // stable callbacks; including them here would not change the effect's
+    // trigger. The effect should only run when dovImportState transitions to
+    // a terminal status — including every stable callback would add noise.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dovImportState])
+
+  // ``bboxImportType`` is read and snapshotted at the very top of the
+  // callback body before any state mutation so it can't go stale.
   const handleBboxDrawn = useCallback(
-    async (west: number, south: number, east: number, north: number) => {
+    (west: number, south: number, east: number, north: number) => {
       if (!project) return
       const importType = bboxImportType
       setBboxImportType(null)
       if (!importType) return // defensive — shouldn't happen
-      setDovImporting(true)
-      try {
-        if (importType === 'cpt') {
-          // Snapshot ids BEFORE the API call so we can diff for the
-          // session-imports tagging. ``result.cpt_ids`` includes both
-          // newly-imported and pre-existing rows; we only want the new.
-          const beforeIds = new Set(cpts.map(c => c.id))
-          const result = await api.cpt.importDov({ west, south, east, north }, project.id)
-          const parts: string[] = []
-          if (result.imported > 0) parts.push(`${result.imported} imported`)
-          if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
-          if (result.failed > 0) parts.push(`${result.failed} failed`)
-          toast(
-            result.failed > 0 && result.imported === 0 ? 'error' : 'success',
-            parts.join(', ') || 'No CPTs found in this area',
-          )
-          unhideCpts(result.cpt_ids)
-          // Every CPT returned by DOV (new or duplicate) needs to be
-          // visible — add them all to the manifest. Session-imports
-          // tracking only flags the genuinely-new ones so a re-import
-          // of an already-saved area doesn't re-dirty the project.
-          addToManifest('cpt', result.cpt_ids)
-          addAllToSet(
-            setSessionImportCptIds,
-            result.cpt_ids.filter(id => !beforeIds.has(id)),
-          )
-          await refreshList()
-          if (result.imported === 1 && result.cpt_ids.length > 0) {
-            const id = result.cpt_ids[0]
-            setSelectedId(id)
-            setSelectedBoreholeId(null)
-            await loadChart(id)
-            setView('chart')
-          }
-        } else {
-          const beforeIds = new Set(boreholes.map(b => b.id))
-          const result = await api.borehole.importDov(
-            { west, south, east, north },
-            project.id,
-          )
-          const parts: string[] = []
-          if (result.imported > 0) parts.push(`${result.imported} imported`)
-          if (result.duplicates > 0) parts.push(`${result.duplicates} already existed`)
-          if (result.failed > 0) parts.push(`${result.failed} failed`)
-          const extras: string[] = []
-          if (result.interpretations_attached)
-            extras.push(`${result.interpretations_attached} obs`)
-          if (result.samples_attached) extras.push(`${result.samples_attached} samples`)
-          if (result.grain_sizes_attached)
-            extras.push(`${result.grain_sizes_attached} grain-size`)
-          const summary = parts.join(', ') || 'No boreholes found in this area'
-          const detail = extras.length > 0 ? ` (+ ${extras.join(', ')})` : ''
-          toast(
-            result.failed > 0 && result.imported === 0 ? 'error' : 'success',
-            summary + detail,
-          )
-          unhideBoreholes(result.borehole_ids)
-          addToManifest('borehole', result.borehole_ids)
-          addAllToSet(
-            setSessionImportBoreholeIds,
-            result.borehole_ids.filter(id => !beforeIds.has(id)),
-          )
-          await refreshBoreholeList()
-          if (result.imported === 1 && result.borehole_ids.length > 0) {
-            const id = result.borehole_ids[0]
-            setSelectedBoreholeId(id)
-            setSelectedId(null)
-            await loadBoreholeDetail(id)
-            setView('chart')
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'DOV import failed'
-        log.error('import', `DOV bbox import failed: ${msg}`, err)
-        toast('error', msg)
-      } finally {
-        setDovImporting(false)
+      // Snapshot pre-import ids so the completion effect can diff for
+      // the session-imports dirty-tracking (only genuinely-new rows
+      // should paint the amber asterisk and trigger project dirty state).
+      beforeImportIdsRef.current = {
+        cptIds: new Set(cpts.map(c => c.id)),
+        boreholeIds: new Set(boreholes.map(b => b.id)),
       }
+      setDovImporting(true)
+      startDovStream({ kind: importType, bbox: { west, south, east, north }, projectId: project.id })
     },
-    [
-      project,
-      bboxImportType,
-      cpts,
-      boreholes,
-      refreshList,
-      refreshBoreholeList,
-      loadChart,
-      loadBoreholeDetail,
-      unhideCpts,
-      unhideBoreholes,
-      addToManifest,
-      setSessionImportCptIds,
-      setSessionImportBoreholeIds,
-      setSelectedId,
-      setSelectedBoreholeId,
-      setView,
-    ],
+    [project, bboxImportType, cpts, boreholes, startDovStream],
   )
+
+  // Expose a reset so the progress panel's "Close" / "Import again"
+  // button can return the stream state to idle (e.g. after a done/error).
+  const resetDovImport = useCallback(() => {
+    resetDovStream()
+    setDovImporting(false)
+  }, [resetDovStream])
+
+  // Derive pending pins from the running state — only present for CPT imports.
+  const pendingCptPins: PendingPin[] =
+    dovImportState.status === 'running' && dovImportState.kind === 'cpt'
+      ? dovImportState.pendingPins
+      : []
 
   return {
     cpts,
@@ -803,5 +841,8 @@ export function useInvestigationData({
     handleImportDov,
     handleImportBoreholeDov,
     handleBboxDrawn,
+    dovImportState,
+    resetDovImport,
+    pendingCptPins,
   }
 }
