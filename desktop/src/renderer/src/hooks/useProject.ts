@@ -53,6 +53,14 @@ interface UseProjectState {
   dirty: boolean
   /** Path to the .gmproj file on disk. */
   filePath: string | null
+  /**
+   * In-memory mirror of the lumping snapshot last written by
+   * ``writeLumpingSnapshot`` (or seeded from the file on open).
+   * Null when no lumping has been applied to this project yet.
+   * Exposed so consumers (useGeologicalModel, GeologyToolbar) can
+   * read the persisted map without an additional file read.
+   */
+  currentLumping: StratigraphyLumping | null
   /** Set of CPT IDs that this project's saved-on-disk .gmproj
    * references. Seeded from the file on open; appended to when the
    * user imports new CPTs; trimmed on discard. NOT persisted to
@@ -736,6 +744,7 @@ export function useProject(): UseProject {
     saved,
     dirty,
     filePath,
+    currentLumping,
     manifestCptIds,
     manifestBoreholeIds,
     manifestFormationIds,
