@@ -70,6 +70,26 @@ export interface UseGeologicalModelResult {
   /** Activate a model (backend clears same-kind siblings). Refreshes
    * the list + the active-litho pointer. */
   handleActivateLithoModel: (modelId: string) => Promise<void>
+  // Litho contact/surface/formation parallel sets (slice 2, #55).
+  // Loaded from the active litho model; independent of the geological
+  // contact set so mutations in one set never invalidate the other.
+  lithoContacts: FormationContactResponse[]
+  lithoFormations: GeologicalFormationResponse[]
+  lithoSurfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>
+  /** Create a formation contact on the active LITHO model (mirrors
+   * handleCreateContact exactly, closes over activeLithoModel). */
+  handleCreateLithoContact: (
+    anchorKind: 'cpt' | 'borehole',
+    anchorId: string,
+    depth_m: number,
+    formationId: string,
+    snapped: boolean,
+  ) => Promise<void>
+  /** Inline-create a formation inside the active LITHO model (mirrors
+   * handleInlineCreateFormation, closes over activeLithoModel). */
+  handleInlineLithoCreateFormation: (
+    payload: GeologicalFormationCreatePayload,
+  ) => Promise<{ id: string } | null>
   formations: GeologicalFormationResponse[]
   /**
    * Manifest-filtered formation list — the single source of truth for
@@ -217,6 +237,20 @@ export function useGeologicalModel({
   const [models, setModels] = useState<GeologicalModelResponse[]>([])
   const [activeLithoModel, setActiveLithoModel] =
     useState<GeologicalModelResponse | null>(null)
+  // Litho parallel state (slice 2, #55). Independent of the geological
+  // contact set — mutations in one set never invalidate the other.
+  // Loaded / cleared by a useEffect that watches activeLithoModel.
+  const [lithoContacts, setLithoContacts] = useState<FormationContactResponse[]>([])
+  const [lithoFormations, setLithoFormations] = useState<GeologicalFormationResponse[]>([])
+  const [lithoSurfacesByFormationId, setLithoSurfacesByFormationId] = useState<
+    ReadonlyMap<string, FormationSurfaceResponse>
+  >(new Map())
+  // Ref version of activeLithoModel for useCallback closures that
+  // must not list it as a dep (same pattern as activeGeologicalModelRef).
+  const activeLithoModelRef = useRef<GeologicalModelResponse | null>(null)
+  useEffect(() => {
+    activeLithoModelRef.current = activeLithoModel
+  }, [activeLithoModel])
   const [formations, setFormations] = useState<GeologicalFormationResponse[]>([])
   // Refresh signal for InterpretationPane. The pane keeps its own
   // formations cache; bumping this counter forces a refetch.
@@ -420,6 +454,54 @@ export function useGeologicalModel({
     // key; satisfies exhaustive-deps without a suppression.
   }, [project, refreshModels])
 
+  // Load / reload litho contacts + formations + surfaces when the
+  // active litho model changes. Parallel fetch, mirroring the
+  // geological bootstrap. Clears when activeLithoModel is null.
+  // Architect-flagged highest risk: this effect is INDEPENDENT of
+  // the geological bootstrap (different state atoms) so there is no
+  // shared refresh counter — mutations go through setLithoContacts
+  // optimistically + refetch, never through setContacts.
+  useEffect(() => {
+    if (!project || !activeLithoModel) {
+      setLithoContacts([])
+      setLithoFormations([])
+      setLithoSurfacesByFormationId(new Map())
+      return
+    }
+    let cancelled = false
+    const projectId = project.id
+    const modelId = activeLithoModel.id
+    ;(async () => {
+      try {
+        const [forms, conts, surfs] = await Promise.all([
+          api.geology.listFormations(projectId),
+          api.geology.listContacts(projectId, modelId),
+          api.geology.listSurfaces(projectId, modelId),
+        ])
+        if (cancelled) return
+        setLithoFormations(forms)
+        setLithoContacts(conts)
+        const sm = new Map<string, FormationSurfaceResponse>()
+        for (const s of surfs) sm.set(s.formation_id, s)
+        setLithoSurfacesByFormationId(sm)
+        log.debug(
+          'geology',
+          `litho model ${modelId}: loaded ${conts.length} contacts, ${forms.length} formations, ${surfs.length} surfaces`,
+        )
+      } catch (err) {
+        if (!cancelled) {
+          log.warn('geology', `litho model ${modelId}: load failed`, err)
+          setLithoContacts([])
+          setLithoFormations([])
+          setLithoSurfacesByFormationId(new Map())
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [project, activeLithoModel])
+
   const refetchFormations = useCallback(() => {
     if (!project) return
     void api.geology
@@ -450,6 +532,39 @@ export function useGeologicalModel({
         log.warn('geology', `listSurfaces refetch failed`, err)
       })
   }, [project, activeGeologicalModel])
+
+  // Refetch litho contacts for the active litho model. Called after
+  // handleCreateLithoContact / inline-create mutations (optimistic update
+  // + explicit refetch pattern — same as the geological set uses implicitly
+  // via the setContacts→useEffect→refetchSurfaces chain). Reads from ref
+  // so the dep array is [project] — stable to project identity.
+  const refetchLithoContacts = useCallback(() => {
+    const model = activeLithoModelRef.current
+    if (!project || !model) return
+    void api.geology
+      .listContacts(project.id, model.id)
+      .then(setLithoContacts)
+      .catch(err => {
+        log.warn('geology', `litho listContacts refetch failed`, err)
+      })
+  }, [project])
+
+  // Refetch litho surfaces for the active litho model. Called after
+  // any litho contact mutation so the section slice render stays current.
+  const refetchLithoSurfaces = useCallback(() => {
+    const model = activeLithoModelRef.current
+    if (!project || !model) return
+    void api.geology
+      .listSurfaces(project.id, model.id)
+      .then(surfs => {
+        const sm = new Map<string, FormationSurfaceResponse>()
+        for (const s of surfs) sm.set(s.formation_id, s)
+        setLithoSurfacesByFormationId(sm)
+      })
+      .catch(err => {
+        log.warn('geology', `litho listSurfaces refetch failed`, err)
+      })
+  }, [project])
 
   // Ensure an active geological model is present, creating "Default" when none
   // exists. Delegates to resolveActiveModel via the shared ensureModelPromiseRef
@@ -1816,6 +1931,87 @@ export function useGeologicalModel({
     [project, refreshModels, toast],
   )
 
+  // Slice 2, #55: create a formation contact on the LITHO model.
+  // Mirror of handleCreateContact — same optimistic-update + refetch
+  // pattern (setLithoContacts → refetchLithoContacts), DIFFERENT state
+  // atom. Closes over activeLithoModelRef so the dep array stays
+  // [project, refetchLithoContacts] — stable to project identity.
+  // Architect warning: the parallel litho contact-set must NEVER share
+  // a refresh counter with the geological set; each has its own optimistic
+  // setter + explicit refetch.
+  const handleCreateLithoContact = useCallback(
+    async (
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      depth_m: number,
+      formationId: string,
+      snapped: boolean,
+    ): Promise<void> => {
+      const model = activeLithoModelRef.current
+      if (!project || !model) return
+      log.debug(
+        'geology',
+        `createLithoContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId}`,
+      )
+      try {
+        const payload = {
+          formation_id: formationId,
+          depth_top_m: depth_m,
+          borehole_id: anchorKind === 'borehole' ? anchorId : null,
+          cpt_id: anchorKind === 'cpt' ? anchorId : null,
+          source: (snapped ? 'borehole_observation' : 'manual_pick') as
+            | 'borehole_observation'
+            | 'manual_pick',
+          confidence: (snapped ? 'high' : 'medium') as 'high' | 'medium',
+        }
+        const created = await api.geology.createContact(project.id, model.id, payload)
+        // Optimistic update first — refetch follows for server truth.
+        setLithoContacts(prev => [...prev, created])
+        refetchLithoContacts()
+        refetchLithoSurfaces()
+        log.success(
+          'geology',
+          `createLithoContact ok id=${created.id} depth=${created.depth_top_m.toFixed(3)}m`,
+        )
+      } catch (err) {
+        log.error('geology', 'createLithoContact failed', err)
+        toast('error', 'Could not place the litho formation contact.')
+      }
+    },
+    [project, refetchLithoContacts, refetchLithoSurfaces, toast],
+  )
+
+  // Slice 2, #55: inline-create a formation inside the active LITHO model.
+  // Mirror of handleInlineCreateFormation — same optimistic-update pattern,
+  // DIFFERENT state atom (setLithoFormations). Closes over activeLithoModelRef.
+  const handleInlineLithoCreateFormation = useCallback(
+    async (
+      payload: GeologicalFormationCreatePayload,
+    ): Promise<{ id: string } | null> => {
+      const model = activeLithoModelRef.current
+      if (!project || !model) return null
+      try {
+        // Formations are project-scoped, not model-scoped. Membership in
+        // the litho model is established implicitly when contacts reference
+        // this formation through that model's geological_model_id. The
+        // payload spreads caller-provided fields only (name, color, lithology
+        // for litho formations; nad_class for geotech).
+        const created = await api.geology.createFormation(project.id, payload)
+        setLithoFormations(prev => [...prev, created])
+        log.success(
+          'geology',
+          `handleInlineLithoCreateFormation ok id=${created.id} name="${created.name}"`,
+        )
+        return { id: created.id }
+      } catch (err) {
+        log.error('geology', 'handleInlineLithoCreateFormation failed', err)
+        toast('error', 'Could not create the litho formation.')
+        return null
+      }
+    },
+    [project, toast],
+  )
+
   // R4 (debt #12): the visible-list filter now lives HERE, not as an
   // App.tsx post-spread. ``manifestFormationIds`` undefined (no project
   // open) ⇒ pass everything through, same semantics App.tsx had.
@@ -1835,6 +2031,11 @@ export function useGeologicalModel({
     activeLithoModel,
     handleCreateLithoModel,
     handleActivateLithoModel,
+    lithoContacts,
+    lithoFormations,
+    lithoSurfacesByFormationId,
+    handleCreateLithoContact,
+    handleInlineLithoCreateFormation,
     formations,
     visibleFormations,
     formationsRefreshCounter,

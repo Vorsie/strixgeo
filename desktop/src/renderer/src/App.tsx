@@ -332,6 +332,9 @@ export default function App() {
     activeGeologicalModel,
     formations,
     contacts,
+    // Slice 2 (#55): dep-injected into useSections for axis-aware
+    // handleFocusContacts — not used further in App.tsx scope.
+    lithoContacts,
     handleFormationDeleted,
     discardContacts,
   } = geo
@@ -451,6 +454,8 @@ export default function App() {
     focusedContactIds,
     visibleSections,
     effectiveHorizontalEpsg,
+    sectionModelAxis,
+    setSectionModelAxis,
     refreshSectionList,
     clearSectionSelection,
     handleSectionCreated,
@@ -472,6 +477,10 @@ export default function App() {
     removeFromManifest,
     setSessionImportSectionIds,
     contacts,
+    // Slice 2 (#55): dep-inject the litho contact list so handleFocusContacts
+    // can resolve contacts on the litho axis without coupling useSections to the
+    // geo model hook directly.
+    lithoContacts,
     boreholes,
     cpts,
     setSelectedId,
@@ -729,6 +738,7 @@ export default function App() {
     visibleCpts, visibleBoreholes, geo,
     // sections
     sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg,
+    sectionModelAxis, setSectionModelAxis,
     refreshSectionList, clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw,
     handleSectionLineDrawn, handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts,
     // overlays

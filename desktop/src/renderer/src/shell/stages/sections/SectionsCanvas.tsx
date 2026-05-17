@@ -50,6 +50,7 @@ export default function SectionsCanvas(): JSX.Element {
     visibleBoreholes,
     geoModel: {
       activeGeologicalModel,
+      activeLithoModel,
       formations,
       contacts,
       surfacesByFormationId,
@@ -60,6 +61,11 @@ export default function SectionsCanvas(): JSX.Element {
       handleBatchCreateContacts,
       handleAutoPopulateFromStratigraphy,
       handleInlineCreateFormation,
+      lithoContacts,
+      lithoFormations,
+      lithoSurfacesByFormationId,
+      handleCreateLithoContact,
+      handleInlineLithoCreateFormation,
     },
     sections: {
       sections,
@@ -67,6 +73,7 @@ export default function SectionsCanvas(): JSX.Element {
       drawingSection,
       focusedContactIds,
       effectiveHorizontalEpsg,
+      sectionModelAxis,
       clearSectionSelection,
       handlePatchSelectedSection,
       handleSectionLineDrawn,
@@ -144,6 +151,20 @@ export default function SectionsCanvas(): JSX.Element {
     [selectedSectionId, sections],
   )
 
+  // Slice 2 (#55): axis-aware contact/formation/surface routing.
+  // SectionPanel and ContactsLayer are UNCHANGED — the prop boundary absorbs
+  // the switch. Geological is the default and existing behaviour is identical.
+  const isLitho = sectionModelAxis === 'lithostratigraphic'
+  // Active model for the chosen axis — used for export button gating.
+  const activeAxisModel = isLitho ? activeLithoModel : activeGeologicalModel
+  // Contact/formation/surface sets routed by axis.
+  const axisContacts = isLitho ? lithoContacts : contacts
+  const axisFormations = isLitho ? lithoFormations : formations
+  const axisSurfacesByFormationId = isLitho ? lithoSurfacesByFormationId : surfacesByFormationId
+  const axisExcludedBoreholeIds = activeAxisModel?.excluded_borehole_ids ?? []
+  const axisCreateContact = isLitho ? handleCreateLithoContact : handleCreateContact
+  const axisCreateFormation = isLitho ? handleInlineLithoCreateFormation : handleInlineCreateFormation
+
   if (selectedSection !== null) {
     return (
       <SectionPanel
@@ -155,35 +176,31 @@ export default function SectionsCanvas(): JSX.Element {
         onClose={clearSectionSelection}
         onSelectCpt={handleSelect}
         onSelectBorehole={handleSelectBorehole}
-        contacts={contacts}
-        formations={formations}
-        surfacesByFormationId={surfacesByFormationId}
+        contacts={axisContacts}
+        formations={axisFormations}
+        surfacesByFormationId={axisSurfacesByFormationId}
         focusedContactIds={focusedContactIds}
-        excludedBoreholeIds={activeGeologicalModel?.excluded_borehole_ids ?? []}
-        onCreateContact={handleCreateContact}
+        excludedBoreholeIds={axisExcludedBoreholeIds}
+        onCreateContact={axisCreateContact}
         onUpdateContactDepth={handleUpdateContactDepth}
         onDeleteContact={handleDeleteContact}
         onBatchUpdateContacts={handleBatchUpdateContacts}
         onBatchCreateContacts={handleBatchCreateContacts}
-        // Seed from stratigraphy is a MANUAL, per-section action — it
-        // never runs automatically. It's wired only once the Geology
-        // pane actually has formations (formations.length > 0); until
-        // then the prop is undefined and the SectionHeader button stays
-        // greyed with the "define in Geology stage first" tooltip.
-        // Formation *definition* still belongs to the Geology stage;
-        // this only places CONTACTS for formations that already exist.
+        // Seed from stratigraphy: only available on the geological axis
+        // (the litho axis has its own suggest-litho flow). On the litho
+        // axis the prop is undefined and the button stays disabled.
         onAutoPopulateFromStratigraphy={
-          formations.length > 0 ? handleAutoPopulateFromStratigraphy : undefined
+          !isLitho && formations.length > 0 ? handleAutoPopulateFromStratigraphy : undefined
         }
-        onCreateFormation={handleInlineCreateFormation}
+        onCreateFormation={axisCreateFormation}
         onExportDxf={
-          activeGeologicalModel
+          activeAxisModel
             ? () =>
                 handleExportSectionDxf(
                   project.id,
                   selectedSection.id,
                   selectedSection.name,
-                  activeGeologicalModel.id,
+                  activeAxisModel.id,
                 )
             : undefined
         }

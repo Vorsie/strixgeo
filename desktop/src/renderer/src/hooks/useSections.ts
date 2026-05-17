@@ -21,6 +21,9 @@ import { wgs84ToProjected } from './useWgs84'
 import { log } from '../utils/log'
 import type { UndoCommand } from './useUndoStack'
 
+/** Which model the section editor renders and edits (slice 2, #55). */
+export type SectionModelAxis = 'geological' | 'lithostratigraphic'
+
 export interface UseSectionsResult {
   sections: CrossSectionResponse[]
   selectedSectionId: string | null
@@ -34,6 +37,17 @@ export interface UseSectionsResult {
    * creation is genuinely not possible and the affordances disable).
    */
   effectiveHorizontalEpsg: number | null
+  /**
+   * Which model the section editor renders and edits.  Defaults to
+   * ``'geological'`` — zero regression.  Toggled by the
+   * ``SectionsToolbar`` geology↔lithology segmented control.
+   *
+   * Session-only: NOT persisted to the .gmproj bundle (reversible UI
+   * state — resets to ``'geological'`` on project close / reopen).
+   */
+  sectionModelAxis: SectionModelAxis
+  /** Toggle the section model axis (geological ↔ lithostratigraphic). */
+  setSectionModelAxis: (axis: SectionModelAxis) => void
   // Section data
   refreshSectionList: () => Promise<void>
   // Clear the section selection from outside the hook (e.g. when a CPT
@@ -134,6 +148,7 @@ export function useSections({
   removeFromManifest,
   setSessionImportSectionIds,
   contacts,
+  lithoContacts,
   boreholes,
   cpts,
   setSelectedId,
@@ -149,6 +164,12 @@ export function useSections({
   removeFromManifest: (kind: 'section', ids: Iterable<string>) => void
   setSessionImportSectionIds: (updater: (prev: Set<string>) => Set<string>) => void
   contacts: FormationContactResponse[]
+  /**
+   * Litho contact list (slice 2, #55) — dep-injected so the hook stays
+   * independent of how the litho state is loaded.  Used by
+   * ``handleFocusContacts`` when the section axis is 'lithostratigraphic'.
+   */
+  lithoContacts: FormationContactResponse[]
   boreholes: readonly BoreholeAnchor[]
   cpts: readonly CptAnchor[]
   setSelectedId: (id: string | null) => void
@@ -156,6 +177,9 @@ export function useSections({
 }): UseSectionsResult {
   const [sections, setSections] = useState<CrossSectionResponse[]>([])
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
+  // Slice 2 (#55): which model the editor renders. Defaults to geological —
+  // zero regression. Session-only (not persisted to .gmproj).
+  const [sectionModelAxis, setSectionModelAxis] = useState<SectionModelAxis>('geological')
   // Two-click draw mode — active while the user is placing a section
   // line on the map. Set by handleCreateSection, cleared by
   // cancelSectionDraw and handleSectionLineDrawn.
@@ -445,7 +469,13 @@ export function useSections({
   const handleFocusContacts = useCallback(
     (contactIds: readonly string[]) => {
       if (contactIds.length === 0) return
-      const offending = contacts.filter(c => contactIds.includes(c.id))
+      // Slice 2 (#55): search the contact set that matches the active axis so
+      // "focus crossing" still works when the litho axis is active. The
+      // crossings validator runs on the geological model; on the litho axis the
+      // banner won't fire, but the handler is future-proof for litho crossings.
+      const activeContacts =
+        sectionModelAxis === 'lithostratigraphic' ? lithoContacts : contacts
+      const offending = activeContacts.filter(c => contactIds.includes(c.id))
       if (offending.length === 0) {
         toast('error', "Couldn't find the contact in the current project.")
         return
@@ -500,7 +530,7 @@ export function useSections({
         focusedContactsTimeoutRef.current = null
       }, 2500)
     },
-    [contacts, boreholes, cpts, sections, selectedSectionId, setSelectedId, setSelectedBoreholeId],
+    [contacts, lithoContacts, sectionModelAxis, boreholes, cpts, sections, selectedSectionId, setSelectedId, setSelectedBoreholeId],
   )
 
   const clearSectionSelection = useCallback(() => {
@@ -514,6 +544,8 @@ export function useSections({
     focusedContactIds,
     visibleSections,
     effectiveHorizontalEpsg,
+    sectionModelAxis,
+    setSectionModelAxis,
     refreshSectionList,
     clearSectionSelection,
     handleSectionCreated,

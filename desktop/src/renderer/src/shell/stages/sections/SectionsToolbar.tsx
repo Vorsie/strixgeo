@@ -13,6 +13,7 @@ import { ToolbarButton, PrimaryToolbarButton } from '../../ToolbarPrimitives'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
+import type { SectionModelAxis } from '../../../hooks/useSections'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -34,12 +35,15 @@ export default function SectionsToolbar(): JSX.Element {
       selectedSectionId,
       sections,
       effectiveHorizontalEpsg,
+      sectionModelAxis,
+      setSectionModelAxis,
       handleSelectSection,
       handleCreateSection,
       handleDeleteSection,
     },
     geoModel: {
       activeGeologicalModel,
+      activeLithoModel,
       staleSurfaceCount,
       handleRebuildSurfaces,
       handleDedupeContacts,
@@ -105,14 +109,16 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   async function handleExportDxf(): Promise<void> {
-    if (!selectedSection || !activeGeologicalModel || exportingDxf) return
+    // Axis-aware: use the active model for the chosen axis.
+    const axisModel = isLitho ? activeLithoModel : activeGeologicalModel
+    if (!selectedSection || !axisModel || exportingDxf) return
     setExportingDxf(true)
     try {
       await handleExportSectionDxf(
         project.id,
         selectedSection.id,
         selectedSection.name,
-        activeGeologicalModel.id,
+        axisModel.id,
       )
     } finally {
       setExportingDxf(false)
@@ -169,14 +175,78 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   const hasSection = selectedSection !== null
-  const hasModel = activeGeologicalModel !== null
+  // Axis-aware model presence: geological axis uses the geological model,
+  // lithostratigraphic axis uses the litho model. Build/Seed/Dedupe/Export
+  // buttons are gated on the ACTIVE model for the chosen axis.
+  const isLitho = sectionModelAxis === 'lithostratigraphic'
+  const hasModel = isLitho
+    ? activeLithoModel !== null
+    : activeGeologicalModel !== null
   const staleLabel =
     staleSurfaceCount > 0
       ? `Build · ${staleSurfaceCount} stale`
       : 'Build model'
 
+  // Handler for the axis toggle — validate the target axis before
+  // switching so a disabled "Litho" segment can't be clicked.
+  function handleAxisChange(axis: SectionModelAxis): void {
+    if (axis === 'lithostratigraphic' && activeLithoModel === null) return
+    setSectionModelAxis(axis)
+  }
+
   return (
     <div className="flex items-center gap-1">
+      {/* Geology ↔ Lithology segmented toggle (slice 2, #55).
+          Disabled on the litho segment when no litho model exists yet.
+          Reads/writes sectionModelAxis from the sections slice. Uses
+          border-default + surface-card / accent semantic tokens only. */}
+      <div
+        role="group"
+        aria-label="Section model axis"
+        className="flex items-center rounded border border-border-default overflow-hidden text-xs"
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!isLitho}
+          onClick={() => handleAxisChange('geological')}
+          className={[
+            'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            !isLitho
+              ? 'bg-accent text-text-on-accent'
+              : 'bg-surface-card text-text-secondary hover:text-text-primary',
+          ].join(' ')}
+          title="Edit the geological model contacts on this section"
+        >
+          Geology
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={isLitho}
+          disabled={activeLithoModel === null}
+          onClick={() => handleAxisChange('lithostratigraphic')}
+          className={[
+            'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            isLitho
+              ? 'bg-accent text-text-on-accent'
+              : activeLithoModel === null
+                ? 'bg-surface-card text-text-muted cursor-not-allowed'
+                : 'bg-surface-card text-text-secondary hover:text-text-primary',
+          ].join(' ')}
+          title={
+            activeLithoModel === null
+              ? 'Create a lithostratigraphic model in the Lithology stage first'
+              : 'Edit the lithostratigraphic model contacts on this section'
+          }
+        >
+          Litho
+        </button>
+      </div>
+
+      {/* Separator */}
+      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+
       {/* New cross-section — primary entry action, visually distinct from
           the secondary verbs so first-time users can find it immediately.
           Accent-filled button separates it from the grey text-only verbs

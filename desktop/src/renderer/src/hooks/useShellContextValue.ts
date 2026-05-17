@@ -70,6 +70,8 @@ export interface UseShellContextValueArgs {
   handlePatchSelectedSection: ShellContextValue['sections']['handlePatchSelectedSection']
   handleSelectSection: ShellContextValue['sections']['handleSelectSection']
   handleFocusContacts: ShellContextValue['sections']['handleFocusContacts']
+  sectionModelAxis: ShellContextValue['sections']['sectionModelAxis']
+  setSectionModelAxis: ShellContextValue['sections']['setSectionModelAxis']
   demSource: ShellContextValue['overlays']['demSource']
   demOverlay: ShellContextValue['overlays']['demOverlay']
   handleDemOverlayChange: ShellContextValue['overlays']['handleDemOverlayChange']
@@ -148,7 +150,7 @@ export function useShellContextValue(
     handleImportBoreholeDov, handleBboxDrawn, visibleCpts, visibleBoreholes, geo, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
-    handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, demSource, demOverlay,
+    handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, sectionModelAxis, setSectionModelAxis, demSource, demOverlay,
     handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
     cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, toasts,
@@ -235,6 +237,8 @@ export function useShellContextValue(
       focusedContactIds,
       visibleSections,
       effectiveHorizontalEpsg,
+      sectionModelAxis,
+      setSectionModelAxis,
       refreshSectionList,
       clearSectionSelection,
       handleSectionCreated,
@@ -329,6 +333,7 @@ export function useShellContextValue(
     handleToggleBoreholeInModel, discardContacts,
     // sections fields
     sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections,
+    sectionModelAxis, setSectionModelAxis,
     refreshSectionList, clearSectionSelection,
     handleSectionCreated, handleSectionDeleted,
     handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
