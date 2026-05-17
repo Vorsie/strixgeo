@@ -53,14 +53,16 @@ vi.mock('../utils/log', () => ({
 function makeContact(id: string): FormationContactResponse {
   return {
     id,
-    geological_model_id: 'model-geo',
-    geological_formation_id: 'form-1',
+    model_id: 'model-geo',
+    formation_id: 'form-1',
     borehole_id: 'bh-1',
     cpt_id: null,
     depth_top_m: 1.0,
-    z_top_m: null,
     source: 'manual_pick',
     confidence: 'medium',
+    observation_id: null,
+    observation_layer_id: null,
+    notes: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }

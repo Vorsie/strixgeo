@@ -461,4 +461,52 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(result.current.lithoSuggestionAccepted.size).toBe(0)
     expect(result.current.lithoSuggestionRejected.size).toBe(0)
   })
+
+  it('S6 — BURST reuse: two same-lithology accepts with NO flush between still create one formation', async () => {
+    // The real "accept the sand layers off a CPT" workflow: consecutive
+    // same-lithology accepts fired faster than React commits +
+    // refreshes lithoFormationsRef. S4 passes only because it act()s
+    // between accepts (flushing the ref). This pins the un-flushed
+    // burst — it FAILS on the pre-fix stale-ref code (two
+    // createFormation calls) and passes with the synchronous
+    // per-token guard.
+    const suggestions: LithoLayerSuggestion[] = [
+      makeSuggestion('ZAND', 0.0),
+      makeSuggestion('ZAND', 5.0),
+    ]
+    geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
+    const zandFormation = makeFormation('form-zand', 'ZAND')
+    geoApi.createFormation.mockResolvedValue(zandFormation)
+    geoApi.createContact
+      .mockResolvedValueOnce(makeContact('c-a', 'form-zand'))
+      .mockResolvedValueOnce({
+        ...makeContact('c-b', 'form-zand'),
+        depth_top_m: 5.0,
+      })
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+
+    // Both accepts inside ONE act, concurrently — no render/effect
+    // flush separates them (unlike S4).
+    await act(async () => {
+      await Promise.all([
+        result.current.handleAcceptLithoSuggestion(0),
+        result.current.handleAcceptLithoSuggestion(1),
+      ])
+    })
+
+    // The race must NOT have duplicated the formation.
+    expect(geoApi.createFormation).toHaveBeenCalledTimes(1)
+    expect(geoApi.createContact).toHaveBeenCalledTimes(2)
+    expect(result.current.lithoSuggestionAccepted.has(0)).toBe(true)
+    expect(result.current.lithoSuggestionAccepted.has(1)).toBe(true)
+  })
 })

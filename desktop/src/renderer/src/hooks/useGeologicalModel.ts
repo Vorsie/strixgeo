@@ -2080,12 +2080,31 @@ export function useGeologicalModel({
     lithoFormationsRef.current = lithoFormations
   }, [lithoFormations])
 
+  // #55 reuse-race fix: lithoFormationsRef only refreshes via the
+  // post-render effect above, so two same-lithology accepts fired
+  // before React commits (the common "accept the sand layers off a
+  // CPT" burst) would BOTH miss the just-created formation and
+  // duplicate it. These synchronous refs make
+  // handleAcceptLithoSuggestion's reuse decision burst-safe within a
+  // suggestion session: the token→id map is written the instant a
+  // formation id is known, and the in-flight map serialises
+  // concurrent creates of the same lithology token. Both are reset
+  // per suggestion session by clearLithoSuggestions.
+  const acceptedFormationByLithoRef = useRef<Map<string, string>>(new Map())
+  const lithoFormationInFlightRef = useRef<Map<string, Promise<string | null>>>(
+    new Map(),
+  )
+
   const clearLithoSuggestions = useCallback((): void => {
     setLithoSuggestions([])
     setLithoSuggestionInvestigationId(null)
     setLithoSuggestionAnchorKind(null)
     setLithoSuggestionAccepted(new Set())
     setLithoSuggestionRejected(new Set())
+    // New suggestion session → drop the per-session reuse caches so a
+    // fresh segmentation cannot reuse a stale prior formation map.
+    acceptedFormationByLithoRef.current.clear()
+    lithoFormationInFlightRef.current.clear()
   }, [])
 
   // Fetch suggestions for one investigation against the active litho model.
@@ -2141,22 +2160,48 @@ export function useGeologicalModel({
         `acceptLithoSuggestion idx=${idx} lithology=${layer.suggested_lithology} depth=${layer.depth_top_m.toFixed(2)}m`,
       )
       try {
-        // Reuse-not-duplicate: find an existing litho formation with the
-        // same base lithology (token match, case-insensitive just in case).
-        const existing = lithoFormationsRef.current.find(
-          f =>
-            f.lithology != null &&
-            f.lithology.toUpperCase() === layer.suggested_lithology.toUpperCase(),
-        )
-        let formationId: string
-        if (existing) {
-          formationId = existing.id
-          log.debug(
-            'geology',
-            `acceptLithoSuggestion reuse formation id=${formationId} name="${existing.name}"`,
+        // Reuse-not-duplicate, BURST-SAFE (token match, case-insensitive).
+        // Four-step resolution so consecutive same-lithology accepts
+        // (the common "accept the sand layers off a CPT" workflow)
+        // share ONE formation even when fired faster than React can
+        // commit + refresh lithoFormationsRef:
+        const token = layer.suggested_lithology.toUpperCase()
+        let formationId: string | undefined =
+          // 1. Created earlier this suggestion session (synchronous).
+          acceptedFormationByLithoRef.current.get(token)
+
+        if (formationId === undefined) {
+          // 2. A pre-existing formation (post-render ref). Cache it so
+          //    the rest of the burst hits step 1.
+          const existing = lithoFormationsRef.current.find(
+            f =>
+              f.lithology != null && f.lithology.toUpperCase() === token,
           )
-        } else {
-          // Create a formation named after the English lithology label.
+          if (existing) {
+            formationId = existing.id
+            acceptedFormationByLithoRef.current.set(token, existing.id)
+            log.debug(
+              'geology',
+              `acceptLithoSuggestion reuse formation id=${formationId} name="${existing.name}"`,
+            )
+          }
+        }
+
+        if (formationId === undefined) {
+          // 3. A concurrent accept of the same token is mid-create —
+          //    await that single create instead of duplicating it.
+          const inflight = lithoFormationInFlightRef.current.get(token)
+          if (inflight) {
+            const id = await inflight
+            if (!id) return // the shared create failed (toast already fired)
+            formationId = id
+          }
+        }
+
+        if (formationId === undefined) {
+          // 4. Nobody has it — create it. Register the in-flight
+          //    promise SYNCHRONOUSLY before awaiting so a racing accept
+          //    hits step 3 rather than starting a second create.
           const LITHO_LABELS: Record<string, string> = {
             GRIND: 'Gravel',
             ZAND: 'Sand',
@@ -2173,15 +2218,26 @@ export function useGeologicalModel({
           }
           const name = LITHO_LABELS[layer.suggested_lithology] ?? layer.suggested_lithology
           const color = LITHO_COLORS[layer.suggested_lithology] ?? '#9ca3af'
-          const result = await handleInlineLithoCreateFormation({
-            name,
-            color,
-            lithology: layer.suggested_lithology,
-            nad_class: layer.suggested_nad_class ?? undefined,
-          })
-          if (!result) return  // toast already fired by handleInlineLithoCreateFormation
-          formationId = result.id
+          const createPromise: Promise<string | null> =
+            handleInlineLithoCreateFormation({
+              name,
+              color,
+              lithology: layer.suggested_lithology,
+              nad_class: layer.suggested_nad_class ?? undefined,
+            }).then(r => {
+              const id = r?.id ?? null
+              if (id) acceptedFormationByLithoRef.current.set(token, id)
+              lithoFormationInFlightRef.current.delete(token)
+              return id
+            })
+          lithoFormationInFlightRef.current.set(token, createPromise)
+          const id = await createPromise
+          if (!id) return // toast already fired by handleInlineLithoCreateFormation
+          formationId = id
         }
+        // Unreachable — every branch above either set formationId or
+        // returned. Explicit so TS narrows it to string for the call.
+        if (formationId === undefined) return
         // Create the contact at the suggested top depth.
         await handleCreateLithoContact(
           anchorKind,
