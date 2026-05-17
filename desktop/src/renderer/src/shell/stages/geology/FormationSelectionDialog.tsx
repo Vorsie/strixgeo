@@ -6,43 +6,42 @@
  * (result of ``discoverBoreholeFormations``).  The user selects which
  * formations to keep; on confirm ``applyBoreholeFormationSelection`` fires.
  *
- * Manual lumping surface (2026-05-17, #55 manual-lump slice):
+ * Per-row reassignment surface (2026-05-17, #55 manual-lump slice — reworked):
  *
- *   The dialog now carries a second surface below the candidate list where
- *   the user can build a "manual map": a set of groups that declare several
- *   discovered names as synonyms of a single target formation name.  Every
- *   group the user builds is sent to the server as ``manual_map`` on both
- *   the preview (discover) call and the confirm (apply) call.  The server
- *   lumps those names before creating contacts.
+ *   Each discovered candidate row now carries an inline "→ same as …"
+ *   dropdown/combobox.  The user selects a target row directly on the
+ *   candidate, rather than assembling separate "lump groups" elsewhere in
+ *   the dialog.  The same ``manual_map: { candidateKey -> targetName }``
+ *   contract is produced and sent to the server unchanged.
  *
  *   Key invariants (owner directive 2026-05-17):
  *
- *   - The anchor/search input REORDERS the full candidate list by
- *     ``rankByPartialMatch`` score — it NEVER hides any candidate.  A
- *     "show all / clear" link always returns the list to its default order.
- *     WHY rank-reorders-never-filters: the user must be able to hand-pick
- *     a zero-score name (e.g. "Lid van Saint-Maur") into an "Orchies" group
+ *   - The reassignment dropdown on each row shows the OTHER discovered
+ *     formation names ordered by ``rankByPartialMatch(thisRow.displayName,
+ *     otherNames)`` so the most-similar likely-synonym is on top.
+ *   - The typeahead input RE-RANKS as the user types but NEVER hard-filters
+ *     out options.  Every name in the list is always reachable.  WHY
+ *     rank-reorders-never-filters: the user must be able to hand-pick a
+ *     zero-score name (e.g. "Lid van Saint-Maur") into an "Orchies" group
  *     when string math cannot know the synonymy.
- *
- *   - Groups are keyed on the normalised candidate ``key`` field (which equals
- *     ``normalize_formation_key(...)`` on the server), NOT on the raw display
- *     string.  WHY key-on-normalized-not-raw: the server uses the normalised
- *     key for lumping; if the client grouped by the raw display string, a
- *     candidate name with a different capitalisation / diacritic / apostrophe
- *     variant would resolve to a different server key and the discover ≡ apply
- *     invariant (same map on preview and confirm) would break.
- *
- *   - No chip or label implies the system inferred any grouping — every group
- *     is the user's explicit manual action.
- *
- *   - Collision warnings re-render live because the parent re-runs
- *     discoverBoreholeFormations with the current ``manual_map`` every time
- *     the map changes (handled in GeologyToolbar).  The ``collisions`` prop
- *     drives a clear amber panel beneath the groups section.
- *
- *   - Apply is the only irreversible action (it calls auto-populate + delete).
- *     All group edits (add group, rename target, add member, remove member,
- *     ungroup) are reversible — no confirm dialog needed.
+ *   - The dropdown also offers "Keep separate" (clears any reassignment)
+ *     and the user may type a brand-new canonical name not in the list.
+ *   - Reassignments are keyed on the candidate's normalised ``key`` field
+ *     (which equals ``normalize_formation_key(...)`` on the server), NOT on
+ *     the raw display string.  WHY key-on-normalized-not-raw: the server lumps
+ *     on normalised keys; if the client stored the raw display string a
+ *     diacritic/capitalisation variant would resolve to a different server
+ *     key and the discover ≡ apply invariant would break.
+ *   - A reassigned row's include-checkbox follows the target: the row is
+ *     included iff its target is included.  WHY: a raw name reassigned to T
+ *     creates its contacts as T on the section (server does this via
+ *     manual_map); it is meaningless to "include" the raw name but exclude
+ *     the target.
+ *   - The collision warning panel stays and updates live as reassignments
+ *     change (same debounced last-write-wins refresh the parent fires after
+ *     onManualMapChange).
+ *   - Apply is the only irreversible action; all row reassignments are
+ *     reversible — no per-change confirm dialog.
  *
  * Key design rules (from ``docs/geology-stage-architecture.md`` §10.2–§10.4):
  *
@@ -78,40 +77,41 @@ import { rankByPartialMatch } from '../../../utils/partialMatch'
 // ---------------------------------------------------------------------------
 
 /**
- * One user-defined group: several candidate keys lumped into a single
- * target formation name.
+ * Per-row reassignment state.
+ *
+ * The key is the reassigned candidate's ``FormationCandidate.key`` (normalised).
+ * The value is the target display name the user picked.
+ *
+ * WHY key-on-normalized-not-raw: see module docstring.  Using raw display
+ * strings would break the discover ≡ apply invariant when a candidate name
+ * contains diacritics or unusual capitalisation.
  */
-interface LumpGroup {
-  /** Unique dialog-local id (not sent to the server). */
-  groupId: string
-  /**
-   * The target formation name the user typed (may be an existing formation
-   * name or a new one).  Sent as the value in the server's ``manual_map``.
-   */
-  targetName: string
-  /**
-   * Candidate keys (normalised, matches ``FormationCandidate.key``) the user
-   * added to this group.  WHY keys-not-display-names: the server lumps on
-   * normalised keys; grouping on raw display strings would break when two
-   * boreholes use different diacritics for the same formal code.
-   */
-  memberKeys: string[]
-}
+type RowReassignments = Map<string, string>
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Derive the ``manual_map`` object from the current group list. */
-function buildManualMap(groups: LumpGroup[]): Record<string, string> {
+/**
+ * Derive the ``manual_map`` object from the current row-level reassignment map.
+ *
+ * Parameters
+ * ----------
+ * reassignments
+ *     Per-candidate-key → target-name map built from the inline row dropdowns.
+ *
+ * Returns
+ * -------
+ * Record<string, string>
+ *     Object suitable for sending to the server as ``manual_map``.
+ */
+function buildManualMap(reassignments: RowReassignments): Record<string, string> {
   const map: Record<string, string> = {}
-  for (const group of groups) {
-    for (const key of group.memberKeys) {
-      // WHY key-on-normalized-not-raw: see module docstring. The key field
-      // on FormationCandidate already equals normalize_formation_key() on the
-      // server, so shipping keys here ensures discover ≡ apply invariant.
-      map[key] = group.targetName
-    }
+  for (const [key, target] of reassignments) {
+    // WHY key-on-normalized-not-raw: see module docstring.  The key field on
+    // FormationCandidate already equals normalize_formation_key() on the server,
+    // so shipping keys here ensures the discover ≡ apply invariant holds.
+    map[key] = target
   }
   return map
 }
@@ -128,7 +128,7 @@ export interface FormationSelectionDialogProps {
   /**
    * Collision warnings from the last discover scan with the current
    * ``manual_map``.  Rendered as an amber non-blocking panel.  Updated
-   * live as the user edits groups because the parent re-runs discover
+   * live as the user edits reassignments because the parent re-runs discover
    * with the new map.
    */
   collisions: LumpingCollision[]
@@ -155,7 +155,7 @@ export interface FormationSelectionDialogProps {
    * Parameters
    * ----------
    * map
-   *     Current manual_map as built from the group list.
+   *     Current manual_map as built from the row-level reassignment state.
    */
   onManualMapChange: (map: Record<string, string>) => void
   /**
@@ -185,7 +185,7 @@ export interface FormationSelectionDialogProps {
 
 /**
  * Modal dialog for the "Fill from boreholes" curated selection flow with
- * optional manual lumping.
+ * optional per-row reassignment (synonym lumping).
  *
  * Parameters
  * ----------
@@ -199,8 +199,10 @@ export interface FormationSelectionDialogProps {
  *     Formations currently in the geological model.
  * currentContacts
  *     Contacts currently in the geological model.
+ * collisionsUpdating
+ *     True while the parent is re-running discover after a map change.
  * onManualMapChange
- *     Callback fired whenever the lumping group list changes; parent
+ *     Callback fired whenever the reassignment state changes; parent
  *     re-runs discover to refresh collision warnings.
  * onConfirm
  *     Callback fired on "Apply selection" with selected keys + manual map.
@@ -244,6 +246,43 @@ export default function FormationSelectionDialog({
   })
 
   // ---------------------------------------------------------------------------
+  // Per-row reassignment state
+  //
+  // Maps each reassigned candidate key to the target display name.  An absent
+  // entry means "keep separate" (no lumping for that row).
+  //
+  // WHY Map-not-object: Map iterates in insertion order and avoids prototype
+  // collisions on arbitrary formation names.
+  // ---------------------------------------------------------------------------
+
+  const [reassignments, setReassignments] = useState<RowReassignments>(new Map())
+
+  /** Notify the parent of a map change so it can refresh collision warnings. */
+  const notifyMapChange = useCallback(
+    (next: RowReassignments) => {
+      onManualMapChange(buildManualMap(next))
+    },
+    [onManualMapChange],
+  )
+
+  /** Set a row's reassignment target.  Clears the entry when ``target`` is null. */
+  const setReassignment = useCallback(
+    (candidateKey: string, target: string | null) => {
+      setReassignments(prev => {
+        const next = new Map(prev)
+        if (target === null) {
+          next.delete(candidateKey)
+        } else {
+          next.set(candidateKey, target)
+        }
+        notifyMapChange(next)
+        return next
+      })
+    },
+    [notifyMapChange],
+  )
+
+  // ---------------------------------------------------------------------------
   // Deletion accounting (live)
   // ---------------------------------------------------------------------------
 
@@ -268,14 +307,17 @@ export default function FormationSelectionDialog({
   // Toggle helpers
   // ---------------------------------------------------------------------------
 
-  const toggle = useCallback((key: string) => {
-    setChecked(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }, [])
+  const toggle = useCallback(
+    (key: string) => {
+      setChecked(prev => {
+        const next = new Set(prev)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      })
+    },
+    [],
+  )
 
   const selectAll = useCallback(() => {
     setChecked(new Set(candidates.map(c => c.key)))
@@ -284,137 +326,6 @@ export default function FormationSelectionDialog({
   const selectNone = useCallback(() => {
     setChecked(new Set())
   }, [])
-
-  // ---------------------------------------------------------------------------
-  // Search / rank state (rank-reorders-never-filters)
-  //
-  // WHY rank-reorders-never-filters: typing into the search box reorders the
-  // candidate list by match score but NEVER removes any candidate.  A zero-
-  // score name (e.g. "Lid van Saint-Maur") must remain visible at the bottom
-  // so the user can hand-pick it into an "Orchies" group when string math
-  // cannot know the synonymy.  The "Show all / clear" link is always present.
-  // ---------------------------------------------------------------------------
-
-  const [searchQuery, setSearchQuery] = useState('')
-  const searchInputRef = useRef<HTMLInputElement>(null)
-
-  const rankedCandidates = useMemo(() => {
-    if (searchQuery.trim() === '') return candidates
-    // Build a name→score map from rankByPartialMatch and sort candidates by
-    // their score. We never round-trip through .find() so:
-    //   (a) duplicate display names receive the same score (correct — they
-    //       rank equally by name match) and both remain selectable with their
-    //       own distinct ``key`` values, and
-    //   (b) there is no unguarded non-null assertion that could hide a missing
-    //       candidate when names diverge between the ranked array and the list.
-    const scored = rankByPartialMatch(searchQuery, candidates.map(c => c.name))
-    // name → best score (last-write-wins; duplicate names share the same score
-    // so any ordering among duplicates is equally valid).
-    const scoreByName = new Map<string, number>(scored.map(r => [r.name, r.score]))
-    return [...candidates]
-      .map(c => ({ candidate: c, score: scoreByName.get(c.name) ?? 0 }))
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score
-        return a.candidate.name.localeCompare(b.candidate.name)
-      })
-      .map(({ candidate }) => candidate)
-  }, [searchQuery, candidates])
-
-  // ---------------------------------------------------------------------------
-  // Manual lumping groups
-  // ---------------------------------------------------------------------------
-
-  const [groups, setGroups] = useState<LumpGroup[]>([])
-  // Transient UI state for building a new group target name input.
-  const [newGroupTarget, setNewGroupTarget] = useState('')
-  // Counter for stable group ids (dialog-local, not sent to server).
-  const groupCounter = useRef(0)
-
-  const newGroupId = useId()
-
-  /** Set of candidate keys already assigned to any group. */
-  const assignedKeys = useMemo(
-    () => new Set(groups.flatMap(g => g.memberKeys)),
-    [groups],
-  )
-
-  /** Notify the parent of a map change so it can refresh collision warnings. */
-  const notifyMapChange = useCallback(
-    (nextGroups: LumpGroup[]) => {
-      onManualMapChange(buildManualMap(nextGroups))
-    },
-    [onManualMapChange],
-  )
-
-  const handleAddGroup = useCallback(() => {
-    const target = newGroupTarget.trim()
-    if (target === '') return
-    const newGroup: LumpGroup = {
-      groupId: `group-${groupCounter.current++}`,
-      targetName: target,
-      memberKeys: [],
-    }
-    setGroups(prev => {
-      const next = [...prev, newGroup]
-      notifyMapChange(next)
-      return next
-    })
-    setNewGroupTarget('')
-  }, [newGroupTarget, notifyMapChange])
-
-  const handleAddMember = useCallback(
-    (groupId: string, candidateKey: string) => {
-      setGroups(prev => {
-        const next = prev.map(g =>
-          g.groupId === groupId
-            ? { ...g, memberKeys: [...g.memberKeys, candidateKey] }
-            : g,
-        )
-        notifyMapChange(next)
-        return next
-      })
-    },
-    [notifyMapChange],
-  )
-
-  const handleRemoveMember = useCallback(
-    (groupId: string, candidateKey: string) => {
-      setGroups(prev => {
-        const next = prev.map(g =>
-          g.groupId === groupId
-            ? { ...g, memberKeys: g.memberKeys.filter(k => k !== candidateKey) }
-            : g,
-        )
-        notifyMapChange(next)
-        return next
-      })
-    },
-    [notifyMapChange],
-  )
-
-  const handleRemoveGroup = useCallback(
-    (groupId: string) => {
-      setGroups(prev => {
-        const next = prev.filter(g => g.groupId !== groupId)
-        notifyMapChange(next)
-        return next
-      })
-    },
-    [notifyMapChange],
-  )
-
-  const handleRenameGroup = useCallback(
-    (groupId: string, newTarget: string) => {
-      setGroups(prev => {
-        const next = prev.map(g =>
-          g.groupId === groupId ? { ...g, targetName: newTarget } : g,
-        )
-        notifyMapChange(next)
-        return next
-      })
-    },
-    [notifyMapChange],
-  )
 
   // ---------------------------------------------------------------------------
   // Confirm: pass both checked keys and the current manual_map.
@@ -427,8 +338,8 @@ export default function FormationSelectionDialog({
   // ---------------------------------------------------------------------------
 
   const handleConfirm = useCallback(() => {
-    onConfirm(checked, buildManualMap(groups))
-  }, [checked, groups, onConfirm])
+    onConfirm(checked, buildManualMap(reassignments))
+  }, [checked, reassignments, onConfirm])
 
   // ---------------------------------------------------------------------------
   // Derived: total collision count for the header summary
@@ -440,6 +351,30 @@ export default function FormationSelectionDialog({
   )
 
   // ---------------------------------------------------------------------------
+  // Build the target-name list for each row's reassignment dropdown.
+  //
+  // The dropdown for row X shows every OTHER candidate name, ranked by
+  // rankByPartialMatch(X.name, otherNames) so the most-similar likely-
+  // synonym appears first.  Zero-score names are still in the list —
+  // rank-reorders-never-filters.
+  // ---------------------------------------------------------------------------
+
+  /** Map from candidate.key → ranked list of OTHER candidate display names. */
+  const rankedTargetsByKey = useMemo(() => {
+    const result = new Map<string, string[]>()
+    for (const self of candidates) {
+      const otherNames = candidates
+        .filter(c => c.key !== self.key)
+        .map(c => c.name)
+      // Use a single call to rankByPartialMatch with the row's own name as the
+      // query so the most-similar peer ranks first in the dropdown.
+      const ranked = rankByPartialMatch(self.name, otherNames)
+      result.set(self.key, ranked.map(r => r.name))
+    }
+    return result
+  }, [candidates])
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -448,7 +383,7 @@ export default function FormationSelectionDialog({
       open={open}
       onCancel={onCancel}
       labelledBy="fill-from-boreholes-title"
-      cardClassName="w-[600px] max-h-[90vh] flex flex-col"
+      cardClassName="w-[620px] max-h-[90vh] flex flex-col"
     >
       {/* Header */}
       <div className="px-5 pt-5 pb-3 border-b border-border-default">
@@ -459,8 +394,8 @@ export default function FormationSelectionDialog({
           Fill from boreholes
         </h2>
         <p className="mt-1 text-xs text-text-secondary">
-          Select formations to include. Unselected formations and their contacts
-          will be permanently deleted. Group names to lump synonyms before applying.
+          Select formations to include. Use "→ same as" on a row to lump it into another
+          formation. Unselected formations and their contacts will be permanently deleted.
         </p>
       </div>
 
@@ -468,27 +403,12 @@ export default function FormationSelectionDialog({
       <div className="flex-1 overflow-y-auto min-h-0">
 
         {/* ── Candidate list ──────────────────────────────────────────── */}
-        <section aria-label="Formation candidates" className="px-5 pt-4 pb-2">
-          {/* Search + Select all/none row */}
+        <section aria-label="Formation candidates" className="px-5 pt-4 pb-4">
+          {/* Select all/none row */}
           <div className="flex items-center gap-2 mb-2">
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search to reorder…"
-              aria-label="Search candidates — reorders list, never hides names"
-              className="flex-1 text-xs px-2 py-1 rounded border border-border-default bg-surface-page text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
-            />
-            {searchQuery !== '' && (
-              <button
-                type="button"
-                className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded shrink-0"
-                onClick={() => setSearchQuery('')}
-              >
-                Show all
-              </button>
-            )}
+            <span className="flex-1 text-xs text-text-muted">
+              {candidates.length} formation{candidates.length === 1 ? '' : 's'} found
+            </span>
             <button
               type="button"
               className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded shrink-0"
@@ -511,25 +431,47 @@ export default function FormationSelectionDialog({
             </p>
           ) : (
             <ul className="space-y-0.5" role="list">
-              {rankedCandidates.map(candidate => {
-                const isChecked = checked.has(candidate.key)
-                const isAssigned = assignedKeys.has(candidate.key)
+              {candidates.map(candidate => {
+                const reassignedTo = reassignments.get(candidate.key) ?? null
+                // A reassigned row's include-checkbox follows the target:
+                // included iff the target row is included.  WHY: the raw name
+                // will be created as the target on the section; it is
+                // meaningless to "include" the raw but "exclude" the target.
+                const isChecked = reassignedTo !== null
+                  ? (() => {
+                      const targetCandidate = candidates.find(c => c.name === reassignedTo)
+                      return targetCandidate ? checked.has(targetCandidate.key) : checked.has(candidate.key)
+                    })()
+                  : checked.has(candidate.key)
                 return (
                   <li key={candidate.key} className="group/row">
-                    <div className="flex items-start gap-2 py-1.5 px-2 rounded hover:bg-surface-page transition-colors">
+                    <div className={[
+                      'flex items-start gap-2 py-1.5 px-2 rounded transition-colors',
+                      reassignedTo !== null
+                        ? 'bg-surface-page/60 pl-6'   // indented when reassigned
+                        : 'hover:bg-surface-page',
+                    ].join(' ')}>
                       <label className="flex items-start gap-2 flex-1 min-w-0 cursor-pointer select-none">
                         <input
                           type="checkbox"
                           className="mt-0.5 h-3.5 w-3.5 rounded border-border-default text-accent focus:ring-accent focus:ring-1 shrink-0"
                           checked={isChecked}
-                          onChange={() => toggle(candidate.key)}
+                          disabled={reassignedTo !== null}
+                          onChange={() => {
+                            // Only toggle when not reassigned; when reassigned the
+                            // checkbox follows the target row's state.
+                            if (reassignedTo === null) toggle(candidate.key)
+                          }}
                         />
                         <span className="flex-1 min-w-0">
-                          <span className="block text-xs font-medium text-text-primary truncate">
+                          <span className={[
+                            'block text-xs font-medium truncate',
+                            reassignedTo !== null ? 'text-text-muted' : 'text-text-primary',
+                          ].join(' ')}>
                             {candidate.name}
-                            {isAssigned && (
-                              <span className="ml-1.5 text-xs text-text-muted font-normal italic">
-                                (in group)
+                            {reassignedTo !== null && (
+                              <span className="ml-1.5 text-xs text-accent font-normal not-italic">
+                                → {reassignedTo}
                               </span>
                             )}
                           </span>
@@ -539,13 +481,15 @@ export default function FormationSelectionDialog({
                           </span>
                         </span>
                       </label>
-                      {/* Add-to-group dropdown */}
-                      {groups.length > 0 && !isAssigned && (
-                        <GroupAssigner
+
+                      {/* Per-row "→ same as …" reassignment control */}
+                      {candidates.length > 1 && (
+                        <RowReassignDropdown
                           candidateKey={candidate.key}
                           candidateName={candidate.name}
-                          groups={groups}
-                          onAdd={handleAddMember}
+                          currentTarget={reassignedTo}
+                          rankedTargets={rankedTargetsByKey.get(candidate.key) ?? []}
+                          onSelect={setReassignment}
                         />
                       )}
                     </div>
@@ -553,68 +497,6 @@ export default function FormationSelectionDialog({
                 )
               })}
             </ul>
-          )}
-        </section>
-
-        {/* ── Manual lumping groups ────────────────────────────────────── */}
-        <section
-          aria-label="Manual lumping groups"
-          className="px-5 pt-2 pb-4 border-t border-border-subtle mt-2"
-        >
-          <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2 mt-2">
-            Lump synonyms
-          </h3>
-          <p className="text-xs text-text-muted mb-3">
-            Name a group, then add candidate names to it. All members will be
-            treated as one formation. Every group is your explicit choice — the
-            system infers nothing.
-          </p>
-
-          {/* New group row */}
-          <div className="flex items-center gap-2 mb-3" id={newGroupId}>
-            <input
-              type="text"
-              value={newGroupTarget}
-              onChange={e => setNewGroupTarget(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  handleAddGroup()
-                }
-              }}
-              placeholder="Target formation name…"
-              aria-label="New group target formation name"
-              className="flex-1 text-xs px-2 py-1 rounded border border-border-default bg-surface-page text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleAddGroup}
-              disabled={newGroupTarget.trim() === ''}
-            >
-              Add group
-            </Button>
-          </div>
-
-          {/* Group list */}
-          {groups.length > 0 ? (
-            <ul className="space-y-2" role="list" aria-label="Lumping groups">
-              {groups.map(group => (
-                <LumpGroupRow
-                  key={group.groupId}
-                  group={group}
-                  candidates={candidates}
-                  assignedKeys={assignedKeys}
-                  onRename={handleRenameGroup}
-                  onRemoveMember={handleRemoveMember}
-                  onRemoveGroup={handleRemoveGroup}
-                />
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-text-muted italic">
-              No groups yet. Add a group above to start lumping.
-            </p>
           )}
         </section>
 
@@ -637,30 +519,32 @@ export default function FormationSelectionDialog({
                 </>
               )}
             </h3>
-            {!collisionsUpdating && <ul className="space-y-1.5" role="list">
-              {collisions.map((col, i) => (
-                <li
-                  key={i}
-                  className="text-xs bg-surface-page border border-border-subtle rounded px-2 py-1.5"
-                >
-                  <span className="font-medium text-text-primary">
-                    {col.targetFormationName}
-                  </span>
-                  <span className="text-text-muted ml-1">
-                    in borehole{' '}
-                    <span className="font-mono">{col.boreholeId.slice(0, 8)}…</span>
-                    : colliding names:{' '}
-                    {col.collidingRawNames.map((n, j) => (
-                      <span key={j}>
-                        {j > 0 && ', '}
-                        <span className="italic">{n}</span>
-                      </span>
-                    ))}
-                    . Kept top at {col.keptTopM}m, dropped {col.droppedCount}.
-                  </span>
-                </li>
-              ))}
-            </ul>}
+            {!collisionsUpdating && (
+              <ul className="space-y-1.5" role="list">
+                {collisions.map((col, i) => (
+                  <li
+                    key={i}
+                    className="text-xs bg-surface-page border border-border-subtle rounded px-2 py-1.5"
+                  >
+                    <span className="font-medium text-text-primary">
+                      {col.targetFormationName}
+                    </span>
+                    <span className="text-text-muted ml-1">
+                      in borehole{' '}
+                      <span className="font-mono">{col.boreholeId.slice(0, 8)}…</span>
+                      : colliding names:{' '}
+                      {col.collidingRawNames.map((n, j) => (
+                        <span key={j}>
+                          {j > 0 && ', '}
+                          <span className="italic">{n}</span>
+                        </span>
+                      ))}
+                      . Kept top at {col.keptTopM}m, dropped {col.droppedCount}.
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         )}
       </div>
@@ -715,217 +599,190 @@ export default function FormationSelectionDialog({
 // ---------------------------------------------------------------------------
 
 /**
- * Dropdown to add a candidate to one of the existing groups.
+ * Inline "→ same as …" dropdown for a single candidate row.
+ *
+ * Shows every OTHER candidate name, ranked by partial-match similarity to
+ * this row's own display name.  A typeahead input re-ranks as the user types
+ * but NEVER removes any option — full list always reachable.
  *
  * Parameters
  * ----------
  * candidateKey
- *     The candidate's normalised key (used as the map key).
+ *     The normalised key for this candidate (used as the manual_map key).
  * candidateName
- *     Display name (shown in the button label).
- * groups
- *     Current group list.
- * onAdd
- *     Callback fired with (groupId, candidateKey) when the user picks a group.
+ *     Display name — used as the partial-match query for initial ranking.
+ * currentTarget
+ *     Currently selected target name, or null if "Keep separate".
+ * rankedTargets
+ *     Other candidate names pre-ranked by similarity to this row.
+ * onSelect
+ *     Callback fired with (candidateKey, target | null) — null = keep separate.
  *
  * Returns
  * -------
  * JSX.Element
  */
-function GroupAssigner({
+function RowReassignDropdown({
   candidateKey,
   candidateName,
-  groups,
-  onAdd,
+  currentTarget,
+  rankedTargets,
+  onSelect,
 }: {
   candidateKey: string
   candidateName: string
-  groups: LumpGroup[]
-  onAdd: (groupId: string, candidateKey: string) => void
+  currentTarget: string | null
+  rankedTargets: string[]
+  onSelect: (key: string, target: string | null) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
   const buttonId = useId()
+
+  // Re-rank as the user types.  NEVER removes options — rank-reorders-never-filters.
+  const displayedTargets = useMemo(() => {
+    if (query.trim() === '') return rankedTargets
+    return rankByPartialMatch(query, rankedTargets).map(r => r.name)
+  }, [query, rankedTargets])
+
+  const handleOpen = useCallback(() => {
+    setOpen(true)
+    setQuery('')
+    // Focus the typeahead on next tick so the dropdown mounts first.
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }, [])
+
+  const handleClose = useCallback(() => {
+    setOpen(false)
+    setQuery('')
+  }, [])
+
+  const handlePick = useCallback(
+    (target: string | null) => {
+      onSelect(candidateKey, target)
+      handleClose()
+    },
+    [candidateKey, onSelect, handleClose],
+  )
+
+  const handleCustom = useCallback(() => {
+    const trimmed = query.trim()
+    if (trimmed !== '' && trimmed !== candidateName) {
+      onSelect(candidateKey, trimmed)
+    }
+    handleClose()
+  }, [query, candidateName, candidateKey, onSelect, handleClose])
 
   return (
     <div className="relative shrink-0">
       <button
         id={buttonId}
         type="button"
-        aria-label={`Add ${candidateName} to a group`}
+        aria-label={
+          currentTarget !== null
+            ? `Reassigned to "${currentTarget}" — click to change`
+            : `Reassign "${candidateName}" to another formation`
+        }
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="text-xs text-accent hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded opacity-0 group-hover/row:opacity-100 transition-opacity"
-        onClick={() => setOpen(v => !v)}
+        className={[
+          'text-xs rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent px-1.5 py-0.5 border transition-colors',
+          currentTarget !== null
+            ? 'text-accent border-accent/40 bg-accent/5'
+            : 'text-text-muted border-border-subtle hover:text-accent hover:border-accent/40 opacity-0 group-hover/row:opacity-100',
+        ].join(' ')}
+        onClick={open ? handleClose : handleOpen}
       >
-        + Group
+        {currentTarget !== null ? `→ ${currentTarget}` : '→ same as'}
       </button>
+
       {open && (
         <div
-          role="listbox"
-          aria-label="Pick a group"
-          className="absolute right-0 top-full z-10 mt-1 min-w-[140px] bg-surface-overlay border border-border-default rounded shadow-lg"
+          role="dialog"
+          aria-label="Reassign to formation"
+          className="absolute right-0 top-full z-20 mt-1 w-56 bg-surface-overlay border border-border-default rounded shadow-lg flex flex-col"
         >
-          {groups.map(group => (
-            <button
-              key={group.groupId}
-              role="option"
-              aria-selected={false}
-              type="button"
-              className="w-full text-left px-3 py-1.5 text-xs text-text-primary hover:bg-surface-page transition-colors"
-              onClick={() => {
-                onAdd(group.groupId, candidateKey)
-                setOpen(false)
+          {/* Typeahead input */}
+          <div className="p-1.5 border-b border-border-subtle">
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') { e.stopPropagation(); handleClose() }
+                if (e.key === 'Enter') { e.preventDefault(); handleCustom() }
               }}
-            >
-              {group.targetName}
-            </button>
-          ))}
+              placeholder="Type to re-rank or enter name…"
+              aria-label="Filter or type a target formation name"
+              className="w-full text-xs px-2 py-1 rounded border border-border-default bg-surface-page text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+
+          {/* Option list — scrollable */}
+          <ul
+            role="listbox"
+            aria-label="Target formation options"
+            className="max-h-44 overflow-y-auto"
+          >
+            {/* Keep separate option — always first */}
+            <li>
+              <button
+                role="option"
+                aria-selected={currentTarget === null}
+                type="button"
+                className={[
+                  'w-full text-left px-3 py-1.5 text-xs transition-colors',
+                  currentTarget === null
+                    ? 'bg-accent/10 text-accent font-medium'
+                    : 'text-text-muted hover:bg-surface-page',
+                ].join(' ')}
+                onClick={() => handlePick(null)}
+              >
+                Keep separate
+              </button>
+            </li>
+
+            {/* Custom-name option — only when user typed something new */}
+            {query.trim() !== '' &&
+              !rankedTargets.includes(query.trim()) &&
+              query.trim() !== candidateName && (
+                <li>
+                  <button
+                    role="option"
+                    aria-selected={currentTarget === query.trim()}
+                    type="button"
+                    className="w-full text-left px-3 py-1.5 text-xs text-text-primary italic hover:bg-surface-page transition-colors"
+                    onClick={handleCustom}
+                  >
+                    Use "{query.trim()}"
+                  </button>
+                </li>
+              )}
+
+            {/* Ranked peer options */}
+            {displayedTargets.map(name => (
+              <li key={name}>
+                <button
+                  role="option"
+                  aria-selected={currentTarget === name}
+                  type="button"
+                  className={[
+                    'w-full text-left px-3 py-1.5 text-xs transition-colors',
+                    currentTarget === name
+                      ? 'bg-accent/10 text-accent font-medium'
+                      : 'text-text-primary hover:bg-surface-page',
+                  ].join(' ')}
+                  onClick={() => handlePick(name)}
+                >
+                  {name}
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
-  )
-}
-
-/**
- * One lumping group row — shows the target name (editable inline), its
- * member candidates (expandable), and an Ungroup button.
- *
- * Parameters
- * ----------
- * group
- *     The group data.
- * candidates
- *     Full candidate list (for display name lookup from key).
- * assignedKeys
- *     Keys already assigned to ANY group (for the dropdown exclude list).
- * onRename
- *     Callback fired when the target name is edited.
- * onRemoveMember
- *     Callback fired when a member is removed from the group.
- * onRemoveGroup
- *     Callback fired when the whole group is deleted.
- *
- * Returns
- * -------
- * JSX.Element
- */
-function LumpGroupRow({
-  group,
-  candidates,
-  assignedKeys: _assignedKeys,
-  onRename,
-  onRemoveMember,
-  onRemoveGroup,
-}: {
-  group: LumpGroup
-  candidates: FormationCandidate[]
-  assignedKeys: ReadonlySet<string>
-  onRename: (groupId: string, newTarget: string) => void
-  onRemoveMember: (groupId: string, candidateKey: string) => void
-  onRemoveGroup: (groupId: string) => void
-}): JSX.Element {
-  const [expanded, setExpanded] = useState(true)
-  const [editing, setEditing] = useState(false)
-  const [editValue, setEditValue] = useState(group.targetName)
-  const editInputRef = useRef<HTMLInputElement>(null)
-
-  const commitRename = useCallback(() => {
-    const trimmed = editValue.trim()
-    if (trimmed !== '' && trimmed !== group.targetName) {
-      onRename(group.groupId, trimmed)
-    } else {
-      setEditValue(group.targetName)
-    }
-    setEditing(false)
-  }, [editValue, group.targetName, group.groupId, onRename])
-
-  // Build display name map from candidates list.
-  const nameByKey = useMemo(
-    () => new Map(candidates.map(c => [c.key, c.name])),
-    [candidates],
-  )
-
-  return (
-    <li className="border border-border-subtle rounded">
-      {/* Group header */}
-      <div className="flex items-center gap-1 px-2 py-1.5 bg-surface-page rounded-t">
-        <button
-          type="button"
-          aria-label={expanded ? 'Collapse group' : 'Expand group'}
-          className="text-text-muted hover:text-text-primary focus-visible:outline-none text-xs"
-          onClick={() => setExpanded(v => !v)}
-        >
-          {expanded ? '▾' : '▸'}
-        </button>
-        {editing ? (
-          <input
-            ref={editInputRef}
-            type="text"
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); commitRename() }
-              if (e.key === 'Escape') { setEditValue(group.targetName); setEditing(false) }
-            }}
-            aria-label="Edit group target name"
-            className="flex-1 text-xs px-1 py-0.5 rounded border border-accent bg-surface-page text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
-            // reason: this input needs focus immediately after the user clicks
-            // the name to edit it — the autoFocus is intentional and scoped to
-            // an in-dialog inline edit, not a page-level accessibility concern.
-            // eslint-disable-next-line jsx-a11y/no-autofocus
-            autoFocus
-          />
-        ) : (
-          <button
-            type="button"
-            aria-label={`Rename group "${group.targetName}"`}
-            title="Click to rename"
-            className="flex-1 text-left text-xs font-medium text-text-primary hover:text-accent focus-visible:outline-none truncate"
-            onClick={() => setEditing(true)}
-          >
-            {group.targetName}
-          </button>
-        )}
-        <span className="text-xs text-text-muted ml-1 shrink-0">
-          {group.memberKeys.length} member{group.memberKeys.length === 1 ? '' : 's'}
-        </span>
-        <button
-          type="button"
-          aria-label={`Remove group "${group.targetName}"`}
-          className="text-xs text-status-danger hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded ml-1 shrink-0"
-          onClick={() => onRemoveGroup(group.groupId)}
-        >
-          Ungroup
-        </button>
-      </div>
-
-      {/* Member list */}
-      {expanded && (
-        <ul className="px-3 py-1.5 space-y-0.5" role="list">
-          {group.memberKeys.length === 0 ? (
-            <li className="text-xs text-text-muted italic">
-              No members yet — use "+ Group" on a candidate above.
-            </li>
-          ) : (
-            group.memberKeys.map(key => (
-              <li key={key} className="flex items-center gap-1.5">
-                <span className="flex-1 text-xs text-text-primary truncate">
-                  {nameByKey.get(key) ?? key}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`Remove "${nameByKey.get(key) ?? key}" from group`}
-                  className="text-xs text-text-muted hover:text-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded"
-                  onClick={() => onRemoveMember(group.groupId, key)}
-                >
-                  ×
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-      )}
-    </li>
   )
 }

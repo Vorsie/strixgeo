@@ -1,19 +1,25 @@
 /**
- * Tests for the FormationSelectionDialog lumping surface (2026-05-17, #55).
+ * Tests for the FormationSelectionDialog per-row reassignment surface
+ * (2026-05-17, #55 manual-lump slice — reworked from group-assembler to
+ * per-row inline reassignment).
  *
  * Claims pinned here:
  *   G1  Candidates render in the list; checkboxes track checked state.
- *   G2  Adding a group and assigning a member builds the correct manual_map
- *       and fires onManualMapChange.
- *   G3  Collision warnings render when collisions are provided (N boreholes
- *       message + per-collision rows).
- *   G4  Confirm fires onConfirm with (selectedKeys, manualMap) — the same map
- *       used in the last preview, not re-computed from internal state.
- *   G5  Ungrouping a group removes all its members from the map and fires
+ *   G2  A row's "→ same as" dropdown options are ranked by partial-match
+ *       similarity (most-similar peer listed first when the row name
+ *       substantially matches another name).
+ *   G3  Selecting a target on a row writes the correct manual_map keyed on
+ *       candidate.key and fires onManualMapChange.
+ *   G4  "Keep separate" clears the reassignment for a row and fires
  *       onManualMapChange with the updated (empty or reduced) map.
- *   G6  Search input reorders the candidate list but NEVER removes any entry
+ *   G5  Confirm fires onConfirm with (selectedKeys, manualMap) — the same
+ *       map used in the last preview, not re-computed from internal state.
+ *   G6  All options remain reachable via typeahead
  *       (rank-reorders-never-filters invariant).
- *   G7  "Show all" link clears the search and restores default order.
+ *   G7  Collision warnings render when collisions are provided.
+ *   B2  Two candidates with identical display names but different keys both
+ *       remain selectable with their own keys (regression guard for the
+ *       earlier .find()-on-name bug that collapsed both to the first match).
  */
 
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
@@ -81,47 +87,97 @@ describe('FormationSelectionDialog', () => {
     expect(checkboxes.every(cb => !cb.checked)).toBe(true)
   })
 
-  it('G2: adding a group + assigning a member calls onManualMapChange with correct map', () => {
+  it('G2: row dropdown options are partial-match-ranked (similar names appear first)', () => {
+    // "Boom Klei" and "Klei van Boom" share tokens — they should rank
+    // above an unrelated name when the query is the row's own name.
+    const RANKED_CANDIDATES: FormationCandidate[] = [
+      { name: 'Boom Klei', key: 'boom klei', boreholeCount: 5 },
+      { name: 'Klei van Boom', key: 'klei van boom', boreholeCount: 2 },
+      { name: 'Quartair Zand', key: 'quartair zand', boreholeCount: 1 },
+    ]
+
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ candidates: RANKED_CANDIDATES })}
+      />,
+    )
+
+    // Open the "→ same as" dropdown on the Boom Klei row
+    const boomBtn = screen.getByRole('button', {
+      name: /Reassign "Boom Klei"/,
+    })
+    fireEvent.click(boomBtn)
+
+    // The dropdown should be open — "Keep separate" must be visible
+    expect(screen.getByRole('option', { name: 'Keep separate' })).toBeDefined()
+
+    // Both other options should be listed (rank-reorders-never-filters)
+    expect(screen.getByRole('option', { name: 'Klei van Boom' })).toBeDefined()
+    expect(screen.getByRole('option', { name: 'Quartair Zand' })).toBeDefined()
+
+    // Verify ordering: "Klei van Boom" (shares tokens) should appear BEFORE
+    // "Quartair Zand" (no overlap).  Query the listbox items to check order.
+    const options = screen.getAllByRole('option')
+    const kleiIdx = options.findIndex(o => o.textContent === 'Klei van Boom')
+    const quartairIdx = options.findIndex(o => o.textContent === 'Quartair Zand')
+    expect(kleiIdx).toBeGreaterThan(0) // not -1
+    expect(kleiIdx).toBeLessThan(quartairIdx)
+  })
+
+  it('G3: selecting a target writes correct manual_map keyed on candidate.key', () => {
     const onManualMapChange = vi.fn()
-    render(<FormationSelectionDialog {...makeProps({ onManualMapChange })} />)
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ onManualMapChange })}
+      />,
+    )
 
-    // Create a new group named "Boom"
-    const nameInput = screen.getByPlaceholderText('Target formation name…')
-    fireEvent.change(nameInput, { target: { value: 'Boom' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add group' }))
+    // Open dropdown on "Boom Klei" row
+    const boomBtn = screen.getByRole('button', {
+      name: /Reassign "Boom Klei"/,
+    })
+    fireEvent.click(boomBtn)
 
-    // The add-group action fires onManualMapChange with an empty map
-    // (group has no members yet)
+    // Pick "Formatie van Diest" as target
+    fireEvent.click(screen.getByRole('option', { name: 'Formatie van Diest' }))
+
+    // onManualMapChange must be called with the key (not display name) → target name
+    expect(onManualMapChange).toHaveBeenCalledWith({
+      'boom klei': 'Formatie van Diest',
+    })
+  })
+
+  it('G4: "Keep separate" clears the reassignment for a row', () => {
+    const onManualMapChange = vi.fn()
+    render(
+      <FormationSelectionDialog
+        {...makeProps({ onManualMapChange })}
+      />,
+    )
+
+    // Assign "Boom Klei" → "Formatie van Diest"
+    fireEvent.click(
+      screen.getByRole('button', { name: /Reassign "Boom Klei"/ }),
+    )
+    fireEvent.click(screen.getByRole('option', { name: 'Formatie van Diest' }))
+    expect(onManualMapChange).toHaveBeenLastCalledWith({
+      'boom klei': 'Formatie van Diest',
+    })
+
+    onManualMapChange.mockClear()
+
+    // Re-open and pick "Keep separate"
+    // The button label now changes to "→ Formatie van Diest — click to change"
+    fireEvent.click(
+      screen.getByRole('button', { name: /Reassigned to "Formatie van Diest"/ }),
+    )
+    fireEvent.click(screen.getByRole('option', { name: 'Keep separate' }))
+
+    // Reassignment cleared → empty manual_map
     expect(onManualMapChange).toHaveBeenCalledWith({})
-
-    // Hover to expose the "+ Group" button on a candidate row — we can't
-    // easily simulate hover in jsdom, so instead we verify the group rendered
-    expect(screen.getByText('Boom')).toBeDefined()
-    // Members section says 0 members
-    expect(screen.getByText(/0 member/)).toBeDefined()
   })
 
-  it('G3: collision warnings render when collisions are provided', () => {
-    render(<FormationSelectionDialog {...makeProps({ collisions: COLLISIONS })} />)
-
-    // The amber header mentions the count
-    expect(screen.getByText(/1 borehole.*had layers lumping/)).toBeDefined()
-    // Per-collision row shows the formation name — appears in BOTH the candidate
-    // list AND the collision warning, so use getAllByText and assert at least one match.
-    expect(screen.getAllByText('Boom Klei').length).toBeGreaterThanOrEqual(1)
-    // Colliding raw names appear
-    expect(screen.getByText(/Klei van Boom/)).toBeDefined()
-    // Kept top depth
-    expect(screen.getByText(/12\.5m/)).toBeDefined()
-  })
-
-  it('G3: no collision section when collisions is empty', () => {
-    render(<FormationSelectionDialog {...makeProps({ collisions: [] })} />)
-    // "had layers lumping" text should NOT appear
-    expect(screen.queryByText(/had layers lumping/)).toBeNull()
-  })
-
-  it('G4: Apply selection fires onConfirm with (checkedKeys, manualMap)', () => {
+  it('G5: Apply selection fires onConfirm with (checkedKeys, manualMap)', () => {
     const onConfirm = vi.fn()
     render(<FormationSelectionDialog {...makeProps({ onConfirm })} />)
 
@@ -129,7 +185,7 @@ describe('FormationSelectionDialog', () => {
     const [boomCheckbox] = screen.getAllByRole('checkbox') as HTMLInputElement[]
     fireEvent.click(boomCheckbox!)
 
-    // Apply selection — dialog has no groups so manualMap should be empty
+    // Apply selection — no reassignments, manualMap should be empty
     fireEvent.click(screen.getByRole('button', { name: 'Apply selection' }))
     expect(onConfirm).toHaveBeenCalledOnce()
     const [selectedKeys, manualMap] = onConfirm.mock.calls[0] as [ReadonlySet<string>, Record<string, string>]
@@ -138,64 +194,70 @@ describe('FormationSelectionDialog', () => {
     expect(Object.keys(manualMap)).toHaveLength(0)
   })
 
-  it('G5: ungrouping fires onManualMapChange with empty map', () => {
-    const onManualMapChange = vi.fn()
-    render(<FormationSelectionDialog {...makeProps({ onManualMapChange })} />)
+  it('G5: Apply includes reassignments in the manualMap', () => {
+    const onConfirm = vi.fn()
+    render(<FormationSelectionDialog {...makeProps({ onConfirm })} />)
 
-    // Add a group
-    const nameInput = screen.getByPlaceholderText('Target formation name…')
-    fireEvent.change(nameInput, { target: { value: 'MyGroup' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add group' }))
+    // Check "Formatie van Diest" (the target row) so Apply is enabled.
+    const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
+    // Second checkbox corresponds to "Formatie van Diest" in the candidate order.
+    fireEvent.click(checkboxes[1]!)
 
-    onManualMapChange.mockClear()
+    // Reassign "Boom Klei" → "Formatie van Diest"
+    fireEvent.click(
+      screen.getByRole('button', { name: /Reassign "Boom Klei"/ }),
+    )
+    fireEvent.click(screen.getByRole('option', { name: 'Formatie van Diest' }))
 
-    // Ungroup it
-    fireEvent.click(screen.getByRole('button', { name: /Remove group/ }))
-
-    // After ungroup the map must be empty (no groups, no members)
-    expect(onManualMapChange).toHaveBeenCalledWith({})
+    // Apply — button is enabled because Formatie van Diest is checked.
+    fireEvent.click(screen.getByRole('button', { name: 'Apply selection' }))
+    expect(onConfirm).toHaveBeenCalledOnce()
+    const [, manualMap] = onConfirm.mock.calls[0] as [ReadonlySet<string>, Record<string, string>]
+    // manual_map must be keyed on candidate.key not display name
+    expect(manualMap['boom klei']).toBe('Formatie van Diest')
   })
 
-  it('G6: search reorders candidates but ALL names remain visible', () => {
+  it('G6: typeahead re-ranks but ALL options remain visible (rank-reorders-never-filters)', () => {
     render(<FormationSelectionDialog {...makeProps()} />)
 
-    const searchInput = screen.getByPlaceholderText('Search to reorder…')
-    fireEvent.change(searchInput, { target: { value: 'diest' } })
+    // Open dropdown on "Boom Klei"
+    fireEvent.click(
+      screen.getByRole('button', { name: /Reassign "Boom Klei"/ }),
+    )
 
-    // All three candidates still in the DOM (rank-reorders-never-filters)
-    expect(screen.getByText('Boom Klei')).toBeDefined()
-    expect(screen.getByText('Formatie van Diest')).toBeDefined()
-    expect(screen.getByText('Lid van Orchies')).toBeDefined()
+    // Type a query — all OTHER candidates must still appear
+    const typeahead = screen.getByPlaceholderText('Type to re-rank or enter name…')
+    fireEvent.change(typeahead, { target: { value: 'diest' } })
+
+    expect(screen.getByRole('option', { name: 'Formatie van Diest' })).toBeDefined()
+    expect(screen.getByRole('option', { name: 'Lid van Orchies' })).toBeDefined()
+    expect(screen.getByRole('option', { name: 'Keep separate' })).toBeDefined()
   })
 
-  it('G7: "Show all" link clears the search query', () => {
-    render(<FormationSelectionDialog {...makeProps()} />)
+  it('G7: collision warnings render when collisions are provided', () => {
+    render(<FormationSelectionDialog {...makeProps({ collisions: COLLISIONS })} />)
 
-    const searchInput = screen.getByPlaceholderText('Search to reorder…') as HTMLInputElement
-    fireEvent.change(searchInput, { target: { value: 'diest' } })
-    expect(searchInput.value).toBe('diest')
-
-    const showAll = screen.getByRole('button', { name: 'Show all' })
-    fireEvent.click(showAll)
-    expect(searchInput.value).toBe('')
-    // "Show all" link should disappear when query is cleared
-    expect(screen.queryByRole('button', { name: 'Show all' })).toBeNull()
+    expect(screen.getByText(/1 borehole.*had layers lumping/)).toBeDefined()
+    expect(screen.getAllByText('Boom Klei').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/Klei van Boom/)).toBeDefined()
+    expect(screen.getByText(/12\.5m/)).toBeDefined()
   })
 
-  // B2 regression — duplicate display names must not collapse to the wrong candidate
+  it('G7: no collision section when collisions is empty', () => {
+    render(<FormationSelectionDialog {...makeProps({ collisions: [] })} />)
+    expect(screen.queryByText(/had layers lumping/)).toBeNull()
+  })
+
+  // B2 regression — duplicate display names must not collapse to the wrong candidate.
   //
   // Before the fix, rankedCandidates used:
   //   candidates.find(c => c.name === ranked.name)!
   // When two candidates share the same display name but have different keys,
   // .find() always returns the FIRST match — the second candidate's checkbox
   // built a manual_map entry with the FIRST candidate's key, so the lump
-  // silently targeted the wrong formation.  The fix sorts candidates by score
-  // directly (no .find() round-trip) so both remain selectable with their OWN keys.
+  // silently targeted the wrong formation.  The new per-row model stores state
+  // by candidate.key directly, so this class of bug cannot recur.
   it('B2: two candidates with identical name but different key both remain selectable with their own keys', () => {
-    // Two candidates that share the same display name but have different stable keys.
-    // This can happen when DOV ships the same informal description for two
-    // formally-distinct units (the fix must handle the underlying FormationCandidate
-    // objects, not the display strings).
     const DUPLICATE_NAME_CANDIDATES: FormationCandidate[] = [
       { name: 'Klei', key: 'klei-boom', boreholeCount: 3 },
       { name: 'Klei', key: 'klei-diest', boreholeCount: 2 },
@@ -209,20 +271,13 @@ describe('FormationSelectionDialog', () => {
       />,
     )
 
-    // Search for "klei" — both Klei candidates must still be in the DOM.
-    const searchInput = screen.getByPlaceholderText('Search to reorder…')
-    fireEvent.change(searchInput, { target: { value: 'klei' } })
-
-    // Both "Klei" rows remain visible (rank-reorders-never-filters).
+    // Both "Klei" rows must be in the DOM.
     const kleiCells = screen.getAllByText('Klei')
     expect(kleiCells.length).toBe(2)
 
     // Check all three checkboxes and confirm — the confirmed selectedKeys must
     // contain BOTH distinct Klei keys (not just the first one duplicated).
     const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
-    // We have 3 candidates → 3 checkboxes (plus potentially a Select all / none
-    // which has a different role or name — take the first 3 candidate ones).
-    // Click all of them.
     for (const cb of checkboxes) {
       if (!cb.checked) fireEvent.click(cb)
     }
@@ -230,8 +285,7 @@ describe('FormationSelectionDialog', () => {
 
     expect(onConfirm).toHaveBeenCalledOnce()
     const [selectedKeys] = onConfirm.mock.calls[0] as [ReadonlySet<string>, Record<string, string>]
-    // Both distinct Klei keys must be present — if B2 were still broken, only
-    // 'klei-boom' would appear (the first match) and 'klei-diest' would be missing.
+    // Both distinct Klei keys must be present.
     expect(selectedKeys.has('klei-boom')).toBe(true)
     expect(selectedKeys.has('klei-diest')).toBe(true)
     expect(selectedKeys.has('zand')).toBe(true)
