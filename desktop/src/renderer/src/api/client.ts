@@ -22,6 +22,10 @@ export interface CptListItem {
   // Used by ElevationEditor to render a tiny "(DOV)" / "(manual)" tag
   // next to the Z value (debt #8).
   elevation_source: string
+  // Raw file_date from the ORM — pass-through from the GEF/DOV parser.
+  // Format varies (ISO, slash-separated, year-only, null). Normalise via
+  // parseInvestigationDate before any comparison or display.
+  start_date: string | null
 }
 
 export interface CptResponse {

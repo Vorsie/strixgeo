@@ -26,6 +26,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Calendar,
   Drill,
   EyeOff,
   Inbox,
@@ -40,6 +41,7 @@ import { EmptyState as SharedEmptyState } from '../../EmptyState'
 import { usePersistedJSON } from '../../../hooks/usePersistedJSON'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import { isTypingTarget } from '../../../utils/keyboard'
+import { parseInvestigationDate } from '../../../utils/investigationDate'
 import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../../../api/client'
 
 // ---------------------------------------------------------------------------
@@ -53,12 +55,22 @@ import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../../../api/c
 // a third `: []` branch would be unreachable dead code.
 type InspectorTab = 'cpt' | 'borehole'
 
-type SortKey = 'default' | 'name' | 'depth'
+// 'date' sorts by start_date ascending/descending; null dates sort LAST in
+// both directions so they never interleave with real dates (stable behaviour).
+type SortKey = 'default' | 'name' | 'depth' | 'date'
 type SortDirection = 'asc' | 'desc'
 
 interface SortState {
   key: SortKey
   direction: SortDirection
+}
+
+// Per-tab date range filter. Stored as ISO YYYY-MM-DD strings matching the
+// <input type="date"> value format — empty string means "no bound set".
+// The tabs are kept independent (CPT and borehole have different date ranges).
+interface DateRangeFilter {
+  from: string
+  to: string
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +79,12 @@ interface SortState {
 
 const SORT_STORAGE_KEY = 'groundmodel.sidebar.sort'
 const DEFAULT_SORT: SortState = { key: 'default', direction: 'asc' }
+
+// Date-range filter keys are per-tab so each investigation type persists its
+// own date window independently (mirrors how multi-select is tab-scoped).
+const DATE_FILTER_CPT_KEY = 'groundmodel.sidebar.datefilter.cpt'
+const DATE_FILTER_BH_KEY = 'groundmodel.sidebar.datefilter.borehole'
+const DEFAULT_DATE_FILTER: DateRangeFilter = { from: '', to: '' }
 
 // Guard against corrupt localStorage entries (manual edits, migrations).
 function parseSortState(raw: unknown): SortState {
@@ -77,12 +95,26 @@ function parseSortState(raw: unknown): SortState {
     'direction' in raw &&
     typeof (raw as { key: unknown }).key === 'string' &&
     typeof (raw as { direction: unknown }).direction === 'string' &&
-    ['default', 'name', 'depth'].includes((raw as { key: string }).key) &&
+    ['default', 'name', 'depth', 'date'].includes((raw as { key: string }).key) &&
     ['asc', 'desc'].includes((raw as { direction: string }).direction)
   ) {
     return raw as SortState
   }
   return DEFAULT_SORT
+}
+
+function parseDateFilter(raw: unknown): DateRangeFilter {
+  if (
+    raw &&
+    typeof raw === 'object' &&
+    'from' in raw &&
+    'to' in raw &&
+    typeof (raw as { from: unknown }).from === 'string' &&
+    typeof (raw as { to: unknown }).to === 'string'
+  ) {
+    return { from: (raw as DateRangeFilter).from, to: (raw as DateRangeFilter).to }
+  }
+  return DEFAULT_DATE_FILTER
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +184,23 @@ export default function DataInspector(): JSX.Element {
     parseSortState,
   )
 
+  // Date range filter — per-tab; persisted independently so the user's CPT
+  // date window is not clobbered when they switch to the borehole tab.
+  const [cptDateFilter, setCptDateFilter] = usePersistedJSON<DateRangeFilter>(
+    DATE_FILTER_CPT_KEY,
+    DEFAULT_DATE_FILTER,
+    parseDateFilter,
+  )
+  const [bhDateFilter, setBhDateFilter] = usePersistedJSON<DateRangeFilter>(
+    DATE_FILTER_BH_KEY,
+    DEFAULT_DATE_FILTER,
+    parseDateFilter,
+  )
+
+  // Active filter for the current tab — aliased for cleaner template reads.
+  const activeDateFilter = activeTab === 'cpt' ? cptDateFilter : bhDateFilter
+  const setActiveDateFilter = activeTab === 'cpt' ? setCptDateFilter : setBhDateFilter
+
   // Multi-select for bulk remove. Reset when the tab changes.
   const [selectedForRemoval, setSelectedForRemoval] = useState<Set<string>>(new Set())
   const [rangeAnchorId, setRangeAnchorId] = useState<string | null>(null)
@@ -193,6 +242,16 @@ export default function DataInspector(): JSX.Element {
     [sort, boreholeAxis],
   )
 
+  // Parse the date bounds from the filter inputs once per render (not per row).
+  // parseInvestigationDate is pure and fast — no memoisation needed at this level.
+  const cptFromDate = parseInvestigationDate(cptDateFilter.from || null)
+  const cptToDate = parseInvestigationDate(cptDateFilter.to || null)
+  const bhFromDate = parseInvestigationDate(bhDateFilter.from || null)
+  const bhToDate = parseInvestigationDate(bhDateFilter.to || null)
+
+  const cptDateActive = cptFromDate !== null || cptToDate !== null
+  const bhDateActive = bhFromDate !== null || bhToDate !== null
+
   // Filtered + partitioned + sorted lists.
   const cptsAfterSearch = useMemo(
     () =>
@@ -209,24 +268,50 @@ export default function DataInspector(): JSX.Element {
     [visibleBoreholes, searchLower],
   )
 
+  // Apply the date range filter after the name search.
+  // An item with no parseable date is EXCLUDED while any bound is set, and
+  // shown when no bound is set (items with no date sort last; they are not
+  // hidden until the user sets a bound — that would be surprising).
+  const cptsAfterDate = useMemo(() => {
+    if (!cptDateActive) return cptsAfterSearch
+    return cptsAfterSearch.filter(c => {
+      const d = parseInvestigationDate(c.start_date)
+      if (d === null) return false // no date → exclude while bound is set
+      if (cptFromDate !== null && d.getTime() < cptFromDate.getTime()) return false
+      if (cptToDate !== null && d.getTime() > cptToDate.getTime()) return false
+      return true
+    })
+  }, [cptsAfterSearch, cptDateActive, cptFromDate, cptToDate])
+
+  const boreholesAfterDate = useMemo(() => {
+    if (!bhDateActive) return boreholesAfterSearch
+    return boreholesAfterSearch.filter(b => {
+      const d = parseInvestigationDate(b.start_date)
+      if (d === null) return false
+      if (bhFromDate !== null && d.getTime() < bhFromDate.getTime()) return false
+      if (bhToDate !== null && d.getTime() > bhToDate.getTime()) return false
+      return true
+    })
+  }, [boreholesAfterSearch, bhDateActive, bhFromDate, bhToDate])
+
   const cptVisible = useMemo(
     () =>
-      cptsAfterSearch
+      cptsAfterDate
         .filter(c => !hiddenCptTypes.has(c.cpt_type) && !outOfViewportCptIds.has(c.id))
         .sort(cptSorter),
-    [cptsAfterSearch, hiddenCptTypes, outOfViewportCptIds, cptSorter],
+    [cptsAfterDate, hiddenCptTypes, outOfViewportCptIds, cptSorter],
   )
   const cptHidden = useMemo(
     () =>
-      cptsAfterSearch
+      cptsAfterDate
         .filter(c => hiddenCptTypes.has(c.cpt_type) || outOfViewportCptIds.has(c.id))
         .sort(cptSorter),
-    [cptsAfterSearch, hiddenCptTypes, outOfViewportCptIds, cptSorter],
+    [cptsAfterDate, hiddenCptTypes, outOfViewportCptIds, cptSorter],
   )
 
   const bhVisible = useMemo(
     () =>
-      boreholesAfterSearch
+      boreholesAfterDate
         .filter(b => {
           const filterValue =
             (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
@@ -240,11 +325,11 @@ export default function DataInspector(): JSX.Element {
           )
         })
         .sort(boreholeSorter),
-    [boreholesAfterSearch, hiddenBoreholeValues, outOfViewportBoreholeIds, boreholeAxis, boreholeSorter],
+    [boreholesAfterDate, hiddenBoreholeValues, outOfViewportBoreholeIds, boreholeAxis, boreholeSorter],
   )
   const bhHidden = useMemo(
     () =>
-      boreholesAfterSearch
+      boreholesAfterDate
         .filter(b => {
           const filterValue =
             (boreholeAxis === 'drill_method' ? b.drill_method : b.borehole_type) || '—'
@@ -254,7 +339,7 @@ export default function DataInspector(): JSX.Element {
           )
         })
         .sort(boreholeSorter),
-    [boreholesAfterSearch, hiddenBoreholeValues, outOfViewportBoreholeIds, boreholeAxis, boreholeSorter],
+    [boreholesAfterDate, hiddenBoreholeValues, outOfViewportBoreholeIds, boreholeAxis, boreholeSorter],
   )
 
   // Selection helpers — checkboxes for bulk remove.
@@ -385,6 +470,14 @@ export default function DataInspector(): JSX.Element {
             </button>
           )}
         </div>
+      )}
+
+      {/* Date-range filter */}
+      {hasList && (
+        <DateRangeControl
+          filter={activeDateFilter}
+          onChange={setActiveDateFilter}
+        />
       )}
 
       {/* Bulk-action bar — visible when ≥1 checkbox is ticked */}
@@ -521,11 +614,17 @@ export default function DataInspector(): JSX.Element {
       {/* Footer — count + restore-removed link */}
       <div className="border-t border-[--color-border-subtle] px-3 py-1.5 text-[10px] text-[--color-text-muted] flex items-center gap-2 flex-shrink-0">
         {activeTab === 'cpt' && (
-          <span>{visibleCpts.length} CPT{visibleCpts.length !== 1 ? 's' : ''}</span>
+          <span>
+            {cptDateActive
+              ? `${cptsAfterDate.length} of ${visibleCpts.length} CPT${visibleCpts.length !== 1 ? 's' : ''}`
+              : `${visibleCpts.length} CPT${visibleCpts.length !== 1 ? 's' : ''}`}
+          </span>
         )}
         {activeTab === 'borehole' && (
           <span>
-            {visibleBoreholes.length} borehole{visibleBoreholes.length !== 1 ? 's' : ''}
+            {bhDateActive
+              ? `${boreholesAfterDate.length} of ${visibleBoreholes.length} borehole${visibleBoreholes.length !== 1 ? 's' : ''}`
+              : `${visibleBoreholes.length} borehole${visibleBoreholes.length !== 1 ? 's' : ''}`}
           </span>
         )}
         {removedCount > 0 && (
@@ -596,6 +695,7 @@ function SortControl({
         <option value="default">Default</option>
         <option value="name">Name</option>
         <option value="depth">Depth</option>
+        <option value="date">Date</option>
       </select>
       <button
         onClick={() =>
@@ -619,6 +719,19 @@ function makeCptSorter(sort: SortState): (a: CptListItem, b: CptListItem) => num
   if (sort.key === 'default') return () => 0
   const sign = sort.direction === 'asc' ? 1 : -1
   if (sort.key === 'name') return (a, b) => sign * NATURAL.compare(a.name, b.name)
+  if (sort.key === 'date') {
+    // Null dates sort LAST in both directions (stable: never interleave with
+    // real dates). The sort is by Date.getTime() so all parseInvestigationDate
+    // tolerance (ISO, slash, year-only) is applied here.
+    return (a, b) => {
+      const da = parseInvestigationDate(a.start_date)
+      const db = parseInvestigationDate(b.start_date)
+      if (da === null && db === null) return 0
+      if (da === null) return 1 // a has no date → always last
+      if (db === null) return -1 // b has no date → always last
+      return sign * (da.getTime() - db.getTime())
+    }
+  }
   // depth — null depths sort last regardless of direction.
   return (a, b) => {
     const da = a.max_depth_m
@@ -637,6 +750,17 @@ function makeBoreholeSorter(
   if (sort.key === 'default') return () => 0
   const sign = sort.direction === 'asc' ? 1 : -1
   if (sort.key === 'name') return (a, b) => sign * NATURAL.compare(a.name, b.name)
+  if (sort.key === 'date') {
+    // Null dates sort LAST in both directions.
+    return (a, b) => {
+      const da = parseInvestigationDate(a.start_date)
+      const db = parseInvestigationDate(b.start_date)
+      if (da === null && db === null) return 0
+      if (da === null) return 1
+      if (db === null) return -1
+      return sign * (da.getTime() - db.getTime())
+    }
+  }
   return (a, b) => {
     const da = a.total_depth_m
     const db = b.total_depth_m
@@ -855,6 +979,94 @@ function BoreholeRow({
       >
         <Trash2 size={12} />
       </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Date range filter control
+// ---------------------------------------------------------------------------
+
+/**
+ * Date range filter bar rendered below the search box.
+ *
+ * Shows From / To date inputs (native ``<input type="date">`` — accessible,
+ * keyboard-navigable, dark-mode-correct via Tailwind CSS variables) and a
+ * clear affordance when either bound is set.  Either bound is optional
+ * (open-ended range).
+ *
+ * The filter is reversible (fire immediately, no confirm required per the
+ * UX rule).  The clear button resets both bounds to '' in one setState so
+ * there is no intermediate half-cleared state.
+ *
+ * Parameters
+ * ----------
+ * filter
+ *     Current from/to strings (ISO ``YYYY-MM-DD`` matching ``<input type="date">``).
+ * onChange
+ *     Setter for the filter state.
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The filter row, or null when no investigations are loaded.
+ */
+function DateRangeControl({
+  filter,
+  onChange,
+}: {
+  filter: DateRangeFilter
+  onChange: (next: DateRangeFilter) => void
+}): JSX.Element {
+  const active = filter.from !== '' || filter.to !== ''
+
+  return (
+    <div className="px-3 py-1.5 border-b border-[--color-border-subtle] flex-shrink-0">
+      <div className="flex items-center gap-1 mb-1">
+        <Calendar size={11} className="text-[--color-text-muted] shrink-0" />
+        <span className="text-[10px] text-[--color-text-muted]">Date range</span>
+        {active && (
+          <button
+            onClick={() => onChange({ from: '', to: '' })}
+            title="Clear date filter"
+            className="ml-auto text-[10px] text-[--color-accent] hover:underline"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5">
+        {/* From bound. The native date picker is keyboard-navigable and
+            announces itself properly to screen readers via the label. */}
+        <label className="sr-only" htmlFor="date-filter-from">From date</label>
+        <input
+          id="date-filter-from"
+          type="date"
+          value={filter.from}
+          onChange={e => onChange({ ...filter, from: e.target.value })}
+          className={[
+            'flex-1 min-w-0 bg-transparent text-[10px] text-[--color-text-secondary]',
+            'border border-[--color-border-subtle] rounded px-1 py-0.5',
+            'focus:outline-none focus:ring-1 focus:ring-[--color-accent]',
+            // Colourscheme for the native date picker chrome on dark/light.
+            'dark:[color-scheme:dark]',
+          ].join(' ')}
+        />
+        <span className="text-[10px] text-[--color-text-muted] shrink-0">–</span>
+        <label className="sr-only" htmlFor="date-filter-to">To date</label>
+        <input
+          id="date-filter-to"
+          type="date"
+          value={filter.to}
+          onChange={e => onChange({ ...filter, to: e.target.value })}
+          className={[
+            'flex-1 min-w-0 bg-transparent text-[10px] text-[--color-text-secondary]',
+            'border border-[--color-border-subtle] rounded px-1 py-0.5',
+            'focus:outline-none focus:ring-1 focus:ring-[--color-accent]',
+            'dark:[color-scheme:dark]',
+          ].join(' ')}
+        />
+      </div>
     </div>
   )
 }
