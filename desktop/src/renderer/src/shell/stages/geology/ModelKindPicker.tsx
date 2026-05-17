@@ -11,9 +11,19 @@
 // Reads everything from useShell().geoModel; takes no props (shell
 // convention). Backend enforces the parent invariant + per-kind
 // is_active — this is a thin, assisted control over those.
+//
+// UX-review (ux-reviewer, #55): renders as its OWN row at the same
+// visual weight as the geological "Stratigraphy ·" line above (not a
+// 10px muted annotation) so the two ground-model axes read as peers;
+// tokens are the real registry only (surface-app / border-default /
+// accent / status / text-secondary — there is no surface-input /
+// surface-hover / status-success token); text is text-secondary (the
+// 10px text-muted used by the sibling line fails WCAG AA — that is
+// pre-existing #51-tail debt, not propagated here); activation has a
+// busy guard; the empty state is an actionable CTA, not "none yet".
 
 import { useState } from 'react'
-import { Check, Plus, X } from 'lucide-react'
+import { Check, Layers, Plus, X } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 
@@ -42,6 +52,7 @@ export default function ModelKindPicker(): JSX.Element | null {
   const [creating, setCreating] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [busy, setBusy] = useState(false)
+  const [activating, setActivating] = useState(false)
 
   // Litho models cannot exist without a geological parent.
   if (activeGeologicalModel === null) return null
@@ -63,12 +74,23 @@ export default function ModelKindPicker(): JSX.Element | null {
     }
   }
 
+  async function activate(modelId: string): Promise<void> {
+    if (activating) return
+    setActivating(true)
+    try {
+      await handleActivateLithoModel(modelId)
+    } finally {
+      setActivating(false)
+    }
+  }
+
   return (
     <div
-      className="flex items-center gap-1.5 pl-5 text-[10px] text-text-muted"
+      className="flex items-center gap-1.5 pl-5 text-[11px] text-text-secondary"
       data-testid="model-kind-picker"
     >
-      <span className="shrink-0">Lithology model</span>
+      <Layers size={11} className="shrink-0 text-text-muted" aria-hidden />
+      <span className="shrink-0 font-medium">Lithology model</span>
 
       {creating ? (
         <form
@@ -78,8 +100,8 @@ export default function ModelKindPicker(): JSX.Element | null {
             void commitCreate()
           }}
         >
-          {/* autoFocus: the user just clicked "+", focus the field so
-              they can type the name immediately (no extra click). */}
+          {/* autoFocus: the user just clicked "New", focus the field
+              so they can type immediately (no extra click). */}
           {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
           <input
             autoFocus
@@ -94,14 +116,14 @@ export default function ModelKindPicker(): JSX.Element | null {
             maxLength={200}
             placeholder="Model name…"
             aria-label="New lithostratigraphic model name"
-            className="w-36 rounded border border-border-default bg-surface-input px-1.5 py-0.5 text-[10px] text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+            className="w-36 rounded border border-border-default bg-surface-app px-1.5 py-0.5 text-[11px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           />
           <button
             type="submit"
             disabled={busy || draftName.trim() === ''}
             title="Create lithostratigraphic model"
             aria-label="Create lithostratigraphic model"
-            className="rounded p-0.5 text-status-success hover:bg-surface-hover disabled:opacity-40"
+            className="rounded p-0.5 text-accent hover:bg-surface-app disabled:opacity-40"
           >
             <Check size={12} />
           </button>
@@ -113,45 +135,57 @@ export default function ModelKindPicker(): JSX.Element | null {
             }}
             title="Cancel"
             aria-label="Cancel new model"
-            className="rounded p-0.5 text-text-muted hover:bg-surface-hover"
+            className="rounded p-0.5 text-text-secondary hover:bg-surface-app hover:text-text-primary"
           >
             <X size={12} />
           </button>
         </form>
-      ) : (
+      ) : lithoModels.length > 0 ? (
         <>
-          {lithoModels.length > 0 ? (
-            <select
-              value={activeLithoModel?.id ?? ''}
-              onChange={e => void handleActivateLithoModel(e.target.value)}
-              aria-label="Active lithostratigraphic model"
-              className="max-w-[10rem] truncate rounded border border-border-default bg-surface-input px-1 py-0.5 text-[10px] text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
-            >
-              {activeLithoModel === null && (
-                <option value="" disabled>
-                  — select —
-                </option>
-              )}
-              {lithoModels.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="italic">none yet</span>
-          )}
+          <select
+            value={activeLithoModel?.id ?? ''}
+            disabled={activating}
+            onChange={e => void activate(e.target.value)}
+            aria-label="Active lithostratigraphic model"
+            className="max-w-[10rem] truncate rounded border border-border-default bg-surface-app px-1 py-0.5 text-[11px] text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+          >
+            {activeLithoModel === null && (
+              <option value="" disabled>
+                — select —
+              </option>
+            )}
+            {lithoModels.map(m => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => setCreating(true)}
             title="New lithostratigraphic model (refines the active geological model)"
             aria-label="New lithostratigraphic model"
-            className="flex items-center gap-0.5 rounded px-1 py-0.5 text-accent hover:bg-surface-hover"
+            className="flex items-center gap-0.5 rounded px-1 py-0.5 text-accent hover:bg-surface-app"
           >
             <Plus size={11} />
             New
           </button>
         </>
+      ) : (
+        // C1 — first-run discoverability moment: an actionable CTA, not
+        // a muted "none yet". This is where the engineer forms the
+        // mental model that litho is a second, separate ground-model
+        // axis they must create before picking contacts on sections.
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          title="Create the lithostratigraphic model that refines this geological model"
+          aria-label="Create lithostratigraphic model"
+          className="flex items-center gap-1 rounded border border-dashed border-border-default px-1.5 py-0.5 text-accent hover:bg-surface-app"
+        >
+          <Plus size={11} />
+          Create one to pick contacts on sections
+        </button>
       )}
     </div>
   )

@@ -54,13 +54,16 @@ describe('ModelKindPicker (#55)', () => {
     expect(screen.queryByTestId('model-kind-picker')).toBeNull()
   })
 
-  it('shows "none yet" + New when no litho model exists', () => {
+  it('shows an actionable create CTA (not a muted "none yet") when empty', () => {
     render(<ModelKindPicker />)
     expect(screen.getByTestId('model-kind-picker')).toBeInTheDocument()
-    expect(screen.getByText('none yet')).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'New lithostratigraphic model' }),
-    ).toBeInTheDocument()
+    expect(screen.queryByText('none yet')).toBeNull()
+    // C1 empty-state CTA — names what creating it unlocks.
+    const cta = screen.getByRole('button', {
+      name: 'Create lithostratigraphic model',
+    })
+    expect(cta).toBeInTheDocument()
+    expect(cta).toHaveTextContent(/contacts on sections/i)
   })
 
   it('lists litho models and activates the chosen one', () => {
@@ -79,13 +82,15 @@ describe('ModelKindPicker (#55)', () => {
     expect(handleActivateLithoModel).toHaveBeenCalledWith('l2')
   })
 
-  it('inline create flow calls handleCreateLithoModel with the typed name', async () => {
+  it('inline create flow calls handleCreateLithoModel with the typed name', () => {
     render(<ModelKindPicker />)
+    // Empty state → the CTA enters create mode.
     fireEvent.click(
-      screen.getByRole('button', { name: 'New lithostratigraphic model' }),
+      screen.getByRole('button', { name: 'Create lithostratigraphic model' }),
     )
     const input = screen.getByLabelText('New lithostratigraphic model name')
     fireEvent.change(input, { target: { value: '  Quay 7 lithology  ' } })
+    // In create mode the CTA is gone; the only such button is submit.
     fireEvent.click(
       screen.getByRole('button', { name: 'Create lithostratigraphic model' }),
     )
@@ -95,7 +100,7 @@ describe('ModelKindPicker (#55)', () => {
   it('does not submit an empty name', () => {
     render(<ModelKindPicker />)
     fireEvent.click(
-      screen.getByRole('button', { name: 'New lithostratigraphic model' }),
+      screen.getByRole('button', { name: 'Create lithostratigraphic model' }),
     )
     const create = screen.getByRole('button', {
       name: 'Create lithostratigraphic model',
@@ -103,5 +108,17 @@ describe('ModelKindPicker (#55)', () => {
     expect(create).toBeDisabled()
     fireEvent.click(create)
     expect(handleCreateLithoModel).not.toHaveBeenCalled()
+  })
+
+  it('"New" button enters create mode when litho models already exist', () => {
+    geoModel.models = [model('l1', 'Litho A', 'lithostratigraphic', true)]
+    geoModel.activeLithoModel = model('l1', 'Litho A', 'lithostratigraphic', true)
+    render(<ModelKindPicker />)
+    fireEvent.click(
+      screen.getByRole('button', { name: 'New lithostratigraphic model' }),
+    )
+    expect(
+      screen.getByLabelText('New lithostratigraphic model name'),
+    ).toBeInTheDocument()
   })
 })
