@@ -870,27 +870,34 @@ Owner locked a better structure:
   the section editor** (geology ↔ lithology toggle) — that is where
   "select a model and something happens" actually holds.
 
-**Remaining work (3 slices, design-first via system-architect, then
-build, ux-reviewer on the UI):**
+**Step 2 DONE (2026-05-17).** Section-editor model-axis picker shipped:
+`SectionModelAxis: 'geological' | 'lithostratigraphic'` session-only
+state in `useSections`; `setSectionModelAxis` exposed on the ShellContext
+sections slice; SectionsToolbar geology/litho toggle (litho disabled
+when `activeLithoModel === null`); `handleFocusContacts` routes to the
+axis-matched contact set; `SectionsCanvas` axis-routes contacts/
+formations/surfaces to SectionPanel/ContactsLayer via constants — no
+structural change to either 2k-line component. 6 behavioral tests
+(A1/A2/A3 axis routing + B1/B2/B3 toolbar toggle). tsc net −4; 634/634
+vitest.
+
+**Step 3 DONE (2026-05-17).** Suggest/ghost/accept shipped:
+`handleSuggestLitho` / `handleAcceptLithoSuggestion` (reuse-not-
+duplicate formation by lithology token) / `handleRejectLithoSuggestion`
+/ `clearLithoSuggestions` in `useGeologicalModel`; `LithoSuggestionGhostColumns.tsx`
+SVG ghost overlay (left-of-band, 48 px, accept/reject visual states);
+`lithoGhostState` bundled optional prop on SectionPanel — additive, no
+structural change; "Suggest litho" + "Clear" buttons in SectionsToolbar
+gated on isLitho + activeLithoModel + hasSection + focused anchor. 5
+behavioral tests pinning the accept→ensure-formation→create-contact
+contract (S1–S5). tsc net −4 vs 84 baseline; 634/634 vitest.
+
+**Remaining work (1 slice):**
 1. **Lithology peer stage** scaffolding (StageDescriptor + canvas +
    inspector + toolbar; relocate ModelKindPicker; reuse the Geology
    3D viewer for its canvas). Supersedes the inspector-header picker.
-2. **Section-editor model-axis picker** (geology ↔ lithology) — the
-   Sections editor renders/edits the chosen model's contacts.
-3. **Suggest/ghost/accept on the section**: a "Suggest litho" action
-   calling `suggestLitho` for the focused investigation → accept/
-   reject ghost lines (fork `VirtueleBoringGhostColumns`, dashed +
-   interactive) → accept→ensure-formation→create-contact reusing
-   `handleInlineCreateFormation` + `handleCreateContact` (a
-   suggestion carries `suggested_lithology`/`nad_class` but no
-   `formation_id` — resolve/create a litho-model formation per
-   distinct lithology on accept).
-
-**Why design-first.** A new shell stage is a load-bearing structural
-change (CLAUDE.md → system-architect before build); the section-editor
-work touches the 1,655-line SectionPanel / 2,013-line ContactsLayer —
-the exact surface where the rushed slice-3 delegation shipped two
-bugs. Backend + the (relocating) picker hook are fully usable today.
+   Design-first via system-architect — a new shell stage is a
+   load-bearing structural change.
 
 **When to revisit.** Now — architect the stage, then build slice 1.
 
