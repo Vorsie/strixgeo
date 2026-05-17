@@ -395,6 +395,8 @@ export default function App() {
     importing,
     bboxImportType,
     dovImporting,
+    dovImportState,
+    resetDovImport,
     removedCptIds,
     removedBoreholeIds,
     refreshList,
@@ -730,7 +732,7 @@ export default function App() {
     handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel,
     // investigations
     cpts, detailMap, plotMap, boreholes, boreholeDetailMap, importing,
-    bboxImportType, dovImporting, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
+    bboxImportType, dovImporting, dovImportState, resetDovImport, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
     loadCptDetail, loadChart, loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes,
     handleRemoveCpts, handleRemoveBoreholes, handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation,
     handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
