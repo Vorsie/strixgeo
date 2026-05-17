@@ -1,0 +1,43 @@
+"""Pydantic schema: :class:`FormationContactCreateRequest`."""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+from pydantic import BaseModel, model_validator
+
+from .contact_enums import ContactConfidence, ContactSource
+
+
+class FormationContactCreateRequest(BaseModel):
+    """Body of ``POST /projects/{pid}/geology/models/{mid}/contacts``.
+
+    Exactly one of ``borehole_id`` / ``cpt_id`` must be set. Per the
+    v1 scope, the API only accepts borehole-anchored contacts —
+    CPT-anchored contacts are reserved for Phase 5 (Robertson Ic) but
+    the column exists so the editor can render the constraint shape
+    consistently across both anchor types.
+    """
+
+    formation_id: UUID
+    depth_top_m: float
+    borehole_id: UUID | None = None
+    cpt_id: UUID | None = None
+    source: ContactSource = "manual_pick"
+    confidence: ContactConfidence = "medium"
+    observation_id: UUID | None = None
+    observation_layer_id: UUID | None = None
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_anchor(self) -> FormationContactCreateRequest:
+        """XOR check on the borehole / CPT anchor at the API boundary.
+
+        Mirrors the DB ``CheckConstraint`` so the client gets a clean
+        422 with a clear message instead of an opaque INSERT error.
+        """
+        if (self.borehole_id is None) == (self.cpt_id is None):
+            raise ValueError(
+                "Exactly one of borehole_id / cpt_id must be set on a FormationContact"
+            )
+        return self
