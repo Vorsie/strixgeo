@@ -123,6 +123,8 @@ function makeCtx(overrides: {
       boreholeDetailMap: new Map(),
       importing: false,
       dovImporting: false,
+      dovImportState: { status: 'idle' } as const,
+      resetDovImport: vi.fn(),
       bboxImportType: null,
       removedCptIds: new Set(),
       removedBoreholeIds: new Set(),
