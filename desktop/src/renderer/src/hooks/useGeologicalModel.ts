@@ -33,6 +33,7 @@ import type {
   ProjectResponse,
 } from '../api/client'
 import type { UndoCommand } from './useUndoStack'
+import type { StratigraphyLumping } from '../utils/projectFile'
 import { addAllToSet } from '../utils/sets'
 import { log } from '../utils/log'
 import {
@@ -280,6 +281,17 @@ export interface UseGeologicalModelResult {
  *     Dual of ``addToSessionImports`` — clears a formation/contact's
  *     unsaved flag when it is deleted before ever being saved, so the
  *     project doesn't stay dirty over a row that no longer exists.
+ * currentLumping
+ *     Persisted lumping snapshot from ``useProject``.  Used by
+ *     ``handleAutoPopulateFromStratigraphy`` (Seed path) to pass the
+ *     stored ``manualMap`` to the backend so the discover ≡ apply ≡ seed
+ *     invariant is maintained.  ``null`` when no snapshot is persisted.
+ * writeLumpingSnapshot
+ *     Callback from ``useProject`` that splices a new
+ *     ``StratigraphyLumping`` into the open ``.gmproj`` file and updates
+ *     the in-memory ``currentLumping`` state.  Called by
+ *     ``applyBoreholeFormationSelection`` after a successful apply so the
+ *     alias map is durable across sessions.
  *
  * Returns
  * -------
@@ -295,6 +307,8 @@ export function useGeologicalModel({
   addToSessionImports,
   removeFromSessionImports,
   manifestFormationIds,
+  currentLumping,
+  writeLumpingSnapshot,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error', message: string) => void
@@ -309,6 +323,10 @@ export function useGeologicalModel({
   // App.tsx no longer post-processes the geo slice via a spread.
   // ``undefined`` ⇒ no project open ⇒ no filter (show everything).
   manifestFormationIds: ReadonlySet<string> | undefined
+  /** Persisted lumping snapshot — ``null`` when no Apply has been committed. */
+  currentLumping: StratigraphyLumping | null
+  /** Write a new lumping snapshot to the open ``.gmproj`` file. */
+  writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -1392,13 +1410,22 @@ export function useGeologicalModel({
         `autoPopulateFromStratigraphy entry boreholes=${boreholeIds.length}` +
           (sectionId ? ` section=${sectionId}` : ''),
       )
+      // Bug 2 fix: forward the persisted lumping map on the Seed path so the
+      // discover ≡ apply ≡ seed invariant holds.  When the user previously
+      // applied aliases (currentLumping != null), the same alias map must reach
+      // the backend here — otherwise Seed creates contacts under raw borehole
+      // keys that differ from the merged formation keys Fill applied.
+      const seedManualMap =
+        currentLumping != null && Object.keys(currentLumping.map).length > 0
+          ? currentLumping.map
+          : undefined
       try {
         const outcome = await api.geology.autoPopulateFromStratigraphy(
           project.id,
           activeGeologicalModel.id,
           boreholeIds,
           undefined, // selectedKeys — absent on the Seed path
-          undefined, // manualMap — absent on the Seed path
+          seedManualMap,
           sectionId,
         )
         // P2-G: when the Seed response carries an updated section row
@@ -1531,6 +1558,7 @@ export function useGeologicalModel({
     [
       project,
       activeGeologicalModel,
+      currentLumping,
       addToSessionImports,
       addToManifest,
       pushUndo,
@@ -1944,6 +1972,24 @@ export function useGeologicalModel({
             `deleted=${outcome.deleted_formation_ids.length} ` +
             `created=${outcome.created_formation_ids.length}`,
         )
+        // Persist-on-apply: write the lumping snapshot so the alias map
+        // survives the session.  An empty or absent manualMap writes a
+        // cleared snapshot (schema_version kept; map = {}) so the dialog
+        // does not prefill stale aliases on reopen.
+        // Deliberately fire-and-forget (await omitted): the UI does not
+        // block on the file write; a failure is logged by writeLumpingSnapshot
+        // itself.
+        const lumpingMap =
+          manualMap != null && Object.keys(manualMap).length > 0
+            ? manualMap
+            : {}
+        writeLumpingSnapshot({
+          schema_version: 1,
+          applied_at: new Date().toISOString(),
+          map: lumpingMap,
+        }).catch(err => {
+          log.warn('geology', 'applyBoreholeFormationSelection: writeLumpingSnapshot failed', err)
+        })
       } catch (err) {
         log.error('geology', 'applyBoreholeFormationSelection failed', err)
         throw err
@@ -1957,6 +2003,7 @@ export function useGeologicalModel({
       removeFromManifest,
       addToSessionImports,
       removeFromSessionImports,
+      writeLumpingSnapshot,
     ],
   )
 
