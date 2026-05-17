@@ -244,10 +244,10 @@ export default function GeologyToolbar(): JSX.Element {
         pendingBoreholeIds,
         Object.keys(manualMap).length > 0 ? manualMap : undefined,
       )
-      // Persist-on-apply is now handled inside applyBoreholeFormationSelection:
-      // it calls writeLumpingSnapshot (injected into useGeologicalModel from
-      // App.tsx) so the alias map is durable regardless of whether File→Save
-      // is called.  No duplicate write here.
+      // Stage-on-apply is handled inside applyBoreholeFormationSelection:
+      // it calls stageLumping (injected into useGeologicalModel from App.tsx)
+      // which marks the project dirty so File→Save persists the alias map.
+      // No duplicate write here.
     } catch (err) {
       // applyBoreholeFormationSelection logs + throws; toast the failure here
       // so the Geology stage surfaces it even when the error originates deep

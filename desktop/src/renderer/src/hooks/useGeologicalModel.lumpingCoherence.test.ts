@@ -3,12 +3,12 @@
  *
  * Claims pinned here (matching the spec in the task):
  *
- *   LC-A  apply with non-empty manualMap calls writeLumpingSnapshot with
- *         the correct StratigraphyLumping shape; the injected snapshot is
- *         passed through so callers can assert the written value.
+ *   LC-A  apply with non-empty manualMap calls stageLumping with the
+ *         correct StratigraphyLumping shape; the injected snapshot is
+ *         passed through so callers can assert the staged value.
  *
- *   LC-B  apply with empty / absent manualMap calls writeLumpingSnapshot
- *         with an empty map (clears any prior snapshot).
+ *   LC-B  apply with empty / absent manualMap calls stageLumping with
+ *         an empty map (clears any prior snapshot).
  *
  *   LC-C  handleAutoPopulateFromStratigraphy (Seed path) forwards the
  *         persisted currentLumping.map to the server when it is non-empty
@@ -125,7 +125,7 @@ const EMPTY_APPLY_RESULT = {
 
 function makeHook(options: {
   currentLumping?: StratigraphyLumping | null
-  writeLumpingSnapshot?: (...args: unknown[]) => Promise<void>
+  stageLumping?: (...args: unknown[]) => void
 } = {}) {
   mockListModels.mockResolvedValue([ACTIVE_MODEL])
   mockListFormations.mockResolvedValue([])
@@ -133,7 +133,7 @@ function makeHook(options: {
   mockListSurfaces.mockResolvedValue([])
   mockValidateCrossings.mockResolvedValue({ model_id: 'model-1', issues: [] })
 
-  const writeLumpingSnapshot = options.writeLumpingSnapshot ?? vi.fn().mockResolvedValue(undefined)
+  const stageLumping = options.stageLumping ?? vi.fn()
 
   return {
     hook: renderHook(() => useGeologicalModel({
@@ -146,9 +146,9 @@ function makeHook(options: {
       pushUndo: vi.fn(),
       toast: vi.fn(),
       currentLumping: options.currentLumping ?? null,
-      writeLumpingSnapshot,
+      stageLumping,
     })),
-    writeLumpingSnapshot,
+    stageLumping,
   }
 }
 
@@ -161,8 +161,8 @@ describe('useGeologicalModel — lumping-coherence gap fixes', () => {
     vi.clearAllMocks()
   })
 
-  // LC-A: apply with non-empty manualMap calls writeLumpingSnapshot with correct shape.
-  it('LC-A: apply with non-empty manualMap calls writeLumpingSnapshot', async () => {
+  // LC-A: apply with non-empty manualMap calls stageLumping with correct shape.
+  it('LC-A: apply with non-empty manualMap calls stageLumping', async () => {
     const MAP = { 'boom klei': 'Boom Groep', 'klei van boom': 'Boom Groep' }
     mockAutoPopulateFromStratigraphy.mockResolvedValue({
       ...EMPTY_APPLY_RESULT,
@@ -171,7 +171,7 @@ describe('useGeologicalModel — lumping-coherence gap fixes', () => {
     mockListFormations.mockResolvedValue([])
     mockListContacts.mockResolvedValue([])
 
-    const { hook, writeLumpingSnapshot } = makeHook()
+    const { hook, stageLumping } = makeHook()
     await act(async () => { await new Promise(r => setTimeout(r, 0)) })
 
     await act(async () => {
@@ -180,9 +180,9 @@ describe('useGeologicalModel — lumping-coherence gap fixes', () => {
       )
     })
 
-    // writeLumpingSnapshot was called exactly once
-    expect(writeLumpingSnapshot).toHaveBeenCalledTimes(1)
-    const arg = (writeLumpingSnapshot as ReturnType<typeof vi.fn>).mock.calls[0][0] as StratigraphyLumping
+    // stageLumping was called exactly once
+    expect(stageLumping).toHaveBeenCalledTimes(1)
+    const arg = (stageLumping as ReturnType<typeof vi.fn>).mock.calls[0][0] as StratigraphyLumping
     expect(arg.schema_version).toBe(1)
     expect(arg.map).toEqual(MAP)
     // applied_at is a recent ISO string
@@ -190,13 +190,13 @@ describe('useGeologicalModel — lumping-coherence gap fixes', () => {
     expect(new Date(arg.applied_at).getFullYear()).toBeGreaterThanOrEqual(2026)
   })
 
-  // LC-B: apply with empty manualMap calls writeLumpingSnapshot with empty map (clears snapshot).
-  it('LC-B: apply with empty manualMap calls writeLumpingSnapshot with empty map', async () => {
+  // LC-B: apply with empty manualMap calls stageLumping with empty map (clears snapshot).
+  it('LC-B: apply with empty manualMap calls stageLumping with empty map', async () => {
     mockAutoPopulateFromStratigraphy.mockResolvedValue(EMPTY_APPLY_RESULT)
     mockListFormations.mockResolvedValue([])
     mockListContacts.mockResolvedValue([])
 
-    const { hook, writeLumpingSnapshot } = makeHook()
+    const { hook, stageLumping } = makeHook()
     await act(async () => { await new Promise(r => setTimeout(r, 0)) })
 
     // Apply with undefined manualMap (no aliases)
@@ -206,8 +206,8 @@ describe('useGeologicalModel — lumping-coherence gap fixes', () => {
       )
     })
 
-    expect(writeLumpingSnapshot).toHaveBeenCalledTimes(1)
-    const arg = (writeLumpingSnapshot as ReturnType<typeof vi.fn>).mock.calls[0][0] as StratigraphyLumping
+    expect(stageLumping).toHaveBeenCalledTimes(1)
+    const arg = (stageLumping as ReturnType<typeof vi.fn>).mock.calls[0][0] as StratigraphyLumping
     expect(arg.schema_version).toBe(1)
     expect(arg.map).toEqual({})
   })

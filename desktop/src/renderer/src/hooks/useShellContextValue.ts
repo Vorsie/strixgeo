@@ -20,7 +20,7 @@ export interface UseShellContextValueArgs {
   handleUnsavedSave: ShellContextValue['lifecycle']['handleUnsavedSave']
   handleUnsavedDiscard: ShellContextValue['lifecycle']['handleUnsavedDiscard']
   handleUnsavedCancel: ShellContextValue['lifecycle']['handleUnsavedCancel']
-  writeLumpingSnapshot: ShellContextValue['lifecycle']['writeLumpingSnapshot']
+  stageLumping: ShellContextValue['lifecycle']['stageLumping']
   currentLumping: ShellContextValue['lifecycle']['currentLumping']
   cpts: ShellContextValue['investigations']['cpts']
   detailMap: ShellContextValue['investigations']['detailMap']
@@ -148,7 +148,7 @@ export function useShellContextValue(
   const {
     project, projectDirty, newProjectOpen, setNewProjectOpen, metadataEditorOpen, setMetadataEditorOpen,
     closeConfirmOpen, setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports,
-    handleCloseProjectRequest, handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot, currentLumping, cpts, detailMap,
+    handleCloseProjectRequest, handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, stageLumping, currentLumping, cpts, detailMap,
     plotMap, boreholes, boreholeDetailMap, importing, bboxImportType, dovImporting,
     dovImportState, resetDovImport,
     removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList, loadCptDetail, loadChart,
@@ -197,7 +197,7 @@ export function useShellContextValue(
       handleUnsavedSave,
       handleUnsavedDiscard,
       handleUnsavedCancel,
-      writeLumpingSnapshot,
+      stageLumping,
       currentLumping,
     },
     investigations: {
@@ -321,7 +321,7 @@ export function useShellContextValue(
     closeConfirmOpen, setCloseConfirmOpen,
     unsavedDialogOpen, unsavedSaving,
     saveProject, discardSessionImports, handleCloseProjectRequest,
-    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot, currentLumping,
+    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, stageLumping, currentLumping,
     // investigation fields
     cpts, detailMap, plotMap, boreholes, boreholeDetailMap,
     importing, bboxImportType, dovImporting, dovImportState, resetDovImport,

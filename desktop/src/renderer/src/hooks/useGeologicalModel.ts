@@ -286,12 +286,11 @@ export interface UseGeologicalModelResult {
  *     ``handleAutoPopulateFromStratigraphy`` (Seed path) to pass the
  *     stored ``manualMap`` to the backend so the discover ≡ apply ≡ seed
  *     invariant is maintained.  ``null`` when no snapshot is persisted.
- * writeLumpingSnapshot
- *     Callback from ``useProject`` that splices a new
- *     ``StratigraphyLumping`` into the open ``.gmproj`` file and updates
- *     the in-memory ``currentLumping`` state.  Called by
- *     ``applyBoreholeFormationSelection`` after a successful apply so the
- *     alias map is durable across sessions.
+ * stageLumping
+ *     Callback from ``useProject`` that stages a new lumping snapshot
+ *     in-memory and marks the project dirty (two-stage save model).
+ *     Called by ``applyBoreholeFormationSelection`` after a successful
+ *     apply so the alias map is persisted on the next File→Save.
  *
  * Returns
  * -------
@@ -308,7 +307,7 @@ export function useGeologicalModel({
   removeFromSessionImports,
   manifestFormationIds,
   currentLumping,
-  writeLumpingSnapshot,
+  stageLumping,
 }: {
   project: ProjectResponse | null
   toast: (type: 'success' | 'error', message: string) => void
@@ -325,8 +324,8 @@ export function useGeologicalModel({
   manifestFormationIds: ReadonlySet<string> | undefined
   /** Persisted lumping snapshot — ``null`` when no Apply has been committed. */
   currentLumping: StratigraphyLumping | null
-  /** Write a new lumping snapshot to the open ``.gmproj`` file. */
-  writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
+  /** Stage a new lumping snapshot in-memory, marking the project dirty. */
+  stageLumping: (lumping: StratigraphyLumping) => void
 }): UseGeologicalModelResult {
   const [activeGeologicalModel, setActiveGeologicalModel] =
     useState<GeologicalModelResponse | null>(null)
@@ -1972,23 +1971,20 @@ export function useGeologicalModel({
             `deleted=${outcome.deleted_formation_ids.length} ` +
             `created=${outcome.created_formation_ids.length}`,
         )
-        // Persist-on-apply: write the lumping snapshot so the alias map
-        // survives the session.  An empty or absent manualMap writes a
-        // cleared snapshot (schema_version kept; map = {}) so the dialog
-        // does not prefill stale aliases on reopen.
-        // Deliberately fire-and-forget (await omitted): the UI does not
-        // block on the file write; a failure is logged by writeLumpingSnapshot
-        // itself.
+        // Stage-on-apply: update the in-memory lumping snapshot and mark
+        // the project dirty so the alias map is persisted on the next
+        // File→Save (two-stage save model parity with metadata edits).
+        // An empty or absent manualMap writes a cleared snapshot
+        // (schema_version kept; map = {}) so the dialog does not prefill
+        // stale aliases on reopen.
         const lumpingMap =
           manualMap != null && Object.keys(manualMap).length > 0
             ? manualMap
             : {}
-        writeLumpingSnapshot({
+        stageLumping({
           schema_version: 1,
           applied_at: new Date().toISOString(),
           map: lumpingMap,
-        }).catch(err => {
-          log.warn('geology', 'applyBoreholeFormationSelection: writeLumpingSnapshot failed', err)
         })
       } catch (err) {
         log.error('geology', 'applyBoreholeFormationSelection failed', err)
@@ -2003,7 +1999,7 @@ export function useGeologicalModel({
       removeFromManifest,
       addToSessionImports,
       removeFromSessionImports,
-      writeLumpingSnapshot,
+      stageLumping,
     ],
   )
 

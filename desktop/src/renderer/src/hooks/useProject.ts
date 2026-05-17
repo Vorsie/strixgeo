@@ -20,6 +20,13 @@
 // represent explicit data ingestion, not field tweaks. Two-stage save
 // applies to project metadata only.
 //
+// Stratigraphy lumping (Fill-from-boreholes alias map) follows the
+// same two-stage save model as metadata:
+//   * ``currentLumping``  — in-memory staging area; updated by stageLumping.
+//   * ``savedLumping``    — last-loaded-or-saved lumping snapshot.
+//   * dirty includes ``currentLumping !== savedLumping`` so Apply flips
+//     the dirty flag and File→Save clears it.
+//
 // On launch the hook starts with no project loaded — the welcome
 // screen drives the first interaction (Plaxis / AutoCAD / Photoshop
 // pattern). Recent projects are surfaced from the main-process
@@ -54,13 +61,20 @@ interface UseProjectState {
   /** Path to the .gmproj file on disk. */
   filePath: string | null
   /**
-   * In-memory mirror of the lumping snapshot last written by
-   * ``writeLumpingSnapshot`` (or seeded from the file on open).
-   * Null when no lumping has been applied to this project yet.
+   * In-memory staging area for the lumping snapshot — updated by
+   * ``stageLumping`` (Fill-from-boreholes Apply), seeded from the
+   * file on open.  Null when no lumping has been applied yet.
    * Exposed so consumers (useGeologicalModel, GeologyToolbar) can
-   * read the persisted map without an additional file read.
+   * read the current map without an additional file read.
    */
   currentLumping: StratigraphyLumping | null
+  /**
+   * Last-saved lumping snapshot — equal to ``currentLumping`` when
+   * the lumping is clean (``dirty === false``).  Used internally to
+   * compute the dirty flag; exposed so callers can detect unsaved
+   * lumping independently of metadata if needed.
+   */
+  savedLumping: StratigraphyLumping | null
   /** Set of CPT IDs that this project's saved-on-disk .gmproj
    * references. Seeded from the file on open; appended to when the
    * user imports new CPTs; trimmed on discard. NOT persisted to
@@ -128,26 +142,28 @@ interface UseProjectActions {
   archiveCurrent: () => Promise<void>
   closeProject: () => void
   /**
-   * Atomically write the manual lumping snapshot into the current .gmproj
-   * file without triggering a full File→Save cycle.  Called immediately
-   * after a Fill-from-boreholes Apply confirm so the user's grouping is
-   * persisted before the dialog closes, even if the user never File→Saves.
+   * Stage a lumping snapshot in-memory and mark the project dirty.
+   * Called immediately after a Fill-from-boreholes Apply confirm so the
+   * user's grouping flips the dirty flag and persists only when the user
+   * explicitly File→Saves — exactly like an unsaved metadata edit.
    *
-   * No-op when no project file is open (``filePath`` is null) — the
-   * lumping was still applied to the DB, only the file snapshot is skipped.
+   * WHY in-memory only (not immediate disk write): the old behaviour
+   * (``writeLumpingSnapshot``) wrote the .gmproj file immediately on Apply,
+   * which violated the two-stage save model — the lumping "stuck" even
+   * without a File→Save.  Aligning it with the save model gives the user
+   * a consistent mental model: close without saving → lumping is gone,
+   * exactly like an unsaved CPT import or an unsaved metadata change.
    *
    * Parameters
    * ----------
    * lumping
-   *     The lumping snapshot to embed in the file.
+   *     The lumping snapshot to stage.
    *
    * Returns
    * -------
-   * Promise<void>
-   *     Resolves when the write succeeds or is a no-op (no filePath).
-   *     Rejects on Electron IPC / write failure — caller should log + toast.
+   * void
    */
-  writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
+  stageLumping: (lumping: StratigraphyLumping) => void
 }
 
 export type UseProject = UseProjectState & UseProjectActions
@@ -204,6 +220,32 @@ function fullPatchFrom(project: ProjectResponse): ProjectUpdatePayload {
   }
 }
 
+// Structural equality for two lumping snapshots.  Two nulls are equal;
+// a null vs a non-null are not.  When both are non-null, the maps are
+// compared key-by-key (not reference equality, because stageLumping
+// produces a new object reference each call).
+//
+// schema_version and applied_at are intentionally excluded from the
+// comparison: applied_at is a timestamp that changes on every Apply even
+// when the alias map hasn't changed, and schema_version is structural
+// metadata not an engineering decision.  The engineering decision is the
+// map contents — if the map is identical the user didn't make a new
+// decision and the project shouldn't go dirty.
+function lumpingsEqual(
+  a: StratigraphyLumping | null,
+  b: StratigraphyLumping | null,
+): boolean {
+  if (a === b) return true
+  if (a === null || b === null) return false
+  const keysA = Object.keys(a.map)
+  const keysB = Object.keys(b.map)
+  if (keysA.length !== keysB.length) return false
+  for (const k of keysA) {
+    if (a.map[k] !== b.map[k]) return false
+  }
+  return true
+}
+
 // Extract the string ``id`` field from each bundle row. Filters out
 // rows whose id isn't a string (defensive — the file format guarantees
 // it, but the renderer treats bundle entries as opaque ``Record``s so
@@ -230,15 +272,24 @@ export function useProject(): UseProject {
   const [manifestFormationIds, setManifestFormationIds] = useState<Set<string>>(new Set())
   const [manifestSectionIds, setManifestSectionIds] = useState<Set<string>>(new Set())
 
-  // In-memory mirror of the lumping snapshot last written by writeLumpingSnapshot
-  // (or seeded from the file on open). Passed to buildProjectFile in saveProject
-  // so File → Save does NOT overwrite the snapshot with null — which was the S5
-  // bug: saveProject called buildProjectFile(trimmedBundle) without this value and
-  // every Save wiped the lumping the user's last Fill had written via
-  // writeLumpingSnapshot's read-splice-write.
+  // In-memory staging area for the lumping snapshot.  Updated by stageLumping
+  // (Fill-from-boreholes Apply) and seeded from the file on open.  Passed to
+  // buildProjectFile in saveProject so File→Save always writes the current map.
   const [currentLumping, setCurrentLumping] = useState<StratigraphyLumping | null>(null)
 
-  const dirty = useMemo(() => !projectsEqual(project, saved), [project, saved])
+  // Last-saved lumping snapshot — mirrors currentLumping after a successful
+  // saveProject, and is seeded from the file on open (same as project/saved).
+  // WHY a parallel saved slot: dirty must be derived (not a boolean flag) so
+  // the project title asterisk and the unsaved-changes guard stay in sync with
+  // the save/discard model without any manual true/false juggling.  The
+  // cleanest faithful extension of the projectsEqual pattern is to compare
+  // currentLumping with savedLumping — if they differ the project is dirty.
+  const [savedLumping, setSavedLumping] = useState<StratigraphyLumping | null>(null)
+
+  const dirty = useMemo(
+    () => !projectsEqual(project, saved) || !lumpingsEqual(currentLumping, savedLumping),
+    [project, saved, currentLumping, savedLumping],
+  )
 
   // Adopt a project + path pair into both state slots and the recent-
   // projects list. Used by every entry point (new / open / open-recent)
@@ -283,9 +334,12 @@ export function useProject(): UseProject {
         setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
         setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
         setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
-        // Seed the in-memory lumping mirror from the file so saveProject can
-        // preserve it — bundles saved before this field existed carry null.
-        setCurrentLumping(parsed.stratigraphy_lumping ?? null)
+        // Seed both lumping slots from the file so the dirty flag starts
+        // clean (currentLumping === savedLumping after open).  Bundles
+        // saved before this field existed carry null.
+        const seededLumping = parsed.stratigraphy_lumping ?? null
+        setCurrentLumping(seededLumping)
+        setSavedLumping(seededLumping)
         log.info('project', `opened ${fresh.name} from ${path}`)
         return fresh
       } catch (err) {
@@ -327,8 +381,10 @@ export function useProject(): UseProject {
             setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
             setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
             setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
-            // Seed lumping mirror on restore — same pattern as the happy path.
-            setCurrentLumping(parsed.stratigraphy_lumping ?? null)
+            // Seed both lumping slots on restore — same pattern as the happy path.
+            const restoredLumping = parsed.stratigraphy_lumping ?? null
+            setCurrentLumping(restoredLumping)
+            setSavedLumping(restoredLumping)
             // Sum contacts across every model so the log reports the
             // true interpretation-row count, not just the model count
             // (a model with 0 contacts is functionally empty).
@@ -412,6 +468,10 @@ export function useProject(): UseProject {
       setManifestBoreholeIds(new Set())
       setManifestFormationIds(new Set())
       setManifestSectionIds(new Set())
+      // A new project has no lumping decision — reset both staging and
+      // saved snapshots so prior-project state does not leak in.
+      setCurrentLumping(null)
+      setSavedLumping(null)
       log.info('project', `created ${created.name} → ${path}`)
       return created
     },
@@ -561,12 +621,15 @@ export function useProject(): UseProject {
         }
         await window.electron.writeProjectFile(
           filePath,
-          // Pass currentLumping so the snapshot written by writeLumpingSnapshot
-          // survives a File → Save. Without it, every save rebuilds the file
-          // from the API bundle (which has no lumping field) and overwrites the
-          // map the user's last Fill had written (S5 bug).
+          // Pass currentLumping so the staged lumping map is written to disk.
+          // The API bundle has no knowledge of the client-side lumping map;
+          // the caller must pass it explicitly (see buildProjectFile docstring).
           serialiseProjectFile(buildProjectFile(trimmedBundle, currentLumping)),
         )
+        // Align savedLumping with the written snapshot so the dirty flag
+        // clears.  Done INSIDE the inner try so a file-write failure leaves
+        // savedLumping unchanged (the project stays dirty for retry).
+        setSavedLumping(currentLumping)
       } catch (err) {
         // File write failure leaves the DB ahead of the file. Log loudly
         // but treat as success — the next save will catch up, and the
@@ -668,6 +731,11 @@ export function useProject(): UseProject {
     setManifestBoreholeIds(new Set(dupBundle.boreholes.map(b => b.id)))
     setManifestFormationIds(new Set(idsFromBundle(dupBundle.geological_formations)))
     setManifestSectionIds(new Set(idsFromBundle(dupBundle.cross_sections)))
+    // The file we just wrote carries currentLumping — align savedLumping
+    // so dirty correctly reports false after Save As. Without this,
+    // a project that has a staged (unsaved) lumping would open dirty
+    // immediately after Save As, which is wrong.
+    setSavedLumping(currentLumping)
     log.info('project', `saved-as ${duplicated.name} → ${path}`)
     return duplicated
   }, [project, adopt, currentLumping])
@@ -678,6 +746,7 @@ export function useProject(): UseProject {
     setManifestFormationIds(new Set())
     setManifestSectionIds(new Set())
     setCurrentLumping(null)
+    setSavedLumping(null)
   }
 
   const archiveCurrent = useCallback(async (): Promise<void> => {
@@ -701,48 +770,22 @@ export function useProject(): UseProject {
     clearAllManifests()
   }, [])
 
-  // Atomically embed the lumping snapshot into the current .gmproj without
-  // triggering a full bundle refetch or metadata PATCH.
+  // Stage a lumping snapshot in-memory and mark the project dirty.
   //
-  // Strategy: read the current file from disk → parse → splice in the new
-  // ``stratigraphy_lumping`` field → write back.  Using the on-disk content
-  // rather than rebuilding from the bundle preserves any unsaved metadata
-  // edits the user has in flight without requiring a save-first gate.
-  //
-  // WHY read-splice-write and not re-build from bundle: a full bundle GET
-  // after every Fill confirm is expensive (~100ms round-trip) and races
-  // with any in-flight metadata edits (the two-stage save model).  Reading
-  // the file and patching one field is the minimal, side-effect-free update.
-  const writeLumpingSnapshot = useCallback(
-    async (lumping: StratigraphyLumping): Promise<void> => {
-      if (filePath === null) {
-        // No file open yet — the DB is already updated; skip the file write.
-        log.debug('project', 'writeLumpingSnapshot: no filePath, skipping file write')
-        return
-      }
-      log.debug('project', `writeLumpingSnapshot: patching ${filePath}`)
-      let raw: string
-      try {
-        raw = await window.electron.readProjectFile(filePath)
-      } catch (err) {
-        log.warn('project', 'writeLumpingSnapshot: readProjectFile failed — file may have moved', err)
-        return
-      }
-      const parsed = parseProjectFile(raw)
-      if (parsed === null) {
-        log.warn('project', 'writeLumpingSnapshot: file could not be parsed — skipping lumping write')
-        return
-      }
-      const patched = { ...parsed, stratigraphy_lumping: lumping }
-      await window.electron.writeProjectFile(filePath, serialiseProjectFile(patched))
-      // Mirror into state so saveProject can include it when building the
-      // bundle — without this, File → Save rebuilds the file from the API
-      // bundle (which has no lumping field) and overwrites the snapshot we
-      // just wrote (S5 bug: every save after writeLumpingSnapshot wiped the map).
+  // WHY no disk write: the old ``writeLumpingSnapshot`` wrote the .gmproj
+  // immediately on Apply, which violated the two-stage save model — the
+  // lumping survived a close-without-save, defeating the user's "discard
+  // means discard" expectation.  This function is the aligned replacement:
+  // it updates currentLumping (which is included in every subsequent
+  // buildProjectFile call) and because savedLumping is left unchanged,
+  // dirty becomes true — exactly as if the user had edited a metadata field.
+  // File→Save then writes the lumping and aligns savedLumping.
+  const stageLumping = useCallback(
+    (lumping: StratigraphyLumping): void => {
       setCurrentLumping(lumping)
-      log.success('project', `writeLumpingSnapshot: wrote lumping snapshot to ${filePath}`)
+      log.debug('project', `stageLumping: staged lumping snapshot (map size ${Object.keys(lumping.map).length})`)
     },
-    [filePath],
+    [],
   )
 
   return {
@@ -751,6 +794,7 @@ export function useProject(): UseProject {
     dirty,
     filePath,
     currentLumping,
+    savedLumping,
     manifestCptIds,
     manifestBoreholeIds,
     manifestFormationIds,
@@ -767,6 +811,6 @@ export function useProject(): UseProject {
     discardEdits,
     archiveCurrent,
     closeProject,
-    writeLumpingSnapshot,
+    stageLumping,
   }
 }

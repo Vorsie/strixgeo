@@ -43,24 +43,24 @@ export interface UseProjectLifecycleResult {
   /** "Cancel" branch — aborts the close / quit. */
   handleUnsavedCancel: () => void
   /**
-   * Atomically write the manual lumping snapshot into the open .gmproj file.
-   * Called after a Fill-from-boreholes Apply confirm succeeds, before the
-   * dialog closes, so the user's grouping is persisted even if they never
-   * File→Save.  No-op when no file is open.
+   * Stage a lumping snapshot in-memory and mark the project dirty.
+   * Called after a Fill-from-boreholes Apply confirm succeeds — the
+   * lumping is persisted when the user File→Saves, and is lost on
+   * close-without-save (two-stage save model parity).
    *
    * Parameters
    * ----------
    * lumping
-   *     The lumping snapshot to embed in the file.
+   *     The lumping snapshot to stage.
    *
    * Returns
    * -------
-   * Promise<void>
+   * void
    */
-  writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
+  stageLumping: (lumping: StratigraphyLumping) => void
   /**
    * In-memory mirror of the lumping snapshot last written via
-   * ``writeLumpingSnapshot`` or seeded from the file on open.
+   * ``stageLumping`` or seeded from the file on open.
    * Null when no lumping has been applied to this project yet.
    * Exposed here so ``GeologyToolbar`` (which reads the lifecycle
    * slice) can prefill ``FormationSelectionDialog`` without a
@@ -125,9 +125,10 @@ export interface UseProjectLifecycleResult {
  *     From ``useGeologicalModel`` — removes unsaved contacts from cache.
  * activeGeologicalModel
  *     From ``useGeologicalModel`` — needed for contact cleanup on discard.
- * writeLumpingSnapshot
- *     From ``useProject`` — atomically patches the .gmproj with a new lumping
- *     map; threaded here so callers can access it through the lifecycle slice.
+ * stageLumping
+ *     From ``useProject`` — stages a lumping snapshot in-memory and marks
+ *     the project dirty; threaded here so callers can access it through
+ *     the lifecycle slice.
  * currentLumping
  *     From ``useProject`` — the in-memory lumping snapshot (null until the
  *     user applies a Fill-from-boreholes confirm with aliases).  Threaded
@@ -160,7 +161,7 @@ export function useProjectLifecycle({
   openProjectFile,
   discardContacts,
   activeGeologicalModel,
-  writeLumpingSnapshot,
+  stageLumping,
   currentLumping,
 }: {
   project: { id: string; name: string } | null
@@ -183,7 +184,7 @@ export function useProjectLifecycle({
   openProjectFile: (path: string) => Promise<unknown>
   discardContacts: (ids: ReadonlySet<string>) => void
   activeGeologicalModel: ActiveModel | null
-  writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
+  stageLumping: (lumping: StratigraphyLumping) => void
   currentLumping: StratigraphyLumping | null
 }): UseProjectLifecycleResult {
   // ---------------------------------------------------------------------------
@@ -511,7 +512,7 @@ export function useProjectLifecycle({
     handleUnsavedSave,
     handleUnsavedDiscard,
     handleUnsavedCancel,
-    writeLumpingSnapshot,
+    stageLumping,
     currentLumping,
   }
 }
