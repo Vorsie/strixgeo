@@ -103,6 +103,7 @@ function makeStubContext(): ShellContextValue {
       handleUnsavedDiscard: vi.fn(),
       handleUnsavedCancel: vi.fn(),
       stageLumping: vi.fn(),
+      currentLumping: null,
     },
     investigations: {
       cpts: [],
