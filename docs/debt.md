@@ -903,6 +903,35 @@ contract (S1–S5). tsc net −4 vs 84 baseline; 634/634 vitest.
 
 ---
 
+## 56. Manual-lump cross-project reuse + standalone group editor (Tier C — deferred)
+
+**What.** The manual stratigraphy lumping map (`stratigraphy_lumping.map` in
+the `.gmproj` bundle, scope step 7) is per-project and entirely in the user's
+hands — the system never infers synonymy.  Two things are missing from the
+complete UX story:
+
+1. **Cross-project reuse** — if a user lumped "Quartair: Holoceen veen" and
+   "Vlaamse Vallei" → "Holoceen" for project A, they want to reuse that
+   grouping for project B without re-doing the work.  The correct shape is an
+   explicit **"Import lumping from project..."** action (opens a file-picker,
+   merges the other project's `stratigraphy_lumping.map`).  NOT auto-import,
+   NOT a shared user-global library — every merge is an explicit user decision.
+2. **Standalone group editor** — a panel where the user can edit existing
+   lumping groups (rename the target, drag raw names between groups, un-lump a
+   name) outside of a live Fill-from-boreholes run.  Today the only edit
+   surface is the FormationSelectionDialog triggered by "Fill from boreholes".
+
+**Why deferred.** The per-project map is usable at v1.0; the cross-project
+import and the standalone editor are convenience features.  They are non-trivial
+UI (file-picker, merge strategy, drag-between-groups) and would delay the
+stratigraphy-lumping slice without adding correctness.
+
+**When to revisit.** When a user explicitly asks to reuse a project's
+grouping elsewhere (i.e. the per-project constraint becomes friction in
+real dogfooding).  Not before.
+
+---
+
 ## Historical note — 2026-05-13 security-reviewer audit pass
 
 The remaining audit findings — #35 CORS, #36 CSP+window-open+
