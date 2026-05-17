@@ -93,6 +93,72 @@ const IC_ZONES = [
 
 const IC_ZONE_BOUNDARIES = [1.31, 2.05, 2.60, 2.95, 3.60]
 
+// ── Depth-gap detection ─────────────────────────────────────────────────────
+
+/** One row in the chart data array.  All measurement channels are nullable
+ *  so a null-sentinel row (depth present, all channels null) can break
+ *  Recharts lines across a no-data interval without interpolating. */
+export interface CptDataPoint {
+  depth: number
+  qc: number | null
+  fs: number | null
+  rf: number | null
+  u2_kpa: number | null
+  qt: number | null
+  ic: number | null
+}
+
+/**
+ * Insert null-sentinel rows at depth discontinuities so the qc / fs / Rf / u2
+ * lines break visually rather than interpolating across a real no-data gap.
+ *
+ * Context: a DOV CPT can be pushed to refusal, then a borehole drilled to
+ * continue past the resistance layer.  The drilled interval carries depth
+ * entries but no qc — those rows are currently *skipped* by the DOV parser
+ * (which only keeps rows with both depth and qc), so the gap collapses to a
+ * straight line in the chart (see 1779022792921.pdf reference report).
+ * The correct representation is a broken line.
+ *
+ * Because changing qc_mpa to allow null elements in the ORM array contract
+ * is invasive (CptSeriesOrm, persist, API schema — all typed list[float]),
+ * the gap is detected here from consecutive depth deltas: when two adjacent
+ * rows jump by more than GAP_THRESHOLD_M, a sentinel row with null channels
+ * is inserted between them.  The threshold is generous enough to avoid
+ * tripping on variable sampling rates (typical DOV step is 0.02 m) while
+ * catching real handoff gaps (typically 0.5–5 m).
+ *
+ * @param rows - Flat depth-ascending data array built from the plot arrays.
+ * @param gapThresholdM - Minimum depth delta to qualify as a gap.
+ *   Defaults to 0.20 m (10× the typical 2 cm DOV step).
+ * @returns A new array with null-sentinel rows inserted at every gap.
+ */
+export function injectDepthGaps(
+  rows: CptDataPoint[],
+  gapThresholdM = 0.20,
+): CptDataPoint[] {
+  if (rows.length < 2) return rows
+  const result: CptDataPoint[] = [rows[0]]
+  for (let i = 1; i < rows.length; i++) {
+    const prev = rows[i - 1]
+    const curr = rows[i]
+    if (curr.depth - prev.depth > gapThresholdM) {
+      // Sentinel at the midpoint so the axis label renders at a sensible
+      // position; all channels null so every Line breaks here.
+      result.push({
+        depth: (prev.depth + curr.depth) / 2,
+        qc: null,
+        fs: null,
+        rf: null,
+        u2_kpa: null,
+        qt: null,
+        ic: null,
+      })
+    }
+    result.push(curr)
+  }
+  return result
+}
+
 function makeLevelFmt(elevationM: number | null) {
   return (d: number) => {
     const v = elevationM !== null ? elevationM - d : d
@@ -165,7 +231,7 @@ export default function CptChart({
   const preDrillM  = detail?.pre_drill_m ?? 0
   const cptType    = detail?.cpt_type ?? ''
 
-  const data = plot.depths_m.map((d, i) => ({
+  const rawData = plot.depths_m.map((d, i) => ({
     depth:   d,
     qc:      plot.qc_mpa[i]                    ?? null,
     fs:      plot.fs_mpa ?  (plot.fs_mpa[i]    ?? null) : null,
@@ -179,6 +245,12 @@ export default function CptChart({
     qt:      plot.q_total_mpa ? (plot.q_total_mpa[i] ?? null) : null,
     ic:      plot.ic     ?  (plot.ic[i]         ?? null) : null,
   }))
+  // Inject null-sentinel rows at depth discontinuities so the chart
+  // lines break instead of interpolating across real no-data gaps
+  // (e.g. a borehole drilled through a layer after CPT refusal).
+  // connectNulls={false} on every Line already handles the break;
+  // we just need the sentinels in the data array.
+  const data = injectDepthGaps(rawData)
 
   const maxDepth = Math.ceil((plot.depths_m.at(-1) ?? 1) * 10) / 10
 
@@ -436,7 +508,7 @@ export default function CptChart({
       <div className="px-4 pt-3 pb-1 shrink-0">
         <div className="text-sm font-semibold text-gray-700 dark:text-slate-200">{name}</div>
         <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-slate-400 mt-0.5">
-          <span>{cptType} · {data.length} rows · {maxDepth.toFixed(2)} m</span>
+          <span>{cptType} · {detail?.n_rows ?? rawData.length} rows · {maxDepth.toFixed(2)} m</span>
           {/* Inline elevation editor sits on the same line as the run
               summary so the user can fix a missing Z without leaving the
               chart. Falls back to the static "Z = …" readout when no
