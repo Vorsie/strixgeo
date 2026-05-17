@@ -222,6 +222,14 @@ export function useProject(): UseProject {
   const [manifestFormationIds, setManifestFormationIds] = useState<Set<string>>(new Set())
   const [manifestSectionIds, setManifestSectionIds] = useState<Set<string>>(new Set())
 
+  // In-memory mirror of the lumping snapshot last written by writeLumpingSnapshot
+  // (or seeded from the file on open). Passed to buildProjectFile in saveProject
+  // so File → Save does NOT overwrite the snapshot with null — which was the S5
+  // bug: saveProject called buildProjectFile(trimmedBundle) without this value and
+  // every Save wiped the lumping the user's last Fill had written via
+  // writeLumpingSnapshot's read-splice-write.
+  const [currentLumping, setCurrentLumping] = useState<StratigraphyLumping | null>(null)
+
   const dirty = useMemo(() => !projectsEqual(project, saved), [project, saved])
 
   // Adopt a project + path pair into both state slots and the recent-
@@ -267,6 +275,9 @@ export function useProject(): UseProject {
         setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
         setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
         setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
+        // Seed the in-memory lumping mirror from the file so saveProject can
+        // preserve it — bundles saved before this field existed carry null.
+        setCurrentLumping(parsed.stratigraphy_lumping ?? null)
         log.info('project', `opened ${fresh.name} from ${path}`)
         return fresh
       } catch (err) {
@@ -308,6 +319,8 @@ export function useProject(): UseProject {
             setManifestBoreholeIds(new Set(idsFromBundle(parsed.boreholes)))
             setManifestFormationIds(new Set(idsFromBundle(parsed.geological_formations)))
             setManifestSectionIds(new Set(idsFromBundle(parsed.cross_sections)))
+            // Seed lumping mirror on restore — same pattern as the happy path.
+            setCurrentLumping(parsed.stratigraphy_lumping ?? null)
             // Sum contacts across every model so the log reports the
             // true interpretation-row count, not just the model count
             // (a model with 0 contacts is functionally empty).
@@ -540,7 +553,11 @@ export function useProject(): UseProject {
         }
         await window.electron.writeProjectFile(
           filePath,
-          serialiseProjectFile(buildProjectFile(trimmedBundle)),
+          // Pass currentLumping so the snapshot written by writeLumpingSnapshot
+          // survives a File → Save. Without it, every save rebuilds the file
+          // from the API bundle (which has no lumping field) and overwrites the
+          // map the user's last Fill had written (S5 bug).
+          serialiseProjectFile(buildProjectFile(trimmedBundle, currentLumping)),
         )
       } catch (err) {
         // File write failure leaves the DB ahead of the file. Log loudly
@@ -562,6 +579,7 @@ export function useProject(): UseProject {
     manifestBoreholeIds,
     manifestFormationIds,
     manifestSectionIds,
+    currentLumping,
   ])
 
   // Revert in-memory changes back to the last-saved snapshot. Useful
@@ -645,6 +663,7 @@ export function useProject(): UseProject {
     setManifestBoreholeIds(new Set())
     setManifestFormationIds(new Set())
     setManifestSectionIds(new Set())
+    setCurrentLumping(null)
   }
 
   const archiveCurrent = useCallback(async (): Promise<void> => {
@@ -702,6 +721,11 @@ export function useProject(): UseProject {
       }
       const patched = { ...parsed, stratigraphy_lumping: lumping }
       await window.electron.writeProjectFile(filePath, serialiseProjectFile(patched))
+      // Mirror into state so saveProject can include it when building the
+      // bundle — without this, File → Save rebuilds the file from the API
+      // bundle (which has no lumping field) and overwrites the snapshot we
+      // just wrote (S5 bug: every save after writeLumpingSnapshot wiped the map).
+      setCurrentLumping(lumping)
       log.success('project', `writeLumpingSnapshot: wrote lumping snapshot to ${filePath}`)
     },
     [filePath],
