@@ -70,8 +70,10 @@ shipped 2026-05-17** (restore loops now have
 style remains — #48 stays open, rescoped). **#42 resolved
 2026-05-17** — all three multi-class offenders split: formation_contact
 → package + re-export, tin_surface + geology_validator value objects
-→ domain/value_objects/ (verbatim, importers unchanged). 27 open
-items**) compact them. Commit messages and code comments written
+→ domain/value_objects/ (verbatim, importers unchanged). **#18
+resolved 2026-05-17** — stale surfaces suppress crossings validation
+(shared useCrossingsValidation hook + neutral pending-build banner;
+auto re-validates on Build). 26 open items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -380,38 +382,6 @@ it does network I/O), dry-run default, with this safety bar baked in:
   parsed vs 1 NULL) → no stamp + WARNING; lab-family backfiller →
   always no-stamp + instruct-reimport. No live-DOV integration test
   needed before the trigger.
-
-## 18. Crossings validator — suppress / qualify when surfaces are stale (low — UX consistency)
-
-**What.** The crossings validator runs against the cached TIN.
-Post on-click build pivot, the cache can be stale during iterative
-editing (per-contact mutations only flip ``is_stale=True``;
-Delaunay only re-runs on Build). The banner ("N surface crossings
-detected") was a confident statement; commit 43f3864 added an
-"as of last build — click Build to refresh" suffix when stale,
-which is the short-term honesty fix.
-
-The longer-term option is to suppress the validator fetch entirely
-when ``staleSurfaceCount > 0`` and instead show "Build the model
-to validate crossings." That is cleaner UX (no qualified amber
-warnings about possibly-out-of-date geometry) but requires:
-
-* Threading ``staleSurfaceCount`` into the crossings useEffect so
-  the fetch is gated on freshness.
-* A second banner state ("validation pending build") with its own
-  copy + visual.
-* Re-running the fetch automatically on the rebuild-success
-  callback.
-
-**Why deferred.** The suffix is sufficient for v1 — engineers
-know "as of last build" means "click Build to refresh." Cost of
-the cleaner UX is non-trivial (state management + new banner
-state) for a marginal clarity win.
-
-**When to revisit.** First time a real user reports being misled
-by the qualified banner ("I rebuilt and the crossing went away
-— was the warning real?"), or when the crossings validator gets
-extended with more issue kinds where staleness matters more.
 
 ## 19. Bundle vertices / triangles size cap (low — coworker-distribution trigger)
 
