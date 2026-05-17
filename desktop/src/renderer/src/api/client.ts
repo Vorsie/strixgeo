@@ -163,6 +163,10 @@ export interface GeologicalFormationResponse {
   pinned_order: boolean
   regional_ref: string | null
   description: string | null
+  // Three-level hierarchy unit attributes — null on a geological
+  // formation; set on litho (lithology) / geotech (nad_class) units.
+  lithology: string | null
+  nad_class: number | null
   created_at: string
   updated_at: string
 }
@@ -175,6 +179,8 @@ export interface GeologicalFormationCreatePayload {
   pinned_order?: boolean
   regional_ref?: string | null
   description?: string | null
+  lithology?: string | null
+  nad_class?: number | null
 }
 
 export interface GeologicalFormationUpdatePayload {
@@ -185,12 +191,20 @@ export interface GeologicalFormationUpdatePayload {
   pinned_order?: boolean | null
   regional_ref?: string | null
   description?: string | null
+  lithology?: string | null
+  nad_class?: number | null
 }
 
 // Geological-model response — a project can have multiple
 // interpretation models; one is active at a time. Contacts live as
 // child rows fetched separately so the model list response stays
 // light.
+// Three-level modelling hierarchy discriminator (CLAUDE.md "Modelling
+// hierarchy"). ``is_active`` is scoped PER KIND on the backend — a
+// geological and a lithostratigraphic model can both be active at
+// once, so the frontend must select by kind, not "the first active".
+export type ModelKind = 'geological' | 'lithostratigraphic' | 'geotechnical'
+
 export interface GeologicalModelResponse {
   id: string
   app_project_id: string
@@ -198,6 +212,10 @@ export interface GeologicalModelResponse {
   description: string | null
   is_active: boolean
   excluded_borehole_ids: string[]
+  kind: ModelKind
+  // Mandatory for litho/geotech (a litho model refines a geological
+  // one; geotech refines a litho one); null only for geological.
+  parent_geological_model_id: string | null
   created_at: string
   updated_at: string
 }
@@ -207,6 +225,8 @@ export interface GeologicalModelCreatePayload {
   description?: string | null
   is_active?: boolean
   excluded_borehole_ids?: string[]
+  kind?: ModelKind
+  parent_geological_model_id?: string | null
 }
 
 export interface GeologicalModelUpdatePayload {
@@ -248,6 +268,38 @@ export interface FormationContactCreatePayload {
   observation_id?: string | null
   observation_layer_id?: string | null
   notes?: string | null
+}
+
+// Lithostratigraphic-suggestion (litho slice 3/4). One read-only
+// proposed layer from the Robertson-2015/2009 CPT segmenter or the
+// borehole ObservationLayer mapping. The user accepts → it becomes a
+// real FormationContact (assisted-manual, never auto-committed).
+export type LithoSuggestionConfidence = 'high' | 'medium' | 'low'
+
+export interface LithoLayerSuggestion {
+  depth_top_m: number
+  depth_base_m: number
+  suggested_lithology: string
+  suggested_nad_class: number | null
+  mean_qc_mpa: number | null
+  dr_pct: number | null
+  confidence: LithoSuggestionConfidence
+  source: string
+}
+
+export interface LithoSuggestionResponse {
+  investigation_type: 'cpt' | 'borehole'
+  minimum_layer_thickness_m: number
+  layers: LithoLayerSuggestion[]
+}
+
+export interface LithoSuggestionRequest {
+  cpt_id?: string | null
+  borehole_id?: string | null
+  minimum_layer_thickness_m?: number
+  gunsat_kNm3?: number
+  gwater_kNm3?: number
+  dr_compression_factor?: number
 }
 
 export interface FormationContactUpdatePayload {
@@ -1325,6 +1377,21 @@ export const api = {
       modelId: string,
     ): Promise<CrossingValidationResponse> =>
       get(`/projects/${projectId}/geology/models/${modelId}/validate/crossings`),
+
+    // Litho slice 3/4 — read-only segmentation suggestions for one
+    // investigation (CPT: Robertson-2015/2009; borehole: DOV
+    // hoofdnaam mapping). Model must be kind='lithostratigraphic'
+    // (422 otherwise). Nothing is written; the user accepts a layer
+    // → it becomes a FormationContact via the normal createContact.
+    suggestLitho: (
+      projectId: string,
+      modelId: string,
+      body: LithoSuggestionRequest,
+    ): Promise<LithoSuggestionResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/suggest-litho`,
+        body,
+      ),
 
     // Build (or re-build) the DEM ground-surface TIN for the model's
     // investigation hull.  The server samples the public DEM (DHMVII
