@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api/client'
 import { log } from '../utils/log'
+import type { StratigraphyLumping } from '../utils/projectFile'
 
 /** Shape of the active geological model (id only — enough for contact cleanup). */
 interface ActiveModel {
@@ -41,6 +42,22 @@ export interface UseProjectLifecycleResult {
   handleUnsavedDiscard: () => void
   /** "Cancel" branch — aborts the close / quit. */
   handleUnsavedCancel: () => void
+  /**
+   * Atomically write the manual lumping snapshot into the open .gmproj file.
+   * Called after a Fill-from-boreholes Apply confirm succeeds, before the
+   * dialog closes, so the user's grouping is persisted even if they never
+   * File→Save.  No-op when no file is open.
+   *
+   * Parameters
+   * ----------
+   * lumping
+   *     The lumping snapshot to embed in the file.
+   *
+   * Returns
+   * -------
+   * Promise<void>
+   */
+  writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
 }
 
 /**
@@ -126,6 +143,7 @@ export function useProjectLifecycle({
   openProjectFile,
   discardContacts,
   activeGeologicalModel,
+  writeLumpingSnapshot,
 }: {
   project: { id: string; name: string } | null
   metadataDirty: boolean
@@ -147,6 +165,7 @@ export function useProjectLifecycle({
   openProjectFile: (path: string) => Promise<unknown>
   discardContacts: (ids: ReadonlySet<string>) => void
   activeGeologicalModel: ActiveModel | null
+  writeLumpingSnapshot: (lumping: StratigraphyLumping) => Promise<void>
 }): UseProjectLifecycleResult {
   // ---------------------------------------------------------------------------
   // Dialog state
@@ -473,5 +492,6 @@ export function useProjectLifecycle({
     handleUnsavedSave,
     handleUnsavedDiscard,
     handleUnsavedCancel,
+    writeLumpingSnapshot,
   }
 }
