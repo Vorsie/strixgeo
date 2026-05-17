@@ -22,6 +22,7 @@ function makeSection(overrides: Partial<CrossSectionResponse> = {}): CrossSectio
     vertical_exaggeration: 2,
     excluded_borehole_ids: [],
     excluded_cpt_ids: [],
+    seeded_formation_contact_ids: [],
     min_depth_m: null,
     max_depth_m: null,
     display_order: 0,
