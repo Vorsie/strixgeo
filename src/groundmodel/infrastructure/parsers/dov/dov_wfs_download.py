@@ -46,6 +46,7 @@ import httpx
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_common import DOV_DOWNLOAD_PARALLELISM
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+from groundmodel.shared.progress import ProgressCallback, fire_progress
 
 RowT = TypeVar("RowT")
 ResultT = TypeVar("ResultT")
@@ -68,6 +69,7 @@ async def parallel_download_and_process(
     logger: GroundModelLogger,
     parallelism: int = DOV_DOWNLOAD_PARALLELISM,
     error_id_of: ErrorIdFn[RowT] | None = None,
+    progress_cb: ProgressCallback | None = None,
 ) -> list[tuple[RowT, ResultT]]:
     """Download every row's XML in parallel, run ``process`` on each.
 
@@ -116,6 +118,10 @@ async def parallel_download_and_process(
         blurb for per-row error logs. Defaults to the row's permkey
         when omitted; callers with richer context (parent IDs,
         observation type) supply their own.
+    progress_cb
+        Optional progress callback.  Receives ``("download", done, total)``
+        every ``progress_step`` items.  Default ``None`` preserves the
+        original no-callback behaviour for all callers that don't opt in.
 
     Returns
     -------
@@ -154,6 +160,7 @@ async def parallel_download_and_process(
             total=total,
             progress_step=progress_step,
             error_id_of=error_id_of,
+            progress_cb=progress_cb,
         )
         for row in rows
     ]
@@ -194,12 +201,44 @@ async def _download_one(
     total: int,
     progress_step: int,
     error_id_of: ErrorIdFn[RowT] | None,
+    progress_cb: ProgressCallback | None = None,
 ) -> ResultT:
     """Cache check → semaphore-bounded HTTP → write-through → process.
 
     Lives at module level (not nested in ``parallel_download_and_process``)
     so each task closes over only its own arguments; nesting would have
     every task carry the outer function's frame on its event-loop stack.
+
+    Parameters
+    ----------
+    row : RowT
+        WFS row descriptor for this download.
+    http : httpx.AsyncClient
+        Shared HTTP client.
+    cache : DovXmlCache | None
+        Optional XML cache.
+    xml_url_of : XmlUrlFn[RowT]
+        Extracts the download URL from a row.
+    permkey_of : PermkeyFn[RowT]
+        Extracts the cache key from a row.
+    process : ProcessFn[RowT, ResultT]
+        Invoked synchronously inside the task after download.
+    sem : asyncio.Semaphore
+        Bounded concurrency slot.
+    label : str
+        Log prefix.
+    logger : GroundModelLogger
+        Caller's logger.
+    progress : dict[str, int]
+        Shared mutable counter ``{"done": int, "hits": int}``.
+    total : int
+        Total rows in this batch.
+    progress_step : int
+        Fire log + callback every this many completions.
+    error_id_of : ErrorIdFn[RowT] | None
+        Optional row identity blurb for error messages.
+    progress_cb : ProgressCallback | None
+        Optional callback fired on each logging tick.
     """
     xml_url = xml_url_of(row)
     permkey = permkey_of(row)
@@ -237,4 +276,5 @@ async def _download_one(
         progress["hits"] += 1
     if progress["done"] % progress_step == 0 or progress["done"] == total:
         logger.info(f"{label} progress: {progress['done']}/{total} downloaded+parsed")
+        await fire_progress(progress_cb, "download", progress["done"], total)
     return result
