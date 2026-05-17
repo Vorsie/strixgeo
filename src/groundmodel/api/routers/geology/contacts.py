@@ -205,9 +205,16 @@ async def create_contact(
                     f"in project {project_id} — seeded set not updated"
                 )
         except Exception as exc:
+            # Non-fatal by contract (must not turn 201 → 500), but a failed
+            # session.commit() leaves the AsyncSession in a PendingRollbackError
+            # state — rolling back returns it clean before get_session's
+            # finaliser closes it, so a swallowed failure here cannot poison
+            # an unrelated later use of the same session.
+            await session.rollback()
             logger.warning(
                 f"create_contact: section seeding failed — contact {contact.id} "
-                f"created but section {request.section_id} seeded set not updated: {exc!r}"
+                f"created but section {request.section_id} seeded set not "
+                f"updated ({type(exc).__name__}): {exc!r}"
             )
 
     return contact
@@ -437,9 +444,16 @@ async def auto_populate_from_stratigraphy(
                     f"{project_id} — seeded set not updated"
                 )
         except Exception as exc:
+            # Non-fatal by contract (the Seed use case already committed its
+            # own transaction); roll back the failed seeding-patch transaction
+            # so the AsyncSession is clean before get_session's finaliser
+            # closes it. Without this a failed session.commit() above leaves
+            # the session in PendingRollbackError.
+            await session.rollback()
             logger.warning(
                 f"Seed: section seeding failed — contacts created but section "
-                f"{request.section_id} seeded set not updated: {exc!r}"
+                f"{request.section_id} seeded set not updated "
+                f"({type(exc).__name__}): {exc!r}"
             )
 
     return AutoPopulateFromStratigraphyResponse(
