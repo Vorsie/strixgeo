@@ -41,9 +41,19 @@ the build that created it" message.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
+
+# Bounds for the StratigraphyLumping sub-object. The .gmproj file is the
+# highest-trust on-disk input we accept (a crafted/corrupted bundle is the
+# threat) — an unbounded `map` dict lets a malicious file allocate an
+# arbitrarily large structure during Pydantic validation on restore. A real
+# geological project has at most a few hundred distinct formation names, so
+# these ceilings are generous while still capping the DoS surface.
+_LUMPING_MAX_ENTRIES = 2_000  # formation-name pairs; real projects ≪ this
+_LUMPING_STR_MAX = 512  # a formation name / normalised key is ≤ ~100 chars
+_APPLIED_AT_MAX = 64  # ISO-8601 UTC is ≤ ~32 chars
 
 
 class StratigraphyLumping(BaseModel):
@@ -70,8 +80,14 @@ class StratigraphyLumping(BaseModel):
     """
 
     schema_version: int = 1
-    applied_at: str
-    map: dict[str, str] = Field(default_factory=dict)
+    applied_at: Annotated[str, Field(max_length=_APPLIED_AT_MAX)]
+    map: Annotated[
+        dict[
+            Annotated[str, Field(max_length=_LUMPING_STR_MAX)],
+            Annotated[str, Field(max_length=_LUMPING_STR_MAX)],
+        ],
+        Field(default_factory=dict, max_length=_LUMPING_MAX_ENTRIES),
+    ]
 
 
 # Current bundle format version. Bumped when the bundle shape changes
