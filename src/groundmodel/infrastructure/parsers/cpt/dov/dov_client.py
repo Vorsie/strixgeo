@@ -25,12 +25,19 @@ Debugging tips:
     coordinates look plausible for Belgium (X ≈ 20 000–290 000, Y ≈ 150 000–245 000).
   - If XML downloads return 404, the `fiche` URL format may have changed —
     check the property dump from `_wfs_features` at TRACE level.
+
+WFS index split:
+  ``fetch_wfs_index(bbox)`` fully resolves the recursive bbox-split before
+  returning.  This lets callers emit a ``"pins"`` SSE event immediately (so the
+  frontend shows all N investigation locations within ~1 s) and then call
+  ``fetch_bbox_processed(index, process, ...)`` for the heavy download phase.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TypeVar
 
 import httpx
@@ -52,9 +59,42 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
 )
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import last_path_segment
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+from groundmodel.shared.progress import ProgressCallback, fire_progress
 
 _T = TypeVar("_T")
 ProcessFn = Callable[[bytes, str], _T]
+
+# Internal tuple shape returned by ``_wfs_features`` — one element per WFS feature.
+# (xml_url, sondeernummer, x_lambert72, y_lambert72)
+# x/y come from X_mL72 / Y_mL72 in the GeoJSON feature properties and are in
+# Belgian Lambert 72 (EPSG:31370) — the same CRS as the WFS bbox query.
+_WfsFeatureTuple = tuple[str, str, float, float]
+
+
+@dataclass(frozen=True)
+class WfsIndexEntry:
+    """One CPT found during WFS discovery — all information available before XML download.
+
+    Attributes
+    ----------
+    permkey : str
+        DOV permkey derived from the ``fiche`` URL's last path segment.
+        Used as the XML cache key and as the stable dedup identifier.
+    name : str
+        Human-readable CPT name (``sondeernummer``, e.g. "GEO-02/079-S3").
+    xml_url : str
+        Absolute URL of the CPT XML document (proxy URL — no 302 redirect).
+    x_lambert72 : float
+        Easting in Belgian Lambert 72 (EPSG:31370), metres.
+    y_lambert72 : float
+        Northing in Belgian Lambert 72 (EPSG:31370), metres.
+    """
+
+    permkey: str
+    name: str
+    xml_url: str
+    x_lambert72: float
+    y_lambert72: float
 
 
 class DovClient(GroundModelLogger):
@@ -76,6 +116,69 @@ class DovClient(GroundModelLogger):
         self._http = http
         self._cache = cache
 
+    async def fetch_wfs_index(
+        self,
+        west: float,
+        south: float,
+        east: float,
+        north: float,
+    ) -> list[WfsIndexEntry]:
+        """Resolve the full WFS bbox-split and return a typed index of all CPTs found.
+
+        This is Phase 1 of the two-phase import: it runs the recursive bbox
+        split + quadrant dedup entirely before any XML is downloaded, so the
+        caller can emit a ``"pins"`` SSE event with all investigation locations
+        immediately (~1 s after the user draws the bbox) while the heavier
+        download phase runs in the background.
+
+        Parameters
+        ----------
+        west, south, east, north : float
+            Bounding box corners in WGS84 decimal degrees.
+
+        Returns
+        -------
+        list[WfsIndexEntry]
+            One entry per unique CPT found in the bbox. Empty when the bbox
+            contains no CPTs.
+        """
+        x1, y1 = DOV_WGS84_TO_LAMBERT72.transform(west, south)
+        x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
+        self.debug(
+            f"DOV fetch_wfs_index: WGS84 W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}"
+        )
+        self.debug(
+            f"DOV bbox Lambert72: x=[{x1:.0f},{x2:.0f}]  y=[{y1:.0f},{y2:.0f}]  "
+            f"(valid range: x≈20k–290k, y≈150k–245k)"
+        )
+
+        raw_tuples = await collect_wfs_features_recursive(
+            fetch_count=self._wfs_count,
+            fetch_features=self._wfs_features,
+            # Dedup by xml_url (first element) so a CPT near a quadrant boundary
+            # appearing in multiple sub-bboxes only appears once in the index.
+            row_permkey=lambda r: r[0],
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            label="DOV WFS sonderingen",
+            logger=self,
+        )
+
+        entries = [
+            WfsIndexEntry(
+                permkey=last_path_segment(xml_url),
+                name=name,
+                xml_url=xml_url,
+                x_lambert72=x_l72,
+                y_lambert72=y_l72,
+            )
+            for xml_url, name, x_l72, y_l72 in raw_tuples
+        ]
+        self.info(f"DOV WFS: {len(entries)} unique CPTs found in bbox")
+        return entries
+
     async def fetch_bbox(
         self,
         west: float,
@@ -95,40 +198,15 @@ class DovClient(GroundModelLogger):
         list[tuple[str, bytes]]
             (sondeernummer, xml_bytes) pairs — one per CPT successfully downloaded.
         """
-        x1, y1 = DOV_WGS84_TO_LAMBERT72.transform(west, south)
-        x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
-
-        self.debug(f"DOV bbox WGS84: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}")
-        self.debug(
-            f"DOV bbox Lambert72: x=[{x1:.0f},{x2:.0f}]  y=[{y1:.0f},{y2:.0f}]  "
-            f"(valid range: x≈20k–290k, y≈150k–245k)"
-        )
-
-        # name_by_url maps the XML URL → sondeernummer (CPT name).
-        # Recursive bbox-split + dedup handled by the shared helper, keyed on
-        # xml_url (first tuple element) so a CPT near a quadrant boundary
-        # appearing in multiple sub-bboxes only persists once.
-        pairs = await collect_wfs_features_recursive(
-            fetch_count=self._wfs_count,
-            fetch_features=self._wfs_features,
-            row_permkey=lambda r: r[0],
-            x1=x1,
-            y1=y1,
-            x2=x2,
-            y2=y2,
-            label="DOV WFS sonderingen",
-            logger=self,
-        )
-        name_by_url: dict[str, str] = dict(pairs)
-        self.info(f"DOV WFS: {len(name_by_url)} unique CPTs found in bbox")
-
-        if not name_by_url:
+        index = await self.fetch_wfs_index(west, south, east, north)
+        if not index:
             return []
 
-        results = await self._download_all(name_by_url)
+        url_to_name: dict[str, str] = {e.xml_url: e.name for e in index}
+        results = await self._download_all(url_to_name)
         self.info(
             f"DOV downloads: {len(results)} succeeded, "
-            f"{len(name_by_url) - len(results)} failed out of {len(name_by_url)} total"
+            f"{len(index) - len(results)} failed out of {len(index)} total"
         )
         return results
 
@@ -139,6 +217,9 @@ class DovClient(GroundModelLogger):
         east: float,
         north: float,
         process: ProcessFn[_T],
+        *,
+        index: list[WfsIndexEntry] | None = None,
+        progress_cb: ProgressCallback | None = None,
     ) -> list[tuple[str, _T]]:
         """Same as fetch_bbox but runs *process(xml_bytes, name)* on each download.
 
@@ -151,34 +232,38 @@ class DovClient(GroundModelLogger):
         When a cache is configured, cache hits skip the network entirely — the
         bytes go straight from disk into process(). Hit/miss counts are logged.
 
+        Parameters
+        ----------
+        west, south, east, north : float
+            Bounding box corners in WGS84 decimal degrees.
+        process : ProcessFn[_T]
+            Callable invoked as ``process(xml_bytes, name)``.
+        index : list[WfsIndexEntry] | None
+            Pre-resolved WFS index from ``fetch_wfs_index()``. When supplied,
+            the WFS discovery phase is skipped entirely — useful when the caller
+            already called ``fetch_wfs_index`` to emit a ``"pins"`` SSE event.
+            When ``None``, this method calls ``fetch_wfs_index`` internally.
+        progress_cb : ProgressCallback | None
+            Optional progress callback.  Receives ``("wfs", total, total)``
+            after WFS discovery and ``("download", done, total)`` periodically
+            during the download phase.  Default ``None`` preserves the
+            existing no-callback behaviour for all callers that don't opt in.
+
         Returns
         -------
         list[tuple[str, _T]]
             (sondeernummer, process_result) for every CPT processed successfully.
         """
-        x1, y1 = DOV_WGS84_TO_LAMBERT72.transform(west, south)
-        x2, y2 = DOV_WGS84_TO_LAMBERT72.transform(east, north)
-        self.debug(f"DOV bbox WGS84: W={west:.4f} S={south:.4f} E={east:.4f} N={north:.4f}")
+        if index is None:
+            index = await self.fetch_wfs_index(west, south, east, north)
 
-        # Recursive bbox-split + dedup is delegated to the shared helper.
-        # Dedup by xml_url (first tuple element).
-        pairs = await collect_wfs_features_recursive(
-            fetch_count=self._wfs_count,
-            fetch_features=self._wfs_features,
-            row_permkey=lambda r: r[0],
-            x1=x1,
-            y1=y1,
-            x2=x2,
-            y2=y2,
-            label="DOV WFS sonderingen",
-            logger=self,
-        )
-        name_by_url: dict[str, str] = dict(pairs)
-        self.info(f"DOV WFS: {len(name_by_url)} unique CPTs found in bbox")
-        if not name_by_url:
+        if not index:
             return []
 
-        total = len(name_by_url)
+        total = len(index)
+        # Report WFS discovery complete so the UI can show "N CPTs found".
+        await fire_progress(progress_cb, "wfs", total, total)
+
         cache_state = "with cache" if self._cache is not None else "no cache"
         self.info(
             f"DOV: streaming download+process of {total} XMLs "
@@ -190,20 +275,29 @@ class DovClient(GroundModelLogger):
         progress = {"done": 0, "hits": 0}
         progress_step = max(50, total // 5)  # log every 50 OR every 20% of total
         tasks = [
-            self._download_and_process(xml_url, name, process, sem, progress, total, progress_step)
-            for xml_url, name in name_by_url.items()
+            self._download_and_process(
+                entry.xml_url,
+                entry.name,
+                process,
+                sem,
+                progress,
+                total,
+                progress_step,
+                progress_cb,
+            )
+            for entry in index
         ]
         raw = await asyncio.gather(*tasks, return_exceptions=True)
 
         out: list[tuple[str, _T]] = []
-        for (xml_url, name), result in zip(name_by_url.items(), raw):
+        for entry, result in zip(index, raw):
             if isinstance(result, BaseException):
                 self.error(
-                    f"DOV: download/process failed for '{name}'  "
-                    f"url={xml_url}  error={type(result).__name__}: {result}"
+                    f"DOV: download/process failed for '{entry.name}'  "
+                    f"url={entry.xml_url}  error={type(result).__name__}: {result}"
                 )
             else:
-                out.append((name, result))
+                out.append((entry.name, result))
 
         if self._cache is not None:
             hits = progress["hits"]
@@ -221,6 +315,7 @@ class DovClient(GroundModelLogger):
         progress: dict[str, int],
         total: int,
         progress_step: int,
+        progress_cb: ProgressCallback | None = None,
     ) -> _T:
         """Download (or read from cache), then run process synchronously.
 
@@ -230,6 +325,26 @@ class DovClient(GroundModelLogger):
         the next download immediately. *progress* is shared across tasks for
         periodic INFO logging — asyncio is single-threaded so the increment is
         race-free without a lock.
+
+        Parameters
+        ----------
+        xml_url : str
+            Absolute URL of the CPT XML document to fetch.
+        name : str
+            Human-readable CPT name (sondeernummer) for log messages.
+        process : ProcessFn[_T]
+            Callable run as ``process(xml_bytes, name)`` after download.
+        sem : asyncio.Semaphore
+            Bounded download concurrency slot.
+        progress : dict[str, int]
+            Shared mutable counter ``{"done": int, "hits": int}``.
+        total : int
+            Total number of CPTs in this batch (for ``[done/total]`` logs).
+        progress_step : int
+            Fire progress log every this many items.
+        progress_cb : ProgressCallback | None
+            Optional callback.  Receives ``("download", done, total)`` on
+            every logging tick.
         """
         permkey = last_path_segment(xml_url)
         xml_bytes: bytes | None = None
@@ -268,12 +383,13 @@ class DovClient(GroundModelLogger):
             progress["hits"] += 1
         if progress["done"] % progress_step == 0 or progress["done"] == total:
             self.info(f"DOV progress: {progress['done']}/{total} downloaded+parsed")
+            await fire_progress(progress_cb, "download", progress["done"], total)
         return result
 
     # ------------------------------------------------------------------
     # WFS request layer (count + features). Recursive bbox-split is
     # delegated to ``dov_wfs_bbox.collect_wfs_features_recursive`` from
-    # ``fetch_bbox_processed``.
+    # ``fetch_wfs_index``.
     # ------------------------------------------------------------------
 
     async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
@@ -317,17 +433,20 @@ class DovClient(GroundModelLogger):
 
     async def _wfs_features(
         self, x1: float, y1: float, x2: float, y2: float
-    ) -> list[tuple[str, str]]:
+    ) -> list[_WfsFeatureTuple]:
         """Fetch up to DOV_WFS_FEATURE_LIMIT features from the WFS for this bbox.
 
         Returns
         -------
-        list[tuple[str, str]]
-            ``[(xml_url, sondeernummer), ...]`` — the XML URL is the proxy URL
-            derived from the ``fiche`` property (skipping the 302 redirect).
-            Returned as a list (not a dict) so the shared bbox-recursion
-            helper can dedup by ``xml_url`` at quadrant boundaries; the
-            calling ``fetch_bbox_processed`` builds the dict at the end.
+        list[_WfsFeatureTuple]
+            ``[(xml_url, sondeernummer, x_lambert72, y_lambert72), ...]`` — the
+            XML URL is the proxy URL derived from the ``fiche`` property
+            (skipping the 302 redirect).  ``x_lambert72`` / ``y_lambert72``
+            come from the ``X_mL72`` / ``Y_mL72`` GeoJSON feature properties
+            and are in Belgian Lambert 72 metres.  Returns a list (not a dict)
+            so the shared bbox-recursion helper can dedup by ``xml_url`` at
+            quadrant boundaries; the calling ``fetch_wfs_index`` materialises
+            the list into ``WfsIndexEntry`` objects at the end.
         """
         bbox = f"{x1},{y1},{x2},{y2},EPSG:{DOV_HORIZONTAL_EPSG}"
         params = {
@@ -362,14 +481,17 @@ class DovClient(GroundModelLogger):
             first_props = list(features[0].get("properties", {}).keys())
             self.trace(f"DOV WFS feature properties: {first_props}")
 
-        pairs: list[tuple[str, str]] = []
+        tuples: list[_WfsFeatureTuple] = []
         missing_url = 0
         for feat in features:
             props = feat.get("properties", {})
             # `fiche` = the canonical URL of the sondering record.
             # `sondeernummer` = the user-facing test name (e.g. "GEO-02/079-S3").
+            # `X_mL72` / `Y_mL72` = Lambert 72 easting/northing in metres.
             fiche_url: str = props.get("fiche", "")
             test_name: str = props.get("sondeernummer", "") or last_path_segment(fiche_url)
+            x_l72: float = float(props.get("X_mL72") or 0.0)
+            y_l72: float = float(props.get("Y_mL72") or 0.0)
             if fiche_url:
                 # Construct the proxy URL directly to avoid the 302 round-trip.
                 # Falls back to fiche+'.xml' (and follow_redirects) if the URL
@@ -379,7 +501,7 @@ class DovClient(GroundModelLogger):
                     if DOV_FICHE_URL_PREFIX in fiche_url
                     else fiche_url.rstrip("/") + ".xml"
                 )
-                pairs.append((xml_url, test_name))
+                tuples.append((xml_url, test_name, x_l72, y_l72))
             else:
                 missing_url += 1
 
@@ -392,7 +514,7 @@ class DovClient(GroundModelLogger):
                 f"Available properties: {available_keys}"
             )
 
-        return pairs
+        return tuples
 
     # ------------------------------------------------------------------
     # XML downloads (legacy non-streaming path; kept for fetch_bbox)
