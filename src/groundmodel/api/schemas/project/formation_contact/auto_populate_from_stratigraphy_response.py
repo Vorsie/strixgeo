@@ -15,10 +15,19 @@ class AutoPopulateFromStratigraphyResponse(BaseModel):
     empty description; ``skipped_no_stratigraphy`` covers boreholes
     that don't carry a formal OR informal stratigraphy observation
     at all.
+
+    ``deleted_formation_ids`` is populated only when ``selected_keys``
+    was provided (the Fill-from-boreholes confirm path).  These
+    formations were deleted server-side because their canonical key was
+    not in the selected set.  The client uses this list to update its
+    local manifest / session-import state without issuing separate
+    DELETE requests — eliminating the divergent-client-key freeze that
+    the pre-da98053 client-side delete loop suffered.
     """
 
     created_contact_ids: list[UUID]
     created_formation_ids: list[UUID]
+    deleted_formation_ids: list[UUID] = []
     skipped_existing: int
     skipped_unmatched: int
     skipped_no_stratigraphy: int
