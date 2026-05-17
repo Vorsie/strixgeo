@@ -329,6 +329,14 @@ export interface FormationContactBatchUpdateResponse {
 export interface AutoPopulateFromStratigraphyResponse {
   created_contact_ids: string[]
   created_formation_ids: string[]
+  /**
+   * Formation ids deleted server-side because their canonical key was not in
+   * the selected_keys set. Populated only on the Fill-from-boreholes path
+   * (selected_keys provided). Empty on the unfiltered Seed path.
+   * The client uses this list instead of computing client-side keys, eliminating
+   * the divergent-key freeze introduced by da98053.
+   */
+  deleted_formation_ids: string[]
   skipped_existing: number
   skipped_unmatched: number
   skipped_no_stratigraphy: number
