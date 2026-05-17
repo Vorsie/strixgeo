@@ -363,6 +363,10 @@ function ShiftDragMarquee({
 
   return (
     <Rectangle
+      // Pin to the explicit high pane — the default overlayPane (z=400)
+      // renders under the Geopunt GRB-selectie overlay (documented on
+      // the marker panes), which hid the import draw box entirely.
+      pane="draw-overlay"
       bounds={L.latLngBounds(dragRect.start, dragRect.end)}
       pathOptions={{
         color: '#2563eb',
@@ -615,6 +619,13 @@ export default function MapView({
             popups still win. Both <Tooltip> elements set pane to this. */}
         <Pane name="marker-tooltips" style={{ zIndex: 660 }} />
         <Pane name="investigation-markers" style={{ zIndex: 640 }} />
+        {/* Bbox / section draw rectangle. Same documented problem as the
+            markers above: Leaflet's default overlayPane (z=400) renders
+            UNDER the Geopunt GRB-selectie overlay, so the import draw box
+            was invisible over the Luchtfoto+GRB basemap. z=665: above all
+            basemap/DEM panes + markers + tooltips, below popupPane (700).
+            The draw <Rectangle> pins to this pane explicitly. */}
+        <Pane name="draw-overlay" style={{ zIndex: 665 }} />
         {demSource && demOverlay?.enabled && (
           <WMSTileLayer
             url={demSource.url}
