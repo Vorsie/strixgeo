@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+# manual_map originates from a .gmproj file's lumping snapshot, which is
+# attacker-controlled on the restore path. Bound it so a crafted payload
+# cannot allocate an arbitrarily large dict during Pydantic validation.
+# Mirrors AutoPopulateFromStratigraphyRequest.
+_MAP_MAX_ENTRIES = 2_000
+_KEY_STR_MAX = 512
 
 
 class DiscoverFromStratigraphyRequest(BaseModel):
@@ -16,7 +24,13 @@ class DiscoverFromStratigraphyRequest(BaseModel):
     """
 
     borehole_ids: list[UUID] = Field(min_length=1, max_length=500)
-    manual_map: dict[str, str] | None = None
+    manual_map: (
+        dict[
+            Annotated[str, Field(max_length=_KEY_STR_MAX)],
+            Annotated[str, Field(max_length=_KEY_STR_MAX)],
+        ]
+        | None
+    ) = Field(default=None, max_length=_MAP_MAX_ENTRIES)
     """Optional ``{ normalize_formation_key(raw) -> target_formation_name }`` map.
 
     When provided, the discover scan applies the manual lump map and returns
