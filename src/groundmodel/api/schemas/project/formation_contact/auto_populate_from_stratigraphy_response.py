@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
+
 from .lumping_collision_item import LumpingCollisionItem
 
 
@@ -31,6 +33,12 @@ class AutoPopulateFromStratigraphyResponse(BaseModel):
     Empty list when no lumping was requested or no collision occurred.
     The dialog renders these as amber warnings; they mirror the warnings
     shown during the discover preview so there are no surprises on confirm.
+
+    ``updated_section`` is the updated cross-section row after the Seed
+    handler PATCHed its ``seeded_formation_contact_ids``.  Non-null only
+    when ``section_id`` was provided in the request (the "Seed from
+    stratigraphy" path).  Null on the Fill-from-boreholes path.  The
+    frontend uses this to patch local section state without a separate GET.
     """
 
     created_contact_ids: list[UUID]
@@ -40,3 +48,6 @@ class AutoPopulateFromStratigraphyResponse(BaseModel):
     skipped_unmatched: int
     skipped_no_stratigraphy: int
     collisions: list[LumpingCollisionItem] = []
+    # Updated section row after Seed patched seeded_formation_contact_ids.
+    # None when section_id was not provided in the request.
+    updated_section: CrossSectionResponse | None = None
