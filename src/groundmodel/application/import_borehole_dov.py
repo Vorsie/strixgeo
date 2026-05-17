@@ -58,6 +58,7 @@ from groundmodel.infrastructure.parsers.dov.dov_common import DOV_PROJECT_ID
 from groundmodel.infrastructure.parsers.dov.dov_http import make_dov_async_client
 from groundmodel.shared.config import settings
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+from groundmodel.shared.progress import ProgressCallback, fire_progress
 from groundmodel.shared.timing import ms_since
 
 
@@ -116,6 +117,7 @@ class ImportBoreholeDov(GroundModelLogger):
         east: float,
         north: float,
         app_project_id: UUID | None = None,
+        progress_cb: ProgressCallback | None = None,
     ) -> ImportBoreholeDovResult:
         """Fetch and persist all boreholes within the WGS84 bounding box.
 
@@ -127,6 +129,11 @@ class ImportBoreholeDov(GroundModelLogger):
             Project scope for storage and duplicate detection. Same
             ``boornummer`` in different ``app_project_id`` namespaces is
             allowed (the DOV record imports independently into each).
+        progress_cb : ProgressCallback | None
+            Optional callback fired at each phase boundary.  Signature:
+            ``(phase, done, total)``.  May be synchronous or async.
+            Omit to preserve the original no-progress behaviour; all
+            existing callers are unaffected.
 
         Returns
         -------
@@ -148,7 +155,7 @@ class ImportBoreholeDov(GroundModelLogger):
         # connect-handshake latency. Tuning lives in
         # ``dov_http.make_dov_async_client``.
         async with make_dov_async_client() as http:
-            parsed = await self._fetch_boreholes(http, west, south, east, north)
+            parsed = await self._fetch_boreholes(http, west, south, east, north, progress_cb)
 
             total = len(parsed)
             if total == 0:
@@ -174,6 +181,7 @@ class ImportBoreholeDov(GroundModelLogger):
                 f"DOV phase 3 (dedup query): {ms_since(t_dedup)} ms — "
                 f"{len(existing)} of {len(test_ids)} already in project"
             )
+            await fire_progress(progress_cb, "dedup", len(existing), total)
 
             # Phase 4 — persist non-duplicates + build maps for ALL
             # boreholes in scope (new + existing). Two keyings:
@@ -217,22 +225,24 @@ class ImportBoreholeDov(GroundModelLogger):
                         f"exists ({existing_id}) — refresh-on-duplicate will "
                         f"fill in any missing children"
                     )
-                    continue
-
-                try:
-                    borehole_orm = self._build_orm(wfs_row, result, app_project_id)
-                    await self._repo.save(borehole_orm, flush=False)
-                    imported += 1
-                    borehole_ids.append(borehole_orm.id)
-                    borehole_map[wfs_row.test_id] = borehole_orm.id
-                    permkey_map[wfs_row.permkey] = borehole_orm.id
-                    self.debug(f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}")
-                except Exception as exc:
-                    failed += 1
-                    self.error(
-                        f"DOV import [{i}/{total}]: persist failed for "
-                        f"'{wfs_row.test_id}': {type(exc).__name__}: {exc}"
-                    )
+                else:
+                    try:
+                        borehole_orm = self._build_orm(wfs_row, result, app_project_id)
+                        await self._repo.save(borehole_orm, flush=False)
+                        imported += 1
+                        borehole_ids.append(borehole_orm.id)
+                        borehole_map[wfs_row.test_id] = borehole_orm.id
+                        permkey_map[wfs_row.permkey] = borehole_orm.id
+                        self.debug(
+                            f"DOV import [{i}/{total}]: '{wfs_row.test_id}' → {borehole_orm.id}"
+                        )
+                    except Exception as exc:
+                        failed += 1
+                        self.error(
+                            f"DOV import [{i}/{total}]: persist failed for "
+                            f"'{wfs_row.test_id}': {type(exc).__name__}: {exc}"
+                        )
+                await fire_progress(progress_cb, "persist", i, total)
 
             self.info(
                 f"DOV phase 4 (persist {imported} boreholes, no commit): "
@@ -247,6 +257,7 @@ class ImportBoreholeDov(GroundModelLogger):
             interp_result = await self._fetch_and_attach_interpretations(
                 http, west, south, east, north, borehole_map, wfs_row_map
             )
+            await fire_progress(progress_cb, "interpretations", interp_result.attached, total)
 
             # Phase 4c — fetch + attach samples + lab tests, same
             # refresh-on-duplicate flow. Per-row dedup based on
@@ -254,6 +265,7 @@ class ImportBoreholeDov(GroundModelLogger):
             samples_result = await self._fetch_and_attach_samples(
                 http, west, south, east, north, permkey_map
             )
+            await fire_progress(progress_cb, "samples", samples_result.samples_attached, total)
 
             # Phase 5 — single commit flushes the whole batch (boreholes +
             # observations + layers + admixtures + samples + grain-sizes
@@ -282,6 +294,7 @@ class ImportBoreholeDov(GroundModelLogger):
                     f"into {len(borehole_map)} boreholes): "
                     f"{ms_since(t_commit)} ms"
                 )
+            await fire_progress(progress_cb, "commit", imported, imported)
 
         self.success(
             f"DOV borehole import done in {ms_since(t_total)} ms: "
@@ -331,13 +344,25 @@ class ImportBoreholeDov(GroundModelLogger):
         south: float,
         east: float,
         north: float,
+        progress_cb: ProgressCallback | None = None,
     ) -> list[tuple[BoreholeWfsRow, BoreholeParseResult]]:
-        """Run Phase 1+2 — WFS discovery + parallel download + stream-parse."""
+        """Run Phase 1+2 — WFS discovery + parallel download + stream-parse.
+
+        Parameters
+        ----------
+        http : httpx.AsyncClient
+            Shared HTTP/2 client.
+        west, south, east, north : float
+            Bounding box corners in WGS84 decimal degrees.
+        progress_cb : ProgressCallback | None
+            Optional progress callback forwarded to the borehole client
+            so WFS and download phase ticks surface to the UI.
+        """
         parser = DovBoringParser()
         try:
             t_fetch = time.perf_counter()
             parsed = await DovBoreholeClient(http, cache=self._boring_cache).fetch_bbox_processed(
-                west, south, east, north, parser.parse
+                west, south, east, north, parser.parse, progress_cb=progress_cb
             )
             self.info(
                 f"DOV phase 1+2 (WFS + download + parse): {ms_since(t_fetch)} ms — "
