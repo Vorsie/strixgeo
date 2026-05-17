@@ -34,6 +34,25 @@ import type { ProjectBundleResponse, ProjectResponse } from '../api/client'
 // Bump this when the file shape changes in a backwards-incompatible way.
 export const PROJECT_FILE_FORMAT_VERSION = 3
 
+/**
+ * Manual lumping snapshot stored in the bundle.
+ *
+ * Mirrors the backend ``StratigraphyLumping`` Pydantic model.  Nullable at
+ * the top level — bundles saved before this field existed carry ``null``.
+ * The field is metadata only: on restore the map is stored as-is and NEVER
+ * re-applied (formations + contacts in the bundle are the applied result).
+ * The dialog pre-populates from this map when the user next opens Fill from
+ * boreholes on this project.
+ */
+export interface StratigraphyLumping {
+  /** Always 1 for this shape. Reserved for future additive evolution. */
+  schema_version: 1
+  /** ISO-8601 UTC timestamp of the last Apply that produced this map. */
+  applied_at: string
+  /** ``{ normalised_candidate_key: target_formation_name }`` */
+  map: Record<string, string>
+}
+
 // v3 — the only supported version. Mirrors the backend bundle response;
 // every nested dict is opaque to the renderer.
 export interface ProjectFileV3 {
@@ -46,6 +65,13 @@ export interface ProjectFileV3 {
   geological_models: Record<string, unknown>[]
   cross_sections: Record<string, unknown>[]
   investigation_reviews: Record<string, unknown>[]
+  /**
+   * Manual lumping map from the last successful Fill-from-boreholes confirm.
+   * Null when no lumping has been applied to this project yet, or when the
+   * file was saved by an older build that pre-dates this field.
+   * Absence on parse is normalised to null (additive, backwards-compatible).
+   */
+  stratigraphy_lumping: StratigraphyLumping | null
 }
 
 export type ProjectFile = ProjectFileV3
@@ -54,7 +80,10 @@ export type ProjectFile = ProjectFileV3
 // already carries the project metadata + every child row in the exact
 // shape the backend's restore endpoint accepts on the way back, so we
 // just store it verbatim with the format tag.
-export function buildProjectFile(bundle: ProjectBundleResponse): ProjectFileV3 {
+export function buildProjectFile(
+  bundle: ProjectBundleResponse,
+  stratigraphyLumping?: StratigraphyLumping | null,
+): ProjectFileV3 {
   return {
     format_version: PROJECT_FILE_FORMAT_VERSION,
     project: bundle.project,
@@ -65,6 +94,11 @@ export function buildProjectFile(bundle: ProjectBundleResponse): ProjectFileV3 {
     geological_models: bundle.geological_models ?? [],
     cross_sections: bundle.cross_sections ?? [],
     investigation_reviews: bundle.investigation_reviews ?? [],
+    // WHY parameter-not-bundle: the bundle response comes from GET /bundle
+    // which has no knowledge of the lumping map (it lives client-side after
+    // the Fill-from-boreholes confirm).  The caller passes the map explicitly
+    // so it can be written atomically into the file at save time.
+    stratigraphy_lumping: stratigraphyLumping ?? null,
   }
 }
 
@@ -95,6 +129,13 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.geotechnical_units === undefined) {
     candidate.geotechnical_units = []
   }
+  // Normalise the optional lumping field: absent in older files → null.
+  // WHY normalise-not-reject: this field is additive (backwards-compat
+  // suspended pre-ship; additive always fine).  Absence means "no lumping
+  // has been applied" — treated as null by the dialog's pre-populate logic.
+  if (candidate.stratigraphy_lumping === undefined) {
+    candidate.stratigraphy_lumping = null
+  }
   return candidate
 }
 
@@ -115,7 +156,15 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     (v.geotechnical_units === undefined || Array.isArray(v.geotechnical_units)) &&
     Array.isArray(v.geological_models) &&
     Array.isArray(v.cross_sections) &&
-    Array.isArray(v.investigation_reviews)
+    Array.isArray(v.investigation_reviews) &&
+    // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
+    // (pre-this-build files) or null (no lumping applied) or a
+    // StratigraphyLumping object. Any other type → reject the file.
+    (v.stratigraphy_lumping === undefined ||
+      v.stratigraphy_lumping === null ||
+      (typeof v.stratigraphy_lumping === 'object' &&
+        v.stratigraphy_lumping !== null &&
+        (v.stratigraphy_lumping as Record<string, unknown>).schema_version === 1))
   )
 }
 
