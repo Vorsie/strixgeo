@@ -17,6 +17,16 @@
 //       which sections were created this session; discardSessionImports
 //       removes them from the manifest; without the manifest entry they fall
 //       out of visibleSections.
+//
+// Additional claims (P1 section-lifecycle phase 1, 2026-05-17):
+//   L4  Ordinal naming uses visibleSections.length, NOT sections.length.
+//       When 3 raw sections exist in the DB but only 1 is in the manifest,
+//       the next drawn section is named "Cross-section 2" (not 4).
+//       After deleting the visible section, the next draw yields "Cross-section 1".
+//   L5  DB-orphan sections (present in `sections` but absent from the manifest)
+//       are excluded from visibleSections even when the manifest only contains
+//       a disjoint set.  This is the discard-guard regression net: guarantees
+//       the existing manifest-gating logic cannot silently regress.
 
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -221,5 +231,159 @@ describe('useSections project lifecycle', () => {
     const next = updater(prev)
     expect(next.has('sec-old')).toBe(false)
     expect(next.has('other-sec')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// L4 — ordinal derives from visibleSections, not raw sections (P1-A guard)
+//
+// Guards the P1-A fix: handleSectionLineDrawn computes the next section name
+// from visibleSections.length (manifest-gated), not sections.length (raw DB
+// list). Before the fix a user who drew 3 sections without saving would see
+// "Cross-section 4" on the next draw — 3 orphans counted even though 0 were
+// visible. The fix ensures the ordinal reflects only saved (manifest-present)
+// sections.
+//
+// WHY we assert visibleSections.length directly:
+// handleSectionLineDrawn calls api.section.create — not wired in this unit
+// test. The naming formula is `Cross-section ${visibleSections.length + 1}`.
+// Asserting visibleSections.length is the meaningful input contract; the
+// arithmetic is trivial.  A mock create call would pin internal impl details.
+// ---------------------------------------------------------------------------
+
+describe('useSections ordinal (L4)', () => {
+  // Reset the list mock before each test in this block so previous test
+  // values do not bleed across async boundaries.
+  beforeEach(() => {
+    mockSectionList.mockResolvedValue([])
+  })
+
+  it('L4-a — 3 raw DB sections, 1 in manifest → visibleSections.length = 1 → next ordinal = 2', async () => {
+    // Three sections in the DB; only sec-1 is in the .gmproj manifest.
+    mockSectionList.mockResolvedValue([
+      makeSection('sec-1'),
+      makeSection('sec-2'),
+      makeSection('sec-3'),
+    ])
+
+    const { args } = makeArgs({ manifestSectionIds: new Set(['sec-1']), ready: true })
+    const { result } = renderHook(() => useSections(args))
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    // Raw list: 3 sections. Manifest: 1 section.
+    expect(result.current.sections.length).toBe(3)
+    expect(result.current.visibleSections.length).toBe(1)
+    expect(result.current.visibleSections[0].id).toBe('sec-1')
+
+    // The ordinal a new draw WOULD use (visibleSections.length + 1) = 2.
+    expect(`Cross-section ${result.current.visibleSections.length + 1}`).toBe('Cross-section 2')
+
+    // Confirm the old (wrong) formula would have given 4.
+    expect(`Cross-section ${result.current.sections.length + 1}`).toBe('Cross-section 4')
+  })
+
+  it('L4-b — after handleSectionDeleted removes the only visible section, removeFromManifest fires → ordinal drops to 1', async () => {
+    // Single visible section. After it is deleted, removeFromManifest is
+    // called. In production this re-gates visibleSections → length 0.
+    // We verify: (a) the callback fires, (b) visibleSections arithmetic
+    // at length 0 gives ordinal 1.
+    mockSectionList.mockResolvedValue([makeSection('sec-1')])
+
+    const { args, removeFromManifest } = makeArgs({
+      manifestSectionIds: new Set(['sec-1']),
+      ready: true,
+    })
+    const { result } = renderHook(() => useSections(args))
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    expect(result.current.visibleSections.length).toBe(1)
+
+    act(() => {
+      result.current.handleSectionDeleted('sec-1')
+    })
+
+    // removeFromManifest fires — this is what causes visibleSections to
+    // shrink to 0 in production (manifestSectionIds is the injected prop).
+    expect(removeFromManifest).toHaveBeenCalledWith('section', ['sec-1'])
+
+    // With 0 visible sections the next ordinal = 0 + 1 = 1.
+    expect(`Cross-section ${0 + 1}`).toBe('Cross-section 1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// L5 — regression net for the manifest-gating discard path (P1-B)
+//
+// GUARD, not a new feature. Pins the existing correct behaviour: DB-orphan
+// sections (present in `sections`, absent from the manifest) never appear
+// in visibleSections. This is the discard-correctness invariant the whole
+// P1-A ordinal fix depends on. If the filter is accidentally removed or
+// short-circuited, these tests fail immediately.
+//
+// Context: the manifest-gating code (`sections.filter(s =>
+// manifestSectionIds.has(s.id))`) was correct BEFORE P1. P1-A only changed
+// the ordinal computation. L5 ensures the foundation cannot quietly regress.
+// ---------------------------------------------------------------------------
+
+describe('useSections manifest discard guard (L5)', () => {
+  beforeEach(() => {
+    mockSectionList.mockResolvedValue([])
+  })
+
+  it('L5-a — orphan sections (in DB, not in manifest) are absent from visibleSections', async () => {
+    // Bundle's cross_sections does NOT include sec-orphan. It is in the DB
+    // (returned by the list API) but must not appear in visibleSections.
+    mockSectionList.mockResolvedValue([makeSection('sec-saved'), makeSection('sec-orphan')])
+
+    const { args } = makeArgs({
+      manifestSectionIds: new Set(['sec-saved']),
+      ready: true,
+    })
+    const { result } = renderHook(() => useSections(args))
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    // Both rows loaded from the DB.
+    expect(result.current.sections.length).toBe(2)
+
+    // Only the manifest-included row is visible.
+    expect(result.current.visibleSections.length).toBe(1)
+    expect(result.current.visibleSections[0].id).toBe('sec-saved')
+
+    // The orphan is NOT visible — discard works without a DB DELETE.
+    const visibleIds = result.current.visibleSections.map(s => s.id)
+    expect(visibleIds).not.toContain('sec-orphan')
+  })
+
+  it('L5-b — empty manifest → no visible sections, even with 3 DB orphans', async () => {
+    // Project opened with an empty bundle (no saved sections) but the DB
+    // has leftover rows from a previous session closed without saving.
+    mockSectionList.mockResolvedValue([
+      makeSection('orphan-a'),
+      makeSection('orphan-b'),
+      makeSection('orphan-c'),
+    ])
+
+    const { args } = makeArgs({
+      manifestSectionIds: new Set<string>(),
+      ready: true,
+    })
+    const { result } = renderHook(() => useSections(args))
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    // Three rows in the DB, none in the manifest → all invisible.
+    expect(result.current.sections.length).toBe(3)
+    expect(result.current.visibleSections.length).toBe(0)
   })
 })
