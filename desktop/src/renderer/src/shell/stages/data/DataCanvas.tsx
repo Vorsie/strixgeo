@@ -91,7 +91,14 @@ export default function DataCanvas(): JSX.Element {
       handleSetOverlayOverride,
     },
     sections: {
-      sections,
+      // WHY visibleSections not sections: the map overlay must mirror the
+      // right-pane list exactly.  Raw `sections` includes every DB row fetched
+      // this session; `visibleSections` is the manifest-gated set — sections the
+      // user has saved (or drawn in this session without discarding).  Feeding
+      // raw sections here while the list reads visibleSections caused the
+      // reported desync: unsaved sections remained on the map after project
+      // close / discard even though the list showed 0.
+      visibleSections,
       selectedSectionId,
       drawingSection,
       handleSectionLineDrawn,
@@ -151,7 +158,7 @@ export default function DataCanvas(): JSX.Element {
             drawSectionMode={drawingSection}
             onSectionLineDrawn={handleSectionLineDrawn}
             onCancelSectionDraw={cancelSectionDraw}
-            sections={sections}
+            sections={visibleSections}
             selectedSectionId={selectedSectionId}
             onSelectSection={handleSelectSection}
             initialCenter={mapCameraRef.current?.center}

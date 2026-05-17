@@ -74,7 +74,12 @@ export default function SectionsCanvas(): JSX.Element {
       handleRejectLithoSuggestion,
     },
     sections: {
-      sections,
+      // WHY visibleSections not sections: both the map overlay and the section
+      // count/CTA in SectionsCanvas must use the same manifest-gated set that
+      // SectionsInspector reads.  Raw `sections` includes every DB row loaded
+      // this session and would keep unsaved section polygons on the map after
+      // discard, while the inspector showed 0 — the desync the owner reported.
+      visibleSections,
       selectedSectionId,
       drawingSection,
       focusedContactIds,
@@ -150,11 +155,12 @@ export default function SectionsCanvas(): JSX.Element {
   }
 
   // Resolve the currently-selected section object from the id + list.
-  // Mirrors the ``selectedSection`` memo in App.tsx at 3322e04^.
+  // Uses visibleSections (manifest-gated) — if a section is not saved it is
+  // not selectable, consistent with the CPT/borehole pattern.
   const selectedSection = useMemo(
     () =>
-      selectedSectionId ? sections.find(s => s.id === selectedSectionId) ?? null : null,
-    [selectedSectionId, sections],
+      selectedSectionId ? visibleSections.find(s => s.id === selectedSectionId) ?? null : null,
+    [selectedSectionId, visibleSections],
   )
 
   // Slice 2 (#55): axis-aware contact/formation/surface routing.
@@ -270,7 +276,7 @@ export default function SectionsCanvas(): JSX.Element {
   // div is pointer-events-none so the map remains fully interactive; only
   // the card itself receives pointer events (pointer-events-auto).
   const drawingBbox = bboxImportType !== null
-  const showCta = !ctaDismissed && sections.length === 0 && !drawingSection && !drawingBbox
+  const showCta = !ctaDismissed && visibleSections.length === 0 && !drawingSection && !drawingBbox
 
   return (
     <div className="relative h-full w-full">
@@ -297,7 +303,7 @@ export default function SectionsCanvas(): JSX.Element {
         drawSectionMode={drawingSection}
         onSectionLineDrawn={handleSectionLineDrawn}
         onCancelSectionDraw={cancelSectionDraw}
-        sections={sections}
+        sections={visibleSections}
         selectedSectionId={selectedSectionId}
         onSelectSection={handleSelectSection}
         initialCenter={mapCameraRef.current?.center}

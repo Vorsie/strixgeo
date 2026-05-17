@@ -232,8 +232,22 @@ export function useSections({
   // Auto-load sections whenever the API is ready and a project is open.
   // Mirrors the CPT/borehole auto-load in useInvestigationData so all
   // three lists refresh on project switch without App coordinating them.
+  //
+  // WHY clear on project null: when the project closes (project → null) or
+  // switches, the sections list must be reset immediately so the map overlay
+  // and the right-pane list both show 0 — consistent with how
+  // useInvestigationData clears CPTs and boreholes on project null.  Without
+  // this, the previously-fetched sections linger in state and the map still
+  // renders them even though the right-pane (which reads visibleSections)
+  // shows 0 (because the manifest is already empty after discard).  The
+  // result is the desync the owner reported: "drawn sections still on map
+  // after not saving."
   useEffect(() => {
-    if (ready && project) {
+    if (!project) {
+      setSections([])
+      return
+    }
+    if (ready) {
       void refreshSectionList()
     }
     // reason: refreshSectionList is stable when project is stable; its
@@ -246,6 +260,13 @@ export function useSections({
   // Manifest gate: only ids present in the .gmproj bundle are visible.
   // Sections created in a previous session and never saved vanish on
   // the next open — same policy as CPTs and boreholes.
+  //
+  // WHY visibleSections is the canonical set for BOTH the map overlay and the
+  // right-pane list: the map must show only the sections the user has saved
+  // (or drawn in this session before saving).  Feeding raw `sections` to the
+  // map while the list reads visibleSections creates a visible desync — the
+  // map showed unsaved sections that the list said were absent.  Both
+  // DataCanvas and SectionsCanvas now pass visibleSections to MapView.
   const visibleSections = sections.filter(s => manifestSectionIds.has(s.id))
 
   // ---------------------------------------------------------------------------
