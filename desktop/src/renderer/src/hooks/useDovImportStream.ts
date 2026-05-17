@@ -189,7 +189,10 @@ export function useDovImportStream(): UseDovImportStreamResult {
     abortRef.current = controller
 
     const { kind, bbox, projectId } = opts
-    const path = kind === 'cpt' ? '/cpt/import-dov/stream' : '/borehole/import-dov/stream'
+    // POST endpoint spawns the background task and returns 202 {job_id}.
+    // GET endpoint (with the job_id path param) delivers the SSE stream.
+    const spawnPath =
+      kind === 'cpt' ? '/cpt/import-dov/stream' : '/borehole/import-dov/stream'
 
     setState({
       status: 'running',
@@ -199,39 +202,47 @@ export function useDovImportStream(): UseDovImportStreamResult {
       pendingPins: [],
     })
 
-    log.info('dov-stream', `starting ${kind} import stream (${path})`, bbox)
+    log.info('dov-stream', `spawning ${kind} import job (${spawnPath})`, bbox)
 
     // Kick off the async read in an immediately-invoked async IIFE so we
     // can use ``for await`` on the ReadableStream without making the
     // ``useCallback`` body itself async.
     void (async () => {
-      let base = 'http://127.0.0.1:8765'
-      // Reuse the same base URL the rest of the API client uses.
-      try {
-        const { setBaseUrl: _ignored, ..._ } = await import('../api/client').then(
-          m => ({ setBaseUrl: m.setBaseUrl }),
-        )
-        // The module-level ``_base`` is not exported; we replicate the
-        // default. The desktop always targets 127.0.0.1:8765 so this is
-        // stable for v1.
-        base = 'http://127.0.0.1:8765'
-        void _ignored
-      } catch {
-        // ignore — fallback already set
-      }
+      // The desktop always targets 127.0.0.1:8765 — replicate the API
+      // client's default since the module-level ``_base`` is not exported.
+      const base = 'http://127.0.0.1:8765'
 
       try {
-        const res = await fetch(`${base}${path}`, {
+        // Step 1 — spawn: POST returns 202 { job_id } immediately.
+        const spawnRes = await fetch(`${base}${spawnPath}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...bbox, project_id: projectId ?? null }),
           signal: controller.signal,
         })
 
+        if (!spawnRes.ok) {
+          const detail = await spawnRes.json().catch(() => ({}))
+          const msg = (detail as { detail?: string }).detail ?? `HTTP ${spawnRes.status}`
+          log.error('dov-stream', `spawn request failed: ${msg}`)
+          setState({ status: 'error', message: msg })
+          return
+        }
+
+        const { job_id } = (await spawnRes.json()) as { job_id: string }
+        log.info('dov-stream', `${kind} import job spawned: ${job_id}`)
+
+        // Step 2 — connect: GET the SSE stream by job_id.
+        const streamPath = `${spawnPath}/${job_id}`
+        const res = await fetch(`${base}${streamPath}`, {
+          method: 'GET',
+          signal: controller.signal,
+        })
+
         if (!res.ok) {
           const detail = await res.json().catch(() => ({}))
           const msg = (detail as { detail?: string }).detail ?? `HTTP ${res.status}`
-          log.error('dov-stream', `stream request failed: ${msg}`)
+          log.error('dov-stream', `stream connect failed: ${msg}`)
           setState({ status: 'error', message: msg })
           return
         }
