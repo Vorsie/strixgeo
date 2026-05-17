@@ -365,7 +365,13 @@ export function useSections({
         toast('error', 'The two endpoints landed at the same point. Try again.')
         return
       }
-      const ordinal = sections.length + 1
+      // WHY visibleSections, not sections: `sections` is the raw DB list and
+      // includes orphan rows from previous sessions that were never saved into
+      // the .gmproj manifest.  Naming from `sections.length` produced
+      // "Cross-section 3" when the user had drawn 2 sections and not saved —
+      // the 3rd draw would be the 1st visible one.  Ordinal must reflect what
+      // the user SEES (manifest-gated), not what exists in the DB.
+      const ordinal = visibleSections.length + 1
       try {
         const createPayload = {
           name: `Cross-section ${ordinal}`,
@@ -402,7 +408,7 @@ export function useSections({
         toast('error', 'Could not create the cross-section.')
       }
     },
-    [project, effectiveHorizontalEpsg, sections.length, handleSectionCreated, pushUndo],
+    [project, effectiveHorizontalEpsg, visibleSections.length, handleSectionCreated, pushUndo],
   )
 
   const handleDeleteSection = useCallback(
