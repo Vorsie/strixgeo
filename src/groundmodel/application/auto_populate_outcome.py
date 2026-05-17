@@ -41,6 +41,14 @@ class AutoPopulateOutcome:
         Empty when no ``manual_map`` was provided or when no collision
         occurred.  The discover scan produces an identical set so the user
         sees the warnings in the preview before committing.
+    found_contact_ids : list[UUID]
+        IDs of contacts that already existed in the model for the processed
+        borehole scope and were therefore skipped (idempotency).  The Seed
+        handler unions these with ``created_contact_ids`` to build the
+        section's ``seeded_formation_contact_ids`` — so pre-existing
+        contacts (from a prior Fill or manual draw) are also seeded, not
+        only the ones created in this run.  Empty when no ``section_id``
+        was passed to the use case (the Fill-from-boreholes path).
     """
 
     created_contact_ids: list[UUID]
@@ -50,3 +58,9 @@ class AutoPopulateOutcome:
     skipped_unmatched: int
     skipped_no_stratigraphy: int
     collisions: list[LumpingCollision] = dataclasses.field(default_factory=list)
+    # Contact ids that already existed in the model for the processed
+    # borehole scope and were skipped (idempotency).  The Seed handler
+    # unions these with created_contact_ids to build the section's
+    # seeded set — so pre-existing Fill contacts are also seeded, not
+    # just the ones created in this run.
+    found_contact_ids: list[UUID] = dataclasses.field(default_factory=list)
