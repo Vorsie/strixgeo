@@ -598,3 +598,199 @@ def test_normalize_distinct_members_stay_separate():
     ) != normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Vlierzele")
     assert normalize_formation_key("Tertiair: Lid van Oedelem") == "lid van oedelem"
     assert normalize_formation_key("Tertiair: Lid van Vlierzele") == "lid van vlierzele"
+
+
+# ---------------------------------------------------------------------------
+# execute — server-side delete of unselected formations (Fix 1 / da98053)
+# ---------------------------------------------------------------------------
+
+
+def _formation_stub(
+    *,
+    name: str,
+    regional_ref: str | None = None,
+    display_order: int = 0,
+) -> SimpleNamespace:
+    """Minimal GeologicalFormationOrm-shaped stub for the delete tests."""
+    from uuid import uuid4 as _uuid4
+
+    return SimpleNamespace(
+        id=_uuid4(),
+        name=name,
+        regional_ref=regional_ref,
+        display_order=display_order,
+    )
+
+
+def _make_session_with_formations(
+    boreholes: list,
+    existing_formations: list,
+) -> AsyncMock:
+    """Mock session that serves *existing_formations* on the formations-load call.
+
+    Call sequence inside execute() when ``selected_keys`` is provided:
+      1. borehole load
+      2. formations load
+      3. max display_order
+      4+. orphan DELETE / contacts load / formation DELETE — generic mock
+    """
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = boreholes
+
+    formations_result = MagicMock()
+    formations_result.scalars.return_value.all.return_value = existing_formations
+
+    max_order_result = MagicMock()
+    max_order_result.scalar_one.return_value = max(
+        (f.display_order for f in existing_formations), default=0
+    )
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return formations_result
+        if call_count == 3:
+            return max_order_result
+        # Remaining calls: orphan DELETE, contacts load, formation DELETE.
+        generic = MagicMock()
+        generic.all.return_value = []
+        generic.scalars.return_value.all.return_value = []
+        generic.scalar_one.return_value = 0
+        return generic
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock()
+    session.new = []
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+    return session
+
+
+@pytest.mark.asyncio
+async def test_execute_unselected_formation_deleted():
+    """When selected_keys is provided and an existing formation canonical key is
+    NOT in the selected set, it is deleted and its id appears in
+    ``deleted_formation_ids``.
+
+    Root cause fixed (da98053 freeze): the old client-side ``.toLowerCase()``
+    diverged from ``normalize_formation_key()`` for names with dashes / colons /
+    spaces, so the entire freshly-created formation list was wrongly classified as
+    unselected and queued for deletion, hard-freezing the UI for minutes.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    old_formation = _formation_stub(name="Diest Zand")
+
+    session = _make_session_with_formations(boreholes=[], existing_formations=[old_formation])
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[],
+            selected_keys=["Boom Klei"],  # "diest zand" not in selected set
+        )
+
+    assert old_formation.id in outcome.deleted_formation_ids
+    assert len(outcome.deleted_formation_ids) == 1
+    assert len(outcome.created_formation_ids) == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_selected_canonical_variant_not_deleted():
+    """A formation whose canonical key IS in selected_keys must not be deleted
+    even when its raw ``regional_ref`` uses a dash-bearing DOV name.
+
+    This is the exact scenario that caused the da98053 freeze: a formation with
+    ``regional_ref = "Paleogeen: Formatie van Aalter - Lid van Oedelem"`` has
+    canonical key ``"lid van oedelem"`` (after normalize_formation_key).  The
+    old client-side ``".toLowerCase()"`` produced the full raw string, which did
+    not match the server-minted key, so the formation was wrongly deleted.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    formation = _formation_stub(
+        name="Boom Klei",
+        regional_ref="Paleogeen: Formatie van Aalter - Lid van Oedelem",
+    )
+
+    session = _make_session_with_formations(boreholes=[], existing_formations=[formation])
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[],
+            # Canonical key for the formation above is "lid van oedelem".
+            selected_keys=["lid van oedelem"],
+        )
+
+    assert formation.id not in outcome.deleted_formation_ids
+    assert len(outcome.deleted_formation_ids) == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_deleted_ids_returned_in_outcome():
+    """``deleted_formation_ids`` carries every unselected formation deleted.
+
+    Two unselected formations and one selected formation: outcome must carry
+    exactly the two unselected ids; the selected id must be absent.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    kept = _formation_stub(name="Boom Klei")
+    deleted_a = _formation_stub(name="Diest Zand")
+    deleted_b = _formation_stub(name="Quartair")
+
+    session = _make_session_with_formations(
+        boreholes=[],
+        existing_formations=[kept, deleted_a, deleted_b],
+    )
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[],
+            selected_keys=["boom klei"],  # only "boom klei" canonical key
+        )
+
+    assert set(outcome.deleted_formation_ids) == {deleted_a.id, deleted_b.id}
+    assert kept.id not in outcome.deleted_formation_ids
+    assert len(outcome.created_formation_ids) == 0
