@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseInvestigationDate } from './investigationDate'
+import { isWithinDateRange, parseInvestigationDate } from './investigationDate'
 
 // Helper: assert the parsed Date is a specific UTC calendar day.
 function utcDate(y: number, m: number, d: number): Date {
@@ -106,5 +106,47 @@ describe('parseInvestigationDate', () => {
     const d = parseInvestigationDate('2020-06-16')!
     const bound = parseInvestigationDate('2020-06-15')!
     expect(d.getTime()).toBeGreaterThan(bound.getTime())
+  })
+})
+
+describe('isWithinDateRange', () => {
+  it('no bound set → every item passes (including a dateless item)', () => {
+    expect(isWithinDateRange('2020-06-15', '', '')).toBe(true)
+    expect(isWithinDateRange('2020-06-15', null, null)).toBe(true)
+    expect(isWithinDateRange(null, '', '')).toBe(true)
+    expect(isWithinDateRange('not a date', null, null)).toBe(true)
+  })
+
+  it('a bound IS set → dateless / unparseable item is excluded', () => {
+    expect(isWithinDateRange(null, '2020-01-01', '')).toBe(false)
+    expect(isWithinDateRange('garbage', '', '2020-12-31')).toBe(false)
+    expect(isWithinDateRange(null, '2020-01-01', '2020-12-31')).toBe(false)
+  })
+
+  it('open-ended lower bound: includes anything on/after From', () => {
+    expect(isWithinDateRange('2020-01-01', '2020-01-01', '')).toBe(true) // inclusive
+    expect(isWithinDateRange('2025-07-09', '2020-01-01', '')).toBe(true)
+    expect(isWithinDateRange('2019-12-31', '2020-01-01', '')).toBe(false)
+  })
+
+  it('open-ended upper bound: includes anything on/before To', () => {
+    expect(isWithinDateRange('2020-12-31', '', '2020-12-31')).toBe(true) // inclusive
+    expect(isWithinDateRange('1998-04-02', '', '2020-12-31')).toBe(true)
+    expect(isWithinDateRange('2021-01-01', '', '2020-12-31')).toBe(false)
+  })
+
+  it('both bounds: inclusive on both ends, excludes outside', () => {
+    expect(isWithinDateRange('2020-01-01', '2020-01-01', '2020-12-31')).toBe(true)
+    expect(isWithinDateRange('2020-12-31', '2020-01-01', '2020-12-31')).toBe(true)
+    expect(isWithinDateRange('2020-06-15', '2020-01-01', '2020-12-31')).toBe(true)
+    expect(isWithinDateRange('2019-12-31', '2020-01-01', '2020-12-31')).toBe(false)
+    expect(isWithinDateRange('2021-01-01', '2020-01-01', '2020-12-31')).toBe(false)
+  })
+
+  it('year-only item date is floored to Jan 1 for the comparison', () => {
+    // "2020" → 2020-01-01: inside a 2020 range, on the lower inclusive edge.
+    expect(isWithinDateRange('2020', '2020-01-01', '2020-12-31')).toBe(true)
+    // "2020" → 2020-01-01 is BEFORE a Feb-2020 lower bound.
+    expect(isWithinDateRange('2020', '2020-02-01', '')).toBe(false)
   })
 })

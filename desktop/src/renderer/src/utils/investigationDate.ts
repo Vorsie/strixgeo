@@ -72,3 +72,33 @@ export function parseInvestigationDate(raw: string | null | undefined): Date | n
   // Anything else is unparseable.
   return null
 }
+
+/**
+ * True if ``itemDate`` falls within the inclusive ``[fromBound, toBound]``
+ * range. Pure — takes raw strings so callers can depend only on stable
+ * primitive inputs (no per-render ``Date`` identity leaking into memo
+ * dep arrays).
+ *
+ * Semantics (shared by the CPT and Borehole list filters so the two
+ * tabs cannot diverge):
+ *   - No bound set (both unparseable/empty) → every item passes (the
+ *     filter is inactive; the caller need not special-case it).
+ *   - A bound IS set but the item has no parseable date → excluded.
+ *     A dateless investigation can't be placed in a range; surfacing it
+ *     anyway would be surprising once the user has constrained dates.
+ *   - Bounds are inclusive on both ends.
+ */
+export function isWithinDateRange(
+  itemDate: string | null,
+  fromBound: string | null,
+  toBound: string | null,
+): boolean {
+  const from = parseInvestigationDate(fromBound)
+  const to = parseInvestigationDate(toBound)
+  if (from === null && to === null) return true
+  const d = parseInvestigationDate(itemDate)
+  if (d === null) return false
+  if (from !== null && d.getTime() < from.getTime()) return false
+  if (to !== null && d.getTime() > to.getTime()) return false
+  return true
+}

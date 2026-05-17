@@ -41,7 +41,7 @@ import { EmptyState as SharedEmptyState } from '../../EmptyState'
 import { usePersistedJSON } from '../../../hooks/usePersistedJSON'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import { isTypingTarget } from '../../../utils/keyboard'
-import { parseInvestigationDate } from '../../../utils/investigationDate'
+import { isWithinDateRange, parseInvestigationDate } from '../../../utils/investigationDate'
 import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../../../api/client'
 
 // ---------------------------------------------------------------------------
@@ -242,15 +242,16 @@ export default function DataInspector(): JSX.Element {
     [sort, boreholeAxis],
   )
 
-  // Parse the date bounds from the filter inputs once per render (not per row).
-  // parseInvestigationDate is pure and fast — no memoisation needed at this level.
-  const cptFromDate = parseInvestigationDate(cptDateFilter.from || null)
-  const cptToDate = parseInvestigationDate(cptDateFilter.to || null)
-  const bhFromDate = parseInvestigationDate(bhDateFilter.from || null)
-  const bhToDate = parseInvestigationDate(bhDateFilter.to || null)
-
-  const cptDateActive = cptFromDate !== null || cptToDate !== null
-  const bhDateActive = bhFromDate !== null || bhToDate !== null
+  // "Active" = at least one bound parses to a real date. Used only in the
+  // footer JSX (NOT in any memo dep array) so re-creating these Date
+  // objects per render is harmless here — the filter memos below depend
+  // on the raw filter strings, not on parsed Date identity (S2).
+  const cptDateActive =
+    parseInvestigationDate(cptDateFilter.from || null) !== null ||
+    parseInvestigationDate(cptDateFilter.to || null) !== null
+  const bhDateActive =
+    parseInvestigationDate(bhDateFilter.from || null) !== null ||
+    parseInvestigationDate(bhDateFilter.to || null) !== null
 
   // Filtered + partitioned + sorted lists.
   const cptsAfterSearch = useMemo(
@@ -272,27 +273,25 @@ export default function DataInspector(): JSX.Element {
   // An item with no parseable date is EXCLUDED while any bound is set, and
   // shown when no bound is set (items with no date sort last; they are not
   // hidden until the user sets a bound — that would be surprising).
-  const cptsAfterDate = useMemo(() => {
-    if (!cptDateActive) return cptsAfterSearch
-    return cptsAfterSearch.filter(c => {
-      const d = parseInvestigationDate(c.start_date)
-      if (d === null) return false // no date → exclude while bound is set
-      if (cptFromDate !== null && d.getTime() < cptFromDate.getTime()) return false
-      if (cptToDate !== null && d.getTime() > cptToDate.getTime()) return false
-      return true
-    })
-  }, [cptsAfterSearch, cptDateActive, cptFromDate, cptToDate])
+  // Dep arrays carry only the stable primitive filter strings — the date
+  // parsing happens inside isWithinDateRange, so the memo recomputes only
+  // when a bound string actually changes, not on every render (S2). The
+  // shared predicate keeps the CPT and Borehole filters provably identical.
+  const cptsAfterDate = useMemo(
+    () =>
+      cptsAfterSearch.filter(c =>
+        isWithinDateRange(c.start_date, cptDateFilter.from, cptDateFilter.to),
+      ),
+    [cptsAfterSearch, cptDateFilter.from, cptDateFilter.to],
+  )
 
-  const boreholesAfterDate = useMemo(() => {
-    if (!bhDateActive) return boreholesAfterSearch
-    return boreholesAfterSearch.filter(b => {
-      const d = parseInvestigationDate(b.start_date)
-      if (d === null) return false
-      if (bhFromDate !== null && d.getTime() < bhFromDate.getTime()) return false
-      if (bhToDate !== null && d.getTime() > bhToDate.getTime()) return false
-      return true
-    })
-  }, [boreholesAfterSearch, bhDateActive, bhFromDate, bhToDate])
+  const boreholesAfterDate = useMemo(
+    () =>
+      boreholesAfterSearch.filter(b =>
+        isWithinDateRange(b.start_date, bhDateFilter.from, bhDateFilter.to),
+      ),
+    [boreholesAfterSearch, bhDateFilter.from, bhDateFilter.to],
+  )
 
   const cptVisible = useMemo(
     () =>
@@ -616,14 +615,14 @@ export default function DataInspector(): JSX.Element {
         {activeTab === 'cpt' && (
           <span>
             {cptDateActive
-              ? `${cptsAfterDate.length} of ${visibleCpts.length} CPT${visibleCpts.length !== 1 ? 's' : ''}`
+              ? `${cptsAfterDate.length} of ${cptsAfterSearch.length} CPT${cptsAfterSearch.length !== 1 ? 's' : ''}`
               : `${visibleCpts.length} CPT${visibleCpts.length !== 1 ? 's' : ''}`}
           </span>
         )}
         {activeTab === 'borehole' && (
           <span>
             {bhDateActive
-              ? `${boreholesAfterDate.length} of ${visibleBoreholes.length} borehole${visibleBoreholes.length !== 1 ? 's' : ''}`
+              ? `${boreholesAfterDate.length} of ${boreholesAfterSearch.length} borehole${boreholesAfterSearch.length !== 1 ? 's' : ''}`
               : `${visibleBoreholes.length} borehole${visibleBoreholes.length !== 1 ? 's' : ''}`}
           </span>
         )}
