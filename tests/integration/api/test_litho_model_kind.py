@@ -249,3 +249,71 @@ async def test_formation_carries_lithology_and_nad_class(
     assert bare.status_code == 201
     assert bare.json()["lithology"] is None
     assert bare.json()["nad_class"] is None
+
+
+async def test_codelist_lithostratigraphic(async_client: AsyncClient, project: ProjectOrm) -> None:
+    """Litho codelist → 5 base lithologies + admixtures, no NAD classes."""
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations/codelist",
+        params={"kind": "lithostratigraphic"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body["lithologies"]) == {"GRIND", "ZAND", "SILT", "KLEI", "VEEN"}
+    assert body["lithology_labels"]["ZAND"] == "Sand"
+    assert body["admixtures"]
+    assert body["nad_classes"] == []
+
+
+async def test_codelist_geotechnical_has_31_nad_classes(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """Geotech codelist → all 31 NAD classes, keyed 1..31."""
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations/codelist",
+        params={"kind": "geotechnical"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["nad_classes"]) == 31
+    nums = sorted(c["nad_class"] for c in body["nad_classes"])
+    assert nums == list(range(1, 32))
+    sand7 = next(c for c in body["nad_classes"] if c["nad_class"] == 7)
+    assert sand7["base_lithology"] == "ZAND"
+    assert body["admixtures"] == []
+
+
+async def test_codelist_geological_is_empty(async_client: AsyncClient, project: ProjectOrm) -> None:
+    """Geological codelist → empty (free / G3Dv3-seeded names)."""
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations/codelist",
+        params={"kind": "geological"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["lithologies"] == []
+    assert body["nad_classes"] == []
+
+
+async def test_codelist_rejects_unknown_kind(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """An unknown kind is a 422 (Literal-validated query param)."""
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations/codelist",
+        params={"kind": "nonsense"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_codelist_route_not_shadowed_by_dynamic_formation_route(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """`/formations/codelist` resolves to the codelist, not a
+    `/formations/{id}` lookup (static-before-dynamic ordering)."""
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations/codelist",
+        params={"kind": "lithostratigraphic"},
+    )
+    assert resp.status_code == 200
+    assert "lithologies" in resp.json()

@@ -1,0 +1,107 @@
+"""Belgian lithology + NAD geotechnical-class reference codelist.
+
+Curated reference data (NOT ingested upstream data — the data-integrity
+"store raw upstream tokens" rule does not apply here). Source: the
+``laagnr NAD-NEN`` sheet of ``Correlaties uit S en NAD_NEN_v2.xlsx``
+(Daniel Verastegui). The xlsx has data-entry artefacts ("KLEi", double
+spaces, inconsistent "zandh.,"/"zandh,"); those are normalised here
+because these strings are shown to engineers and round-tripped — the
+NAD **class number** (1..31, == ``laagnr``) is the stable key, the
+name is presentation.
+
+Used by the formation-codelist endpoint now (slice 2) and the CPT/
+borehole segmenter (slice 3) — constants live next to the segmenter
+service per the CLAUDE.md "constants alongside the classes that use
+them" rule.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+# ---------------------------------------------------------------------------
+# Base lithology — the ``Grondsoort`` axis (≤ String(20), fits the
+# geological_formation.lithology column). Admixture / packing-density
+# are NOT folded into this token (kept as separate axes — admixture
+# becomes a stored field only when the segmenter needs it; do not
+# pre-design it).
+# ---------------------------------------------------------------------------
+
+BaseLithology = Literal["GRIND", "ZAND", "SILT", "KLEI", "VEEN"]
+
+#: value → (Dutch label, English label). Order = coarse→fine→organic.
+BASE_LITHOLOGIES: dict[BaseLithology, tuple[str, str]] = {
+    "GRIND": ("Grind", "Gravel"),
+    "ZAND": ("Zand", "Sand"),
+    "SILT": ("Silt", "Silt"),
+    "KLEI": ("Klei", "Clay"),
+    "VEEN": ("Veen", "Peat"),
+}
+
+#: Admixture qualifiers (the ``bijmenging`` axis) — informational
+#: suggestions for the editor; not a stored field in v1.
+ADMIXTURE_QUALIFIERS: tuple[str, ...] = (
+    "silt-/kleihoudend",  # silty/clayey admixture
+    "zandhoudend",  # sandy admixture
+)
+
+#: Density state for SAND (the packing-density / NAD axis) and the
+#: consistency state for fines — kept for the segmenter (slice 3).
+SAND_PACKING_STATES: tuple[str, ...] = (
+    "los",
+    "matig",
+    "dicht",
+    "zeer dicht",
+)
+FINE_CONSISTENCY_STATES: tuple[str, ...] = (
+    "weinig vast",
+    "matig vast",
+    "vrij vast",
+    "vast",
+)
+
+# ---------------------------------------------------------------------------
+# NAD geotechnical classes — the 31 ``laagnr NAD-NEN`` rows. The class
+# number is the stable key (Phase-5 parameter join key into the NAD-NEN
+# parameter sheet); names normalised from the source artefacts.
+# ---------------------------------------------------------------------------
+
+#: NAD class number (1..31) → (canonical name, base lithology).
+NAD_CLASSES: dict[int, tuple[str, BaseLithology]] = {
+    1: ("GRIND, matig gp", "GRIND"),
+    2: ("GRIND, dicht gp", "GRIND"),
+    3: ("GRIND, silt-/kleihoudend, matig gp", "GRIND"),
+    4: ("GRIND, silt- of kleihoudend, dicht gp", "GRIND"),
+    5: ("ZAND, los gp", "ZAND"),
+    6: ("ZAND, matig gp", "ZAND"),
+    7: ("ZAND, dicht gp", "ZAND"),
+    8: ("ZAND, zeer dicht gp", "ZAND"),
+    9: ("ZAND, silt-/kleihoudend, los gp", "ZAND"),
+    10: ("ZAND, silt-/kleihoudend, matig gp", "ZAND"),
+    11: ("ZAND, silt-/kleihoudend, dicht gp", "ZAND"),
+    12: ("ZAND, silt-/kleihoudend, zeer dicht gp", "ZAND"),
+    13: ("SILT, weinig vast", "SILT"),
+    14: ("SILT, matig vast", "SILT"),
+    15: ("SILT, vrij vast", "SILT"),
+    16: ("SILT, vast", "SILT"),
+    17: ("SILT, zandhoudend, weinig vast", "SILT"),
+    18: ("SILT, zandhoudend, matig vast", "SILT"),
+    19: ("SILT, zandhoudend, vrij vast", "SILT"),
+    20: ("SILT, zandhoudend, vast", "SILT"),
+    21: ("KLEI, weinig vast", "KLEI"),
+    22: ("KLEI, matig vast", "KLEI"),
+    23: ("KLEI, vrij vast", "KLEI"),
+    24: ("KLEI, vast", "KLEI"),
+    25: ("KLEI, zandhoudend, weinig vast", "KLEI"),
+    26: ("KLEI, zandhoudend, matig vast", "KLEI"),
+    27: ("KLEI, zandhoudend, vrij vast", "KLEI"),
+    28: ("KLEI, zandhoudend, vast", "KLEI"),
+    29: ("VEEN, weinig vast", "VEEN"),
+    30: ("VEEN, matig vast", "VEEN"),
+    31: ("VEEN, vast", "VEEN"),
+}
+
+#: Lowest / highest valid NAD class — mirrors the Pydantic ge/le bound
+#: on ``GeologicalFormation*.nad_class`` so the two never drift.
+NAD_CLASS_MIN = 1
+NAD_CLASS_MAX = 31

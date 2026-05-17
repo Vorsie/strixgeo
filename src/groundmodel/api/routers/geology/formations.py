@@ -9,10 +9,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.schemas.project.formation_codelist import (
+    FormationCodelistResponse,
+    NadClassOption,
+)
 from groundmodel.api.schemas.project.geological_formation import (
     GeologicalFormationCreateRequest,
     GeologicalFormationResponse,
@@ -23,6 +27,12 @@ from groundmodel.api.schemas.project.geotechnical_unit import (
     GeotechnicalUnitResponse,
     GeotechnicalUnitUpdateRequest,
 )
+from groundmodel.domain.services.litho_constants import (
+    ADMIXTURE_QUALIFIERS,
+    BASE_LITHOLOGIES,
+    NAD_CLASSES,
+)
+from groundmodel.domain.value_objects.model_kind import ModelKind
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -83,6 +93,60 @@ async def list_formations(
     """List all formations defined for a project."""
     repo = GeologyRepository(session)
     return await repo.list_formations(project_id)
+
+
+@router.get(
+    "/formations/codelist",
+    response_model=FormationCodelistResponse,
+)
+async def formation_codelist(
+    project_id: UUID,
+    kind: ModelKind = Query(
+        default="lithostratigraphic",
+        description="Model kind the suggestions are for.",
+    ),
+) -> FormationCodelistResponse:
+    """Kind-aware formation-name suggestion set (debt-campaign follow-on).
+
+    Drives the editor autocomplete only — the create endpoint stays
+    permissive. Declared before the dynamic ``/formations/{id}``
+    routes so the static ``codelist`` segment is matched first.
+    Project-independent vocabulary (``project_id`` is the router
+    prefix); no project lookup needed.
+    """
+    # str(...) coerces the BaseLithology Literal keys to plain str —
+    # dict/list are invariant so the response model's dict[str, str] /
+    # list[str] would otherwise reject the Literal-typed source.
+    litho_labels: dict[str, str] = {str(tok): en for tok, (_nl, en) in BASE_LITHOLOGIES.items()}
+    lithologies: list[str] = [str(t) for t in BASE_LITHOLOGIES]
+
+    if kind == "lithostratigraphic":
+        return FormationCodelistResponse(
+            kind=kind,
+            lithologies=lithologies,
+            lithology_labels=litho_labels,
+            admixtures=list(ADMIXTURE_QUALIFIERS),
+            nad_classes=[],
+        )
+    if kind == "geotechnical":
+        return FormationCodelistResponse(
+            kind=kind,
+            lithologies=lithologies,
+            lithology_labels=litho_labels,
+            admixtures=[],
+            nad_classes=[
+                NadClassOption(nad_class=n, label=name, base_lithology=base)
+                for n, (name, base) in NAD_CLASSES.items()
+            ],
+        )
+    # geological — free / G3Dv3-seeded names, no fixed vocabulary here.
+    return FormationCodelistResponse(
+        kind=kind,
+        lithologies=[],
+        lithology_labels={},
+        admixtures=[],
+        nad_classes=[],
+    )
 
 
 @router.patch(
