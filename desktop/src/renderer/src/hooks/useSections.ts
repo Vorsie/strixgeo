@@ -233,20 +233,23 @@ export function useSections({
   // Mirrors the CPT/borehole auto-load in useInvestigationData so all
   // three lists refresh on project switch without App coordinating them.
   //
-  // WHY clear on project null: when the project closes (project → null) or
-  // switches, the sections list must be reset immediately so the map overlay
-  // and the right-pane list both show 0 — consistent with how
-  // useInvestigationData clears CPTs and boreholes on project null.  Without
-  // this, the previously-fetched sections linger in state and the map still
-  // renders them even though the right-pane (which reads visibleSections)
-  // shows 0 (because the manifest is already empty after discard).  The
-  // result is the desync the owner reported: "drawn sections still on map
-  // after not saving."
+  // WHY unconditional clear (S6 fix): clearing only on project=null leaves
+  // A's sections in state during an A→B project switch.  Between the effect
+  // firing (project?.id changes) and the new fetch resolving, a stale
+  // sections list is visible:
+  //   - handleSectionLineDrawn reads sections.length for the ordinal → wrong
+  //     Cross-section N (counts A's sections, not B's).
+  //   - handleFocusContacts searches sections → resolves to A's section rows.
+  // Clearing unconditionally at the top of the effect ensures every project
+  // transition (null OR A→B) starts from an empty list regardless of whether
+  // a project is present.  This also covers the original null-close fix.
+  //
+  // NOTE: useInvestigationData has an identical A→B gap (clears only on null);
+  // that is pre-existing and out of scope here — tracked as Tier-E debt.
   useEffect(() => {
-    if (!project) {
-      setSections([])
-      return
-    }
+    // Clear immediately on every project transition (including A→B switches).
+    setSections([])
+    if (!project) return
     if (ready) {
       void refreshSectionList()
     }
@@ -267,7 +270,23 @@ export function useSections({
   // map while the list reads visibleSections creates a visible desync — the
   // map showed unsaved sections that the list said were absent.  Both
   // DataCanvas and SectionsCanvas now pass visibleSections to MapView.
-  const visibleSections = sections.filter(s => manifestSectionIds.has(s.id))
+  //
+  // WHY useMemo (S7 fix): a plain `const sections.filter(…)` produces a new
+  // array identity on every render — any component that receives visibleSections
+  // as a prop or effect dep re-renders / re-fires the effect on every render
+  // cycle, creating the documented S7-class re-render / loop risk.
+  //
+  // manifestSectionIds stability: the prop is a ReadonlySet<string> injected
+  // from useProject.  useProject builds it with useMemo keyed on the bundle's
+  // sections array (a stable JSON-parsed reference), so its identity is stable
+  // across renders that don't mutate the bundle.  handleSectionCreated and
+  // handleSectionDeleted each call addToManifest/removeFromManifest which
+  // produce a new Set, so the identity correctly changes only when the manifest
+  // actually changes — no extra renders.
+  const visibleSections = useMemo(
+    () => sections.filter(s => manifestSectionIds.has(s.id)),
+    [sections, manifestSectionIds],
+  )
 
   // ---------------------------------------------------------------------------
   // Lifecycle callbacks — manifest + session-imports bookkeeping
