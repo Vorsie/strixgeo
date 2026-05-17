@@ -67,8 +67,11 @@ then **#45 fully resolved 2026-05-17** — DataInspector adopted the
 shared primitive via a new `compact` variant). **#48 progress-logging
 shipped 2026-05-17** (restore loops now have
 [i/total] DEBUG + phase summaries; only the cosmetic procedural-logger
-style remains — #48 stays open, rescoped). 28 open items**) compact
-them. Commit messages and code comments written
+style remains — #48 stays open, rescoped). **#42 resolved
+2026-05-17** — all three multi-class offenders split: formation_contact
+→ package + re-export, tin_surface + geology_validator value objects
+→ domain/value_objects/ (verbatim, importers unchanged). 27 open
+items**) compact them. Commit messages and code comments written
 before a cleanup pass continue to reference the OLD numbers — that's
 an unavoidable cost of the renumber. Sections #2–#28 below remain in
 their prior numeric order; #29+ are appended in numeric order — read
@@ -635,28 +638,6 @@ CesiumWidget/Scene/Camera/ScreenSpaceEventHandler + real math
 classes), then `Geology3DViewer.test.tsx` mounting with empty props
 (every builder early-returns on empty data) asserting no throw +
 split-line click reducer transitions.
-
-## 42. Multi-class files violate the one-class-per-file convention (Tier E)
-
-**What.** CLAUDE.md "Code Conventions" requires one class per file
-(only `shared/exceptions.py` exempt). Offenders:
-`api/schemas/project/formation_contact.py` (17 schema classes in one
-~355-line file — every geology endpoint grows it, every import pulls
-the whole module), `domain/services/tin_surface.py` (4 value
-objects + 3 functions + a logger, with a hard numpy/scipy import at
-module load), `domain/services/geology_validator.py` (3 classes).
-The `tin_surface` value objects (`ContactPoint3D`, `TinSurface`,
-`SectionLine2D`, `SlicePoint`) are domain types imported by the
-application layer and belong under `domain/value_objects/`.
-
-**Why deferred.** Pre-existing groupings from when each subsystem was
-first sketched and the class counts were small.
-
-**When to revisit.** Before the first non-solo contributor
-(readability gates onboarding), or when the Phase-5 kriging/RBF
-interpolator gives `tin_surface.py` a second compute path. Split
-`formation_contact.py` first (it grows fastest); then the
-`tin_surface` value objects into `domain/value_objects/`.
 
 ## 44. Cross-stage selection model is inconsistent with the spine metaphor (Tier D — product/interaction decision)
 
