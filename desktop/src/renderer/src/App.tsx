@@ -92,7 +92,7 @@ export default function App() {
     saveProject: saveMetadata,
     saveAsProject,
     closeProject,
-    writeLumpingSnapshot,
+    stageLumping,
   } = useProject()
 
   // Toast notifications — extracted to useToasts so ``toast`` is
@@ -317,7 +317,7 @@ export default function App() {
     removeFromSessionImports,
     manifestFormationIds,
     currentLumping,
-    writeLumpingSnapshot,
+    stageLumping,
   })
   // Local destructure is for App.tsx's own use ONLY. The COMPLETE hook
   // result is handed to the shell as `geoModel: geo` (below) — never a
@@ -384,7 +384,7 @@ export default function App() {
     openProjectFile,
     discardContacts,
     activeGeologicalModel,
-    writeLumpingSnapshot,
+    stageLumping,
     currentLumping,
   })
 
@@ -737,7 +737,7 @@ export default function App() {
     // lifecycle
     projectDirty, newProjectOpen, setNewProjectOpen, metadataEditorOpen, setMetadataEditorOpen, closeConfirmOpen,
     setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports, handleCloseProjectRequest,
-    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, writeLumpingSnapshot, currentLumping,
+    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, stageLumping, currentLumping,
     // investigations
     cpts, detailMap, plotMap, boreholes, boreholeDetailMap, importing,
     bboxImportType, dovImporting, dovImportState, resetDovImport, removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList,
