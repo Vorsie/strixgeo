@@ -472,6 +472,7 @@ export default function App() {
     handlePatchSelectedSection,
     handleSelectSection,
     handleFocusContacts,
+    applyUpdatedSection,
   } = useSections({
     project,
     ready,
@@ -746,7 +747,7 @@ export default function App() {
     sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg,
     sectionModelAxis, setSectionModelAxis,
     refreshSectionList, clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw,
-    handleSectionLineDrawn, handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts,
+    handleSectionLineDrawn, handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection,
     // overlays
     demSource, demOverlay, handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions,
     virtueleBoringLoading, virtueleBoringSkippedCount, virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection,
