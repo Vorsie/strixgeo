@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 from groundmodel.api.schemas.project.formation_contact import (
     AutoPopulateFromStratigraphyRequest,
     AutoPopulateFromStratigraphyResponse,
@@ -60,6 +61,9 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import (
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
+)
+from groundmodel.infrastructure.db.repositories.cross_section_repository import (
+    CrossSectionRepository,
 )
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
@@ -310,7 +314,47 @@ async def auto_populate_from_stratigraphy(
         borehole_ids=request.borehole_ids,
         selected_keys=request.selected_keys,
         manual_map=request.manual_map,
+        section_id=request.section_id,
     )
+
+    # Explicit-content invariant (owner directive 2026-05-17):
+    # when a section_id was provided (the "Seed from stratigraphy" path),
+    # PATCH the section's seeded_formation_contact_ids = union(existing ∪
+    # newly-created ∪ pre-existing-found) so formation content is gated
+    # correctly on the next BuildSectionSnapshot call.
+    #
+    # The use case already committed its own transaction (contacts + stale
+    # flags). The section PATCH runs in the same session but as a separate
+    # flush/commit so the two operations remain independent and the section
+    # commit doesn't interleave with contact creation.
+    updated_section_response: CrossSectionResponse | None = None
+    if request.section_id is not None:
+        section_repo = CrossSectionRepository(session)
+        section = await section_repo.get(request.section_id)
+        if section is not None and section.app_project_id == project_id:
+            # Build the union set: existing seeded ids ∪ newly created ∪ found (pre-existing).
+            existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
+            new_ids = frozenset(outcome.created_contact_ids) | frozenset(outcome.found_contact_ids)
+            merged = list(existing_seeded | new_ids)
+            updated = await section_repo.update(
+                request.section_id,
+                {"seeded_formation_contact_ids": merged},
+            )
+            await session.commit()
+            if updated is not None:
+                await session.refresh(updated)
+                updated_section_response = CrossSectionResponse.model_validate(updated)
+                logger.info(
+                    f"Seed: section {request.section_id} seeded_formation_contact_ids "
+                    f"updated — {len(merged)} id(s) total "
+                    f"({len(new_ids)} new, {len(existing_seeded)} pre-existing)"
+                )
+        else:
+            logger.warning(
+                f"Seed: section_id {request.section_id} not found in project "
+                f"{project_id} — seeded set not updated"
+            )
+
     return AutoPopulateFromStratigraphyResponse(
         created_contact_ids=outcome.created_contact_ids,
         created_formation_ids=outcome.created_formation_ids,
@@ -329,6 +373,7 @@ async def auto_populate_from_stratigraphy(
             )
             for col in outcome.collisions
         ],
+        updated_section=updated_section_response,
     )
 
 
