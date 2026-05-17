@@ -234,7 +234,17 @@ export default function SectionsToolbar(): JSX.Element {
       {/* Geology ↔ Lithology segmented toggle (slice 2, #55).
           Disabled on the litho segment when no litho model exists yet.
           Reads/writes sectionModelAxis from the sections slice. Uses
-          border-default + surface-card / accent semantic tokens only. */}
+          border-default + surface-card / accent semantic tokens only.
+
+          WHY the span wrapper on the disabled Litho button:
+          Chromium/Electron does not fire mouse events (including hover)
+          on `disabled` elements, so a `title` attribute on the button
+          itself is never surfaced to the user — they see only the
+          not-allowed cursor with no guidance. Wrapping in a non-disabled
+          <span role="presentation"> lets the browser attach the tooltip
+          to the span instead, restoring the expected UX. The span is
+          purely presentational (role="presentation", no tabIndex) so it
+          does not break the radiogroup/radio semantics or keyboard nav. */}
       <div
         role="group"
         aria-label="Section model axis"
@@ -255,29 +265,54 @@ export default function SectionsToolbar(): JSX.Element {
         >
           Geology
         </button>
-        <button
-          type="button"
-          role="radio"
-          aria-checked={isLitho}
-          disabled={activeLithoModel === null}
-          onClick={() => handleAxisChange('lithostratigraphic')}
-          className={[
-            'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-            isLitho
-              ? 'bg-accent text-text-on-accent'
-              : activeLithoModel === null
-                ? 'bg-surface-card text-text-muted cursor-not-allowed'
-                : 'bg-surface-card text-text-secondary hover:text-text-primary',
-          ].join(' ')}
+        {/* Span wrapper surfaces the tooltip on hover when the button is
+            disabled — Chromium suppresses mouse events (incl. title) on
+            disabled elements.  role="presentation" keeps this invisible
+            to screen readers; the button's own aria-disabled conveys state. */}
+        <span
+          role="presentation"
           title={
             activeLithoModel === null
               ? 'Create a lithostratigraphic model in the Lithology stage first'
-              : 'Edit the lithostratigraphic model contacts on this section'
+              : undefined
           }
         >
-          Litho
-        </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={isLitho}
+            disabled={activeLithoModel === null}
+            onClick={() => handleAxisChange('lithostratigraphic')}
+            className={[
+              'px-2 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              isLitho
+                ? 'bg-accent text-text-on-accent'
+                : activeLithoModel === null
+                  ? 'bg-surface-card text-text-muted cursor-not-allowed'
+                  : 'bg-surface-card text-text-secondary hover:text-text-primary',
+            ].join(' ')}
+            title={
+              activeLithoModel !== null
+                ? 'Edit the lithostratigraphic model contacts on this section'
+                : undefined
+            }
+          >
+            Litho
+          </button>
+        </span>
       </div>
+
+      {/* Inline hint — shown only when no litho model exists so the user
+          understands why the Litho segment is disabled without hovering.
+          Disappears as soon as a model exists (no permanent toolbar weight —
+          debt #23 toolbar crowding).  text-text-muted is a verified semantic
+          token (defined in index.css as --color-text-muted, used in
+          SectionsInspector, GeologyInspector, EmptyState, etc.). */}
+      {activeLithoModel === null && (
+        <p className="text-xs text-text-muted">
+          No lithostratigraphic model — create one in the Lithology stage.
+        </p>
+      )}
 
       {/* Separator */}
       <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
