@@ -518,14 +518,20 @@ async def test_auto_populate_does_not_build_tin_marks_existing_surfaces_stale():
 
 
 def test_normalize_collapses_dash_space_case_variants():
-    """The dogfeed duplicate: 'Formatie van Aalter – Lid van Oedelem' showed
+    """The dogfeed duplicate: 'Formatie van Aalter - Lid van Oedelem' showed
     twice because one borehole used an en-dash / double space / different
-    case. All such variants must map to ONE key."""
+    case. All such variants must map to ONE key.
+
+    After step 5 ('lid van' reduction, owner directive 2026-05-17) the
+    canonical key for any 'Lid van Oedelem'-bearing description is
+    'lid van oedelem', regardless of the parent formation prefix.
+    """
     canonical = normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Oedelem")
+    assert canonical == "lid van oedelem"
     variants = [
-        "Paleogeen: Formatie van Aalter – Lid van Oedelem",  # en-dash
+        "Paleogeen: Formatie van Aalter – Lid van Oedelem",  # en-dash (U+2013)
         "Paleogeen: Formatie van Aalter  -  Lid  van Oedelem",  # double spaces
-        "Paleogeen: Formatie van Aalter - Lid van Oedelem",  # NBSP after colon
+        "Paleogeen:\xa0Formatie van Aalter - Lid van Oedelem",  # NBSP after colon (U+00A0)
         "PALEOGEEN: FORMATIE VAN AALTER - LID VAN OEDELEM",  # upper-case
         "  Paleogeen: Formatie van Aalter - Lid van Oedelem  ",  # outer ws
     ]
@@ -540,7 +546,7 @@ def test_normalize_strips_chronostratigraphic_prefix_before_last_colon():
     assert normalize_formation_key(
         "Paleogeen: Formatie van Aalter - Lid van Oedelem"
     ) == normalize_formation_key("Tertiair - Eoceen: Formatie van Aalter - Lid van Oedelem")
-    # Multiple colons → split on the LAST one only.
+    # Multiple colons -> split on the LAST one only.
     assert (
         normalize_formation_key("Aangebracht/geroerd of Quartair: Holocene afzettingen")
         == "holocene afzettingen"
@@ -548,7 +554,7 @@ def test_normalize_strips_chronostratigraphic_prefix_before_last_colon():
 
 
 def test_normalize_no_colon_uses_whole_string():
-    """No colon → the whole string is the identity (just folded)."""
+    """No colon -> the whole string is the identity (just folded)."""
     assert normalize_formation_key("Quartair") == "quartair"
     assert normalize_formation_key("Ma") == "ma"
 
@@ -559,3 +565,36 @@ def test_normalize_trailing_colon_falls_back_to_content():
     rows."""
     assert normalize_formation_key("Boom:") == "boom"
     assert normalize_formation_key("Quartair :") == "quartair"
+
+
+def test_normalize_lid_van_reduces_to_member():
+    """Owner directive 2026-05-17: 'Tertiair: Lid van Oedelem' and
+    'Paleogeen: Formatie van Aalter - Lid van Oedelem' must both produce
+    'lid van oedelem' so the same member merges across different parent
+    formations in the discover-scan dialog."""
+    assert normalize_formation_key("Tertiair: Lid van Oedelem") == "lid van oedelem"
+    assert (
+        normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Oedelem")
+        == "lid van oedelem"
+    )
+
+
+def test_normalize_no_lid_van_keeps_full_key():
+    """Strings without 'lid van' are unaffected by step 5 -- their full
+    normalised key is returned unchanged."""
+    assert normalize_formation_key("Quartair") == "quartair"
+    assert (
+        normalize_formation_key("Formatie van Maldegem of Formatie van Aalter")
+        == "formatie van maldegem of formatie van aalter"
+    )
+    assert normalize_formation_key("Ma") == "ma"
+
+
+def test_normalize_distinct_members_stay_separate():
+    """Two different members under the same parent formation produce different
+    keys -- 'lid van' reduction does NOT over-merge distinct units."""
+    assert normalize_formation_key(
+        "Paleogeen: Formatie van Aalter - Lid van Oedelem"
+    ) != normalize_formation_key("Paleogeen: Formatie van Aalter - Lid van Vlierzele")
+    assert normalize_formation_key("Tertiair: Lid van Oedelem") == "lid van oedelem"
+    assert normalize_formation_key("Tertiair: Lid van Vlierzele") == "lid van vlierzele"
