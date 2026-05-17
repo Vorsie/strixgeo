@@ -82,6 +82,7 @@ function makeSection(id: string): CrossSectionResponse {
     min_depth_m: null,
     max_depth_m: null,
     display_order: 0,
+    seeded_formation_contact_ids: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
