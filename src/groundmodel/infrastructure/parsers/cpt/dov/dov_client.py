@@ -36,7 +36,9 @@ WFS index split:
 from __future__ import annotations
 
 import asyncio
+import gzip
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -52,7 +54,9 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_constants import (
     DOV_WFS_NUMBER_MATCHED_RE,
     DOV_WFS_URL,
     DOV_WGS84_TO_LAMBERT72,
+    PARSE_OFFLOAD_MIN_BYTES,
 )
+from groundmodel.infrastructure.parsers.cpt.dov.dov_parse_worker import parse_cpt_xml
 from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
@@ -220,6 +224,7 @@ class DovClient(GroundModelLogger):
         *,
         index: list[WfsIndexEntry] | None = None,
         progress_cb: ProgressCallback | None = None,
+        pool: ProcessPoolExecutor | None = None,
     ) -> list[tuple[str, _T]]:
         """Same as fetch_bbox but runs *process(xml_bytes, name)* on each download.
 
@@ -232,12 +237,18 @@ class DovClient(GroundModelLogger):
         When a cache is configured, cache hits skip the network entirely — the
         bytes go straight from disk into process(). Hit/miss counts are logged.
 
+        When *pool* is supplied, XMLs that exceed ``PARSE_OFFLOAD_MIN_BYTES``
+        are parsed in the pool via ``dov_parse_worker.parse_cpt_xml`` instead
+        of inline on the event loop, freeing the loop for concurrent downloads.
+        The *process* callable is still used for XMLs below the threshold and
+        as the fallback when *pool* is ``None``.
+
         Parameters
         ----------
         west, south, east, north : float
             Bounding box corners in WGS84 decimal degrees.
         process : ProcessFn[_T]
-            Callable invoked as ``process(xml_bytes, name)``.
+            Callable invoked as ``process(xml_bytes, name)`` for inline parsing.
         index : list[WfsIndexEntry] | None
             Pre-resolved WFS index from ``fetch_wfs_index()``. When supplied,
             the WFS discovery phase is skipped entirely — useful when the caller
@@ -248,6 +259,10 @@ class DovClient(GroundModelLogger):
             after WFS discovery and ``("download", done, total)`` periodically
             during the download phase.  Default ``None`` preserves the
             existing no-callback behaviour for all callers that don't opt in.
+        pool : ProcessPoolExecutor | None
+            Optional process-pool for offloading CPU-bound XML parsing.
+            Pass ``None`` (default) to keep the original single-process
+            behaviour; existing callers are unaffected.
 
         Returns
         -------
@@ -264,10 +279,11 @@ class DovClient(GroundModelLogger):
         # Report WFS discovery complete so the UI can show "N CPTs found".
         await fire_progress(progress_cb, "wfs", total, total)
 
+        pool_state = f"pool={pool is not None}"
         cache_state = "with cache" if self._cache is not None else "no cache"
         self.info(
             f"DOV: streaming download+process of {total} XMLs "
-            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel, {cache_state})"
+            f"(max {DOV_DOWNLOAD_PARALLELISM} parallel, {cache_state}, {pool_state})"
         )
         sem = asyncio.Semaphore(DOV_DOWNLOAD_PARALLELISM)
         # Mutable counter shared across tasks — asyncio is single-threaded so
@@ -284,6 +300,7 @@ class DovClient(GroundModelLogger):
                 total,
                 progress_step,
                 progress_cb,
+                pool,
             )
             for entry in index
         ]
@@ -316,15 +333,22 @@ class DovClient(GroundModelLogger):
         total: int,
         progress_step: int,
         progress_cb: ProgressCallback | None = None,
+        pool: ProcessPoolExecutor | None = None,
     ) -> _T:
-        """Download (or read from cache), then run process synchronously.
+        """Download (or read from cache), then parse — optionally in a worker process.
 
         On cache hit the network is skipped entirely. On cache miss the XML is
-        downloaded and then written back to the cache for next time. Process
+        downloaded and then written back to the cache for next time. Parsing
         runs after the semaphore is released so the slot becomes available for
-        the next download immediately. *progress* is shared across tasks for
-        periodic INFO logging — asyncio is single-threaded so the increment is
-        race-free without a lock.
+        the next download immediately.
+
+        When *pool* is supplied and ``len(xml_bytes) >= PARSE_OFFLOAD_MIN_BYTES``,
+        the parse is offloaded to the pool via ``dov_parse_worker.parse_cpt_xml``
+        (gzip-compressed bytes to minimise IPC payload).  The event loop is
+        free to start the next download while the child process parses.
+
+        *progress* is shared across tasks; asyncio is single-threaded so the
+        increment is race-free without a lock.
 
         Parameters
         ----------
@@ -333,7 +357,8 @@ class DovClient(GroundModelLogger):
         name : str
             Human-readable CPT name (sondeernummer) for log messages.
         process : ProcessFn[_T]
-            Callable run as ``process(xml_bytes, name)`` after download.
+            Callable run as ``process(xml_bytes, name)`` for inline parsing
+            (used when *pool* is ``None`` or the payload is below threshold).
         sem : asyncio.Semaphore
             Bounded download concurrency slot.
         progress : dict[str, int]
@@ -345,6 +370,9 @@ class DovClient(GroundModelLogger):
         progress_cb : ProgressCallback | None
             Optional callback.  Receives ``("download", done, total)`` on
             every logging tick.
+        pool : ProcessPoolExecutor | None
+            Optional process pool for offloading large XML parsing.  ``None``
+            keeps the original single-process behaviour.
         """
         permkey = last_path_segment(xml_url)
         xml_bytes: bytes | None = None
@@ -375,9 +403,23 @@ class DovClient(GroundModelLogger):
             if self._cache is not None:
                 self._cache.put(permkey, xml_bytes)
 
-        # Process runs outside the semaphore — parse blocks the event loop briefly
-        # (~16ms per CPT) while the freed semaphore slot starts the next download.
-        result = process(xml_bytes, name)
+        # Parse outside the semaphore — the freed slot starts the next download
+        # while this task parses (or waits for a pool worker to finish).
+        if pool is not None and len(xml_bytes) >= PARSE_OFFLOAD_MIN_BYTES:
+            # Gzip-compress before IPC: a typical DOV XML (~500 kB) shrinks to
+            # ~50 kB at level=1, reducing pipe overhead ~10× with minimal CPU cost.
+            compressed = gzip.compress(xml_bytes, compresslevel=1)
+            loop = asyncio.get_event_loop()
+            # parse_cpt_xml is a top-level function in dov_parse_worker — picklable
+            # on Windows spawn. The return type is always GEFParseResult regardless
+            # of the ProcessFn[_T] generic; callers that pass a non-DovParser
+            # process function (e.g. tests) should not supply a pool.
+            result: _T = await loop.run_in_executor(pool, parse_cpt_xml, compressed, name)  # type: ignore[assignment]
+        else:
+            # Inline path: used for small XMLs (below threshold) and when no pool
+            # is configured — matches the original behaviour exactly.
+            result = process(xml_bytes, name)
+
         progress["done"] += 1
         if from_cache:
             progress["hits"] += 1

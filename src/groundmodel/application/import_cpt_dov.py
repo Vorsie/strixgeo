@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import time
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from uuid import UUID
 
 import httpx
@@ -98,6 +99,7 @@ class ImportCptDov(GroundModelLogger):
         app_project_id: UUID | None = None,
         progress_cb: ProgressCallback | None = None,
         pins_cb: PinsCallback | None = None,
+        pool: ProcessPoolExecutor | None = None,
     ) -> ImportCptDovResult:
         """Fetch and persist all CPTs within the WGS84 bounding box.
 
@@ -120,6 +122,13 @@ class ImportCptDov(GroundModelLogger):
             map can render all N pending markers in one shot (~1 s after the
             user draws the bbox).  Errors from this callback are silently
             suppressed so a broken SSE connection cannot abort the import.
+        pool : ProcessPoolExecutor | None
+            Optional process pool for offloading CPU-bound XML parsing.
+            When supplied, XMLs that exceed ``PARSE_OFFLOAD_MIN_BYTES`` are
+            parsed in a child process so the asyncio event loop is not blocked
+            during the download phase.  Pass ``None`` (default) to keep the
+            original single-process behaviour; all existing callers are
+            unaffected.
 
         Returns
         -------
@@ -159,7 +168,9 @@ class ImportCptDov(GroundModelLogger):
                     return ImportCptDovResult(imported=0, duplicates=0, failed=0, cpt_ids=[])
 
                 # Phase 2 — download + parse: pass the pre-resolved index so the
-                # WFS round-trips are not repeated.
+                # WFS round-trips are not repeated. The pool (if supplied) offloads
+                # large XML parsing to child processes so the event loop stays free
+                # for concurrent downloads.
                 t_fetch = time.perf_counter()
                 parsed = await client.fetch_bbox_processed(
                     west,
@@ -169,6 +180,7 @@ class ImportCptDov(GroundModelLogger):
                     parser.parse,
                     index=index,
                     progress_cb=progress_cb,
+                    pool=pool,
                 )
                 self.info(
                     f"DOV phase 2 (download + parse): {ms_since(t_fetch)} ms — "
