@@ -54,8 +54,12 @@ from __future__ import annotations
 #                      owner feedback "you're cutting too much / holes
 #                      in the base formation". Holes resolved but a
 #                      little droop remained here and there.
-#   2.0 (2026-05-18) — owner "still a little droopy"; one step tighter.
-#                      Mid-band — clear of the low end where interior
-#                      holes / fragmentation return. If droop persists
-#                      go ~1.8; if holes reappear raise back ~2.2.
-CONCAVE_HULL_ALPHA_FACTOR = 2.0
+#   2.0 (2026-05-18) — one step tighter chasing residual "droop".
+#   4.0 (2026-05-18) — owner reverted to loose. The residual droop
+#                      turned out to be the SPLIT CUT-FACE bug
+#                      (buildCapPrimitives, fixed separately), NOT the
+#                      TIN footprint — so the tight clip was no longer
+#                      needed. 4.0 keeps a generous footprint (close to
+#                      the convex hull) while still cutting the gross
+#                      data-void spans.
+CONCAVE_HULL_ALPHA_FACTOR = 4.0
