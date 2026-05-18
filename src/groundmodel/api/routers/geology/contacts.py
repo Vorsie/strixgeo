@@ -27,6 +27,8 @@ from groundmodel.api.schemas.project.formation_contact import (
     FormationContactResponse,
     FormationContactUpdateRequest,
     LumpingCollisionItem,
+    PinchOutExtrapolationRequest,
+    PinchOutExtrapolationResponse,
     SeedLithoFromParentRequest,
     SeedLithoFromParentResponse,
 )
@@ -50,6 +52,7 @@ from groundmodel.application.delete_formation_contact import DeleteFormationCont
 from groundmodel.application.discover_formations_from_stratigraphy import (
     DiscoverFormationsFromStratigraphy,
 )
+from groundmodel.application.extrapolate_pinch_out import ExtrapolatePinchOut
 from groundmodel.application.seed_litho_from_geological_model import (
     SeedLithoFromGeologicalModel,
 )
@@ -848,4 +851,126 @@ async def suggest_litho_contacts(
             )
             for lyr in layers
         ],
+    )
+
+
+@router.post(
+    "/models/{model_id}/contacts/pinch-out",
+    response_model=PinchOutExtrapolationResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def extrapolate_pinch_out(
+    project_id: UUID,
+    model_id: UUID,
+    request: PinchOutExtrapolationRequest,
+    session: AsyncSession = Depends(get_session),
+) -> PinchOutExtrapolationResponse:
+    """Commit synthetic contacts at a formation's pinch-out tip.
+
+    When a formation pinches out laterally (field jargon: "wigs out"),
+    this endpoint extrapolates the formation's top along its local dip
+    until it meets the next-deeper formation's top (thickness → 0) and
+    commits two provenance-tagged synthetic contacts so the 3D TIN /
+    DXF / Plaxis / .gmproj all wedge consistently.
+
+    Two contacts are created rather than one so that the Delaunay
+    triangulation in ``compute_tin`` can form a non-degenerate wedge
+    triangle: a single point on the section line may be collinear with
+    existing contacts and produce a zero-volume wedge. The second
+    contact is offset ``offset_m`` perpendicular to the section line —
+    geologically negligible (1 m default) but guaranteed to break the
+    collinearity.
+
+    Both contacts carry ``source='pinch_out_extrapolation'`` and
+    ``confidence='low'`` and are immediately added to the section's
+    ``seeded_formation_contact_ids`` (explicit-content invariant).
+
+    The affected formation's TIN surface is marked stale; the user
+    clicks "Build 3D model" to materialise the wedge geometry.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Geological model that owns both formations' contacts.
+    request : PinchOutExtrapolationRequest
+        Body with formation ids, section, direction, and optional
+        geometry overrides.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    PinchOutExtrapolationResponse
+        Created contact ids, tip geometry, and the updated section.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(409)
+        When synthetic contacts for this formation already exist in
+        the model (idempotent — returns existing ids, no duplicate).
+    HTTPException(422)
+        When the geometry is uncomputable: missing TIN, empty slice,
+        or diverging surfaces.
+    """
+    # Model scope guard — same shape as all sibling contact endpoints.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+
+    try:
+        result = await ExtrapolatePinchOut(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            formation_id=request.formation_id,
+            target_formation_id=request.target_formation_id,
+            section_id=request.section_id,
+            direction=request.direction,
+            dip_override_m_per_m=request.dip_override_m_per_m,
+            offset_m=request.offset_m,
+        )
+    except ValueError as exc:
+        # Use case raises ValueError for uncomputable geometry or missing
+        # data (no TIN, empty slice, diverging surfaces). Map to 422 so
+        # the frontend can surface a meaningful message to the engineer.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "pinch_out_geometry_error",
+                "message": str(exc),
+            },
+        ) from exc
+
+    updated_section_response = None
+    if result.updated_section is not None:
+        updated_section_response = CrossSectionResponse.model_validate(result.updated_section)
+
+    # Idempotent re-invocation: the use case detected pre-existing synthetic
+    # contacts for this formation and returned them without creating more.
+    # Surface as 409 (mirrors the create-contact dedupe-409 contract) so the
+    # frontend knows it was a no-op; the body still carries the existing ids
+    # + the section so the client can load/render them.
+    if result.was_idempotent:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "pinch_out_already_exists",
+                "message": (
+                    "Synthetic pinch-out contacts already exist for this "
+                    "formation in this model; returning the existing ones."
+                ),
+                "existing_contact_ids": [str(cid) for cid in result.created_contact_ids],
+            },
+        )
+
+    return PinchOutExtrapolationResponse(
+        created_contact_ids=result.created_contact_ids,
+        tip_elevation_m=result.tip_elevation_m,
+        tip_along_m=result.tip_along_m,
+        updated_section=updated_section_response,
     )
