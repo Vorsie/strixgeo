@@ -190,6 +190,20 @@ export interface UseGeologicalModelResult {
     sectionId?: string | null,
     onSectionUpdated?: (updated: import('../api/client').CrossSectionResponse) => void,
   ) => Promise<void>
+  /**
+   * Seed the active lithostratigraphic model from its parent geological model's
+   * contacts.  Copies each parent contact with source='geological_model_seed'
+   * and confidence='medium'.  Idempotent — re-running skips existing pairs.
+   *
+   * When called from the Sections stage, pass ``sectionId`` and
+   * ``onSectionUpdated`` so the server seeds the section's explicit-content
+   * set and local section state is patched without a refetch.
+   */
+  handleSeedLithoFromParent: (
+    boreholeIds: readonly string[],
+    sectionId?: string | null,
+    onSectionUpdated?: (updated: import('../api/client').CrossSectionResponse) => void,
+  ) => Promise<void>
   handleDedupeContacts: () => Promise<number>
   handleRebuildSurfaces: () => Promise<void>
   handleExportModelPlaxis3d: () => Promise<void>
@@ -1597,6 +1611,62 @@ export function useGeologicalModel({
     ],
   )
 
+  // Seed the active lithostratigraphic model from its parent geological
+  // model's contacts.  Mirrors the structure of handleAutoPopulateFromStratigraphy
+  // but closes over activeLithoModel instead of activeGeologicalModel.
+  // No undo entry — seeded contacts are idempotent tombstones; the user
+  // removes unwanted ones via the Sections editor (one-by-one delete).
+  const handleSeedLithoFromParent = useCallback(
+    async (
+      boreholeIds: readonly string[],
+      sectionId?: string | null,
+      onSectionUpdated?: (updated: import('../api/client').CrossSectionResponse) => void,
+    ): Promise<void> => {
+      if (!project || !activeLithoModel) return
+      if (boreholeIds.length === 0) return
+      log.debug(
+        'geology',
+        `seedLithoFromParent entry model=${activeLithoModel.id} boreholes=${boreholeIds.length}` +
+          (sectionId ? ` section=${sectionId}` : ''),
+      )
+      try {
+        const outcome = await api.geology.seedLithoFromParent(
+          project.id,
+          activeLithoModel.id,
+          boreholeIds,
+          sectionId,
+        )
+        // Patch local section state when the server echoed an updated section row.
+        if (outcome.updated_section != null && onSectionUpdated != null) {
+          onSectionUpdated(outcome.updated_section)
+          log.debug(
+            'geology',
+            `seedLithoFromParent: section ${sectionId} seeded set applied locally`,
+          )
+        }
+        // Refresh litho contacts — the simplest path to consistency;
+        // new contacts were inserted server-side.
+        const conts = await api.geology.listContacts(project.id, activeLithoModel.id)
+        setLithoContacts(conts)
+        addToSessionImports('contact', outcome.created_contact_ids)
+        const created = outcome.created_contact_ids.length
+        log.success(
+          'geology',
+          `seedLithoFromParent ok +${created} contacts, skipped ${outcome.skipped_existing} existing`,
+        )
+        if (created > 0) {
+          toast('success', `Seeded ${created} contacts from geological model.`)
+        } else {
+          toast('success', 'Already in sync — nothing to add.')
+        }
+      } catch (err) {
+        log.error('geology', 'seedLithoFromParent failed', err)
+        toast('error', 'Could not seed contacts from geological model.')
+      }
+    },
+    [project, activeLithoModel, addToSessionImports],
+  )
+
   // One-shot cleanup for legacy duplicate (anchor, formation)
   // contacts left over from auto-populate runs that predated the
   // per-anchor uniqueness rule. Backend keeps one survivor per
@@ -2492,6 +2562,7 @@ export function useGeologicalModel({
     handleBatchUpdateContacts,
     handleDeleteContact,
     handleAutoPopulateFromStratigraphy,
+    handleSeedLithoFromParent,
     handleDedupeContacts,
     handleRebuildSurfaces,
     handleExportModelPlaxis3d,
