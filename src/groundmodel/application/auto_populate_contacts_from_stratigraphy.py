@@ -51,8 +51,10 @@ stable keys, not in display names.
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
+from collections import Counter
 from collections.abc import Iterable
 from uuid import UUID
 
@@ -87,9 +89,13 @@ __all__ = [
     "LumpingCollision",
     "StratigraphyCandidate",
     "normalize_formation_key",
+    "build_formal_informal_bridge",
+    "_resolve_bridge_key",
     "scan_stratigraphy_candidates",
     "AutoPopulateContactsFromStratigraphy",
 ]
+
+_logger = logging.getLogger(__name__)
 
 
 _NON_ALNUM_RUN = re.compile(r"[\W_]+", re.UNICODE)
@@ -143,6 +149,198 @@ def normalize_formation_key(raw: str) -> str:
     nfkc = unicodedata.normalize("NFKC", raw)
     # Casefold → Unicode-aware lower.  Collapse non-alnum runs → space.
     return _NON_ALNUM_RUN.sub(" ", nfkc.casefold()).strip()
+
+
+async def build_formal_informal_bridge(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+) -> dict[str, str]:
+    """Derive a formal-code → informal-name equivalence map from the project's boreholes.
+
+    Scans every borehole in the project that carries BOTH a
+    ``FORMAL_STRATIGRAPHY`` and an ``INFORMAL_STRATIGRAPHY`` observation
+    (a "dual-stream" borehole).  For each dual-stream borehole, pairs formal
+    and informal layers by max depth-interval overlap (the same
+    ``_best_overlap`` rule used by the seeder itself).  Each proven pair
+    contributes one ``normalize(formal_code) → normalize(informal_name)``
+    entry to the bridge.
+
+    When multiple dual-stream boreholes disagree on what a formal code maps
+    to (e.g. "Q" → "Quartair" in borehole A vs "Q" → "Alluvium" in borehole
+    B), the most-frequent informal key wins.  Ties are broken by lexicographic
+    order of the informal key (deterministic, no randomness).  A WARNING is
+    logged when disagreement is detected (Decision 2, locked 2026-05-18).
+
+    A project with no dual-stream boreholes returns an empty dict — the bridge
+    is a no-op and manual lumping still works exactly as before (Decision 1,
+    locked 2026-05-18).
+
+    The bridge is **not persisted** — it is a derivation of ``ObservationLayer``
+    rows already in the bundle.  Recomputing it per request is cheap (one
+    SELECT over the borehole table for the project scope, same round-trip as
+    the seeder's own borehole load).  Persisting it would require a provenance
+    column (Data Integrity Rule §1) and a migration — both avoided by
+    recompute-on-discover.
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active SQLAlchemy async session (read-only use inside this function;
+        no flush/commit is issued).
+    project_id : UUID
+        Project scope — only boreholes within this project are queried.
+
+    Returns
+    -------
+    dict[str, str]
+        ``{ normalize_formation_key(formal_code) -> normalize_formation_key(informal_name) }``
+        for every proven formal↔informal pair in the project.  Empty when no
+        dual-stream borehole exists.
+    """
+    # Load every borehole in the project that has at least one stratigraphy
+    # observation, with its observations and layers in one round-trip.
+    bh_stmt = (
+        select(BoreholeOrm)
+        .where(BoreholeOrm.app_project_id == project_id)
+        .options(selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers))
+    )
+    boreholes = list((await session.execute(bh_stmt)).scalars().all())
+
+    _logger.debug(
+        "build_formal_informal_bridge: project=%s loaded %d boreholes",
+        project_id,
+        len(boreholes),
+    )
+
+    # Per formal key: count votes per informal key across all dual-stream boreholes.
+    # Structure: { norm(formal_code) -> Counter({ norm(informal_name) -> vote_count }) }
+    votes: dict[str, Counter[str]] = {}
+
+    dual_stream_count = 0
+    for borehole in boreholes:
+        formal_obs = _find_observation(borehole.observations, ObservationType.FORMAL_STRATIGRAPHY)
+        informal_obs = _find_observation(
+            borehole.observations, ObservationType.INFORMAL_STRATIGRAPHY
+        )
+        # Only dual-stream boreholes prove formal↔informal equivalences.
+        if formal_obs is None or informal_obs is None:
+            continue
+
+        dual_stream_count += 1
+        informal_layers = list(informal_obs.layers)
+
+        for formal_layer in formal_obs.layers:
+            formal_desc = (formal_layer.description or "").strip()
+            if not formal_desc:
+                continue
+            # Pair with the best-overlap informal layer (same rule as the seeder).
+            counterpart = _best_overlap(formal_layer.top_m, formal_layer.base_m, informal_layers)
+            if counterpart is None:
+                # No informal layer overlaps this formal layer → no proven pair.
+                _logger.debug(
+                    "build_formal_informal_bridge: borehole=%s formal='%s' "
+                    "(top=%.2f, base=%.2f) has no overlapping informal layer — skipped",
+                    borehole.id,
+                    formal_desc,
+                    formal_layer.top_m,
+                    formal_layer.base_m,
+                )
+                continue
+            informal_desc = (counterpart.description or "").strip()  # type: ignore[union-attr]
+            if not informal_desc:
+                continue
+
+            norm_formal = normalize_formation_key(formal_desc)
+            norm_informal = normalize_formation_key(informal_desc)
+            votes.setdefault(norm_formal, Counter())[norm_informal] += 1
+
+    _logger.debug(
+        "build_formal_informal_bridge: %d dual-stream boreholes, %d formal key(s) with votes",
+        dual_stream_count,
+        len(votes),
+    )
+
+    if not votes:
+        return {}
+
+    bridge: dict[str, str] = {}
+    for norm_formal, counter in votes.items():
+        winner, winner_count = counter.most_common(1)[0]
+        total = sum(counter.values())
+        if len(counter) > 1:
+            # Disagreement: multiple informal keys for the same formal code.
+            # Log a WARNING; pick the most frequent, break ties lexicographically.
+            # Deterministic tie-break: when two informal keys share the top count,
+            # the lexicographically smaller key wins (stable sort).
+            top_count = winner_count
+            tied_keys = sorted(k for k, c in counter.items() if c == top_count)
+            winner = tied_keys[0]
+            _logger.warning(
+                "build_formal_informal_bridge: formal key '%s' has %d disagreeing "
+                "informal mapping(s) across %d borehole(s): %s — picking '%s' "
+                "(majority=%d/%d votes)",
+                norm_formal,
+                len(counter),
+                total,
+                dict(counter),
+                winner,
+                counter[winner],
+                total,
+            )
+        bridge[norm_formal] = winner
+
+    _logger.debug(
+        "build_formal_informal_bridge: bridge contains %d pair(s): %s",
+        len(bridge),
+        bridge,
+    )
+    return bridge
+
+
+def _resolve_bridge_key(
+    raw_key: str,
+    *,
+    primary_is_formal: bool,
+    bridge: dict[str, str] | None,
+) -> str:
+    """Apply the formal↔informal bridge to a raw normalised key — pure, no I/O.
+
+    When ``primary_is_formal`` is True and ``raw_key`` is found in ``bridge``,
+    returns the mapped informal key so a formal-only borehole's layer resolves
+    to the same identity as an informal-only borehole's layer for the same
+    geological unit.
+
+    Returns ``raw_key`` unchanged in every other case:
+
+    * ``bridge`` is None (no dual-stream boreholes in the project).
+    * ``primary_is_formal`` is False (informal key — never remapped; the bridge
+      maps formal → informal, not the reverse).
+    * ``raw_key`` is not in ``bridge`` (this formal code has no proven informal
+      equivalent in the project data).
+
+    Parameters
+    ----------
+    raw_key : str
+        The typographically normalised key produced by
+        ``_derive_layer_names_and_key``.
+    primary_is_formal : bool
+        True when the raw_key originated from a FORMAL_STRATIGRAPHY layer.
+        False for INFORMAL_STRATIGRAPHY layers — the bridge is one-directional
+        (formal→informal) so informal keys pass through unchanged.
+    bridge : dict[str, str] or None
+        The project-level formal→informal map produced by
+        ``build_formal_informal_bridge``, or None when no bridge was computed
+        (no-op path).
+
+    Returns
+    -------
+    str
+        The bridge-resolved key when a mapping exists; ``raw_key`` otherwise.
+    """
+    if bridge is None or not primary_is_formal:
+        return raw_key
+    return bridge.get(raw_key, raw_key)
 
 
 def _derive_layer_names_and_key(
@@ -258,6 +456,7 @@ async def scan_stratigraphy_candidates(
     project_id: UUID,
     borehole_ids: Iterable[UUID],
     manual_map: dict[str, str] | None = None,
+    bridge: dict[str, str] | None = None,
 ) -> tuple[list[StratigraphyCandidate], list[LumpingCollision]]:
     """Scan borehole stratigraphy and return unique formation candidates.
 
@@ -268,8 +467,8 @@ async def scan_stratigraphy_candidates(
     ``FormationSelectionDialog`` without committing anything.
 
     The ``discover≡apply`` invariant is maintained: passing the same
-    ``manual_map`` here and to ``execute()`` produces identical effective
-    keys, collision warnings, and per-borehole contact choices.
+    ``manual_map`` and ``bridge`` here and to ``execute()`` produces identical
+    effective keys, collision warnings, and per-borehole contact choices.
 
     Parameters
     ----------
@@ -285,6 +484,13 @@ async def scan_stratigraphy_candidates(
         mapping built by the user's lumping dialog.  When provided, layers
         whose raw key is in the map are merged under the target formation.
         ``None`` (default) = no lumping; every key remains its own candidate.
+    bridge : dict[str, str] or None, optional
+        Formal→informal equivalence map produced by
+        ``build_formal_informal_bridge``.  When provided, formal-only layers
+        whose code is in the map are resolved to the bridged informal key so
+        they merge with informal-only layers that prove the same geological
+        unit.  ``None`` (default) = no bridge, every formal key stays as-is.
+        Precedence: raw → bridge → manual_map (manual_map always wins).
 
     Returns
     -------
@@ -356,10 +562,20 @@ async def scan_stratigraphy_candidates(
                 counterpart_desc=counterpart_desc,
             )
 
-            # Apply manual lump map — may redirect raw_key to a user-chosen target.
-            effective_key, effective_name = _resolve_effective_key(raw_key, manual_map)
+            # Apply the formal↔informal bridge BEFORE the manual lump map.
+            # When a formal-only borehole's code proves equivalent to an
+            # informal-only borehole's description (from any dual-stream
+            # borehole in the project), the bridge remaps the formal key to
+            # the informal key so both boreholes resolve to ONE candidate.
+            # Precedence: raw → bridge (data-proven) → manual_map (user wins).
+            bridged_key = _resolve_bridge_key(
+                raw_key, primary_is_formal=primary_is_formal, bridge=bridge
+            )
+
+            # Apply manual lump map — may redirect bridged_key to a user-chosen target.
+            effective_key, effective_name = _resolve_effective_key(bridged_key, manual_map)
             # Use effective_name as display name when lumped; fall back to derived name.
-            display_name = effective_name if manual_map and raw_key in manual_map else name
+            display_name = effective_name if manual_map and bridged_key in manual_map else name
 
             if effective_key not in key_to_data:
                 key_to_data[effective_key] = (display_name, regional_ref, set())
@@ -503,6 +719,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         selected_keys: list[str] | None = None,
         manual_map: dict[str, str] | None = None,
         section_id: UUID | None = None,
+        bridge: dict[str, str] | None = None,
     ) -> AutoPopulateOutcome:
         """Walk every borehole in scope and seed contacts.
 
@@ -566,6 +783,16 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             When ``None`` (the Fill-from-boreholes path), ``found_contact_ids``
             is always empty — Fill manages its own formation lifecycle and
             does not touch section seeds.
+        bridge : dict[str, str] or None, optional
+            Formal→informal equivalence map produced by
+            ``build_formal_informal_bridge``.  When provided, formal-only
+            layers whose code is in the map are resolved to the bridged
+            informal key so they merge with informal-only layers for the same
+            geological unit across boreholes.  ``None`` (default) = no bridge.
+            The caller (``AutoPopulateContactsFromStratigraphy.execute`` callers
+            in the API routers) computes this ONCE per request and passes it in
+            so the discover≡apply≡seed invariant holds.  Precedence:
+            raw → bridge (data-proven) → manual_map (user override wins).
 
         Returns
         -------
@@ -590,7 +817,8 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         self.info(
             f"Auto-populate: model={model_id} boreholes={len(borehole_id_list)} "
             f"selected_keys={len(selected_key_set) if selected_key_set is not None else 'all'} "
-            f"manual_map={len(manual_map) if manual_map else 0}"
+            f"manual_map={len(manual_map) if manual_map else 0} "
+            f"bridge={len(bridge) if bridge else 0}"
         )
         if not borehole_id_list and selected_key_set_norm is None:
             # No boreholes + no key filter → nothing to do (unfiltered Seed path).
@@ -828,12 +1056,19 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     counterpart_desc=counterpart_desc,
                 )
 
-                # Apply manual lump map — may redirect stable_key to a user-chosen target.
+                # Apply the formal↔informal bridge BEFORE the manual lump map.
+                # Mirrors scan_stratigraphy_candidates exactly — same bridge dict,
+                # same precedence (raw → bridge → manual_map) — so discover≡apply holds.
+                bridged_key = _resolve_bridge_key(
+                    stable_key, primary_is_formal=primary_is_formal, bridge=bridge
+                )
+
+                # Apply manual lump map — may redirect bridged_key to a user-chosen target.
                 # WHY normalise the target: two different raw names lumped to "Holoceen"
                 # must land on the same formation as a raw name that IS "Holoceen".
                 # _resolve_effective_key applies normalize_formation_key to the target.
-                effective_key, effective_name = _resolve_effective_key(stable_key, manual_map)
-                display_name = effective_name if manual_map and stable_key in manual_map else name
+                effective_key, effective_name = _resolve_effective_key(bridged_key, manual_map)
+                display_name = effective_name if manual_map and bridged_key in manual_map else name
 
                 # Apply the selected-key filter when the caller provided one.
                 # Compare effective_key (post-lump) against the normalised set so
