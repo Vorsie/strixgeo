@@ -145,6 +145,123 @@ export function sampleTinZ(
   return null
 }
 
+/** One present formation at one cut-face station: its (z-offset-applied)
+ * surface elevation and the formation id. */
+export interface StationFormationZ {
+  z: number
+  fid: string
+}
+
+/** Visible thickness (m) given to the deepest-present formation's band at
+ * a station — it has no formation beneath to bound it. A small UNIFORM
+ * sliver that hugs that formation's own (flat) top, NOT a ramp to a
+ * global floor: the latter was the cut-face "droop" bug — a band whose
+ * bottom plunged to ``minZ - 2`` wherever a deeper formation pinched out
+ * between stations, while the formation TINs themselves were flat. */
+export const CUT_FACE_BASE_SLIVER_M = 2.0
+
+/**
+ * Build the cut-face band triangles, per formation id, robust to
+ * formations pinching out between stations.
+ *
+ * The previous in-line implementation walked ``columnA[i]`` vs
+ * ``columnB[i]`` — index-aligned across two INDEPENDENTLY z-sorted,
+ * VARIABLE-LENGTH per-station columns. When a deeper formation was
+ * absent at one station (different concave-hull extents) the indices
+ * referred to different formations and the band bottom fell back to a
+ * global ``zBase``, producing a steep ramp on the cut face even though
+ * every formation TIN was flat ("only the split surface is droopy").
+ *
+ * Here each band's bottom is the next-deeper PRESENT formation's top at
+ * its OWN station (so every edge follows a real, flat TIN sample); the
+ * deepest-present formation gets ``baseSliverM`` of uniform thickness;
+ * a formation present at only one of two adjacent stations wedges to a
+ * point (an honest pinch-out) instead of dragging a neighbour to the
+ * floor. No global ``zBase`` exists any more.
+ *
+ * Parameters
+ * ----------
+ * profiles
+ *     Per station, the present formations TOP-FIRST (z descending) —
+ *     exactly what the caller already builds via {@link sampleTinZ}.
+ * stationXY
+ *     Per station, its projected ``[x, y]``.
+ * baseSliverM
+ *     Thickness for the deepest-present band (default
+ *     {@link CUT_FACE_BASE_SLIVER_M}).
+ *
+ * Returns
+ * -------
+ * Map<string, number[]>
+ *     fid → flat projected triangle soup ``[x,y,z, x,y,z, ...]`` (3
+ *     vertices per triangle), in the same layout the caller turns into
+ *     Cesium primitives.
+ */
+export function buildCutFaceBands(
+  profiles: readonly (readonly StationFormationZ[])[],
+  stationXY: readonly (readonly [number, number])[],
+  baseSliverM: number = CUT_FACE_BASE_SLIVER_M,
+): Map<string, number[]> {
+  // Per-station band [top, bot] keyed by fid, computed from THAT
+  // station's own ordering: bot = next-present-below top, or a uniform
+  // sliver when this is the deepest present here.
+  const bandsByStation: Map<string, { top: number; bot: number }>[] =
+    profiles.map(col => {
+      const m = new Map<string, { top: number; bot: number }>()
+      for (let j = 0; j < col.length; j++) {
+        const top = col[j].z
+        const bot = j + 1 < col.length ? col[j + 1].z : top - baseSliverM
+        m.set(col[j].fid, { top, bot })
+      }
+      return m
+    })
+
+  const out = new Map<string, number[]>()
+  const push = (fid: string, verts: number[]) => {
+    let arr = out.get(fid)
+    if (!arr) {
+      arr = []
+      out.set(fid, arr)
+    }
+    for (const v of verts) arr.push(v)
+  }
+
+  for (let k = 0; k + 1 < bandsByStation.length; k++) {
+    const A = bandsByStation[k]
+    const B = bandsByStation[k + 1]
+    const [ax, ay] = stationXY[k]
+    const [bx, by] = stationXY[k + 1]
+    const fids = new Set<string>([...A.keys(), ...B.keys()])
+    for (const fid of fids) {
+      const a = A.get(fid)
+      const b = B.get(fid)
+      if (a && b) {
+        // Full band → two triangles of the quad
+        // (a.top)(b.top)(b.bot) + (a.top)(b.bot)(a.bot).
+        push(fid, [
+          ax, ay, a.top, bx, by, b.top, bx, by, b.bot,
+          ax, ay, a.top, bx, by, b.bot, ax, ay, a.bot,
+        ])
+      } else if (a && !b) {
+        // Pinches out toward station k+1 → wedge to a point.
+        push(fid, [
+          ax, ay, a.top,
+          ax, ay, a.bot,
+          bx, by, (a.top + a.bot) / 2,
+        ])
+      } else if (!a && b) {
+        // Pinches in from station k → wedge from a point.
+        push(fid, [
+          ax, ay, (b.top + b.bot) / 2,
+          bx, by, b.top,
+          bx, by, b.bot,
+        ])
+      }
+    }
+  }
+  return out
+}
+
 /**
  * Half-space clip used by the split view (G6 step 1). Given ECEF
  * triangles and a Cesium.Plane, returns the triangle soup on the kept
