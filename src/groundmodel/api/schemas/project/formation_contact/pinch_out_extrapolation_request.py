@@ -36,6 +36,22 @@ class PinchOutExtrapolationRequest(BaseModel):
         Delaunay collinearity.  Defaults to
         ``DEFAULT_PINCH_OUT_OFFSET_M`` (1.0 m).  Adjust only when
         the default produces an undesirable TIN artefact at this scale.
+    dry_run : bool
+        When ``True``, the endpoint computes the tip geometry via the
+        same ``compute_pinch_tip`` path as the commit flow but does NOT
+        create contacts, does NOT mark the surface stale, does NOT seed
+        the section, and does NOT commit.  The response carries
+        ``tip_along_m`` / ``tip_elevation_m`` for the frontend ghost
+        preview and ``created_contact_ids=[]``.
+
+        Mapping errors (geometry uncomputable, missing TIN) are still
+        returned as HTTP 422 so the frontend can surface a meaningful
+        "can't pinch out here" inline message.
+
+        WHY request-body flag (not query param): the existing endpoint
+        already takes a JSON body, and adding a body field is additive
+        without changing the route.  Sibling convention (auto-populate
+        uses body fields for all variants).
     """
 
     formation_id: UUID
@@ -54,5 +70,13 @@ class PinchOutExtrapolationRequest(BaseModel):
         description=(
             "Perpendicular offset (m) for the Delaunay-collinearity-breaking "
             f"twin contact. Default: {DEFAULT_PINCH_OUT_OFFSET_M} m."
+        ),
+    )
+    dry_run: bool = Field(
+        default=False,
+        description=(
+            "When True: compute and return the tip geometry WITHOUT "
+            "persisting any contacts or marking the surface stale. "
+            "Used by the frontend ghost-preview step before Confirm."
         ),
     )
