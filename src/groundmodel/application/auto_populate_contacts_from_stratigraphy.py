@@ -51,8 +51,6 @@ stable keys, not in display names.
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from collections import Counter
 from collections.abc import Iterable
 from uuid import UUID
@@ -66,6 +64,15 @@ from groundmodel.application.auto_populate_outcome import AutoPopulateOutcome
 from groundmodel.application.lumping_collision import LumpingCollision
 from groundmodel.application.stratigraphy_candidate import StratigraphyCandidate
 from groundmodel.domain.value_objects.observation_type import ObservationType
+from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_catalog import (
+    FormalStratigraphyEntry,
+    get_formal_stratigraphy,
+)
+from groundmodel.infrastructure.codelists.dov_formal_stratigraphy_constants import (
+    RELATION_CODES_NORM,
+    RELATION_WORD,
+    UNRESOLVABLE_CODES_NORM,
+)
 from groundmodel.infrastructure.codelists.g3dv3_catalog import get_catalog
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -78,6 +85,7 @@ from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from groundmodel.shared.formation_key import normalize_formation_key
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -97,57 +105,13 @@ __all__ = [
 _logger = LoggerFactory.get_logger(__name__)
 
 
-_NON_ALNUM_RUN = re.compile(r"[\W_]+", re.UNICODE)
-
-
-def normalize_formation_key(raw: str) -> str:
-    """Canonicalise a stratigraphy description into a dedup / merge key.
-
-    **Typographic-only normalisation** (owner directive, 2026-05-17 reversal).
-
-    The two semantic steps that were present in the prior implementation —
-    (a) dropping everything before the last ``:`` and (b) reducing to
-    ``lid van <member>`` — have been REMOVED. Reason: both steps caused
-    the machine to silently decide that two strings were the same unit when
-    they were not, which is exactly the class of decision the owner
-    reserved for the user's manual lumping tool.  After the reversal:
-
-      * ``"Formatie van Aalter - Lid van Oedelem"`` and
-        ``"Lid van Oedelem"`` are DISTINCT keys.
-      * ``"Paleogeen: Formatie van Aalter"`` and
-        ``"Tertiair: Formatie van Aalter"`` are DISTINCT keys.
-
-    The only remaining normalisation is typographic — it collapses
-    characters that are byte-distinct but visually identical, preventing
-    accidental splits between boreholes where the same string was typed
-    in two slightly different ways:
-
-      * NFKC — folds NBSP (U+00A0) → regular space, en-dash (U+2013)
-        and em-dash (U+2014) → ``-``, fullwidth / ligature forms.
-      * ``casefold`` — Unicode-aware lower (handles non-ASCII letters).
-      * Collapse every run of non-alphanumeric characters (punctuation,
-        whitespace) to a single space; strip.
-
-    Used ONLY as the merge / identity key inside the discover scan and
-    the write path.  The raw first-seen description is still the display
-    name and the persisted ``name``.
-
-    Parameters
-    ----------
-    raw : str
-        Raw (already ``.strip()``-ed) layer description or regional ref.
-
-    Returns
-    -------
-    str
-        The typographically normalised key.  An empty input returns an
-        empty string; callers must guard against empty descriptions before
-        calling this function.
-    """
-    # NFKC folds NBSP, en-dash, em-dash, ligatures, fullwidth chars.
-    nfkc = unicodedata.normalize("NFKC", raw)
-    # Casefold → Unicode-aware lower.  Collapse non-alnum runs → space.
-    return _NON_ALNUM_RUN.sub(" ", nfkc.casefold()).strip()
+# ``normalize_formation_key`` now lives in ``groundmodel.shared.formation_key``
+# (relocated 2026-05-18 for #59 — the infra DOV-formal codelist is a second,
+# cross-layer consumer; importing it upward from here would be an
+# infrastructure→application violation + an import cycle). It is imported
+# above and kept in ``__all__`` so existing API-/app-/test-layer importers
+# of ``...auto_populate_contacts_from_stratigraphy.normalize_formation_key``
+# keep working unchanged.
 
 
 async def build_formal_informal_bridge(
@@ -311,26 +275,86 @@ async def build_formal_informal_bridge(
     return bridge
 
 
+def _resolve_codelist_canonical(raw_key: str) -> str | None:
+    """Resolve a normalised formal code to its canonical DOV name, or None.
+
+    Consults the process-singleton DOV formal-stratigraphy lexicon (#59,
+    ~403 codes parsed from DOV's ``FormeleStratigrafieLedenEnumType`` XSD).
+    Handles both atomic codes and the parser's compound
+    ``lid1-<rel>-lid2`` shape:
+
+    * **Atomic** — ``"koaa"`` → ``"Lid van Aalbeke (Formatie van Kortrijk)"``.
+    * **Compound** — the normalised key is exactly three space-separated
+      tokens whose middle token is a relation letter (``t``/``o``/``e``,
+      see ``dov_formal_stratigraphy_constants``). Each side is resolved
+      independently and composed as ``"<name1> tot|of|en <name2>"``
+      (e.g. ``"qh t qp"`` → ``"Quartair Holoceen tot Quartair
+      Pleistoceen"``). If EITHER side is unknown the whole compound is a
+      miss (return None) — never invent a half-resolved name.
+
+    Returns ``None`` for any code not in the lexicon (``"u"`` = Onbekend,
+    Walloon/pre-NCS units, …); the caller then falls through to the raw
+    token unchanged — the lexicon is strictly additive, never lossy.
+
+    Parameters
+    ----------
+    raw_key : str
+        The typographically normalised key (output of
+        ``normalize_formation_key``).
+
+    Returns
+    -------
+    str or None
+        The canonical full Dutch name, or ``None`` on any miss.
+    """
+    catalog = get_formal_stratigraphy()
+
+    def _hit(code_key: str) -> FormalStratigraphyEntry | None:
+        # A sentinel code (e.g. "u" = Onbekend) exists in the XSD but is
+        # NOT a real unit — treat it as a miss so the raw token survives.
+        if code_key in UNRESOLVABLE_CODES_NORM:
+            return None
+        return catalog.resolve(code_key)
+
+    direct = _hit(raw_key)
+    if direct is not None:
+        return direct.full_name_nl
+    # Compound: exactly 3 tokens, middle is a relation letter. Atomic
+    # permkeys normalise to a single token so they never reach here.
+    tokens = raw_key.split()
+    if len(tokens) == 3 and tokens[1] in RELATION_CODES_NORM:
+        left = _hit(tokens[0])
+        right = _hit(tokens[2])
+        if left is not None and right is not None:
+            return f"{left.full_name_nl} {RELATION_WORD[tokens[1]]} {right.full_name_nl}"
+    return None
+
+
 def _resolve_bridge_key(
     raw_key: str,
     *,
     primary_is_formal: bool,
     bridge: dict[str, str] | None,
-) -> str:
-    """Apply the formal↔informal bridge to a raw normalised key — pure, no I/O.
+) -> tuple[str, str | None]:
+    """Resolve a raw formal key via the in-project bridge, then the #59 lexicon.
 
-    When ``primary_is_formal`` is True and ``raw_key`` is found in ``bridge``,
-    returns the mapped informal key so a formal-only borehole's layer resolves
-    to the same identity as an informal-only borehole's layer for the same
-    geological unit.
+    Precedence (formal keys only — informal is never remapped, the bridge
+    and the lexicon are both one-directional formal→informal):
 
-    Returns ``raw_key`` unchanged in every other case:
+      1. **In-project bridge** (``build_formal_informal_bridge``) — a
+         data-proven dual-stream equivalence in THIS project wins over the
+         global table. Project data is authoritative.
+      2. **#59 DOV-formal lexicon** (``_resolve_codelist_canonical``) — the
+         deterministic curated code↔name table, for formal-only boreholes
+         with no dual-stream counterpart in the project (the gap #58 left).
+      3. Else the ``raw_key`` is returned unchanged.
 
-    * ``bridge`` is None (no dual-stream boreholes in the project).
-    * ``primary_is_formal`` is False (informal key — never remapped; the bridge
-      maps formal → informal, not the reverse).
-    * ``raw_key`` is not in ``bridge`` (this formal code has no proven informal
-      equivalent in the project data).
+    Returns a ``(resolved_key, canonical_name_or_None)`` pair. The second
+    element is the human-readable canonical name ONLY when the lexicon
+    resolved it (so the caller can surface it as the display name even for
+    a formal-only borehole with no informal counterpart); it is ``None``
+    for the bridge hit and the no-op path (those keep the existing
+    display-name behaviour: informal counterpart or raw description).
 
     Parameters
     ----------
@@ -339,21 +363,29 @@ def _resolve_bridge_key(
         ``_derive_layer_names_and_key``.
     primary_is_formal : bool
         True when the raw_key originated from a FORMAL_STRATIGRAPHY layer.
-        False for INFORMAL_STRATIGRAPHY layers — the bridge is one-directional
-        (formal→informal) so informal keys pass through unchanged.
+        False → returned unchanged (informal is never remapped).
     bridge : dict[str, str] or None
-        The project-level formal→informal map produced by
-        ``build_formal_informal_bridge``, or None when no bridge was computed
-        (no-op path).
+        The project-level formal→informal map, or None.
 
     Returns
     -------
-    str
-        The bridge-resolved key when a mapping exists; ``raw_key`` otherwise.
+    tuple[str, str | None]
+        ``(resolved_key, canonical_name)``. ``canonical_name`` is non-None
+        only on a lexicon hit.
     """
-    if bridge is None or not primary_is_formal:
-        return raw_key
-    return bridge.get(raw_key, raw_key)
+    if not primary_is_formal:
+        return raw_key, None
+    # 1. In-project bridge wins over the global lexicon (project data is
+    #    authoritative; a non-standard local naming convention must be
+    #    able to override the curated table).
+    if bridge is not None and raw_key in bridge:
+        return bridge[raw_key], None
+    # 2. #59 global DOV-formal lexicon (the no-dual-stream gap).
+    canonical = _resolve_codelist_canonical(raw_key)
+    if canonical is not None:
+        return normalize_formation_key(canonical), canonical
+    # 3. No mapping anywhere — raw token unchanged (never invent).
+    return raw_key, None
 
 
 def _derive_layer_names_and_key(
@@ -478,17 +510,24 @@ def _resolve_lumped_key(
     Both callers MUST route through this function so the effective key is
     provably identical on both sides — the discover≡apply≡seed invariant.
 
-    Precedence (revised 2026-05-18 — owner directive, **"lump wins over
-    bridge"**, supersedes the original #58 ``raw → bridge → manual_map``):
+    Precedence (revised 2026-05-18 — "lump wins over bridge" + the #59
+    DOV-formal lexicon slotted into the bridge step):
 
       1. ``raw_key`` in ``manual_map`` (non-blank target) → the user's
-         explicit equation wins **outright; the data-inferred bridge is NOT
-         applied**.
-      2. else ``bridge(raw_key)`` → formal→informal data-proven equivalence
-         (no-op for informal keys; see ``_resolve_bridge_key``).
-      3. ``bridge``-resolved key in ``manual_map`` → the user lumped on the
-         bridged identity.
-      4. else → ``raw_key`` unchanged.
+         explicit lump on the RAW code wins **outright**; neither the
+         bridge nor the lexicon is applied. (User-can-still-lump #1: a
+         pre-#58 ``stratigraphy_lumping`` map keyed on raw formal codes
+         keeps resolving with zero re-lumping.)
+      2. else in-project ``bridge(raw_key)`` → data-proven dual-stream
+         equivalence in THIS project (authoritative over the global table).
+      3. else #59 DOV-formal lexicon → deterministic curated code↔name
+         (the formal-only / no-dual-stream gap #58 left). Atomic +
+         compound ``lid1-rel-lid2``; misses fall through, never invented.
+      4. The user's ``manual_map`` is re-checked on the resolved
+         (bridge/lexicon) identity → the user can STILL lump the resolved
+         candidate the Fill dialog shows (User-can-still-lump #2). A lump
+         here overrides the lexicon's canonical name.
+      5. else → ``raw_key`` unchanged (no-op path).
 
     WHY raw-first: an explicit user lump ("treat formal code ``KoRo`` as
     *Pleistoceen*") is a stronger signal than a data-inferred bridge.  It is
@@ -525,10 +564,13 @@ def _resolve_lumped_key(
     Returns
     -------
     tuple[str, str, bool]
-        ``(effective_key, effective_name, was_lumped)``.  ``was_lumped`` is
-        True when either the raw or the bridged key produced a manual-map
-        hit, so the caller can choose the lumped display name over the
-        derived layer name.
+        ``(effective_key, effective_name, use_effective_name)``. The third
+        element (kept named ``was_lumped`` at the call sites for
+        continuity) is True when ``effective_name`` is authoritative and
+        should be used as the display name — i.e. the user lumped (raw or
+        resolved identity) OR the #59 lexicon resolved a canonical DOV
+        name. False keeps the pre-existing display behaviour (informal
+        counterpart, else raw description).
     """
     # Step 1 — raw lump wins outright.  _resolve_effective_key returns the
     # raw key unchanged on a miss OR a blank-target guard hit; eff_key !=
@@ -537,12 +579,26 @@ def _resolve_lumped_key(
         eff_key, eff_name = _resolve_effective_key(raw_key, manual_map)
         if eff_key != raw_key:
             return eff_key, eff_name, True
-    # Step 2 + 3 — bridge, then lump on the bridged identity (the original
-    # #58 path, retained for the no-raw-lump case).
-    bridged_key = _resolve_bridge_key(raw_key, primary_is_formal=primary_is_formal, bridge=bridge)
-    eff_key, eff_name = _resolve_effective_key(bridged_key, manual_map)
-    was_lumped = manual_map is not None and bridged_key in manual_map and eff_key != bridged_key
-    return eff_key, eff_name, was_lumped
+    # Step 2 — in-project bridge, then the #59 DOV-formal lexicon (the
+    # no-dual-stream gap). resolved_key is the bridged/canonical identity;
+    # canonical is the human-readable DOV name ONLY on a lexicon hit.
+    resolved_key, canonical = _resolve_bridge_key(
+        raw_key, primary_is_formal=primary_is_formal, bridge=bridge
+    )
+    # Step 3 — lump on the resolved identity. THIS is what keeps manual
+    # lumping working AFTER the bridge/lexicon resolves: if the user lumps
+    # the resolved candidate (the bridge/canonical key the Fill dialog now
+    # shows) it still wins — same contract as before #59.
+    eff_key, eff_name = _resolve_effective_key(resolved_key, manual_map)
+    if manual_map is not None and resolved_key in manual_map and eff_key != resolved_key:
+        return eff_key, eff_name, True
+    # Step 4 — lexicon resolved but the user did NOT lump it: surface the
+    # canonical DOV name as the display name (was_lumped=True selects
+    # effective_name at the call sites). eff_key == resolved_key here.
+    if canonical is not None:
+        return eff_key, canonical, True
+    # Step 5 — bridge-only or no-op: unchanged pre-#59 behaviour.
+    return eff_key, eff_name, False
 
 
 async def scan_stratigraphy_candidates(
@@ -966,6 +1022,21 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         for f in existing_formations:
             fkey = normalize_formation_key(f.regional_ref if f.regional_ref else f.name)
             formations_by_key.setdefault(fkey, f)
+        # #59 existing-project reconciliation: a formation created BEFORE
+        # the lexicon shipped is keyed by its raw DOV code (e.g. regional_ref
+        # "KoRo" → key "koro"). New layers now resolve "KoRo" to the canonical
+        # key. Without this, re-running Fill would create a SECOND formation
+        # under the canonical key. Also index every raw-code formation under
+        # its lexicon-canonical key so the existing row is FOUND and reused,
+        # not duplicated. setdefault → a real canonical-named formation
+        # already indexed wins; this only fills otherwise-empty canonical
+        # slots. Resolution-time only — no row is renamed or migrated.
+        for f in existing_formations:
+            if not f.regional_ref:
+                continue
+            canonical = _resolve_codelist_canonical(normalize_formation_key(f.regional_ref))
+            if canonical is not None:
+                formations_by_key.setdefault(normalize_formation_key(canonical), f)
         next_display_order = (
             await self._session.execute(
                 select(func.coalesce(func.max(GeologicalFormationOrm.display_order), -1)).where(
