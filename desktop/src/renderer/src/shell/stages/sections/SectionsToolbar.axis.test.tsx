@@ -435,6 +435,10 @@ describe('SectionsToolbar Seed axis-dispatch (#55 litho-Seed slice)', () => {
       expect(autoPopulate).toHaveBeenCalledOnce()
       expect(seedLitho).not.toHaveBeenCalled()
     })
+    // Regression: the section-update callback MUST be forwarded, else
+    // the server-echoed seeded_formation_contact_ids is dropped and the
+    // explicit-content filter hides every seeded contact (#57 class).
+    expect(autoPopulate.mock.calls[0][2]).toBe(ctx.sections.applyUpdatedSection)
   })
 
   it('B6-litho — Seed on litho axis calls handleSeedLithoFromParent (not autoPopulate)', async () => {
@@ -460,6 +464,10 @@ describe('SectionsToolbar Seed axis-dispatch (#55 litho-Seed slice)', () => {
       expect(seedLitho).toHaveBeenCalledOnce()
       expect(autoPopulate).not.toHaveBeenCalled()
     })
+    // Regression: applyUpdatedSection MUST be the 3rd arg, else the
+    // seeded litho contacts never become visible on the section even
+    // though the server created + section-seeded them (#57 class).
+    expect(seedLitho.mock.calls[0][2]).toBe(ctx.sections.applyUpdatedSection)
   })
 })
 
