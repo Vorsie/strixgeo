@@ -48,6 +48,15 @@ export interface UseSectionsResult {
   sectionModelAxis: SectionModelAxis
   /** Toggle the section model axis (geological ↔ lithostratigraphic). */
   setSectionModelAxis: (axis: SectionModelAxis) => void
+  /**
+   * Override the geological model used as the backdrop reference on the litho
+   * axis.  ``null`` = use the litho model's parent (the default derivation in
+   * SectionsCanvas).  Only relevant when the project has more than one
+   * geological model; SectionsInspector renders the picker in that case.
+   */
+  backdropModelIdOverride: string | null
+  /** Set or clear the backdrop model override. */
+  setBackdropModelIdOverride: (id: string | null) => void
   // Section data
   refreshSectionList: () => Promise<void>
   // Clear the section selection from outside the hook (e.g. when a CPT
@@ -190,6 +199,10 @@ export function useSections({
   // Slice 2 (#55): which model the editor renders. Defaults to geological —
   // zero regression. Session-only (not persisted to .gmproj).
   const [sectionModelAxis, setSectionModelAxis] = useState<SectionModelAxis>('geological')
+  // Geological backdrop model override (#60). Null = use the active litho
+  // model's parent_geological_model_id (derived in SectionsCanvas). Only
+  // relevant when the project has more than one geological model. Session-only.
+  const [backdropModelIdOverride, setBackdropModelIdOverride] = useState<string | null>(null)
   // Two-click draw mode — active while the user is placing a section
   // line on the map. Set by handleCreateSection, cleared by
   // cancelSectionDraw and handleSectionLineDrawn.
@@ -612,6 +625,8 @@ export function useSections({
     effectiveHorizontalEpsg,
     sectionModelAxis,
     setSectionModelAxis,
+    backdropModelIdOverride,
+    setBackdropModelIdOverride,
     refreshSectionList,
     clearSectionSelection,
     handleSectionCreated,
