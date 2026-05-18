@@ -19,5 +19,12 @@ ContactSource = Literal[
     # use case (SeedLithoFromGeologicalModel). Must round-trip through
     # FormationContactCreate/UpdateRequest.source without a 422.
     "geological_model_seed",
+    # Synthetic contact committed by the pinch-out extrapolation tool. Has
+    # no borehole or CPT anchor — carries synthetic_x/y/elevation_m directly.
+    # In the dedup survivor priority it is slotted after the real-data trio
+    # (manual_pick/interpolated/borehole_observation) so it never evicts a
+    # real pick; its true dedup safety is the use case's 409 idempotency.
+    # See DeduplicateFormationContacts._survivor_priority.
+    "pinch_out_extrapolation",
 ]
 ContactConfidence = Literal["high", "medium", "low"]
