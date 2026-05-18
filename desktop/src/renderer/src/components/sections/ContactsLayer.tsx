@@ -42,6 +42,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import type {
   FormationContactBatchUpdateEntry,
@@ -84,13 +85,36 @@ interface Props {
     newDepthM: number,
     snapped: boolean,
   ) => Promise<void>
-  /** Right-click → confirm → delete the contact. Called only after
-   * the native confirm() returns true so the caller never has to
-   * gate the destructive action itself. When absent the contact's
-   * hit-strip falls back to its drag-only behaviour. DB delete is
-   * irreversible per CLAUDE.md UX conventions; the native confirm
-   * is the user-facing safety rail. */
+  /** Right-click → small context menu → confirm → delete the contact.
+   * DB delete is irreversible per CLAUDE.md UX conventions; the native
+   * confirm dialog is the user-facing safety rail. When absent the
+   * contact's hit-strip falls back to its drag-only behaviour. */
   onDeleteContact?: (contactId: string) => Promise<void>
+  /**
+   * Right-click → "Extrapolate pinch-out…" menu item.
+   *
+   * Fires with the id, formation id, anchor kind, and anchor id of the
+   * right-clicked contact so the caller can open the formation + direction
+   * picker and call the backend's dry_run path.  When absent the menu item
+   * is hidden.
+   *
+   * Parameters
+   * ----------
+   * contactId
+   *     The id of the right-clicked contact.
+   * formationId
+   *     Formation the contact belongs to.
+   * anchorKind
+   *     ``'cpt'`` or ``'borehole'``.
+   * anchorId
+   *     Id of the CPT or borehole the contact is anchored to.
+   */
+  onPinchOutContact?: (
+    contactId: string,
+    formationId: string,
+    anchorKind: 'cpt' | 'borehole',
+    anchorId: string,
+  ) => void
   /** All-or-nothing batch UPDATE commit. Used for:
    *
    * * Same-column multi-drag (every selected contact's depth shifts
@@ -486,6 +510,7 @@ export default function ContactsLayer({
   plotBottom,
   onUpdateContactDepth,
   onDeleteContact,
+  onPinchOutContact,
   onBatchUpdateContacts,
   onBatchCreateContacts,
   marquee,
@@ -498,6 +523,24 @@ export default function ContactsLayer({
   alongMToScreenX,
   focusedContactIds,
 }: Props): JSX.Element | null {
+  // ---- Contact context-menu state --------------------------------
+  // Small two-item menu triggered by right-click on a contact
+  // hit-strip.  Replaces the naked window.confirm approach so both
+  // "Delete" and "Extrapolate pinch-out…" can live in the same menu.
+  // Rendered via a portal to document.body with position:fixed using
+  // the event's clientX/Y — avoids nesting a <div> inside the SVG.
+  const [contactMenu, setContactMenu] = useState<{
+    /** Viewport-fixed X (clientX from the right-click event). */
+    clientX: number
+    /** Viewport-fixed Y (clientY from the right-click event). */
+    clientY: number
+    contactId: string
+    formationId: string
+    formationName: string
+    anchorKind: 'cpt' | 'borehole'
+    anchorId: string
+  } | null>(null)
+
   // ---- Selection model -------------------------------------------
   // Component-local — selection is transient UI state, not a
   // persisted decision. Resets on section close / unmount.
@@ -1675,6 +1718,7 @@ export default function ContactsLayer({
   }
 
   return (
+    <>
     <g>
       {/* Filled coloured bands between adjacent formation tops.
           Drawn FIRST so every other section element (CPT curves,
@@ -1889,10 +1933,11 @@ export default function ContactsLayer({
             )}
             {/* Transparent hit-strip — wider than the visible line so
                 the user can grab without precision aiming. Rendered
-                whenever either an edit OR a delete handler is wired
-                so the lines participate in pointer events; without
-                both they stay fully non-interactive. */}
-            {(onUpdateContactDepth || onDeleteContact) &&
+                whenever either an edit OR a delete OR a pinch-out
+                handler is wired so the lines participate in pointer
+                events; without all three they stay fully
+                non-interactive. */}
+            {(onUpdateContactDepth || onDeleteContact || onPinchOutContact) &&
               layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
               layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
                 <rect
@@ -1908,20 +1953,20 @@ export default function ContactsLayer({
                       : undefined
                   }
                   onContextMenu={
-                    onDeleteContact
+                    onDeleteContact || onPinchOutContact
                       ? e => {
                           e.preventDefault()
-                          // Native confirm is the irreversible-action
-                          // safety rail per CLAUDE.md UX. A re-pick is
-                          // one click in the picker, so we deliberately
-                          // skip a custom modal — confirm is enough.
-                          if (
-                            window.confirm(
-                              `Delete contact at ${layer.formationName}? This cannot be undone.`,
-                            )
-                          ) {
-                            void onDeleteContact(layer.contactId)
-                          }
+                          // Portal-rendered menu uses position:fixed with
+                          // viewport clientX/Y so no container-rect math.
+                          setContactMenu({
+                            clientX: e.clientX,
+                            clientY: e.clientY,
+                            contactId: layer.contactId,
+                            formationId: layer.formationId,
+                            formationName: layer.formationName,
+                            anchorKind: layer.anchorKind,
+                            anchorId: layer.anchorId,
+                          })
                         }
                       : undefined
                   }
@@ -2016,5 +2061,164 @@ export default function ContactsLayer({
           )
         })()}
     </g>
+
+    {/* Contact context menu — portalled to document.body so it can be a
+        <div> without being nested inside the SVG element. */}
+    {contactMenu &&
+      createPortal(
+        <ContactContextMenu
+          clientX={contactMenu.clientX}
+          clientY={contactMenu.clientY}
+          formationName={contactMenu.formationName}
+          onDelete={
+            onDeleteContact
+              ? () => {
+                  setContactMenu(null)
+                  // Native confirm is the irreversible-action safety rail
+                  // per CLAUDE.md UX conventions.
+                  if (
+                    window.confirm(
+                      `Delete contact at ${contactMenu.formationName}? This cannot be undone.`,
+                    )
+                  ) {
+                    void onDeleteContact(contactMenu.contactId)
+                  }
+                }
+              : undefined
+          }
+          onPinchOut={
+            onPinchOutContact
+              ? () => {
+                  const { contactId, formationId, anchorKind, anchorId } =
+                    contactMenu
+                  setContactMenu(null)
+                  onPinchOutContact(contactId, formationId, anchorKind, anchorId)
+                }
+              : undefined
+          }
+          onClose={() => setContactMenu(null)}
+        />,
+        document.body,
+      )}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ContactContextMenu — portalled two-item menu for contact hit-strips.
+// ---------------------------------------------------------------------------
+
+interface ContactContextMenuProps {
+  /** Viewport X (clientX from right-click event). Menu is position:fixed. */
+  clientX: number
+  /** Viewport Y (clientY from right-click event). */
+  clientY: number
+  /** Human-readable formation name — shown as the menu subtitle. */
+  formationName: string
+  /** Fired when the user picks "Delete contact". When absent the item
+   * is hidden. The handler must gate the irreversible action (e.g. via
+   * window.confirm) — ContactContextMenu does not add a second gate. */
+  onDelete?: () => void
+  /** Fired when the user picks "Extrapolate pinch-out…". When absent
+   * the item is hidden. */
+  onPinchOut?: () => void
+  /** Fired on click-outside or Esc — closes the menu. */
+  onClose: () => void
+}
+
+/**
+ * Small floating context menu for a right-clicked formation contact.
+ *
+ * Renders via a React portal to ``document.body`` so it is not nested
+ * inside the section's SVG element.  Uses ``position: fixed`` with the
+ * viewport coordinates from the original ``onContextMenu`` event.
+ *
+ * Parameters
+ * ----------
+ * clientX / clientY
+ *     Viewport-fixed coordinates from ``e.clientX`` / ``e.clientY``.
+ * formationName
+ *     Shown as the menu subtitle for unambiguous context.
+ * onDelete
+ *     Optional — shows the "Delete contact" item.
+ * onPinchOut
+ *     Optional — shows the "Extrapolate pinch-out…" item.
+ * onClose
+ *     Dismisses the menu on click-outside or Esc.
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The context menu div.
+ */
+function ContactContextMenu({
+  clientX,
+  clientY,
+  formationName,
+  onDelete,
+  onPinchOut,
+  onClose,
+}: ContactContextMenuProps): JSX.Element {
+  useEffect(() => {
+    function handleDocClick(): void {
+      onClose()
+    }
+    function handleKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('click', handleDocClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('click', handleDocClick)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed z-[9999] min-w-[200px] rounded border border-gray-300 bg-white text-sm shadow-md dark:border-gray-600 dark:bg-gray-800"
+      style={{ left: clientX, top: clientY }}
+      onClick={e => e.stopPropagation()}
+      role="menu"
+      aria-label={`Actions for ${formationName} contact`}
+      data-testid="contact-context-menu"
+    >
+      <div className="max-w-[220px] truncate border-b border-gray-100 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+        {formationName}
+      </div>
+      {onPinchOut && (
+        <button
+          type="button"
+          className="block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
+          onClick={e => {
+            // nativeEvent.stopImmediatePropagation: the React-synthetic
+            // stopPropagation on the container does NOT stop the
+            // document-level `click` listener (handleDocClick) firing a
+            // redundant onClose — review S4. Stop the native event before
+            // it reaches document.
+            e.nativeEvent.stopImmediatePropagation()
+            onPinchOut()
+            onClose()
+          }}
+          role="menuitem"
+        >
+          Extrapolate pinch-out&hellip;
+        </button>
+      )}
+      {onDelete && (
+        <button
+          type="button"
+          className="block w-full border-t border-gray-100 px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:border-gray-700 dark:text-red-400 dark:hover:bg-red-950/40"
+          onClick={e => {
+            e.nativeEvent.stopImmediatePropagation()
+            onDelete()
+            onClose()
+          }}
+          role="menuitem"
+        >
+          Delete contact
+        </button>
+      )}
+    </div>
   )
 }
