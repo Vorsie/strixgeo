@@ -339,6 +339,28 @@ export interface UseGeologicalModelResult {
   ) => Promise<void>
   /** Dismiss the preview without committing (no-op). */
   clearPinchOutPreview: () => void
+  // -------------------------------------------------------------------------
+  // Geological surface backdrop for the litho cross-section (#60).
+  // READ-ONLY: surfaces from the reference geological model rendered as faint
+  // polylines behind the active litho contacts. Fetched on explicit user
+  // request (the rewired "Sync geology" toolbar verb on the litho axis).
+  // Never routes through seeded_formation_contact_ids — the backdrop is a
+  // surface-geometry overlay, not an explicit-content contact set.
+  // -------------------------------------------------------------------------
+  /** Cached TIN surfaces for the geological backdrop model, keyed by formation id.
+   * Empty map = no backdrop loaded yet. */
+  backdropSurfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * Fetch (or re-fetch) the geological model's surfaces for the backdrop.
+   * Gated to the litho axis in the caller (SectionsCanvas) — calling on
+   * the geological axis is a no-op here (project check only).
+   *
+   * Parameters
+   * ----------
+   * geoModelId
+   *     UUID of the geological model whose surfaces to load as the backdrop.
+   */
+  handleLoadBackdropSurfaces: (geoModelId: string) => Promise<void>
 }
 
 /**
@@ -451,6 +473,13 @@ export function useGeologicalModel({
     ReadonlyMap<string, FormationSurfaceResponse>
   >(new Map())
   const [crossingsRefreshCounter, setCrossingsRefreshCounter] = useState(0)
+  // Geological surface backdrop for the litho cross-section (#60).
+  // Loaded on explicit user request (the rewired "Sync geology" verb on
+  // the litho axis). Cleared when the project changes so stale surfaces
+  // from a previous project never bleed in.
+  const [backdropSurfacesByFormationId, setBackdropSurfacesByFormationId] = useState<
+    ReadonlyMap<string, FormationSurfaceResponse>
+  >(new Map())
 
   // Mirrors activeGeologicalModel into a ref so useCallback closures
   // can read the latest value without listing the state as a dep.
@@ -567,6 +596,7 @@ export function useGeologicalModel({
       setFormations([])
       setContacts([])
       setSurfacesByFormationId(new Map())
+      setBackdropSurfacesByFormationId(new Map())
       return
     }
     let cancelled = false
@@ -757,6 +787,31 @@ export function useGeologicalModel({
         log.warn('geology', `litho listSurfaces refetch failed`, err)
       })
   }, [project])
+
+  // Fetch (or re-fetch) the geological model's surfaces for the backdrop.
+  // Called from SectionsCanvas when the user clicks the rewired "Sync geology"
+  // toolbar verb on the litho axis. The dep array is [project] — stable to
+  // project identity — so the callback identity does not churn on every surface
+  // state change.
+  const handleLoadBackdropSurfaces = useCallback(
+    async (geoModelId: string): Promise<void> => {
+      if (!project) return
+      log.debug('geology', `loadBackdropSurfaces entry model=${geoModelId}`)
+      try {
+        const surfs = await api.geology.listSurfaces(project.id, geoModelId)
+        const sm = new Map<string, FormationSurfaceResponse>()
+        for (const s of surfs) sm.set(s.formation_id, s)
+        setBackdropSurfacesByFormationId(sm)
+        log.success(
+          'geology',
+          `loadBackdropSurfaces ok model=${geoModelId} surfaces=${surfs.length}`,
+        )
+      } catch (err) {
+        log.warn('geology', `loadBackdropSurfaces failed model=${geoModelId}`, err)
+      }
+    },
+    [project],
+  )
 
   // Ensure an active geological model is present, creating "Default" when none
   // exists. Delegates to resolveActiveModel via the shared ensureModelPromiseRef
@@ -2898,5 +2953,7 @@ export function useGeologicalModel({
     handlePreviewPinchOut,
     handleCommitPinchOut,
     clearPinchOutPreview,
+    backdropSurfacesByFormationId,
+    handleLoadBackdropSurfaces,
   }
 }
