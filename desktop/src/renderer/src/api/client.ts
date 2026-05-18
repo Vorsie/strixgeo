@@ -250,6 +250,9 @@ export type ContactSource =
   // Contacts seeded from the parent geological model into a lithostratigraphic
   // model via the seed-from-parent endpoint.
   | 'geological_model_seed'
+  // Synthetic contact committed by the pinch-out extrapolation tool.
+  // Has no borehole/CPT anchor — carries synthetic_x/y/elevation_m.
+  | 'pinch_out_extrapolation'
 export type ContactConfidence = 'high' | 'medium' | 'low'
 
 export interface FormationContactResponse {
@@ -258,6 +261,11 @@ export interface FormationContactResponse {
   formation_id: string
   borehole_id: string | null
   cpt_id: string | null
+  // Set only on synthetic pinch-out contacts (no borehole/CPT anchor);
+  // null otherwise. Absolute tip elevation is synthetic_elevation_m.
+  synthetic_x: number | null
+  synthetic_y: number | null
+  synthetic_elevation_m: number | null
   depth_top_m: number
   source: ContactSource
   confidence: ContactConfidence
