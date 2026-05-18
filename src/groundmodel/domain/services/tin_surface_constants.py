@@ -33,11 +33,41 @@ from __future__ import annotations
 #   2.5 (2026-05-18) — owner "still a bit droopy"; tighter, clips the
 #                      long cross-strip boundary triangles harder while
 #                      leaving graded interior interpolation intact.
+#   2.0 (2026-05-18) — owner "a bit tighter"; paired with the new
+#                      MAX_DIP_DEG slope cap below (the x-y-only caveat
+#                      is now covered by that, not by a smaller factor).
 #
-# Caveat: this is an x-y-only test. A boundary triangle that is normal
-# in plan but steeply dipping in Z (a compact steep drape) is NOT caught
-# at ANY factor — if droop survives a low factor, the cure is a slope
-# cap or the concave-hull (alpha-shape) variant in git history, not a
-# smaller factor. The trim is fully deterministic — a fixed factor, no
-# data-driven fitting.
-SLIVER_MAX_EDGE_FACTOR = 2.5
+# This is an x-y-only test — it catches data-free spans, not steep
+# compact drapes. The MAX_DIP_DEG slope cap below is its counterpart:
+# the two compose (a triangle is dropped if EITHER fires). The trim is
+# fully deterministic — a fixed factor, no data-driven fitting.
+SLIVER_MAX_EDGE_FACTOR = 2.0
+
+# Maximum geologically-plausible surface dip, in degrees. A triangle
+# whose plane dips steeper than this (angle between its 3-D normal and
+# the vertical) is dropped as interpolation drape, not real geology.
+#
+# WHY this is the real cure for "droop": the sliver test is x-y-only,
+# so a boundary triangle that is normal in plan but plunges steeply in
+# Z (a compact ramp down to one low / outlier control point) survives
+# at ANY sliver factor. The slope cap targets exactly that.
+#
+# SCOPED to convex-hull-boundary triangles only (see compute_tin). A
+# fully-interior steep triangle is bracketed by real picks on all
+# sides — that is a genuine steep erosional contact (a Quaternary
+# valley / buried channel incising the Paleogene, the Flemish-Valley
+# case in Flanders), NOT drape, and is kept regardless of this cap.
+# Residual caveat: an incision exactly at the project edge, with
+# control on one side only, is indistinguishable from drape there and
+# WILL be trimmed — inherent to any boundary trim; add a pick on the
+# far side of the incision to constrain it.
+#
+# WHY 30 deg for Flanders (owner-set 2026-05-18, domain call): the
+# Cenozoic formation tops here (Kortrijk / Boom / Diest / Quaternary
+# cover) are near-flat-lying — regional dips ~1-2 deg, locally a few
+# deg at most. 30 deg sits an order of magnitude above any genuine
+# stratigraphic dip, so the cap can only ever remove interpolation
+# artefacts, never a real contact. Retune per region if a steeply
+# faulted / folded setting is ever modelled. Deterministic — fixed
+# threshold, no fitting. Set to 90 (or higher) to disable the cap.
+MAX_DIP_DEG = 30.0
