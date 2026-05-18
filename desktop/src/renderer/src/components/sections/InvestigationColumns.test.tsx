@@ -182,3 +182,74 @@ describe('InvestigationColumns', () => {
     expect(onSelectCpt).not.toHaveBeenCalled()
   })
 })
+
+describe('InvestigationColumns — double-click dispatch (Part 3)', () => {
+  it('double-click on a CPT column fires onDoubleClickCpt with the cpt id', () => {
+    const onDoubleClickCpt = vi.fn()
+    const onDoubleClickBorehole = vi.fn()
+    const { container } = render(
+      <svg>
+        <InvestigationColumns
+          columns={[cptColumn(makeCpt({ id: 'cpt-dc' }), 100)]}
+          levelToScreen={identity}
+          plotTop={-100}
+          plotBottom={100}
+          onSelectCpt={undefined}
+          onSelectBorehole={undefined}
+          onDoubleClickCpt={onDoubleClickCpt}
+          onDoubleClickBorehole={onDoubleClickBorehole}
+        />
+      </svg>,
+    )
+    // InvestigationColumns wraps all glyphs in an outer <g>; the
+    // ColumnGlyph's own <g> (which carries onDoubleClick) is the
+    // first direct child.  Use 'g > g' to reach it.
+    const g = container.querySelector('g > g')!
+    fireEvent.doubleClick(g)
+    expect(onDoubleClickCpt).toHaveBeenCalledWith('cpt-dc')
+    expect(onDoubleClickBorehole).not.toHaveBeenCalled()
+  })
+
+  it('double-click on a borehole column fires onDoubleClickBorehole with the borehole id', () => {
+    const onDoubleClickCpt = vi.fn()
+    const onDoubleClickBorehole = vi.fn()
+    const { container } = render(
+      <svg>
+        <InvestigationColumns
+          columns={[bhColumn(makeBorehole({ id: 'bh-dc' }), 100)]}
+          levelToScreen={identity}
+          plotTop={-100}
+          plotBottom={100}
+          onSelectCpt={undefined}
+          onSelectBorehole={undefined}
+          onDoubleClickCpt={onDoubleClickCpt}
+          onDoubleClickBorehole={onDoubleClickBorehole}
+        />
+      </svg>,
+    )
+    const g = container.querySelector('g > g')!
+    fireEvent.doubleClick(g)
+    expect(onDoubleClickBorehole).toHaveBeenCalledWith('bh-dc')
+    expect(onDoubleClickCpt).not.toHaveBeenCalled()
+  })
+
+  it('single-click does NOT fire onDoubleClickCpt', () => {
+    const onDoubleClickCpt = vi.fn()
+    const { container } = render(
+      <svg>
+        <InvestigationColumns
+          columns={[cptColumn(makeCpt({ id: 'cpt-sc' }), 100)]}
+          levelToScreen={identity}
+          plotTop={-100}
+          plotBottom={100}
+          onSelectCpt={undefined}
+          onSelectBorehole={undefined}
+          onDoubleClickCpt={onDoubleClickCpt}
+        />
+      </svg>,
+    )
+    const g = container.querySelector('g > g')!
+    fireEvent.click(g)
+    expect(onDoubleClickCpt).not.toHaveBeenCalled()
+  })
+})
