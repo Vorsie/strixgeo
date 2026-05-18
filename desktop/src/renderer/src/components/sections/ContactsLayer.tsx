@@ -1918,6 +1918,16 @@ export default function ContactsLayer({
               />
             )}
             {showLabel && (
+              // The label truncates to the (often narrow) band width,
+              // so long formation names ("Paleogeen: Formatie van
+              // Kortrijk - Lid van Aalbeke") lose the distinguishing
+              // tail. The <title> child gives a native hover tooltip
+              // with the full, untruncated name. pointerEvents is
+              // intentionally NOT "none" so the tooltip is reachable;
+              // this is safe because SectionPanel.handleMouseDown reads
+              // e.currentTarget (the SVG), never e.target, and the text
+              // has no mousedown handler — the event still bubbles, so
+              // pan / marquee / shift-select are unaffected.
               <text
                 x={layer.labelX}
                 y={labelY}
@@ -1926,8 +1936,9 @@ export default function ContactsLayer({
                 fontWeight={500}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                pointerEvents="none"
+                style={{ cursor: 'help' }}
               >
+                <title>{layer.formationName}</title>
                 {display}
               </text>
             )}
@@ -1972,7 +1983,13 @@ export default function ContactsLayer({
                   }
                   data-contact-id={layer.contactId}
                   data-testid="contact-drag-strip"
-                />
+                >
+                  {/* Same full-name tooltip on the grab-strip so the
+                      formation is identifiable by hovering the contact
+                      line itself — also covers short slabs where the
+                      middle label is suppressed (showLabel === false). */}
+                  <title>{layer.formationName}</title>
+                </rect>
               )}
           </g>
         )
