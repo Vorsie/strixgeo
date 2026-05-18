@@ -1564,6 +1564,55 @@ async def test_list_surfaces_404_when_model_belongs_to_another_project(
     assert resp.status_code == 404
 
 
+async def test_geological_surfaces_fetchable_when_litho_sibling_exists(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Geological model surfaces are fetchable via the standard endpoint
+    even when a lithostratigraphic sibling model exists.
+
+    This is the backend assertion for the geological surface backdrop
+    feature (#60): ``GET /projects/{pid}/geology/models/{geo_mid}/surfaces``
+    returns a list (possibly empty, possibly with TIN rows) regardless of
+    whether a lithostratigraphic model is active.  The endpoint has no
+    special awareness of the litho sibling — this test confirms the
+    project-scoped scope guard accepts the GEOLOGICAL model id when called
+    from the litho axis context.
+    """
+    project, _borehole = project_with_borehole
+    # Create the geological model (auto-created on project open in the
+    # real app; here we create one explicitly via the API).
+    geo_model = await _create_model(async_client, project.id)
+    assert geo_model["kind"] in ("geological", None)
+
+    # Create a lithostratigraphic sibling (mirrors the real-world state
+    # when the user has opened the Lithology stage and created a model).
+    litho_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models",
+        json={
+            "name": "Litho model",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": geo_model["id"],
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model = litho_resp.json()
+    assert litho_model["kind"] == "lithostratigraphic"
+    assert litho_model["parent_geological_model_id"] == geo_model["id"]
+
+    # The geological model's surfaces endpoint must return a valid list
+    # (empty here — no contacts yet, so no TIN rows).
+    resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{geo_model['id']}/surfaces",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert isinstance(body, list)
+    # No contacts have been placed, so no TIN surfaces exist yet.
+    assert body == []
+
+
 async def test_dedupe_is_a_no_op_when_no_duplicates(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
