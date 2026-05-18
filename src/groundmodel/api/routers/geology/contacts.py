@@ -35,6 +35,7 @@ from groundmodel.api.schemas.project.litho_suggestion import (
 )
 from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
     AutoPopulateContactsFromStratigraphy,
+    build_formal_informal_bridge,
 )
 from groundmodel.application.create_formation_contact import (
     CreateFormationContact,
@@ -451,6 +452,10 @@ async def auto_populate_from_stratigraphy(
         detail="Model not found",
     )
 
+    # Compute the formal↔informal bridge once per request so discover≡apply≡seed holds.
+    # build_formal_informal_bridge is a read-only SELECT over the project's boreholes;
+    # it returns {} when no dual-stream borehole exists (Decision 1, 2026-05-18).
+    bridge = await build_formal_informal_bridge(session, project_id=project_id)
     outcome = await AutoPopulateContactsFromStratigraphy(session).execute(
         project_id=project_id,
         model_id=model_id,
@@ -458,6 +463,7 @@ async def auto_populate_from_stratigraphy(
         selected_keys=request.selected_keys,
         manual_map=request.manual_map,
         section_id=request.section_id,
+        bridge=bridge or None,
     )
 
     # Explicit-content invariant (owner directive 2026-05-17):
@@ -559,10 +565,14 @@ async def discover_from_stratigraphy(
         project_id,
         detail="Model not found",
     )
+    # Compute the formal↔informal bridge once per request (same as apply path)
+    # so the discover preview and the write path see identical effective keys.
+    bridge = await build_formal_informal_bridge(session, project_id=project_id)
     candidates, collisions = await DiscoverFormationsFromStratigraphy(session).execute(
         project_id=project_id,
         borehole_ids=request.borehole_ids,
         manual_map=request.manual_map,
+        bridge=bridge or None,
     )
     logger.info(
         f"discover-from-stratigraphy done: {len(candidates)} candidate(s), "
