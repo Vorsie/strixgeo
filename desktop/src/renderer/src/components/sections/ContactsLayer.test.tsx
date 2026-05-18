@@ -1430,4 +1430,145 @@ describe('ContactsLayer', () => {
     expect(band).not.toBeNull()
     expect(band!.getAttribute('fill-opacity')).toBe('0.08')
   })
+
+  // -----------------------------------------------------------------
+  // Geological backdrop (litho axis) — subordinate read-only render
+  // -----------------------------------------------------------------
+
+  function makeBackdropSurface(isStale: boolean): FormationSurfaceResponse {
+    return {
+      id: 'bs',
+      model_id: 'geo-m',
+      formation_id: 'geo-f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 8],
+        [100, -2, 8],
+        [50, 5, 8],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: isStale,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+  }
+
+  it('renders a fresh backdrop polyline at strokeOpacity 0.25 with no dash', () => {
+    // The backdrop is rendered via referenceFormations +
+    // referenceSurfacesByFormationId.  A fresh surface (is_stale=false)
+    // should paint at opacity 0.25 with no strokeDasharray.
+    const referenceFormations = [makeFormation({ id: 'geo-f', color: '#00ff00', display_order: 0 })]
+    const { container } = render(
+      <svg>
+        <ContactsLayer
+          contacts={[]}
+          formations={[]}
+          placedColumns={[makeBoreholePlaced('bh-1', 50)]}
+          levelToScreen={flipped}
+          plotTop={0}
+          plotBottom={50}
+          referenceFormations={referenceFormations}
+          referenceSurfacesByFormationId={
+            new Map([['geo-f', makeBackdropSurface(false)]])
+          }
+          sectionLine={{ startX: -10, startY: 0, endX: 110, endY: 0 }}
+          alongMToScreenX={along => along + 10}
+        />
+      </svg>,
+    )
+    const backdrop = container.querySelector('[data-testid="backdrop-surface-geo-f"]')
+    expect(backdrop).not.toBeNull()
+    expect(backdrop!.getAttribute('stroke-opacity')).toBe('0.25')
+    expect(backdrop!.getAttribute('stroke-dasharray')).toBeNull()
+    expect(backdrop!.getAttribute('data-stale')).toBeNull()
+    // Must carry pointerEvents="none" — never hit-tested.
+    expect(backdrop!.getAttribute('pointer-events')).toBe('none')
+  })
+
+  it('renders a stale backdrop polyline at strokeOpacity 0.12 with dash "8 4"', () => {
+    const referenceFormations = [makeFormation({ id: 'geo-f', color: '#00ff00', display_order: 0 })]
+    const { container } = render(
+      <svg>
+        <ContactsLayer
+          contacts={[]}
+          formations={[]}
+          placedColumns={[makeBoreholePlaced('bh-1', 50)]}
+          levelToScreen={flipped}
+          plotTop={0}
+          plotBottom={50}
+          referenceFormations={referenceFormations}
+          referenceSurfacesByFormationId={
+            new Map([['geo-f', makeBackdropSurface(true)]])
+          }
+          sectionLine={{ startX: -10, startY: 0, endX: 110, endY: 0 }}
+          alongMToScreenX={along => along + 10}
+        />
+      </svg>,
+    )
+    const backdrop = container.querySelector('[data-testid="backdrop-surface-geo-f"]')
+    expect(backdrop).not.toBeNull()
+    expect(backdrop!.getAttribute('stroke-opacity')).toBe('0.12')
+    expect(backdrop!.getAttribute('stroke-dasharray')).toBe('8 4')
+    expect(backdrop!.getAttribute('data-stale')).toBe('true')
+  })
+
+  it('renders backdrop BEFORE the active litho polylines (lower in SVG paint order)', () => {
+    // The backdrop <path> must appear earlier in the DOM than any
+    // active-layer element so it paints underneath — standard SVG
+    // paint order: first in DOM = furthest back.
+    const referenceFormations = [makeFormation({ id: 'geo-f', color: '#00ff00', display_order: 0 })]
+    const lithoContacts = [
+      makeContact({ id: 'c-litho', borehole_id: 'bh-1', formation_id: 'f-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-litho-2', borehole_id: 'bh-2', formation_id: 'f-1', depth_top_m: 4 }),
+    ]
+    const { container } = render(
+      <svg>
+        <ContactsLayer
+          contacts={lithoContacts}
+          formations={[makeFormation({ id: 'f-1', color: '#ff0000', display_order: 0 })]}
+          placedColumns={[
+            makeBoreholePlaced('bh-1', 0),
+            makeBoreholePlaced('bh-2', 100),
+          ]}
+          levelToScreen={flipped}
+          plotTop={0}
+          plotBottom={50}
+          referenceFormations={referenceFormations}
+          referenceSurfacesByFormationId={
+            new Map([['geo-f', makeBackdropSurface(false)]])
+          }
+          sectionLine={{ startX: -10, startY: 0, endX: 110, endY: 0 }}
+          alongMToScreenX={along => along + 10}
+        />
+      </svg>,
+    )
+    const allPaths = Array.from(container.querySelectorAll('path'))
+    const backdropIdx = allPaths.findIndex(
+      p => p.getAttribute('data-testid') === 'backdrop-surface-geo-f',
+    )
+    const activeLayers = allPaths.filter(
+      p =>
+        p.getAttribute('data-testid')?.startsWith('formation-polyline-') ||
+        p.getAttribute('data-testid')?.startsWith('formation-surface-') ||
+        p.getAttribute('data-testid')?.startsWith('formation-fill-'),
+    )
+    // Backdrop must exist.
+    expect(backdropIdx).toBeGreaterThanOrEqual(0)
+    // Every active layer path must come AFTER the backdrop in DOM order.
+    for (const activeEl of activeLayers) {
+      const activeIdx = allPaths.indexOf(activeEl)
+      expect(activeIdx).toBeGreaterThan(backdropIdx)
+    }
+  })
+
+  it('renders no backdrop when referenceFormations is absent', () => {
+    // Geological axis — neither reference prop is passed.
+    const { container } = renderLayer(
+      [makeContact({ id: 'c-1', borehole_id: 'bh-1' })],
+      [makeFormation()],
+      [makeBoreholePlaced('bh-1', 50)],
+    )
+    expect(container.querySelectorAll('[data-testid^="backdrop-surface-"]').length).toBe(0)
+  })
 })
