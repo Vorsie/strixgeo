@@ -35,9 +35,11 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
     dialog — the caller passes the keys the user checked, and the
     auto-populate creates ONLY those formations.
 
-    When ``None`` (omitted), all layers are processed — the pre-existing
-    behaviour of ``handleAutoPopulateFromStratigraphy`` (Sections "Seed
-    from stratigraphy") is unaffected.
+    When ``None`` (omitted), all in-scope layers are walked.  Whether an
+    unmatched layer creates a formation is then governed by
+    ``create_missing_formations`` (Fill creates; the Sections "Seed from
+    stratigraphy" path passes ``false`` and only places contacts for
+    already-curated formations — see that field).
 
     ``section_id`` is the "Seed from stratigraphy" path trigger.  When
     provided, the endpoint additionally PATCHes that section's
@@ -72,3 +74,13 @@ class AutoPopulateFromStratigraphyRequest(BaseModel):
     # section row so the frontend can patch state in one round-trip.
     # Absent on the Fill-from-boreholes path — Fill does not touch seeds.
     section_id: UUID | None = None
+    create_missing_formations: bool = True
+    """Whether an unmatched layer may MINT a new formation.
+
+    ``True`` (default, Fill-from-boreholes) — model-definition step, creates
+    formations as needed.  ``False`` (Sections "Seed from stratigraphy") —
+    enforces the CLAUDE.md explicit-content invariant: Seed places contacts
+    only for formations the user already curated and never creates one;
+    unmatched layers are reported in ``skipped_not_in_model``.  Additive +
+    defaulted so the Fill path and any existing client are unaffected.
+    """
