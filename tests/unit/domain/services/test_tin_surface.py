@@ -124,13 +124,13 @@ def test_compute_tin_collinear_points_returns_vertices_only() -> None:
 
 
 # ---------------------------------------------------------------------------
-# compute_tin — sliver trim (convex-hull "drooping edges" fix)
+# compute_tin — concave-hull (alpha-shape) trim, "drooping edges" fix
 # ---------------------------------------------------------------------------
 
 
-def test_compute_tin_trims_hull_slivers_to_a_far_outlier() -> None:
-    """A tight cluster + one far point: the long hull-spanning triangles
-    that drape to the outlier are dropped; the compact interior survives.
+def test_compute_tin_alpha_shape_trims_to_a_far_outlier() -> None:
+    """A tight cluster + one far point: the large boundary triangles that
+    drape to the outlier are dropped; the compact interior survives.
     """
     contacts = [
         _pt("a", 0.0, 0.0, 5.0),
@@ -144,88 +144,37 @@ def test_compute_tin_trims_hull_slivers_to_a_far_outlier() -> None:
     # Every surviving triangle is inside the unit-square cluster; the
     # outlier (index 4) is orphaned by the trim, never referenced.
     assert all(4 not in t for t in surface.triangles)
-    # Untrimmed Delaunay would include the fan-to-outlier slivers, so the
-    # trimmed count is strictly smaller than the raw hull.
-    raw = compute_tin(contacts, sliver_max_edge_factor=1e9)
+    # A huge alpha factor degenerates to the full convex hull, which
+    # includes the fan-to-outlier triangles — strictly more than trimmed.
+    raw = compute_tin(contacts, concave_hull_alpha_factor=1e9)
     assert len(raw.triangles) > len(surface.triangles)
     assert any(4 in t for t in raw.triangles)
 
 
-def test_compute_tin_sliver_trim_never_empties_a_surface() -> None:
-    """If the factor is so tight that every triangle reads as a sliver,
-    the full hull is kept (a droopy surface beats a vanished formation).
-    """
+def test_compute_tin_alpha_trim_never_empties_a_surface() -> None:
+    """If alpha is so tight that every triangle exceeds it, the full hull
+    is kept (a droopy surface beats a vanished formation)."""
     surface = compute_tin(
         [
             _pt("a", 0, 0, 5),
             _pt("b", 10, 0, 6),
             _pt("c", 5, 10, 4),
         ],
-        sliver_max_edge_factor=0.1,
+        concave_hull_alpha_factor=0.01,
     )
     assert len(surface.vertices) == 3
     assert len(surface.triangles) == 1
 
 
 def test_compute_tin_compact_grid_is_not_trimmed() -> None:
-    """A regular 3x3 grid has no slivers — the default factor keeps all
-    8 Delaunay triangles (2 * (nx-1) * (ny-1))."""
+    """A regular 3x3 grid has no oversized boundary triangles — the
+    default alpha keeps all 8 Delaunay triangles (2 * (nx-1) * (ny-1))."""
     contacts = [
         _pt(f"p{i}", float(x), float(y), 5.0)
         for i, (x, y) in enumerate((x, y) for x in range(3) for y in range(3))
     ]
     surface = compute_tin(contacts)
     assert len(surface.triangles) == 8
-
-
-# ---------------------------------------------------------------------------
-# compute_tin — slope cap (boundary-scoped; protects erosional incisions)
-# ---------------------------------------------------------------------------
-
-
-def test_compute_tin_slope_cap_drops_steep_boundary_triangles() -> None:
-    """A diamond ring (flat) + centre, with one ring point spiked in Z.
-    The two hull-boundary triangles touching the spike dip steeply and
-    are dropped; the two flat ones survive. Sliver trim disabled so the
-    slope cap is the only filter under test.
-    """
-    pts = [
-        _pt("c", 0.0, 0.0, 0.0),  # 0 interior centre
-        _pt("n", 0.0, 10.0, 0.0),  # 1
-        _pt("e", 10.0, 0.0, 30.0),  # 2 spiked → steep boundary triangles
-        _pt("s", 0.0, -10.0, 0.0),  # 3
-        _pt("w", -10.0, 0.0, 0.0),  # 4
-    ]
-    surface = compute_tin(pts, sliver_max_edge_factor=1e9)
-    # Steep boundary triangles touching the spike (index 2) are cut.
-    assert len(surface.triangles) == 2
-    assert all(2 not in t for t in surface.triangles)
-    # Cap disabled (max_dip_deg=180) → the full 4-triangle fan returns.
-    raw = compute_tin(pts, sliver_max_edge_factor=1e9, max_dip_deg=180.0)
-    assert len(raw.triangles) == 4
-    assert any(2 in t for t in raw.triangles)
-
-
-def test_compute_tin_slope_cap_preserves_interior_steep_incision() -> None:
-    """Two interior points, one spiked — a steep INTERIOR contact (a
-    real erosional incision sampled by surrounding boreholes). The two
-    triangles sharing the interior A-B edge have no hull edge, so the
-    boundary-scoped slope cap must NOT cut them even though they are
-    steep. This is the erosion-feature safeguard.
-    """
-    pts = [
-        _pt("c0", -30.0, -30.0, 0.0),  # 0 hull corners (flat)
-        _pt("c1", 30.0, -30.0, 0.0),  # 1
-        _pt("c2", 30.0, 30.0, 0.0),  # 2
-        _pt("c3", -30.0, 30.0, 0.0),  # 3
-        _pt("a", -5.0, 0.0, 0.0),  # 4 interior
-        _pt("b", 5.0, 0.0, 30.0),  # 5 interior, spiked (incision floor)
-    ]
-    surface = compute_tin(pts, sliver_max_edge_factor=1e9)
-    # The spiked interior pick survives — its incident interior
-    # triangles (sharing edge 4-5) are steep but bracketed by real
-    # picks on all sides, so the cap leaves them alone.
-    assert any(5 in t for t in surface.triangles)
 
 
 # ---------------------------------------------------------------------------
