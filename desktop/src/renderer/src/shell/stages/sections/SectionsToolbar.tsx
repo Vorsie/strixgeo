@@ -40,6 +40,7 @@ export default function SectionsToolbar(): JSX.Element {
       handleSelectSection,
       handleCreateSection,
       handleDeleteSection,
+      applyUpdatedSection,
     },
     geoModel: {
       activeGeologicalModel,
@@ -165,9 +166,15 @@ export default function SectionsToolbar(): JSX.Element {
     try {
       if (isLitho) {
         if (!activeLithoModel) return
+        // Pass applyUpdatedSection so the server-echoed updated_section
+        // (with the unioned seeded_formation_contact_ids) is applied to
+        // local state — otherwise SectionsCanvas's explicit-content
+        // filter keeps hiding every seeded contact and the section
+        // renders empty even though the rows exist server-side.
         await handleSeedLithoFromParent(
           visibleBoreholes.map(b => b.id),
           selectedSectionId ?? null,
+          applyUpdatedSection,
         )
       } else {
         if (!activeGeologicalModel) return
@@ -177,6 +184,7 @@ export default function SectionsToolbar(): JSX.Element {
         await handleAutoPopulateFromStratigraphy(
           visibleBoreholes.map(b => b.id),
           selectedSectionId ?? null,
+          applyUpdatedSection,
         )
       }
     } finally {
