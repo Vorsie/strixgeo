@@ -63,3 +63,32 @@ presentation layer. Keeping them separate means we can re-import the
 CSV at any time without re-deriving structure from generated code, and
 diff-ing future DOV updates is a one-line CSV diff rather than a
 hand-translated lookup-table diff.
+
+## DOV formal-stratigraphy lexicon (#59)
+
+`dov_formal_stratigraphy.json` (403 codes, whole-of-Belgium) maps every
+DOV formal-stratigraphy permkey (`KoAa`, `Q`, `QH`, …) to its canonical
+full Dutch name. Source of truth: DOV's own
+`FormeleStratigrafieDataCodes.xsd` (`FormeleStratigrafieLedenEnumType`
+enumeration; each `xs:documentation` is the canonical name). The XSD is
+snapshotted here as `FormeleStratigrafieDataCodes.xsd` so a rebuild
+needs no network.
+
+Rebuild recipe:
+
+```
+uv run python scripts/build_dov_formal_stratigraphy.py
+```
+
+It fetches the live DOV XSD (`/xdov/schema/latest/xsd/kern/
+interpretatie/FormeleStratigrafieDataCodes.xsd`), and on any network
+failure falls back to the committed `.xsd` snapshot. A successful live
+fetch refreshes the snapshot. `age_rank` / `color_hex` are a best-effort
+secondary suffix-join into `g3dv3_units.json` (null where G3Dv3 has no
+counterpart — e.g. Quaternary period codes). Commit the regenerated
+`.json` **and** the refreshed `.xsd` together.
+
+Consumed at runtime by `dov_formal_stratigraphy_catalog.py`; never
+fetched at runtime. Same presentation-boundary rule as the CSVs: the
+raw DOV code stays on `formation.regional_ref`; the canonical name is
+the resolved identity/display only.
