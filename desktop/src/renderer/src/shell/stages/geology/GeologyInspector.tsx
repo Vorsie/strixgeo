@@ -77,8 +77,12 @@ export default function GeologyInspector(): JSX.Element {
       handleFormationDeleted,
       handleToggleBoreholeInModel,
       refetchFormations,
+      // Litho contacts — used for the axis-aware formation filter (below).
+      // When the sections axis is 'lithostratigraphic', only formations
+      // with ≥1 contact in the active litho model are shown.
+      lithoContacts,
     },
-    sections: { handleFocusContacts },
+    sections: { handleFocusContacts, sectionModelAxis },
     // manifestFormationIds is still needed by reorderFormations' inline
     // derivation (cannot read visibleFormations there — TDZ; see §8.1 Risk 3).
     coordinator: { manifestFormationIds, sessionImportFormationIds },
@@ -322,14 +326,34 @@ export default function GeologyInspector(): JSX.Element {
   // ---------------------------------------------------------------------------
   const visibleFormations = busVisibleFormations
 
+  // Model-axis-aware filter (LOCKED owner decision, #55 litho-Seed slice).
+  // When the sections editor is on the lithostratigraphic axis, narrow the
+  // inspector's formation list to only formations that have ≥1 contact in
+  // the active litho model.  This way the Geology inspector becomes a
+  // "what's been mapped in litho" view when the user is working on the
+  // litho skeleton — the full vocabulary is always one axis-switch away.
+  // On the geological axis the filter is a no-op (the full set is shown).
+  const isLithoAxis = sectionModelAxis === 'lithostratigraphic'
+  const lithoFormationIds = useMemo(() => {
+    if (!isLithoAxis) return null
+    const ids = new Set<string>()
+    for (const c of lithoContacts) ids.add(c.formation_id)
+    return ids
+  }, [isLithoAxis, lithoContacts])
+
+  const filteredVisibleFormations = useMemo(() => {
+    if (lithoFormationIds === null) return visibleFormations
+    return visibleFormations.filter(f => lithoFormationIds.has(f.id))
+  }, [visibleFormations, lithoFormationIds])
+
   // Reading order for the list UI: youngest-first, like a borehole log /
   // stratigraphic column. ``visibleFormations`` is ascending display_order
   // (oldest-first — the section/3D paint order). Reverse ONLY for the
   // human-facing list; reorder math inverts back to display_order in
   // reorderFormations so the data contract is untouched.
   const displayedFormations = useMemo(
-    () => [...visibleFormations].reverse(),
-    [visibleFormations],
+    () => [...filteredVisibleFormations].reverse(),
+    [filteredVisibleFormations],
   )
 
   // ---------------------------------------------------------------------------
