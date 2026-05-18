@@ -149,6 +149,18 @@ interface Props {
    * line so off-line picks contribute properly. Absent → connect-the-
    * dots fallback in ContactsLayer (still works for sparse data). */
   surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * Reference (backdrop) formations from the parent geological model — rendered
+   * as faint read-only polylines behind the active litho contacts.  Only
+   * populated on the litho axis; absent on the geological axis (zero regression).
+   * Forwarded straight to ContactsLayer which owns the backdrop render path.
+   */
+  referenceFormations?: readonly GeologicalFormationResponse[]
+  /**
+   * Cached TIN surfaces for the geological backdrop model, keyed by formation id.
+   * Forwarded straight to ContactsLayer.  Absent when no backdrop is loaded yet.
+   */
+  referenceSurfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
   /** Contact ids the user has asked to be visually highlighted —
    * driven by the crossings banner click (debt #9). Forwarded to
    * ContactsLayer which renders the ring + pulse. Transient: App
@@ -331,6 +343,8 @@ export default function SectionPanel({
   formations = [],
   excludedBoreholeIds,
   surfacesByFormationId,
+  referenceFormations,
+  referenceSurfacesByFormationId,
   focusedContactIds,
   onCreateContact,
   onUpdateContactDepth,
@@ -1602,6 +1616,8 @@ export default function SectionPanel({
               snapDepthsByAnchorId={snapDepthsByAnchorId}
               getCptValuesAtDepth={getCptValuesAtDepth}
               surfacesByFormationId={surfacesByFormationId}
+              referenceFormations={referenceFormations}
+              referenceSurfacesByFormationId={referenceSurfacesByFormationId}
               focusedContactIds={
                 focusedContactIds && focusedContactIds.length > 0
                   ? new Set(focusedContactIds)
