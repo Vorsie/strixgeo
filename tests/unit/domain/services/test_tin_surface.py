@@ -179,6 +179,56 @@ def test_compute_tin_compact_grid_is_not_trimmed() -> None:
 
 
 # ---------------------------------------------------------------------------
+# compute_tin — slope cap (boundary-scoped; protects erosional incisions)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_tin_slope_cap_drops_steep_boundary_triangles() -> None:
+    """A diamond ring (flat) + centre, with one ring point spiked in Z.
+    The two hull-boundary triangles touching the spike dip steeply and
+    are dropped; the two flat ones survive. Sliver trim disabled so the
+    slope cap is the only filter under test.
+    """
+    pts = [
+        _pt("c", 0.0, 0.0, 0.0),  # 0 interior centre
+        _pt("n", 0.0, 10.0, 0.0),  # 1
+        _pt("e", 10.0, 0.0, 30.0),  # 2 spiked → steep boundary triangles
+        _pt("s", 0.0, -10.0, 0.0),  # 3
+        _pt("w", -10.0, 0.0, 0.0),  # 4
+    ]
+    surface = compute_tin(pts, sliver_max_edge_factor=1e9)
+    # Steep boundary triangles touching the spike (index 2) are cut.
+    assert len(surface.triangles) == 2
+    assert all(2 not in t for t in surface.triangles)
+    # Cap disabled (max_dip_deg=180) → the full 4-triangle fan returns.
+    raw = compute_tin(pts, sliver_max_edge_factor=1e9, max_dip_deg=180.0)
+    assert len(raw.triangles) == 4
+    assert any(2 in t for t in raw.triangles)
+
+
+def test_compute_tin_slope_cap_preserves_interior_steep_incision() -> None:
+    """Two interior points, one spiked — a steep INTERIOR contact (a
+    real erosional incision sampled by surrounding boreholes). The two
+    triangles sharing the interior A-B edge have no hull edge, so the
+    boundary-scoped slope cap must NOT cut them even though they are
+    steep. This is the erosion-feature safeguard.
+    """
+    pts = [
+        _pt("c0", -30.0, -30.0, 0.0),  # 0 hull corners (flat)
+        _pt("c1", 30.0, -30.0, 0.0),  # 1
+        _pt("c2", 30.0, 30.0, 0.0),  # 2
+        _pt("c3", -30.0, 30.0, 0.0),  # 3
+        _pt("a", -5.0, 0.0, 0.0),  # 4 interior
+        _pt("b", 5.0, 0.0, 30.0),  # 5 interior, spiked (incision floor)
+    ]
+    surface = compute_tin(pts, sliver_max_edge_factor=1e9)
+    # The spiked interior pick survives — its incident interior
+    # triangles (sharing edge 4-5) are steep but bracketed by real
+    # picks on all sides, so the cap leaves them alone.
+    assert any(5 in t for t in surface.triangles)
+
+
+# ---------------------------------------------------------------------------
 # checksum_contacts — order-insensitive, content-sensitive
 # ---------------------------------------------------------------------------
 
