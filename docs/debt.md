@@ -14,7 +14,7 @@ sections that follow):
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
 * **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
-* **E. Lower technical debt:** #15, #16, #17, #18, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
+* **E. Lower technical debt:** #15, #16, #17, #18, #20, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -394,35 +394,6 @@ make the storage column independent of upstream tweaks.
 
 **When.** When a query against ``scalar_lab_test`` is added that
 filters by parameter — at that point the slug becomes load-bearing.
-
-## 21. Elevation provenance — rollback column (low, residual)
-
-**What landed.** ``elevation_source`` enum
-``{dov, gef, manual, none}`` now lives on ``cpt`` and ``borehole``.
-``set_elevation`` stamps ``MANUAL``; ``ImportCpt`` /
-``ImportCptDov`` / ``ImportBoreholeDov`` stamp ``GEF`` / ``DOV``
-/ ``NONE`` on initial insert. The column round-trips through the
-.strix bundle. The desktop ``ElevationEditor`` renders a tiny
-"(DOV)" / "(GEF)" / "(manual)" tag next to the Z value.
-
-**What's open.** The optional ``elevation_m_source`` second column
-that holds the ORIGINAL upstream value so "Clear" can restore it
-instead of nulling the row. Today's Clear flow returns the row to
-the "no Z known" state, which is fine for a first paid release but
-doesn't undo a typo gracefully.
-
-**Why low priority.** The trigger condition for the rollback
-column hasn't fired yet — DOV is mono-source today, and the
-refresh-on-duplicate path still doesn't update parent columns
-(it only refreshes children). When the refresh-parent rule lands
-(needed when DOV publishes a corrected Z and we want to surface
-it without clobbering manual edits), that's the moment to add
-the rollback column at the same time.
-
-**When to revisit.** Pair with the refresh-on-duplicate-of-parent
-work; that's when consulting ``elevation_source`` actually starts
-to skip overwrites, and the rollback column closes the user-side
-asymmetry.
 
 ## 22. CPT detail chart conflates raw curves with Ic/SBT interpretation (low — Parameters-stage trigger)
 
