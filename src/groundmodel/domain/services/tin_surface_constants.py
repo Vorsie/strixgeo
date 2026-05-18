@@ -8,66 +8,51 @@ overridable by tests without reaching into the service.
 
 from __future__ import annotations
 
-# Sliver-trim factor for the Delaunay convex-hull boundary.
+# Concave-hull (alpha-shape) tightness for the Delaunay boundary.
 #
-# WHY: SciPy's Delaunay always triangulates the FULL convex hull of the
-# input points. On sparse / elongated borehole layouts (e.g. a runway
-# strip with a few off-axis holes) that produces large hull-spanning
-# "sliver" triangles which linearly drape the surface across regions with
-# zero borehole control and ramp it steeply at the rim — the "drooping
-# edges" the user sees in the 3D viewer and which would otherwise flow
-# into the DXF / Plaxis exports and the .gmproj bundle.
+# This is THE boundary trim — the principled "interpolate only, do not
+# extrapolate" implementation (owner directive 2026-05-18, after the
+# sliver longest-edge filter and the 30-deg slope cap were both tried
+# and removed: sliver stayed too convex, the slope cap punched holes in
+# legitimately-tapering formation edges and conflated drape with real
+# steep geology).
 #
-# A triangle is dropped when its LONGEST edge (measured in the projected
-# x-y plane, the same metric as borehole spacing) exceeds this factor
-# times the MEDIAN edge length across all triangles. Raising it trims
-# less (more droop kept); lowering it trims more aggressively toward a
-# concave-hull look.
+# WHY: SciPy's Delaunay always triangulates the FULL convex hull. Every
+# triangle is mathematically interpolation (a barycentric blend of 3
+# real picks), but the hull throws large triangles across regions with
+# NO boreholes between them — interpolation in name, a guess across a
+# data void in fact. That void-spanning is the "droop". The alpha-shape
+# clips the triangulation to the data footprint: a triangle is dropped
+# when its CIRCUMRADIUS exceeds
+# ``alpha = CONCAVE_HULL_ALPHA_FACTOR * median_edge`` (x-y plane, the
+# borehole-spacing metric). Circumradius is the canonical alpha-shape
+# test — it cuts fat-but-large boundary triangles, follows concavities
+# in the cloud, and near-collinear slivers (area->0 -> R->inf) are
+# always cut. alpha auto-scales per formation off the median edge so a
+# sparse formation is not judged against a dense one's spacing.
+#
+# This is NOT too limiting — it is what LeapFrog / gINT / GemPy do: the
+# surface stops where the data stops, honestly, instead of inventing a
+# drooping rim. Consequences the engineer must know: (a) each formation
+# has its own borehole subset, so formations get slightly different
+# lateral extents (ragged inter-formation edges = real, not a bug);
+# (b) to extend a surface past the outer boreholes, ADD A PICK — you
+# stay in control. A manual extent polygon (LeapFrog-style) is the
+# future escape hatch if automatic clipping is ever too conservative.
+#
+# Sizing: a well-shaped interior triangle has circumradius ~0.55-0.9 x
+# local spacing (equilateral = 1/sqrt3 ~ 0.58; right-isosceles =
+# 1/sqrt2 ~ 0.71). LOWER -> tighter hull, less droop, but eventually
+# punches interior holes / fragments a sparse cloud (the "cutting too
+# much" failure). HIGHER -> looser, toward the convex hull (more droop
+# kept). Deterministic — fixed factor, no data-driven fitting.
 #
 # Tuning log:
-#   4.0 (2026-05-18) — first pass; on an elongated airfield-strip
-#                      layout the boundary still drooped at the strip
-#                      ends (judged once Build was made to always
-#                      recompute, so the earlier verdict had been on a
-#                      stale cache).
-#   2.5 (2026-05-18) — owner "still a bit droopy"; tighter, clips the
-#                      long cross-strip boundary triangles harder while
-#                      leaving graded interior interpolation intact.
-#   2.0 (2026-05-18) — owner "a bit tighter"; paired with the new
-#                      MAX_DIP_DEG slope cap below (the x-y-only caveat
-#                      is now covered by that, not by a smaller factor).
-#
-# This is an x-y-only test — it catches data-free spans, not steep
-# compact drapes. The MAX_DIP_DEG slope cap below is its counterpart:
-# the two compose (a triangle is dropped if EITHER fires). The trim is
-# fully deterministic — a fixed factor, no data-driven fitting.
-SLIVER_MAX_EDGE_FACTOR = 2.0
-
-# Maximum geologically-plausible surface dip, in degrees. A triangle
-# whose plane dips steeper than this (angle between its 3-D normal and
-# the vertical) is dropped as interpolation drape, not real geology.
-#
-# WHY this is the real cure for "droop": the sliver test is x-y-only,
-# so a boundary triangle that is normal in plan but plunges steeply in
-# Z (a compact ramp down to one low / outlier control point) survives
-# at ANY sliver factor. The slope cap targets exactly that.
-#
-# SCOPED to convex-hull-boundary triangles only (see compute_tin). A
-# fully-interior steep triangle is bracketed by real picks on all
-# sides — that is a genuine steep erosional contact (a Quaternary
-# valley / buried channel incising the Paleogene, the Flemish-Valley
-# case in Flanders), NOT drape, and is kept regardless of this cap.
-# Residual caveat: an incision exactly at the project edge, with
-# control on one side only, is indistinguishable from drape there and
-# WILL be trimmed — inherent to any boundary trim; add a pick on the
-# far side of the incision to constrain it.
-#
-# WHY 30 deg for Flanders (owner-set 2026-05-18, domain call): the
-# Cenozoic formation tops here (Kortrijk / Boom / Diest / Quaternary
-# cover) are near-flat-lying — regional dips ~1-2 deg, locally a few
-# deg at most. 30 deg sits an order of magnitude above any genuine
-# stratigraphic dip, so the cap can only ever remove interpolation
-# artefacts, never a real contact. Retune per region if a steeply
-# faulted / folded setting is ever modelled. Deterministic — fixed
-# threshold, no fitting. Set to 90 (or higher) to disable the cap.
-MAX_DIP_DEG = 30.0
+#   1.6 (2026-05-18) — first alpha-shape pass; never fairly evaluated
+#                      (stale-cache bug; reverted).
+#   2.5 (2026-05-18) — re-adopted as THE method; started GENEROUS on
+#                      owner feedback "you're cutting too much / holes
+#                      in the base formation". Lower toward ~1.8 if
+#                      droop is still unacceptable; raise toward ~3.5
+#                      if real surface is being lost.
+CONCAVE_HULL_ALPHA_FACTOR = 2.5
