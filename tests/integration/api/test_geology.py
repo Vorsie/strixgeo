@@ -1702,7 +1702,8 @@ async def test_rebuild_keeps_pinned_formation_order(
     # Non-pinned re-flowed by age into the slots Aalbeke didn't hold.
     assert rows["Antropogeen"]["display_order"] == 1
     assert rows["Quartair"]["display_order"] == 2
-    # A second Build is a no-op — order now matches and the pin holds.
+    # A second Build re-triangulates (force) but the REORDER is a no-op
+    # — order now matches and the pin holds.
     resp2 = await async_client.post(
         f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
     )
@@ -1782,14 +1783,19 @@ async def test_rebuild_surfaces_after_first_create_writes_one_row(
     assert body["formations_rebuilt"] == 1
 
 
-async def test_rebuild_surfaces_idempotent_when_no_changes(
+async def test_rebuild_surfaces_always_recomputes(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
 ) -> None:
-    """A second Build with no intervening contact mutation is a no-op.
+    """A second Build with no intervening contact mutation still
+    recomputes.
 
-    Checksum short-circuit kicks in: nothing about the geometry
-    changed, the row's already not stale, ``formations_rebuilt == 0``.
+    The manual Build path forces re-triangulation (``force=True``),
+    bypassing the contact checksum — so a code change that alters the
+    TIN from the *same* contacts is reflected without the user having
+    to mutate a contact to bust the cache. ``formations_rebuilt``
+    therefore stays == ``formations_considered`` on a repeat Build (it
+    is no longer an idempotent no-op), and the surface is still present.
     """
     project, borehole = project_with_borehole
     formation = await _create_formation(async_client, project.id)
@@ -1801,14 +1807,14 @@ async def test_rebuild_surfaces_idempotent_when_no_changes(
     await async_client.post(
         f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
     )
-    # Second build = idempotent no-op.
+    # Second build, no intervening change → still recomputes (force).
     resp = await async_client.post(
         f"/projects/{project.id}/geology/models/{model['id']}/surfaces/rebuild",
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["formations_considered"] == 1
-    assert body["formations_rebuilt"] == 0
+    assert body["formations_rebuilt"] == 1
 
 
 async def test_rebuild_surfaces_recomputes_when_cache_is_stale(
