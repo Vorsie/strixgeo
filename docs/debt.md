@@ -12,9 +12,9 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #41 (Geology3DViewer untested — residual after pure-helper extract) *(#55 litho peer-stage scaffolding RESOLVED 2026-05-18: LithologyStage StageDescriptor + LithologyCanvas [single-viewport Geology3DViewer when hasLithoSurfaces, guided EmptyState otherwise, module-level resetLithoCameraCallback, ground-surface useEffect keyed on lithoModelId] + LithologyInspector [ModelKindPicker + stale-surface info banner + read-only formation roster with contact counts + workflow guidance footer] + LithologyToolbar [Reset Camera visible when hasLithoSurfaces] + `lithoStaleSurfaceCount` useMemo + `handleRebuildLithoSurfaces` useCallback in useGeologicalModel; SectionsToolbar litho-axis Build button with stale-count amber badge. L1–L5 hook + BL1–BL4 toolbar + I1–I3 inspector + C1–C2 canvas vitest green; 808 unit total. #58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52, #60
-* **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
+* **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53, #64, #65
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -761,71 +761,6 @@ worthwhile (the restructure). Trigger to escalate out of Tier E:
 unchanged — any session adding >2 new fields to the coordinator slice
 should also extend the net + audit the dep array.
 
-## 55. Litho slice 4 — ghost-suggestion overlay + accept→contact (Tier C — steps 2-3 of 3)
-
-**Step 1 DONE (2026-05-17, ux-reviewed).** The model-kind picker
-shipped: `useGeologicalModel` exposes `models` / `activeLithoModel` /
-`handleCreateLithoModel` / `handleActivateLithoModel` (additive — the
-race-guarded geological bootstrap untouched); `ModelKindPicker.tsx`
-in the GeologyInspector header (select/create the active litho model,
-backend enforces the parent invariant). ux-reviewer pass fixed a
-phantom-token blocker + contrast + busy-guard + an actionable empty
-CTA. 6 picker tests; geological-model SWITCHING deliberately out of
-scope (v1 single backbone).
-
-**RE-SCOPED 2026-05-17 (owner directive, dogfeed feedback).** The
-step-1 inspector-header picker confirmed the ux-review S2 finding by
-dogfooding: selecting a litho model in the *Geology inspector* does
-nothing because the inspector is not an editing surface (CLAUDE.md:
-"cross-sections are the editing surface, not the data primitive").
-Owner locked a better structure:
-
-* **Lithology becomes a new peer left-rail stage** between Geology
-  and Geotech (peer to the existing Geotech stub) — its own
-  StageDescriptor + canvas + inspector + toolbar. The
-  `ModelKindPicker` relocates here (the inspector-header placement is
-  superseded; the **hook layer — models/activeLithoModel/create/
-  activate — is reused as-is**, only the UI moves).
-* **The cross-section editor is the litho editing surface.** The
-  Lithology stage's canvas is a 3D-view + model-management surface
-  (mirror the Geology stage's 3D viewer), NOT the primary editor.
-  The suggest/ghost/accept flow lives on the **Sections editor
-  scoped to the active litho model**, via a **model-axis picker on
-  the section editor** (geology ↔ lithology toggle) — that is where
-  "select a model and something happens" actually holds.
-
-**Step 2 DONE (2026-05-17).** Section-editor model-axis picker shipped:
-`SectionModelAxis: 'geological' | 'lithostratigraphic'` session-only
-state in `useSections`; `setSectionModelAxis` exposed on the ShellContext
-sections slice; SectionsToolbar geology/litho toggle (litho disabled
-when `activeLithoModel === null`); `handleFocusContacts` routes to the
-axis-matched contact set; `SectionsCanvas` axis-routes contacts/
-formations/surfaces to SectionPanel/ContactsLayer via constants — no
-structural change to either 2k-line component. 6 behavioral tests
-(A1/A2/A3 axis routing + B1/B2/B3 toolbar toggle). tsc net −4; 634/634
-vitest.
-
-**Step 3 DONE (2026-05-17).** Suggest/ghost/accept shipped:
-`handleSuggestLitho` / `handleAcceptLithoSuggestion` (reuse-not-
-duplicate formation by lithology token) / `handleRejectLithoSuggestion`
-/ `clearLithoSuggestions` in `useGeologicalModel`; `LithoSuggestionGhostColumns.tsx`
-SVG ghost overlay (left-of-band, 48 px, accept/reject visual states);
-`lithoGhostState` bundled optional prop on SectionPanel — additive, no
-structural change; "Suggest litho" + "Clear" buttons in SectionsToolbar
-gated on isLitho + activeLithoModel + hasSection + focused anchor. 5
-behavioral tests pinning the accept→ensure-formation→create-contact
-contract (S1–S5). tsc net −4 vs 84 baseline; 634/634 vitest.
-
-**Remaining work (1 slice):**
-1. **Lithology peer stage** scaffolding (StageDescriptor + canvas +
-   inspector + toolbar; relocate ModelKindPicker; reuse the Geology
-   3D viewer for its canvas). Supersedes the inspector-header picker.
-   Design-first via system-architect — a new shell stage is a
-   load-bearing structural change.
-
-**When to revisit.** Now — architect the stage, then build slice 1.
-
----
 
 ## 56. Manual-lump cross-project reuse + standalone group editor (Tier C — deferred)
 
@@ -1028,3 +963,49 @@ so they don't get re-filed as new items):
   some contacts created and others missing; the toast warns. Promote
   to a real ``POST /contacts/batch-create`` endpoint with single-
   transaction commit when failure rates start to bite.
+
+---
+
+## 64. Litho 3D viewer — split-viewport mode deferred (Tier E)
+
+**What.** `LithologyCanvas` renders `Geology3DViewer` in
+`splitMode="single"` only. The split-line draw interaction (the
+virtual cross-section cut through the 3D TIN) is disabled —
+`onSplitPlaneDrawn` is a noop and `splitPlane` is always null.
+If a user later wants side-by-side litho 3D view (3D left,
+section slice right) or Phase 5 facies-interfingering geometry,
+`Geology3DViewer` already supports `splitMode="split"` — the
+prop exists, only the litho canvas wiring is missing.
+
+**Why deferred.** No user-reported need (the single viewport is
+adequate for model-management overview). Implementing it would
+require a `splitPlane` state + section picker on the litho stage,
+which duplicates `GeologyCanvas` logic — the rule-of-three is
+not yet met (one concrete use in GeologyCanvas, zero in litho).
+
+**When to revisit.** When a user asks for a split litho 3D view,
+or when Phase 5 interfingering geometry adds a second concrete
+use of the split-viewport in a non-Geology stage.
+
+---
+
+## 65. Litho borehole scope toggles absent — no litho crossings validator (Tier E)
+
+**What.** The Lithology stage inspector has no "excluded boreholes"
+UI (the litho model's `excluded_borehole_ids` is set only via
+the backend, never surfaced). There is also no litho-specific
+crossings validator (the geology crossings banner lives in
+`useCrossingsValidation`, keyed on the geological model — it is
+not wired for the litho model). As a result, litho surface
+crossings are silently undetected.
+
+**Why deferred.** The litho inspector is deliberately read-only
+at v1.0 (formations are project-scoped shared vocabulary;
+CRUD stays in GeologyInspector). The crossings validator can be
+extended later with a `modelId` parameter and the same hook
+reused — but there is no UI surface to trigger it on today's
+Lithology stage inspector.
+
+**When to revisit.** When the litho inspector gains an
+exclusion-toggle or when the first dogfeed session surfaces
+a silent litho surface crossing as a confusing artefact.
