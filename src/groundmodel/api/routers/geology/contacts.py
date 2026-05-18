@@ -447,8 +447,12 @@ async def auto_populate_from_stratigraphy(
     use case prefers FORMAL_STRATIGRAPHY and falls through to
     INFORMAL_STRATIGRAPHY only when no formal observation exists.
     Layers are idempotent via ``observation_layer_id``; re-running
-    is a no-op. Auto-creates missing formations using the layer
-    description as the name + a hash-derived default colour.
+    is a no-op. When ``create_missing_formations`` is true (the
+    Fill-from-boreholes default) an unmatched layer mints a formation
+    from its description + a hash-derived colour; when false (the
+    Sections "Seed from stratigraphy" path) it is skipped and counted
+    in ``skipped_not_in_model`` — Seed never creates formations
+    (CLAUDE.md explicit-content invariant).
     """
     # Model scope guard up-front — same shape as the batch update
     # endpoint. Per-borehole project membership is also re-checked
@@ -472,6 +476,7 @@ async def auto_populate_from_stratigraphy(
         manual_map=request.manual_map,
         section_id=request.section_id,
         bridge=bridge or None,
+        create_missing_formations=request.create_missing_formations,
     )
 
     # Explicit-content invariant (owner directive 2026-05-17):
@@ -507,6 +512,7 @@ async def auto_populate_from_stratigraphy(
         skipped_existing=outcome.skipped_existing,
         skipped_unmatched=outcome.skipped_unmatched,
         skipped_no_stratigraphy=outcome.skipped_no_stratigraphy,
+        skipped_not_in_model=outcome.skipped_not_in_model,
         collisions=[
             LumpingCollisionItem(
                 borehole_id=col.borehole_id,
