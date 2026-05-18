@@ -12,12 +12,22 @@ import { describe, expect, it } from 'vitest'
 import type { FormationSurfaceResponse } from '../../../api/client'
 import {
   GEOPUNT_ORTHO_WMS,
+  buildCutFaceBands,
   computeBasemapBounds,
   sampleTinZ,
   clipTrisToHalfSpace,
   clipTexTrisToHalfSpace,
+  type StationFormationZ,
   type TexVert,
 } from './cesiumGeometry'
+
+/** Every z (every 3rd value) out of a flat [x,y,z,...] soup. */
+function zsOf(arr: number[] | undefined): number[] {
+  if (!arr) return []
+  const zs: number[] = []
+  for (let i = 2; i < arr.length; i += 3) zs.push(arr[i])
+  return zs
+}
 
 // A unit square in projected metres (two triangles), z encodes a
 // simple plane z = x + y so barycentric interpolation is checkable.
@@ -202,5 +212,62 @@ describe('clipTexTrisToHalfSpace', () => {
         true,
       ),
     ).toHaveLength(0)
+  })
+})
+
+describe('buildCutFaceBands', () => {
+  const A = (z: number): StationFormationZ => ({ z, fid: 'A' })
+  const B = (z: number): StationFormationZ => ({ z, fid: 'B' })
+
+  it('builds a clean band per formation when nothing pinches out', () => {
+    const out = buildCutFaceBands(
+      [
+        [A(10), B(5)],
+        [A(10), B(5)],
+      ],
+      [
+        [0, 0],
+        [10, 0],
+      ],
+      2,
+    )
+    expect(new Set(out.keys())).toEqual(new Set(['A', 'B']))
+    // A is bounded below by B's top (5), above by its own top (10).
+    expect(Math.min(...zsOf(out.get('A')))).toBeCloseTo(5)
+    expect(Math.max(...zsOf(out.get('A')))).toBeCloseTo(10)
+    // B is the deepest present → a uniform 2 m sliver (5 → 3), NOT a
+    // plunge to any global floor.
+    expect(Math.min(...zsOf(out.get('B')))).toBeCloseTo(3)
+    expect(Math.max(...zsOf(out.get('B')))).toBeCloseTo(5)
+  })
+
+  it('does not droop a band to the floor where a deeper one pinches', () => {
+    // B present at the first two stations, gone at the third. The old
+    // index-aligned walk dropped A's bottom to a global zBase at the
+    // station where B vanished — the cut-face droop. Here A must bottom
+    // at its OWN sliver (10 − 2 = 8) where it becomes the deepest
+    // present, never at B's level.
+    const out = buildCutFaceBands(
+      [
+        [A(10), B(0)],
+        [A(10), B(0)],
+        [A(10)],
+      ],
+      [
+        [0, 0],
+        [10, 0],
+        [20, 0],
+      ],
+      2,
+    )
+    expect(new Set(out.keys())).toEqual(new Set(['A', 'B']))
+    const za = zsOf(out.get('A'))
+    // A never plunges below B's top (0): no ramp to B's sliver (−2).
+    expect(Math.min(...za)).toBeGreaterThanOrEqual(0 - 1e-9)
+    // Where B is gone, A bottoms at its own 2 m sliver (8), not deeper.
+    expect(za.some(z => Math.abs(z - 8) < 1e-9)).toBe(true)
+    // B keeps its own sliver depth (−2) and wedges out — it never
+    // reaches the far station as a full band.
+    expect(Math.min(...zsOf(out.get('B')))).toBeCloseTo(-2)
   })
 })
