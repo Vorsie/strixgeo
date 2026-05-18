@@ -20,6 +20,7 @@ import { projectPointOntoLine } from '../utils/sectionProjection'
 import { wgs84ToProjected } from './useWgs84'
 import { log } from '../utils/log'
 import type { UndoCommand } from './useUndoStack'
+import type { FocusTarget } from '../components/sections/useFocusColumn'
 
 /** Which model the section editor renders and edits (slice 2, #55). */
 export type SectionModelAxis = 'geological' | 'lithostratigraphic'
@@ -94,6 +95,23 @@ export interface UseSectionsResult {
    * a section from a different project if something went wrong server-side).
    */
   applyUpdatedSection: (updated: CrossSectionResponse) => void
+  /**
+   * The column currently focused inside the active ``SectionPanel``, or
+   * ``null`` when nothing is focused / no section is open.
+   *
+   * Set via right-click → "Focus" in the section canvas and lifted to
+   * the shell so ``SectionsToolbar`` can use the section-local focus for
+   * the litho-axis "Suggest litho" button (instead of the global
+   * ``coordinator.selectedId`` / ``selectedBoreholeId``, which are only
+   * set by map/data-stage interactions, not by section-canvas right-clicks).
+   */
+  sectionFocusedColumn: FocusTarget | null
+  /**
+   * Update ``sectionFocusedColumn`` — called via ``SectionPanel``'s
+   * ``onFocusedColumnChange`` prop whenever the user right-clicks a
+   * column to focus it or exits focus mode.
+   */
+  setSectionFocusedColumn: (col: FocusTarget | null) => void
 }
 
 /** Shape of a borehole list-item as seen by the hook (x/y only needed). */
@@ -203,6 +221,21 @@ export function useSections({
   // model's parent_geological_model_id (derived in SectionsCanvas). Only
   // relevant when the project has more than one geological model. Session-only.
   const [backdropModelIdOverride, setBackdropModelIdOverride] = useState<string | null>(null)
+  // Section-local focused column — set by right-click → "Focus" in the
+  // SectionPanel canvas. Lifted here so SectionsToolbar can use it for
+  // the litho-axis "Suggest litho" button without going through the
+  // global coordinator selection (which is only set by map/data clicks).
+  // Session-only: reset when the section changes.
+  const [sectionFocusedColumn, setSectionFocusedColumn] = useState<FocusTarget | null>(null)
+  // Reset the focused column whenever the selected section changes so
+  // a stale focus from section A doesn't carry over to section B.
+  const prevSectionIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (selectedSectionId !== prevSectionIdRef.current) {
+      prevSectionIdRef.current = selectedSectionId
+      setSectionFocusedColumn(null)
+    }
+  }, [selectedSectionId])
   // Two-click draw mode — active while the user is placing a section
   // line on the map. Set by handleCreateSection, cleared by
   // cancelSectionDraw and handleSectionLineDrawn.
@@ -639,5 +672,7 @@ export function useSections({
     handleSelectSection,
     handleFocusContacts,
     applyUpdatedSection,
+    sectionFocusedColumn,
+    setSectionFocusedColumn,
   }
 }
