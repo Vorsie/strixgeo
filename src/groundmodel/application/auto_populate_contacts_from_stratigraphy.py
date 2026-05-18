@@ -463,6 +463,88 @@ def _resolve_effective_key(
     return normed_target, target_name
 
 
+def _resolve_lumped_key(
+    raw_key: str,
+    *,
+    primary_is_formal: bool,
+    bridge: dict[str, str] | None,
+    manual_map: dict[str, str] | None,
+) -> tuple[str, str, bool]:
+    """Resolve a raw key to its (effective_key, effective_name, was_lumped) triple.
+
+    This is the **single source of truth** for the bridge↔lump precedence,
+    shared verbatim by ``scan_stratigraphy_candidates`` (the discover preview)
+    and ``AutoPopulateContactsFromStratigraphy.execute`` (the write path).
+    Both callers MUST route through this function so the effective key is
+    provably identical on both sides — the discover≡apply≡seed invariant.
+
+    Precedence (revised 2026-05-18 — owner directive, **"lump wins over
+    bridge"**, supersedes the original #58 ``raw → bridge → manual_map``):
+
+      1. ``raw_key`` in ``manual_map`` (non-blank target) → the user's
+         explicit equation wins **outright; the data-inferred bridge is NOT
+         applied**.
+      2. else ``bridge(raw_key)`` → formal→informal data-proven equivalence
+         (no-op for informal keys; see ``_resolve_bridge_key``).
+      3. ``bridge``-resolved key in ``manual_map`` → the user lumped on the
+         bridged identity.
+      4. else → ``raw_key`` unchanged.
+
+    WHY raw-first: an explicit user lump ("treat formal code ``KoRo`` as
+    *Pleistoceen*") is a stronger signal than a data-inferred bridge.  It is
+    also **load-bearing for backward use**: a ``stratigraphy_lumping`` map
+    persisted in a ``.gmproj`` BEFORE the #58 bridge shipped is keyed on the
+    pre-bridge **raw formal codes**; with the old ``raw → bridge → lump``
+    order the bridge rewrote the key out from under those entries and the
+    lump silently dropped (the "stale-lump gap").  Raw-first makes those
+    saved maps resolve again with **zero re-lumping**.
+
+    Known asymmetry (documented, accepted): if the user lumps the formal
+    code but NOT the informal counterpart and relies on the bridge to unify
+    the two streams, the lumped formal side now jumps straight to the target
+    while the unlumped informal side still rides the bridge to itself — they
+    only reconverge if the informal key is also in ``manual_map``.  In the
+    real flow the lumping dialog presents the bridge-merged candidate, so the
+    user lumps the merged identity and both raw forms route through; the
+    asymmetry only bites a hand-crafted partial map.
+
+    Parameters
+    ----------
+    raw_key : str
+        The typographically normalised key from ``_derive_layer_names_and_key``.
+    primary_is_formal : bool
+        True when ``raw_key`` originated from a FORMAL_STRATIGRAPHY layer
+        (the bridge is one-directional formal→informal).
+    bridge : dict[str, str] or None
+        Project-level formal→informal map from ``build_formal_informal_bridge``,
+        or None on the no-op path.
+    manual_map : dict[str, str] or None
+        ``{ normalize_formation_key(raw) -> target_formation_name }`` from the
+        lumping dialog, or None when no lumping was requested.
+
+    Returns
+    -------
+    tuple[str, str, bool]
+        ``(effective_key, effective_name, was_lumped)``.  ``was_lumped`` is
+        True when either the raw or the bridged key produced a manual-map
+        hit, so the caller can choose the lumped display name over the
+        derived layer name.
+    """
+    # Step 1 — raw lump wins outright.  _resolve_effective_key returns the
+    # raw key unchanged on a miss OR a blank-target guard hit; eff_key !=
+    # raw_key is the unambiguous "the user actually lumped this" signal.
+    if manual_map is not None and raw_key in manual_map:
+        eff_key, eff_name = _resolve_effective_key(raw_key, manual_map)
+        if eff_key != raw_key:
+            return eff_key, eff_name, True
+    # Step 2 + 3 — bridge, then lump on the bridged identity (the original
+    # #58 path, retained for the no-raw-lump case).
+    bridged_key = _resolve_bridge_key(raw_key, primary_is_formal=primary_is_formal, bridge=bridge)
+    eff_key, eff_name = _resolve_effective_key(bridged_key, manual_map)
+    was_lumped = manual_map is not None and bridged_key in manual_map and eff_key != bridged_key
+    return eff_key, eff_name, was_lumped
+
+
 async def scan_stratigraphy_candidates(
     session: AsyncSession,
     *,
@@ -503,7 +585,10 @@ async def scan_stratigraphy_candidates(
         whose code is in the map are resolved to the bridged informal key so
         they merge with informal-only layers that prove the same geological
         unit.  ``None`` (default) = no bridge, every formal key stays as-is.
-        Precedence: raw → bridge → manual_map (manual_map always wins).
+        Precedence (revised 2026-05-18, "lump wins over bridge"): an
+        explicit lump on the RAW key wins outright; only when the raw key
+        is unlumped does the bridge run, then the lump is consulted on the
+        bridged key.  See ``_resolve_lumped_key``.
 
     Returns
     -------
@@ -575,20 +660,19 @@ async def scan_stratigraphy_candidates(
                 counterpart_desc=counterpart_desc,
             )
 
-            # Apply the formal↔informal bridge BEFORE the manual lump map.
-            # When a formal-only borehole's code proves equivalent to an
-            # informal-only borehole's description (from any dual-stream
-            # borehole in the project), the bridge remaps the formal key to
-            # the informal key so both boreholes resolve to ONE candidate.
-            # Precedence: raw → bridge (data-proven) → manual_map (user wins).
-            bridged_key = _resolve_bridge_key(
-                raw_key, primary_is_formal=primary_is_formal, bridge=bridge
+            # Lump-wins-over-bridge resolution (revised 2026-05-18 — see
+            # _resolve_lumped_key).  An explicit lump on the RAW key wins
+            # outright; otherwise the formal↔informal bridge runs and the
+            # lump is consulted on the bridged identity.  Shared verbatim
+            # with execute() so discover≡apply≡seed holds.
+            effective_key, effective_name, was_lumped = _resolve_lumped_key(
+                raw_key,
+                primary_is_formal=primary_is_formal,
+                bridge=bridge,
+                manual_map=manual_map,
             )
-
-            # Apply manual lump map — may redirect bridged_key to a user-chosen target.
-            effective_key, effective_name = _resolve_effective_key(bridged_key, manual_map)
             # Use effective_name as display name when lumped; fall back to derived name.
-            display_name = effective_name if manual_map and bridged_key in manual_map else name
+            display_name = effective_name if was_lumped else name
 
             if effective_key not in key_to_data:
                 key_to_data[effective_key] = (display_name, regional_ref, set())
@@ -804,8 +888,10 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             geological unit across boreholes.  ``None`` (default) = no bridge.
             The caller (``AutoPopulateContactsFromStratigraphy.execute`` callers
             in the API routers) computes this ONCE per request and passes it in
-            so the discover≡apply≡seed invariant holds.  Precedence:
-            raw → bridge (data-proven) → manual_map (user override wins).
+            so the discover≡apply≡seed invariant holds.  Precedence (revised
+            2026-05-18, "lump wins over bridge"): a RAW-key lump wins outright;
+            the bridge runs only for unlumped raw keys.  See
+            ``_resolve_lumped_key``.
 
         Returns
         -------
@@ -1069,19 +1155,18 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                     counterpart_desc=counterpart_desc,
                 )
 
-                # Apply the formal↔informal bridge BEFORE the manual lump map.
-                # Mirrors scan_stratigraphy_candidates exactly — same bridge dict,
-                # same precedence (raw → bridge → manual_map) — so discover≡apply holds.
-                bridged_key = _resolve_bridge_key(
-                    stable_key, primary_is_formal=primary_is_formal, bridge=bridge
+                # Lump-wins-over-bridge resolution (revised 2026-05-18 — see
+                # _resolve_lumped_key).  Mirrors scan_stratigraphy_candidates
+                # verbatim via the SAME shared helper — same bridge dict, same
+                # precedence — so discover≡apply≡seed holds and the original
+                # scan/execute key-divergence bug class cannot recur.
+                effective_key, effective_name, was_lumped = _resolve_lumped_key(
+                    stable_key,
+                    primary_is_formal=primary_is_formal,
+                    bridge=bridge,
+                    manual_map=manual_map,
                 )
-
-                # Apply manual lump map — may redirect bridged_key to a user-chosen target.
-                # WHY normalise the target: two different raw names lumped to "Holoceen"
-                # must land on the same formation as a raw name that IS "Holoceen".
-                # _resolve_effective_key applies normalize_formation_key to the target.
-                effective_key, effective_name = _resolve_effective_key(bridged_key, manual_map)
-                display_name = effective_name if manual_map and bridged_key in manual_map else name
+                display_name = effective_name if was_lumped else name
 
                 # Apply the selected-key filter when the caller provided one.
                 # Compare effective_key (post-lump) against the normalised set so
