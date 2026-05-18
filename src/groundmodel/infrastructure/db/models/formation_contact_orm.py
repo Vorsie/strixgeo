@@ -25,11 +25,18 @@ from groundmodel.infrastructure.db.base import Base
 class FormationContactOrm(Base):
     """Persisted FormationContact — "this formation tops out at depth X at this investigation".
 
-    The primary data point of the geological model. Anchored to either
-    a borehole or a CPT (XOR enforced at the DB layer via CHECK).
-    The CPT column is reserved for Phase 5 — Robertson Ic classification
-    can synthesise stratigraphy from CPT signals — and v1 only writes
-    via the borehole anchor.
+    The primary data point of the geological model. Three anchor flavours:
+
+    * **borehole** (``borehole_id IS NOT NULL``) — the primary v1 path.
+    * **cpt** (``cpt_id IS NOT NULL``) — reserved for Phase 5 Robertson Ic.
+    * **synthetic** (all three ``synthetic_*`` columns non-null) — a purely
+      modelled point with no physical investigation anchor, created by the
+      pinch-out extrapolation tool. The (x, y) are absolute project-CRS
+      coordinates and ``synthetic_elevation_m`` is the absolute elevation (m
+      above datum), already accounting for depth — the TIN compute uses these
+      directly instead of ``anchor.elevation_m - depth_top_m``.
+
+    Exactly ONE of the three flavours is present (DB CHECK enforces it).
 
     The "no gaps" rule (a borehole's contacts must form a contiguous
     depth coverage from surface down to test depth) is NOT a hard DB
@@ -45,12 +52,17 @@ class FormationContactOrm(Base):
 
     __tablename__ = "formation_contact"
     __table_args__ = (
-        # Exactly one anchor: borehole_id XOR cpt_id. Phrased as
-        # ``num_nonnull = 1`` so a future third anchor (e.g. a virtual
-        # section anchor for purely modelled points) is one extra term.
+        # Three-term anchor rule: exactly one of (borehole, cpt, synthetic)
+        # present. Phrased as ``sum == 1`` so a future fourth anchor is one
+        # extra term. Migration c0d1e2f3a4b5 dropped the old 2-term CHECK and
+        # added this one; keep them in sync if the model changes.
         CheckConstraint(
-            "(CASE WHEN borehole_id IS NULL THEN 0 ELSE 1 END) "
-            "+ (CASE WHEN cpt_id IS NULL THEN 0 ELSE 1 END) = 1",
+            "(CASE WHEN borehole_id IS NULL THEN 0 ELSE 1 END)"
+            " + (CASE WHEN cpt_id IS NULL THEN 0 ELSE 1 END)"
+            " + (CASE WHEN synthetic_x IS NOT NULL"
+            "       AND synthetic_y IS NOT NULL"
+            "       AND synthetic_elevation_m IS NOT NULL THEN 1 ELSE 0 END)"
+            " = 1",
             name="formation_contact_anchor_xor",
         ),
         Index("idx_formation_contact_model_borehole", "model_id", "borehole_id"),
@@ -108,9 +120,27 @@ class FormationContactOrm(Base):
         nullable=True,
     )
 
+    # Synthetic anchor — used by the pinch-out extrapolation tool. When
+    # all three are non-null there is no physical investigation; (x, y) are
+    # absolute project-CRS coordinates and elevation_m is the absolute
+    # elevation at the tip (NOT a depth — the TIN uses it directly).
+    # All three must be NULL (borehole/CPT path) or all non-null (synthetic
+    # path) — the DB CHECK enforces it.
+    synthetic_x: Mapped[float | None] = mapped_column(Double, nullable=True)
+    synthetic_y: Mapped[float | None] = mapped_column(Double, nullable=True)
+    synthetic_elevation_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+
     # Depth of the formation top at this investigation, positive
     # downwards from surface (consistent with every other depth column
     # in the schema — see CLAUDE.md "Domain Model").
+    #
+    # SYNTHETIC-CONTACT EXCEPTION: for pinch-out contacts (borehole_id IS
+    # NULL, cpt_id IS NULL, synthetic_x IS NOT NULL — source
+    # 'pinch_out_extrapolation') this column has NO physical meaning: the
+    # absolute tip elevation is carried in ``synthetic_elevation_m``. A
+    # sentinel ``0.0`` is stored only to satisfy this NOT NULL constraint;
+    # RecomputeFormationSurface's synthetic branch ignores depth_top_m
+    # entirely for those rows.
     depth_top_m: Mapped[float] = mapped_column(Double, nullable=False)
 
     # Provenance: 'borehole_observation' / 'manual_pick' / 'interpolated'.
