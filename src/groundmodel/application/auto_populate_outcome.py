@@ -33,6 +33,14 @@ class AutoPopulateOutcome:
         Layers skipped due to an empty description.
     skipped_no_stratigraphy : int
         Boreholes skipped because they carried no stratigraphy observation.
+    skipped_not_in_model : int
+        Layers skipped because their resolved formation does not exist in
+        the project AND ``create_missing_formations`` was ``False`` (the
+        Sections "Seed from stratigraphy" path).  This is the count the
+        explicit-content invariant requires: Seed places contacts only
+        for formations the user already curated and never creates a new
+        one — an unmatched layer is reported here, not minted.  Always
+        ``0`` on the Fill-from-boreholes path (which DOES create).
     collisions : list[LumpingCollision]
         Per-borehole warnings where manual lumping caused ≥2 raw names to
         resolve to the same formation key within one borehole.  Only the
@@ -57,6 +65,10 @@ class AutoPopulateOutcome:
     skipped_existing: int
     skipped_unmatched: int
     skipped_no_stratigraphy: int
+    # Default 0 so existing constructors (incl. the empty-scope early
+    # return) stay valid; only the create_missing_formations=False path
+    # ever increments it.
+    skipped_not_in_model: int = 0
     collisions: list[LumpingCollision] = dataclasses.field(default_factory=list)
     # Contact ids that already existed in the model for the processed
     # borehole scope and were skipped (idempotency).  The Seed handler
