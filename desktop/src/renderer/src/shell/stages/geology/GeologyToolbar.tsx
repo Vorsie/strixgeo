@@ -266,6 +266,16 @@ export default function GeologyToolbar(): JSX.Element {
     setDeletingModel(true)
     try {
       await handleDeleteModel()
+    } catch (err) {
+      // The server's 409 guard ("delete the dependent litho/geotech model
+      // first") arrives as the Error message — show it instead of letting
+      // it become a silent uncaught rejection.
+      toast(
+        'error',
+        err instanceof Error
+          ? err.message
+          : 'Could not delete the model.',
+      )
     } finally {
       setDeletingModel(false)
       setDeleteModelConfirmOpen(false)
