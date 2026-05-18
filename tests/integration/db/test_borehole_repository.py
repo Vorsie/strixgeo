@@ -816,3 +816,37 @@ async def test_set_elevation_clear_resets_source_to_none(
     assert updated is not None
     assert updated.elevation_m is None
     assert updated.elevation_source == "none"
+
+
+async def test_set_elevation_clear_restores_imported_z(
+    db_session: AsyncSession,
+) -> None:
+    """Clearing a manual override of an imported DOV Z restores the surveyed
+    value + source instead of nulling the row (debt #21)."""
+    repo = BoreholeRepository(db_session)
+    bh = _borehole(test_id="rollback-elev")
+    bh.elevation_m = 12.34
+    bh.z_epsg = 5710
+    bh.elevation_source = "dov"  # imagine: row came from DOV import
+    await repo.save(bh)
+    await db_session.commit()
+
+    # Manual override → MANUAL, upstream DOV triple snapshotted.
+    updated = await repo.set_elevation(bh.id, 15.0, None)
+    await db_session.commit()
+    assert updated is not None
+    assert updated.elevation_m == 15.0
+    assert updated.elevation_source == "manual"
+    assert updated.original_elevation_m == 12.34
+    assert updated.original_z_epsg == 5710
+    assert updated.original_elevation_source == "dov"
+
+    # Clear → restored to the DOV value + source, snapshot consumed.
+    cleared = await repo.set_elevation(bh.id, None, None)
+    await db_session.commit()
+    assert cleared is not None
+    assert cleared.elevation_m == 12.34
+    assert cleared.z_epsg == 5710
+    assert cleared.elevation_source == "dov"
+    assert cleared.original_elevation_source is None
+    assert cleared.original_elevation_m is None
