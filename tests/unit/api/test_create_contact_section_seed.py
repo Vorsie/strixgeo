@@ -4,8 +4,12 @@ Owner directive 2026-05-17: when a ``section_id`` is provided in the
 create-contact request body, the router appends the new contact's id to
 that section's ``seeded_formation_contact_ids`` on a successful 201.
 
-The 409 (DuplicateContactError) path must NOT touch the section — the
-caller gets a 409 and no section mutation happens.
+Debt #57 (2026-05-17): the 409 (DuplicateContactError) path MUST seed
+the SURVIVOR contact's id into the section. The user explicitly drew on
+the section, so the existing contact the dedup resolved to has to render
+there — otherwise the draw yields a 409 and nothing appears. The 409 is
+still returned (with the existing id) so the frontend can message "used
+existing" rather than "created".
 
 These tests exercise the router-level wiring via httpx + FastAPI's
 ``TestClient`` with every DB seam fully mocked so no real DB or network
@@ -145,16 +149,18 @@ async def test_create_contact_with_section_id_seeds_section() -> None:
 
 
 # ---------------------------------------------------------------------------
-# P2-E 409 path: duplicate → section must NOT be touched
+# Debt #57 — 409 path: duplicate → survivor seeded into the section
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_create_contact_409_does_not_seed_section() -> None:
-    """On DuplicateContactError (409), the section is NOT seeded.
+async def test_create_contact_409_seeds_survivor_into_section() -> None:
+    """On DuplicateContactError (409) with a section_id, the SURVIVOR id is
+    seeded into the section (debt #57).
 
-    The existing contact id is returned in the 409 body so the frontend
-    can navigate to it; the section's seeded set is unchanged.
+    The dedup resolved the draw to an existing contact; that existing id
+    must join the section's seeded set so it renders there. The 409 is
+    still returned carrying the existing id.
     """
     existing_id = uuid4()
     mock_session = AsyncMock()
@@ -178,8 +184,11 @@ async def test_create_contact_409_does_not_seed_section() -> None:
         MockCreate.return_value = mock_uc
 
         mock_section_repo = MagicMock()
+        updated_section = SimpleNamespace(
+            **{**vars(_SECTION_ORM), "seeded_formation_contact_ids": [existing_id]}
+        )
         mock_section_repo.get = AsyncMock(return_value=_SECTION_ORM)
-        mock_section_repo.update = AsyncMock()
+        mock_section_repo.update = AsyncMock(return_value=updated_section)
         MockSectionRepo.return_value = mock_section_repo
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -194,11 +203,16 @@ async def test_create_contact_409_does_not_seed_section() -> None:
                 },
             )
 
+        # Still a 409 carrying the existing id (frontend contract unchanged).
         assert resp.status_code == 409, resp.text
         assert resp.json()["detail"]["existing_contact_id"] == str(existing_id)
 
-        # The 409 path exits before the seeding block — no update call.
-        mock_section_repo.update.assert_not_awaited()
+        # Debt #57: the survivor id was unioned into the section's seeded set.
+        mock_section_repo.update.assert_awaited_once()
+        patched_section_id, patch_body = mock_section_repo.update.await_args.args
+        assert patched_section_id == SECTION_ID
+        assert existing_id in patch_body["seeded_formation_contact_ids"]
+        mock_session.commit.assert_awaited()
 
 
 # ---------------------------------------------------------------------------
