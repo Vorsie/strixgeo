@@ -830,6 +830,54 @@ stratigraphy-lumping slice without adding correctness.
 grouping elsewhere (i.e. the per-project constraint becomes friction in
 real dogfooding).  Not before.
 
+---
+
+## 60. Consolidate `_seed_section_contacts` into CrossSectionRepository (Tier E — DRY/layer)
+
+**What.** The seeded-set union helper now exists in THREE places: the
+module-level `_seed_section_contacts` in `api/routers/geology/contacts.py`
+(used by create-201, dedup-409, seed-from-parent) and a re-implemented
+copy on `ExtrapolatePinchOut` (the application layer can't import the
+router's). Senior-review S1 of the pinch-out slice (2026-05-18) flagged
+this as past the extract-on-second-copy threshold.
+
+**Why deferred.** It works correctly in isolation; consolidating means
+moving the logic (incl. the non-fatal rollback-on-fail semantics) onto
+`CrossSectionRepository` as `async def union_seeded_contact_ids(...)`
+and repointing 4 call sites. Doing that blind at the tail of an already
+very large pinch-out session risked breaking the seed/dedup paths
+without room to re-verify; it is not a correctness blocker.
+
+**When to revisit.** Next time any seed-path code is touched, or a 4th
+call site appears — fold the consolidation into that change.
+
+---
+
+## 61. No end-to-end test of the pinch-out endpoint / idempotent path (Tier E — test gap)
+
+**What.** The pinch-out slice's pure crossing geometry is exhaustively
+unit-tested (`tests/unit/domain/test_pinch_out_geometry.py`, 11 cases
+incl. the B1 last-endpoint regression) and the synthetic-anchor
+RecomputeFormationSurface branch + migrated XOR constraint are
+integration-tested (`tests/integration/api/test_pinch_out_synthetic_contacts.py`).
+But the `ExtrapolatePinchOut` orchestration use case and the
+`POST .../contacts/pinch-out` endpoint — including the senior-review
+B2/B3 idempotent-path fixes (seed-on-409, stored-geometry reporting) —
+have no direct end-to-end test.
+
+**Why deferred.** A faithful test needs the heavy fixture chain (a
+section + two formations with built TINs whose slices make
+`compute_pinch_tip` succeed). The B2/B3 fixes were implemented exactly
+to the senior-review spec and are small/reviewed; the documented
+project boundary (CLAUDE.md #38) already integration-tests
+orchestration use cases rather than mock-forcing them. Writing a
+rushed flaky fixture at the session tail was the worse risk.
+
+**When to revisit.** Before the pinch-out frontend ghost-UX slice
+ships (that slice will need the endpoint exercised anyway) — add one
+integration test that drives the endpoint end-to-end and re-invokes it
+to assert the 409 + section-seed + stored-geometry contract.
+
 ## Historical note — 2026-05-13 security-reviewer audit pass
 
 The remaining audit findings — #35 CORS, #36 CSP+window-open+
