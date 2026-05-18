@@ -20,10 +20,12 @@ column (``"tin"`` for v1, room for ``"kriging"`` / ``"rbf"`` /
 * Geologically defensible — every export consumer (Plaxis,
   D-Stability, DXF, IFC) handles polylines / triangulated surfaces
   as first-class.
-* One conservative, fixed boundary-trim factor
-  (``SLIVER_MAX_EDGE_FACTOR``) — no data-driven fitting (vs kriging's
-  variogram fit or RBF's shape parameter). Deterministic and
-  reproducible: the same contacts always yield the same surface.
+* Two fixed boundary-trim parameters (``SLIVER_MAX_EDGE_FACTOR`` +
+  ``MAX_DIP_DEG``) — no data-driven fitting (vs kriging's variogram
+  fit or RBF's shape parameter). Deterministic and reproducible: the
+  same contacts always yield the same surface. The slope cap fires
+  only on convex-hull-boundary triangles, so a steep contact sampled
+  by interior boreholes (a real erosional incision) is preserved.
 
 Surface representation
 ----------------------
@@ -50,7 +52,10 @@ from collections.abc import Sequence
 import numpy as np
 from scipy.spatial import Delaunay  # type: ignore[import-untyped]
 
-from groundmodel.domain.services.tin_surface_constants import SLIVER_MAX_EDGE_FACTOR
+from groundmodel.domain.services.tin_surface_constants import (
+    MAX_DIP_DEG,
+    SLIVER_MAX_EDGE_FACTOR,
+)
 
 # Value objects moved to domain/value_objects/ (one class per file,
 # debt #42); re-exported here so existing
@@ -79,16 +84,23 @@ __all__ = [
 def compute_tin(
     contacts: Sequence[ContactPoint3D],
     sliver_max_edge_factor: float = SLIVER_MAX_EDGE_FACTOR,
+    max_dip_deg: float = MAX_DIP_DEG,
 ) -> TinSurface:
     """Run Delaunay triangulation on a formation's contact points.
 
     SciPy's Delaunay triangulates the *full convex hull* of the input
     points, which on sparse / elongated borehole layouts produces large
-    hull-spanning "sliver" triangles that drape the surface across
-    regions with no borehole control (the "drooping edges" artifact). A
-    conservative boundary trim drops any triangle whose longest x-y edge
-    exceeds ``sliver_max_edge_factor`` times the median edge length, so
-    the surface simply does not exist where the data cannot constrain it.
+    hull-spanning triangles that drape the surface across regions with
+    no borehole control (the "drooping edges" artifact). Two composable
+    trims remove that drape (a triangle is dropped if EITHER fires):
+
+    * **sliver** — longest x-y edge > ``sliver_max_edge_factor`` *
+      median edge length (catches data-free *spans*);
+    * **slope cap** — plane dip > ``max_dip_deg`` (catches compact
+      *steep drapes* the x-y-only sliver test cannot see).
+
+    so the surface simply does not exist where the data cannot
+    constrain it.
 
     Parameters
     ----------
@@ -101,18 +113,26 @@ def compute_tin(
         Triangles whose longest projected edge exceeds this multiple of
         the median edge length are dropped as data-free hull slivers.
         Higher keeps more (more droop); lower trims toward a concave
-        hull. The trim never removes the *entire* surface — if every
-        triangle would be cut (degenerate spread), all are kept and a
-        warning is logged, so a poorly-controlled formation degrades to
-        a droopy surface rather than vanishing.
+        hull.
+    max_dip_deg : float, default ``MAX_DIP_DEG``
+        Convex-hull-boundary triangles whose plane dips steeper than
+        this (angle between the 3-D triangle normal and vertical) are
+        dropped as interpolation drape. Fully-interior steep triangles
+        are NOT capped — they are bracketed by real picks on all sides,
+        i.e. a genuine steep erosional contact, and are preserved. 90
+        (or higher) disables the cap. Together with the sliver trim
+        this never removes the *entire* surface — if every triangle
+        would be cut (degenerate spread), all are kept and a warning is
+        logged, so a poorly-controlled formation degrades to a droopy
+        surface rather than vanishing.
 
     Returns
     -------
     TinSurface
         ``vertices`` matches the input order of valid points (vertices
-        orphaned by the sliver trim are retained — consistent with the
-        degenerate-input paths); ``triangles`` is empty when fewer than
-        3 non-collinear points remain.
+        orphaned by the boundary trims are retained — consistent with
+        the degenerate-input paths); ``triangles`` is empty when fewer
+        than 3 non-collinear points remain.
 
     Notes
     -----
@@ -175,37 +195,73 @@ def compute_tin(
     simplices = tri.simplices  # (M, 3) int — indexes the deduped points
     n_raw = int(simplices.shape[0])
 
-    # Sliver trim. Edge lengths are measured in the projected x-y plane
-    # (the same metric as borehole spacing); z is irrelevant to "is this
-    # triangle spanning an uncontrolled gap". The median over ALL
-    # triangle edges (interior edges double-counted) tracks typical
-    # spacing — hull slivers are the long-tail outliers we drop.
+    # Two composable boundary trims; a triangle survives only if it
+    # passes BOTH.
+    #
+    # 1. Sliver — longest projected x-y edge vs the MEDIAN edge length
+    #    (interior edges double-counted) tracks typical borehole
+    #    spacing; data-free hull spans are the long-tail outliers.
     tri_xy = points[simplices]  # (M, 3, 2)
     edge_lengths = np.linalg.norm(
         tri_xy - tri_xy[:, [1, 2, 0], :], axis=2
     )  # (M, 3): edges (0-1), (1-2), (2-0)
     median_edge = float(np.median(edge_lengths))
-    threshold = sliver_max_edge_factor * median_edge
-    keep_mask = edge_lengths.max(axis=1) <= threshold
+    sliver_threshold = sliver_max_edge_factor * median_edge
+    sliver_keep = edge_lengths.max(axis=1) <= sliver_threshold
+
+    # 2. Slope cap — the x-y test above is blind to a triangle that is
+    #    compact in plan but plunges steeply in Z (a ramp down to one
+    #    low / outlier pick). Drop triangles whose plane dips steeper
+    #    than ``max_dip_deg``: dip = angle between the 3-D normal and
+    #    vertical = acos(|n_z| / |n|). Degenerate (|n| == 0) → treated
+    #    as vertical (dropped). See MAX_DIP_DEG for the Flanders dip
+    #    rationale.
+    #
+    #    BUT scoped to convex-hull-BOUNDARY triangles only. WHY: a
+    #    drape only exists where Delaunay is unconstrained — the hull
+    #    edge, where a triangle reaches out to one isolated pick across
+    #    the void. A FULLY-INTERIOR steep triangle is bracketed by real
+    #    picks on all three sides, so it is genuine geometry — a real
+    #    steep erosional contact (a Quaternary valley / channel incising
+    #    the Paleogene is exactly this in Flanders) and MUST be kept.
+    #    ``tri.neighbors == -1`` marks a face with no neighbour, i.e. a
+    #    hull face → that simplex is on the boundary.
+    tri_xyz = np.asarray(vertices, dtype=float)[simplices]  # (M, 3, 3)
+    v1 = tri_xyz[:, 1, :] - tri_xyz[:, 0, :]
+    v2 = tri_xyz[:, 2, :] - tri_xyz[:, 0, :]
+    normals = np.cross(v1, v2)  # (M, 3)
+    norm_len = np.linalg.norm(normals, axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cos_dip = np.where(norm_len > 0.0, np.abs(normals[:, 2]) / norm_len, 0.0)
+    # Clip guards float error pushing the ratio just past 1.0 → nan.
+    dip_deg = np.degrees(np.arccos(np.clip(cos_dip, 0.0, 1.0)))
+    is_boundary = (tri.neighbors == -1).any(axis=1)  # (M,)
+    slope_keep = (dip_deg <= max_dip_deg) | ~is_boundary
+
+    keep_mask = sliver_keep & slope_keep
     kept = simplices[keep_mask]
 
+    n_sliver = int(np.count_nonzero(~sliver_keep))
+    n_slope = int(np.count_nonzero(~slope_keep))
     n_trimmed = n_raw - int(kept.shape[0])
     if kept.shape[0] == 0:
         # Guard: never wipe a whole formation. A degenerate spread where
-        # every triangle reads as a sliver should degrade to the (droopy)
-        # full hull, visibly poor but present, not a vanished surface.
+        # every triangle is cut should degrade to the (droopy) full
+        # hull, visibly poor but present, not a vanished surface.
         logger.warning(
-            f"compute_tin: sliver trim would drop ALL {n_raw} triangle(s) "
-            f"(median_edge={median_edge:.3g}, factor={sliver_max_edge_factor}); "
-            f"keeping the full hull to avoid an empty surface"
+            f"compute_tin: trim would drop ALL {n_raw} triangle(s) "
+            f"(median_edge={median_edge:.3g}, "
+            f"sliver_factor={sliver_max_edge_factor}, "
+            f"max_dip_deg={max_dip_deg}); keeping the full hull to "
+            f"avoid an empty surface"
         )
         kept = simplices
         n_trimmed = 0
     elif n_trimmed:
         logger.debug(
-            f"compute_tin: trimmed {n_trimmed}/{n_raw} sliver triangle(s) "
-            f"(longest edge > {sliver_max_edge_factor} x median "
-            f"{median_edge:.3g} = {threshold:.3g})"
+            f"compute_tin: trimmed {n_trimmed}/{n_raw} triangle(s) "
+            f"(sliver: {n_sliver} > {sliver_max_edge_factor} x median "
+            f"{median_edge:.3g}; slope: {n_slope} > {max_dip_deg} deg)"
         )
 
     triangles: list[tuple[int, int, int]] = [
