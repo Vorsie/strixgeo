@@ -162,7 +162,10 @@ def test_derive_informal_with_counterpart_ignored():
 async def test_scan_formal_informal_returns_key_and_regional_ref():
     """Formal+informal borehole → candidate carries key=formal code, regional_ref=formal."""
     project_id = uuid4()
-    formal_layer = _layer(top_m=2.0, base_m=10.0, description="HyEg")
+    # Synthetic non-DOV formal code so this legacy test stays focused on the
+    # (name, regional_ref, key) derivation mechanics — a real DOV code now
+    # resolves via the #59 lexicon (covered by the C-series below).
+    formal_layer = _layer(top_m=2.0, base_m=10.0, description="XxFm")
     informal_layer = _layer(top_m=2.0, base_m=10.0, description="Boom Klei")
     bh = _borehole(
         [
@@ -180,8 +183,8 @@ async def test_scan_formal_informal_returns_key_and_regional_ref():
     assert collisions == []
     c = candidates[0]
     assert c.name == "Boom Klei"
-    assert c.regional_ref == "HyEg"
-    assert c.key == "hyeg"
+    assert c.regional_ref == "XxFm"
+    assert c.key == "xxfm"
     assert c.borehole_count == 1
 
 
@@ -219,12 +222,12 @@ async def test_scan_same_formal_code_different_informal_names_merge():
     """
     project_id = uuid4()
 
-    # bh1: formal HyEg / informal "Boom Klei"
+    # bh1: formal XxFm / informal "Boom Klei"
     bh1 = _borehole(
         [
             _observation(
                 ObservationType.FORMAL_STRATIGRAPHY,
-                [_layer(top_m=2.0, base_m=10.0, description="HyEg")],
+                [_layer(top_m=2.0, base_m=10.0, description="XxFm")],
             ),
             _observation(
                 ObservationType.INFORMAL_STRATIGRAPHY,
@@ -232,12 +235,12 @@ async def test_scan_same_formal_code_different_informal_names_merge():
             ),
         ]
     )
-    # bh2: same formal HyEg but different informal working name "Rupel Klei"
+    # bh2: same formal XxFm but different informal working name "Rupel Klei"
     bh2 = _borehole(
         [
             _observation(
                 ObservationType.FORMAL_STRATIGRAPHY,
-                [_layer(top_m=3.0, base_m=12.0, description="HyEg")],
+                [_layer(top_m=3.0, base_m=12.0, description="XxFm")],
             ),
             _observation(
                 ObservationType.INFORMAL_STRATIGRAPHY,
@@ -251,12 +254,12 @@ async def test_scan_same_formal_code_different_informal_names_merge():
         session, project_id=project_id, borehole_ids=[bh1.id, bh2.id]
     )
 
-    # Must be ONE candidate (merged on formal key "HyEg"), NOT two.
+    # Must be ONE candidate (merged on formal key "XxFm"), NOT two.
     assert len(candidates) == 1
     assert collisions == []
     c = candidates[0]
-    assert c.key == "hyeg"
-    assert c.regional_ref == "HyEg"
+    assert c.key == "xxfm"
+    assert c.regional_ref == "XxFm"
     assert c.borehole_count == 2
     # name comes from the first borehole encountered
     assert c.name in ("Boom Klei", "Rupel Klei")
@@ -1772,25 +1775,33 @@ def test_resolve_bridge_R1_formal_in_bridge_returns_mapped_key():
     )
 
     bridge = {normalize_formation_key("KoKe"): normalize_formation_key("Formatie van Kortrijk")}
+    # #59: _resolve_bridge_key now returns (resolved_key, canonical_or_None).
+    # An in-project bridge hit wins over the lexicon → canonical is None.
     result = _resolve_bridge_key(
         normalize_formation_key("KoKe"),
         primary_is_formal=True,
         bridge=bridge,
     )
-    assert result == normalize_formation_key("Formatie van Kortrijk")
+    assert result == (normalize_formation_key("Formatie van Kortrijk"), None)
 
 
 def test_resolve_bridge_R2_formal_not_in_bridge_returns_raw():
-    """R2: formal key absent from bridge → raw_key returned unchanged."""
+    """R2: formal key absent from bridge AND absent from the #59 lexicon →
+    raw_key returned unchanged, canonical None.
+
+    Uses a synthetic code that is NOT a real DOV permkey so the lexicon
+    misses (a real code like "Q" now resolves via #59 — covered by the
+    C-series).
+    """
     from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
         _resolve_bridge_key,
         normalize_formation_key,
     )
 
     bridge = {normalize_formation_key("KoKe"): normalize_formation_key("Formatie van Kortrijk")}
-    raw = normalize_formation_key("Q")
+    raw = normalize_formation_key("ZZX_NOT_A_DOV_CODE")
     result = _resolve_bridge_key(raw, primary_is_formal=True, bridge=bridge)
-    assert result == raw, "Key not in bridge must pass through unchanged"
+    assert result == (raw, None), "Unknown key must pass through unchanged"
 
 
 def test_resolve_bridge_R3_informal_untouched_even_when_in_bridge():
@@ -1808,18 +1819,22 @@ def test_resolve_bridge_R3_informal_untouched_even_when_in_bridge():
     informal_key = normalize_formation_key("Quartair")
     bridge = {informal_key: normalize_formation_key("Something Else")}
     result = _resolve_bridge_key(informal_key, primary_is_formal=False, bridge=bridge)
-    assert result == informal_key, "Informal keys must never be remapped by the bridge"
+    assert result == (informal_key, None), "Informal keys must never be remapped"
 
 
 def test_resolve_bridge_R4_none_bridge_is_noop():
-    """R4: bridge=None → raw_key returned unchanged (no-dual-stream project path)."""
+    """R4: bridge=None AND lexicon miss → raw_key unchanged, canonical None.
+
+    Synthetic non-DOV code so the #59 lexicon misses; a real code with
+    bridge=None now resolves via the lexicon (the #59 point) — C-series.
+    """
     from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
         _resolve_bridge_key,
         normalize_formation_key,
     )
 
-    raw = normalize_formation_key("KoKe")
-    assert _resolve_bridge_key(raw, primary_is_formal=True, bridge=None) == raw
+    raw = normalize_formation_key("ZZX_NOT_A_DOV_CODE")
+    assert _resolve_bridge_key(raw, primary_is_formal=True, bridge=None) == (raw, None)
 
 
 # ---------------------------------------------------------------------------
@@ -2266,3 +2281,275 @@ async def test_execute_L5_pre58_stale_lump_creates_single_lumped_formation():
     )
     # regional_ref is still the raw formal code (provenance preserved).
     assert formations[0].regional_ref == "KoRo"
+
+
+# ---------------------------------------------------------------------------
+# C-series: #59 DOV formal-stratigraphy lexicon
+#
+# The lexicon slots into _resolve_bridge_key AFTER the in-project bridge and
+# BEFORE raw passthrough, so formal-only boreholes stop splitting one unit
+# into code-vs-name twins. The two "user can still lump afterwards"
+# guarantees are C6 (raw-code lump) and C7 (lump the resolved candidate).
+# ---------------------------------------------------------------------------
+
+_KORO_CANON = "Lid van Roubaix (Formatie van Kortrijk)"
+
+
+@pytest.mark.asyncio
+async def test_scan_C1_formal_only_codelist_hit_uses_canonical_name():
+    """C1: a formal-only 'KoRo' borehole resolves to the canonical DOV name;
+    regional_ref keeps the raw code (provenance), key = normalize(canonical)."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=8.0, description="KoRo")],
+            )
+        ]
+    )
+    session = _make_session([bh])
+    candidates, _ = await scan_stratigraphy_candidates(
+        session, project_id=project_id, borehole_ids=[bh.id]
+    )
+    assert len(candidates) == 1
+    c = candidates[0]
+    assert c.name == _KORO_CANON
+    assert c.regional_ref == "KoRo"  # raw upstream token preserved
+    assert c.key == normalize_formation_key(_KORO_CANON)
+
+
+def test_C2_compound_code_composed():
+    """C2: compound 'QH-T-QP' decomposes + composes the 'tot' range name."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    eff_key, eff_name, use_name = _resolve_lumped_key(
+        normalize_formation_key("QH-T-QP"),
+        primary_is_formal=True,
+        bridge=None,
+        manual_map=None,
+    )
+    assert eff_name == "Quartair Holoceen tot Quartair Pleistoceen"
+    assert use_name is True
+    assert eff_key == normalize_formation_key(eff_name)
+
+
+def test_C3_sentinel_U_falls_through_not_onbekend():
+    """C3: 'U' (Onbekend) is a sentinel — falls through to the raw token,
+    never an 'Onbekend' formation that swallows unknown layers."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("U")
+    eff_key, eff_name, use_name = _resolve_lumped_key(
+        raw, primary_is_formal=True, bridge=None, manual_map=None
+    )
+    assert eff_key == raw
+    assert use_name is False
+    assert "onbekend" not in eff_name.lower()
+
+
+def test_C4_lexicon_miss_passthrough():
+    """C4: a non-DOV code is a miss → raw key unchanged, name not authoritative."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("ZZX_NOT_A_DOV_CODE")
+    assert _resolve_lumped_key(raw, primary_is_formal=True, bridge=None, manual_map=None) == (
+        raw,
+        raw,
+        False,
+    )
+
+
+def test_C5_in_project_bridge_beats_lexicon():
+    """C5: a dual-stream-proven in-project bridge entry wins over the global
+    lexicon (project data is authoritative)."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("KoRo")
+    bridge = {raw: normalize_formation_key("In-Project Roubaix")}
+    eff_key, _eff_name, _u = _resolve_lumped_key(
+        raw, primary_is_formal=True, bridge=bridge, manual_map=None
+    )
+    assert eff_key == normalize_formation_key("In-Project Roubaix")
+    assert eff_key != normalize_formation_key(_KORO_CANON)
+
+
+def test_C6_user_can_still_lump_raw_code_beats_lexicon():
+    """C6 (user-can-still-lump #1): an explicit lump on the RAW code wins
+    outright — the lexicon is not even consulted."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("KoRo")
+    eff_key, eff_name, use_name = _resolve_lumped_key(
+        raw,
+        primary_is_formal=True,
+        bridge=None,
+        manual_map={raw: "My Roubaix Clay"},
+    )
+    assert (eff_key, eff_name, use_name) == (
+        normalize_formation_key("My Roubaix Clay"),
+        "My Roubaix Clay",
+        True,
+    )
+
+
+def test_C7_user_can_still_lump_resolved_candidate_beats_lexicon():
+    """C7 (user-can-still-lump #2): after the lexicon resolves KoRo to its
+    canonical name, the user lumps THAT candidate (the key the Fill dialog
+    now shows) — the lump still wins over the canonical name."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("KoRo")
+    canonical_key = normalize_formation_key(_KORO_CANON)
+    eff_key, eff_name, use_name = _resolve_lumped_key(
+        raw,
+        primary_is_formal=True,
+        bridge=None,
+        manual_map={canonical_key: "My Roubaix Clay"},
+    )
+    assert (eff_key, eff_name, use_name) == (
+        normalize_formation_key("My Roubaix Clay"),
+        "My Roubaix Clay",
+        True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_C8_existing_raw_code_formation_reused_not_duplicated():
+    """C8: a pre-#59 formation (regional_ref='KoRo', keyed 'koro') is REUSED
+    when a new 'KoRo' layer resolves to the canonical key — no duplicate
+    formation; the contact attaches to the existing formation id."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+    existing = _formation_stub(name="KoRo", regional_ref="KoRo", display_order=0)
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=6.0, description="KoRo")],
+            )
+        ]
+    )
+
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = [bh]
+    formations_result = MagicMock()
+    formations_result.scalars.return_value.all.return_value = [existing]
+    max_order = MagicMock()
+    max_order.scalar_one.return_value = 0
+    empty_contacts = MagicMock()
+    empty_contacts.all.return_value = []  # no existing contacts → new one created
+
+    call = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call
+        call += 1
+        if call == 1:
+            return bh_result
+        if call == 2:
+            return formations_result
+        if call == 3:
+            return max_order
+        return empty_contacts
+
+    added: list = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock(side_effect=added.append)
+    session.new = []
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository."
+        "GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        outcome = await AutoPopulateContactsFromStratigraphy(session).execute(
+            project_id=project_id, model_id=model_id, borehole_ids=[bh.id]
+        )
+
+    # No new formation (existing 'KoRo' row reused under the canonical key).
+    assert outcome.created_formation_ids == []
+    assert len(outcome.created_contact_ids) == 1
+    # No GeologicalFormationOrm added; the contact points at the existing id.
+    assert not any(hasattr(o, "display_order") for o in added)
+    contacts = [o for o in added if hasattr(o, "depth_top_m")]
+    assert len(contacts) == 1
+    assert contacts[0].formation_id == existing.id
+
+
+@pytest.mark.asyncio
+async def test_C9_discover_execute_parity_for_codelist_resolved_code():
+    """C9: discover≡execute — the scan candidate key for a codelist-resolved
+    formal-only borehole equals the resolver's effective key (the shared
+    _resolve_lumped_key guarantees this structurally)."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="KoRo")],
+            )
+        ]
+    )
+    session = _make_session([bh])
+    candidates, _ = await scan_stratigraphy_candidates(
+        session, project_id=project_id, borehole_ids=[bh.id]
+    )
+    eff_key, _n, _u = _resolve_lumped_key(
+        normalize_formation_key("KoRo"),
+        primary_is_formal=True,
+        bridge=None,
+        manual_map=None,
+    )
+    assert candidates[0].key == eff_key == normalize_formation_key(_KORO_CANON)
+
+
+def test_C2b_compound_with_sentinel_atom_falls_through():
+    """C2b: a compound whose left/right atom is the 'U' sentinel (Onbekend)
+    returns the raw token unchanged — never a half-resolved name."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("QH-T-U")  # -> "qh t u"
+    eff_key, _name, use_name = _resolve_lumped_key(
+        raw, primary_is_formal=True, bridge=None, manual_map=None
+    )
+    assert eff_key == raw, "Sentinel atom must fall the whole compound through"
+    assert use_name is False
