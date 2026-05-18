@@ -27,6 +27,8 @@ from groundmodel.api.schemas.project.formation_contact import (
     FormationContactResponse,
     FormationContactUpdateRequest,
     LumpingCollisionItem,
+    SeedLithoFromParentRequest,
+    SeedLithoFromParentResponse,
 )
 from groundmodel.api.schemas.project.litho_suggestion import (
     LithoLayerSuggestionItem,
@@ -47,6 +49,9 @@ from groundmodel.application.deduplicate_formation_contacts import (
 from groundmodel.application.delete_formation_contact import DeleteFormationContact
 from groundmodel.application.discover_formations_from_stratigraphy import (
     DiscoverFormationsFromStratigraphy,
+)
+from groundmodel.application.seed_litho_from_geological_model import (
+    SeedLithoFromGeologicalModel,
 )
 from groundmodel.application.suggest_litho_contacts import (
     InvalidModelKindError,
@@ -633,6 +638,112 @@ async def dedupe_existing_contacts(
         inspected_groups=outcome.inspected_groups,
         duplicates_removed=outcome.duplicates_removed,
         removed_contact_ids=outcome.removed_contact_ids,
+    )
+
+
+@router.post(
+    "/models/{model_id}/contacts/seed-from-parent",
+    response_model=SeedLithoFromParentResponse,
+)
+async def seed_litho_from_parent(
+    project_id: UUID,
+    model_id: UUID,
+    request: SeedLithoFromParentRequest,
+    session: AsyncSession = Depends(get_session),
+) -> SeedLithoFromParentResponse:
+    """Copy the parent geological model's contacts into a lithostratigraphic model.
+
+    Called from the Sections editor's "Seed from geology" button (litho axis).
+    The model must be ``kind='lithostratigraphic'`` with a non-null
+    ``parent_geological_model_id``; any other shape returns 422. Only
+    borehole-anchored contacts are copied; the copy carries
+    ``source='geological_model_seed'`` and ``confidence='medium'``.
+    Re-running is idempotent: existing (formation, borehole) pairs in the
+    litho model are skipped and counted in ``skipped_existing``.
+
+    When ``section_id`` is provided, unions
+    ``created_contact_ids ∪ found_contact_ids`` and PATCHes the section's
+    ``seeded_formation_contact_ids`` (explicit-content invariant) — same
+    contract as the existing auto-populate Seed path.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Lithostratigraphic model to seed — must belong to ``project_id``.
+    request : SeedLithoFromParentRequest
+        Body with ``borehole_ids`` list and optional ``section_id``.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    SeedLithoFromParentResponse
+        Created contact ids, skipped count, and optionally the updated
+        section row.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not ``kind='lithostratigraphic'`` or has no
+        ``parent_geological_model_id``.
+    """
+    logger.info(
+        f"POST /projects/{project_id}/geology/models/{model_id}"
+        f"/contacts/seed-from-parent borehole_ids={len(request.borehole_ids)}"
+        + (f" section_id={request.section_id}" if request.section_id else "")
+    )
+    # Model scope guard — prevents tampering across projects.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+
+    try:
+        outcome = await SeedLithoFromGeologicalModel(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            # Pass the list through verbatim. An empty list means "no
+            # boreholes in scope → create nothing" (the documented schema
+            # contract); coercing [] → None would silently seed the ENTIRE
+            # parent model across every project borehole — an over-seed bug.
+            borehole_ids=request.borehole_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_model_kind",
+                "message": str(exc),
+            },
+        ) from exc
+
+    # Explicit-content invariant (owner directive 2026-05-17): when a
+    # section_id is provided, union created ∪ found contact ids and PATCH the
+    # section's seeded_formation_contact_ids — identical contract to the
+    # existing auto-populate Seed path (debt #57).
+    updated_section_response: CrossSectionResponse | None = None
+    if request.section_id is not None:
+        seed_ids = frozenset(outcome.created_contact_ids) | frozenset(outcome.found_contact_ids)
+        updated = await _seed_section_contacts(
+            session,
+            logger,
+            request.section_id,
+            project_id,
+            set(seed_ids),
+            log_label="LithoSeed",
+        )
+        if updated is not None:
+            updated_section_response = CrossSectionResponse.model_validate(updated)
+
+    return SeedLithoFromParentResponse(
+        created_contact_ids=outcome.created_contact_ids,
+        skipped_existing=outcome.skipped_existing,
+        updated_section=updated_section_response,
     )
 
 
