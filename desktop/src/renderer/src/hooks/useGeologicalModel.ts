@@ -114,6 +114,10 @@ export interface UseGeologicalModelResult {
     depth_m: number,
     formationId: string,
     snapped: boolean,
+    // Parity with handleCreateContact — axisCreateContact unifies the
+    // two, so the Sections-stage section-aware wrapper calls both with
+    // the section id. Seeds the section's explicit-content set.
+    sectionId?: string | null,
   ) => Promise<void>
   /** Inline-create a formation inside the active LITHO model (mirrors
    * handleInlineCreateFormation, closes over activeLithoModel). */
@@ -156,13 +160,23 @@ export interface UseGeologicalModelResult {
     depth_m: number,
     formationId: string,
     snapped: boolean,
+    // Sections stage passes the active section id so the backend seeds
+    // seeded_formation_contact_ids (P2 explicit-content). Omitted from
+    // the Geology stage (no section context). See sectionAwareCreateContact.
+    sectionId?: string | null,
   ) => Promise<void>
   handleUpdateContactDepth: (
     contactId: string,
     newDepthM: number,
     snapped: boolean,
   ) => Promise<void>
-  handleBatchCreateContacts: (creates: readonly ContactCopyPayload[]) => Promise<void>
+  handleBatchCreateContacts: (
+    creates: readonly ContactCopyPayload[],
+    // Sections stage passes the active section id so every copied
+    // contact is seeded into seeded_formation_contact_ids server-side
+    // (P2 explicit-content). Omitted from the Geology stage.
+    sectionId?: string | null,
+  ) => Promise<void>
   handleBatchUpdateContacts: (updates: readonly FormationContactBatchUpdateEntry[]) => Promise<void>
   handleDeleteContact: (contactId: string) => Promise<void>
   /**
@@ -905,11 +919,13 @@ export function useGeologicalModel({
       depth_m: number,
       formationId: string,
       snapped: boolean,
+      sectionId?: string | null,
     ): Promise<void> => {
       if (!project || !activeGeologicalModel) return
       log.debug(
         'geology',
-        `createContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId} snapped=${snapped}`,
+        `createContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId} snapped=${snapped}` +
+          (sectionId ? ` section=${sectionId}` : ''),
       )
       try {
         // Snap-placed contacts: depth came from a stratigraphy
@@ -927,6 +943,11 @@ export function useGeologicalModel({
             | 'borehole_observation'
             | 'manual_pick',
           confidence: (snapped ? 'high' : 'medium') as 'high' | 'medium',
+          // P2 explicit-content: when drawn on a section, tell the backend
+          // so it unions this contact's id into seeded_formation_contact_ids
+          // (else SectionsCanvas's P2-F filter hides it). Reused verbatim by
+          // the undo reapply path below (same `payload` object).
+          ...(sectionId ? { section_id: sectionId } : {}),
         }
         const created = await api.geology.createContact(
           project.id,
@@ -1009,9 +1030,17 @@ export function useGeologicalModel({
   const handleBatchCreateContacts = useCallback(
     async (
       creates: readonly ContactCopyPayload[],
+      sectionId?: string | null,
     ): Promise<void> => {
       if (!project || !activeGeologicalModel) return
       if (creates.length === 0) return
+      // P2 explicit-content: when the copy happens on a section, every
+      // created id must be seeded into seeded_formation_contact_ids or
+      // SectionsCanvas's P2-F filter hides the whole copy. Threaded into
+      // both the main POST and the undo-redo re-POST below; the caller
+      // (sectionAwareBatchCreateContacts) refreshes the section once after.
+      const withSection = <T extends object>(p: T): T =>
+        sectionId ? { ...p, section_id: sectionId } : p
       log.debug(
         'geology',
         `batchCreateContacts entry count=${creates.length}`,
@@ -1055,7 +1084,11 @@ export function useGeologicalModel({
       for (let i = 0; i < creates.length; i += 1) {
         const payload = creates[i]
         try {
-          const row = await api.geology.createContact(projectId, modelId, payload)
+          const row = await api.geology.createContact(
+            projectId,
+            modelId,
+            withSection(payload),
+          )
           created.push(row)
           idIndex.set(row.id, row)
         } catch (err) {
@@ -1185,7 +1218,7 @@ export function useGeologicalModel({
             const r = await api.geology.createContact(
               projectId,
               modelId,
-              createdPayloads[j],
+              withSection(createdPayloads[j]),
             )
             recreated.push(r)
           }
@@ -2097,12 +2130,14 @@ export function useGeologicalModel({
       depth_m: number,
       formationId: string,
       snapped: boolean,
+      sectionId?: string | null,
     ): Promise<void> => {
       const model = activeLithoModelRef.current
       if (!project || !model) return
       log.debug(
         'geology',
-        `createLithoContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId}`,
+        `createLithoContact entry kind=${anchorKind} anchor=${anchorId} depth=${depth_m.toFixed(3)}m formation=${formationId}` +
+          (sectionId ? ` section=${sectionId}` : ''),
       )
       try {
         const payload = {
@@ -2114,6 +2149,9 @@ export function useGeologicalModel({
             | 'borehole_observation'
             | 'manual_pick',
           confidence: (snapped ? 'high' : 'medium') as 'high' | 'medium',
+          // P2 explicit-content parity with the geological axis — seed
+          // this section's set so the P2-F filter shows the litho contact.
+          ...(sectionId ? { section_id: sectionId } : {}),
         }
         const created = await api.geology.createContact(project.id, model.id, payload)
         // Optimistic update first — refetch follows for server truth.
