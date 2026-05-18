@@ -29,11 +29,32 @@ import type { FormationContactResponse } from '../../../api/client'
 // ---------------------------------------------------------------------------
 
 let capturedContacts: readonly FormationContactResponse[] | undefined = undefined
+// Capture the section-aware callbacks so tests can invoke them (the real
+// user gestures: manual draw → onCreateContact, drag-copy → onBatchCreateContacts).
+let capturedOnCreateContact:
+  | ((
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      depth_m: number,
+      formationId: string,
+      snapped: boolean,
+      sectionId?: string | null,
+    ) => Promise<void>)
+  | undefined = undefined
+let capturedOnBatchCreateContacts:
+  | ((creates: readonly unknown[]) => Promise<void>)
+  | undefined = undefined
 
 vi.mock('../../../components/SectionPanel', () => ({
-  default: (props: { contacts?: readonly FormationContactResponse[] }) => {
-    // Capture the contacts prop each time SectionPanel renders.
+  default: (props: {
+    contacts?: readonly FormationContactResponse[]
+    onCreateContact?: typeof capturedOnCreateContact
+    onBatchCreateContacts?: typeof capturedOnBatchCreateContacts
+  }) => {
+    // Capture the props each time SectionPanel renders.
     capturedContacts = props.contacts
+    capturedOnCreateContact = props.onCreateContact
+    capturedOnBatchCreateContacts = props.onBatchCreateContacts
     return null
   },
 }))
@@ -514,13 +535,14 @@ describe('P2 explicit-content invariant — SectionsCanvas contact filtering', (
     expect(result.current.sections.find(s => s.id === 'sec-2')!.seeded_formation_contact_ids).toEqual([])
   })
 
-  it('T5: sectionAwareCreateContact calls axisCreateContact then fetches updated section', async () => {
-    // P2-H: when the user draws a contact manually, sectionAwareCreateContact
-    // wraps axisCreateContact to (a) call the create handler and (b) GET the
-    // updated section to refresh seeded_formation_contact_ids.
+  it('T5: manual draw threads the section id and refreshes the seeded set', async () => {
+    // Regression net for the "draw does nothing" dogfeed bug: the
+    // section-aware wrapper MUST (a) pass selectedSection.id as the 6th
+    // arg so the backend seeds seeded_formation_contact_ids, and (b) GET
+    // the updated section + applyUpdatedSection so P2-F's filter shows it.
+    // Before the fix the section id never reached the create body.
     const { api } = await import('../../../api/client')
     const sectionGetMock = api.section.get as Mock
-
     const updatedSection = makeSection({
       seeded_formation_contact_ids: ['contact-new'],
     })
@@ -528,13 +550,11 @@ describe('P2 explicit-content invariant — SectionsCanvas contact filtering', (
 
     const handleCreateContact = vi.fn().mockResolvedValue(undefined)
     const applyUpdatedSection = vi.fn()
-
     const ctx = makeStubContext({
       section: makeSection({ seeded_formation_contact_ids: [] }),
       contacts: [],
     })
     ctx.geoModel.handleCreateContact = handleCreateContact
-    // Inject our spy directly on the sections context object.
     ;(ctx.sections as typeof ctx.sections).applyUpdatedSection = applyUpdatedSection
 
     render(
@@ -543,12 +563,80 @@ describe('P2 explicit-content invariant — SectionsCanvas contact filtering', (
       </ShellContext.Provider>,
     )
 
-    // The sectionAwareCreateContact is wired as onCreateContact on SectionPanel.
-    // SectionPanel is mocked so we can't trigger it from the DOM.
-    // Instead verify that sectionGetMock and applyUpdatedSection are not called
-    // at mount time (only fire on user action).
+    // Not fired at mount — only on the user gesture.
     expect(sectionGetMock).not.toHaveBeenCalled()
-    expect(applyUpdatedSection).not.toHaveBeenCalled()
+
+    // Invoke the captured onCreateContact (the real manual-draw gesture).
+    expect(capturedOnCreateContact).toBeDefined()
+    await act(async () => {
+      await capturedOnCreateContact!('cpt', 'cpt-9', 5.0, 'form-1', false)
+    })
+
+    // (a) section id threaded as the 6th arg.
+    expect(handleCreateContact).toHaveBeenCalledWith(
+      'cpt',
+      'cpt-9',
+      5.0,
+      'form-1',
+      false,
+      'sec-1',
+    )
+    // (b) seeded set refreshed from the authoritative section row.
+    expect(sectionGetMock).toHaveBeenCalledWith('proj-1', 'sec-1')
+    expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('T6: drag-copy (batch) threads the section id and refreshes the seeded set', async () => {
+    // The actual reported bug: dragging contacts to the next test
+    // (one-by-one / marquee / shift-drag all funnel through
+    // onBatchCreateContacts). The section-aware batch wrapper must pass
+    // selectedSection.id to handleBatchCreateContacts (so the backend
+    // seeds every copied id) and then GET + applyUpdatedSection so the
+    // P2-F filter renders them. Before the fix the copy created contacts
+    // the filter immediately hid (no section id, no refresh).
+    const { api } = await import('../../../api/client')
+    const sectionGetMock = api.section.get as Mock
+    const updatedSection = makeSection({
+      seeded_formation_contact_ids: ['copied-1', 'copied-2'],
+    })
+    sectionGetMock.mockResolvedValue(updatedSection)
+
+    const handleBatchCreateContacts = vi.fn().mockResolvedValue(undefined)
+    const applyUpdatedSection = vi.fn()
+    const ctx = makeStubContext({
+      section: makeSection({ seeded_formation_contact_ids: [] }),
+      contacts: [],
+    })
+    ctx.geoModel.handleBatchCreateContacts = handleBatchCreateContacts
+    ;(ctx.sections as typeof ctx.sections).applyUpdatedSection = applyUpdatedSection
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    expect(capturedOnBatchCreateContacts).toBeDefined()
+    const creates = [
+      {
+        formation_id: 'form-1',
+        depth_top_m: 3.2,
+        borehole_id: null,
+        cpt_id: 'cpt-9',
+        source: 'manual_pick' as const,
+        confidence: 'medium' as const,
+      },
+    ]
+    await act(async () => {
+      await capturedOnBatchCreateContacts!(creates)
+    })
+
+    // section id passed as the 2nd arg → backend seeds every copied id.
+    expect(handleBatchCreateContacts).toHaveBeenCalledWith(creates, 'sec-1')
+    // one section refresh after the batch so P2-F shows the copies.
+    expect(sectionGetMock).toHaveBeenCalledWith('proj-1', 'sec-1')
+    expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 })
