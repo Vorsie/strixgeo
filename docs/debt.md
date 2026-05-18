@@ -737,34 +737,6 @@ worthwhile (the restructure). Trigger to escalate out of Tier E:
 unchanged — any session adding >2 new fields to the coordinator slice
 should also extend the net + audit the dep array.
 
-## 54. Litho subsystem — API layer imports domain constants directly (Tier E — layer purity)
-
-**What.** Senior-review S3/S4 (litho slices, 2026-05-17). Three API-
-layer files import constants/enums straight from the domain layer,
-violating CLAUDE.md "Architecture" (API → Application → Domain):
-`api/routers/geology/models.py` imports `REQUIRED_PARENT_KIND` from
-`domain.value_objects.model_kind`; `api/routers/geology/formations.py`
-imports `BASE_LITHOLOGIES`/`ADMIXTURE_QUALIFIERS`/`NAD_CLASSES` from
-`domain.services.litho_constants`; `api/schemas/project/
-litho_suggestion/litho_layer_suggestion_item.py` imports
-`SuggestionConfidence` from `domain.services.litho_segmentation`.
-
-**Why deferred.** Behaviour-neutral (constants, not logic) — the
-imports work and the values are correct. The clean fix is to relocate
-the shared constant/enum modules to `shared/` (explicitly cross-layer-
-permitted), which touches every importer across domain / application /
-infrastructure / api. Doing that as a multi-file move at the tail of
-the litho-build session is the exact rushed-mega-edit pattern that
-shipped the slice-3 bugs. Lower risk to do as its own focused pass.
-
-**When to revisit.** Next time `shared/` gets a constants home built
-for any reason, OR before the first non-solo contributor (the layer
-rule is an onboarding-legibility contract). Fix: move
-`model_kind.py` + `litho_constants.py` + `SuggestionConfidence` to
-`shared/constants/`, update importers, leave a re-export shim only if
-an external `.gmproj`/API contract depended on the old path (it does
-not — these are internal).
-
 ## 55. Litho slice 4 — ghost-suggestion overlay + accept→contact (Tier C — steps 2-3 of 3)
 
 **Step 1 DONE (2026-05-17, ux-reviewed).** The model-kind picker
