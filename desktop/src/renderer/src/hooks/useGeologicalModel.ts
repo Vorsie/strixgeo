@@ -100,6 +100,11 @@ export interface UseGeologicalModelResult {
   /** Activate a model (backend clears same-kind siblings). Refreshes
    * the list + the active-litho pointer. */
   handleActivateLithoModel: (modelId: string) => Promise<void>
+  /** Delete a lithostratigraphic model (irreversible — caller must
+   * confirm first). Refreshes the list; the active-litho pointer +
+   * its parallel formation/contact state clear via refreshModels when
+   * the deleted model was active. */
+  handleDeleteLithoModel: (modelId: string) => Promise<void>
   // Litho contact/surface/formation parallel sets (slice 2, #55).
   // Loaded from the active litho model; independent of the geological
   // contact set so mutations in one set never invalidate the other.
@@ -2185,6 +2190,37 @@ export function useGeologicalModel({
     [project, refreshModels, toast],
   )
 
+  // #55 — delete a lithostratigraphic model. A litho model has no
+  // children (it is itself a leaf that refines a geological parent),
+  // so the backend delete never 409s here. refreshModels re-derives
+  // activeLithoModel from the fresh list; when the deleted model was
+  // active it becomes null and the activeLithoModel-watching effect
+  // clears the parallel litho formation/contact state — no manual
+  // teardown needed. The picker shows a confirm dialog before calling
+  // this (irreversible-action rule, docs/ux.md).
+  const handleDeleteLithoModel = useCallback(
+    async (modelId: string): Promise<void> => {
+      if (!project) return
+      log.info('geology', `handleDeleteLithoModel entry model=${modelId}`)
+      try {
+        await api.geology.deleteModel(project.id, modelId)
+        await refreshModels()
+        log.success('geology', `deleted litho model ${modelId}`)
+      } catch (err) {
+        log.error('geology', `handleDeleteLithoModel failed ${modelId}`, err)
+        // Surface the server's reason (del() now carries `detail`).
+        toast(
+          'error',
+          err instanceof Error
+            ? err.message
+            : 'Could not delete the lithostratigraphic model.',
+        )
+        throw err
+      }
+    },
+    [project, refreshModels, toast],
+  )
+
   // Slice 2, #55: create a formation contact on the LITHO model.
   // Mirror of handleCreateContact — same optimistic-update + refetch
   // pattern (setLithoContacts → refetchLithoContacts), DIFFERENT state
@@ -2539,6 +2575,7 @@ export function useGeologicalModel({
     activeLithoModel,
     handleCreateLithoModel,
     handleActivateLithoModel,
+    handleDeleteLithoModel,
     lithoContacts,
     lithoFormations,
     lithoSurfacesByFormationId,
