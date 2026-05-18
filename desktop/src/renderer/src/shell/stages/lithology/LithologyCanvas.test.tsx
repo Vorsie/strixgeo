@@ -80,9 +80,16 @@ function makeSurface(formationId: string, hasVertices: boolean): FormationSurfac
     id: `surf-${formationId}`,
     model_id: 'litho-1',
     formation_id: formationId,
+    method: 'tin',
     is_stale: false,
-    vertices: hasVertices ? [0, 0, 0, 1, 0, 0, 0, 1, 0] : [],
-    triangles: hasVertices ? [0, 1, 2] : [],
+    vertices: hasVertices
+      ? ([
+          [0, 0, 0],
+          [1, 0, 0],
+          [0, 1, 0],
+        ] as [number, number, number][])
+      : [],
+    triangles: hasVertices ? ([[0, 1, 2]] as [number, number, number][]) : [],
     source_contact_count: 3,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
