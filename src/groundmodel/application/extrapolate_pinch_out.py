@@ -121,6 +121,7 @@ class ExtrapolatePinchOut(GroundModelLogger):
         direction: Literal["left", "right"],
         dip_override_m_per_m: float | None = None,
         offset_m: float | None = None,
+        dry_run: bool = False,
     ) -> PinchOutResult:
         """Run the full pinch-out extrapolation for one formation pair.
 
@@ -146,11 +147,20 @@ class ExtrapolatePinchOut(GroundModelLogger):
         offset_m : float | None
             Perpendicular offset for the twin contact that breaks Delaunay
             collinearity.  Defaults to ``DEFAULT_PINCH_OUT_OFFSET_M``.
+        dry_run : bool
+            When ``True``, run steps 1–5 (section load, TIN load, slice,
+            crossing geometry, coordinate conversion) and return the tip
+            geometry WITHOUT creating contacts, marking the surface stale,
+            seeding the section, or committing.  The returned result
+            carries ``created_contact_ids=[]`` and ``updated_section=None``.
+            All ``ValueError`` (uncomputable geometry) paths remain active
+            so the frontend ghost preview can surface a meaningful error.
 
         Returns
         -------
         PinchOutResult
-            Ids + geometry of the committed contacts.
+            Ids + geometry of the committed contacts (commit path), or
+            geometry only with empty id list (dry-run path).
 
         Raises
         ------
@@ -165,7 +175,8 @@ class ExtrapolatePinchOut(GroundModelLogger):
             f"ExtrapolatePinchOut entry: model={model_id} "
             f"formation={formation_id} target={target_formation_id} "
             f"section={section_id} direction={direction!r} "
-            f"dip_override={dip_override_m_per_m} offset={effective_offset}"
+            f"dip_override={dip_override_m_per_m} offset={effective_offset} "
+            f"dry_run={dry_run}"
         )
 
         # ------------------------------------------------------------------ #
@@ -247,6 +258,11 @@ class ExtrapolatePinchOut(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 5. Convert (along, elev) back to absolute (x, y, z).               #
         # ------------------------------------------------------------------ #
+        # WHY here (before dry_run exit): the response for dry_run still
+        # returns tip_along_m / tip_elevation_m so the frontend can draw the
+        # ghost wedge without storing anything.  The coordinate conversion
+        # below only affects the inserted contacts and is skipped by the
+        # dry_run branch, so both paths see the same (along, elev) pair.
         dx = section.end_x - section.start_x
         dy = section.end_y - section.start_y
         length = math.hypot(dx, dy)
@@ -270,6 +286,22 @@ class ExtrapolatePinchOut(GroundModelLogger):
         self.debug(
             f"Absolute coords: tip=({tip_x:.1f}, {tip_y:.1f}) twin=({twin_x:.1f}, {twin_y:.1f})"
         )
+
+        # ------------------------------------------------------------------ #
+        # 5b. Dry-run exit — return geometry only, no DB writes.              #
+        # ------------------------------------------------------------------ #
+        if dry_run:
+            self.info(
+                f"ExtrapolatePinchOut dry_run: returning tip geometry without "
+                f"persisting contacts. along={tip_along_m:.2f} m elev={tip_elevation_m:.3f} m"
+            )
+            return PinchOutResult(
+                created_contact_ids=[],
+                tip_elevation_m=tip_elevation_m,
+                tip_along_m=tip_along_m,
+                updated_section=None,
+                was_idempotent=False,
+            )
 
         # ------------------------------------------------------------------ #
         # 6. Idempotency guard: reject if synthetic contacts already exist    #
