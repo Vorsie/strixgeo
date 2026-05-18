@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #58 (DOV formal/informal stratigraphy never reconciles across boreholes — ground-model-quality; design-first via system-architect, 2026-05-18), #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
@@ -829,118 +829,6 @@ stratigraphy-lumping slice without adding correctness.
 **When to revisit.** When a user explicitly asks to reuse a project's
 grouping elsewhere (i.e. the per-project constraint becomes friction in
 real dogfooding).  Not before.
-
----
-
-## 58. DOV formal/informal stratigraphy never reconciles across boreholes (Tier C — ground-model-quality; design-first via system-architect)
-
-**What.** DOV publishes borehole stratigraphy in two vocabularies —
-**formal** (abbreviated regional codes: `A`, `OH-T-DP`, `KvW`, `KoKe`)
-and **informal** (full Dutch working names: `Antropogeen`, `Quartair:
-Holoceen tot …`, `Paleogeen: Formatie van …`). Per borehole DOV may
-carry one, the other, or both. The seeder
-(`auto_populate_contacts_from_stratigraphy._derive_layer_names_and_key`)
-walks the formal stream per borehole, falling back to informal only when
-that borehole has no formal record, and derives the cross-borehole
-identity key as `normalize(formal code)` when formal is present else
-`normalize(informal name)`. Those are **two namespaces that never meet
-for the same geological unit**: a formal-only borehole's "KoKe" and an
-informal-only borehole's "Paleogeen: Formatie van Kortrijk" are emitted
-as two separate candidates with different keys → two separate formation
-entities → they do **not** connect into a band across the section, and
-the labels render as a formal/informal mix.
-
-The manual lump map (`stratigraphy_lumping.map`, scope step 7) is the
-only bridge, and it is keyed on those raw vocabulary keys. "Reassign
-every geology" merges only variants the user explicitly mapped to the
-same target — and the dialog gives **no signal** that a formal code and
-an informal description are the same unit (DOV pairs them only *within*
-a borehole that carries both streams; cross-borehole formal-only ↔
-informal-only pairs are invisible to the system). For a tool whose core
-value is connected bands, pushing 100% of cross-vocabulary
-reconciliation onto the user with zero hinting is a real
-ground-model-quality gap. First hit dogfooding `gavere.strix`
-(2026-05-18). Not a regression — the identity model has always had this
-hole; the P2 / lumping campaigns just made it visible.
-
-**Owner-selected fix direction (2026-05-18): option 1 — transitive
-formal↔informal bridge.** Collect every `(formal_code, informal_name)`
-pair DOV provides *anywhere in the project* (every dual-stream borehole
-proves an equivalence), build equivalence classes, and auto-pre-lump
-formal-only and informal-only candidates that fall in the same class so
-they resolve to one formation wherever *any* borehole proves they are
-the same. Constraints the design must respect: the discover ≡ apply ≡
-seed invariant (the `_derive_layer_names_and_key` comment block warns
-this is the exact area a divergence bug already shipped from); the
-store-raw / translate-at-presentation rule (`reference_dov_codelists`
-memory — do not hardcode a formal↔informal table; derive equivalences
-from the data, fall back to the DOV stratigraphy lexicon /
-`codelists/` + `g3dv3_catalog` only as an explicit reference, never a
-silent rename); and the case where a formation has *no* dual-stream
-borehole anywhere (the bridge cannot infer it — needs a graceful
-"still unreconciled, lump manually" path, not a wrong guess).
-
-**Why deferred (design-first).** The fix touches the seeder identity
-model, the discover/apply/seed shared path, and the
-G3Dv3/DOV-lexicon roadmap (post-v1.0 G3Dv3 import is the natural home
-for an authoritative cross-vocabulary reference). Bolting it on
-reactively risks another discover≠apply divergence. Handed to
-system-architect for a design before any implementation. Cheap
-consistency wins (show formal+informal on each lump candidate;
-always prefer the informal label when any borehole has it) are
-viable interim mitigations but were **not** taken yet — they mask the
-symptom, and the owner chose to design the real fix first.
-
-**When to revisit.** Now — design DONE + 3 owner calls DECIDED
-(2026-05-18, recommended defaults adopted); implementation handed to
-staff-engineer. Pairs with #56 (the lump-UX convenience features) —
-same subsystem, but #58 is the correctness root, #56 is ergonomics.
-
-**Design (system-architect 2026-05-18) — approved approach, awaiting 3
-owner calls.** Application-layer, no schema change, no migration, not
-persisted (recompute-on-discover — the bridge is a derivation of
-ObservationLayer rows already in the bundle; Data Integrity Rule §1).
-Shape: a new `build_formal_informal_bridge(session, project_id) ->
-dict[normalize(formal) -> normalize(informal)]` scans dual-stream
-boreholes (carry BOTH streams) and emits proven pairs; a pure
-`_resolve_bridge_key(raw_key, primary_is_formal, bridge)` inserts ONE
-step into the existing shared pipeline —
-`_derive_layer_names_and_key → _resolve_bridge_key → _resolve_effective_key`
-— so discover/apply/seed stay provably identical (the bridge dict is
-computed once per request and passed into both `scan_stratigraphy_
-candidates` and `execute`; `discover_formations_from_stratigraphy`
-inherits it free via delegation). Precedence: raw → bridge (data-proven)
-→ manual_map (user override wins). No-dual-stream formation → bridge
-no-ops, stays as today, manual lump still works (never a wrong
-auto-merge). DOV lexicon / G3Dv3: NOT used — equivalences derived only
-from project data; G3Dv3 import (post-v1.0) widens reach for free, no
-code change, nothing deferred to it. Slice 1 ≈ 120-line single-file
-diff + unit nets (B1–B6 bridge derivation, R1–R4 resolve, I1–I3
-discover≡apply≡seed incl. manual-override precedence) — write the
-invariants first. Frontend unaffected (delegation). Optional follow-up
-(file as #59 if wanted): a "also known as KoKe in N boreholes" hint in
-FormationSelectionDialog (needs a `bridged_from` field on
-StratigraphyCandidate) — ergonomics, post-confirmation.
-
-**3 owner calls — DECIDED 2026-05-18 (recommended defaults adopted):**
-1. **No-dual-stream degradation — ACCEPTED.** A project where every
-   borehole is formal-only OR informal-only gets zero bridge help and
-   stays manual-lump-only at v1.0; G3Dv3 import (post-v1.0) is the
-   long-term answer for that population. Implementation must verify the
-   dogfeed `gavere.strix` actually has ≥1 dual-stream borehole — if it
-   does not, the fix correctly does nothing for Gavere and that is
-   expected, not a failure (Gavere would then be a pure G3Dv3-import
-   case).
-2. **Disagreeing dual-stream boreholes — majority-vote + WARNING log.**
-   Same formal code → different informal names: pick the most-frequent
-   informal key, log a WARNING, deterministic tie-break. Never error,
-   never prompt; manual lump always overrides.
-3. **Stale `stratigraphy_lumping` after deploy — silent-skip.** Pre-
-   bridge formal-keyed lump entries that the bridge now collapses are
-   ignored (no match in `_resolve_effective_key`), not migrated. User
-   redoes lumping once. Acceptable pre-ship (backwards-compat
-   suspended); record as a known one-time migration gap in the
-   resolution note when this lands.
 
 ---
 
