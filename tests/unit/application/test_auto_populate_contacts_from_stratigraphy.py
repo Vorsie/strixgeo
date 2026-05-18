@@ -430,6 +430,78 @@ async def test_execute_selected_keys_none_processes_all():
     mock_mark_stale.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_execute_create_missing_formations_false_skips_unmatched():
+    """Sections "Seed from stratigraphy" path (create_missing_formations=False).
+
+    CLAUDE.md explicit-content invariant (owner directive 2026-05-17): Seed
+    places contacts only for formations the user already curated and NEVER
+    creates one. With no existing project formations, every in-corridor
+    borehole layer is reported in ``skipped_not_in_model`` — zero formations
+    and zero contacts are minted. This is the "Seed added Formatie van Ieper
+    / a second Roubaix" regression guard.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    layer_a = _layer(top_m=0.0, base_m=5.0, description="Boom Klei")
+    layer_b = _layer(top_m=5.0, base_m=15.0, description="Diest Zand")
+    bh = _borehole([_observation(ObservationType.INFORMAL_STRATIGRAPHY, [layer_a, layer_b])])
+
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = [bh]
+    empty_formations_result = MagicMock()
+    empty_formations_result.scalars.return_value.all.return_value = []
+    max_order_result = MagicMock()
+    max_order_result.scalar_one.return_value = 0
+    empty_contacts_result = MagicMock()
+    empty_contacts_result.all.return_value = []
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return empty_formations_result
+        if call_count == 3:
+            return max_order_result
+        return empty_contacts_result
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock()
+    session.new = []
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        use_case = AutoPopulateContactsFromStratigraphy(session)
+        outcome = await use_case.execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh.id],
+            selected_keys=None,  # unfiltered Seed path
+            create_missing_formations=False,  # Seed never creates
+        )
+
+    assert outcome.created_formation_ids == []
+    assert outcome.created_contact_ids == []
+    assert outcome.skipped_not_in_model == 2
+    # No GeologicalFormationOrm was ever added (the contract).
+    session.add.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # §10 on-click build contract — no TIN, stale-flip for pre-existing surfaces
 # ---------------------------------------------------------------------------
