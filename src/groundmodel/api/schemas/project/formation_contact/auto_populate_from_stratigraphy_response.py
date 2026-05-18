@@ -18,7 +18,11 @@ class AutoPopulateFromStratigraphyResponse(BaseModel):
     seeded a contact); ``skipped_unmatched`` covers layers with an
     empty description; ``skipped_no_stratigraphy`` covers boreholes
     that don't carry a formal OR informal stratigraphy observation
-    at all.
+    at all.  ``skipped_not_in_model`` covers layers skipped on the
+    Sections "Seed from stratigraphy" path because their resolved
+    formation isn't one the user curated (Seed never creates) — the
+    frontend surfaces this count so the dropped borehole data isn't
+    silently lost.  Always ``0`` on the Fill-from-boreholes path.
 
     ``deleted_formation_ids`` is populated only when ``selected_keys``
     was provided (the Fill-from-boreholes confirm path).  These
@@ -47,6 +51,9 @@ class AutoPopulateFromStratigraphyResponse(BaseModel):
     skipped_existing: int
     skipped_unmatched: int
     skipped_no_stratigraphy: int
+    # Additive + defaulted: only the Seed path (create_missing_formations
+    # = False) is non-zero; existing clients that ignore it are unaffected.
+    skipped_not_in_model: int = 0
     collisions: list[LumpingCollisionItem] = []
     # Updated section row after Seed patched seeded_formation_contact_ids.
     # None when section_id was not provided in the request.
