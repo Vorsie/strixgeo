@@ -891,10 +891,10 @@ always prefer the informal label when any borehole has it) are
 viable interim mitigations but were **not** taken yet — they mask the
 symptom, and the owner chose to design the real fix first.
 
-**When to revisit.** Now — design DONE (system-architect, 2026-05-18,
-below). Implementation gated on 3 owner calls. Pairs with #56 (the
-lump-UX convenience features) — same subsystem, but #58 is the
-correctness root, #56 is ergonomics.
+**When to revisit.** Now — design DONE + 3 owner calls DECIDED
+(2026-05-18, recommended defaults adopted); implementation handed to
+staff-engineer. Pairs with #56 (the lump-UX convenience features) —
+same subsystem, but #58 is the correctness root, #56 is ergonomics.
 
 **Design (system-architect 2026-05-18) — approved approach, awaiting 3
 owner calls.** Application-layer, no schema change, no migration, not
@@ -922,20 +922,25 @@ invariants first. Frontend unaffected (delegation). Optional follow-up
 FormationSelectionDialog (needs a `bridged_from` field on
 StratigraphyCandidate) — ergonomics, post-confirmation.
 
-**3 owner calls before implementation:**
-1. **No-dual-stream degradation** — accept that a project where every
-   borehole is formal-only OR informal-only (no pairing borehole
-   anywhere) gets zero bridge help and stays manual-lump-only at v1.0?
-   (Gavere may be exactly this — verify it has ≥1 dual-stream borehole
-   or the bridge won't help it; G3Dv3 import is the long-term answer.)
-2. **Disagreeing dual-stream boreholes** — same formal code → two
-   different informal names across boreholes: majority-vote + WARNING
-   log (recommended), vs maximally-conservative "don't bridge that
-   code at all"?
-3. **Stale `stratigraphy_lumping` after deploy** — a pre-bridge saved
-   map keyed on formal codes the bridge now collapses: silent-skip the
-   stale entries (user redoes lumping once; recommended pre-ship,
-   backwards-compat suspended) vs a one-time rekey migration?
+**3 owner calls — DECIDED 2026-05-18 (recommended defaults adopted):**
+1. **No-dual-stream degradation — ACCEPTED.** A project where every
+   borehole is formal-only OR informal-only gets zero bridge help and
+   stays manual-lump-only at v1.0; G3Dv3 import (post-v1.0) is the
+   long-term answer for that population. Implementation must verify the
+   dogfeed `gavere.strix` actually has ≥1 dual-stream borehole — if it
+   does not, the fix correctly does nothing for Gavere and that is
+   expected, not a failure (Gavere would then be a pure G3Dv3-import
+   case).
+2. **Disagreeing dual-stream boreholes — majority-vote + WARNING log.**
+   Same formal code → different informal names: pick the most-frequent
+   informal key, log a WARNING, deterministic tie-break. Never error,
+   never prompt; manual lump always overrides.
+3. **Stale `stratigraphy_lumping` after deploy — silent-skip.** Pre-
+   bridge formal-keyed lump entries that the bridge now collapses are
+   ignored (no match in `_resolve_effective_key`), not migrated. User
+   redoes lumping once. Acceptable pre-ship (backwards-compat
+   suspended); record as a known one-time migration gap in the
+   resolution note when this lands.
 
 ---
 
