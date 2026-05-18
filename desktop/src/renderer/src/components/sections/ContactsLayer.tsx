@@ -186,6 +186,38 @@ interface Props {
    * render — gives the user something to look at while the geology
    * is sparse. */
   surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * Reference formation vocabulary for the geological backdrop.
+   *
+   * On the lithostratigraphic axis, the caller may pass the parent
+   * geological model's formations here so the backdrop polylines can
+   * be coloured with the correct formation colour.  Uses the same
+   * project-scoped formation rows — no refetch needed.  Stale-id-
+   * tolerant: a formation absent from this list simply renders
+   * nothing (the backdrop silently omits unknown ids).  When absent,
+   * no backdrop is painted (geological axis: always absent).
+   */
+  referenceFormations?: readonly GeologicalFormationResponse[]
+  /**
+   * Cached TIN surfaces for the REFERENCE (geological) model.
+   *
+   * Keyed by formation id of the geological model.  When provided
+   * together with ``referenceFormations``, the component slices each
+   * surface against the section line and paints a subordinate
+   * read-only backdrop BEFORE the active litho contacts so the
+   * geological context is always visible underneath.
+   *
+   * Visual register is intentionally subordinate to the editable
+   * litho layer:
+   *   fresh surface  → strokeOpacity 0.25, no dash
+   *   stale surface  → strokeOpacity 0.12, dash "8 4"
+   *
+   * ``pointerEvents="none"`` — the backdrop is never hit-tested and
+   * never routed through seeded_formation_contact_ids (it is surface
+   * geometry, not a contact — exempt from the explicit-content
+   * invariant).  No writes, no .gmproj / bundle change, no migration.
+   */
+  referenceSurfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -519,6 +551,8 @@ export default function ContactsLayer({
   snapDepthsByAnchorId,
   getCptValuesAtDepth,
   surfacesByFormationId,
+  referenceFormations,
+  referenceSurfacesByFormationId,
   sectionLine,
   alongMToScreenX,
   focusedContactIds,
@@ -882,6 +916,92 @@ export default function ContactsLayer({
     for (const line of slicedPolylines) out.add(line.formationId)
     return out
   }, [slicedPolylines])
+
+  // Geological backdrop — read-only slice-of-TIN for the REFERENCE
+  // (geological) model rendered under the active litho contacts.
+  //
+  // Mirroring the ``slicedPolylines`` memo above: iterates
+  // ``referenceSurfacesByFormationId`` in the order imposed by
+  // ``referenceFormations`` (ascending display_order = older first,
+  // so older formations paint first and younger paint on top —
+  // geological superposition rule).  Gated entirely on the two
+  // optional props; produces an empty array on the geological axis
+  // (where neither prop is passed) so there is zero regression for
+  // that code path.
+  //
+  // The backdrop is subordinate to the editable litho layer:
+  //   fresh surface → strokeOpacity 0.25, no dash
+  //   stale surface → strokeOpacity 0.12, dash "8 4"
+  //
+  // ``pointerEvents="none"`` on every element — the backdrop is
+  // never hit-tested and never mixed into the contacts / selection
+  // flow.  Exempt from the explicit-content invariant (it is surface
+  // geometry, not a contact).
+  const backdropPolylines = useMemo(() => {
+    if (
+      !referenceFormations ||
+      referenceFormations.length === 0 ||
+      !referenceSurfacesByFormationId ||
+      !sectionLine ||
+      !alongMToScreenX
+    ) {
+      return [] as {
+        formationId: string
+        color: string
+        d: string
+        isStale: boolean
+      }[]
+    }
+    // Build a formation-color index keyed by id so the render step
+    // can look up the color in O(1).  Stale-id-tolerant: a formation
+    // id from the surface map that is absent from referenceFormations
+    // simply isn't rendered (the loop skips it naturally).
+    const colorById = new Map<string, string>()
+    // Ascending display_order = older paints first (geological
+    // superposition rule — same convention as the active-contacts
+    // slicedPolylines above).
+    const sortedFormations = [...referenceFormations].sort(
+      (a, b) => a.display_order - b.display_order,
+    )
+    for (const f of sortedFormations) colorById.set(f.id, f.color)
+
+    const out: { formationId: string; color: string; d: string; isStale: boolean }[] = []
+    for (const f of sortedFormations) {
+      const surface = referenceSurfacesByFormationId.get(f.id)
+      if (!surface || surface.triangles.length === 0) continue
+      const points = sliceTin(surface, sectionLine)
+      if (points.length < 2) continue
+      let path = ''
+      let pendingMove = true
+      for (const p of points) {
+        const x = alongMToScreenX(p.alongM)
+        const y = levelToScreen(p.elevationM)
+        if (y < plotTop || y > plotBottom) {
+          pendingMove = true
+          continue
+        }
+        path += `${pendingMove ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)} `
+        pendingMove = false
+      }
+      if (path === '') continue
+      const color = colorById.get(f.id) ?? '#888888'
+      out.push({
+        formationId: f.id,
+        color,
+        d: path,
+        isStale: surface.is_stale === true,
+      })
+    }
+    return out
+  }, [
+    referenceFormations,
+    referenceSurfacesByFormationId,
+    sectionLine,
+    alongMToScreenX,
+    levelToScreen,
+    plotTop,
+    plotBottom,
+  ])
 
   // Deepest investigation-bottom screen-Y in the section's projected
   // columns — used as the FLOOR for the oldest formation's fill (and
@@ -1659,7 +1779,9 @@ export default function ContactsLayer({
     }
   }, [marquee, layers, setMarquee])
 
-  if (layers.length === 0 && polylines.length === 0) {
+  // Return null only when there is genuinely nothing to paint —
+  // the backdrop may still render even with no active contacts.
+  if (layers.length === 0 && polylines.length === 0 && backdropPolylines.length === 0) {
     return null
   }
 
@@ -1720,6 +1842,26 @@ export default function ContactsLayer({
   return (
     <>
     <g>
+      {/* ---- Geological backdrop (litho axis only) ----------------
+          Read-only slice-of-TIN for the reference geological model,
+          rendered BEFORE the active litho layer so the geological
+          context sits visually underneath.  Fresh surfaces render at
+          strokeOpacity 0.25 (solid); stale surfaces at 0.12 (dashed
+          "8 4").  pointerEvents="none" — never hit-tested. */}
+      {backdropPolylines.map(line => (
+        <path
+          key={`backdrop-${line.formationId}`}
+          d={line.d}
+          stroke={line.color}
+          strokeWidth={1}
+          strokeOpacity={line.isStale ? 0.12 : 0.25}
+          strokeDasharray={line.isStale ? '8 4' : undefined}
+          fill="none"
+          pointerEvents="none"
+          data-testid={`backdrop-surface-${line.formationId}`}
+          data-stale={line.isStale ? 'true' : undefined}
+        />
+      ))}
       {/* Filled coloured bands between adjacent formation tops.
           Drawn FIRST so every other section element (CPT curves,
           column glyphs, contact lines, labels) paints on top. The
