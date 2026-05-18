@@ -23,9 +23,11 @@
 // busy guard; the empty state is an actionable CTA, not "none yet".
 
 import { useState } from 'react'
-import { Check, Layers, Plus, X } from 'lucide-react'
+import { Check, Layers, Plus, Trash2, X } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
+import Modal from '../../../components/ui/Modal'
+import Button from '../../../components/ui/Button'
 
 /**
  * Compact lithostratigraphic-model selector + creator.
@@ -46,6 +48,7 @@ export default function ModelKindPicker(): JSX.Element | null {
       activeLithoModel,
       handleCreateLithoModel,
       handleActivateLithoModel,
+      handleDeleteLithoModel,
     },
   } = useShell()
 
@@ -53,6 +56,22 @@ export default function ModelKindPicker(): JSX.Element | null {
   const [draftName, setDraftName] = useState('')
   const [busy, setBusy] = useState(false)
   const [activating, setActivating] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  async function confirmDelete(): Promise<void> {
+    if (activeLithoModel === null || deleting) return
+    setDeleting(true)
+    try {
+      await handleDeleteLithoModel(activeLithoModel.id)
+      setConfirmDeleteOpen(false)
+    } catch {
+      // handleDeleteLithoModel already toasted the reason; keep the
+      // dialog open so the user sees the action did not complete.
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   // Litho models cannot exist without a geological parent.
   if (activeGeologicalModel === null) return null
@@ -85,6 +104,7 @@ export default function ModelKindPicker(): JSX.Element | null {
   }
 
   return (
+    <>
     <div
       className="flex items-center gap-1.5 pl-5 text-[11px] text-text-secondary"
       data-testid="model-kind-picker"
@@ -170,6 +190,17 @@ export default function ModelKindPicker(): JSX.Element | null {
             <Plus size={11} />
             New
           </button>
+          {activeLithoModel !== null && (
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteOpen(true)}
+              title="Delete the active lithostratigraphic model"
+              aria-label="Delete lithostratigraphic model"
+              className="rounded p-0.5 text-text-secondary hover:bg-surface-app hover:text-status-danger"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
         </>
       ) : (
         // C1 — first-run discoverability moment: an actionable CTA, not
@@ -188,5 +219,58 @@ export default function ModelKindPicker(): JSX.Element | null {
         </button>
       )}
     </div>
+
+    {/* Delete confirm — irreversible; default focus on Cancel
+        (docs/ux.md irreversible-action rule, mirrors GeologyToolbar). */}
+    <Modal
+      open={confirmDeleteOpen}
+      onCancel={() => {
+        if (!deleting) setConfirmDeleteOpen(false)
+      }}
+      labelledBy="delete-litho-model-title"
+      busy={deleting}
+      cardClassName="w-80"
+    >
+      <div className="p-5">
+        <h2
+          id="delete-litho-model-title"
+          className="mb-1 text-sm font-semibold text-text-primary"
+        >
+          Delete lithostratigraphic model?
+        </h2>
+        <p className="mb-4 text-xs text-text-secondary">
+          <span className="font-medium text-text-primary">
+            {activeLithoModel?.name ?? 'This model'}
+          </span>{' '}
+          and all its formations, contacts, and cached surfaces will be
+          permanently deleted. The geological parent is not affected. This
+          cannot be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            size="md"
+            // reason: autoFocus on Cancel is the safe default for a
+            // destructive-confirm modal — the user must actively choose
+            // the destructive action, not accidentally confirm it.
+            // eslint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus
+            onClick={() => setConfirmDeleteOpen(false)}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            size="md"
+            onClick={() => void confirmDelete()}
+            disabled={deleting}
+          >
+            Delete
+          </Button>
+        </div>
+      </div>
+    </Modal>
+    </>
   )
 }
