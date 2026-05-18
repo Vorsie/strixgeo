@@ -104,9 +104,35 @@ describe('ColumnGlyph — click handler', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 
-  it('does not render the hit-rect when onClick is absent', () => {
-    const { container } = renderGlyph({ onClick: undefined })
+  it('does not render the hit-rect when onClick and onDoubleClick are both absent', () => {
+    const { container } = renderGlyph({ onClick: undefined, onDoubleClick: undefined })
     expect(container.querySelector('rect[fill="transparent"]')).toBeNull()
+  })
+})
+
+describe('ColumnGlyph — double-click handler (Part 3, section pane UX)', () => {
+  it('renders the hit-rect when only onDoubleClick is wired (no onClick)', () => {
+    // The hit-rect must render so the <g onDoubleClick> can be reached
+    // by the user's cursor — otherwise the hit-box is not visible to pointer events.
+    const { container } = renderGlyph({ onClick: undefined, onDoubleClick: vi.fn() })
+    expect(container.querySelector('rect[fill="transparent"]')).not.toBeNull()
+  })
+
+  it('fires onDoubleClick on a double-click event', () => {
+    const onDoubleClick = vi.fn()
+    const { container } = renderGlyph({ onClick: undefined, onDoubleClick })
+    // The double-click is on the <g>, not the rect — fire directly on the group.
+    const g = container.querySelector('g')!
+    fireEvent.doubleClick(g)
+    expect(onDoubleClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('single-click does NOT fire onDoubleClick', () => {
+    const onDoubleClick = vi.fn()
+    const { container } = renderGlyph({ onClick: undefined, onDoubleClick })
+    const g = container.querySelector('g')!
+    fireEvent.click(g)
+    expect(onDoubleClick).not.toHaveBeenCalled()
   })
 })
 
