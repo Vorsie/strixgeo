@@ -20,14 +20,22 @@ The catalog answers two production questions:
 Both lookups are case-insensitive on the Dutch name. The Dutch name is
 the most reliable join key because:
 
-* DOV formal-stratigraphy XML ships `lid1` / `lid2` codes that are
-  permkey-specific (e.g. ``"HyEg"``, ``"Eg"``) and don't map cleanly
-  to G3Dv3 abbreviations.
+* DOV formal-stratigraphy XML ships `lid1` / `lid2` permkey codes
+  (e.g. ``"KoAa"``, ``"Q"``, ``"HyEg"``). The precise relationship to
+  this catalog: a G3Dv3 abbreviation's suffix often equals the DOV
+  permkey for Paleogene/Neogene members (G3Dv3 ``"PA_KoAa"`` ↔ DOV
+  ``"KoAa"``), but Quaternary period-level codes (``"Q"``/``"QH"``/
+  ``"QP"``) and DOV-internal codes have no G3Dv3 counterpart, and the
+  ``name_nl`` here is the short model name ("Kortrijk"), not the full
+  DOV lithostratigraphic name. So this catalog is NOT the DOV-code↔name
+  lexicon — that is ``dov_formal_stratigraphy_catalog`` (#59), sourced
+  from DOV's own ``FormeleStratigrafieLedenEnumType`` XSD.
 * Manually-created formations carry human names ("Boom", "Diest",
   "Ieper") that DO match G3Dv3 ``name_nl`` directly.
 
-Future code-mapping work (DOV permkey codes → G3Dv3 abbreviations) is
-a separate concern — see debt #50 (BRO / regional catalog abstraction).
+The #59 lexicon performs a best-effort secondary suffix-join INTO this
+catalog to recover ``age_rank`` / ``color_hex`` where a G3Dv3
+counterpart exists (null otherwise) — see ``scripts/build_dov_formal_stratigraphy.py``.
 
 Network access is never required at runtime. The JSON ships with the
 distribution; rebuilding requires the xlsx sources + the build script.
