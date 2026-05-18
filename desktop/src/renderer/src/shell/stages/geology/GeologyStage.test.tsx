@@ -185,6 +185,8 @@ function makeStubContext(): ShellContextValue {
       handleCommitPinchOut: noopAsync,
       clearPinchOutPreview: vi.fn(),
       handleDeleteLithoModel: noopAsync,
+      backdropSurfacesByFormationId: new Map(),
+      handleLoadBackdropSurfaces: noopAsync,
     },
     sections: {
       sections: [],

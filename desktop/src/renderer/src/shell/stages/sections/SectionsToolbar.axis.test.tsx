@@ -224,6 +224,8 @@ function makeCtx(overrides: {
       handleCommitPinchOut: noopAsync,
       clearPinchOutPreview: vi.fn(),
       handleDeleteLithoModel: noopAsync,
+      backdropSurfacesByFormationId: new Map(),
+      handleLoadBackdropSurfaces: noopAsync,
     },
     sections: {
       sections: [],

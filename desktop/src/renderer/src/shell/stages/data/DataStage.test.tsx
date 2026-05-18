@@ -157,6 +157,8 @@ function makeStubContext(): ShellContextValue {
       clearPinchOutPreview: vi.fn(),
       handleSeedLithoFromParent: noopAsync,
       handleDeleteLithoModel: noopAsync,
+      backdropSurfacesByFormationId: new Map(),
+      handleLoadBackdropSurfaces: noopAsync,
     },
     sections: {
       sections: [],

@@ -274,6 +274,8 @@ function makeStubContext(overrides?: {
       clearPinchOutPreview: vi.fn(),
       handleSeedLithoFromParent: noopAsync,
       handleDeleteLithoModel: noopAsync,
+      backdropSurfacesByFormationId: new Map(),
+      handleLoadBackdropSurfaces: noopAsync,
     },
     sections: {
       sections: [section],
