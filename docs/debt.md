@@ -13,7 +13,7 @@ sections that follow):
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
 * **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
-* **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52, #59
+* **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
 When an item is resolved, **delete it from this list** — its
@@ -829,76 +829,6 @@ stratigraphy-lumping slice without adding correctness.
 **When to revisit.** When a user explicitly asks to reuse a project's
 grouping elsewhere (i.e. the per-project constraint becomes friction in
 real dogfooding).  Not before.
-
----
-
-## 59. Global DOV formal-stratigraphy lexicon — fills #58's no-in-project-dual-stream gap (Tier D — post-v1.0 reference data)
-
-**What.** #58 reconciles formal↔informal stratigraphy *within a
-project* using that project's own dual-stream boreholes as proof
-(locked decision #1: a project with no dual-stream borehole anywhere
-for a formation gets zero bridge help and stays manual-lump-only).
-This item closes that residual with a **global, deterministic**
-formal-code → canonical-name lexicon, slotting as a new layer in
-#58's existing precedence chain: `raw → in-project bridge
-(data-proven) → GLOBAL DOV lexicon (curated) → manual_map (user
-override)`. Zero architectural rework — #58's design was shaped for
-this additive layer (system-architect 2026-05-18 explicitly named it
-the future path).
-
-**Explicitly NOT machine learning (owner-decided 2026-05-18, after an
-ML proposal).** Formal DOV stratigraphy is a finite, governed
-vocabulary (NCS / DOV lithostratigraphic lexicon — a few hundred
-units for Flanders), so `formal_code → canonical formation` is a
-*deterministic lookup that already exists in authoritative form*.
-Training a model to approximate an existing lookup table is the
-"ML where a join suffices" anti-pattern, and — decisively — a
-ground-model tool cannot accept a probabilistic/opaque/version-
-unstable step in the **identity** layer: a misassigned formation
-propagates into surfaces → sections → Plaxis/D-Stability exports
-(wrong design inputs). The whole #58 effort preserved
-discover≡apply≡seed determinism and "never auto-merge on a guess";
-ML would reverse that. Deterministic lexicon + (if ever needed) an
-explainable fuzzy string/embedding match for arbitrary free-text
-informal entity-linking — no trained model, no drift.
-
-**Acquisition order:** (1) obtain the **official DOV / NCS formal
-lithostratigraphic lexicon** (formal code → canonical name +
-hierarchy) → ship as `infrastructure/codelists/
-dov_formal_stratigraphy.json`. Per `reference_dov_codelists` memory
-the formal units are NOT in the 5-scheme SPARQL endpoint — this
-needs scraping the DOV stratigraphic-units reference or manual
-curation; that is a data-acquisition task, not an engineering one.
-(2) **Fallback if the official lexicon is unobtainable:** corpus-mine
-a *sampled* set of dual-stream DOV boreholes (the formal vocabulary
-is finite, so code-coverage saturates well before "all of DOV" —
-bulk-harvesting the full DOV DB is unnecessary and operationally
-heavy) with the exact `build_formal_informal_bridge` `Counter`-
-majority algorithm run ONCE offline, output a static table a geotech
-engineer reviews/corrects before it ships. Human-in-the-loop curated
-table > trained model: more trustworthy, explainable, no
-serving/drift, fits solo-dev. Either way the artefact is a checked-in
-deterministic codelist consulted at discover/apply time exactly like
-the in-project bridge — same single-source-of-truth + discover≡apply
-≡seed constraint applies (it is just another input to
-`_resolve_bridge_key`'s precedence, evaluated below the in-project
-bridge and above `manual_map`).
-
-**Why deferred.** Post-v1.0. The MVP gate does not need it — #58's
-in-project bridge + manual lump covers v1.0, and the dogfeed project
-(Gavere, 22 dual-stream boreholes) is already served. Building a
-corpus/lexicon pipeline now is the premature-subsystem the core
-philosophy warns against. Natural to fold into the post-v1.0 G3Dv3
-Flanders import (same Flanders stratigraphy reference data;
-`codelists/g3dv3_catalog` is the adjacent home).
-
-**When to revisit.** When a real project hits the no-in-project-dual-
-stream gap in dogfooding (formations that never reconcile because no
-borehole in that project carries both streams), OR alongside the
-G3Dv3 import — whichever first. Pairs with #58 (the runtime
-mechanism, shipped) and #56 (lump-UX ergonomics).
-
----
 
 ## Historical note — 2026-05-13 security-reviewer audit pass
 
