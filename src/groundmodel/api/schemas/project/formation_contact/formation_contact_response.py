@@ -18,6 +18,12 @@ class FormationContactResponse(BaseModel):
     formation_id: UUID
     borehole_id: UUID | None
     cpt_id: UUID | None
+    # Set only on synthetic pinch-out contacts (no borehole/CPT anchor);
+    # null for normal contacts. The absolute tip elevation lives in
+    # synthetic_elevation_m (depth_top_m is a 0.0 sentinel there).
+    synthetic_x: float | None = None
+    synthetic_y: float | None = None
+    synthetic_elevation_m: float | None = None
     depth_top_m: float
     source: str
     confidence: str
