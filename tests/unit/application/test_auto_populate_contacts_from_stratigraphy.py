@@ -1479,3 +1479,574 @@ async def test_seed_without_section_id_found_contact_ids_empty():
     assert outcome.found_contact_ids == [], (
         "found_contact_ids must be empty when section_id is None (Fill path)"
     )
+
+
+# ---------------------------------------------------------------------------
+# #58 — Formal↔Informal bridge
+#
+# B1–B6: build_formal_informal_bridge derivation
+# R1–R4: _resolve_bridge_key pure function
+# I1–I3: discover≡apply≡seed invariant across formal-only / informal-only /
+#         dual-stream borehole combinations
+# ---------------------------------------------------------------------------
+
+
+# Bridge tests use a special session stub that returns boreholes to
+# build_formal_informal_bridge (which does its own borehole SELECT).
+def _make_bridge_session(boreholes: list) -> AsyncMock:
+    """Build a mock session suitable for build_formal_informal_bridge.
+
+    The function issues one SELECT (boreholes with observations+layers),
+    so a single-result mock is enough.
+    """
+    result_mock = MagicMock()
+    result_mock.scalars.return_value.all.return_value = boreholes
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=result_mock)
+    return session
+
+
+# ---------------------------------------------------------------------------
+# B-series: build_formal_informal_bridge
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bridge_B1_dual_stream_emits_pair():
+    """B1: dual-stream borehole with overlapping layers emits formal→informal pair."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        build_formal_informal_bridge,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    formal_layer = _layer(top_m=0.0, base_m=10.0, description="KoKe")
+    informal_layer = _layer(top_m=0.0, base_m=10.0, description="Paleogeen: Formatie van Kortrijk")
+    bh = _borehole(
+        [
+            _observation(ObservationType.FORMAL_STRATIGRAPHY, [formal_layer]),
+            _observation(ObservationType.INFORMAL_STRATIGRAPHY, [informal_layer]),
+        ]
+    )
+
+    session = _make_bridge_session([bh])
+    bridge = await build_formal_informal_bridge(session, project_id=project_id)
+
+    norm_formal = normalize_formation_key("KoKe")
+    norm_informal = normalize_formation_key("Paleogeen: Formatie van Kortrijk")
+    assert bridge == {norm_formal: norm_informal}, (
+        "Dual-stream borehole must produce one formal→informal bridge entry"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bridge_B2_formal_only_contributes_nothing():
+    """B2: formal-only borehole (no informal stream) contributes nothing to the bridge."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        build_formal_informal_bridge,
+    )
+
+    project_id = uuid4()
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="KoKe")],
+            ),
+        ]
+    )
+
+    session = _make_bridge_session([bh])
+    bridge = await build_formal_informal_bridge(session, project_id=project_id)
+
+    assert bridge == {}, "Formal-only borehole must not produce bridge entries"
+
+
+@pytest.mark.asyncio
+async def test_bridge_B3_informal_only_contributes_nothing():
+    """B3: informal-only borehole (no formal stream) contributes nothing to the bridge."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        build_formal_informal_bridge,
+    )
+
+    project_id = uuid4()
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="Quartair")],
+            ),
+        ]
+    )
+
+    session = _make_bridge_session([bh])
+    bridge = await build_formal_informal_bridge(session, project_id=project_id)
+
+    assert bridge == {}, "Informal-only borehole must not produce bridge entries"
+
+
+@pytest.mark.asyncio
+async def test_bridge_B4_two_boreholes_agree():
+    """B4: two dual-stream boreholes that agree on the same formal→informal pair
+    produce exactly one bridge entry with that mapping.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        build_formal_informal_bridge,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    bh1 = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=8.0, description="Q")],
+            ),
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=8.0, description="Quartair")],
+            ),
+        ]
+    )
+    bh2 = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=1.0, base_m=9.0, description="Q")],
+            ),
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=1.0, base_m=9.0, description="Quartair")],
+            ),
+        ]
+    )
+
+    session = _make_bridge_session([bh1, bh2])
+    bridge = await build_formal_informal_bridge(session, project_id=project_id)
+
+    assert bridge == {normalize_formation_key("Q"): normalize_formation_key("Quartair")}, (
+        "Two agreeing boreholes must produce a single stable bridge entry"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bridge_B5_disagreement_picks_majority_logs_warning(caplog):
+    """B5: two dual-stream boreholes disagree on the mapping for the same formal code
+    → majority vote wins, deterministic tie-break, WARNING is logged.
+    """
+    import logging
+
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        build_formal_informal_bridge,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+
+    # bh1 and bh2: "A" → "Alluvium" (2 votes)
+    # bh3: "A" → "Antropogeen" (1 vote)
+    def _dual(formal_desc: str, informal_desc: str) -> SimpleNamespace:
+        return _borehole(
+            [
+                _observation(
+                    ObservationType.FORMAL_STRATIGRAPHY,
+                    [_layer(top_m=0.0, base_m=5.0, description=formal_desc)],
+                ),
+                _observation(
+                    ObservationType.INFORMAL_STRATIGRAPHY,
+                    [_layer(top_m=0.0, base_m=5.0, description=informal_desc)],
+                ),
+            ]
+        )
+
+    bh1 = _dual("A", "Alluvium")
+    bh2 = _dual("A", "Alluvium")
+    bh3 = _dual("A", "Antropogeen")
+
+    session = _make_bridge_session([bh1, bh2, bh3])
+    with caplog.at_level(logging.WARNING):
+        bridge = await build_formal_informal_bridge(session, project_id=project_id)
+
+    # Majority "Alluvium" wins over minority "Antropogeen".
+    assert bridge == {normalize_formation_key("A"): normalize_formation_key("Alluvium")}, (
+        "Majority informal key must win when boreholes disagree"
+    )
+
+    # A WARNING must have been logged about the disagreement.
+    assert any(
+        "disagree" in r.message.lower() or "disagreeing" in r.message.lower()
+        for r in caplog.records
+    ), "A WARNING must be logged when dual-stream boreholes disagree on a mapping"
+
+
+@pytest.mark.asyncio
+async def test_bridge_B5_tie_broken_lexicographically(caplog):
+    """B5 tie-break: when two informal keys are tied in vote count the
+    lexicographically smaller one wins (deterministic, reproducible).
+    """
+    import logging
+
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        build_formal_informal_bridge,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    # "Q" → "Quartair" (1 vote) vs "Q" → "Zand" (1 vote)
+    # normalize("quartair") < normalize("zand") lexicographically → "quartair" wins.
+    bh1 = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="Q")],
+            ),
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="Quartair")],
+            ),
+        ]
+    )
+    bh2 = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="Q")],
+            ),
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="Zand")],
+            ),
+        ]
+    )
+
+    session = _make_bridge_session([bh1, bh2])
+    with caplog.at_level(logging.WARNING):
+        bridge = await build_formal_informal_bridge(session, project_id=project_id)
+
+    # "quartair" < "zand" alphabetically → "quartair" wins.
+    assert bridge == {normalize_formation_key("Q"): normalize_formation_key("Quartair")}, (
+        "Lexicographically smaller key must win on a tie"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bridge_B6_no_overlap_produces_no_pair():
+    """B6: dual-stream borehole where formal and informal layers do not overlap
+    (formal layer is entirely above the informal layer) → no bridge pair emitted.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        build_formal_informal_bridge,
+    )
+
+    project_id = uuid4()
+    # Formal: 0–5 m; Informal: 10–20 m — no overlap whatsoever.
+    bh = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=5.0, description="Q")],
+            ),
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=10.0, base_m=20.0, description="Quartair")],
+            ),
+        ]
+    )
+
+    session = _make_bridge_session([bh])
+    bridge = await build_formal_informal_bridge(session, project_id=project_id)
+
+    assert bridge == {}, "Non-overlapping formal/informal layers must not produce a bridge pair"
+
+
+# ---------------------------------------------------------------------------
+# R-series: _resolve_bridge_key — pure function, no I/O
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_bridge_R1_formal_in_bridge_returns_mapped_key():
+    """R1: formal key present in bridge → returns the mapped informal key."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_bridge_key,
+        normalize_formation_key,
+    )
+
+    bridge = {normalize_formation_key("KoKe"): normalize_formation_key("Formatie van Kortrijk")}
+    result = _resolve_bridge_key(
+        normalize_formation_key("KoKe"),
+        primary_is_formal=True,
+        bridge=bridge,
+    )
+    assert result == normalize_formation_key("Formatie van Kortrijk")
+
+
+def test_resolve_bridge_R2_formal_not_in_bridge_returns_raw():
+    """R2: formal key absent from bridge → raw_key returned unchanged."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_bridge_key,
+        normalize_formation_key,
+    )
+
+    bridge = {normalize_formation_key("KoKe"): normalize_formation_key("Formatie van Kortrijk")}
+    raw = normalize_formation_key("Q")
+    result = _resolve_bridge_key(raw, primary_is_formal=True, bridge=bridge)
+    assert result == raw, "Key not in bridge must pass through unchanged"
+
+
+def test_resolve_bridge_R3_informal_untouched_even_when_in_bridge():
+    """R3: informal key (primary_is_formal=False) → raw_key returned even if bridge contains it.
+
+    The bridge is formal→informal; informal keys must never be remapped —
+    doing so would create a double-remap and corrupt the identity model.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_bridge_key,
+        normalize_formation_key,
+    )
+
+    # Construct a bridge where the informal key happens to equal a formal key.
+    informal_key = normalize_formation_key("Quartair")
+    bridge = {informal_key: normalize_formation_key("Something Else")}
+    result = _resolve_bridge_key(informal_key, primary_is_formal=False, bridge=bridge)
+    assert result == informal_key, "Informal keys must never be remapped by the bridge"
+
+
+def test_resolve_bridge_R4_none_bridge_is_noop():
+    """R4: bridge=None → raw_key returned unchanged (no-dual-stream project path)."""
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_bridge_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("KoKe")
+    assert _resolve_bridge_key(raw, primary_is_formal=True, bridge=None) == raw
+
+
+# ---------------------------------------------------------------------------
+# I-series: discover≡apply≡seed invariant across vocabulary namespaces
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_invariant_I1_cross_borehole_formal_informal_merge_with_bridge():
+    """I1: formal-only borehole + informal-only borehole + a dual-stream borehole
+    that proves the equivalence → scan returns ONE candidate (bridged) AND execute
+    creates ONE formation (same bridged key).
+
+    This is the load-bearing regression test for #58:
+    without the bridge, two separate candidates ("koke" and
+    "paleogeen formatie van kortrijk") are returned.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+        build_formal_informal_bridge,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+
+    # Dual-stream borehole: proves KoKe ↔ "Paleogeen: Formatie van Kortrijk".
+    bh_dual = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=5.0, base_m=20.0, description="KoKe")],
+            ),
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=5.0, base_m=20.0, description="Paleogeen: Formatie van Kortrijk")],
+            ),
+        ]
+    )
+    # Formal-only borehole (the problem case pre-bridge).
+    bh_formal_only = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=3.0, base_m=18.0, description="KoKe")],
+            ),
+        ]
+    )
+    # Informal-only borehole (the problem case pre-bridge).
+    bh_informal_only = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=4.0, base_m=22.0, description="Paleogeen: Formatie van Kortrijk")],
+            ),
+        ]
+    )
+
+    # --- discover side ---
+    all_boreholes = [bh_dual, bh_formal_only, bh_informal_only]
+    bridge_session = _make_bridge_session(all_boreholes)
+    bridge = await build_formal_informal_bridge(bridge_session, project_id=project_id)
+
+    scan_session = _make_session(all_boreholes)
+    candidates, collisions = await scan_stratigraphy_candidates(
+        scan_session,
+        project_id=project_id,
+        borehole_ids=[bh_dual.id, bh_formal_only.id, bh_informal_only.id],
+        bridge=bridge,
+    )
+
+    # With the bridge, KoKe maps to norm("Paleogeen: Formatie van Kortrijk")
+    # so all three boreholes contribute to ONE candidate.
+    assert len(candidates) == 1, (
+        f"I1: expected 1 bridged candidate, got {len(candidates)}: {[c.key for c in candidates]}"
+    )
+    c = candidates[0]
+    assert c.borehole_count == 3, f"I1: all 3 boreholes must contribute; got {c.borehole_count}"
+    assert c.key == normalize_formation_key("Paleogeen: Formatie van Kortrijk"), (
+        f"I1: candidate key must be the bridged informal key, got '{c.key}'"
+    )
+
+    # --- apply side (execute) ---
+    # Reuse the same stub pattern as the other execute tests.
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = all_boreholes
+
+    empty_formations = MagicMock()
+    empty_formations.scalars.return_value.all.return_value = []
+
+    max_order = MagicMock()
+    max_order.scalar_one.return_value = 0
+
+    empty_contacts = MagicMock()
+    empty_contacts.all.return_value = []
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return empty_formations
+        if call_count == 3:
+            return max_order
+        return empty_contacts
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock()
+    session.new = []
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        outcome = await AutoPopulateContactsFromStratigraphy(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh_dual.id, bh_formal_only.id, bh_informal_only.id],
+            bridge=bridge,
+        )
+
+    # With the bridge, all three boreholes resolve to ONE formation → 3 contacts.
+    assert len(outcome.created_formation_ids) == 1, (
+        f"I1 apply: expected 1 formation, got {len(outcome.created_formation_ids)}"
+    )
+    assert len(outcome.created_contact_ids) == 3, (
+        f"I1 apply: expected 3 contacts (one per borehole), got {len(outcome.created_contact_ids)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_invariant_I2_no_bridge_regression_guard():
+    """I2: without a bridge (bridge=None), formal-only and informal-only boreholes
+    yield TWO distinct candidates — the pre-#58 baseline behaviour is preserved
+    so the fix is additive, not a breaking change.
+    """
+    project_id = uuid4()
+
+    bh_formal = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=10.0, description="KoKe")],
+            ),
+        ]
+    )
+    bh_informal = _borehole(
+        [
+            _observation(
+                ObservationType.INFORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=10.0, description="Paleogeen: Formatie van Kortrijk")],
+            ),
+        ]
+    )
+
+    session = _make_session([bh_formal, bh_informal])
+    candidates, _ = await scan_stratigraphy_candidates(
+        session,
+        project_id=project_id,
+        borehole_ids=[bh_formal.id, bh_informal.id],
+        bridge=None,  # no bridge → two separate candidates
+    )
+
+    assert len(candidates) == 2, (
+        f"I2: bridge=None must produce 2 separate candidates, got {len(candidates)}"
+    )
+    keys = {c.key for c in candidates}
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        normalize_formation_key,
+    )
+
+    assert normalize_formation_key("KoKe") in keys
+    assert normalize_formation_key("Paleogeen: Formatie van Kortrijk") in keys
+
+
+@pytest.mark.asyncio
+async def test_invariant_I3_manual_map_overrides_bridge():
+    """I3: manual_map entry always overrides the bridge — precedence is
+    raw → bridge → manual_map (manual_map wins at the end of the chain).
+
+    Scenario: bridge maps norm("KoKe") → norm("Paleogeen: Formatie van Kortrijk").
+    The user also provides a manual_map that redirects the bridged key to
+    a custom target "Kortrijk Formation".  The effective key must be the
+    manual_map target, NOT the bridged key.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+
+    bh_formal = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=10.0, description="KoKe")],
+            ),
+        ]
+    )
+
+    norm_informal_key = normalize_formation_key("Paleogeen: Formatie van Kortrijk")
+    bridge = {normalize_formation_key("KoKe"): norm_informal_key}
+    # manual_map redirects the bridged informal key to "Kortrijk Formation"
+    manual_map = {norm_informal_key: "Kortrijk Formation"}
+
+    session = _make_session([bh_formal])
+    candidates, _ = await scan_stratigraphy_candidates(
+        session,
+        project_id=project_id,
+        borehole_ids=[bh_formal.id],
+        bridge=bridge,
+        manual_map=manual_map,
+    )
+
+    assert len(candidates) == 1
+    c = candidates[0]
+    # The effective key must be the manual_map target (not the bridged key).
+    assert c.key == normalize_formation_key("Kortrijk Formation"), (
+        f"I3: manual_map must win over bridge; got key='{c.key}'"
+    )
+    assert c.name == "Kortrijk Formation", (
+        f"I3: display name must be the manual_map target; got name='{c.name}'"
+    )
