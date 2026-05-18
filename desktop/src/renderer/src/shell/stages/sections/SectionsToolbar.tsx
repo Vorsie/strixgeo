@@ -41,6 +41,7 @@ export default function SectionsToolbar(): JSX.Element {
       handleCreateSection,
       handleDeleteSection,
       applyUpdatedSection,
+      backdropModelIdOverride,
     },
     geoModel: {
       activeGeologicalModel,
@@ -50,11 +51,11 @@ export default function SectionsToolbar(): JSX.Element {
       handleDedupeContacts,
       handleExportModelPlaxis3d,
       handleAutoPopulateFromStratigraphy,
-      handleSeedLithoFromParent,
       lithoSuggesting,
       lithoSuggestions,
       handleSuggestLitho,
       clearLithoSuggestions,
+      handleLoadBackdropSurfaces,
     },
     coordinator: {
       selectedId,
@@ -155,32 +156,32 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }
 
-  // Seed — axis-aware.  On the geological axis: seed from borehole
-  // stratigraphy (handleAutoPopulateFromStratigraphy).  On the litho axis:
-  // copy the parent geological model's contacts into the litho model
-  // (handleSeedLithoFromParent) — a distinct, simpler operation that
-  // requires only an active litho model (no geoVerbDisabled gate).
+  // Seed — axis-aware.
+  // Geological axis: place contacts from borehole stratigraphy for
+  // formations already defined in the active geological model.
+  // Litho axis (REWIRED per owner override #1, #60): (re)fetch the parent
+  // geological model's TIN surfaces for the backdrop reference layer.
+  // The old handleSeedLithoFromParent (contact-copy verb) is ORPHANED:
+  // the backend endpoint still exists but no frontend verb calls it after
+  // this change (see docstring on SeedLithoFromGeologicalModel use case
+  // and debt #60 in CLAUDE.md).
   async function handleSeed(): Promise<void> {
     if (seeding) return
     setSeeding(true)
     try {
       if (isLitho) {
-        if (!activeLithoModel) return
-        // Pass applyUpdatedSection so the server-echoed updated_section
-        // (with the unioned seeded_formation_contact_ids) is applied to
-        // local state — otherwise SectionsCanvas's explicit-content
-        // filter keeps hiding every seeded contact and the section
-        // renders empty even though the rows exist server-side.
-        await handleSeedLithoFromParent(
-          visibleBoreholes.map(b => b.id),
-          selectedSectionId ?? null,
-          applyUpdatedSection,
-        )
+        // Derive the effective backdrop model id: the user's override takes
+        // precedence; the default is the active litho model's parent geological
+        // model (mirroring the useMemo derivation in SectionsCanvas).
+        const effectiveBackdropModelId =
+          backdropModelIdOverride ?? activeLithoModel?.parent_geological_model_id ?? null
+        if (!effectiveBackdropModelId) return
+        await handleLoadBackdropSurfaces(effectiveBackdropModelId)
       } else {
         if (!activeGeologicalModel) return
         // Forward the section id so the seeded geological contacts are
         // added to the section's seeded_formation_contact_ids and actually
-        // render here (explicit-content invariant) — mirrors the litho path.
+        // render here (explicit-content invariant).
         await handleAutoPopulateFromStratigraphy(
           visibleBoreholes.map(b => b.id),
           selectedSectionId ?? null,
@@ -476,27 +477,33 @@ export default function SectionsToolbar(): JSX.Element {
         }
       />
 
-      {/* Seed — axis-aware.
+      {/* Seed / Sync geology — axis-aware.
           Geological axis: places contacts from borehole stratigraphy for
           formations that already exist in the active geological model.
-          Lithostratigraphic axis: copies the parent geological model's contacts
-          into the litho model (source='geological_model_seed', confidence='medium').
-          On the litho axis the geoVerbDisabled gate is intentionally lifted —
-          Seed is a valid litho-axis operation; Build / Dedupe / Plaxis-3D
-          still stay disabled on litho (they act on the geological model). */}
+          Lithostratigraphic axis (owner override #1, #60): (re)loads the parent
+          geological model's TIN surfaces as a read-only backdrop reference layer
+          — renamed to "Sync geology" on the litho axis to reflect the new intent.
+          The geoVerbDisabled gate is intentionally NOT applied to the litho-axis
+          path: syncing the geological backdrop is a valid litho-axis operation. */}
       <ToolbarButton
         icon={<Sparkles size={13} />}
-        label={seeding ? 'Seeding…' : isLitho ? 'Seed from geology' : 'Seed'}
+        label={seeding ? 'Syncing…' : isLitho ? 'Sync geology' : 'Seed'}
         onClick={() => void handleSeed()}
-        disabled={seeding || (isLitho ? activeLithoModel === null : geoVerbDisabled)}
+        disabled={
+          seeding ||
+          (isLitho
+            ? activeLithoModel === null ||
+              (backdropModelIdOverride ?? activeLithoModel?.parent_geological_model_id) === null
+            : geoVerbDisabled)
+        }
         busy={seeding}
         title={
           isLitho
-            ? (activeLithoModel === null
-                ? 'Create a lithostratigraphic model in the Lithology stage first'
-                : seeding
-                  ? 'Copying contacts from geological model…'
-                  : 'Copy the parent geological model\'s contacts into this lithostratigraphic model')
+            ? activeLithoModel === null
+              ? 'Create a lithostratigraphic model in the Lithology stage first'
+              : seeding
+                ? 'Loading geological surfaces…'
+                : 'Load the parent geological model\'s surfaces as a read-only backdrop reference on this section'
             : (geoVerbHint ??
               (activeGeologicalModel === null
                 ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
