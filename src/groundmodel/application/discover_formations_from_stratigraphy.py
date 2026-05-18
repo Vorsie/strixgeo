@@ -47,6 +47,7 @@ class DiscoverFormationsFromStratigraphy(GroundModelLogger):
         project_id: UUID,
         borehole_ids: Iterable[UUID],
         manual_map: dict[str, str] | None = None,
+        bridge: dict[str, str] | None = None,
     ) -> tuple[list[StratigraphyCandidate], list[LumpingCollision]]:
         """Scan borehole stratigraphy and return unique candidate names.
 
@@ -54,11 +55,12 @@ class DiscoverFormationsFromStratigraphy(GroundModelLogger):
         the shared helper that mirrors ``AutoPopulateContactsFromStratigraphy``
         but without the contact-creation side effects.
 
-        The ``discover≡apply`` invariant: passing the same ``manual_map``
-        here and to ``AutoPopulateContactsFromStratigraphy.execute`` produces
-        identical effective keys, formation names, and collision warnings.
-        The dialog must send the same map it used for the preview when
-        confirming the apply, to eliminate any race between preview and write.
+        The ``discover≡apply≡seed`` invariant: passing the same ``manual_map``
+        and ``bridge`` here and to ``AutoPopulateContactsFromStratigraphy.execute``
+        produces identical effective keys, formation names, and collision
+        warnings.  The dialog must send the same map it used for the preview
+        when confirming the apply, and the router must compute the bridge ONCE
+        per request and pass it to both endpoints.
 
         Parameters
         ----------
@@ -73,6 +75,12 @@ class DiscoverFormationsFromStratigraphy(GroundModelLogger):
             mapping built by the user's lumping dialog.  When provided, raw
             names that appear in the map are merged under the target formation
             in the candidate list.  ``None`` (default) = no lumping.
+        bridge : dict[str, str] or None, optional
+            Formal→informal equivalence map produced by
+            ``build_formal_informal_bridge``.  The router computes this once
+            and passes it here so the discover preview and the write path see
+            identical keys (the discover≡apply≡seed invariant).
+            ``None`` (default) = no bridge.
 
         Returns
         -------
@@ -86,13 +94,15 @@ class DiscoverFormationsFromStratigraphy(GroundModelLogger):
         self.info(
             f"DiscoverFormationsFromStratigraphy: project={project_id} "
             f"boreholes={len(borehole_id_list)} "
-            f"manual_map={len(manual_map) if manual_map else 0}"
+            f"manual_map={len(manual_map) if manual_map else 0} "
+            f"bridge={len(bridge) if bridge else 0}"
         )
         candidates, collisions = await scan_stratigraphy_candidates(
             self._session,
             project_id=project_id,
             borehole_ids=borehole_id_list,
             manual_map=manual_map,
+            bridge=bridge,
         )
         self.success(
             f"DiscoverFormationsFromStratigraphy done: "
