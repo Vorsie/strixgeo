@@ -42,6 +42,7 @@ export default function SectionsToolbar(): JSX.Element {
       handleDeleteSection,
       applyUpdatedSection,
       backdropModelIdOverride,
+      sectionFocusedColumn,
     },
     geoModel: {
       activeGeologicalModel,
@@ -227,16 +228,22 @@ export default function SectionsToolbar(): JSX.Element {
       ? `Build · ${staleSurfaceCount} stale`
       : 'Build model'
 
-  // Suggest litho — fetches Robertson-2015/borehole segmenter suggestions for
-  // the currently selected CPT or borehole. Only enabled on the litho axis
-  // when a section is selected AND an investigation is selected (the source).
-  // "Clear" dismisses the ghost overlay without requiring a section interaction.
-  const focusedAnchorKind: 'cpt' | 'borehole' | null = selectedId
-    ? 'cpt'
-    : selectedBoreholeId
-      ? 'borehole'
-      : null
-  const focusedAnchorId = selectedId ?? selectedBoreholeId ?? null
+  // Suggest litho — fetches Robertson-2015/borehole segmenter suggestions
+  // for the focused column in the active section. On the litho axis the
+  // source is the section-local focused column (right-click → Focus in the
+  // section canvas), NOT the global coordinator selection which is only set
+  // by map/data-stage clicks. This is the workflow: right-click a column in
+  // the section to focus it, then click "Suggest litho" in the toolbar.
+  const focusedAnchorKind: 'cpt' | 'borehole' | null = isLitho
+    ? (sectionFocusedColumn?.kind ?? null)
+    : selectedId
+      ? 'cpt'
+      : selectedBoreholeId
+        ? 'borehole'
+        : null
+  const focusedAnchorId: string | null = isLitho
+    ? (sectionFocusedColumn?.id ?? null)
+    : (selectedId ?? selectedBoreholeId ?? null)
   const canSuggest = isLitho && activeLithoModel !== null && hasSection && focusedAnchorId !== null
   const hasSuggestions = lithoSuggestions.length > 0
 
@@ -358,10 +365,10 @@ export default function SectionsToolbar(): JSX.Element {
                 : !hasSection
                   ? 'Open a cross-section to use Suggest litho'
                   : !focusedAnchorId
-                    ? 'Select a CPT or borehole on the section to suggest layers for'
+                    ? 'Right-click a column in the section to focus a CPT or borehole, then Suggest litho'
                     : lithoSuggesting
                       ? 'Fetching suggestions…'
-                      : 'Suggest lithostratigraphic layers for the selected investigation'
+                      : `Suggest lithostratigraphic layers for ${sectionFocusedColumn?.name ?? 'the focused investigation'}`
             }
           />
           {hasSuggestions && (
