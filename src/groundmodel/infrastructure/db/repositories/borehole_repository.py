@@ -8,7 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 
-from groundmodel.domain.value_objects.elevation_source import ElevationSource
+from groundmodel.domain.services.elevation_rollback import (
+    ElevationState,
+    resolve_elevation_change,
+)
 from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
@@ -235,6 +238,11 @@ class BoreholeRepository(GroundModelLogger):
         vertical CRS for the row's horizontal EPSG is used (e.g. 31370 → 5710
         mTAW for Belgium, 28992 → 5709 NAP for the Netherlands).
 
+        Setting a value stamps ``MANUAL``. The first manual override of an
+        imported (DOV/GEF) Z snapshots that upstream triple; clearing then
+        restores the surveyed Z instead of nulling the row (debt #21), via
+        the shared pure ``resolve_elevation_change`` (same logic as CPT).
+
         Loads the row WITHOUT the heavy child collections — the patch handler
         only needs the header columns to return a list-item-compatible
         response. Returns ``None`` when the id does not exist.
@@ -244,26 +252,28 @@ class BoreholeRepository(GroundModelLogger):
         borehole = result.scalar_one_or_none()
         if borehole is None:
             return None
-        borehole.elevation_m = elevation_m
-        # Keep z_epsg paired with the elevation column. Clearing the value
-        # clears the CRS too. Setting a value without an explicit CRS picks
-        # the canonical pair for the row's horizontal EPSG.
-        if elevation_m is None:
-            borehole.z_epsg = None
-            # Clearing a manual edit moves the row back to "no Z known".
-            # We do NOT restore a previously-imported Z — debt #8 calls
-            # that out as a Phase 5 enhancement (``elevation_m_source``
-            # second column holding the original upstream value).
-            borehole.elevation_source = ElevationSource.NONE.value
-        else:
-            borehole.z_epsg = z_epsg if z_epsg is not None else default_vertical_epsg(borehole.epsg)
-            # Every set_elevation call stamps MANUAL — that's the entire
-            # point of the column, so refresh-on-duplicate paths don't
-            # later overwrite the user's correction (debt #8).
-            borehole.elevation_source = ElevationSource.MANUAL.value
+        new_state = resolve_elevation_change(
+            ElevationState(
+                elevation_m=borehole.elevation_m,
+                z_epsg=borehole.z_epsg,
+                source=borehole.elevation_source,
+                original_elevation_m=borehole.original_elevation_m,
+                original_z_epsg=borehole.original_z_epsg,
+                original_source=borehole.original_elevation_source,
+            ),
+            new_elevation_m=elevation_m,
+            new_z_epsg=z_epsg,
+            default_z_epsg=default_vertical_epsg(borehole.epsg),
+        )
+        borehole.elevation_m = new_state.elevation_m
+        borehole.z_epsg = new_state.z_epsg
+        borehole.elevation_source = new_state.source
+        borehole.original_elevation_m = new_state.original_elevation_m
+        borehole.original_z_epsg = new_state.original_z_epsg
+        borehole.original_elevation_source = new_state.original_source
         await self._session.flush()
         self.success(
-            f"Borehole {borehole_id} elevation updated to {elevation_m} ({borehole.z_epsg}) "
-            f"source={borehole.elevation_source}"
+            f"Borehole {borehole_id} elevation updated to {new_state.elevation_m} "
+            f"({new_state.z_epsg}) source={new_state.source}"
         )
         return borehole
