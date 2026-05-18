@@ -54,9 +54,13 @@ export default function SectionsInspector(): JSX.Element {
       handleDeleteSection,
       handlePatchSelectedSection,
       handleFocusContacts,
+      backdropModelIdOverride,
+      setBackdropModelIdOverride,
     },
     geoModel: {
       activeGeologicalModel,
+      activeLithoModel,
+      models,
       formations,
       crossingsRefreshCounter,
       staleSurfaceCount,
@@ -87,6 +91,19 @@ export default function SectionsInspector(): JSX.Element {
   )
 
   const canCreate = (project.default_horizontal_epsg ?? null) !== null
+
+  // Geological models from the full project model list, used for the backdrop
+  // picker. Only shown when multiple geological models exist (rare — most
+  // projects have one geological backbone; the picker surfaces only when the
+  // user has created scenario variants).
+  const geoModels = useMemo(
+    () => models.filter(m => m.kind === 'geological' || m.kind == null),
+    [models],
+  )
+  // Effective backdrop model id: the user's override if set, else the active
+  // litho model's parent. Mirrors the derivation in SectionsCanvas / SectionsToolbar.
+  const effectiveBackdropModelId =
+    backdropModelIdOverride ?? activeLithoModel?.parent_geological_model_id ?? null
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -130,6 +147,45 @@ export default function SectionsInspector(): JSX.Element {
           badgeAmber={staleSurfaceCount > 0}
         >
           <FormationList formations={formations} />
+        </InspectorSection>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Geological backdrop picker — only when the project has more than   */}
+      {/* one geological model. Single-model projects skip the picker.       */}
+      {/* ------------------------------------------------------------------ */}
+      {activeLithoModel !== null && geoModels.length > 1 && (
+        <InspectorSection label="Geology backdrop (litho axis)">
+          <div className="px-2 pb-2 pt-1">
+            <label
+              htmlFor="backdrop-model-picker"
+              className="block text-xs text-text-secondary mb-1"
+            >
+              Reference geological model
+            </label>
+            <select
+              id="backdrop-model-picker"
+              value={effectiveBackdropModelId ?? ''}
+              onChange={e => {
+                const val = e.target.value
+                // Selecting the parent's model id with no override set is
+                // equivalent to clearing the override — keep the state tidy.
+                const parentId = activeLithoModel.parent_geological_model_id
+                setBackdropModelIdOverride(val === parentId ? null : val || null)
+              }}
+              className="w-full text-xs rounded border border-border-default bg-surface-card text-text-primary px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              {geoModels.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-text-muted mt-1">
+              Shown as a faint reference layer when the litho axis is active.
+              Click&nbsp;<em>Sync geology</em> in the toolbar to load.
+            </p>
+          </div>
         </InspectorSection>
       )}
 
