@@ -933,6 +933,7 @@ async def extrapolate_pinch_out(
             direction=request.direction,
             dip_override_m_per_m=request.dip_override_m_per_m,
             offset_m=request.offset_m,
+            dry_run=request.dry_run,
         )
     except ValueError as exc:
         # Use case raises ValueError for uncomputable geometry or missing
@@ -965,6 +966,16 @@ async def extrapolate_pinch_out(
                     "formation in this model; returning the existing ones."
                 ),
                 "existing_contact_ids": [str(cid) for cid in result.created_contact_ids],
+                # The idempotent use-case path STILL seeds the section
+                # (explicit-content invariant). Echo the patched section so
+                # the client can refresh its local seeded set — otherwise
+                # the pre-existing synthetic contacts stay invisible on
+                # this section until a reload (review B2/S3).
+                "updated_section": (
+                    updated_section_response.model_dump(mode="json")
+                    if updated_section_response is not None
+                    else None
+                ),
             },
         )
 
