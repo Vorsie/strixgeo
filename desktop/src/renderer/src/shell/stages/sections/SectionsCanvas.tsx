@@ -81,6 +81,8 @@ export default function SectionsCanvas(): JSX.Element {
       handlePreviewPinchOut,
       handleCommitPinchOut,
       clearPinchOutPreview,
+      backdropSurfacesByFormationId,
+      handleLoadBackdropSurfaces,
     },
     sections: {
       // WHY visibleSections not sections: both the map overlay and the section
@@ -101,6 +103,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleSelectSection,
       handleCreateSection,
       applyUpdatedSection,
+      backdropModelIdOverride,
     },
     overlays: {
       virtueleBoringSectionModels,
@@ -197,6 +200,18 @@ export default function SectionsCanvas(): JSX.Element {
   const axisExcludedBoreholeIds = activeAxisModel?.excluded_borehole_ids ?? []
   const axisCreateContact = isLitho ? handleCreateLithoContact : handleCreateContact
   const axisCreateFormation = isLitho ? handleInlineLithoCreateFormation : handleInlineCreateFormation
+
+  // Override #2 (owner): derive the default backdrop geological-model id at the
+  // prop boundary via useMemo from activeLithoModel?.parent_geological_model_id.
+  // When the project has more than one geological model the user can override via
+  // the picker in SectionsInspector (backdropModelIdOverride from the sections
+  // ShellContext slice); the effective id is the override if set, else the parent.
+  const defaultBackdropModelId = useMemo(
+    () => activeLithoModel?.parent_geological_model_id ?? null,
+    [activeLithoModel],
+  )
+  // Effective backdrop model — the ShellContext override takes precedence when set.
+  const effectiveBackdropModelId = backdropModelIdOverride ?? defaultBackdropModelId
 
   // P2-F — explicit-content filter (owner directive 2026-05-17).
   //
@@ -469,6 +484,17 @@ export default function SectionsCanvas(): JSX.Element {
         }
         lithoGhostState={lithoGhostState}
         pinchOutGhostState={pinchOutGhostState}
+        // Geological surface backdrop (#60): only on the litho axis and only
+        // when at least one geological formation exists. The geological
+        // ``formations`` list is already loaded by the model bootstrap; the
+        // surfaces come from the user-triggered ``handleLoadBackdropSurfaces``
+        // call (the rewired "Sync geology" verb in SectionsToolbar).
+        referenceFormations={isLitho && formations.length > 0 ? formations : undefined}
+        referenceSurfacesByFormationId={
+          isLitho && backdropSurfacesByFormationId.size > 0
+            ? backdropSurfacesByFormationId
+            : undefined
+        }
       />
     )
   }
