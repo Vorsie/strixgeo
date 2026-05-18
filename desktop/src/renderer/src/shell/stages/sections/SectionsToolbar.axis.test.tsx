@@ -85,6 +85,8 @@ function makeCtx(overrides: {
   setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic') => void
   sectionFocusedColumn?: { kind: 'cpt' | 'borehole'; id: string; name: string } | null
   selectedSectionId?: string | null
+  lithoStaleSurfaceCount?: number
+  handleRebuildLithoSurfaces?: () => Promise<void>
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
 
@@ -228,6 +230,8 @@ function makeCtx(overrides: {
       handleDeleteLithoModel: noopAsync,
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
+      lithoStaleSurfaceCount: overrides.lithoStaleSurfaceCount ?? 0,
+      handleRebuildLithoSurfaces: overrides.handleRebuildLithoSurfaces ?? noopAsync,
     },
     sections: {
       sections: overrides.selectedSectionId
@@ -611,5 +615,64 @@ describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', ()
     // On the geo axis the Suggest button block is not rendered at all
     // (it is guarded by {isLitho && ...}).
     expect(screen.queryByRole('button', { name: /suggest litho/i })).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Slice B: Build litho button (Slice B, #55 peer-stage scaffolding)
+// ---------------------------------------------------------------------------
+
+describe('SectionsToolbar Build litho button (Slice B, #55)', () => {
+  // BL1: Build litho button is visible and enabled on the litho axis when
+  // an active litho model exists.
+  it('BL1 — Build litho button is visible and enabled on litho axis', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+    })
+    renderToolbar(ctx)
+    const buildBtn = screen.getByRole('button', { name: /build litho model/i })
+    expect(buildBtn).toBeInTheDocument()
+    expect(buildBtn).not.toBeDisabled()
+  })
+
+  // BL2: Build litho button is absent on the geological axis (the geo Build
+  // button renders instead, handled by the existing geoVerbDisabled guard).
+  it('BL2 — Build litho button is absent on the geological axis', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'geological',
+    })
+    renderToolbar(ctx)
+    expect(screen.queryByRole('button', { name: /build litho/i })).not.toBeInTheDocument()
+  })
+
+  // BL3: Clicking Build litho calls handleRebuildLithoSurfaces.
+  it('BL3 — clicking Build litho calls handleRebuildLithoSurfaces', async () => {
+    const rebuildLitho = vi.fn().mockResolvedValue(undefined)
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+      handleRebuildLithoSurfaces: rebuildLitho,
+    })
+    renderToolbar(ctx)
+
+    const buildBtn = screen.getByRole('button', { name: /build litho model/i })
+    fireEvent.click(buildBtn)
+
+    await vi.waitFor(() => {
+      expect(rebuildLitho).toHaveBeenCalledOnce()
+    })
+  })
+
+  // BL4: When lithoStaleSurfaceCount > 0 the label carries the stale badge.
+  it('BL4 — stale badge appears in the label when lithoStaleSurfaceCount > 0', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+      lithoStaleSurfaceCount: 3,
+    })
+    renderToolbar(ctx)
+    expect(screen.getByRole('button', { name: /build litho · 3 stale/i })).toBeInTheDocument()
   })
 })
