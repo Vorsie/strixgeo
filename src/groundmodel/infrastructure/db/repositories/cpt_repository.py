@@ -6,7 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from groundmodel.domain.value_objects.elevation_source import ElevationSource
+from groundmodel.domain.services.elevation_rollback import (
+    ElevationState,
+    resolve_elevation_change,
+)
 from groundmodel.infrastructure.codelists.vertical_crs import default_vertical_epsg
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
@@ -157,6 +160,12 @@ class CptRepository(GroundModelLogger):
         mTAW for Belgium, 28992 → 5709 NAP for the Netherlands). Pass an
         explicit ``z_epsg`` to override.
 
+        Setting a value stamps ``MANUAL``. The first manual override of an
+        imported (DOV/GEF) Z snapshots that upstream triple; clearing then
+        restores the surveyed Z instead of nulling the row (debt #21). The
+        snapshot/restore decision is the shared pure
+        ``resolve_elevation_change`` so CPT and borehole cannot drift.
+
         Returns the updated row (with ``series`` selectinload so callers can
         return a CptResponse without a second query), or ``None`` when the
         id does not exist.
@@ -164,26 +173,28 @@ class CptRepository(GroundModelLogger):
         cpt = await self.get_by_id(cpt_id)
         if cpt is None:
             return None
-        cpt.elevation_m = elevation_m
-        # Keep z_epsg consistent with the elevation column: clear it whenever
-        # elevation is cleared so the UI never sees a "vertical CRS without a
-        # value" pair. When setting a value with no z_epsg picked, derive the
-        # default from the row's horizontal CRS.
-        if elevation_m is None:
-            cpt.z_epsg = None
-            # Clearing a manual edit moves the row back to "no Z known".
-            # We do NOT restore a previously-imported Z — debt #8 calls
-            # that out as a Phase 5 enhancement.
-            cpt.elevation_source = ElevationSource.NONE.value
-        else:
-            cpt.z_epsg = z_epsg if z_epsg is not None else default_vertical_epsg(cpt.epsg)
-            # Every set_elevation call stamps MANUAL — that's the entire
-            # point of the column, so refresh-on-duplicate paths don't
-            # later overwrite the user's correction (debt #8).
-            cpt.elevation_source = ElevationSource.MANUAL.value
+        new_state = resolve_elevation_change(
+            ElevationState(
+                elevation_m=cpt.elevation_m,
+                z_epsg=cpt.z_epsg,
+                source=cpt.elevation_source,
+                original_elevation_m=cpt.original_elevation_m,
+                original_z_epsg=cpt.original_z_epsg,
+                original_source=cpt.original_elevation_source,
+            ),
+            new_elevation_m=elevation_m,
+            new_z_epsg=z_epsg,
+            default_z_epsg=default_vertical_epsg(cpt.epsg),
+        )
+        cpt.elevation_m = new_state.elevation_m
+        cpt.z_epsg = new_state.z_epsg
+        cpt.elevation_source = new_state.source
+        cpt.original_elevation_m = new_state.original_elevation_m
+        cpt.original_z_epsg = new_state.original_z_epsg
+        cpt.original_elevation_source = new_state.original_source
         await self._session.flush()
         self.success(
-            f"CPT {cpt_id} elevation updated to {elevation_m} ({cpt.z_epsg}) "
-            f"source={cpt.elevation_source}"
+            f"CPT {cpt_id} elevation updated to {new_state.elevation_m} "
+            f"({new_state.z_epsg}) source={new_state.source}"
         )
         return cpt
