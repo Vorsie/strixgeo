@@ -1529,6 +1529,11 @@ export function useGeologicalModel({
           undefined, // selectedKeys — absent on the Seed path
           seedManualMap,
           sectionId,
+          // Explicit-content invariant: Seed never creates formations.
+          // An in-corridor borehole layer whose formation the user did
+          // not curate is skipped (reported via skipped_not_in_model),
+          // not minted — the "Seed added Formatie van Ieper" bug.
+          false,
         )
         // P2-G: when the Seed response carries an updated section row
         // (server patched seeded_formation_contact_ids), patch local
@@ -1562,6 +1567,7 @@ export function useGeologicalModel({
         // — it doesn't observe App's formations cache directly.
         setFormationsRefreshCounter(c => c + 1)
         const created = outcome.created_contact_ids.length
+        const notInModel = outcome.skipped_not_in_model
         const skipped =
           outcome.skipped_existing +
           outcome.skipped_unmatched +
@@ -1572,7 +1578,8 @@ export function useGeologicalModel({
             `+${outcome.created_formation_ids.length} formations, ` +
             `skipped ${outcome.skipped_existing} existing / ` +
             `${outcome.skipped_unmatched} unmatched / ` +
-            `${outcome.skipped_no_stratigraphy} no-strat`,
+            `${outcome.skipped_no_stratigraphy} no-strat / ` +
+            `${notInModel} not-in-model`,
         )
         // Undo: delete every created contact + every created formation
         // (contacts first — FK from contact.formation_id). The redo
@@ -1615,6 +1622,11 @@ export function useGeologicalModel({
                 projectId,
                 modelId,
                 boreholeIdsSnapshot,
+                undefined,
+                undefined,
+                undefined,
+                // Redo of a Seed run must mirror it — never create.
+                false,
               )
               currentContactIds = next.created_contact_ids.slice()
               currentFormationIds = next.created_formation_ids.slice()
@@ -1631,19 +1643,35 @@ export function useGeologicalModel({
         // Surface a short summary toast. Tone: success on any new
         // rows; info on a pure-idempotent re-run; warning when
         // nothing was created AND boreholes lacked stratigraphy.
+        // Seed never creates formations (explicit-content invariant), so
+        // a layer whose formation the user didn't curate is skipped, not
+        // minted. Surface that count so the dropped borehole data isn't
+        // silent — the engineer adds the formation in the Geology stage
+        // ("Fill from boreholes") if they want it on the section.
+        const notInModelSuffix =
+          notInModel > 0
+            ? ` ${notInModel} layer${notInModel === 1 ? '' : 's'} skipped` +
+              ' — formation not in your model.'
+            : ''
         if (created > 0) {
           toast(
             'success',
-            `Seeded ${created} contacts` +
-              (outcome.created_formation_ids.length
-                ? ` and ${outcome.created_formation_ids.length} new formations`
-                : '') +
-              '.',
+            `Seeded ${created} contacts.` + notInModelSuffix,
           )
         } else if (outcome.skipped_no_stratigraphy === boreholeIds.length) {
           toast(
             'error',
             'No boreholes on this section carry stratigraphy data.',
+          )
+        } else if (notInModel > 0) {
+          // Not an error — expected when the corridor's boreholes carry
+          // formations the user chose not to curate. 'success' tone keeps
+          // parity with the "Already in sync" message below (toast only
+          // has success/error).
+          toast(
+            'success',
+            `Nothing seeded —${notInModelSuffix} Add it in the Geology ` +
+              'stage to place it here.',
           )
         } else if (skipped > 0) {
           toast('success', 'Already in sync — nothing to add.')

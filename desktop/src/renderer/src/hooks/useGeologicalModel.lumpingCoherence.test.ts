@@ -243,6 +243,7 @@ describe('useGeologicalModel — lumping-coherence gap fixes', () => {
       undefined, // selectedKeys absent on Seed path
       PERSISTED_LUMPING.map,
       undefined, // sectionId absent
+      false, // createMissingFormations — Seed never creates (explicit-content invariant)
     )
   })
 
@@ -266,6 +267,7 @@ describe('useGeologicalModel — lumping-coherence gap fixes', () => {
       undefined,
       undefined, // no manualMap when currentLumping is null
       undefined,
+      false, // createMissingFormations — Seed never creates (explicit-content invariant)
     )
   })
 })
