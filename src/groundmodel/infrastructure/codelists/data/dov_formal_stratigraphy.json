@@ -1,0 +1,2420 @@
+[
+  {
+    "code": "A",
+    "full_name_nl": "Antropogeen",
+    "age_rank": 0,
+    "color_hex": "#ea152e"
+  },
+  {
+    "code": "Aa",
+    "full_name_nl": "Formatie van Aalter",
+    "age_rank": 73,
+    "color_hex": "#79c489"
+  },
+  {
+    "code": "AaBe",
+    "full_name_nl": "Lid van Beernem (Formatie van Aalter)",
+    "age_rank": 75,
+    "color_hex": "#0db162"
+  },
+  {
+    "code": "AaOe",
+    "full_name_nl": "Lid van Oedelem (Formatie van Aalter)",
+    "age_rank": 74,
+    "color_hex": "#94cd89"
+  },
+  {
+    "code": "Ab",
+    "full_name_nl": "Formatie van Arenberg",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "AbRs",
+    "full_name_nl": "Lid van Rotselaar (Formatie van Arenberg)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "AbWi",
+    "full_name_nl": "Lid van Wichelen (Formatie van Arenberg)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "AbX",
+    "full_name_nl": "Ongedifferentieerd Lid (Formatie van Arenberg)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ag",
+    "full_name_nl": "Formatie van Adegem",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Bb",
+    "full_name_nl": "Formatie van Bolderberg",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BbGe",
+    "full_name_nl": "Lid van Genk (Formatie van Bolderberg)",
+    "age_rank": 33,
+    "color_hex": "#f0ed9a"
+  },
+  {
+    "code": "BbHo",
+    "full_name_nl": "Lid van Houthalen (Formatie van Bolderberg)",
+    "age_rank": 34,
+    "color_hex": "#abd198"
+  },
+  {
+    "code": "BbOp",
+    "full_name_nl": "Lid van Opitter (Formatie van Bolderberg)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Bc",
+    "full_name_nl": "Formatie van Berchem",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BcAn",
+    "full_name_nl": "Lid van Antwerpen (Formatie van Berchem)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BcEd",
+    "full_name_nl": "Lid van Edegem (Formatie van Berchem)",
+    "age_rank": 37,
+    "color_hex": "#bede7d"
+  },
+  {
+    "code": "BcKi",
+    "full_name_nl": "Lid van Kiel (Formatie van Berchem)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BcZo",
+    "full_name_nl": "Lid van Zonderschot (Formatie van Berchem)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Be",
+    "full_name_nl": "Formatie van Bertaimont",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Bi",
+    "full_name_nl": "Formatie van Bilzen",
+    "age_rank": 48,
+    "color_hex": "#8baed8"
+  },
+  {
+    "code": "BiBe",
+    "full_name_nl": "Lid van Berg (Formatie van Bilzen)",
+    "age_rank": 51,
+    "color_hex": "#99d3f5"
+  },
+  {
+    "code": "BiKe",
+    "full_name_nl": "Lid van Kerniel (Formatie van Bilzen)",
+    "age_rank": 49,
+    "color_hex": "#c5dde8"
+  },
+  {
+    "code": "BiKs",
+    "full_name_nl": "Lid van Kleine Spouwen (Formatie van Bilzen)",
+    "age_rank": 50,
+    "color_hex": "#509693"
+  },
+  {
+    "code": "Bm",
+    "full_name_nl": "Formatie van Boom",
+    "age_rank": 43,
+    "color_hex": "#2c73b9"
+  },
+  {
+    "code": "BmBt",
+    "full_name_nl": "Lid van Boeretang (Formatie van Boom)",
+    "age_rank": 44,
+    "color_hex": "#2c73b9"
+  },
+  {
+    "code": "BmBw",
+    "full_name_nl": "Lid van Belsele-Waas (Formatie van Boom)",
+    "age_rank": 47,
+    "color_hex": "#97c1e3"
+  },
+  {
+    "code": "BmPu",
+    "full_name_nl": "Lid van Putte (Formatie van Boom)",
+    "age_rank": 45,
+    "color_hex": "#3284c5"
+  },
+  {
+    "code": "BmTe",
+    "full_name_nl": "Lid van Terhagen (Formatie van Boom)",
+    "age_rank": 46,
+    "color_hex": "#4f97d2"
+  },
+  {
+    "code": "Bo",
+    "full_name_nl": "Formatie van Borgloon",
+    "age_rank": 52,
+    "color_hex": "#e3b2c8"
+  },
+  {
+    "code": "BoBt",
+    "full_name_nl": "Lid van Boutersem (Formatie van Borgloon)",
+    "age_rank": 55,
+    "color_hex": "#f5b093"
+  },
+  {
+    "code": "BoHe",
+    "full_name_nl": "Lid van Henis (Formatie van Borgloon)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BoKe",
+    "full_name_nl": "Lid van Kerkom (Formatie van Borgloon)",
+    "age_rank": 53,
+    "color_hex": "#fadce9"
+  },
+  {
+    "code": "BoOb",
+    "full_name_nl": "Lid van Alden Biezen (Formatie van Borgloon)",
+    "age_rank": 54,
+    "color_hex": "#e3b2c8"
+  },
+  {
+    "code": "Br",
+    "full_name_nl": "Formatie van Brussel",
+    "age_rank": 72,
+    "color_hex": "#fdf76c"
+  },
+  {
+    "code": "BrAr",
+    "full_name_nl": "Lid van Archennes (Formatie van Brussel)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BrBh",
+    "full_name_nl": "Lid van Bois de la Houssière (Formatie van Brussel)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BrCg",
+    "full_name_nl": "Lid van Chaumont-Gistoux (Formatie van Brussel)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BrDi",
+    "full_name_nl": "Lid van Diegem (Formatie van Brussel)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BrKr",
+    "full_name_nl": "Lid van Kraaiberg (Formatie van Brussel)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BrMa",
+    "full_name_nl": "Lid van Machelen (Formatie van Brussel)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BrBi",
+    "full_name_nl": "Lid van Bierbeek (Formatie van Brussel)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BrNe",
+    "full_name_nl": "Lid van Neerijse (Formatie van Brussel)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Bs",
+    "full_name_nl": "Formatie van Brasschaat",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BsAk",
+    "full_name_nl": "Brasschaat",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BsHd",
+    "full_name_nl": "Lid van Hemeldonk (Formatie van Brasschaat)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BsSv",
+    "full_name_nl": "Lid van Schorvoort (Formatie van Brasschaat)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "BsVs",
+    "full_name_nl": "Lid van Vosselaar (Formatie van Brasschaat)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ca",
+    "full_name_nl": "Carboon",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "CaDi",
+    "full_name_nl": "Groep van Dinantiaan",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "CaNa",
+    "full_name_nl": "Groep van Namuriaan",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "CaWe",
+    "full_name_nl": "Groep van Westfaliaan",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ci",
+    "full_name_nl": "Formatie van Ciply",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Cm",
+    "full_name_nl": "Groep van Cambrium",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "De",
+    "full_name_nl": "Groep van Devoon",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Di",
+    "full_name_nl": "Formatie van Diest",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "DiDe",
+    "full_name_nl": "Lid van Dessel (Formatie van Diest)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "DiDn",
+    "full_name_nl": "Lid van Deurne (Formatie van Diest)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Eg",
+    "full_name_nl": "Formatie van Eigenbilzen",
+    "age_rank": 42,
+    "color_hex": "#2fb9ef"
+  },
+  {
+    "code": "El",
+    "full_name_nl": "Formatie van Eeklo",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "FX",
+    "full_name_nl": "Formatie van afgedekte formatie",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "G",
+    "full_name_nl": "Groep van geroerd/verstoord",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ge",
+    "full_name_nl": "Formatie van Gentbrugge",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "GeAb",
+    "full_name_nl": "Lid van Aalterbrugge (Formatie van Gentbrugge)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "GeHo",
+    "full_name_nl": "Lid van Hombeek (Formatie van Gentbrugge)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "GeKw",
+    "full_name_nl": "Lid van Kwatrecht (Formatie van Gentbrugge)",
+    "age_rank": 81,
+    "color_hex": "#f6e7f0"
+  },
+  {
+    "code": "GeMe",
+    "full_name_nl": "Lid van Merelbeke (Formatie van Gentbrugge)",
+    "age_rank": 79,
+    "color_hex": "#cc7e84"
+  },
+  {
+    "code": "GePi",
+    "full_name_nl": "Lid van Pittem (Formatie van Gentbrugge)",
+    "age_rank": 78,
+    "color_hex": "#f39e7e"
+  },
+  {
+    "code": "GeVl",
+    "full_name_nl": "Lid van Vlierzele (Formatie van Gentbrugge)",
+    "age_rank": 77,
+    "color_hex": "#f8bc9c"
+  },
+  {
+    "code": "Gm",
+    "full_name_nl": "Formatie van Gembloux",
+    "age_rank": 9,
+    "color_hex": "#ffe682"
+  },
+  {
+    "code": "Gt",
+    "full_name_nl": "Formatie van Gent",
+    "age_rank": 1,
+    "color_hex": "#ffff00"
+  },
+  {
+    "code": "GtAb",
+    "full_name_nl": "Lid van Achterbos (Formatie van Gent)",
+    "age_rank": 2,
+    "color_hex": "#ffe100"
+  },
+  {
+    "code": "GtDi",
+    "full_name_nl": "Lid van Dilsen (Formatie van Gent)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "GtDp",
+    "full_name_nl": "Lid van De Panne (Formatie van Gent)",
+    "age_rank": 3,
+    "color_hex": "#ffc800"
+  },
+  {
+    "code": "GtOg",
+    "full_name_nl": "Lid van Opgrimbie (Formatie van Gent)",
+    "age_rank": 4,
+    "color_hex": "#ffaf00"
+  },
+  {
+    "code": "GtTi",
+    "full_name_nl": "Lid van Tisselt (Formatie van Gent)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ha",
+    "full_name_nl": "Formatie van Hainin",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Hn",
+    "full_name_nl": "Formatie van Hannut",
+    "age_rank": 94,
+    "color_hex": "#c6710a"
+  },
+  {
+    "code": "HnBe",
+    "full_name_nl": "Lid van Beselare (Formatie van Hannut)",
+    "age_rank": 98,
+    "color_hex": "#fa710a"
+  },
+  {
+    "code": "HnCh",
+    "full_name_nl": "Lid van Chercq (Formatie van Hannut)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "HnGr",
+    "full_name_nl": "Lid van Grandglise (Formatie van Hannut)",
+    "age_rank": 95,
+    "color_hex": "#af710a"
+  },
+  {
+    "code": "HnHa",
+    "full_name_nl": "Lid van Halen (Formatie van Hannut)",
+    "age_rank": 96,
+    "color_hex": "#c6710a"
+  },
+  {
+    "code": "HnLi",
+    "full_name_nl": "Lid van Lincent (Formatie van Hannut)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "HnWa",
+    "full_name_nl": "Lid van Waterschei (Formatie van Hannut)",
+    "age_rank": 97,
+    "color_hex": "#e1710a"
+  },
+  {
+    "code": "Ho",
+    "full_name_nl": "Formatie van Houthem",
+    "age_rank": 106,
+    "color_hex": "#f3c200"
+  },
+  {
+    "code": "HP",
+    "full_name_nl": "Groep van Haspengouw",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Hs",
+    "full_name_nl": "Formatie van Heers",
+    "age_rank": 99,
+    "color_hex": "#fff9a8"
+  },
+  {
+    "code": "HsGe",
+    "full_name_nl": "Lid van Gelinden (Formatie van Heers)",
+    "age_rank": 101,
+    "color_hex": "#fff97d"
+  },
+  {
+    "code": "HsMa",
+    "full_name_nl": "Lid van Maaseik (Formatie van Heers)",
+    "age_rank": 100,
+    "color_hex": "#fff9a8"
+  },
+  {
+    "code": "HsOr",
+    "full_name_nl": "Lid van Orp (Formatie van Heers)",
+    "age_rank": 102,
+    "color_hex": "#fff964"
+  },
+  {
+    "code": "Hy",
+    "full_name_nl": "Formatie van Hyon",
+    "age_rank": 82,
+    "color_hex": "#d2b0ce"
+  },
+  {
+    "code": "HyBo",
+    "full_name_nl": "Lid van Bois-la-Haut (Formatie van Hyon)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "HyEg",
+    "full_name_nl": "Lid van Egem (Formatie van Hyon)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "HyMo",
+    "full_name_nl": "Lid van Mont-Panisel (Formatie van Hyon)",
+    "age_rank": 84,
+    "color_hex": "#d093ba"
+  },
+  {
+    "code": "Hz",
+    "full_name_nl": "Formatie van Herzeele",
+    "age_rank": 15,
+    "color_hex": "#f9e77f"
+  },
+  {
+    "code": "IE",
+    "full_name_nl": "Groep van Ieper",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Kd",
+    "full_name_nl": "Formatie van Kattendijk",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ke",
+    "full_name_nl": "Formatie van Kempen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Kh",
+    "full_name_nl": "Formatie van Kruishoutem",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Kl",
+    "full_name_nl": "Formatie van Kasterlee",
+    "age_rank": 29,
+    "color_hex": "#59bc9d"
+  },
+  {
+    "code": "Ko",
+    "full_name_nl": "Formatie van Kortrijk",
+    "age_rank": 86,
+    "color_hex": "#9085ba"
+  },
+  {
+    "code": "KoAa",
+    "full_name_nl": "Lid van Aalbeke (Formatie van Kortrijk)",
+    "age_rank": 87,
+    "color_hex": "#9f9eca"
+  },
+  {
+    "code": "KoMh",
+    "full_name_nl": "Lid van Mont-Héribu (Formatie van Kortrijk)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KoMo",
+    "full_name_nl": "Lid van Moen (Formatie van Kortrijk)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KoMp",
+    "full_name_nl": "Lid van Mons-en-Pévèle (Formatie van Kortrijk)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KoOl",
+    "full_name_nl": "Lid van Lower Orchies (Formatie van Kortrijk)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KoOm",
+    "full_name_nl": "Lid van Middle Orchies (Formatie van Kortrijk)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KoOr",
+    "full_name_nl": "Lid van Orchies (Formatie van Kortrijk)",
+    "age_rank": 89,
+    "color_hex": "#94aad6"
+  },
+  {
+    "code": "KoOu",
+    "full_name_nl": "Lid van Upper Orchies (Formatie van Kortrijk)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KoRo",
+    "full_name_nl": "Lid van Roubaix (Formatie van Kortrijk)",
+    "age_rank": 88,
+    "color_hex": "#c9c6e0"
+  },
+  {
+    "code": "KoSm",
+    "full_name_nl": "Lid van Saint Maur (Formatie van Kortrijk)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KoZo",
+    "full_name_nl": "Lid van Het Zoute (Formatie van Kortrijk)",
+    "age_rank": 90,
+    "color_hex": "#a9c1e4"
+  },
+  {
+    "code": "KRWe",
+    "full_name_nl": "Wealden",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Kz",
+    "full_name_nl": "Formatie van Kiezelooliet",
+    "age_rank": 20,
+    "color_hex": "#f49fa2"
+  },
+  {
+    "code": "KzB1",
+    "full_name_nl": "Lid van Brunssum1 (Formatie van Kiezelooliet)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KzB2",
+    "full_name_nl": "Lid van Brunssum2 (Formatie van Kiezelooliet)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KzBr",
+    "full_name_nl": "Lid van Brunssum (Formatie van Kiezelooliet)",
+    "age_rank": 22,
+    "color_hex": "#d4c8c2"
+  },
+  {
+    "code": "KzJa",
+    "full_name_nl": "Lid van Jagersborg (Formatie van Kiezelooliet)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KzPe",
+    "full_name_nl": "Lid van Pey (Formatie van Kiezelooliet)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KzWb",
+    "full_name_nl": "Lid van Waubach (Formatie van Kiezelooliet)",
+    "age_rank": 23,
+    "color_hex": "#f8c487"
+  },
+  {
+    "code": "KzX",
+    "full_name_nl": "Lid van ongedefinieerd (Formatie van Kiezelooliet)",
+    "age_rank": 21,
+    "color_hex": "#f7b4ca"
+  },
+  {
+    "code": "LA",
+    "full_name_nl": "Groep van Landen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ld",
+    "full_name_nl": "Formatie van Lede",
+    "age_rank": 71,
+    "color_hex": "#f8cc61"
+  },
+  {
+    "code": "Li",
+    "full_name_nl": "Formatie van Lillo",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "LiKr",
+    "full_name_nl": "Lid van Kruisschans (Formatie van Lillo)",
+    "age_rank": 27,
+    "color_hex": "#8dcb7d"
+  },
+  {
+    "code": "LiLu",
+    "full_name_nl": "Lid van Luchtbal (Formatie van Lillo)",
+    "age_rank": 28,
+    "color_hex": "#8dcb96"
+  },
+  {
+    "code": "LiMe",
+    "full_name_nl": "Lid van Merksem (Formatie van Lillo)",
+    "age_rank": 26,
+    "color_hex": "#8dcb64"
+  },
+  {
+    "code": "LiOo",
+    "full_name_nl": "Lid van Oorderen (Formatie van Lillo)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "LiX",
+    "full_name_nl": "Lid van ongedifferentieerd (Formatie van Lillo)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "LiZa",
+    "full_name_nl": "Lid van Zandvliet (Formatie van Lillo)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Lk",
+    "full_name_nl": "Formatie van Lanklaar",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ln",
+    "full_name_nl": "Formatie van Lanaken",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ma",
+    "full_name_nl": "Formatie van Maldegem",
+    "age_rank": 63,
+    "color_hex": "#ad894a"
+  },
+  {
+    "code": "MA",
+    "full_name_nl": "Groep van Maas",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MAa",
+    "full_name_nl": "Formatie van Aalburg",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MaAs",
+    "full_name_nl": "Lid van Asse (Formatie van Maldegem)",
+    "age_rank": 69,
+    "color_hex": "#988b4e"
+  },
+  {
+    "code": "MaBu",
+    "full_name_nl": "Lid van Buisputten (Formatie van Maldegem)",
+    "age_rank": 65,
+    "color_hex": "#e7c7ad"
+  },
+  {
+    "code": "MAk",
+    "full_name_nl": "Formatie van Aachen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MAkAa",
+    "full_name_nl": "Zand van Aachen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MAkHe",
+    "full_name_nl": "Hergenrath",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MaOd",
+    "full_name_nl": "Lid van Onderdijke (Formatie van Maldegem)",
+    "age_rank": 64,
+    "color_hex": "#ba7f6e"
+  },
+  {
+    "code": "MaOn",
+    "full_name_nl": "Lid van Onderdale (Formatie van Maldegem)",
+    "age_rank": 67,
+    "color_hex": "#d2ad7b"
+  },
+  {
+    "code": "MaUr",
+    "full_name_nl": "Lid van Ursel (Formatie van Maldegem)",
+    "age_rank": 68,
+    "color_hex": "#987249"
+  },
+  {
+    "code": "MaWe",
+    "full_name_nl": "Lid van Wemmel (Formatie van Maldegem)",
+    "age_rank": 70,
+    "color_hex": "#b0b97c"
+  },
+  {
+    "code": "MaZo",
+    "full_name_nl": "Lid van Zomergem (Formatie van Maldegem)",
+    "age_rank": 66,
+    "color_hex": "#b8763f"
+  },
+  {
+    "code": "Mb",
+    "full_name_nl": "Formatie van Meulebeke",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MBe",
+    "full_name_nl": "Formatie van Bernissart",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MBu",
+    "full_name_nl": "Formatie van Buntsandstein",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MBuBr",
+    "full_name_nl": "Lid van Bree (Formatie van Buntsandstein)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MBuBu",
+    "full_name_nl": "Lid van Bullen (Formatie van Buntsandstein)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MBuGr",
+    "full_name_nl": "Lid van Gruitrode (Formatie van Buntsandstein)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MDo",
+    "full_name_nl": "Formatie van Dorne",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MDoB1",
+    "full_name_nl": "Beutenaken1",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MDoB2",
+    "full_name_nl": "Beutenaken2",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MDoOv",
+    "full_name_nl": "Onder-Vijlen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MDoZe",
+    "full_name_nl": "Zeven Wegen Equivalent",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Me",
+    "full_name_nl": "Formatie van Merksplas",
+    "age_rank": 18,
+    "color_hex": "#f6db44"
+  },
+  {
+    "code": "ME",
+    "full_name_nl": "Groep van Maas",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MeB",
+    "full_name_nl": "Merksplas",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MEs",
+    "full_name_nl": "Formatie van Esplechin",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MGu",
+    "full_name_nl": "Formatie van Gulpen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MGuBe",
+    "full_name_nl": "Lid van Beutenaken Kalk (Formatie van Gulpen)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MGuLa",
+    "full_name_nl": "Lid van Lanaye (Formatie van Gulpen)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MGuLi",
+    "full_name_nl": "Lid van Lixhe (Formatie van Gulpen)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MGuVi",
+    "full_name_nl": "Lid van Vijlen (Formatie van Gulpen)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MGuZe",
+    "full_name_nl": "Lid van Zeven Wegen (Formatie van Gulpen)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MHa",
+    "full_name_nl": "Groep van Hainaut",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MJU",
+    "full_name_nl": "Groep van Jura",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MKe",
+    "full_name_nl": "Formatie van Keuper",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MKR",
+    "full_name_nl": "Groep van Krijt",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MKu",
+    "full_name_nl": "Formatie van Kunrade",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ml",
+    "full_name_nl": "Formatie van Mol",
+    "age_rank": 19,
+    "color_hex": "#f5ad2c"
+  },
+  {
+    "code": "MlDo",
+    "full_name_nl": "Lid van Donk (Formatie van Mol)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MlMa",
+    "full_name_nl": "Lid van Maat (Formatie van Mol)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MlMh",
+    "full_name_nl": "Lid van Maatheide (Formatie van Mol)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MlRe",
+    "full_name_nl": "Lid van Rees (Formatie van Mol)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MlRu",
+    "full_name_nl": "Lid van Russendorp (Formatie van Mol)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MMa",
+    "full_name_nl": "Formatie van Maastricht",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MMaKu",
+    "full_name_nl": "Lid van Kunrade (Formatie van Maastricht)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MMaVa",
+    "full_name_nl": "Lid van Valkenburg (Formatie van Maastricht)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MMs",
+    "full_name_nl": "Formatie van Maisières Chalk",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MMu",
+    "full_name_nl": "Formatie van Muschelkalk",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MMuAn",
+    "full_name_nl": "Anhydrit Gruppe",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MMuHa",
+    "full_name_nl": "Hauptmuschelkalk",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MMuWe",
+    "full_name_nl": "Wellenkalk",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MNe",
+    "full_name_nl": "Formatie van Nevele",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MNeSt",
+    "full_name_nl": "Lid van Stekene (Formatie van Nevele)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MNeWa",
+    "full_name_nl": "Lid van Wachtebeke (Formatie van Nevele)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Mo",
+    "full_name_nl": "Formatie van Mons",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Mp",
+    "full_name_nl": "Formatie van Mons-en-Pévèle",
+    "age_rank": 85,
+    "color_hex": "#827ab8"
+  },
+  {
+    "code": "MRo",
+    "full_name_nl": "Formatie van Röt",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MSl",
+    "full_name_nl": "Formatie van Sleen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MVa",
+    "full_name_nl": "Formatie van Vaals",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MVaBG",
+    "full_name_nl": "Boven Vaalser Groenzand",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MVaOG",
+    "full_name_nl": "Onder Vaalser groenzand",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MVg",
+    "full_name_nl": "Formatie van Vert Galand",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Mx",
+    "full_name_nl": "Formatie van Melle",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "My",
+    "full_name_nl": "Formatie van Malle",
+    "age_rank": 17,
+    "color_hex": "#f9c896"
+  },
+  {
+    "code": "Ne",
+    "full_name_nl": "Groep van Neogeen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Op",
+    "full_name_nl": "Formatie van Opglabbeek",
+    "age_rank": 103,
+    "color_hex": "#fffcda"
+  },
+  {
+    "code": "OpEi",
+    "full_name_nl": "Lid van Eisden (Formatie van Opglabbeek)",
+    "age_rank": 104,
+    "color_hex": "#fffcda"
+  },
+  {
+    "code": "OpMa",
+    "full_name_nl": "Lid van Maasmechelen (Formatie van Opglabbeek)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "OpOp",
+    "full_name_nl": "Lid van Opoeteren (Formatie van Opglabbeek)",
+    "age_rank": 105,
+    "color_hex": "#fffcaf"
+  },
+  {
+    "code": "Or",
+    "full_name_nl": "Groep van Ordovicium",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ot",
+    "full_name_nl": "Formatie van Oostende",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ow",
+    "full_name_nl": "Formatie van Oostwinkel",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "P",
+    "full_name_nl": "Groep van Paleozoïcum",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "P1",
+    "full_name_nl": "Groep van Onder Paleozoïcum",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "P2",
+    "full_name_nl": "Groep van Boven Paleozoïcum",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Pa",
+    "full_name_nl": "Paleogeen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PAi",
+    "full_name_nl": "Formatie van Aisemont",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PAl",
+    "full_name_nl": "Formatie van Alvaux",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PAn",
+    "full_name_nl": "Formatie van Andenne",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PAt",
+    "full_name_nl": "Formatie van Antoing",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PAtGa",
+    "full_name_nl": "Lid van Gaurain-Ramecroix (Formatie van Antoing)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PAtWa",
+    "full_name_nl": "Lid van Warchin (Formatie van Antoing)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PAv",
+    "full_name_nl": "Formatie van Abbaye de Villers",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBe",
+    "full_name_nl": "Formatie van Berneau",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBg",
+    "full_name_nl": "Formatie van Bellegem",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBi",
+    "full_name_nl": "Formatie van Booischot",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBl",
+    "full_name_nl": "Formatie van Blanmont",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBn",
+    "full_name_nl": "Formatie van Bornival",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBnXa",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Bornival)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBnXb",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Bornival)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBnXc",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Bornival)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBo",
+    "full_name_nl": "Formatie van Bosscheveld",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBp",
+    "full_name_nl": "Formatie van Bois Grand-Père",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBr",
+    "full_name_nl": "Formatie van Brûtia",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PBv",
+    "full_name_nl": "Formatie van Bovesse",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PC",
+    "full_name_nl": "Groep van Condroz",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCa",
+    "full_name_nl": "Formatie van Châtelet",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCaFl",
+    "full_name_nl": "Lid van Floriffoux (Formatie van Châtelet)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCaRa",
+    "full_name_nl": "Lid van Ransart (Formatie van Châtelet)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCe",
+    "full_name_nl": "Formatie van Chevlipont",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCh",
+    "full_name_nl": "Formatie van Charleroi",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PChAs",
+    "full_name_nl": "Lid van As (Formatie van Charleroi)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PChEi",
+    "full_name_nl": "Lid van Eikenberg (Formatie van Charleroi)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PChMo",
+    "full_name_nl": "Lid van Mons (Formatie van Charleroi)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCo",
+    "full_name_nl": "Formatie van Chokier",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCoBo",
+    "full_name_nl": "Lid van Bois-et-Borsu (Formatie van Chokier)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCoTr",
+    "full_name_nl": "Lid van Tramaka (Formatie van Chokier)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PCr",
+    "full_name_nl": "Formatie van Corroy",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Pd",
+    "full_name_nl": "Formatie van Poederlee",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PDe",
+    "full_name_nl": "Formatie van Deerlijk",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PdHe",
+    "full_name_nl": "Lid van Heieinde (Formatie van Poederlee)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PEt",
+    "full_name_nl": "Formatie van Etroeungt",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PEv",
+    "full_name_nl": "Formatie van Evieux",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PF",
+    "full_name_nl": "Groep van Frasne",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFa",
+    "full_name_nl": "Groep van Famenne",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFf",
+    "full_name_nl": "Formatie van Froide Fontaine",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFi",
+    "full_name_nl": "Formatie van Fallais",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFiPi",
+    "full_name_nl": "Lid van Pitet (Formatie van Fallais)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFiXa",
+    "full_name_nl": "Lid van Lid A (Formatie van Fallais)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFiXb",
+    "full_name_nl": "Lid van Lid B (Formatie van Fallais)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFiXc",
+    "full_name_nl": "Lid van Lid C (Formatie van Fallais)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFiXd",
+    "full_name_nl": "Lid van Lid D (Formatie van Fallais)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFiXe",
+    "full_name_nl": "Lid van Lid E (Formatie van Fallais)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFl",
+    "full_name_nl": "Formatie van Flénu",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFlMe",
+    "full_name_nl": "Lid van Meeuwen (Formatie van Flénu)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFlNe",
+    "full_name_nl": "Lid van Neerglabbeek (Formatie van Flénu)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFlWa",
+    "full_name_nl": "Lid van Wasmes (Formatie van Flénu)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFq",
+    "full_name_nl": "Formatie van Fauquez",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFr",
+    "full_name_nl": "Formatie van Franc-Waret",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PFu",
+    "full_name_nl": "Formatie van Fumal",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PG",
+    "full_name_nl": "Groep van Givet",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PGe",
+    "full_name_nl": "Formatie van Goeree",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PGo",
+    "full_name_nl": "Formatie van Gottignies",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHe",
+    "full_name_nl": "Formatie van Helchteren",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHeH1",
+    "full_name_nl": "Helchteren1",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHeH2",
+    "full_name_nl": "Helchteren2",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHeH3",
+    "full_name_nl": "Helchteren3",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHeH4",
+    "full_name_nl": "Helchteren4",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHeH5",
+    "full_name_nl": "Helchteren5",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHi",
+    "full_name_nl": "Formatie van Heibaart",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHo",
+    "full_name_nl": "Formatie van Hosdin",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHs",
+    "full_name_nl": "Formatie van Hastière",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PHu",
+    "full_name_nl": "Formatie van Huet",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PIt",
+    "full_name_nl": "Formatie van Ittre",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PJo",
+    "full_name_nl": "Formatie van Jodoigne",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PK",
+    "full_name_nl": "Groep van Kolenkalk",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PKe",
+    "full_name_nl": "Formatie van Kessel",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PLa",
+    "full_name_nl": "Formatie van Landelies",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PLm",
+    "full_name_nl": "Formatie van Lambermont",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PLo",
+    "full_name_nl": "Formatie van Loenhout",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PLs",
+    "full_name_nl": "Formatie van Lust",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PLt",
+    "full_name_nl": "Formatie van Latinne",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PLu",
+    "full_name_nl": "Formatie van Lustin",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMa",
+    "full_name_nl": "Formatie van Mazy",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMd",
+    "full_name_nl": "Formatie van Madot",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMdXa",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Madot)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMdXb",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Madot)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMdXc",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Madot)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMdXd",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Madot)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMdXe",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Madot)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMdXf",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Madot)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMdXg",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Madot)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMn",
+    "full_name_nl": "Formatie van Montfort",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMo",
+    "full_name_nl": "Formatie van Mousty",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMoFr",
+    "full_name_nl": "Lid van Franquenies (Formatie van Mousty)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMoTa",
+    "full_name_nl": "Lid van Tangissart (Formatie van Mousty)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMoXx",
+    "full_name_nl": "Lid van Lid niet benoemd (Formatie van Mousty)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PMu",
+    "full_name_nl": "Formatie van Mautiennes",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PNe",
+    "full_name_nl": "Formatie van Neeroeteren",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "POD",
+    "full_name_nl": "Ordovicium",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "POr",
+    "full_name_nl": "Formatie van Orient",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "POs",
+    "full_name_nl": "Formatie van Oisquercq",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "POsAs",
+    "full_name_nl": "Lid van Asquempont (Formatie van Oisquercq)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "POsRi",
+    "full_name_nl": "Lid van Ripain (Formatie van Oisquercq)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PPe",
+    "full_name_nl": "Formatie van Pecq",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PPo",
+    "full_name_nl": "Formatie van Pont d'Arcole",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PPr",
+    "full_name_nl": "Formatie van Presles",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PPt",
+    "full_name_nl": "Formatie van Petit-Roeulx",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PRh",
+    "full_name_nl": "Formatie van Rhisnes",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PRi",
+    "full_name_nl": "Formatie van Rigenée",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PRk",
+    "full_name_nl": "Formatie van Rekkem",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PRn",
+    "full_name_nl": "Formatie van Ronquières",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PSa",
+    "full_name_nl": "Formatie van Samme",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PSaBo",
+    "full_name_nl": "Lid van Bois de la Rocq (Formatie van Samme)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PSaFe",
+    "full_name_nl": "Lid van Feluy (Formatie van Samme)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PSaMe",
+    "full_name_nl": "Lid van Mévergnies (Formatie van Samme)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PSe",
+    "full_name_nl": "Formatie van Steenkerque",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PSo",
+    "full_name_nl": "Formatie van Souvré",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PSt",
+    "full_name_nl": "Formatie van Steentje-Turnhout",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PTo",
+    "full_name_nl": "Formatie van Tournai",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PToAl",
+    "full_name_nl": "Lid van Allain (Formatie van Tournai)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PToCr",
+    "full_name_nl": "Lid van Crampon (Formatie van Tournai)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PToPo",
+    "full_name_nl": "Lid van Point-à-Rieu (Formatie van Tournai)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PToPr",
+    "full_name_nl": "Lid van Providence (Formatie van Tournai)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PToVa",
+    "full_name_nl": "Lid van Vaulx (Formatie van Tournai)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PToVi",
+    "full_name_nl": "Lid van Vignobles (Formatie van Tournai)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PTr",
+    "full_name_nl": "Formatie van Tribotte",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PTu",
+    "full_name_nl": "Formatie van Tubize",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PVa",
+    "full_name_nl": "Formatie van Les Vallées",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PVc",
+    "full_name_nl": "Formatie van Vichenet",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PVe",
+    "full_name_nl": "Formatie van Vesdre",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PVi",
+    "full_name_nl": "Formatie van Visé",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PVl",
+    "full_name_nl": "Formatie van Velp",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "PVs",
+    "full_name_nl": "Formatie van Vissoul",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Q",
+    "full_name_nl": "Groep van Quartaire afzetting",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "QH",
+    "full_name_nl": "Quartair Holoceen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "QP",
+    "full_name_nl": "Quartair Pleistoceen",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Rb",
+    "full_name_nl": "Formatie van Rozebeke",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "RO",
+    "full_name_nl": "Groep van Romont",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "RU",
+    "full_name_nl": "Groep van Rupel",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "S",
+    "full_name_nl": "Primair",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "SC",
+    "full_name_nl": "Groep van Schelde",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Sh",
+    "full_name_nl": "Formatie van Sint Huibrechts Hern",
+    "age_rank": 60,
+    "color_hex": "#bc7aac"
+  },
+  {
+    "code": "ShGr",
+    "full_name_nl": "Lid van Grimmertingen (Formatie van Sint Huibrechts Hern)",
+    "age_rank": 62,
+    "color_hex": "#9c2b86"
+  },
+  {
+    "code": "ShNe",
+    "full_name_nl": "Lid van Neerrepen (Formatie van Sint Huibrechts Hern)",
+    "age_rank": 61,
+    "color_hex": "#935c95"
+  },
+  {
+    "code": "Si",
+    "full_name_nl": "Groep van Siluur",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Sk",
+    "full_name_nl": "Formatie van Stokkem",
+    "age_rank": 8,
+    "color_hex": "#fff2af"
+  },
+  {
+    "code": "St",
+    "full_name_nl": "Formatie van Sterksel",
+    "age_rank": 11,
+    "color_hex": "#fff2c7"
+  },
+  {
+    "code": "StBo",
+    "full_name_nl": "Lid van Bocholt (Formatie van Sterksel)",
+    "age_rank": 14,
+    "color_hex": "#ffe196"
+  },
+  {
+    "code": "StHa",
+    "full_name_nl": "Lid van Hamont (Formatie van Sterksel)",
+    "age_rank": 13,
+    "color_hex": "#ffe1af"
+  },
+  {
+    "code": "StLo",
+    "full_name_nl": "Lid van Lommel (Formatie van Sterksel)",
+    "age_rank": 12,
+    "color_hex": "#ffe1c7"
+  },
+  {
+    "code": "T",
+    "full_name_nl": "Tertiaire afzetting",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ti",
+    "full_name_nl": "Formatie van Tienen",
+    "age_rank": 91,
+    "color_hex": "#fdd48f"
+  },
+  {
+    "code": "TiDo",
+    "full_name_nl": "Lid van Dormaal (Formatie van Tienen)",
+    "age_rank": 93,
+    "color_hex": "#e1d48f"
+  },
+  {
+    "code": "TiEr",
+    "full_name_nl": "Lid van Erquelinne (Formatie van Tienen)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "TiKn",
+    "full_name_nl": "Lid van Knokke (Formatie van Tienen)",
+    "age_rank": 92,
+    "color_hex": "#fdd48f"
+  },
+  {
+    "code": "TiLo",
+    "full_name_nl": "Lid van Loksbergen (Formatie van Tienen)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "TO",
+    "full_name_nl": "Groep van Tongeren",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "TR",
+    "full_name_nl": "Groep van Trias",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Tt",
+    "full_name_nl": "Formatie van Tielt",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "TtEg",
+    "full_name_nl": "Lid van Egem (Formatie van Tielt)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "TtEk",
+    "full_name_nl": "Lid van Egemkapel (Formatie van Tielt)",
+    "age_rank": 83,
+    "color_hex": "#a74984"
+  },
+  {
+    "code": "TtKo",
+    "full_name_nl": "Lid van Kortemark (Formatie van Tielt)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "U",
+    "full_name_nl": "Onbekend",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Ve",
+    "full_name_nl": "Formatie van Veldwezelt",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Vl",
+    "full_name_nl": "Formatie van Vlaanderen",
+    "age_rank": 5,
+    "color_hex": "#fff2d3"
+  },
+  {
+    "code": "VlCa",
+    "full_name_nl": "Lid van Calais (Formatie van Vlaanderen)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "VlDh",
+    "full_name_nl": "Lid van De Haan (Formatie van Vlaanderen)",
+    "age_rank": 7,
+    "color_hex": "#fff2c3"
+  },
+  {
+    "code": "VlDu",
+    "full_name_nl": "Lid van Dunkerque (Formatie van Vlaanderen)",
+    "age_rank": 6,
+    "color_hex": "#fff2d3"
+  },
+  {
+    "code": "Vo",
+    "full_name_nl": "Formatie van Voort",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "VoSo",
+    "full_name_nl": "Lid van Someren (Formatie van Voort)",
+    "age_rank": 39,
+    "color_hex": "#8dfaf4"
+  },
+  {
+    "code": "VoVe",
+    "full_name_nl": "Lid van Veldhoven (Formatie van Voort)",
+    "age_rank": 40,
+    "color_hex": "#8de1f4"
+  },
+  {
+    "code": "VoVo",
+    "full_name_nl": "Lid van Voort (Formatie van Voort)",
+    "age_rank": 41,
+    "color_hex": "#8dcff4"
+  },
+  {
+    "code": "We",
+    "full_name_nl": "Formatie van Weelde",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Zd",
+    "full_name_nl": "Formatie van Zutendaal",
+    "age_rank": 10,
+    "color_hex": "#fff2d3"
+  },
+  {
+    "code": "ZE",
+    "full_name_nl": "Groep van Zenne",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Zz",
+    "full_name_nl": "Formatie van Zelzate",
+    "age_rank": 56,
+    "color_hex": "#e4a3c2"
+  },
+  {
+    "code": "ZzBa",
+    "full_name_nl": "Lid van Bassevelde (Formatie van Zelzate)",
+    "age_rank": 59,
+    "color_hex": "#df8384"
+  },
+  {
+    "code": "ZzRu",
+    "full_name_nl": "Lid van Ruisbroek (Formatie van Zelzate)",
+    "age_rank": 57,
+    "color_hex": "#dd6d91"
+  },
+  {
+    "code": "ZzWa",
+    "full_name_nl": "Lid van Watervliet (Formatie van Zelzate)",
+    "age_rank": 58,
+    "color_hex": "#ca5c99"
+  },
+  {
+    "code": "WeRv",
+    "full_name_nl": "Lid van Rijkevorsel (Formatie van Weelde)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "DiKe",
+    "full_name_nl": "Lid van Kempen Diest (Formatie van Diest)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "DiHa",
+    "full_name_nl": "Lid van Hageland Diest (Formatie van Diest)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "DiBo",
+    "full_name_nl": "Lid van Borsbeek (Formatie van Diest)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KlHa",
+    "full_name_nl": "Lid van Hallaar (Formatie van Kasterlee)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "LiPd",
+    "full_name_nl": "Lid van Poederlee (Formatie van Lillo)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "VdWi",
+    "full_name_nl": "Lid van Wintelre (Formatie van Veldhoven)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Mn",
+    "full_name_nl": "Formatie van Molenbeersel",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "WeBs",
+    "full_name_nl": "Lid van Beerse (Formatie van Weelde)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Vh",
+    "full_name_nl": "Formatie van Vlaamse Heuvels",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KlLi",
+    "full_name_nl": "Lid van Lichtaart (Formatie van Kasterlee)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KlHe",
+    "full_name_nl": "Lid van Heist-op-den-Berg (Formatie van Kasterlee)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "KlBe",
+    "full_name_nl": "Lid van Beerzel (Formatie van Kasterlee)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Vd",
+    "full_name_nl": "Formatie van Veldhoven",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "VdVo",
+    "full_name_nl": "Lid van Voort (Formatie van Veldhoven)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "VdSo",
+    "full_name_nl": "Lid van Someren (Formatie van Veldhoven)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "WeTu",
+    "full_name_nl": "Lid van Turnhout (Formatie van Weelde)",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "Wu",
+    "full_name_nl": "Formatie van Wurfeld",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "In",
+    "full_name_nl": "Formatie van Inden",
+    "age_rank": null,
+    "color_hex": null
+  },
+  {
+    "code": "MlRt",
+    "full_name_nl": "Lid van Retie (Formatie van Mol)",
+    "age_rank": null,
+    "color_hex": null
+  }
+]
