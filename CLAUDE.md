@@ -23,21 +23,23 @@ This platform's job is to deliver a clean, validated **ground model + derived pa
 - EC7 / Eurocode design rule application (we do not target EC7 design conformance)
 
 **Deferred to the final phase (preview implementations may exist earlier):**
-- Robertson Ic / Soil Behaviour Type classification — **as a PRODUCED
-  parameter / committed interpretation.** Carve-out (owner-approved
-  2026-05-17): Robertson SBT zone classification is permitted in
-  Phase 4 strictly as a **segmentation INPUT** for lithostratigraphic-
-  model suggestions (the litho segmenter classifies each CPT depth to
-  propose layer boundaries the user accepts/edits — it never commits
-  an interpretation; the preview Ic already exists in-codebase). The
-  full param port (qc → cu / OCR / E50 / Vs / G0 / M, per-layer unit
-  weights, NAD parameter values) stays Phase 5. See
+- Robertson Ic / Soil Behaviour Type classification — **as a fully
+  automated produced parameter.** Carve-out extended (owner directive
+  2026-05-18): Robertson SBT zone is now committed as a **per-unit
+  summary** in the MVP (Ic zone label, relative density Dr for sand
+  units, NAD packing class 1–31, γ-estimate from SBT lookup) — these
+  are characterisation outputs, not design inputs. The boundary: any
+  value used directly in a design calculation (φ′, c′, cu, E50, OCR,
+  Vs, G0, M) stays Phase 5. The full Robertson/Mayne parameter port
+  and the NAD-NEN xlsx table (38×313) stay Phase 5. See
   `memory/project_litho_geotech_three_level_model.md`.
 - Auto soil profiling (merging Ic into layers) — as an *automatic*
   model. The litho segmenter's assisted-manual suggestion flow
   (user-accepted ghost nodes, not auto-correlation) is Phase 4 per
-  the carve-out above.
-- Per-layer unit weights from Robertson SBT
+  the original carve-out; unchanged.
+- Per-layer design parameters from Robertson correlation (φ′, c′, cu,
+  E50, OCR, Vs, G0, M) — Phase 5. Dr and NAD class are MVP (above);
+  the design-ready values derived from them are not.
 - Per-CPT validation that requires geotech judgement (RF range checks, qc spike detection, hybrid-method detection)
 
 ---
@@ -49,7 +51,7 @@ This platform's job is to deliver a clean, validated **ground model + derived pa
 - **Queue-ready, not queue-first** — abstract the queue from day one, add a broker when needed
 - **No premature optimisation** — Python + Polars first; Rust only where profiling proves it is needed
 - **Never design a layer you haven't needed yet** — build, feel the pain, then abstract
-- **Engineering interpretation last** — soil behaviour type, layer detection, derived parameters all happen after data plumbing is solid. *Carve-out (2026-05-17): Robertson SBT as a litho-segmentation INPUT is Phase 4 (assisted-manual suggestions, never committed interpretation); the produced-parameter port stays Phase 5. See Scope.*
+- **Engineering interpretation is a characterisation output, not a design output** — soil behaviour type, layer detection, and packing-class indicators (Ic zone, Dr, NAD class, γ-estimate) are MVP outputs. Design-ready parameters (φ′, c′, cu, E50, OCR, Vs) that feed directly into ULS/SLS calculations are Phase 5. The boundary is: anything the engineer pastes into a design check without intermediate judgement stays out of the MVP. *(Carve-out history: Robertson SBT was segmentation-only in Phase 4 as of 2026-05-17; extended to committed per-unit characterisation indicators on 2026-05-18 by owner directive. See Scope.)*
 - **Backwards compatibility, always** — see the dedicated section below; the short version is: a .gmproj file written by yesterday's build must open in tomorrow's build, forever.
 
 ---
@@ -115,9 +117,15 @@ is reused at every level. See
    lithostratigraphic model. A lithology is subdivided by **packing
    density / consistency** into a Belgian **NAD** class (1–31:
    los/matig/dicht/zeer dicht for sand, weinig-vast→vast for fines),
-   driven by CPT qc/Dr. Subdivision structure is Phase 4; the NAD
-   parameter values (γ/φ′/c′/cu/m, the Scilab/xlsx port) are Phase 5.
-   Example: weathered crust of Boom Klei vs undisturbed clay below.
+   driven by CPT qc/Dr. **MVP scope (owner directive 2026-05-18):**
+   subdivision structure + the following CPT-derived indicators per
+   unit are v1.0: Robertson Ic SBT zone (committed summary), relative
+   density Dr (sand units, `Dr = 100·(0.268·ln(qc/0.1 /
+   (σ′v/100)^0.5) − 0.675)`), NAD packing class label, and γ-estimate
+   from SBT-zone lookup. All are labelled "CPT-derived estimate" at
+   the presentation boundary. **Design-ready parameter values**
+   (φ′/c′/cu/E50/OCR/Vs/G0/M, the full NAD-NEN xlsx port) stay Phase
+   5. Example: weathered crust of Boom Klei vs undisturbed clay below.
 
 **Cross-sections are the editing surface, not the data primitive.**
 Pick a slice through the project, see the investigations projected
@@ -209,17 +217,25 @@ The product is "sellable" the moment a geotech engineer can do this
 end-to-end on a real project:
 
 1. Import CPTs + boreholes (DOV bbox + GEF files — done).
-2. Define a **geological model** (formations + surfaces) for the project.
-3. **Subdivide** geological formations into geotechnical units (structure only; parameter values stay blank in v1).
-4. View / edit the model on **cross-sections** between investigation points.
-5. **Export** the layer geometry to DXF and/or Plaxis.
+2. Define a **geological model** (formations + surfaces) for the project (done).
+3. Build a **lithostratigraphic model**: refine geological formations into
+   lithology + admixture units via borehole ObservationLayer descriptions
+   and the CPT Robertson-SBT segmenter. View and edit on cross-sections.
+4. **Geotechnical subdivision**: assign NAD packing class (1–31) to each
+   lithostratigraphic unit. Display Robertson Ic SBT zone, relative
+   density Dr (sand), NAD packing class, and γ-estimate per unit in the
+   inspector. Parameter VALUES (φ′/c′/cu/E50) stay blank — the engineer
+   fills those in their downstream design tool.
+5. **Export** the three-level model geometry to DXF and/or Plaxis, with
+   unit identifiers so the downstream tool can map unit names to material
+   definitions.
 
-Per-layer parameters, soil classification, statistics — all Phase 5
-(post-v1.0). Engineers prefer to control those values manually
-anyway; the layer geometry is the integration unit downstream design
-tools actually consume. G3Dv3 import lands alongside or just after
-v1.0 — it's high-impact for the Flanders launch demo but not a
-gate (manual formation creation works elsewhere too).
+Design-ready parameter values (φ′, c′, cu, E50, OCR, Vs, G0, M), full
+NAD-NEN xlsx table, per-layer statistics, and PDF reports are Phase 5
+(post-v1.0). The geometry + packing-class interpretation is the
+integration unit downstream design tools actually consume at handoff.
+G3Dv3 import lands alongside or just after v1.0 — high-impact for the
+Flanders launch demo but not a gate.
 
 ### Open commercial concerns (tracked as debt, not blocking the MVP)
 
@@ -840,8 +856,8 @@ Engineering interpretation (Robertson Ic, soil profiling, derived per-layer para
 | 1 | Thin slice: import GEF → parse → store → FastAPI CPT routes ✓ |
 | 2 | Electron + React desktop; project system; map; DOV chart; multi-file GEF + DOV bbox import + persistent XML cache ✓ |
 | 3 | Data sources expansion: borehole + samples + lab ✓ (monitoring / DMT / pressuremeter deferred to post-v1.0) |
-| **4 (v1.0 commercial MVP gate)** | **Geological model** (formations + surfaces); **lithostratigraphic model** (refines geological → lithology units; borehole `ObservationLayer` + assisted-manual CPT Robertson-SBT segmenter, user-set min layer thickness); **geotechnical subdivision** (lithology → NAD class by packing density, structure only — parameter values Phase 5); **cross-sections** as the edit/view surface; **DXF + Plaxis exports** of the layer geometry. **G3Dv3 Flanders import** lands alongside or just after launch. The product is sellable here. Commercial-readiness work (license keys, signed installer, auto-update, marketing site) lives as separate debt items; it ships alongside the MVP feature gate, not before. |
-| 5 (post-v1.0) | Engineering interpretation **as produced parameters**: Robertson Ic (production param port), the NAD/Scilab parameter values (γ/φ′/c′/cu/m per class), per-layer unit weights, derived parameters, statistics, Rust hotspots for batch compute. Sedimentological feature-shapes (true interfingering lenses between control points — DISTINCT from the user-invoked pinch-out wedge tool shipped 2026-05-18: that does deterministic dip-extrapolation-to-crossing for a single terminal wedge edge [explicit, ghost-previewed, commits provenance-tagged `source='pinch_out_extrapolation'` synthetic contacts via `ExtrapolatePinchOut` + `POST .../contacts/pinch-out`]; interfingering is the harder facies-geometry-between-points problem and stays Phase 5). Additional data sources: monitoring (piezometer / inclinometer), DMT, pressuremeter. Additional exports: D-Stability (`.stix` via GEOLib), D-Sheet, GeoStudio, IFC. PDF reports. Optional SaaS layer with cloud sync over the .gmproj bundle. |
+| **4 (v1.0 commercial MVP gate)** | **Geological model** (formations + surfaces — done); **lithostratigraphic model** (refines geological → lithology + admixture units; borehole `ObservationLayer` + assisted-manual CPT Robertson-SBT segmenter; substantially done, #55 litho peer-stage scaffolding is the remaining UI shell); **geotechnical subdivision** (lithostratigraphic unit → NAD packing class 1–31, driven by CPT qc/Dr; per-unit CPT-derived indicators: Robertson Ic SBT zone, Dr for sand, NAD class label, γ-estimate from SBT lookup — all labelled "CPT-derived estimate"; design-ready values φ′/c′/cu/E50 stay blank, Phase 5); **cross-sections** as the edit/view surface for all three model levels; **DXF + Plaxis exports** of the three-level geometry with unit identifiers. **G3Dv3 Flanders import** lands alongside or just after launch. The product is sellable here. Commercial-readiness work (license keys, signed installer, auto-update, marketing site) ships alongside, tracked as Tier B debt. |
+| 5 (post-v1.0) | Engineering interpretation **as design-ready parameters**: the full Robertson/Mayne port (φ′ from Uzielli 2013, c′, cu, E50, OCR, Vs, G0, M per NAD class), the complete NAD-NEN xlsx parameter table (38×313), per-layer statistics (mean/std/percentiles of qc across CPTs in a corridor), Rust hotspots for batch compute. Sedimentological feature-shapes (true interfingering lenses between control points — DISTINCT from the user-invoked pinch-out wedge tool shipped 2026-05-18: that does deterministic dip-extrapolation-to-crossing for a single terminal wedge edge [explicit, ghost-previewed, commits provenance-tagged `source='pinch_out_extrapolation'` synthetic contacts via `ExtrapolatePinchOut` + `POST .../contacts/pinch-out`]; interfingering is the harder facies-geometry-between-points problem and stays Phase 5). Additional data sources: monitoring (piezometer / inclinometer), DMT, pressuremeter. Additional exports: D-Stability (`.stix` via GEOLib), D-Sheet, GeoStudio, IFC. PDF reports. Optional SaaS layer with cloud sync over the .gmproj bundle. |
 
 **Out of scope at every phase:** Eurocode (EC7) design calculations, bearing capacity, settlement, slope stability, pile/wall design. Those belong in the downstream tools we export to.
 
