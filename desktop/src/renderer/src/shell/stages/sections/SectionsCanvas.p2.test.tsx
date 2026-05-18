@@ -286,6 +286,8 @@ function makeStubContext(overrides?: {
       effectiveHorizontalEpsg: 31370,
       sectionModelAxis: 'geological' as const,
       setSectionModelAxis: vi.fn(),
+      backdropModelIdOverride: null,
+      setBackdropModelIdOverride: vi.fn(),
       refreshSectionList: noopAsync,
       clearSectionSelection: vi.fn(),
       handleSectionCreated: vi.fn(),

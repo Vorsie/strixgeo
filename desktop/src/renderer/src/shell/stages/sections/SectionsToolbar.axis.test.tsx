@@ -236,6 +236,8 @@ function makeCtx(overrides: {
       effectiveHorizontalEpsg: 31370,
       sectionModelAxis: overrides.sectionModelAxis ?? 'geological',
       setSectionModelAxis,
+      backdropModelIdOverride: null,
+      setBackdropModelIdOverride: vi.fn(),
       refreshSectionList: noopAsync,
       clearSectionSelection: vi.fn(),
       handleSectionCreated: vi.fn(),
