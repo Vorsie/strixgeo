@@ -141,8 +141,18 @@ def _survivor_priority(c: FormationContactOrm) -> tuple[int, int, float]:
     Returns a tuple where LOWER values win (asc sort, first item
     survives). Three layers:
 
-    1. ``source`` rank: manual_pick > interpolated > borehole_observation.
-       Manual edits beat any auto-derived row.
+    1. ``source`` rank: manual_pick > interpolated > borehole_observation
+       (the original debt #38 contract — PRESERVED. The
+       auto-regenerable ``borehole_observation`` ranks lowest among the
+       three so a deliberate non-observation artifact survives an
+       auto-populate re-run. NOTE: the pinch-out architect proposed
+       "borehole_observation beats pinch_out beats interpolated", which
+       presumes ``interpolated`` ranks BELOW ``borehole_observation`` —
+       the opposite of this contract. Re-ordering #38 was out of scope
+       for the pinch-out slice, so the new synthetic sources are slotted
+       AFTER the real-data sources without disturbing the existing trio.
+       The pinch-out tool's real dedup safety is the use case's own 409
+       idempotency, not this rank.)
     2. ``has_observation_layer_id``: rows with provenance beat
        rows without (helps idempotency on re-running auto-populate).
     3. Negative ``created_at`` as a unix timestamp — most recent wins
@@ -152,6 +162,13 @@ def _survivor_priority(c: FormationContactOrm) -> tuple[int, int, float]:
         "manual_pick": 0,
         "interpolated": 1,
         "borehole_observation": 2,
+        # Synthetic / derived sources slot AFTER the real-data trio so
+        # they never silently evict a manual pick or a real observation,
+        # but still beat an unrecognised source. pinch_out is a
+        # deliberate user-invoked geometric construction; geological_model
+        # _seed is a copy of a parent model's contacts.
+        "pinch_out_extrapolation": 3,
+        "geological_model_seed": 4,
     }.get(c.source, 99)
     has_obs = 0 if c.observation_layer_id is not None else 1
     # Negative timestamp so most-recent sorts first.
