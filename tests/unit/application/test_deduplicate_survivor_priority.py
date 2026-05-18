@@ -47,6 +47,23 @@ def test_source_rank_orders_manual_over_interpolated_over_observation() -> None:
     assert manual < interp < obs
 
 
+def test_synthetic_sources_slot_after_real_data_before_unknown() -> None:
+    """pinch_out_extrapolation / geological_model_seed rank AFTER the
+    real-data trio (never evict a manual or observation pick) but BEAT an
+    unrecognised source. The #38 manual>interpolated>observation contract
+    is unchanged by the pinch-out slice."""
+    interp = _survivor_priority(_c(source="interpolated"))
+    obs = _survivor_priority(_c(source="borehole_observation"))
+    pinch = _survivor_priority(_c(source="pinch_out_extrapolation"))
+    seed = _survivor_priority(_c(source="geological_model_seed"))
+    unknown = _survivor_priority(_c(source="zzz"))
+    # Synthetic/derived slot strictly after the real-data trio …
+    assert interp < obs < pinch < seed
+    # … and strictly before the unknown sentinel (99).
+    assert seed < unknown
+    assert unknown[0] == 99
+
+
 def test_unknown_source_sorts_last() -> None:
     """An unrecognised source gets the sentinel rank 99 (sorts last)."""
     known = _survivor_priority(_c(source="manual_pick"))
