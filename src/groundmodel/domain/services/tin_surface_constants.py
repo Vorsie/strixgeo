@@ -59,7 +59,15 @@ from __future__ import annotations
 #                      turned out to be the SPLIT CUT-FACE bug
 #                      (buildCapPrimitives, fixed separately), NOT the
 #                      TIN footprint — so the tight clip was no longer
-#                      needed. 4.0 keeps a generous footprint (close to
-#                      the convex hull) while still cutting the gross
-#                      data-void spans.
-CONCAVE_HULL_ALPHA_FACTOR = 4.0
+#                      needed.
+#   6.0 (2026-05-18) — owner "4 might be too tight". Now that the
+#                      cut-face bug is fixed, a loose factor no longer
+#                      reintroduces droop — it only widens the surface
+#                      footprint toward the convex hull. 6.0 keeps
+#                      nearly the full hull, cutting only the most
+#                      egregious data-void spans. Set very high
+#                      (e.g. 1e9) to disable the trim entirely (pure
+#                      convex hull) — acceptable now the cut face is
+#                      decoupled; the only cost is the surface bridging
+#                      real data voids (flat, not droopy).
+CONCAVE_HULL_ALPHA_FACTOR = 6.0
