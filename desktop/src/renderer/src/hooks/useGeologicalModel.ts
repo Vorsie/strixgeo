@@ -2050,8 +2050,11 @@ export function useGeologicalModel({
   )
 
   // Rebuild TIN surfaces for the active lithostratigraphic model.
-  // Closes over activeLithoModelRef so the dep array is [project] —
-  // stable to project identity.  The rebuild endpoint is model-id-
+  // Closes over activeLithoModelRef; the dep array is
+  // [project, refetchLithoSurfaces, toast] — refetchLithoSurfaces is a
+  // stable useCallback keyed on [project] and toast is caller-stable,
+  // so the callback identity tracks project identity.  The rebuild
+  // endpoint is model-id-
   // agnostic (POST .../models/{mid}/surfaces/rebuild works for any kind);
   // no backend change is required.  After a successful rebuild we
   // call refetchLithoSurfaces so lithoSurfacesByFormationId + the
