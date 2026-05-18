@@ -209,8 +209,48 @@ describe('ContactsLayer', () => {
       [makeFormation({ name: 'X' })],
       [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
     )
+    // Each label <text> now carries a <title> child (the full-name
+    // hover tooltip), so assert on the visible (non-title) text node
+    // and on the tooltip separately rather than textContent (which
+    // would concatenate title + label).
     const texts = Array.from(container.querySelectorAll('text'))
-    expect(texts.filter(t => t.textContent === 'X').length).toBe(2)
+    const labels = texts.filter(
+      t => t.querySelector('title')?.textContent === 'X',
+    )
+    expect(labels.length).toBe(2)
+    for (const t of labels) {
+      const visible = Array.from(t.childNodes)
+        .filter(n => n.nodeType === 3 /* TEXT_NODE */)
+        .map(n => n.textContent)
+        .join('')
+      expect(visible).toBe('X')
+    }
+  })
+
+  it('exposes the full untruncated formation name in a hover <title>', () => {
+    // Long name + the fixture's narrow (~14 px) column → the visible
+    // label truncates with an ellipsis, but the <title> must still
+    // carry the complete string so the engineer can tell e.g.
+    // "Lid van Aalbeke" from "Lid van Roubaix".
+    const fullName = 'Paleogeen: Formatie van Kortrijk - Lid van Aalbeke'
+    const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 })]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: fullName })],
+      [makeBoreholePlaced('bh-1', 50)],
+    )
+    const titles = Array.from(container.querySelectorAll('title')).map(
+      t => t.textContent,
+    )
+    expect(titles).toContain(fullName)
+    // The visible label is truncated (does not equal the full name).
+    const labelText = container.querySelector('text')
+    const visible = Array.from(labelText?.childNodes ?? [])
+      .filter(n => n.nodeType === 3)
+      .map(n => n.textContent)
+      .join('')
+    expect(visible).not.toBe(fullName)
+    expect(visible.length).toBeLessThan(fullName.length)
   })
 
   it('positions the layer name in the vertical middle of the layer', () => {
