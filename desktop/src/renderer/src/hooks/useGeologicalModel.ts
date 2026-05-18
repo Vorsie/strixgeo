@@ -113,6 +113,23 @@ export interface UseGeologicalModelResult {
   lithoContacts: FormationContactResponse[]
   lithoFormations: GeologicalFormationResponse[]
   lithoSurfacesByFormationId: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * Number of lithostratigraphic formation surfaces whose ``is_stale``
+   * flag is true.  Mirrors ``staleSurfaceCount`` for the geo model.
+   * Zero when no litho model is active or no surfaces exist yet.
+   */
+  lithoStaleSurfaceCount: number
+  /**
+   * Rebuild TIN surfaces for the active lithostratigraphic model.
+   *
+   * Calls ``POST .../models/{mid}/surfaces/rebuild`` with the litho
+   * model id (the same model-id-agnostic endpoint used by
+   * ``handleRebuildSurfaces`` for the geological model).  After the
+   * call succeeds it refetches ``lithoSurfacesByFormationId`` so the
+   * LithologyCanvas and stale-count badge update without a page reload.
+   * No-ops when no litho model is active.
+   */
+  handleRebuildLithoSurfaces: () => Promise<void>
   /** Create a formation contact on the active LITHO model (mirrors
    * handleCreateContact exactly, closes over activeLithoModel). */
   handleCreateLithoContact: (
@@ -2024,6 +2041,52 @@ export function useGeologicalModel({
     [surfacesByFormationId],
   )
 
+  // Mirror of staleSurfaceCount for the lithostratigraphic model.
+  // Zero when no litho model is active or no surfaces have been built yet.
+  const lithoStaleSurfaceCount = useMemo(
+    () =>
+      Array.from(lithoSurfacesByFormationId.values()).filter(s => s.is_stale === true).length,
+    [lithoSurfacesByFormationId],
+  )
+
+  // Rebuild TIN surfaces for the active lithostratigraphic model.
+  // Closes over activeLithoModelRef so the dep array is [project] —
+  // stable to project identity.  The rebuild endpoint is model-id-
+  // agnostic (POST .../models/{mid}/surfaces/rebuild works for any kind);
+  // no backend change is required.  After a successful rebuild we
+  // call refetchLithoSurfaces so lithoSurfacesByFormationId + the
+  // stale-count badge update synchronously.
+  const handleRebuildLithoSurfaces = useCallback(async (): Promise<void> => {
+    const model = activeLithoModelRef.current
+    if (!project || !model) return
+    log.debug('geology', `rebuildLithoSurfaces entry model=${model.id}`)
+    try {
+      const result = await api.geology.rebuildSurfaces(project.id, model.id)
+      refetchLithoSurfaces()
+      log.success(
+        'geology',
+        `rebuildLithoSurfaces ok considered=${result.formations_considered} rebuilt=${result.formations_rebuilt}`,
+      )
+      if (result.formations_considered === 0) {
+        toast('success', 'No litho formations with contacts yet — nothing to rebuild.')
+      } else if (result.formations_rebuilt === 0) {
+        toast(
+          'success',
+          `Litho cache in sync (${result.formations_considered} ` +
+            `surface${result.formations_considered === 1 ? '' : 's'} checked).`,
+        )
+      } else {
+        toast(
+          'success',
+          `Rebuilt ${result.formations_rebuilt} of ${result.formations_considered} litho surface${result.formations_considered === 1 ? '' : 's'}.`,
+        )
+      }
+    } catch (err) {
+      log.error('geology', 'rebuildLithoSurfaces failed', err)
+      toast('error', 'Could not rebuild litho surfaces — see console.')
+    }
+  }, [project, refetchLithoSurfaces, toast])
+
   // Removes a set of contact ids from local state only (no DB call).
   // The caller (discardSessionImports) owns the DB deletes; this
   // callback just keeps the in-memory contacts list consistent.
@@ -2908,6 +2971,8 @@ export function useGeologicalModel({
     lithoContacts,
     lithoFormations,
     lithoSurfacesByFormationId,
+    lithoStaleSurfaceCount,
+    handleRebuildLithoSurfaces,
     handleCreateLithoContact,
     handleInlineLithoCreateFormation,
     formations,
