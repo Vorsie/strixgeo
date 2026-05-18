@@ -51,7 +51,6 @@ stable keys, not in display names.
 
 from __future__ import annotations
 
-import logging
 import re
 import unicodedata
 from collections import Counter
@@ -80,6 +79,7 @@ from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Re-export value objects so existing importers that reference this module directly
 # keep working without change — they imported StratigraphyCandidate, LumpingCollision,
@@ -90,12 +90,11 @@ __all__ = [
     "StratigraphyCandidate",
     "normalize_formation_key",
     "build_formal_informal_bridge",
-    "_resolve_bridge_key",
     "scan_stratigraphy_candidates",
     "AutoPopulateContactsFromStratigraphy",
 ]
 
-_logger = logging.getLogger(__name__)
+_logger = LoggerFactory.get_logger(__name__)
 
 
 _NON_ALNUM_RUN = re.compile(r"[\W_]+", re.UNICODE)
@@ -198,8 +197,10 @@ async def build_formal_informal_bridge(
         for every proven formal↔informal pair in the project.  Empty when no
         dual-stream borehole exists.
     """
-    # Load every borehole in the project that has at least one stratigraphy
-    # observation, with its observations and layers in one round-trip.
+    # Load every borehole in the project with its observations and layers in
+    # one round-trip. Non-dual-stream boreholes (formal-only, informal-only,
+    # or neither) are loaded but discarded in the loop below — loading all is
+    # simpler than a subquery filter and the layer payloads are small.
     bh_stmt = (
         select(BoreholeOrm)
         .where(BoreholeOrm.app_project_id == project_id)
@@ -262,6 +263,12 @@ async def build_formal_informal_bridge(
     )
 
     if not votes:
+        _logger.info(
+            "build_formal_informal_bridge: project=%s — 0 pairs "
+            "(%d dual-stream borehole(s); nothing to bridge)",
+            project_id,
+            dual_stream_count,
+        )
         return {}
 
     bridge: dict[str, str] = {}
@@ -290,6 +297,12 @@ async def build_formal_informal_bridge(
             )
         bridge[norm_formal] = winner
 
+    _logger.info(
+        "build_formal_informal_bridge: project=%s — %d pair(s) from %d dual-stream borehole(s)",
+        project_id,
+        len(bridge),
+        dual_stream_count,
+    )
     _logger.debug(
         "build_formal_informal_bridge: bridge contains %d pair(s): %s",
         len(bridge),
