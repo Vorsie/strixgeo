@@ -465,6 +465,8 @@ export default function App() {
     effectiveHorizontalEpsg,
     sectionModelAxis,
     setSectionModelAxis,
+    backdropModelIdOverride,
+    setBackdropModelIdOverride,
     refreshSectionList,
     clearSectionSelection,
     handleSectionCreated,
@@ -749,7 +751,7 @@ export default function App() {
     visibleCpts, visibleBoreholes, geo,
     // sections
     sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg,
-    sectionModelAxis, setSectionModelAxis,
+    sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
     refreshSectionList, clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw,
     handleSectionLineDrawn, handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection,
     // overlays
