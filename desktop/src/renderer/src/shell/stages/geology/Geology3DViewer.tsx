@@ -47,6 +47,7 @@ import type { BasemapSource, BasemapId } from '../../../utils/basemapSources'
 import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/basemapSources'
 import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
 import {
+  buildCutFaceBands,
   computeBasemapBounds,
   sampleTinZ,
   clipTrisToHalfSpace,
@@ -375,18 +376,15 @@ function buildCapPrimitives(
   let maxX = -Infinity
   let minY = Infinity
   let maxY = -Infinity
-  let minZ = Infinity
   for (const s of surfacesByFormationId.values()) {
-    for (const [x, y, z] of s.vertices) {
+    for (const [x, y] of s.vertices) {
       if (x < minX) minX = x
       if (x > maxX) maxX = x
       if (y < minY) minY = y
       if (y > maxY) maxY = y
-      if (z < minZ) minZ = z
     }
   }
   if (!isFinite(minX)) return []
-  const zBase = minZ - 2
 
   // Extend the drawn segment to a long line, then clamp its parameter
   // to the model bbox so stations span the model, not just the click.
@@ -420,8 +418,6 @@ function buildCapPrimitives(
     .filter(f => !hiddenFormationIds?.has(f.id))
     .sort((a, b) => a.display_order - b.display_order)
 
-  // Accumulate quads per formation id.
-  const quadsByFid = new Map<string, number[]>()
   const colorByFid = new Map<string, Cesium.Color>()
 
   const stationXY: [number, number][] = []
@@ -444,23 +440,6 @@ function buildCapPrimitives(
     return col
   })
 
-  const pushQuad = (
-    fid: string,
-    p1: [number, number, number],
-    p2: [number, number, number],
-    p3: [number, number, number],
-    p4: [number, number, number],
-  ) => {
-    let arr = quadsByFid.get(fid)
-    if (!arr) {
-      arr = []
-      quadsByFid.set(fid, arr)
-    }
-    // Two triangles (1,2,3) (1,3,4); positions stored projected,
-    // converted to ECEF when the primitive is built.
-    arr.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4)
-  }
-
   for (const f of ordered) {
     if (!colorByFid.has(f.id)) {
       const hex = f.color.startsWith('#') ? f.color : `#${f.color}`
@@ -469,32 +448,11 @@ function buildCapPrimitives(
     }
   }
 
-  for (let k = 0; k < N; k++) {
-    const ca = profiles[k]
-    const cb = profiles[k + 1]
-    const [ax, ay] = stationXY[k]
-    const [bx, by] = stationXY[k + 1]
-    // Walk the shallower of the two columns; band i spans z_i down to
-    // the next-deeper formation top (or zBase for the deepest).
-    const depth = Math.max(ca.length, cb.length)
-    for (let i = 0; i < depth; i++) {
-      const a = ca[i]
-      const b = cb[i]
-      if (!a && !b) continue
-      const fid = (a ?? b)!.fid
-      const aTop = a ? a.z : (b as { z: number }).z
-      const bTop = b ? b.z : (a as { z: number }).z
-      const aBot = ca[i + 1]?.z ?? zBase
-      const bBot = cb[i + 1]?.z ?? zBase
-      pushQuad(
-        fid,
-        [ax, ay, aTop],
-        [bx, by, bTop],
-        [bx, by, bBot],
-        [ax, ay, aBot],
-      )
-    }
-  }
+  // Per-fid flat projected triangle soup. Robust to formations pinching
+  // out between stations (the old index-aligned walk dragged a band to
+  // a global zBase wherever a deeper formation was absent — the cut-face
+  // "droop" while the TINs themselves were flat).
+  const quadsByFid = buildCutFaceBands(profiles, stationXY)
 
   const prims: Cesium.Primitive[] = []
   for (const [fid, flat] of quadsByFid) {
