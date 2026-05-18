@@ -83,6 +83,8 @@ function makeCtx(overrides: {
   activeLithoModel?: GeologicalModelResponse | null
   sectionModelAxis?: 'geological' | 'lithostratigraphic'
   setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic') => void
+  sectionFocusedColumn?: { kind: 'cpt' | 'borehole'; id: string; name: string } | null
+  selectedSectionId?: string | null
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
 
@@ -228,8 +230,10 @@ function makeCtx(overrides: {
       handleLoadBackdropSurfaces: noopAsync,
     },
     sections: {
-      sections: [],
-      selectedSectionId: null,
+      sections: overrides.selectedSectionId
+        ? [{ id: overrides.selectedSectionId, name: 'Section A' } as import('../../../api/client').CrossSectionResponse]
+        : [],
+      selectedSectionId: overrides.selectedSectionId ?? null,
       drawingSection: false,
       focusedContactIds: [],
       visibleSections: [],
@@ -250,6 +254,8 @@ function makeCtx(overrides: {
       handleSelectSection: vi.fn(),
       handleFocusContacts: vi.fn(),
       applyUpdatedSection: vi.fn(),
+      sectionFocusedColumn: overrides.sectionFocusedColumn ?? null,
+      setSectionFocusedColumn: vi.fn(),
     },
     overlays: {
       demSource: null,
@@ -523,5 +529,87 @@ describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
       'title',
       'Create a lithostratigraphic model in the Lithology stage first',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Part 1: litho-axis canSuggest + handleSuggest use sectionFocusedColumn
+// ---------------------------------------------------------------------------
+
+describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', () => {
+  // S1: "Suggest litho" is DISABLED when sectionFocusedColumn is null on the
+  // litho axis, even when a CPT is globally selected in the coordinator.
+  it('S1 — Suggest is disabled when no column is focused in the section (litho axis)', () => {
+    const ctx: ShellContextValue = {
+      ...makeCtx({
+        activeLithoModel: makeLithoModel(),
+        sectionModelAxis: 'lithostratigraphic',
+        sectionFocusedColumn: null,
+        selectedSectionId: 'sec-1',
+      }),
+      // Global coordinator has a selected CPT — must NOT enable Suggest on litho axis.
+      coordinator: {
+        ...makeCtx().coordinator,
+        selectedId: 'cpt-99',
+        selectedBoreholeId: null,
+      },
+    }
+    renderToolbar(ctx)
+    const suggestBtn = screen.getByRole('button', { name: /suggest litho/i })
+    expect(suggestBtn).toBeDisabled()
+  })
+
+  // S2: "Suggest litho" is ENABLED when a column is focused in the section on
+  // the litho axis (sectionFocusedColumn is set), even when nothing is globally
+  // selected in the coordinator.
+  it('S2 — Suggest is enabled when a column is focused in the section (litho axis)', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+      sectionFocusedColumn: { kind: 'cpt', id: 'cpt-1', name: 'CPT-1' },
+      selectedSectionId: 'sec-1',
+    })
+    renderToolbar(ctx)
+    const suggestBtn = screen.getByRole('button', { name: /suggest litho/i })
+    expect(suggestBtn).not.toBeDisabled()
+  })
+
+  // S3: clicking "Suggest litho" calls handleSuggestLitho with the SECTION-
+  // FOCUSED column's kind and id (not the global coordinator selection).
+  it('S3 — Suggest calls handleSuggestLitho with the focused column kind + id', async () => {
+    const suggestLitho = vi.fn().mockResolvedValue(undefined)
+    const ctx: ShellContextValue = {
+      ...makeCtx({
+        activeLithoModel: makeLithoModel(),
+        sectionModelAxis: 'lithostratigraphic',
+        sectionFocusedColumn: { kind: 'borehole', id: 'bh-42', name: 'BH-42' },
+        selectedSectionId: 'sec-1',
+      }),
+      geoModel: {
+        ...makeCtx({ activeLithoModel: makeLithoModel() }).geoModel,
+        handleSuggestLitho: suggestLitho,
+      },
+    }
+    renderToolbar(ctx)
+    const suggestBtn = screen.getByRole('button', { name: /suggest litho/i })
+    fireEvent.click(suggestBtn)
+    await vi.waitFor(() => {
+      expect(suggestLitho).toHaveBeenCalledWith('borehole', 'bh-42')
+    })
+  })
+
+  // S4: on the GEOLOGICAL axis, canSuggest still uses the global coordinator
+  // selection (selectedId / selectedBoreholeId) — zero regression.
+  it('S4 — geological axis: Suggest is disabled when coordinator has no selection', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'geological',
+      sectionFocusedColumn: { kind: 'cpt', id: 'cpt-1', name: 'CPT-1' },
+      selectedSectionId: 'sec-1',
+    })
+    renderToolbar(ctx)
+    // On the geo axis the Suggest button block is not rendered at all
+    // (it is guarded by {isLitho && ...}).
+    expect(screen.queryByRole('button', { name: /suggest litho/i })).not.toBeInTheDocument()
   })
 })
