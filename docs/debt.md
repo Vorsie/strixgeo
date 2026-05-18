@@ -14,7 +14,7 @@ sections that follow):
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
 * **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
-* **E. Lower technical debt:** #15, #16, #17, #18, #20, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
+* **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -382,18 +382,6 @@ it does network I/O), dry-run default, with this safety bar baked in:
   parsed vs 1 NULL) → no stamp + WARNING; lab-family backfiller →
   always no-stamp + instruct-reimport. No live-DOV integration test
   needed before the trigger.
-
-## 20. Translate ``ScalarLabTest.parameter`` storage (low)
-
-**What.** 671 rows already store the verbatim DOV string
-``"Korrelvolumemassa (korrelvolumemassa)"`` etc. If DOV changes their
-inconsistent doubled-tail convention again, we'd need to migrate all
-rows. A separate ``parameter_slug`` column with a canonical short
-name (derived at ingest from a curated map) would help reporting and
-make the storage column independent of upstream tweaks.
-
-**When.** When a query against ``scalar_lab_test`` is added that
-filters by parameter — at that point the slug becomes load-bearing.
 
 ## 22. CPT detail chart conflates raw curves with Ic/SBT interpretation (low — Parameters-stage trigger)
 
