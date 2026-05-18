@@ -52,7 +52,10 @@ from __future__ import annotations
 #                      (stale-cache bug; reverted).
 #   2.5 (2026-05-18) — re-adopted as THE method; started GENEROUS on
 #                      owner feedback "you're cutting too much / holes
-#                      in the base formation". Lower toward ~1.8 if
-#                      droop is still unacceptable; raise toward ~3.5
-#                      if real surface is being lost.
-CONCAVE_HULL_ALPHA_FACTOR = 2.5
+#                      in the base formation". Holes resolved but a
+#                      little droop remained here and there.
+#   2.0 (2026-05-18) — owner "still a little droopy"; one step tighter.
+#                      Mid-band — clear of the low end where interior
+#                      holes / fragmentation return. If droop persists
+#                      go ~1.8; if holes reappear raise back ~2.2.
+CONCAVE_HULL_ALPHA_FACTOR = 2.0
