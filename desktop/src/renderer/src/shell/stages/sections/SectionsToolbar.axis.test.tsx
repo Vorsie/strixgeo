@@ -198,6 +198,7 @@ function makeCtx(overrides: {
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
+      handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
       handleRebuildSurfaces: noopAsync,
       handleExportModelPlaxis3d: noopAsync,
@@ -403,6 +404,56 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
 
     fireEvent.click(geoBtn)
     expect(setSectionModelAxis).toHaveBeenCalledWith('geological')
+  })
+})
+
+describe('SectionsToolbar Seed axis-dispatch (#55 litho-Seed slice)', () => {
+  it('B6-geo — Seed on geological axis calls handleAutoPopulateFromStratigraphy', async () => {
+    const autoPopulate = vi.fn().mockResolvedValue(undefined)
+    const seedLitho = vi.fn().mockResolvedValue(undefined)
+    const ctx: ShellContextValue = {
+      ...makeCtx({ activeLithoModel: makeLithoModel(), sectionModelAxis: 'geological' }),
+      geoModel: {
+        ...makeCtx({ activeLithoModel: makeLithoModel() }).geoModel,
+        handleAutoPopulateFromStratigraphy: autoPopulate,
+        handleSeedLithoFromParent: seedLitho,
+      },
+    }
+    renderToolbar(ctx)
+
+    const seedBtn = screen.getByRole('button', { name: /^seed$/i })
+    fireEvent.click(seedBtn)
+
+    // Allow async handler to settle
+    await vi.waitFor(() => {
+      expect(autoPopulate).toHaveBeenCalledOnce()
+      expect(seedLitho).not.toHaveBeenCalled()
+    })
+  })
+
+  it('B6-litho — Seed on litho axis calls handleSeedLithoFromParent (not autoPopulate)', async () => {
+    const autoPopulate = vi.fn().mockResolvedValue(undefined)
+    const seedLitho = vi.fn().mockResolvedValue(undefined)
+    const ctx: ShellContextValue = {
+      ...makeCtx({
+        activeLithoModel: makeLithoModel(),
+        sectionModelAxis: 'lithostratigraphic',
+      }),
+      geoModel: {
+        ...makeCtx({ activeLithoModel: makeLithoModel() }).geoModel,
+        handleAutoPopulateFromStratigraphy: autoPopulate,
+        handleSeedLithoFromParent: seedLitho,
+      },
+    }
+    renderToolbar(ctx)
+
+    const seedBtn = screen.getByRole('button', { name: /seed from geology/i })
+    fireEvent.click(seedBtn)
+
+    await vi.waitFor(() => {
+      expect(seedLitho).toHaveBeenCalledOnce()
+      expect(autoPopulate).not.toHaveBeenCalled()
+    })
   })
 })
 
