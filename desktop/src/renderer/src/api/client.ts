@@ -366,6 +366,13 @@ export interface AutoPopulateFromStratigraphyResponse {
   skipped_unmatched: number
   skipped_no_stratigraphy: number
   /**
+   * Layers skipped on the Sections "Seed from stratigraphy" path because
+   * their resolved formation is not one the user curated (Seed never
+   * creates). Non-zero only when create_missing_formations=false. The
+   * Seed handler surfaces this so dropped borehole data isn't silent.
+   */
+  skipped_not_in_model: number
+  /**
    * Lumping collisions that occurred during execute when ``manual_map`` was
    * provided.  Empty list when no map was provided or no collision occurred.
    * Mirrors the collision list returned by the discover preview, so the dialog
@@ -1433,6 +1440,11 @@ export const api = {
       // returns the updated section row in updated_section.  Omit on the
       // Fill-from-boreholes path (Geology stage) where no section context exists.
       sectionId?: string | null,
+      // Sections "Seed from stratigraphy" passes false: Seed places
+      // contacts only for curated formations and never creates one
+      // (CLAUDE.md explicit-content invariant). Omitted on the
+      // Fill-from-boreholes path → backend default true (Fill creates).
+      createMissingFormations?: boolean,
     ): Promise<AutoPopulateFromStratigraphyResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/auto-populate`,
@@ -1443,6 +1455,9 @@ export const api = {
             ? { manual_map: manualMap }
             : {}),
           ...(sectionId != null ? { section_id: sectionId } : {}),
+          ...(createMissingFormations === false
+            ? { create_missing_formations: false }
+            : {}),
         },
       ),
 
