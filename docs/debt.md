@@ -13,7 +13,7 @@ sections that follow):
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
 * **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
-* **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
+* **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52, #60
 * **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
 When an item is resolved, **delete it from this list** — its
@@ -695,6 +695,30 @@ generator (ReportLab/WeasyPrint) keeps figures reproducible and
 testable; a renderer-side print-to-PDF reuses the live Cesium/recharts
 views but couples the report to Electron. Lean Python-side unless the
 3D figure fidelity forces the renderer path.
+
+## 60. SeedLithoFromGeologicalModel use case orphaned — no frontend verb calls it (Tier D)
+
+**What.** The Sections editor's litho-axis toolbar verb "Seed from geology"
+was rewired (2026-05-18, owner override #1) to call
+`handleLoadBackdropSurfaces` → `GET .../surfaces` instead of
+`POST .../contacts/seed-from-parent`.  The use case
+`SeedLithoFromGeologicalModel` and its endpoint remain in the codebase
+(backwards-compat suspended, future re-use), but nothing currently invokes
+them from the frontend.
+
+**Why deferred.** The seed-contacts approach was superseded by the
+geological surface backdrop — a read-only reference layer is lower-friction
+and avoids polluting the litho model's contact set with seeded data the
+user then has to curate.  Deleting the use case now would be premature;
+a future automated litho-seed workflow (batch import, script, or a
+re-introduced manual seed path) may want to call it.
+
+**When to revisit.** If a future automated litho-seed workflow (batch
+import, script) needs to copy geological contacts into a litho model — or
+if the endpoint has been unreachable for two+ releases with no plan to call
+it, at which point delete it cleanly.
+
+---
 
 ## 53. `shellContextValue` dep array will silently drift as the coordinator grows (Tier E — latent correctness)
 
