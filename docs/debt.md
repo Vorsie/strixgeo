@@ -12,7 +12,7 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #58 (DOV formal/informal stratigraphy never reconciles across boreholes — ground-model-quality; design-first via system-architect, 2026-05-18), #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
 * **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
@@ -829,6 +829,72 @@ stratigraphy-lumping slice without adding correctness.
 **When to revisit.** When a user explicitly asks to reuse a project's
 grouping elsewhere (i.e. the per-project constraint becomes friction in
 real dogfooding).  Not before.
+
+---
+
+## 58. DOV formal/informal stratigraphy never reconciles across boreholes (Tier C — ground-model-quality; design-first via system-architect)
+
+**What.** DOV publishes borehole stratigraphy in two vocabularies —
+**formal** (abbreviated regional codes: `A`, `OH-T-DP`, `KvW`, `KoKe`)
+and **informal** (full Dutch working names: `Antropogeen`, `Quartair:
+Holoceen tot …`, `Paleogeen: Formatie van …`). Per borehole DOV may
+carry one, the other, or both. The seeder
+(`auto_populate_contacts_from_stratigraphy._derive_layer_names_and_key`)
+walks the formal stream per borehole, falling back to informal only when
+that borehole has no formal record, and derives the cross-borehole
+identity key as `normalize(formal code)` when formal is present else
+`normalize(informal name)`. Those are **two namespaces that never meet
+for the same geological unit**: a formal-only borehole's "KoKe" and an
+informal-only borehole's "Paleogeen: Formatie van Kortrijk" are emitted
+as two separate candidates with different keys → two separate formation
+entities → they do **not** connect into a band across the section, and
+the labels render as a formal/informal mix.
+
+The manual lump map (`stratigraphy_lumping.map`, scope step 7) is the
+only bridge, and it is keyed on those raw vocabulary keys. "Reassign
+every geology" merges only variants the user explicitly mapped to the
+same target — and the dialog gives **no signal** that a formal code and
+an informal description are the same unit (DOV pairs them only *within*
+a borehole that carries both streams; cross-borehole formal-only ↔
+informal-only pairs are invisible to the system). For a tool whose core
+value is connected bands, pushing 100% of cross-vocabulary
+reconciliation onto the user with zero hinting is a real
+ground-model-quality gap. First hit dogfooding `gavere.strix`
+(2026-05-18). Not a regression — the identity model has always had this
+hole; the P2 / lumping campaigns just made it visible.
+
+**Owner-selected fix direction (2026-05-18): option 1 — transitive
+formal↔informal bridge.** Collect every `(formal_code, informal_name)`
+pair DOV provides *anywhere in the project* (every dual-stream borehole
+proves an equivalence), build equivalence classes, and auto-pre-lump
+formal-only and informal-only candidates that fall in the same class so
+they resolve to one formation wherever *any* borehole proves they are
+the same. Constraints the design must respect: the discover ≡ apply ≡
+seed invariant (the `_derive_layer_names_and_key` comment block warns
+this is the exact area a divergence bug already shipped from); the
+store-raw / translate-at-presentation rule (`reference_dov_codelists`
+memory — do not hardcode a formal↔informal table; derive equivalences
+from the data, fall back to the DOV stratigraphy lexicon /
+`codelists/` + `g3dv3_catalog` only as an explicit reference, never a
+silent rename); and the case where a formation has *no* dual-stream
+borehole anywhere (the bridge cannot infer it — needs a graceful
+"still unreconciled, lump manually" path, not a wrong guess).
+
+**Why deferred (design-first).** The fix touches the seeder identity
+model, the discover/apply/seed shared path, and the
+G3Dv3/DOV-lexicon roadmap (post-v1.0 G3Dv3 import is the natural home
+for an authoritative cross-vocabulary reference). Bolting it on
+reactively risks another discover≠apply divergence. Handed to
+system-architect for a design before any implementation. Cheap
+consistency wins (show formal+informal on each lump candidate;
+always prefer the informal label when any borehole has it) are
+viable interim mitigations but were **not** taken yet — they mask the
+symptom, and the owner chose to design the real fix first.
+
+**When to revisit.** Now — design in progress (system-architect,
+2026-05-18). Implementation lands after the design is reviewed.
+Pairs with #56 (the lump-UX convenience features) — same subsystem,
+but #58 is the correctness root, #56 is ergonomics.
 
 ---
 
