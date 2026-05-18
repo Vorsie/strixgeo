@@ -124,9 +124,16 @@ function makeSurface(formationId: string, isStale: boolean): FormationSurfaceRes
     id: `surf-${formationId}`,
     model_id: LITHO_MODEL_ID,
     formation_id: formationId,
+    method: 'tin',
     is_stale: isStale,
-    vertices: isStale ? [] : [0, 0, 0, 1, 0, 0, 0, 1, 0],
-    triangles: isStale ? [] : [0, 1, 2],
+    vertices: isStale
+      ? []
+      : ([
+          [0, 0, 0],
+          [1, 0, 0],
+          [0, 1, 0],
+        ] as [number, number, number][]),
+    triangles: isStale ? [] : ([[0, 1, 2]] as [number, number, number][]),
     source_contact_count: 3,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
