@@ -891,10 +891,51 @@ always prefer the informal label when any borehole has it) are
 viable interim mitigations but were **not** taken yet — they mask the
 symptom, and the owner chose to design the real fix first.
 
-**When to revisit.** Now — design in progress (system-architect,
-2026-05-18). Implementation lands after the design is reviewed.
-Pairs with #56 (the lump-UX convenience features) — same subsystem,
-but #58 is the correctness root, #56 is ergonomics.
+**When to revisit.** Now — design DONE (system-architect, 2026-05-18,
+below). Implementation gated on 3 owner calls. Pairs with #56 (the
+lump-UX convenience features) — same subsystem, but #58 is the
+correctness root, #56 is ergonomics.
+
+**Design (system-architect 2026-05-18) — approved approach, awaiting 3
+owner calls.** Application-layer, no schema change, no migration, not
+persisted (recompute-on-discover — the bridge is a derivation of
+ObservationLayer rows already in the bundle; Data Integrity Rule §1).
+Shape: a new `build_formal_informal_bridge(session, project_id) ->
+dict[normalize(formal) -> normalize(informal)]` scans dual-stream
+boreholes (carry BOTH streams) and emits proven pairs; a pure
+`_resolve_bridge_key(raw_key, primary_is_formal, bridge)` inserts ONE
+step into the existing shared pipeline —
+`_derive_layer_names_and_key → _resolve_bridge_key → _resolve_effective_key`
+— so discover/apply/seed stay provably identical (the bridge dict is
+computed once per request and passed into both `scan_stratigraphy_
+candidates` and `execute`; `discover_formations_from_stratigraphy`
+inherits it free via delegation). Precedence: raw → bridge (data-proven)
+→ manual_map (user override wins). No-dual-stream formation → bridge
+no-ops, stays as today, manual lump still works (never a wrong
+auto-merge). DOV lexicon / G3Dv3: NOT used — equivalences derived only
+from project data; G3Dv3 import (post-v1.0) widens reach for free, no
+code change, nothing deferred to it. Slice 1 ≈ 120-line single-file
+diff + unit nets (B1–B6 bridge derivation, R1–R4 resolve, I1–I3
+discover≡apply≡seed incl. manual-override precedence) — write the
+invariants first. Frontend unaffected (delegation). Optional follow-up
+(file as #59 if wanted): a "also known as KoKe in N boreholes" hint in
+FormationSelectionDialog (needs a `bridged_from` field on
+StratigraphyCandidate) — ergonomics, post-confirmation.
+
+**3 owner calls before implementation:**
+1. **No-dual-stream degradation** — accept that a project where every
+   borehole is formal-only OR informal-only (no pairing borehole
+   anywhere) gets zero bridge help and stays manual-lump-only at v1.0?
+   (Gavere may be exactly this — verify it has ≥1 dual-stream borehole
+   or the bridge won't help it; G3Dv3 import is the long-term answer.)
+2. **Disagreeing dual-stream boreholes** — same formal code → two
+   different informal names across boreholes: majority-vote + WARNING
+   log (recommended), vs maximally-conservative "don't bridge that
+   code at all"?
+3. **Stale `stratigraphy_lumping` after deploy** — a pre-bridge saved
+   map keyed on formal codes the bridge now collapses: silent-skip the
+   stale entries (user redoes lumping once; recommended pre-ship,
+   backwards-compat suspended) vs a one-time rekey migration?
 
 ---
 
