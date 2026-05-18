@@ -158,6 +158,7 @@ function makeStubContext(): ShellContextValue {
       handleBatchUpdateContacts: noopAsync,
       handleDeleteContact: noopAsync,
       handleAutoPopulateFromStratigraphy: noopAsync,
+      handleSeedLithoFromParent: noopAsync,
       handleDedupeContacts: () => Promise.resolve(0),
       handleRebuildSurfaces: noopAsync,
       handleExportModelPlaxis3d: noopAsync,
@@ -272,6 +273,8 @@ function makeStubContext(): ShellContextValue {
       sessionImportFormationIds: new Set(),
       marqueeSelectedIds: new Set(),
       setMarqueeSelectedIds: vi.fn(),
+      hoveredTestId: null,
+      setHoveredTestId: vi.fn(),
     },
   }
 }
@@ -332,6 +335,9 @@ describe('Geology stage (smoke)', () => {
       regional_ref: 'BmKi',
       description: null,
       display_order: 0,
+      pinned_order: false,
+      lithology: null,
+      nad_class: null,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
@@ -364,6 +370,9 @@ describe('Geology stage (smoke)', () => {
         regional_ref: null,
         description: null,
         display_order: 0,
+        pinned_order: false,
+        lithology: null,
+        nad_class: null,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
       },
@@ -484,6 +493,9 @@ describe('Geology stage (smoke)', () => {
         id: 'model-1',
         app_project_id: 'proj-1',
         name: 'Default',
+        description: null,
+        kind: 'geological',
+        parent_geological_model_id: null,
         is_active: true,
         excluded_borehole_ids: [],
         created_at: '2026-01-01T00:00:00Z',
@@ -549,5 +561,101 @@ describe('Geology stage (smoke)', () => {
       fireEvent.click(confirmBtn)
       expect(handleDeleteModel).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GeologyInspector model-axis-aware filter (#55 litho-Seed slice)
+// ---------------------------------------------------------------------------
+
+describe('GeologyInspector axis-aware formation filter (#55 litho-Seed)', () => {
+  const makeFormation = (
+    id: string,
+    name: string,
+    order: number,
+  ): import('../../../api/client').GeologicalFormationResponse => ({
+    id,
+    app_project_id: 'proj-1',
+    name,
+    color: '#aaa',
+    code: null,
+    regional_ref: null,
+    description: null,
+    display_order: order,
+    pinned_order: false,
+    lithology: null,
+    nad_class: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  })
+
+  const makeContact = (
+    formationId: string,
+  ): import('../../../api/client').FormationContactResponse => ({
+    id: `contact-${formationId}`,
+    model_id: 'litho-model-1',
+    formation_id: formationId,
+    borehole_id: 'bh-1',
+    cpt_id: null,
+    depth_top_m: 1.0,
+    source: 'geological_model_seed',
+    confidence: 'medium',
+    observation_id: null,
+    observation_layer_id: null,
+    notes: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  })
+
+  it('B7-geo — on geological axis all visible formations are shown', () => {
+    const ctx = makeStubContext()
+    const f1 = makeFormation('f-1', 'Formation A', 0)
+    const f2 = makeFormation('f-2', 'Formation B', 1)
+    ctx.geoModel.visibleFormations = [f1, f2]
+    ctx.geoModel.lithoContacts = []
+    ctx.sections.sectionModelAxis = 'geological'
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <GeologyInspector />
+      </ShellContext.Provider>,
+    )
+
+    expect(screen.getByText('Formation A')).toBeTruthy()
+    expect(screen.getByText('Formation B')).toBeTruthy()
+  })
+
+  it('B7-litho — on litho axis only formations with ≥1 litho contact are shown', () => {
+    const ctx = makeStubContext()
+    const f1 = makeFormation('f-1', 'Formation A', 0) // has a litho contact
+    const f2 = makeFormation('f-2', 'Formation B', 1) // no litho contact
+    ctx.geoModel.visibleFormations = [f1, f2]
+    ctx.geoModel.lithoContacts = [makeContact('f-1')]
+    ctx.sections.sectionModelAxis = 'lithostratigraphic'
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <GeologyInspector />
+      </ShellContext.Provider>,
+    )
+
+    expect(screen.getByText('Formation A')).toBeTruthy()
+    expect(screen.queryByText('Formation B')).toBeNull()
+  })
+
+  it('B7-litho-empty — on litho axis with no contacts the list is empty', () => {
+    const ctx = makeStubContext()
+    const f1 = makeFormation('f-1', 'Formation A', 0)
+    ctx.geoModel.visibleFormations = [f1]
+    ctx.geoModel.lithoContacts = []
+    ctx.sections.sectionModelAxis = 'lithostratigraphic'
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <GeologyInspector />
+      </ShellContext.Provider>,
+    )
+
+    expect(screen.queryByText('Formation A')).toBeNull()
   })
 })
