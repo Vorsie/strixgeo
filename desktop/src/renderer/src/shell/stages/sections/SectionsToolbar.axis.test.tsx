@@ -445,9 +445,13 @@ describe('SectionsToolbar Seed axis-dispatch (#55 litho-Seed slice)', () => {
     expect(autoPopulate.mock.calls[0][2]).toBe(ctx.sections.applyUpdatedSection)
   })
 
-  it('B6-litho — Seed on litho axis calls handleSeedLithoFromParent (not autoPopulate)', async () => {
+  // B6 UPDATED (owner override #1, #60): litho-axis verb is now "Sync geology"
+  // and calls handleLoadBackdropSurfaces (not handleSeedLithoFromParent).
+  // The parent geological model id is derived from
+  // activeLithoModel.parent_geological_model_id when no override is set.
+  it('B6-litho — Sync geology on litho axis calls handleLoadBackdropSurfaces (not autoPopulate)', async () => {
     const autoPopulate = vi.fn().mockResolvedValue(undefined)
-    const seedLitho = vi.fn().mockResolvedValue(undefined)
+    const loadBackdrop = vi.fn().mockResolvedValue(undefined)
     const ctx: ShellContextValue = {
       ...makeCtx({
         activeLithoModel: makeLithoModel(),
@@ -456,22 +460,20 @@ describe('SectionsToolbar Seed axis-dispatch (#55 litho-Seed slice)', () => {
       geoModel: {
         ...makeCtx({ activeLithoModel: makeLithoModel() }).geoModel,
         handleAutoPopulateFromStratigraphy: autoPopulate,
-        handleSeedLithoFromParent: seedLitho,
+        handleLoadBackdropSurfaces: loadBackdrop,
       },
     }
     renderToolbar(ctx)
 
-    const seedBtn = screen.getByRole('button', { name: /seed from geology/i })
-    fireEvent.click(seedBtn)
+    const syncBtn = screen.getByRole('button', { name: /sync geology/i })
+    fireEvent.click(syncBtn)
 
     await vi.waitFor(() => {
-      expect(seedLitho).toHaveBeenCalledOnce()
+      // handleLoadBackdropSurfaces is called with the parent geological model id
+      expect(loadBackdrop).toHaveBeenCalledOnce()
+      expect(loadBackdrop).toHaveBeenCalledWith('model-geo-1')
       expect(autoPopulate).not.toHaveBeenCalled()
     })
-    // Regression: applyUpdatedSection MUST be the 3rd arg, else the
-    // seeded litho contacts never become visible on the section even
-    // though the server created + section-seeded them (#57 class).
-    expect(seedLitho.mock.calls[0][2]).toBe(ctx.sections.applyUpdatedSection)
   })
 })
 
