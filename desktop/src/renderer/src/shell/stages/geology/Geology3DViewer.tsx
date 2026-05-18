@@ -1063,19 +1063,28 @@ function CesiumViewport({
       skyBox: false,
       // Suppress the Cesium ion logo and the default imagery — we add our own.
       baseLayer: false,
+      // Anti-aliasing. The half-space clip emits a triangle SOUP (many thin
+      // slivers); without multisampling their edges crawl/sparkle as the
+      // camera moves — the "ragged band edges" symptom. 4x MSAA (WebGL2)
+      // smooths the cut faces and the clipped TIN borders.
+      msaaSamples: 4,
+      // Deterministic translucency. Cesium's default Order-Independent
+      // Translucency uses weighted-blended accumulation whose weight is a
+      // numerically sensitive function of fragment depth. Our scene stacks
+      // many near-parallel TRANSLUCENT layers (ground TIN + every formation
+      // TIN + the basemap lid) along the view ray — maximal where you look
+      // straight into the cut face (the split view). Under continuous render
+      // the accumulation textures vary frame-to-frame → the bands SHIMMER.
+      // Disabling OIT falls back to distance-sorted back-to-front alpha
+      // blending: stable per frame and correct here because the 0.2 m
+      // per-order z-offset keeps the layers well-separated for the sort.
+      // (Both are construct-time-only: scene.msaaSamples /
+      // .orderIndependentTranslucency are read-only after creation.)
+      orderIndependentTranslucency: false,
     })
 
-    // Anti-aliasing. The half-space clip emits a triangle SOUP (many thin
-    // slivers); without multisampling their edges crawl/sparkle as the
-    // camera moves — the "ragged band edges" symptom. 4x MSAA + FXAA
-    // smooths the cut faces and the clipped TIN borders. msaaSamples is a
-    // plain Scene property (Cesium >= 1.87); guarded so an older bundled
-    // Cesium silently ignores it rather than throwing.
-    try {
-      widget.scene.msaaSamples = 4
-    } catch {
-      /* msaaSamples unsupported on this Cesium build — FXAA still applies */
-    }
+    // FXAA on top of MSAA — cheap extra smoothing of the shader-aliased
+    // translucent band edges that MSAA's geometric coverage alone misses.
     widget.scene.postProcessStages.fxaa.enabled = true
 
     // Remove the Cesium credit container (hidden behind our own attribution UI).
