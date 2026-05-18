@@ -159,12 +159,40 @@ class RecomputeFormationSurface(GroundModelLogger):
         )
 
         # Build ContactPoint3D for each contact whose anchor has a
-        # complete (x, y, surface_elevation). Skip the rest — the TIN
-        # would be polluted by NaN points and the user's intent was
-        # "elevation unknown, place me on the section but don't
-        # interpolate from me."
+        # complete (x, y, surface_elevation). Three anchor flavours:
+        #
+        # 1. Borehole anchor — look up the borehole row; skip if missing
+        #    or if any of (location_x, location_y, elevation_m) is None.
+        # 2. CPT anchor — same pattern.
+        # 3. Synthetic anchor (borehole_id IS NULL, cpt_id IS NULL,
+        #    synthetic_x IS NOT NULL) — the pinch-out extrapolation tool
+        #    stores absolute (x, y, elevation_m) directly on the contact
+        #    row; no investigation lookup needed.  The TIN uses these
+        #    coordinates verbatim.
+        #
+        # Contacts that don't fit any branch (e.g. a corrupted row with
+        # no anchor at all) are silently skipped — "render nothing" beats
+        # a 500, consistent with the NaN-filter above.
         points: list[ContactPoint3D] = []
         for c in contacts:
+            if c.borehole_id is None and c.cpt_id is None and c.synthetic_x is not None:
+                # Synthetic anchor: coordinates are absolute, stored directly.
+                if c.synthetic_y is None or c.synthetic_elevation_m is None:
+                    self.debug(
+                        f"recompute: synthetic contact {c.id} has partial synthetic "
+                        "coordinates — skipping (all three must be non-null)"
+                    )
+                    continue
+                points.append(
+                    ContactPoint3D(
+                        contact_id=str(c.id),
+                        x_m=c.synthetic_x,
+                        y_m=c.synthetic_y,
+                        elevation_m=c.synthetic_elevation_m,
+                    )
+                )
+                continue
+
             anchor: BoreholeOrm | CptOrm | None = None
             if c.borehole_id is not None:
                 anchor = boreholes_by_id.get(c.borehole_id)
