@@ -277,3 +277,40 @@ async def test_get_many_with_series_filters_by_app_project_id(
     # Without the filter (admin / test path), both come back.
     unfiltered = await repo.get_many_with_series([a.id, b.id])
     assert len(unfiltered) == 2
+
+
+# ---------------------------------------------------------------------------
+# Debt #21 — elevation rollback (clear restores the imported Z)
+# ---------------------------------------------------------------------------
+
+
+async def test_set_elevation_clear_restores_imported_z(
+    db_session: AsyncSession,
+) -> None:
+    """Clearing a manual override of an imported DOV Z restores the surveyed
+    value + source instead of nulling the row (debt #21)."""
+    repo = CptRepository(db_session)
+    cpt = _cpt(test_id="rollback-elev", elevation_m=7.42, z_epsg=5710)
+    cpt.elevation_source = "dov"  # imagine: row came from DOV import
+    await repo.save(cpt)
+    await db_session.commit()
+
+    # Manual override → MANUAL, upstream DOV triple snapshotted.
+    updated = await repo.set_elevation(cpt.id, 9.0, None)
+    await db_session.commit()
+    assert updated is not None
+    assert updated.elevation_m == 9.0
+    assert updated.elevation_source == "manual"
+    assert updated.original_elevation_m == 7.42
+    assert updated.original_z_epsg == 5710
+    assert updated.original_elevation_source == "dov"
+
+    # Clear → restored to the DOV value + source, snapshot consumed.
+    cleared = await repo.set_elevation(cpt.id, None, None)
+    await db_session.commit()
+    assert cleared is not None
+    assert cleared.elevation_m == 7.42
+    assert cleared.z_epsg == 5710
+    assert cleared.elevation_source == "dov"
+    assert cleared.original_elevation_source is None
+    assert cleared.original_elevation_m is None
