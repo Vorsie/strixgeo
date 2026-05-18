@@ -79,10 +79,15 @@ def _make_session(boreholes: list) -> AsyncMock:
 
 @pytest.mark.asyncio
 async def test_happy_path_formal_and_informal():
-    """Two boreholes share 'Boom Klei' — borehole_count should be 2."""
+    """Two boreholes share 'Boom Klei' — borehole_count should be 2.
+
+    Synthetic non-DOV formal code: keeps this legacy test on derivation
+    mechanics; real DOV codes resolve via the #59 lexicon (see the
+    auto_populate C-series).
+    """
     project_id = uuid4()
 
-    formal_layer_1 = _layer(top_m=2.0, base_m=10.0, description="HyEg")
+    formal_layer_1 = _layer(top_m=2.0, base_m=10.0, description="XxFm")
     informal_layer_1 = _layer(top_m=2.0, base_m=10.0, description="Boom Klei")
     bh1 = _borehole(
         [
@@ -91,7 +96,7 @@ async def test_happy_path_formal_and_informal():
         ]
     )
 
-    formal_layer_2 = _layer(top_m=3.0, base_m=12.0, description="HyEg")
+    formal_layer_2 = _layer(top_m=3.0, base_m=12.0, description="XxFm")
     informal_layer_2 = _layer(top_m=3.0, base_m=12.0, description="Boom Klei")
     bh2 = _borehole(
         [
@@ -110,8 +115,8 @@ async def test_happy_path_formal_and_informal():
     assert len(candidates) == 1
     assert collisions == []
     assert candidates[0].name == "Boom Klei"
-    assert candidates[0].regional_ref == "HyEg"
-    assert candidates[0].key == "hyeg"  # normalize_formation_key(regional_ref)
+    assert candidates[0].regional_ref == "XxFm"
+    assert candidates[0].key == "xxfm"  # normalize_formation_key(regional_ref)
     assert candidates[0].borehole_count == 2
 
 
