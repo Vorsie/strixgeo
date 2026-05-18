@@ -681,7 +681,18 @@ describe('ContactsLayer', () => {
     const strip = container.querySelector(
       '[data-testid="contact-drag-strip"]',
     )!
-    strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    // Right-click opens the portal context menu in document.body.
+    // We then click "Delete contact" — that is what triggers window.confirm.
+    act(() => {
+      strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    })
+    const menu = document.body.querySelector('[data-testid="contact-context-menu"]')!
+    const deleteBtn = Array.from(menu.querySelectorAll('button')).find(
+      b => b.textContent?.trim() === 'Delete contact',
+    )!
+    act(() => {
+      fireEvent.click(deleteBtn)
+    })
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(onDeleteContact).toHaveBeenCalledTimes(1)
     expect(onDeleteContact.mock.calls[0][0]).toBe('c-7')
@@ -702,7 +713,19 @@ describe('ContactsLayer', () => {
     const strip = container.querySelector(
       '[data-testid="contact-drag-strip"]',
     )!
-    strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    // Right-click opens the portal context menu in document.body.
+    // Clicking "Delete contact" triggers window.confirm; returning false
+    // means onDeleteContact must NOT be called.
+    act(() => {
+      strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    })
+    const menu = document.body.querySelector('[data-testid="contact-context-menu"]')!
+    const deleteBtn = Array.from(menu.querySelectorAll('button')).find(
+      b => b.textContent?.trim() === 'Delete contact',
+    )!
+    act(() => {
+      fireEvent.click(deleteBtn)
+    })
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(onDeleteContact).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
