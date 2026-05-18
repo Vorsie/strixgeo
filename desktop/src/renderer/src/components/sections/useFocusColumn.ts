@@ -96,6 +96,13 @@ export interface UseFocusColumnResult {
  * because the panel's vertical scale is ``scaleH * vex`` — fitting
  * the test's depth range requires knowing the pixel box to solve
  * for VEX.
+ *
+ * ``plotLeft`` / ``scaleH`` are needed to convert each column's
+ * rendered screen-X (``nudgedX`` — the actual draw position after
+ * collision nudging) back to world-space metres so the focus window
+ * centres on the column the user actually sees, not on its raw
+ * projected along-distance (which may differ after the spacing
+ * lerp + nudge pass).
  */
 export function useFocusColumn(
   placedColumns: readonly PlacedColumn[],
@@ -103,6 +110,8 @@ export function useFocusColumn(
   vex: number,
   plotWidth: number,
   plotHeight: number,
+  plotLeft: number,
+  scaleH: number,
   setViewport: (next: Viewport) => void,
   setVex: (next: number) => void,
 ): UseFocusColumnResult {
@@ -152,20 +161,31 @@ export function useFocusColumn(
         //   vex    = scaleV / scaleH
         const xSpan = 2 * FOCUS_X_HALF_WIDTH_M
         const vSpan = dEff + 2 * FOCUS_LEVEL_PADDING_M
-        const scaleH = plotWidth / xSpan
+        const focusScaleH = plotWidth / xSpan
         const scaleV = plotHeight / vSpan
-        newVex = clamp(scaleV / scaleH, VEX_MIN, VEX_MAX)
+        newVex = clamp(scaleV / focusScaleH, VEX_MIN, VEX_MAX)
       }
+      // Convert the column's rendered screen-X (nudgedX) back to world
+      // metres so the focus window centres on the column the user sees,
+      // not on its raw projected along-distance. When columns have been
+      // nudged rightward by the collision-avoidance pass, using
+      // col.proj.along would land the centre off-screen from the actual
+      // drawn position. scaleH and plotLeft are the current-render values
+      // captured by the parent — inverse of ``xToScreen = plotLeft + (x - xMin) * scaleH``.
+      const renderedWorldX =
+        scaleH > 0
+          ? viewport.xMin + (col.nudgedX - plotLeft) / scaleH
+          : col.proj.along
       setViewport({
-        xMin: col.proj.along - FOCUS_X_HALF_WIDTH_M,
-        xMax: col.proj.along + FOCUS_X_HALF_WIDTH_M,
+        xMin: renderedWorldX - FOCUS_X_HALF_WIDTH_M,
+        xMax: renderedWorldX + FOCUS_X_HALF_WIDTH_M,
         levelMin: newLevelMin,
         levelMax: newLevelMax,
       })
       setVex(newVex)
       setFocusedColumn(target)
     },
-    [placedColumns, viewport, vex, plotWidth, plotHeight, setViewport, setVex],
+    [placedColumns, viewport, vex, plotWidth, plotHeight, plotLeft, scaleH, setViewport, setVex],
   )
 
   const exitFocus = useCallback(() => {
