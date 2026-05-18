@@ -11,5 +11,13 @@ from typing import Literal
 # Closed enum for the source column. Pydantic enforces these literally;
 # the DB column stays plain VARCHAR so adding a new source is a
 # Pydantic-only change.
-ContactSource = Literal["borehole_observation", "manual_pick", "interpolated"]
+ContactSource = Literal[
+    "borehole_observation",
+    "manual_pick",
+    "interpolated",
+    # Contact copied from the parent geological model by the litho-Seed
+    # use case (SeedLithoFromGeologicalModel). Must round-trip through
+    # FormationContactCreate/UpdateRequest.source without a 422.
+    "geological_model_seed",
+]
 ContactConfidence = Literal["high", "medium", "low"]
