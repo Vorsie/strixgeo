@@ -179,6 +179,7 @@ export function useShellContextValue(
     staleSurfaceCount, handleFormationCreated, handleFormationUpdated, handleFormationDeleted, handleInlineCreateFormation, refetchFormations,
     handleCreateContact, handleUpdateContactDepth, handleBatchCreateContacts, handleBatchUpdateContacts, handleDeleteContact, handleAutoPopulateFromStratigraphy,
     handleDedupeContacts, handleRebuildSurfaces, handleExportModelPlaxis3d, handleToggleBoreholeInModel, discardContacts,
+    lithoStaleSurfaceCount, handleRebuildLithoSurfaces,
   } = geo
 
   return useMemo((): ShellContextValue => ({
@@ -353,6 +354,7 @@ export function useShellContextValue(
     handleAutoPopulateFromStratigraphy, handleDedupeContacts,
     handleRebuildSurfaces, handleExportModelPlaxis3d,
     handleToggleBoreholeInModel, discardContacts,
+    lithoStaleSurfaceCount, handleRebuildLithoSurfaces,
     // sections fields
     sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections,
     sectionModelAxis, setSectionModelAxis,
