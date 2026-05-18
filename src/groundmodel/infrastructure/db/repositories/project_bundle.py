@@ -77,6 +77,17 @@ from groundmodel.shared.logging.logger_factory import LoggerFactory
 # on restore — see module docstring.
 _SKIP_COLUMNS = frozenset({"created_at", "updated_at", "archived_at", "location"})
 
+# Restore-boundary caps for FormationSurface TIN blobs (debt #19). The
+# .strix bundle's ``vertices`` / ``triangles`` JSONB arrays are deserialised
+# straight into PostgreSQL with no inherent bound — a malicious or
+# accidentally-oversized bundle could OOM the asyncio process or balloon a
+# DB row. A real v1 TIN is a few KB; even a Phase-5 kriging surface stays
+# well under these. Over the cap → blank the geometry + force is_stale so
+# the user rebuilds (the surface row survives; only the runaway blob is
+# dropped). Folds into debt #5 (tamper hardening) — same trigger.
+_MAX_SURFACE_SOURCE_CONTACTS = 50_000
+_MAX_TIN_ARRAY_LEN = 200_000
+
 logger = LoggerFactory.get_logger(__name__)
 
 
@@ -762,6 +773,7 @@ async def restore_project_bundle(
             )
         valid_surfaces: list[FormationSurfaceOrm] = []
         forced_stale = 0
+        oversized_surfaces = 0
         for s in surfaces_payload:
             fid_raw = s.get("formation_id")
             if fid_raw is None:
@@ -770,6 +782,33 @@ async def restore_project_bundle(
             if fid not in valid_formation_ids:
                 continue
             kwargs = _apply_json_to_kwargs(FormationSurfaceOrm, s)
+            # Debt #19: cap the untrusted TIN blobs at the restore
+            # boundary. A claimed source_contact_count, or a vertices /
+            # triangles array, beyond the sane ceiling is treated as
+            # corrupt/hostile — keep the surface row but blank the
+            # geometry and force is_stale so the user rebuilds, rather
+            # than letting an unbounded JSONB array reach PostgreSQL and
+            # OOM the asyncio process.
+            verts = kwargs.get("vertices") or []
+            tris = kwargs.get("triangles") or []
+            claimed_count = kwargs.get("source_contact_count")
+            if (
+                (claimed_count is not None and claimed_count > _MAX_SURFACE_SOURCE_CONTACTS)
+                or len(verts) > _MAX_TIN_ARRAY_LEN
+                or len(tris) > _MAX_TIN_ARRAY_LEN
+            ):
+                logger.warning(
+                    f"restore_project_bundle({project_id}): surface for "
+                    f"formation {fid} exceeds size caps "
+                    f"(claimed={claimed_count}, verts={len(verts)}, "
+                    f"tris={len(tris)}) — geometry dropped, is_stale forced"
+                )
+                kwargs["vertices"] = []
+                kwargs["triangles"] = []
+                kwargs["is_stale"] = True
+                oversized_surfaces += 1
+                valid_surfaces.append(FormationSurfaceOrm(**kwargs))
+                continue
             # Bundle may have been saved before the ``is_stale``
             # column existed (older v3 saves) — default to False
             # via the column server-default. For bundles that DO
@@ -787,6 +826,12 @@ async def restore_project_bundle(
                 f"restore_project_bundle({project_id}): forced is_stale=True on "
                 f"{forced_stale} surface(s) — restored contact count drifted from "
                 f"saved source_contact_count"
+            )
+        if oversized_surfaces:
+            logger.warning(
+                f"restore_project_bundle({project_id}): dropped geometry on "
+                f"{oversized_surfaces} surface(s) exceeding the bundle TIN size "
+                f"caps (debt #19) — is_stale forced, rebuild required"
             )
         model.surfaces = valid_surfaces
         session.add(model)
