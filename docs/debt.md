@@ -878,6 +878,45 @@ ships (that slice will need the endpoint exercised anyway) — add one
 integration test that drives the endpoint end-to-end and re-invokes it
 to assert the 409 + section-seed + stored-geometry contract.
 
+---
+
+## 62. Pinch-out ghost-UX follow-ups (Tier E — post-slice review residue)
+
+The pinch-out ghost-UX slice shipped 2026-05-18; senior + ux review
+blockers were all fixed (stale-ghost-on-section-switch, 409 local-state
+refresh, role/Esc/focus a11y, no-blank-overlay, loading flash, dark
+mode, no-undo legibility, panel position, context-menu double-close).
+Three reviewer items were deliberately deferred:
+
+**What.**
+1. **`window.confirm` for contact delete** (`ContactsLayer.tsx`) — the
+   pre-existing delete gate is an OS-native `window.confirm`, which
+   violates `docs/ux.md §Destructive actions` (can't default-focus
+   Cancel, can't name the button "Delete contact"). Not introduced by
+   this slice, but the new context menu surfaces it to more users.
+   Replace with the project's styled confirm pattern (same shape as
+   `PinchOutConfirmPanel`).
+2. **Pinch-out direction is hardcoded `'right'`** (`SectionsCanvas.tsx`)
+   — no UI affordance/override. A formation terminating on the west
+   (left) side, or a right-to-left-drawn section, gets an opaque 422.
+   v1-min: auto-retry the opposite direction on a direction-inconsistent
+   422 before surfacing the error; full target+direction picker before
+   the dry-run is the post-v1 enhancement (the code comment notes this).
+3. **`PinchOutResult` returns `CrossSectionOrm`** (infra type) into the
+   application layer — pre-existing pattern across seed/auto-populate
+   use cases; refactor `updated_section` to a dict/domain type and
+   serialise inside the use case.
+
+**Why deferred.** None are correctness blockers; (1) and (3) are
+pre-existing and out of this slice's scope; (2) is self-correcting via
+the backend 422 (just opaque). Fixing them at the session tail risked
+unreviewed churn across already-large changes.
+
+**When to revisit.** (1) next time the section context-menu / delete
+flow is touched; (2) the first time a real Gavere section pinches west
+or is drawn R→L (dogfeed will surface it fast); (3) the next
+seed/auto-populate refactor — fix all the ORM-leaking results together.
+
 ## Historical note — 2026-05-13 security-reviewer audit pass
 
 The remaining audit findings — #35 CORS, #36 CSP+window-open+
