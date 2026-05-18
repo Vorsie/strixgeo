@@ -21,7 +21,7 @@
 // wired from the bus.  The component never gains a direct prop; it reads from
 // useShell() and delegates.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Route } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -76,6 +76,11 @@ export default function SectionsCanvas(): JSX.Element {
       lithoSuggestionRejected,
       handleAcceptLithoSuggestion,
       handleRejectLithoSuggestion,
+      pinchOutPreview,
+      pinchOutLoading,
+      handlePreviewPinchOut,
+      handleCommitPinchOut,
+      clearPinchOutPreview,
     },
     sections: {
       // WHY visibleSections not sections: both the map overlay and the section
@@ -167,6 +172,17 @@ export default function SectionsCanvas(): JSX.Element {
       selectedSectionId ? visibleSections.find(s => s.id === selectedSectionId) ?? null : null,
     [selectedSectionId, visibleSections],
   )
+
+  // Review B1: a pinch-out preview is computed in ONE section's local
+  // (along, elevation) frame. If the user switches sections without
+  // confirming/dismissing, the stale ghost would render at the wrong
+  // place on the new section AND Confirm would commit against the old
+  // section's geometry. Clear the preview on any section switch.
+  // selectedSectionId is a primitive, so this fires once per real
+  // switch, not per render.
+  useEffect(() => {
+    clearPinchOutPreview()
+  }, [selectedSectionId, clearPinchOutPreview])
 
   // Slice 2 (#55): axis-aware contact/formation/surface routing.
   // SectionPanel and ContactsLayer are UNCHANGED — the prop boundary absorbs
@@ -324,6 +340,71 @@ export default function SectionsCanvas(): JSX.Element {
     handleRejectLithoSuggestion,
   ])
 
+  // Pinch-out ghost state — wired on the geological axis only (same
+  // axis that owns the formation contacts the user right-clicks on).
+  // The onPreviewPinchOut callback derives direction (always 'right'
+  // initially — the endpoint accepts both; the UX default is toward the
+  // termination edge which is typically the section's right end) and
+  // target formation (the next formation by display_order below the
+  // pinching one). Both heuristics are overridable in a future picker.
+  const pinchOutGhostState = useMemo(() => {
+    if (isLitho || !activeGeologicalModel) return undefined
+    const sectionId = selectedSection?.id ?? null
+    if (sectionId === null) return undefined
+    return {
+      preview: pinchOutPreview,
+      loading: pinchOutLoading,
+      formations: axisFormations,
+      onPreviewPinchOut: (
+        _contactId: string,
+        formationId: string,
+        _anchorKind: 'cpt' | 'borehole',
+        _anchorId: string,
+      ) => {
+        // Derive target formation: the next-older (deeper) formation by
+        // display_order below the pinching one. The pinching formation
+        // has the highest display_order among the ones visible on this
+        // section; the target is the one with display_order one step lower.
+        const sorted = [...axisFormations].sort((a, b) => b.display_order - a.display_order)
+        const pinchingIdx = sorted.findIndex(f => f.id === formationId)
+        const targetFormation =
+          pinchingIdx >= 0 && pinchingIdx + 1 < sorted.length
+            ? sorted[pinchingIdx + 1]
+            : null
+        if (!targetFormation) {
+          log.warn(
+            'section',
+            `pinchOut: no target formation below ${formationId} — need at least 2 formations`,
+          )
+          return
+        }
+        void handlePreviewPinchOut({
+          formationId,
+          targetFormationId: targetFormation.id,
+          sectionId,
+          modelId: activeGeologicalModel.id,
+          direction: 'right',
+        })
+      },
+      onConfirm: () => {
+        if (!selectedSection) return
+        void handleCommitPinchOut(applyUpdatedSection)
+      },
+      onDismiss: clearPinchOutPreview,
+    }
+  }, [
+    isLitho,
+    activeGeologicalModel,
+    selectedSection,
+    pinchOutPreview,
+    pinchOutLoading,
+    axisFormations,
+    handlePreviewPinchOut,
+    handleCommitPinchOut,
+    clearPinchOutPreview,
+    applyUpdatedSection,
+  ])
+
   if (selectedSection !== null) {
     return (
       <SectionPanel
@@ -387,6 +468,7 @@ export default function SectionsCanvas(): JSX.Element {
           handleSetShowOverlay('section', next)
         }
         lithoGhostState={lithoGhostState}
+        pinchOutGhostState={pinchOutGhostState}
       />
     )
   }
