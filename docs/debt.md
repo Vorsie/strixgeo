@@ -14,7 +14,7 @@ sections that follow):
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
 * **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #55 (litho slice 4), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52
-* **E. Lower technical debt:** #15, #16, #17, #18, #19, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
+* **E. Lower technical debt:** #15, #16, #17, #18, #20, #21, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -382,37 +382,6 @@ it does network I/O), dry-run default, with this safety bar baked in:
   parsed vs 1 NULL) → no stamp + WARNING; lab-family backfiller →
   always no-stamp + instruct-reimport. No live-DOV integration test
   needed before the trigger.
-
-## 19. Bundle vertices / triangles size cap (low — coworker-distribution trigger)
-
-**What.** ``restore_project_bundle`` deserialises FormationSurface
-JSONB ``vertices`` and ``triangles`` blobs straight from the .strix
-file with no upper bound. SQLAlchemy passes them to PostgreSQL's
-JSONB serialiser which accepts arbitrarily large arrays. At v1
-cardinality (typical TIN: a few KB) this is a non-issue, but a
-malicious or accidentally-oversized bundle could OOM the asyncio
-process or balloon the DB row size.
-
-**Why deferred.** Today's distribution path is single-user local
-(the user crafted the bundle on their own machine). The fallout
-of a malformed bundle is "I can't open my own file", not RCE or
-data theft. Acceptable for v1.
-
-**When to revisit.** When the coworker-distribution path lands
-(see ``project_coworker_distribution.md`` memory). At that point
-the bundle source is no longer fully trusted. Add upper-bound
-checks at the restore boundary:
-
-* ``source_contact_count`` > 50_000 → reject the surface (force
-  is_stale=True, skip vertices/triangles restore).
-* ``len(vertices)`` and ``len(triangles)`` capped at e.g. 200_000
-  each (covers any realistic Phase 5 kriging surface comfortably).
-* Total bundle size pre-parse cap (electron preload's
-  read-file path can enforce this once before the API ever sees
-  the payload).
-
-Folds into debt #5 (tamper hardening) — same trigger, same
-review pass.
 
 ## 20. Translate ``ScalarLabTest.parameter`` storage (low)
 
