@@ -48,6 +48,7 @@ export default function ColumnGlyph({
   plotTop,
   plotBottom,
   onClick,
+  onDoubleClick,
   onContextMenu,
   hideStick = false,
   labelMode = 'full',
@@ -66,10 +67,15 @@ export default function ColumnGlyph({
   plotTop: number
   plotBottom: number
   onClick: (() => void) | undefined
+  /** Double-click handler — opens the detail panel. Single-click
+   * stays inert so accidental pan-start gestures never navigate away.
+   * When wired the hit-box is always rendered (same condition as
+   * onClick / onContextMenu). */
+  onDoubleClick?: () => void
   /** Right-click handler. Receives the raw React event so the caller
    * can read clientX/clientY for menu positioning. Rendering the
-   * hit-box is gated on having either onClick or onContextMenu
-   * wired; without one, the column stays inert. */
+   * hit-box is gated on having either onClick, onDoubleClick, or
+   * onContextMenu wired; without one the column stays inert. */
   onContextMenu?: (e: React.MouseEvent<SVGRectElement>) => void
   /** When true, suppress the cap + body line + tie-back diagonal —
    * the caller is already rendering a CPT data band or a borelog
@@ -124,9 +130,10 @@ export default function ColumnGlyph({
   return (
     <g
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      style={{ cursor: onClick ? 'pointer' : 'default' }}
+      style={{ cursor: onClick || onDoubleClick ? 'pointer' : 'default' }}
     >
       {/* Transparent hit-box spanning the column's vertical strip.
           The body line + cap are too thin to click reliably; the
@@ -135,8 +142,10 @@ export default function ColumnGlyph({
           on the rect alone (not the wider <g>) keeps the tie-back
           diagonals and other siblings non-clickable. Right-click
           fires onContextMenu when wired, opening the column's
-          per-test action menu (focus, hide, …). */}
-      {(onClick || onContextMenu) && (
+          per-test action menu (focus, hide, …).
+          Double-click is on the <g> (above) so the browser handles
+          the timing — no manual debounce needed. */}
+      {(onClick || onDoubleClick || onContextMenu) && (
         <rect
           x={sx - 7}
           y={plotTop}
