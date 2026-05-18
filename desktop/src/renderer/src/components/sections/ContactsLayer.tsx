@@ -596,14 +596,21 @@ export default function ContactsLayer({
         // "extends to plotBottom" in the projection step).
         const bottomDepthM =
           nextDepth !== undefined ? nextDepth : bottomCap ?? null
-        // Display label: prefer regional_ref (DOV formal stratigraphy
-        // code, e.g. "HyEg - Lid van Egem") over name (informal
-        // working name like "Boom Klei"). The formal code is more
-        // standardized + cross-borehole consistent, which makes the
-        // section view easier to scan when you're zoomed out and
-        // labels overlap. Falls back to name when no formal code is
-        // recorded (informal-only boreholes).
-        const displayLabel = formation.regional_ref ?? formation.name
+        // Display label: prefer the human/resolved NAME over the raw DOV
+        // formal code. (Revised 2026-05-18.) The previous regional_ref-first
+        // rule meant a formation that was first created from a formal-
+        // primary borehole displayed its raw code (e.g. "KoRo") while a
+        // sibling formation that happened to be created informal-first
+        // showed its full name — an inconsistent, code-vs-name mix on the
+        // same section, and a direct violation of the project rule "store
+        // the raw upstream token, translate at the presentation boundary"
+        // (the #59 lexicon + #58 bridge already put the correct full name
+        // in `name`; regional_ref stays the raw code purely for
+        // provenance). Fall back to regional_ref only when name is somehow
+        // empty. Long names still truncate to the band width below, so the
+        // zoomed-out scannability concern is handled by truncation, not by
+        // surfacing codes.
+        const displayLabel = formation.name ?? formation.regional_ref
         slabsOut.push({
           contactId: contact.id,
           anchorId: item.id,
