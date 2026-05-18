@@ -78,6 +78,8 @@ export interface UseShellContextValueArgs {
   applyUpdatedSection: ShellContextValue['sections']['applyUpdatedSection']
   sectionModelAxis: ShellContextValue['sections']['sectionModelAxis']
   setSectionModelAxis: ShellContextValue['sections']['setSectionModelAxis']
+  backdropModelIdOverride: ShellContextValue['sections']['backdropModelIdOverride']
+  setBackdropModelIdOverride: ShellContextValue['sections']['setBackdropModelIdOverride']
   demSource: ShellContextValue['overlays']['demSource']
   demOverlay: ShellContextValue['overlays']['demOverlay']
   handleDemOverlayChange: ShellContextValue['overlays']['handleDemOverlayChange']
@@ -157,7 +159,7 @@ export function useShellContextValue(
     handleImportBoreholeDov, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, geo, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
-    handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionModelAxis, setSectionModelAxis, demSource, demOverlay,
+    handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride, demSource, demOverlay,
     handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
     cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, toasts,
@@ -251,6 +253,8 @@ export function useShellContextValue(
       effectiveHorizontalEpsg,
       sectionModelAxis,
       setSectionModelAxis,
+      backdropModelIdOverride,
+      setBackdropModelIdOverride,
       refreshSectionList,
       clearSectionSelection,
       handleSectionCreated,
