@@ -49,6 +49,7 @@ export default function SectionsToolbar(): JSX.Element {
       handleDedupeContacts,
       handleExportModelPlaxis3d,
       handleAutoPopulateFromStratigraphy,
+      handleSeedLithoFromParent,
       lithoSuggesting,
       lithoSuggestions,
       handleSuggestLitho,
@@ -153,18 +154,31 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }
 
-  // Seed from stratigraphy — un-gated now that the Geology stage owns
-  // formation definition ("Fill from boreholes").  The Geology stage
-  // creates the formation rows (the source of truth); Sections Seed
-  // only places contacts for formations that ALREADY EXIST in the model.
-  // It does NOT create formations and does NOT trigger a Delaunay build.
-  // Risk 4 (geology-stage-architecture.md §8.1): if duplicates appear,
-  // run Dedupe — the tooltip below surfaces this guidance to the user.
+  // Seed — axis-aware.  On the geological axis: seed from borehole
+  // stratigraphy (handleAutoPopulateFromStratigraphy).  On the litho axis:
+  // copy the parent geological model's contacts into the litho model
+  // (handleSeedLithoFromParent) — a distinct, simpler operation that
+  // requires only an active litho model (no geoVerbDisabled gate).
   async function handleSeed(): Promise<void> {
-    if (!activeGeologicalModel || seeding) return
+    if (seeding) return
     setSeeding(true)
     try {
-      await handleAutoPopulateFromStratigraphy(visibleBoreholes.map(b => b.id))
+      if (isLitho) {
+        if (!activeLithoModel) return
+        await handleSeedLithoFromParent(
+          visibleBoreholes.map(b => b.id),
+          selectedSectionId ?? null,
+        )
+      } else {
+        if (!activeGeologicalModel) return
+        // Forward the section id so the seeded geological contacts are
+        // added to the section's seeded_formation_contact_ids and actually
+        // render here (explicit-content invariant) — mirrors the litho path.
+        await handleAutoPopulateFromStratigraphy(
+          visibleBoreholes.map(b => b.id),
+          selectedSectionId ?? null,
+        )
+      }
     } finally {
       setSeeding(false)
     }
@@ -454,26 +468,33 @@ export default function SectionsToolbar(): JSX.Element {
         }
       />
 
-      {/* Seed from stratigraphy — places contacts at borehole observation
-          boundaries for formations that already exist in the active model.
-          Contract: Geology stage owns "Fill from boreholes" (creates formation
-          rows). Sections Seed only creates CONTACTS — it never creates
-          formations and never triggers a Delaunay/TIN build.
-          Risk 4 (geology-stage-architecture.md §8.1): run Dedupe afterwards
-          if this places duplicate contacts alongside existing ones. */}
+      {/* Seed — axis-aware.
+          Geological axis: places contacts from borehole stratigraphy for
+          formations that already exist in the active geological model.
+          Lithostratigraphic axis: copies the parent geological model's contacts
+          into the litho model (source='geological_model_seed', confidence='medium').
+          On the litho axis the geoVerbDisabled gate is intentionally lifted —
+          Seed is a valid litho-axis operation; Build / Dedupe / Plaxis-3D
+          still stay disabled on litho (they act on the geological model). */}
       <ToolbarButton
         icon={<Sparkles size={13} />}
-        label={seeding ? 'Seeding…' : 'Seed'}
+        label={seeding ? 'Seeding…' : isLitho ? 'Seed from geology' : 'Seed'}
         onClick={() => void handleSeed()}
-        disabled={geoVerbDisabled || seeding}
+        disabled={seeding || (isLitho ? activeLithoModel === null : geoVerbDisabled)}
         busy={seeding}
         title={
-          geoVerbHint ??
-          (activeGeologicalModel === null
-            ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
-            : seeding
-              ? 'Seeding contacts from borehole stratigraphy…'
-              : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear')
+          isLitho
+            ? (activeLithoModel === null
+                ? 'Create a lithostratigraphic model in the Lithology stage first'
+                : seeding
+                  ? 'Copying contacts from geological model…'
+                  : 'Copy the parent geological model\'s contacts into this lithostratigraphic model')
+            : (geoVerbHint ??
+              (activeGeologicalModel === null
+                ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
+                : seeding
+                  ? 'Seeding contacts from borehole stratigraphy…'
+                  : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear'))
         }
       />
 
