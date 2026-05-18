@@ -951,6 +951,8 @@ export default function SectionPanel({
     placedColumns,
     viewport,
     vex,
+    plotWidth,
+    plotHeight,
     setViewport,
     setVex,
   )

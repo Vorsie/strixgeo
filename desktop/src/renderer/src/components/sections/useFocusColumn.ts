@@ -12,8 +12,15 @@
  *     state — the render path doesn't observe them.
  *   * ``enterFocus`` — snaps the viewport to a 40 m horizontal
  *     window centred on the column's projected along-distance and
- *     fits the vertical extent to the test's depth range. Sets
- *     VEX to 1.0 so proportions read naturally.
+ *     fits the vertical extent to the test's depth range. Because
+ *     the panel derives the *vertical* visible extent from the
+ *     horizontal scale and VEX (not from ``levelMin/levelMax`` —
+ *     only their midpoint sets the vertical centre), fitting the
+ *     test's depth means solving for the VEX that maps the test's
+ *     metre span onto ``plotHeight`` for the focused horizontal
+ *     window. Setting a tight ``levelMin/levelMax`` alone does
+ *     nothing for the zoom — that was the "focus is zoom-
+ *     insensitive" bug.
  *   * ``exitFocus`` — restores the snapshot + clears focus state.
  *
  * Event-driven by design (not effect-driven) — the previous
@@ -36,7 +43,12 @@ import type {
   BoreholeListItem,
   CptListItem,
 } from '../../api/client'
+import { VEX_MAX, VEX_MIN } from './utils'
 import type { PlacedColumn, Viewport } from './utils'
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
 
 // Horizontal window width (m) the focused view snaps to, centred on
 // the column's projected along-distance. Wide enough to give the
@@ -78,11 +90,19 @@ export interface UseFocusColumnResult {
  * parent's viewport state without owning it. ``placedColumns`` /
  * ``viewport`` / ``vex`` are read at callback-invocation time, so
  * the closure values stay current — no stale-read bugs.
+ *
+ * ``plotWidth`` / ``plotHeight`` are the drawing-area pixel size
+ * (SectionPanel's ``plotWidth`` / ``plotHeight``). They're needed
+ * because the panel's vertical scale is ``scaleH * vex`` — fitting
+ * the test's depth range requires knowing the pixel box to solve
+ * for VEX.
  */
 export function useFocusColumn(
   placedColumns: readonly PlacedColumn[],
   viewport: Viewport,
   vex: number,
+  plotWidth: number,
+  plotHeight: number,
   setViewport: (next: Viewport) => void,
   setVex: (next: number) => void,
 ): UseFocusColumnResult {
@@ -113,10 +133,28 @@ export function useFocusColumn(
           : (col.proj.item as BoreholeListItem).total_depth_m
       let newLevelMin = viewport.levelMin
       let newLevelMax = viewport.levelMax
+      // Default when there's no elevation datum to fit against:
+      // keep proportions natural (VEX 1.0) and leave the vertical
+      // window where it was — we can't frame a depth we don't know.
+      let newVex = 1.0
       if (elevation !== null) {
         const dEff = depth ?? FOCUS_DEFAULT_DEPTH_M
         newLevelMax = elevation + FOCUS_LEVEL_PADDING_M
         newLevelMin = elevation - dEff - FOCUS_LEVEL_PADDING_M
+        // The panel maps metres→px vertically with ``scaleH * vex``,
+        // and ``visibleLevelExtent = plotHeight / (scaleH * vex)``.
+        // levelMin/levelMax only set the vertical *centre*; the span
+        // is whatever that formula yields. So to actually fit the
+        // test we solve for the VEX that makes the visible extent
+        // equal the test's metre span over the focused 40 m window:
+        //   scaleH = plotWidth  / xSpan
+        //   scaleV = plotHeight / vSpan   (the fit we want)
+        //   vex    = scaleV / scaleH
+        const xSpan = 2 * FOCUS_X_HALF_WIDTH_M
+        const vSpan = dEff + 2 * FOCUS_LEVEL_PADDING_M
+        const scaleH = plotWidth / xSpan
+        const scaleV = plotHeight / vSpan
+        newVex = clamp(scaleV / scaleH, VEX_MIN, VEX_MAX)
       }
       setViewport({
         xMin: col.proj.along - FOCUS_X_HALF_WIDTH_M,
@@ -124,10 +162,10 @@ export function useFocusColumn(
         levelMin: newLevelMin,
         levelMax: newLevelMax,
       })
-      setVex(1.0)
+      setVex(newVex)
       setFocusedColumn(target)
     },
-    [placedColumns, viewport, vex, setViewport, setVex],
+    [placedColumns, viewport, vex, plotWidth, plotHeight, setViewport, setVex],
   )
 
   const exitFocus = useCallback(() => {
