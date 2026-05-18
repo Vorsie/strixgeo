@@ -54,6 +54,14 @@ class CptOrm(Base):
     elevation_source: Mapped[str] = mapped_column(
         String(8), nullable=False, default=ElevationSource.NONE.value
     )
+    # Rollback snapshot (debt #21): the upstream (DOV/GEF) elevation
+    # triple captured on the FIRST manual override, so clearing a manual
+    # edit restores the surveyed Z instead of nulling the row. NULL =
+    # no snapshot held. Logic lives in
+    # ``domain.services.elevation_rollback`` (shared with borehole).
+    original_elevation_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+    original_z_epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    original_elevation_source: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     # PostGIS geometry in the source CRS (same SRID as epsg column).
     # NULL when the GEF file has no usable EPSG code (NO_EPSG / NO_COORDINATES
