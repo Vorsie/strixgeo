@@ -104,6 +104,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleCreateSection,
       applyUpdatedSection,
       backdropModelIdOverride,
+      setSectionFocusedColumn,
     },
     overlays: {
       virtueleBoringSectionModels,
@@ -495,6 +496,9 @@ export default function SectionsCanvas(): JSX.Element {
             ? backdropSurfacesByFormationId
             : undefined
         }
+        // Lift the section-local focused column to the shell so
+        // SectionsToolbar can use it for the litho-axis Suggest button.
+        onFocusedColumnChange={setSectionFocusedColumn}
       />
     )
   }
