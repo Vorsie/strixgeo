@@ -112,6 +112,9 @@ function makeContact(id: string, formationId: string): FormationContactResponse 
     observation_id: null,
     observation_layer_id: null,
     notes: null,
+    synthetic_x: null,
+    synthetic_y: null,
+    synthetic_elevation_m: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
