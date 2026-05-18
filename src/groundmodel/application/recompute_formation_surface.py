@@ -57,20 +57,32 @@ class RecomputeFormationSurface(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
-    async def execute(self, model_id: UUID, formation_id: UUID) -> bool:
+    async def execute(self, model_id: UUID, formation_id: UUID, force: bool = False) -> bool:
         """Recompute and upsert the surface row.
 
         Parameters
         ----------
         model_id : UUID
         formation_id : UUID
+        force : bool, default ``False``
+            When ``True``, skip the checksum short-circuit and always
+            re-triangulate + upsert. The manual "Build 3D model" path
+            passes this so an explicit Build click always reflects the
+            current code (e.g. a changed TIN algorithm produces a
+            different surface from the *same* contacts — the checksum,
+            which hashes only the input contacts, would otherwise
+            short-circuit and serve the stale cached geometry). The
+            automatic dedupe path leaves it ``False`` (contacts change
+            there, so the checksum differs anyway, and the short-circuit
+            is the right perf default for the high-frequency path).
 
         Returns
         -------
         bool
             ``True`` when the cache was refreshed (DB write happened),
             ``False`` when the existing row's checksum already matched
-            the recomputed contacts (no-op).
+            the recomputed contacts (no-op). ``force=True`` always
+            returns ``True``.
         """
         self.debug(f"recompute entry: model={model_id} formation={formation_id}")
         # Load the contacts. Eager-load the polymorphic anchor on each
@@ -221,7 +233,7 @@ class RecomputeFormationSurface(GroundModelLogger):
             )
         ).scalar_one_or_none()
 
-        if existing is not None and existing.source_contact_checksum == new_checksum:
+        if not force and existing is not None and existing.source_contact_checksum == new_checksum:
             # Geometry unchanged — but the row may still be stale if a
             # mutation flipped is_stale=True without a net change in
             # contacts (e.g. PATCH that round-trips to the same depth).
@@ -281,16 +293,25 @@ class RecomputeFormationSurface(GroundModelLogger):
         )
         return True
 
-    async def execute_many(self, pairs: Iterable[tuple[UUID, UUID]]) -> int:
+    async def execute_many(self, pairs: Iterable[tuple[UUID, UUID]], force: bool = False) -> int:
         """Convenience: recompute multiple (model, formation) pairs.
 
         Returns the number of pairs that actually wrote (no-op
         recomputes don't count). Used by batch mutation use cases
         that affect several formations at once.
+
+        Parameters
+        ----------
+        pairs : Iterable[tuple[UUID, UUID]]
+            ``(model_id, formation_id)`` pairs to recompute.
+        force : bool, default ``False``
+            Forwarded to :meth:`execute` — when ``True`` every pair is
+            re-triangulated regardless of the checksum (the manual
+            Build path; see :meth:`execute`).
         """
         unique = list({(m, f) for m, f in pairs})
         wrote = 0
         for model_id, formation_id in unique:
-            if await self.execute(model_id, formation_id):
+            if await self.execute(model_id, formation_id, force=force):
                 wrote += 1
         return wrote
