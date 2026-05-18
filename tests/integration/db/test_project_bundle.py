@@ -36,6 +36,7 @@ from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
 from groundmodel.infrastructure.db.repositories.project_bundle import (
+    _MAX_SURFACE_SOURCE_CONTACTS,
     build_project_bundle,
     restore_project_bundle,
 )
@@ -1008,3 +1009,126 @@ async def test_bundle_round_trips_kind_parent_lithology_nad_class(
     ).scalar_one()
     assert unit.lithology == "ZAND"
     assert unit.nad_class == 7
+
+
+async def test_restore_caps_oversized_surface_tin_blobs(
+    db_session: AsyncSession,
+) -> None:
+    """Debt #19: an oversized surface has its TIN geometry dropped + is_stale
+    forced on restore; a normal surface in the same bundle restores intact.
+
+    A surface whose claimed ``source_contact_count`` exceeds
+    ``_MAX_SURFACE_SOURCE_CONTACTS`` stands in for the whole oversize family
+    (the ``vertices`` / ``triangles`` length caps share the exact same guard
+    branch — testing the count path proves the mechanism without allocating a
+    200k-element array in the test DB).
+    """
+    from groundmodel.infrastructure.db.models.formation_surface_orm import (
+        FormationSurfaceOrm,
+    )
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.geological_model_orm import (
+        GeologicalModelOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    f_big = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="BigSurf",
+        code="BG",
+        color="#111111",
+        display_order=0,
+    )
+    f_ok = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="OkSurf",
+        code="OK",
+        color="#222222",
+        display_order=1,
+    )
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="M",
+        is_active=True,
+        excluded_borehole_ids=[],
+    )
+    db_session.add_all([f_big, f_ok, model])
+    await db_session.flush()
+
+    big_surface = FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=f_big.id,
+        method="tin",
+        vertices=[[1.0, 2.0, 3.0]],
+        triangles=[[0, 0, 0]],
+        # Over the cap — the restore guard must drop the geometry.
+        source_contact_count=_MAX_SURFACE_SOURCE_CONTACTS + 1,
+        source_contact_checksum=b"",
+        is_stale=False,
+    )
+    ok_surface = FormationSurfaceOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=f_ok.id,
+        method="tin",
+        vertices=[[4.0, 5.0, 6.0]],
+        triangles=[[0, 0, 0]],
+        source_contact_count=0,
+        source_contact_checksum=b"",
+        is_stale=False,
+    )
+    db_session.add_all([big_surface, ok_surface])
+    await db_session.commit()
+    big_id, ok_id = big_surface.id, ok_surface.id
+
+    bundle = await build_project_bundle(db_session, source)
+
+    # Wipe end-to-end (simulate restoring onto a fresh DB).
+    await db_session.execute(
+        delete(FormationSurfaceOrm).where(FormationSurfaceOrm.model_id == model.id)
+    )
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+    )
+    await db_session.commit()
+
+    big = (
+        await db_session.execute(
+            select(FormationSurfaceOrm).where(FormationSurfaceOrm.id == big_id)
+        )
+    ).scalar_one()
+    ok = (
+        await db_session.execute(select(FormationSurfaceOrm).where(FormationSurfaceOrm.id == ok_id))
+    ).scalar_one()
+
+    # Oversized surface: geometry dropped, forced stale, row survives.
+    assert big.vertices == []
+    assert big.triangles == []
+    assert big.is_stale is True
+    # Normal control surface in the same bundle: untouched.
+    assert ok.vertices == [[4.0, 5.0, 6.0]]
+    assert ok.is_stale is False
