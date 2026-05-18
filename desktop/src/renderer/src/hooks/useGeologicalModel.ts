@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, DuplicateContactError } from '../api/client'
 import type {
+  CrossSectionResponse,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
   FormationSurfaceResponse,
@@ -30,6 +31,7 @@ import type {
   GeologicalFormationResponse,
   GeologicalModelResponse,
   LithoLayerSuggestion,
+  PinchOutExtrapolationResponse,
   ProjectResponse,
 } from '../api/client'
 import type { UndoCommand } from './useUndoStack'
@@ -288,6 +290,55 @@ export interface UseGeologicalModelResult {
   handleRejectLithoSuggestion: (idx: number) => void
   /** Clear all suggestion state (close the ghost overlay). */
   clearLithoSuggestions: () => void
+
+  // -------------------------------------------------------------------------
+  // Pinch-out ghost-preview state (ghost-UX slice).
+  // Ephemeral — not persisted to .gmproj. One active preview at a time.
+  // -------------------------------------------------------------------------
+  /** Non-null when a dry_run preview is loaded. Carries the tip geometry
+   * and the request parameters needed to call the commit endpoint. */
+  pinchOutPreview: {
+    /** Along-section distance of the computed tip (m from section start). */
+    tip_along_m: number
+    /** Absolute elevation of the tip (m above datum). */
+    tip_elevation_m: number
+    /** Id of the formation that is pinching out. */
+    formation_id: string
+    /** Id of the deeper formation the pinching one wedges into. */
+    target_formation_id: string
+    /** Which end of the section the formation thins toward. */
+    direction: 'left' | 'right'
+    /** Section the preview was computed against. */
+    section_id: string
+    /** Model the preview was computed against. */
+    model_id: string
+  } | null
+  /** True while a dry_run or commit call is in flight. */
+  pinchOutLoading: boolean
+  /**
+   * Run the dry_run path to load a ghost preview.
+   * On 422 (geometry uncomputable) resolves to false and surfaces an
+   * inline error message via toast.
+   */
+  handlePreviewPinchOut: (params: {
+    formationId: string
+    targetFormationId: string
+    sectionId: string
+    modelId: string
+    direction: 'left' | 'right'
+    dipOverrideMMPerM?: number | null
+  }) => Promise<boolean>
+  /**
+   * Commit the active pinch-out preview.  On success patches the local
+   * contacts state, adds to sessionImports (dirty flag), and echoes the
+   * updated section via ``onSectionUpdated``.  Clears the preview state
+   * whether or not the call succeeds.
+   */
+  handleCommitPinchOut: (
+    onSectionUpdated?: (updated: CrossSectionResponse) => void,
+  ) => Promise<void>
+  /** Dismiss the preview without committing (no-op). */
+  clearPinchOutPreview: () => void
 }
 
 /**
@@ -2569,6 +2620,201 @@ export function useGeologicalModel({
     [formations, manifestFormationIds],
   )
 
+  // -------------------------------------------------------------------------
+  // Pinch-out ghost-preview state (ghost-UX slice).
+  //
+  // Session-only — not persisted to .gmproj.  One preview at a time; each
+  // new "Extrapolate pinch-out…" right-click replaces the prior one.
+  // Mirrors the litho-suggestion flow: dry_run → ghost → confirm/dismiss.
+  // -------------------------------------------------------------------------
+
+  /** Geometry returned by the dry_run call + parameters for the commit. */
+  type PinchOutPreviewState = {
+    tip_along_m: number
+    tip_elevation_m: number
+    formation_id: string
+    target_formation_id: string
+    direction: 'left' | 'right'
+    section_id: string
+    model_id: string
+  }
+
+  const [pinchOutPreview, setPinchOutPreview] = useState<PinchOutPreviewState | null>(null)
+  const [pinchOutLoading, setPinchOutLoading] = useState(false)
+
+  const clearPinchOutPreview = useCallback((): void => {
+    setPinchOutPreview(null)
+    setPinchOutLoading(false)
+    log.debug('geology', 'pinchOut preview cleared')
+  }, [])
+
+  const handlePreviewPinchOut = useCallback(
+    async (params: {
+      formationId: string
+      targetFormationId: string
+      sectionId: string
+      modelId: string
+      direction: 'left' | 'right'
+      dipOverrideMMPerM?: number | null
+    }): Promise<boolean> => {
+      if (!project) return false
+      log.debug(
+        'geology',
+        `handlePreviewPinchOut entry formation=${params.formationId} ` +
+          `target=${params.targetFormationId} section=${params.sectionId} ` +
+          `direction=${params.direction}`,
+      )
+      setPinchOutLoading(true)
+      // Clear only the prior preview — NOT the loading flag (review S2):
+      // clearPinchOutPreview() also resets loading=false, and React
+      // batches it with the setPinchOutLoading(true) above into a single
+      // render with loading=false, so the spinner never shows during the
+      // dry_run. finally{} restores loading=false.
+      setPinchOutPreview(null)
+      try {
+        const resp = await api.geology.extrapolatePinchOut(project.id, params.modelId, {
+          formation_id: params.formationId,
+          target_formation_id: params.targetFormationId,
+          section_id: params.sectionId,
+          direction: params.direction,
+          dip_override_m_per_m: params.dipOverrideMMPerM ?? null,
+          dry_run: true,
+        })
+        log.success(
+          'geology',
+          `pinchOut dry_run ok along=${resp.tip_along_m.toFixed(2)} m ` +
+            `elev=${resp.tip_elevation_m.toFixed(3)} m`,
+        )
+        setPinchOutPreview({
+          tip_along_m: resp.tip_along_m,
+          tip_elevation_m: resp.tip_elevation_m,
+          formation_id: params.formationId,
+          target_formation_id: params.targetFormationId,
+          direction: params.direction,
+          section_id: params.sectionId,
+          model_id: params.modelId,
+        })
+        return true
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : 'Could not compute pinch-out geometry.'
+        log.error('geology', 'handlePreviewPinchOut failed', err)
+        toast(
+          'error',
+          `Cannot pinch out here: ${msg}`,
+        )
+        return false
+      } finally {
+        setPinchOutLoading(false)
+      }
+    },
+    [project, clearPinchOutPreview, toast],
+  )
+
+  const handleCommitPinchOut = useCallback(
+    async (
+      onSectionUpdated?: (updated: CrossSectionResponse) => void,
+    ): Promise<void> => {
+      if (!project || !pinchOutPreview) return
+      const preview = pinchOutPreview
+      log.debug(
+        'geology',
+        `handleCommitPinchOut entry formation=${preview.formation_id} ` +
+          `section=${preview.section_id}`,
+      )
+      setPinchOutLoading(true)
+      try {
+        const resp: PinchOutExtrapolationResponse = await api.geology.extrapolatePinchOut(
+          project.id,
+          preview.model_id,
+          {
+            formation_id: preview.formation_id,
+            target_formation_id: preview.target_formation_id,
+            section_id: preview.section_id,
+            direction: preview.direction,
+            dry_run: false,
+          },
+        )
+        // Merge new synthetic contacts into local state.
+        if (resp.created_contact_ids.length > 0) {
+          const newContacts = await api.geology.listContacts(project.id, preview.model_id)
+          setContacts(newContacts)
+          addToSessionImports('contact', resp.created_contact_ids)
+        }
+        // Explicit-content invariant: patch local section state from the
+        // echoed updated_section (mirrors handleSeedLithoFromParent pattern).
+        if (resp.updated_section != null && onSectionUpdated != null) {
+          onSectionUpdated(resp.updated_section)
+          log.debug(
+            'geology',
+            `pinchOut commit: section ${preview.section_id} seeded set patched locally`,
+          )
+        }
+        log.success(
+          'geology',
+          `pinchOut committed: contacts=${resp.created_contact_ids.length} ` +
+            `along=${resp.tip_along_m.toFixed(2)} m elev=${resp.tip_elevation_m.toFixed(3)} m`,
+        )
+        toast(
+          'success',
+          'Pinch-out created — run Build to update the 3D surface.',
+        )
+      } catch (err) {
+        // 409 = idempotent (synthetic contacts already exist). Surface as
+        // info rather than error — the existing contacts are the right state.
+        const code = (err as Record<string, unknown>).code
+        if (code === 'pinch_out_already_exists') {
+          log.info(
+            'geology',
+            `pinchOut commit 409 (idempotent): existing contacts returned`,
+          )
+          // The server STILL seeded the section + the contacts already
+          // exist — refresh local state so they actually render here
+          // instead of staying invisible until a reload (review B2).
+          try {
+            const refreshed = await api.geology.listContacts(
+              project.id,
+              preview.model_id,
+            )
+            setContacts(refreshed)
+            const existingIds = (err as { existingContactIds?: string[] })
+              .existingContactIds
+            if (existingIds && existingIds.length > 0) {
+              addToSessionImports('contact', existingIds)
+            }
+            const updated = (err as { updatedSection?: CrossSectionResponse | null })
+              .updatedSection
+            if (updated != null && onSectionUpdated != null) {
+              onSectionUpdated(updated)
+            }
+          } catch (refreshErr) {
+            log.error(
+              'geology',
+              'pinchOut 409 local-state refresh failed',
+              refreshErr,
+            )
+          }
+          toast(
+            'success',
+            'Pinch-out already exists for this formation — using existing contacts.',
+          )
+        } else {
+          log.error('geology', 'handleCommitPinchOut failed', err)
+          toast('error', 'Could not create pinch-out contacts.')
+        }
+      } finally {
+        setPinchOutLoading(false)
+        clearPinchOutPreview()
+      }
+    },
+    // reason: pinchOutPreview is read synchronously inside the callback.
+    // It is listed as a dep so the callback identity refreshes when a new
+    // preview loads.  addToSessionImports is stable (useCallback in
+    // useProject with no volatile deps).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, pinchOutPreview, clearPinchOutPreview, addToSessionImports, toast],
+  )
+
   return {
     activeGeologicalModel,
     models,
@@ -2619,5 +2865,10 @@ export function useGeologicalModel({
     handleAcceptLithoSuggestion,
     handleRejectLithoSuggestion,
     clearLithoSuggestions,
+    pinchOutPreview,
+    pinchOutLoading,
+    handlePreviewPinchOut,
+    handleCommitPinchOut,
+    clearPinchOutPreview,
   }
 }
