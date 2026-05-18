@@ -27,6 +27,7 @@ import { Loader2, Route } from 'lucide-react'
 import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
+import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
 import MapView from '../../../components/MapView'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import { log } from '../../../utils/log'
@@ -228,7 +229,19 @@ export default function SectionsCanvas(): JSX.Element {
       snapped: boolean,
     ): Promise<void> => {
       if (selectedSection === null) return
-      await axisCreateContact(anchorKind, anchorId, depth_m, formationId, snapped)
+      // Pass the section id so the backend seeds seeded_formation_contact_ids
+      // (P2-E). Without this the create succeeds but the P2-F filter below
+      // hides the new contact — the root cause of the "draw/copy does
+      // nothing" dogfeed bug: the threading stopped here and never reached
+      // the create body.
+      await axisCreateContact(
+        anchorKind,
+        anchorId,
+        depth_m,
+        formationId,
+        snapped,
+        selectedSection.id,
+      )
       // Fetch the authoritative section row so seeded_formation_contact_ids
       // includes the contact that was just drawn (backend seeded it in P2-E).
       try {
@@ -245,6 +258,34 @@ export default function SectionsCanvas(): JSX.Element {
       }
     },
     [selectedSection, axisCreateContact, project.id, applyUpdatedSection],
+  )
+
+  // P2-H (batch) — section-aware contact COPY (drag-to-next-test: one-by-one,
+  // marquee batch, shift-drag all funnel through onBatchCreateContacts).
+  // Mirrors sectionAwareCreateContact: thread the section id so the backend
+  // seeds every copied id, then ONE section GET so P2-F's filter shows them
+  // all on the next render. This was the missing wiring — the plain
+  // handleBatchCreateContacts created contacts the filter then dropped.
+  const sectionAwareBatchCreateContacts = useCallback(
+    async (creates: readonly ContactCopyPayload[]): Promise<void> => {
+      if (selectedSection === null) return
+      await handleBatchCreateContacts(creates, selectedSection.id)
+      try {
+        const refreshed = await api.section.get(project.id, selectedSection.id)
+        applyUpdatedSection(refreshed)
+        log.debug(
+          'section',
+          `sectionAwareBatchCreateContacts: section ${selectedSection.id} seeded set refreshed`,
+        )
+      } catch (err) {
+        log.warn(
+          'section',
+          'sectionAwareBatchCreateContacts: section refresh after copy failed',
+          err,
+        )
+      }
+    },
+    [selectedSection, handleBatchCreateContacts, project.id, applyUpdatedSection],
   )
 
   // Slice 3 (#55): resolve the surface elevation for the suggestion target so
@@ -303,7 +344,7 @@ export default function SectionsCanvas(): JSX.Element {
         onUpdateContactDepth={handleUpdateContactDepth}
         onDeleteContact={handleDeleteContact}
         onBatchUpdateContacts={handleBatchUpdateContacts}
-        onBatchCreateContacts={handleBatchCreateContacts}
+        onBatchCreateContacts={sectionAwareBatchCreateContacts}
         // Seed from stratigraphy: only available on the geological axis
         // (the litho axis has its own suggest-litho flow). On the litho
         // axis the prop is undefined and the button stays disabled.
