@@ -150,6 +150,13 @@ function makeCtx(): ShellContextValue {
       handleAcceptLithoSuggestion: noopAsync,
       handleRejectLithoSuggestion: vi.fn(),
       clearLithoSuggestions: vi.fn(),
+      pinchOutPreview: null,
+      pinchOutLoading: false,
+      handlePreviewPinchOut: async () => false,
+      handleCommitPinchOut: noopAsync,
+      clearPinchOutPreview: vi.fn(),
+      handleSeedLithoFromParent: noopAsync,
+      handleDeleteLithoModel: noopAsync,
     },
     sections: {
       sections: [],
