@@ -37,9 +37,7 @@ from __future__ import annotations
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 
-from groundmodel.domain.services.litho_constants import BaseLithology
 from groundmodel.domain.services.robertson_2015 import (
     QtnResult,
     StressResult,
@@ -48,6 +46,8 @@ from groundmodel.domain.services.robertson_2015 import (
     sbt_zone_series,
     stress_profile,
 )
+from groundmodel.shared.constants.litho_constants import BaseLithology
+from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
 
 # ---------------------------------------------------------------------------
 # Robertson SBT zone → base lithology map
@@ -153,21 +153,6 @@ def _dr_to_nad_class(dr_pct: float) -> int:
 # ---------------------------------------------------------------------------
 # Output dataclasses
 # ---------------------------------------------------------------------------
-
-
-class SuggestionConfidence(StrEnum):
-    """Confidence in a suggested lithostratigraphic layer boundary.
-
-    HIGH   — major, persistent SBT zone; at least 2 × minimum_layer_thickness_m
-             of contiguous signal.
-    MEDIUM — passes the minimum_layer_thickness_m threshold but the zone is thin.
-    LOW    — result of a greedy-merge (the run was originally too thin and was
-             absorbed into a neighbour).
-    """
-
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
 
 
 @dataclass(frozen=True)

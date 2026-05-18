@@ -9,10 +9,14 @@ because these strings are shown to engineers and round-tripped — the
 NAD **class number** (1..31, == ``laagnr``) is the stable key, the
 name is presentation.
 
-Used by the formation-codelist endpoint now (slice 2) and the CPT/
-borehole segmenter (slice 3) — constants live next to the segmenter
-service per the CLAUDE.md "constants alongside the classes that use
-them" rule.
+Used by the formation-codelist endpoint (api), the CPT/borehole
+segmenter (domain) and the litho suggestion schema (api). Because it
+is consumed across layers — and the API layer must not import from the
+domain layer — it lives in ``shared/constants/`` rather than next to
+the segmenter service (debt #54, layer purity). ``shared/`` is the
+explicitly cross-layer-permitted home; this overrides the local
+"constants alongside the classes that use them" rule for the
+cross-layer case.
 """
 
 from __future__ import annotations

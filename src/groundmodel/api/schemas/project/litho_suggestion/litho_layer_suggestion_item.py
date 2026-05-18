@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from groundmodel.domain.services.litho_constants import BaseLithology
-from groundmodel.domain.services.litho_segmentation import SuggestionConfidence
+from groundmodel.shared.constants.litho_constants import BaseLithology
+from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
 
 
 class LithoLayerSuggestionItem(BaseModel):

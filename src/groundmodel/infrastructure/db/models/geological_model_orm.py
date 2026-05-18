@@ -57,7 +57,7 @@ class GeologicalModelOrm(Base):
     # 'lithostratigraphic' | 'geotechnical'. Plain VARCHAR + app-layer
     # validation (same pattern as source/confidence/method). Gates the
     # crossing validator, Build's auto-age reorder, and is_active
-    # scoping — see domain/value_objects/model_kind.py.
+    # scoping — see shared/constants/model_kind.py.
     kind: Mapped[str] = mapped_column(String(20), nullable=False, default="geological")
 
     # Self-FK: a lithostratigraphic model REFINES a geological model;

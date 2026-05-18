@@ -18,7 +18,6 @@ from groundmodel.api.schemas.project.geological_model import (
     GeologicalModelResponse,
     GeologicalModelUpdateRequest,
 )
-from groundmodel.domain.value_objects.model_kind import REQUIRED_PARENT_KIND
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
@@ -26,6 +25,7 @@ from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.constants.model_kind import REQUIRED_PARENT_KIND
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.

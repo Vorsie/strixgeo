@@ -24,7 +24,6 @@ from groundmodel.domain.services.geology_validator import (
 )
 from groundmodel.domain.services.tin_surface import TinSurface
 from groundmodel.domain.value_objects.gap_issue import GapIssue
-from groundmodel.domain.value_objects.model_kind import NON_STRATIGRAPHIC_KINDS
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
@@ -39,6 +38,7 @@ from groundmodel.infrastructure.db.models.geological_model_orm import (
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
+from groundmodel.shared.constants.model_kind import NON_STRATIGRAPHIC_KINDS
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 

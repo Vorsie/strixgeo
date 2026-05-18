@@ -7,7 +7,7 @@ misalign a class — the class number is the Phase-5 parameter join key.
 
 from __future__ import annotations
 
-from groundmodel.domain.services.litho_constants import (
+from groundmodel.shared.constants.litho_constants import (
     BASE_LITHOLOGIES,
     NAD_CLASS_MAX,
     NAD_CLASS_MIN,

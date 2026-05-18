@@ -27,12 +27,6 @@ from groundmodel.api.schemas.project.geotechnical_unit import (
     GeotechnicalUnitResponse,
     GeotechnicalUnitUpdateRequest,
 )
-from groundmodel.domain.services.litho_constants import (
-    ADMIXTURE_QUALIFIERS,
-    BASE_LITHOLOGIES,
-    NAD_CLASSES,
-)
-from groundmodel.domain.value_objects.model_kind import ModelKind
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
@@ -43,6 +37,12 @@ from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.constants.litho_constants import (
+    ADMIXTURE_QUALIFIERS,
+    BASE_LITHOLOGIES,
+    NAD_CLASSES,
+)
+from groundmodel.shared.constants.model_kind import ModelKind
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.

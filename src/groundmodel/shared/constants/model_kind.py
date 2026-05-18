@@ -7,10 +7,11 @@ sibling ``GeologicalModel`` rows discriminated by ``kind`` rather than
 a schema fork — the whole contact → build → TIN → section → export →
 bundle pipeline is reused at every level.
 
-Type aliases + constant mappings, not classes — kept grouped here as
-the single source of truth shared by the API schema layer, the
-repository, and the crossing validator (a constant is not logic, so
-this cross-layer import is allowed).
+Type aliases + constant mappings, not classes — the single source of
+truth shared by the API schema layer, the repository, and the crossing
+validator. It lives in ``shared/constants/`` (the explicitly
+cross-layer-permitted home) so the API layer can reference it without
+importing from the domain layer (debt #54, layer purity).
 """
 
 from __future__ import annotations

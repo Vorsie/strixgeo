@@ -46,10 +46,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from groundmodel.domain.value_objects.model_kind import (
-    MODEL_KIND_GEOLOGICAL,
-    MODEL_KINDS,
-)
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
@@ -70,6 +66,10 @@ from groundmodel.infrastructure.db.models.observation_layer_orm import Observati
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 from groundmodel.infrastructure.db.models.sample_orm import SampleOrm
+from groundmodel.shared.constants.model_kind import (
+    MODEL_KIND_GEOLOGICAL,
+    MODEL_KINDS,
+)
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Columns dropped on serialise + restore. Timestamps are server-defaults;

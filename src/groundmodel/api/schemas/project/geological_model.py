@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from groundmodel.domain.value_objects.model_kind import ModelKind
+from groundmodel.shared.constants.model_kind import ModelKind
 
 
 class GeologicalModelCreateRequest(BaseModel):
