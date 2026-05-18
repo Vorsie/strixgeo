@@ -2050,3 +2050,219 @@ async def test_invariant_I3_manual_map_overrides_bridge():
     assert c.name == "Kortrijk Formation", (
         f"I3: display name must be the manual_map target; got name='{c.name}'"
     )
+
+
+# ---------------------------------------------------------------------------
+# L-series: lump-wins-over-bridge precedence (revised 2026-05-18)
+#
+# Owner directive: an explicit user lump on the RAW key wins outright over
+# the data-inferred formal↔informal bridge.  The load-bearing case is a
+# stratigraphy_lumping map persisted in a .gmproj BEFORE the #58 bridge
+# shipped — its keys are the pre-bridge raw formal codes; with the old
+# raw→bridge→lump order the bridge rewrote the key out from under those
+# entries and the lump silently dropped (a fresh formal-keyed formation
+# was created next to the user's lumped one — the dogfeed bug 2026-05-18).
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_lumped_key_L1_raw_lump_wins_over_bridge():
+    """L1: raw key present in manual_map → bridge is NOT applied; the user's
+    explicit lump target is the effective key.  This is the pre-#58 stale-lump
+    fix in its purest form (saved map keyed on the raw formal code).
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("KoRo")
+    # Bridge WOULD remap KoRo → the informal name (pre-fix this stole the key).
+    bridge = {raw: normalize_formation_key("Paleogeen: Formatie van Kortrijk - Lid van Roubaix")}
+    # Pre-#58 saved map: keyed on the RAW formal code.
+    manual_map = {raw: "Pleistoceen"}
+
+    eff_key, eff_name, was_lumped = _resolve_lumped_key(
+        raw, primary_is_formal=True, bridge=bridge, manual_map=manual_map
+    )
+
+    assert eff_key == normalize_formation_key("Pleistoceen"), (
+        f"L1: raw lump must win over the bridge; got eff_key='{eff_key}'"
+    )
+    assert eff_name == "Pleistoceen"
+    assert was_lumped is True
+
+
+def test_resolve_lumped_key_L2_blank_raw_target_falls_through_to_bridge():
+    """L2: a blank/whitespace manual_map target on the raw key is treated as
+    unmapped (no nameless formation) → resolution falls through to the bridge.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("KoRo")
+    bridged = normalize_formation_key("Paleogeen Roubaix")
+    bridge = {raw: bridged}
+    manual_map = {raw: "   "}  # blank target — guarded by _resolve_effective_key
+
+    eff_key, eff_name, was_lumped = _resolve_lumped_key(
+        raw, primary_is_formal=True, bridge=bridge, manual_map=manual_map
+    )
+
+    assert eff_key == bridged, (
+        f"L2: blank raw target must fall through to the bridge; got '{eff_key}'"
+    )
+    assert was_lumped is False
+
+
+def test_resolve_lumped_key_L3_bridged_lump_still_applies_when_raw_unlumped():
+    """L3: when the raw key is NOT in manual_map, the original #58 path is
+    retained — bridge runs, then the lump is consulted on the bridged key
+    (this is the I3 contract, now via the shared helper).
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        _resolve_lumped_key,
+        normalize_formation_key,
+    )
+
+    raw = normalize_formation_key("KoKe")
+    bridged = normalize_formation_key("Paleogeen: Formatie van Kortrijk")
+    bridge = {raw: bridged}
+    manual_map = {bridged: "Kortrijk Formation"}  # keyed on the BRIDGED identity
+
+    eff_key, eff_name, was_lumped = _resolve_lumped_key(
+        raw, primary_is_formal=True, bridge=bridge, manual_map=manual_map
+    )
+
+    assert eff_key == normalize_formation_key("Kortrijk Formation")
+    assert eff_name == "Kortrijk Formation"
+    assert was_lumped is True
+
+
+@pytest.mark.asyncio
+async def test_scan_L4_pre58_stale_lump_map_resolves_without_relump():
+    """L4 (regression — the dogfeed bug): a formal-only borehole + a bridge that
+    would remap its code + a manual_map keyed on the RAW formal code (the
+    pre-#58 saved-map shape).  The scan must return ONE candidate under the
+    user's lump target — NOT a fresh bridge/formal-keyed candidate.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    bh_formal_only = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=10.0, description="KoRo")],
+            ),
+        ]
+    )
+
+    raw = normalize_formation_key("KoRo")
+    bridge = {raw: normalize_formation_key("Paleogeen: Formatie van Kortrijk - Lid van Roubaix")}
+    manual_map = {raw: "Pleistoceen"}  # user's pre-#58 lump, keyed on raw code
+
+    session = _make_session([bh_formal_only])
+    candidates, _ = await scan_stratigraphy_candidates(
+        session,
+        project_id=project_id,
+        borehole_ids=[bh_formal_only.id],
+        bridge=bridge,
+        manual_map=manual_map,
+    )
+
+    assert len(candidates) == 1, (
+        f"L4: expected the single lumped candidate, got {[c.key for c in candidates]}"
+    )
+    c = candidates[0]
+    assert c.key == normalize_formation_key("Pleistoceen"), (
+        f"L4: stale pre-#58 lump must resolve without re-lumping; got key='{c.key}'"
+    )
+    assert c.name == "Pleistoceen"
+
+
+@pytest.mark.asyncio
+async def test_execute_L5_pre58_stale_lump_creates_single_lumped_formation():
+    """L5: the L4 scenario through execute() — exactly ONE formation is
+    created, named after the user's lump target ("Pleistoceen"), NOT a
+    formal-keyed "KoRo"/bridged-informal duplicate.  Asserts discover≡apply
+    for the new precedence via the shared helper.
+    """
+    from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
+        AutoPopulateContactsFromStratigraphy,
+        normalize_formation_key,
+    )
+
+    project_id = uuid4()
+    model_id = uuid4()
+    bh_formal_only = _borehole(
+        [
+            _observation(
+                ObservationType.FORMAL_STRATIGRAPHY,
+                [_layer(top_m=0.0, base_m=10.0, description="KoRo")],
+            ),
+        ]
+    )
+
+    raw = normalize_formation_key("KoRo")
+    bridge = {raw: normalize_formation_key("Paleogeen: Formatie van Kortrijk - Lid van Roubaix")}
+    manual_map = {raw: "Pleistoceen"}
+
+    bh_result = MagicMock()
+    bh_result.scalars.return_value.all.return_value = [bh_formal_only]
+    empty_formations = MagicMock()
+    empty_formations.scalars.return_value.all.return_value = []
+    max_order = MagicMock()
+    max_order.scalar_one.return_value = 0
+    empty_contacts = MagicMock()
+    empty_contacts.all.return_value = []
+
+    call_count = 0
+
+    async def side_effect(stmt, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return bh_result
+        if call_count == 2:
+            return empty_formations
+        if call_count == 3:
+            return max_order
+        return empty_contacts
+
+    added: list = []
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=side_effect)
+    session.add = MagicMock(side_effect=added.append)
+    session.new = []
+    session.flush = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.infrastructure.db.repositories.geology_repository.GeologyRepository.mark_surfaces_stale",
+        new_callable=AsyncMock,
+        return_value=0,
+    ):
+        outcome = await AutoPopulateContactsFromStratigraphy(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            borehole_ids=[bh_formal_only.id],
+            bridge=bridge,
+            manual_map=manual_map,
+        )
+
+    assert len(outcome.created_formation_ids) == 1, (
+        f"L5: expected exactly 1 lumped formation, got {len(outcome.created_formation_ids)}"
+    )
+    # The added formation must carry the user's lump NAME, not the formal code
+    # or the bridged informal name.
+    formations = [o for o in added if hasattr(o, "display_order")]
+    assert len(formations) == 1
+    assert formations[0].name == "Pleistoceen", (
+        f"L5: formation must be named after the user's lump target; got name='{formations[0].name}'"
+    )
+    # regional_ref is still the raw formal code (provenance preserved).
+    assert formations[0].regional_ref == "KoRo"
