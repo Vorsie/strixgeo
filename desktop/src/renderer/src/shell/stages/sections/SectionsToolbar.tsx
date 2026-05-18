@@ -48,7 +48,9 @@ export default function SectionsToolbar(): JSX.Element {
       activeGeologicalModel,
       activeLithoModel,
       staleSurfaceCount,
+      lithoStaleSurfaceCount,
       handleRebuildSurfaces,
+      handleRebuildLithoSurfaces,
       handleDedupeContacts,
       handleExportModelPlaxis3d,
       handleAutoPopulateFromStratigraphy,
@@ -68,6 +70,7 @@ export default function SectionsToolbar(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [seeding, setSeeding] = useState(false)
+  const [rebuildingLitho, setRebuildingLitho] = useState(false)
   // Delete confirm modal state — replaces window.confirm() per UX rules:
   // irreversible actions require a Modal with default-focus on Cancel and a
   // button labelled with the action name (not "OK"). See docs/ux.md.
@@ -228,6 +231,21 @@ export default function SectionsToolbar(): JSX.Element {
       ? `Build · ${staleSurfaceCount} stale`
       : 'Build model'
 
+  const lithoStaleLabel =
+    lithoStaleSurfaceCount > 0
+      ? `Build litho · ${lithoStaleSurfaceCount} stale`
+      : 'Build litho model'
+
+  async function handleBuildLitho(): Promise<void> {
+    if (rebuildingLitho || activeLithoModel === null) return
+    setRebuildingLitho(true)
+    try {
+      await handleRebuildLithoSurfaces()
+    } finally {
+      setRebuildingLitho(false)
+    }
+  }
+
   // Suggest litho — fetches Robertson-2015/borehole segmenter suggestions
   // for the focused column in the active section. On the litho axis the
   // source is the section-local focused column (right-click → Focus in the
@@ -379,6 +397,26 @@ export default function SectionsToolbar(): JSX.Element {
               title="Dismiss the current litho suggestion overlay"
             />
           )}
+          {/* Build litho — active on the litho axis (geoVerbDisabled guards
+              the geological-model Build; litho has its own handler).
+              Label carries a stale-count badge mirroring the geo Build button. */}
+          <ToolbarButton
+            icon={<RefreshCw size={13} className={rebuildingLitho ? 'animate-spin' : ''} />}
+            label={rebuildingLitho ? 'Building…' : lithoStaleLabel}
+            onClick={() => void handleBuildLitho()}
+            disabled={rebuildingLitho || activeLithoModel === null}
+            busy={rebuildingLitho}
+            amber={lithoStaleSurfaceCount > 0 && !rebuildingLitho}
+            title={
+              activeLithoModel === null
+                ? 'Create a lithostratigraphic model first'
+                : rebuildingLitho
+                  ? 'Building litho surfaces…'
+                  : lithoStaleSurfaceCount > 0
+                    ? `${lithoStaleSurfaceCount} litho surface${lithoStaleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
+                    : 'Rebuild TIN surfaces for the lithostratigraphic model from current contacts'
+            }
+          />
           {/* Separator after litho-specific actions */}
           <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
         </>
