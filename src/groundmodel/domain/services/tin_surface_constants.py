@@ -20,12 +20,24 @@ from __future__ import annotations
 #
 # A triangle is dropped when its LONGEST edge (measured in the projected
 # x-y plane, the same metric as borehole spacing) exceeds this factor
-# times the MEDIAN edge length across all triangles. 4.0 is deliberately
-# conservative: it removes only egregious hull slivers (> 4x typical
-# spacing) and keeps virtually all genuinely interpolated area, so a
-# graded mesh (denser here, sparser there) is not over-trimmed. Raising
-# it trims less (more droop kept); lowering it trims more aggressively
-# toward a concave-hull look. Owner-set 2026-05-18; first-pass value the
-# engineer will eyeball and may retune. The trim is still fully
-# deterministic — a fixed factor, no data-driven fitting.
-SLIVER_MAX_EDGE_FACTOR = 4.0
+# times the MEDIAN edge length across all triangles. Raising it trims
+# less (more droop kept); lowering it trims more aggressively toward a
+# concave-hull look.
+#
+# Tuning log:
+#   4.0 (2026-05-18) — first pass; on an elongated airfield-strip
+#                      layout the boundary still drooped at the strip
+#                      ends (judged once Build was made to always
+#                      recompute, so the earlier verdict had been on a
+#                      stale cache).
+#   2.5 (2026-05-18) — owner "still a bit droopy"; tighter, clips the
+#                      long cross-strip boundary triangles harder while
+#                      leaving graded interior interpolation intact.
+#
+# Caveat: this is an x-y-only test. A boundary triangle that is normal
+# in plan but steeply dipping in Z (a compact steep drape) is NOT caught
+# at ANY factor — if droop survives a low factor, the cure is a slope
+# cap or the concave-hull (alpha-shape) variant in git history, not a
+# smaller factor. The trim is fully deterministic — a fixed factor, no
+# data-driven fitting.
+SLIVER_MAX_EDGE_FACTOR = 2.5
