@@ -20,8 +20,10 @@ column (``"tin"`` for v1, room for ``"kriging"`` / ``"rbf"`` /
 * Geologically defensible — every export consumer (Plaxis,
   D-Stability, DXF, IFC) handles polylines / triangulated surfaces
   as first-class.
-* No tunable parameters (vs kriging's variogram fit or RBF's
-  shape parameter). Deterministic, reproducible, no surprises.
+* One conservative, fixed boundary-trim factor
+  (``SLIVER_MAX_EDGE_FACTOR``) — no data-driven fitting (vs kriging's
+  variogram fit or RBF's shape parameter). Deterministic and
+  reproducible: the same contacts always yield the same surface.
 
 Surface representation
 ----------------------
@@ -48,6 +50,8 @@ from collections.abc import Sequence
 import numpy as np
 from scipy.spatial import Delaunay  # type: ignore[import-untyped]
 
+from groundmodel.domain.services.tin_surface_constants import SLIVER_MAX_EDGE_FACTOR
+
 # Value objects moved to domain/value_objects/ (one class per file,
 # debt #42); re-exported here so existing
 # ``from ...services.tin_surface import ContactPoint3D`` importers and
@@ -72,8 +76,19 @@ __all__ = [
 ]
 
 
-def compute_tin(contacts: Sequence[ContactPoint3D]) -> TinSurface:
+def compute_tin(
+    contacts: Sequence[ContactPoint3D],
+    sliver_max_edge_factor: float = SLIVER_MAX_EDGE_FACTOR,
+) -> TinSurface:
     """Run Delaunay triangulation on a formation's contact points.
+
+    SciPy's Delaunay triangulates the *full convex hull* of the input
+    points, which on sparse / elongated borehole layouts produces large
+    hull-spanning "sliver" triangles that drape the surface across
+    regions with no borehole control (the "drooping edges" artifact). A
+    conservative boundary trim drops any triangle whose longest x-y edge
+    exceeds ``sliver_max_edge_factor`` times the median edge length, so
+    the surface simply does not exist where the data cannot constrain it.
 
     Parameters
     ----------
@@ -82,20 +97,29 @@ def compute_tin(contacts: Sequence[ContactPoint3D]) -> TinSurface:
         identical-to-another) are silently filtered — Delaunay's
         qhull backend rejects degenerate input with QhullError; we
         prefer "render nothing" over a 500.
+    sliver_max_edge_factor : float, default ``SLIVER_MAX_EDGE_FACTOR``
+        Triangles whose longest projected edge exceeds this multiple of
+        the median edge length are dropped as data-free hull slivers.
+        Higher keeps more (more droop); lower trims toward a concave
+        hull. The trim never removes the *entire* surface — if every
+        triangle would be cut (degenerate spread), all are kept and a
+        warning is logged, so a poorly-controlled formation degrades to
+        a droopy surface rather than vanishing.
 
     Returns
     -------
     TinSurface
-        ``vertices`` matches the input order of valid points;
-        ``triangles`` is empty when fewer than 3 non-collinear
-        points remain.
+        ``vertices`` matches the input order of valid points (vertices
+        orphaned by the sliver trim are retained — consistent with the
+        degenerate-input paths); ``triangles`` is empty when fewer than
+        3 non-collinear points remain.
 
     Notes
     -----
     Performance: ~0.1 ms for ≤ 50 contacts on a typical laptop;
-    Delaunay is O(n log n). The recompute hook calls this on every
-    contact mutation, so the cost has to stay sub-render-frame even
-    for large formations.
+    Delaunay is O(n log n) and the vectorised trim is O(triangles).
+    The recompute hook calls this on every contact mutation, so the
+    cost has to stay sub-render-frame even for large formations.
     """
     n_in = len(contacts)
     logger.trace(f"compute_tin: {n_in} input contact(s)")
@@ -148,8 +172,44 @@ def compute_tin(contacts: Sequence[ContactPoint3D]) -> TinSurface:
         )
         return TinSurface(vertices=vertices, triangles=[])
 
+    simplices = tri.simplices  # (M, 3) int — indexes the deduped points
+    n_raw = int(simplices.shape[0])
+
+    # Sliver trim. Edge lengths are measured in the projected x-y plane
+    # (the same metric as borehole spacing); z is irrelevant to "is this
+    # triangle spanning an uncontrolled gap". The median over ALL
+    # triangle edges (interior edges double-counted) tracks typical
+    # spacing — hull slivers are the long-tail outliers we drop.
+    tri_xy = points[simplices]  # (M, 3, 2)
+    edge_lengths = np.linalg.norm(
+        tri_xy - tri_xy[:, [1, 2, 0], :], axis=2
+    )  # (M, 3): edges (0-1), (1-2), (2-0)
+    median_edge = float(np.median(edge_lengths))
+    threshold = sliver_max_edge_factor * median_edge
+    keep_mask = edge_lengths.max(axis=1) <= threshold
+    kept = simplices[keep_mask]
+
+    n_trimmed = n_raw - int(kept.shape[0])
+    if kept.shape[0] == 0:
+        # Guard: never wipe a whole formation. A degenerate spread where
+        # every triangle reads as a sliver should degrade to the (droopy)
+        # full hull, visibly poor but present, not a vanished surface.
+        logger.warning(
+            f"compute_tin: sliver trim would drop ALL {n_raw} triangle(s) "
+            f"(median_edge={median_edge:.3g}, factor={sliver_max_edge_factor}); "
+            f"keeping the full hull to avoid an empty surface"
+        )
+        kept = simplices
+        n_trimmed = 0
+    elif n_trimmed:
+        logger.debug(
+            f"compute_tin: trimmed {n_trimmed}/{n_raw} sliver triangle(s) "
+            f"(longest edge > {sliver_max_edge_factor} x median "
+            f"{median_edge:.3g} = {threshold:.3g})"
+        )
+
     triangles: list[tuple[int, int, int]] = [
-        (int(t[0]), int(t[1]), int(t[2])) for t in tri.simplices.tolist()
+        (int(t[0]), int(t[1]), int(t[2])) for t in kept.tolist()
     ]
     logger.trace(f"compute_tin: produced {len(vertices)} vertices, {len(triangles)} triangles")
     return TinSurface(vertices=vertices, triangles=triangles)
