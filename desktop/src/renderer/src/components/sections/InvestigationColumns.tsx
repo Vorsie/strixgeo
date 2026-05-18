@@ -39,6 +39,8 @@ export default function InvestigationColumns({
   plotBottom,
   onSelectCpt,
   onSelectBorehole,
+  onDoubleClickCpt,
+  onDoubleClickBorehole,
   onColumnContextMenu,
   hideStickIds,
   labelModeById,
@@ -49,8 +51,16 @@ export default function InvestigationColumns({
   levelToScreen: (level: number) => number
   plotTop: number
   plotBottom: number
+  /** Single-click handler — currently always ``undefined`` (single-click
+   * is intentionally inert to avoid accidental navigation during pan). */
   onSelectCpt: ((id: string) => void) | undefined
+  /** Single-click handler — always ``undefined`` for the same reason. */
   onSelectBorehole: ((id: string) => void) | undefined
+  /** Double-click handler — opens the CPT detail panel. Deliberate intent
+   * required; does not conflict with single-click-to-pan gestures. */
+  onDoubleClickCpt?: (id: string) => void
+  /** Double-click handler — opens the borehole detail panel. */
+  onDoubleClickBorehole?: (id: string) => void
   /** Right-click handler — receives the React event plus the column
    * (kind + id + display name) so the caller can position a context
    * menu and dispatch the chosen action against the right test. */
@@ -96,6 +106,14 @@ export default function InvestigationColumns({
             : onSelectBorehole
               ? () => onSelectBorehole(item.id)
               : undefined
+        const onDoubleClick =
+          col.kind === 'cpt'
+            ? onDoubleClickCpt
+              ? () => onDoubleClickCpt(item.id)
+              : undefined
+            : onDoubleClickBorehole
+              ? () => onDoubleClickBorehole(item.id)
+              : undefined
         const onContextMenu = onColumnContextMenu
           ? (e: React.MouseEvent) =>
               onColumnContextMenu(e, {
@@ -118,6 +136,7 @@ export default function InvestigationColumns({
             plotTop={plotTop}
             plotBottom={plotBottom}
             onClick={onClick}
+            onDoubleClick={onDoubleClick}
             onContextMenu={onContextMenu}
             hideStick={hideStickIds?.has(item.id) ?? false}
             labelMode={labelModeById?.get(item.id) ?? 'full'}
