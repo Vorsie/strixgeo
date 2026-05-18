@@ -26,6 +26,8 @@ from .gap_issue_response import GapIssueResponse
 from .gap_validation_response import GapValidationResponse
 from .lumping_collision_item import LumpingCollisionItem
 from .rebuild_surfaces_response import RebuildSurfacesResponse
+from .seed_litho_from_parent_request import SeedLithoFromParentRequest
+from .seed_litho_from_parent_response import SeedLithoFromParentResponse
 
 __all__ = [
     "ContactConfidence",
@@ -48,4 +50,6 @@ __all__ = [
     "GapValidationResponse",
     "CrossingValidationResponse",
     "LumpingCollisionItem",
+    "SeedLithoFromParentRequest",
+    "SeedLithoFromParentResponse",
 ]
