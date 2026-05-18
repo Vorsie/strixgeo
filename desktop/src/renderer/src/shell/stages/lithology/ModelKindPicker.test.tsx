@@ -13,6 +13,7 @@ import ModelKindPicker from './ModelKindPicker'
 
 const handleCreateLithoModel = vi.fn()
 const handleActivateLithoModel = vi.fn()
+const handleDeleteLithoModel = vi.fn()
 
 let geoModel: Record<string, unknown>
 
@@ -38,12 +39,14 @@ function model(id: string, name: string, kind: string, active = false) {
 beforeEach(() => {
   handleCreateLithoModel.mockReset().mockResolvedValue(model('l9', 'New', 'lithostratigraphic'))
   handleActivateLithoModel.mockReset().mockResolvedValue(undefined)
+  handleDeleteLithoModel.mockReset().mockResolvedValue(undefined)
   geoModel = {
     activeGeologicalModel: model('g1', 'Geo backbone', 'geological', true),
     models: [],
     activeLithoModel: null,
     handleCreateLithoModel,
     handleActivateLithoModel,
+    handleDeleteLithoModel,
   }
 })
 
@@ -108,6 +111,33 @@ describe('ModelKindPicker (#55)', () => {
     expect(create).toBeDisabled()
     fireEvent.click(create)
     expect(handleCreateLithoModel).not.toHaveBeenCalled()
+  })
+
+  it('delete flow: trash → confirm dialog → handleDeleteLithoModel(active id)', async () => {
+    geoModel.models = [model('l1', 'Litho A', 'lithostratigraphic', true)]
+    geoModel.activeLithoModel = model('l1', 'Litho A', 'lithostratigraphic', true)
+    render(<ModelKindPicker />)
+    // No destructive call until the user confirms.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete lithostratigraphic model' }),
+    )
+    expect(handleDeleteLithoModel).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('Delete lithostratigraphic model?'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(handleDeleteLithoModel).toHaveBeenCalledWith('l1')
+  })
+
+  it('delete flow: Cancel does not call the delete handler', () => {
+    geoModel.models = [model('l1', 'Litho A', 'lithostratigraphic', true)]
+    geoModel.activeLithoModel = model('l1', 'Litho A', 'lithostratigraphic', true)
+    render(<ModelKindPicker />)
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete lithostratigraphic model' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(handleDeleteLithoModel).not.toHaveBeenCalled()
   })
 
   it('"New" button enters create mode when litho models already exist', () => {
