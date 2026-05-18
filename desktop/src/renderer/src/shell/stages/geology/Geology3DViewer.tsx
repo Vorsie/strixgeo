@@ -124,9 +124,20 @@ export interface Geology3DViewerProps {
 // ---------------------------------------------------------------------------
 
 /** Z-offset in metres per display_order unit, to avoid z-fighting between
- * co-planar or near-co-planar formation surfaces. Small enough that it is
- * invisible at typical project extents (a few km). */
-const Z_OFFSET_PER_ORDER = 0.01
+ * co-planar or near-co-planar formation surfaces and to keep their depth
+ * ordering stable against the opaque cut-face caps / globe. 0.01 m was
+ * below the depth-buffer resolution at typical camera distance (it never
+ * actually separated anything); 0.2 m is still invisible at typical
+ * project extents (a few km) but comfortably beats depth precision. */
+const Z_OFFSET_PER_ORDER = 0.2
+
+/** How far (m) the translucent formation/ground/lid surfaces are receded
+ * from the true split plane before clipping, so their cut edge never lands
+ * exactly coplanar with the OPAQUE cut-face caps (which sit on the true
+ * plane and write depth). Without this inset the coincident fragments fail
+ * the depth test stochastically → the shimmering fringe along every band's
+ * cut edge. The caps fill the receded gap, so there is no visible step. */
+const SURFACE_CLIP_INSET_M = 0.5
 
 /** Alpha for fresh (non-stale) surfaces. */
 const ALPHA_FRESH = 0.75
@@ -691,8 +702,24 @@ function rebuildSurfacePrimitives(
   // Split view: clip every TIN to one half-space. Primary viewport
   // keeps the normal side, secondary (invertClip) keeps the other —
   // so the two panes are genuinely the two halves of the cake.
+  //
+  // The translucent surfaces are clipped against a plane receded by
+  // SURFACE_CLIP_INSET_M from the true split plane (caps still use the
+  // true plane — see below), so the surface cut edge never lands exactly
+  // coplanar with the opaque caps. Cesium.Plane.getPointDistance =
+  // normal·X + distance; the kept side is (keepPositive ? d : -d) >= 0.
+  // Shrinking the kept half by `inset` → distance shifted by
+  // (keepPositive ? -inset : +inset).
+  const keepPositive = !invertClip
   const clip = clippingPlane
-    ? { plane: clippingPlane, keepPositive: !invertClip }
+    ? {
+        plane: new Cesium.Plane(
+          clippingPlane.normal,
+          clippingPlane.distance +
+            (keepPositive ? -SURFACE_CLIP_INSET_M : SURFACE_CLIP_INSET_M),
+        ),
+        keepPositive,
+      }
     : undefined
 
   // Step 2 — coloured cut-face caps. Shared geometry rendered in both
@@ -1037,6 +1064,19 @@ function CesiumViewport({
       // Suppress the Cesium ion logo and the default imagery — we add our own.
       baseLayer: false,
     })
+
+    // Anti-aliasing. The half-space clip emits a triangle SOUP (many thin
+    // slivers); without multisampling their edges crawl/sparkle as the
+    // camera moves — the "ragged band edges" symptom. 4x MSAA + FXAA
+    // smooths the cut faces and the clipped TIN borders. msaaSamples is a
+    // plain Scene property (Cesium >= 1.87); guarded so an older bundled
+    // Cesium silently ignores it rather than throwing.
+    try {
+      widget.scene.msaaSamples = 4
+    } catch {
+      /* msaaSamples unsupported on this Cesium build — FXAA still applies */
+    }
+    widget.scene.postProcessStages.fxaa.enabled = true
 
     // Remove the Cesium credit container (hidden behind our own attribution UI).
     // The provider credit is still honoured in BasemapPanel.
