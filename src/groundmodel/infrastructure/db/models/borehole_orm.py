@@ -61,6 +61,13 @@ class BoreholeOrm(Base):
     elevation_source: Mapped[str] = mapped_column(
         String(8), nullable=False, default=ElevationSource.NONE.value
     )
+    # Rollback snapshot (debt #21): upstream (DOV/GEF) elevation triple
+    # captured on the FIRST manual override so clearing a manual edit
+    # restores the surveyed Z instead of nulling. NULL = no snapshot.
+    # Shared logic in ``domain.services.elevation_rollback``.
+    original_elevation_m: Mapped[float | None] = mapped_column(Double, nullable=True)
+    original_z_epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    original_elevation_source: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     # PostGIS geometry in the source CRS (same SRID as epsg column).
     # spatial_index=False — the migration creates idx_borehole_location explicitly via USING GIST
