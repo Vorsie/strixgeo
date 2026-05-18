@@ -124,6 +124,61 @@ def test_compute_tin_collinear_points_returns_vertices_only() -> None:
 
 
 # ---------------------------------------------------------------------------
+# compute_tin — sliver trim (convex-hull "drooping edges" fix)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_tin_trims_hull_slivers_to_a_far_outlier() -> None:
+    """A tight cluster + one far point: the long hull-spanning triangles
+    that drape to the outlier are dropped; the compact interior survives.
+    """
+    contacts = [
+        _pt("a", 0.0, 0.0, 5.0),
+        _pt("b", 1.0, 0.0, 5.0),
+        _pt("c", 0.0, 1.0, 5.0),
+        _pt("d", 1.0, 1.0, 5.0),
+        _pt("far", 100.0, 50.0, 9.0),  # index 4 — the data-free outlier
+    ]
+    surface = compute_tin(contacts)
+    assert len(surface.triangles) >= 1
+    # Every surviving triangle is inside the unit-square cluster; the
+    # outlier (index 4) is orphaned by the trim, never referenced.
+    assert all(4 not in t for t in surface.triangles)
+    # Untrimmed Delaunay would include the fan-to-outlier slivers, so the
+    # trimmed count is strictly smaller than the raw hull.
+    raw = compute_tin(contacts, sliver_max_edge_factor=1e9)
+    assert len(raw.triangles) > len(surface.triangles)
+    assert any(4 in t for t in raw.triangles)
+
+
+def test_compute_tin_sliver_trim_never_empties_a_surface() -> None:
+    """If the factor is so tight that every triangle reads as a sliver,
+    the full hull is kept (a droopy surface beats a vanished formation).
+    """
+    surface = compute_tin(
+        [
+            _pt("a", 0, 0, 5),
+            _pt("b", 10, 0, 6),
+            _pt("c", 5, 10, 4),
+        ],
+        sliver_max_edge_factor=0.1,
+    )
+    assert len(surface.vertices) == 3
+    assert len(surface.triangles) == 1
+
+
+def test_compute_tin_compact_grid_is_not_trimmed() -> None:
+    """A regular 3x3 grid has no slivers — the default factor keeps all
+    8 Delaunay triangles (2 * (nx-1) * (ny-1))."""
+    contacts = [
+        _pt(f"p{i}", float(x), float(y), 5.0)
+        for i, (x, y) in enumerate((x, y) for x in range(3) for y in range(3))
+    ]
+    surface = compute_tin(contacts)
+    assert len(surface.triangles) == 8
+
+
+# ---------------------------------------------------------------------------
 # checksum_contacts — order-insensitive, content-sensitive
 # ---------------------------------------------------------------------------
 
