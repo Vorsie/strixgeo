@@ -921,7 +921,12 @@ async function get<T>(path: string): Promise<T> {
 
 async function del(path: string): Promise<void> {
   const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error(`DELETE ${path} → ${res.status}`)
+  if (!res.ok) {
+    // Surface the server's `detail` (e.g. the 409 "delete the dependent
+    // model first" guard) instead of an opaque "→ 409" — mirrors patch/put.
+    const detail = await res.json().catch(() => ({}))
+    throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+  }
 }
 
 async function patch<T>(path: string, body: unknown): Promise<T> {
