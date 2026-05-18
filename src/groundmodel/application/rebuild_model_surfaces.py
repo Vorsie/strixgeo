@@ -18,9 +18,17 @@ can't cover:
   do NOT — the user's escape hatch when they re-set Z is to click
   Rebuild).
 
-Idempotent — every formation runs through the same checksum
-short-circuit as the auto-recompute path. A clean model is a no-op
-(``formations_rebuilt == 0``).
+Always recomputes. The manual "Build 3D model" click forces a full
+re-triangulation of every formation that has contacts (``force=True``
+on ``execute_many``), bypassing the contact checksum. WHY: the
+checksum hashes only the *input contacts*, not the output geometry —
+so a code change that alters the TIN from the *same* contacts (e.g. a
+boundary-trim tweak) would otherwise short-circuit and keep serving
+the stale cached surface. An explicit Build must reflect the current
+code. ``formations_rebuilt`` therefore equals the number of
+formations with contacts, not "the subset whose checksum changed".
+The automatic dedupe path still uses the checksum short-circuit (its
+contacts change anyway, and it is the high-frequency path).
 """
 
 from __future__ import annotations
@@ -86,8 +94,9 @@ class RebuildModelSurfaces(GroundModelLogger):
         RebuildOutcome
             ``formations_considered`` is the number of distinct
             formations the model has contacts for; ``formations_rebuilt``
-            is the subset whose checksum actually changed (i.e. the
-            cache write fired).
+            equals it (the manual Build forces every one — see the
+            module docstring), plus any stale-orphan formations picked
+            up to clear their flag.
         """
         self.info(f"rebuild surfaces: model={model_id}")
         contact_fids = set(
@@ -125,7 +134,13 @@ class RebuildModelSurfaces(GroundModelLogger):
             return RebuildOutcome(formations_considered=0, formations_rebuilt=0)
 
         recompute = RecomputeFormationSurface(self._session)
-        rebuilt = await recompute.execute_many((model_id, fid) for fid in formation_ids)
+        # force=True: an explicit Build always re-triangulates, even
+        # when the contacts (hence the checksum) are unchanged — so a
+        # TIN-algorithm change is reflected without the user having to
+        # mutate a contact to bust the cache.
+        rebuilt = await recompute.execute_many(
+            ((model_id, fid) for fid in formation_ids), force=True
+        )
         # Auto-derive formation age order from the data the user just
         # built against. This corrects display_order when natural
         # top-down creation order doesn't match geological age — the
