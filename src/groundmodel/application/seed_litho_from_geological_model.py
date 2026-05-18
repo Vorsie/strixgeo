@@ -1,9 +1,20 @@
 """Copy a parent geological model's contacts into a lithostratigraphic model.
 
-The Sections editor's "Seed from geology" button (litho axis) funnels
-through this use case.  It walks every ``FormationContactOrm`` row under
-the parent geological model and creates a matching row under the litho
-model:
+.. note::
+    **Frontend verb ORPHANED (2026-05-18, owner override #1, debt #60).**
+    The Sections editor's litho-axis "Seed from geology" verb has been
+    rewired to load the geological model's TIN surfaces as a read-only
+    backdrop reference layer (``handleLoadBackdropSurfaces`` →
+    ``GET .../surfaces``).  This use case + its backend endpoint
+    (``POST .../contacts/seed-from-parent``) are retained for
+    backwards-compatibility and future re-use, but NO frontend verb
+    currently calls them.  The endpoint is safe to call directly (e.g.
+    via an external script or a future automated workflow).
+
+The Sections editor's "Seed from geology" button (litho axis) formerly
+funnelled through this use case.  It walks every ``FormationContactOrm``
+row under the parent geological model and creates a matching row under
+the litho model:
 
 * SAME ``formation_id`` and ``borehole_id`` (no formation find-or-create —
   ``geological_formation`` is project-scoped with no ``model_id`` column,
