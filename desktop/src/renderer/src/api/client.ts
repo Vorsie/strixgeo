@@ -243,7 +243,13 @@ export interface GeologicalModelUpdatePayload {
 // in the model. Polymorphic anchor (borehole_id XOR cpt_id); v1
 // ships borehole-only, the cpt_id slot stays for the Phase 5
 // Robertson-Ic-driven auto-picks.
-export type ContactSource = 'borehole_observation' | 'manual_pick' | 'interpolated'
+export type ContactSource =
+  | 'borehole_observation'
+  | 'manual_pick'
+  | 'interpolated'
+  // Contacts seeded from the parent geological model into a lithostratigraphic
+  // model via the seed-from-parent endpoint.
+  | 'geological_model_seed'
 export type ContactConfidence = 'high' | 'medium' | 'low'
 
 export interface FormationContactResponse {
@@ -364,6 +370,20 @@ export interface AutoPopulateFromStratigraphyResponse {
    * The frontend patches local section state from this without a separate GET.
    * Null on the Fill-from-boreholes path.
    */
+  updated_section: CrossSectionResponse | null
+}
+
+/**
+ * Response from POST .../contacts/seed-from-parent.
+ *
+ * Mirrors the backend ``SeedLithoFromParentResponse`` schema.
+ * ``updated_section`` is non-null only when ``section_id`` was provided in
+ * the request — the frontend patches local section state from this without a
+ * separate GET.
+ */
+export interface SeedLithoFromParentResponse {
+  created_contact_ids: string[]
+  skipped_existing: number
   updated_section: CrossSectionResponse | null
 }
 
@@ -1379,6 +1399,29 @@ export const api = {
           ...(manualMap !== undefined && Object.keys(manualMap).length > 0
             ? { manual_map: manualMap }
             : {}),
+          ...(sectionId != null ? { section_id: sectionId } : {}),
+        },
+      ),
+
+    // Seed a lithostratigraphic model from its parent geological model's
+    // contacts.  Copies each parent contact into the litho model with
+    // source='geological_model_seed' and confidence='medium'.  Idempotent
+    // on (formation_id, borehole_id) pairs — re-running skips existing pairs
+    // and reports the count in skipped_existing.
+    //
+    // ``sectionId`` is optional: when provided the server appends the created
+    // contact ids to the section's seeded_formation_contact_ids (explicit-content
+    // invariant) and echoes the updated section in updated_section.
+    seedLithoFromParent: (
+      projectId: string,
+      modelId: string,
+      boreholeIds: readonly string[],
+      sectionId?: string | null,
+    ): Promise<SeedLithoFromParentResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/seed-from-parent`,
+        {
+          borehole_ids: boreholeIds,
           ...(sectionId != null ? { section_id: sectionId } : {}),
         },
       ),
