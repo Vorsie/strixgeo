@@ -873,6 +873,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         manual_map: dict[str, str] | None = None,
         section_id: UUID | None = None,
         bridge: dict[str, str] | None = None,
+        create_missing_formations: bool = True,
     ) -> AutoPopulateOutcome:
         """Walk every borehole in scope and seed contacts.
 
@@ -948,6 +949,21 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             2026-05-18, "lump wins over bridge"): a RAW-key lump wins outright;
             the bridge runs only for unlumped raw keys.  See
             ``_resolve_lumped_key``.
+        create_missing_formations : bool, optional
+            ``True`` (default, the Fill-from-boreholes path) — when a layer's
+            resolved key has no existing project formation, MINT one. Fill is
+            the model-definition step; creating is its job.
+
+            ``False`` (the Sections "Seed from stratigraphy" path) — NEVER
+            create a formation. A layer whose resolved key matches no existing
+            project formation is skipped and counted in
+            ``skipped_not_in_model``. This enforces the CLAUDE.md
+            explicit-content invariant (owner directive 2026-05-17): Seed
+            places contacts only for formations the user has already kept and
+            never expands the model. Without this flag the unfiltered Seed
+            path (``selected_keys=None``) created formations for any
+            in-corridor borehole layer — the "Seed added Formatie van Ieper /
+            a second Roubaix" bug.
 
         Returns
         -------
@@ -1144,6 +1160,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
         skipped_existing = 0
         skipped_unmatched = 0
         skipped_no_stratigraphy = 0
+        skipped_not_in_model = 0
         skipped_key_filter = 0
         skipped_collision = 0
         # Per-borehole collision tracking: borehole_id → effective_key → shallowest top_m seen.
@@ -1277,6 +1294,22 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
                 # scan + the existing-formation index → dash/space/case/chrono-prefix
                 # variants and manually lumped names resolve to ONE formation.
                 formation: GeologicalFormationOrm | None = formations_by_key.get(effective_key)
+                if formation is None and not create_missing_formations:
+                    # Explicit-content invariant (CLAUDE.md, owner directive
+                    # 2026-05-17): the Sections "Seed from stratigraphy" path
+                    # places contacts ONLY for formations the user already
+                    # curated — it never creates one. An in-corridor borehole
+                    # layer whose resolved formation isn't in the project is
+                    # reported, not minted (the "Seed added Formatie van Ieper"
+                    # bug). The Fill-from-boreholes path passes
+                    # create_missing_formations=True and is unaffected.
+                    skipped_not_in_model += 1
+                    self.debug(
+                        f"Borehole {borehole.id} layer {layer.id}: "
+                        f"key '{effective_key}' has no curated formation; "
+                        f"Seed skips (no create)"
+                    )
+                    continue
                 if formation is None:
                     formation = GeologicalFormationOrm(
                         id=uuid7(),
@@ -1510,6 +1543,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             f"skipped {skipped_existing} existing / "
             f"{skipped_unmatched} unmatched / "
             f"{skipped_no_stratigraphy} no-stratigraphy / "
+            f"{skipped_not_in_model} not-in-model / "
             f"{skipped_key_filter} key-filtered / "
             f"{skipped_collision} collision-dropped, "
             f"{len(write_collisions)} collision warning(s)"
@@ -1521,6 +1555,7 @@ class AutoPopulateContactsFromStratigraphy(GroundModelLogger):
             skipped_existing=skipped_existing,
             skipped_unmatched=skipped_unmatched,
             skipped_no_stratigraphy=skipped_no_stratigraphy,
+            skipped_not_in_model=skipped_not_in_model,
             collisions=write_collisions,
             found_contact_ids=found_contact_ids,
         )
