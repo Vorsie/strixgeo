@@ -67,6 +67,9 @@ import {
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
+import PinchOutGhostOverlay, {
+  PinchOutConfirmPanel,
+} from './sections/PinchOutGhostOverlay'
 import VirtueleBoringGhostColumns, {
   virtueleBoringGhostRailWidth,
 } from './sections/VirtueleBoringGhostColumns'
@@ -260,6 +263,61 @@ interface Props {
     /** Fire when the user right-clicks / Shift-clicks to reject. */
     onReject: (idx: number) => void
   }
+  /**
+   * Pinch-out ghost-preview state (ghost-UX slice).  When present, a
+   * dashed semi-transparent wedge renders from the formation's last real
+   * contact toward the computed tip, with a floating Confirm/Dismiss
+   * panel.  Absent / undefined = no overlay (zero regression).
+   *
+   * ``onPreviewPinchOut`` is the invocation path from the contact
+   * context menu — it receives the contact id + formation id + anchor
+   * so the caller can resolve the target formation and direction
+   * through a picker or inline heuristic before calling the dry_run
+   * endpoint.
+   */
+  pinchOutGhostState?: {
+    /** Active dry_run preview. Null = no ghost rendered. */
+    preview: {
+      tip_along_m: number
+      tip_elevation_m: number
+      formation_id: string
+      target_formation_id: string
+      direction: 'left' | 'right'
+      section_id: string
+      model_id: string
+    } | null
+    /** True while a dry_run or commit call is in flight. */
+    loading: boolean
+    /** Formation vocabulary — used by the overlay for colour + name. */
+    formations: readonly GeologicalFormationResponse[]
+    /**
+     * Fired when the user right-clicks a contact and picks
+     * "Extrapolate pinch-out…".  The caller owns the formation +
+     * direction picker flow and eventually calls the dry_run endpoint
+     * to populate ``preview``.
+     *
+     * Parameters
+     * ----------
+     * contactId
+     *     The id of the right-clicked contact.
+     * formationId
+     *     Formation the contact belongs to.
+     * anchorKind
+     *     ``'cpt'`` or ``'borehole'``.
+     * anchorId
+     *     Id of the CPT or borehole the contact is anchored to.
+     */
+    onPreviewPinchOut: (
+      contactId: string,
+      formationId: string,
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+    ) => void
+    /** Fire to commit the active preview (calls the commit endpoint). */
+    onConfirm: () => void
+    /** Fire to dismiss the preview without committing. */
+    onDismiss: () => void
+  }
 }
 
 export default function SectionPanel({
@@ -293,6 +351,7 @@ export default function SectionPanel({
   onChangeVirtueleBoringPicker,
   onChangeVirtueleBoringShowOnSection,
   lithoGhostState,
+  pinchOutGhostState,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -1532,6 +1591,7 @@ export default function SectionPanel({
               plotBottom={MARGIN.top + plotHeight}
               onUpdateContactDepth={onUpdateContactDepth}
               onDeleteContact={onDeleteContact}
+              onPinchOutContact={pinchOutGhostState?.onPreviewPinchOut}
               onBatchUpdateContacts={onBatchUpdateContacts}
               onBatchCreateContacts={onBatchCreateContacts}
               marquee={marquee}
@@ -1553,6 +1613,28 @@ export default function SectionPanel({
               }}
               alongMToScreenX={warpedXToScreen}
             />
+
+            {/* Pinch-out ghost-wedge overlay (ghost-UX slice).  Renders a
+                dashed semi-transparent triangle from the pinching
+                formation's last real contact toward the computed tip.
+                Shown only after the engineer triggers a dry_run via the
+                contact context menu.  Absent when no preview is active or
+                the prop is not wired. */}
+            {pinchOutGhostState && (
+              <PinchOutGhostOverlay
+                preview={pinchOutGhostState.preview}
+                loading={pinchOutGhostState.loading}
+                contacts={contacts}
+                formations={pinchOutGhostState.formations}
+                placedColumns={visibleColumns}
+                alongMToScreenX={warpedXToScreen}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                onConfirm={pinchOutGhostState.onConfirm}
+                onDismiss={pinchOutGhostState.onDismiss}
+              />
+            )}
 
             {/* Axis labels. */}
             <text
@@ -1602,6 +1684,25 @@ export default function SectionPanel({
             onClose={dismissContextMenu}
           />
         )}
+        {/* Pinch-out confirm/dismiss panel.  Rendered OUTSIDE the SVG
+            so pointer events work reliably without foreignObject quirks.
+            Sits in the top-right corner of the section panel. */}
+        {pinchOutGhostState && (
+          <PinchOutConfirmPanel
+            preview={pinchOutGhostState.preview}
+            loading={pinchOutGhostState.loading}
+            formationName={
+              pinchOutGhostState.preview
+                ? (pinchOutGhostState.formations.find(
+                    f => f.id === pinchOutGhostState.preview!.formation_id,
+                  )?.name ?? 'Formation')
+                : ''
+            }
+            onConfirm={pinchOutGhostState.onConfirm}
+            onDismiss={pinchOutGhostState.onDismiss}
+          />
+        )}
+
         {focusedColumn !== null && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-purple-600 text-white text-xs px-3 py-1.5 rounded-full shadow">
             <span>Focus: {focusedColumn.name}</span>
