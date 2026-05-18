@@ -221,6 +221,8 @@ function makeStubContext(): ShellContextValue {
       handleSelectSection: vi.fn(),
       handleFocusContacts: vi.fn(),
       applyUpdatedSection: vi.fn(),
+      sectionFocusedColumn: null,
+      setSectionFocusedColumn: vi.fn(),
     },
     overlays: {
       demSource: null,

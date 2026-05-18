@@ -300,6 +300,8 @@ function makeStubContext(overrides?: {
       handleSelectSection: vi.fn(),
       handleFocusContacts: vi.fn(),
       applyUpdatedSection,
+      sectionFocusedColumn: null,
+      setSectionFocusedColumn: vi.fn(),
     },
     overlays: {
       demSource: null,
