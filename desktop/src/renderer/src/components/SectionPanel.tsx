@@ -126,13 +126,24 @@ interface Props {
    * map. Optional so the test-render path can mount without a
    * navigation seam. */
   onClose?: () => void
-  /** Click handlers for the projected columns. Selecting an
-   * investigation routes through the App's normal handleSelect /
-   * handleSelectBorehole — those already clear section selection
-   * so the App's render branch flips to the CPT / borehole detail
-   * panel cleanly. Optional for the test-render path. */
+  /** Double-click handlers for the projected column glyphs. A
+   * double-click opens the CPT/borehole detail panel (same handler
+   * as the map's click-to-open flow). Single-click stays inert —
+   * the anti-accidental-pan-click decision is preserved; only an
+   * explicit double-click navigates away. Optional for the test-
+   * render path. */
   onSelectCpt?: (id: string) => void
   onSelectBorehole?: (id: string) => void
+  /**
+   * Callback fired whenever the section's focused column changes.
+   *
+   * Lifted to the shell so ``SectionsToolbar`` can use the focused
+   * column's kind/id for the litho-axis "Suggest litho" button
+   * (which needs a section-local focus, not the global CPT/borehole
+   * selection that the map/data clicks set).  Absent in the test-
+   * render path.
+   */
+  onFocusedColumnChange?: (col: import('./sections/useFocusColumn').FocusTarget | null) => void
   /** Active geological model's formation contacts — render as the
    * Phase 4 editor overlay (horizontal lines connecting picks per
    * formation across the projected investigations). */
@@ -356,6 +367,7 @@ export default function SectionPanel({
   onExportDxf,
   onSelectCpt,
   onSelectBorehole,
+  onFocusedColumnChange,
   virtueleBoringActiveModels,
   virtueleBoringPredictions,
   virtueleBoringModelA = null,
@@ -967,9 +979,19 @@ export default function SectionPanel({
     vex,
     plotWidth,
     plotHeight,
+    MARGIN.left,
+    scaleH,
     setViewport,
     setVex,
   )
+
+  // Lift focusedColumn to the shell so SectionsToolbar can gate the
+  // litho-axis "Suggest litho" button on the section-local focus
+  // (not the global map/data selection). The callback is optional so
+  // the test-render path can mount without a seam.
+  useEffect(() => {
+    onFocusedColumnChange?.(focusedColumn)
+  }, [focusedColumn, onFocusedColumnChange])
 
   // Filter the layout pass to just the focused column when active.
   // Downstream warpAnchors, showLabelsByCptId, hideStickIds all read
@@ -1285,7 +1307,6 @@ export default function SectionPanel({
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
-            onDoubleClick={resetView}
             onContextMenu={e => {
               // Swallow the contextmenu that fires when the right
               // button is released at the end of a both-button pan.
@@ -1529,14 +1550,16 @@ export default function SectionPanel({
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
-              // Click-to-open on section glyphs disabled per
-              // user request — accidental clicks during pan / zoom
-              // were yanking the user into the detail panel. The
-              // onSelectCpt / onSelectBorehole props are still in
-              // the component signature for future re-enablement
-              // (likely behind a confirm prompt).
+              // Single-click stays inert — accidental clicks during
+              // pan/zoom were yanking the user into the detail panel.
+              // Double-click opens the detail panel instead: it
+              // requires deliberate intent and is unmistakable from
+              // a pan gesture. onSelectCpt / onSelectBorehole are
+              // wired to the double-click path, not the single-click.
               onSelectCpt={undefined}
               onSelectBorehole={undefined}
+              onDoubleClickCpt={onSelectCpt}
+              onDoubleClickBorehole={onSelectBorehole}
               onColumnContextMenu={handleColumnContextMenu}
               hideStickIds={hideStickIds}
               labelModeById={labelModeById}
@@ -1841,7 +1864,7 @@ function CanvasHints(): JSX.Element {
         background: 'var(--section-hint-bg)',
       }}
     >
-      Drag to pan · scroll to zoom · double-click to reset · right-click a column to focus
+      Drag to pan · scroll to zoom · right-click a column to focus · double-click a column to open
     </div>
   )
 }
