@@ -56,6 +56,9 @@ from groundmodel.application.update_formation_contact import UpdateFormationCont
 from groundmodel.application.update_formation_contacts_batch import (
     UpdateFormationContactsBatch,
 )
+from groundmodel.infrastructure.db.models.cross_section_orm import (
+    CrossSectionOrm,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -69,6 +72,7 @@ from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -77,6 +81,85 @@ logger = LoggerFactory.get_logger(__name__)
 # No prefix here — the package __init__ mounts this on the shared
 # ``/projects/{project_id}/geology`` parent router (paths unchanged).
 router = APIRouter()
+
+
+async def _seed_section_contacts(
+    session: AsyncSession,
+    log: GroundModelLogger,
+    section_id: UUID,
+    project_id: UUID,
+    contact_ids: set[UUID],
+    *,
+    log_label: str,
+) -> CrossSectionOrm | None:
+    """Union ``contact_ids`` into a section's ``seeded_formation_contact_ids``.
+
+    The explicit-content invariant (owner directive 2026-05-17): formation
+    content appears on a section only where the user explicitly seeded or
+    drew it, tracked by ``cross_section.seeded_formation_contact_ids``. This
+    helper is the single write path for that set — shared by the manual-draw
+    201 path, the dedup-survivor 409 path (debt #57), and the Seed endpoint.
+
+    Non-fatal by contract: the caller's primary operation (contact create /
+    Seed run) has already committed its own transaction. A missing or
+    out-of-project section, or a failed section commit here, is logged and
+    swallowed — it must never turn the caller's 200/201/409 into a 500. On a
+    swallowed failure the session is rolled back so it is clean before
+    ``get_session``'s finaliser closes it (a failed ``commit`` otherwise
+    leaves it in ``PendingRollbackError`` and poisons the next pooled use).
+
+    Parameters
+    ----------
+    session : AsyncSession
+        Active request session (the caller's transaction is already done).
+    log : GroundModelLogger
+        Module logger, passed in per the helper-hygiene rule.
+    section_id : UUID
+        Section whose seeded set to extend.
+    project_id : UUID
+        Project the section must belong to (scope guard against IDOR).
+    contact_ids : set[UUID]
+        Ids to union into the existing seeded set.
+    log_label : str
+        Prefix distinguishing the call site in logs
+        (``"create_contact"`` / ``"create_contact dedup"`` / ``"Seed"``).
+
+    Returns
+    -------
+    CrossSectionOrm | None
+        The refreshed section on a successful update, else ``None``. The
+        Seed path wraps the return in ``CrossSectionResponse`` to echo the
+        section back in one round-trip; the create paths ignore it.
+    """
+    try:
+        section_repo = CrossSectionRepository(session)
+        section = await section_repo.get(section_id)
+        if section is None or section.app_project_id != project_id:
+            log.warning(
+                f"{log_label}: section_id {section_id} not found in project "
+                f"{project_id} — seeded set not updated"
+            )
+            return None
+        existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
+        merged = list(existing_seeded | contact_ids)
+        updated = await section_repo.update(section_id, {"seeded_formation_contact_ids": merged})
+        await session.commit()
+        if updated is not None:
+            await session.refresh(updated)
+        log.info(
+            f"{log_label}: section {section_id} seeded_formation_contact_ids "
+            f"updated — {len(merged)} id(s) total "
+            f"({len(contact_ids)} requested, {len(existing_seeded)} pre-existing)"
+        )
+        return updated
+    except Exception as exc:
+        await session.rollback()
+        log.warning(
+            f"{log_label}: section seeding failed — section {section_id} "
+            f"seeded set not updated ({type(exc).__name__}): {exc!r}"
+        )
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Formation contacts
@@ -143,15 +226,24 @@ async def create_contact(
             notes=request.notes,
         )
     except DuplicateContactError as err:
-        # 409 Conflict + the existing contact id in the response body
-        # so the frontend can surface "an X contact already exists on
-        # this borehole" and offer a "move it here" action via PATCH
-        # rather than asking the user to manually find + delete the
-        # duplicate.
+        # 409 Conflict + the existing contact id so the frontend can offer
+        # "move it here" via PATCH rather than a hard failure.
         #
-        # Explicit-content invariant: do NOT seed the section when the
-        # contact is a duplicate — the existing contact already owns the
-        # anchor, and the 409 tells the caller which id to navigate to.
+        # Explicit-content invariant + debt #57: the user explicitly drew
+        # on this section, so the SURVIVOR contact (the existing id this
+        # dedup resolved to) must appear on it — otherwise the draw yields
+        # a 409 and nothing renders, leaving a ghost id out of the seeded
+        # set. Seed the survivor's id before raising; the 409 still tells
+        # the frontend it was a dedup so it can message "used existing".
+        if request.section_id is not None:
+            await _seed_section_contacts(
+                session,
+                logger,
+                request.section_id,
+                project_id,
+                {err.existing_contact_id},
+                log_label="create_contact dedup",
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -171,51 +263,20 @@ async def create_contact(
         # the request schema.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
 
-    # Explicit-content invariant (owner directive 2026-05-17).
-    # When the user manually draws a contact on a section the editor
-    # passes section_id so we append the new contact's id to that
-    # section's seeded_formation_contact_ids.  Only on a true 201 (new
-    # contact created above) — never on the 409 path.
-    # Mirror P2-D's union pattern: existing ∪ {new} so re-drawing
-    # after an undo does not lose the rest of the seeded set.
-    # A missing or out-of-project section is a warning, not an error
-    # — the contact was created, the client still gets 201.
+    # Explicit-content invariant (owner directive 2026-05-17): when the user
+    # manually draws a contact on a section the editor passes section_id, so
+    # the new contact's id joins that section's seeded set (union — re-drawing
+    # after an undo keeps the rest of the set). Non-fatal: a seeding failure
+    # leaves the set stale but the 201 stands.
     if request.section_id is not None:
-        # Non-fatal: the contact was already committed above; a failure here
-        # leaves the section's seeded set stale but must not turn 201 → 500.
-        try:
-            section_repo = CrossSectionRepository(session)
-            section = await section_repo.get(request.section_id)
-            if section is not None and section.app_project_id == project_id:
-                existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
-                merged = list(existing_seeded | {contact.id})
-                await section_repo.update(
-                    request.section_id,
-                    {"seeded_formation_contact_ids": merged},
-                )
-                await session.commit()
-                logger.info(
-                    f"create_contact: seeded section {request.section_id} "
-                    f"with new contact {contact.id} — "
-                    f"{len(merged)} id(s) total"
-                )
-            else:
-                logger.warning(
-                    f"create_contact: section_id {request.section_id} not found "
-                    f"in project {project_id} — seeded set not updated"
-                )
-        except Exception as exc:
-            # Non-fatal by contract (must not turn 201 → 500), but a failed
-            # session.commit() leaves the AsyncSession in a PendingRollbackError
-            # state — rolling back returns it clean before get_session's
-            # finaliser closes it, so a swallowed failure here cannot poison
-            # an unrelated later use of the same session.
-            await session.rollback()
-            logger.warning(
-                f"create_contact: section seeding failed — contact {contact.id} "
-                f"created but section {request.section_id} seeded set not "
-                f"updated ({type(exc).__name__}): {exc!r}"
-            )
+        await _seed_section_contacts(
+            session,
+            logger,
+            request.section_id,
+            project_id,
+            {contact.id},
+            log_label="create_contact",
+        )
 
     return contact
 
@@ -411,50 +472,19 @@ async def auto_populate_from_stratigraphy(
     # commit doesn't interleave with contact creation.
     updated_section_response: CrossSectionResponse | None = None
     if request.section_id is not None:
-        # Non-fatal: the Seed use case already committed its own transaction
-        # (contacts + stale flags). A failure in this seeding-patch block must
-        # not turn a successful Seed into a 500 — the section's seeded set is
-        # left stale but contacts exist and the client can retry.
-        try:
-            section_repo = CrossSectionRepository(session)
-            section = await section_repo.get(request.section_id)
-            if section is not None and section.app_project_id == project_id:
-                # Build the union set: existing seeded ids ∪ newly created ∪ found (pre-existing).
-                existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
-                new_ids = frozenset(outcome.created_contact_ids) | frozenset(
-                    outcome.found_contact_ids
-                )
-                merged = list(existing_seeded | new_ids)
-                updated = await section_repo.update(
-                    request.section_id,
-                    {"seeded_formation_contact_ids": merged},
-                )
-                await session.commit()
-                if updated is not None:
-                    await session.refresh(updated)
-                    updated_section_response = CrossSectionResponse.model_validate(updated)
-                    logger.info(
-                        f"Seed: section {request.section_id} seeded_formation_contact_ids "
-                        f"updated — {len(merged)} id(s) total "
-                        f"({len(new_ids)} new, {len(existing_seeded)} pre-existing)"
-                    )
-            else:
-                logger.warning(
-                    f"Seed: section_id {request.section_id} not found in project "
-                    f"{project_id} — seeded set not updated"
-                )
-        except Exception as exc:
-            # Non-fatal by contract (the Seed use case already committed its
-            # own transaction); roll back the failed seeding-patch transaction
-            # so the AsyncSession is clean before get_session's finaliser
-            # closes it. Without this a failed session.commit() above leaves
-            # the session in PendingRollbackError.
-            await session.rollback()
-            logger.warning(
-                f"Seed: section seeding failed — contacts created but section "
-                f"{request.section_id} seeded set not updated "
-                f"({type(exc).__name__}): {exc!r}"
-            )
+        new_ids = frozenset(outcome.created_contact_ids) | frozenset(outcome.found_contact_ids)
+        updated = await _seed_section_contacts(
+            session,
+            logger,
+            request.section_id,
+            project_id,
+            set(new_ids),
+            log_label="Seed",
+        )
+        if updated is not None:
+            # Echo the patched section back so the frontend updates its
+            # local copy in this one round-trip (no follow-up GET).
+            updated_section_response = CrossSectionResponse.model_validate(updated)
 
     return AutoPopulateFromStratigraphyResponse(
         created_contact_ids=outcome.created_contact_ids,
