@@ -714,6 +714,46 @@ async def test_d2_recompute_is_idempotent_when_no_new_formations() -> None:
 
 
 @pytest.mark.asyncio
+async def test_d2b_recompute_converges_then_is_stable() -> None:
+    """Stronger idempotency (review C3): starting from WRONG ranks, the
+    first recompute fixes them (flush awaited), and a SECOND recompute
+    with the same contacts is a true no-op (flush NOT awaited). D2 only
+    covered the already-correct branch.
+    """
+    contact_rows = [
+        SimpleNamespace(formation_id=LITHO_DEEP_ID, depth_top_m=10.0),
+        SimpleNamespace(formation_id=LITHO_SHALLOW_ID, depth_top_m=3.0),
+    ]
+    # Start at deliberately wrong ranks (99/98) — shared stubs carry
+    # state across the two calls.
+    deep_f = _make_formation_stub(
+        LITHO_DEEP_ID, display_order=99, parent_formation_id=PARENT_A_ID, name="GRIND"
+    )
+    shallow_f = _make_formation_stub(
+        LITHO_SHALLOW_ID, display_order=98, parent_formation_id=PARENT_A_ID, name="KLEI"
+    )
+    parent_rows = [SimpleNamespace(id=PARENT_A_ID, display_order=0)]
+
+    # Call 1 — converges: deeper (10 m) → 0, shallower (3 m) → 1, flush awaited.
+    s1 = _make_recompute_session(
+        contact_rows=contact_rows, formation_rows=[deep_f, shallow_f], parent_rows=parent_rows
+    )
+    await _use_case_for_recompute(s1)._recompute_litho_display_orders(litho_model_id=LITHO_MODEL_ID)
+    assert deep_f.display_order == 0
+    assert shallow_f.display_order == 1
+    s1.flush.assert_awaited()
+
+    # Call 2 — same contacts, ranks already correct → no mutation, no flush.
+    s2 = _make_recompute_session(
+        contact_rows=contact_rows, formation_rows=[deep_f, shallow_f], parent_rows=parent_rows
+    )
+    await _use_case_for_recompute(s2)._recompute_litho_display_orders(litho_model_id=LITHO_MODEL_ID)
+    assert deep_f.display_order == 0
+    assert shallow_f.display_order == 1
+    s2.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_d3_cross_parent_ordering_respects_parent_display_order() -> None:
     """Units under an older geological parent (lower parent display_order) must
     receive lower display_order values than units under a younger parent,
