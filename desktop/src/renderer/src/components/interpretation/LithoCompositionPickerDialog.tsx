@@ -18,11 +18,13 @@
  *   contact and seeds the section server-side) then closes — it does NOT
  *   chain ``onSelect`` (that would re-create the contact; review B1).
  *
- * The parent geological formation is resolved SERVER-SIDE from the geology
- * TIN at commit time.  ``parentFormationName`` is currently always ``null``
- * (a client-side approximation is Phase-2 debt) so the picker shows a neutral
- * "resolved automatically" note; a unit with no mappable geology lands in the
- * "Unassigned" group.
+ * Existing litho units carry ``parent_formation_name`` server-resolved from the
+ * project formation set (Slice 5 / debt #67).  The group headings in Tab 1 are
+ * derived from that field directly — no client-side join needed.  The
+ * ``parentFormationName`` PROP is the geological context at the click point
+ * (comes from the section's geology TIN slice); it is resolved at commit time
+ * and is therefore still ``null`` for brand-new placements, which show a
+ * neutral "resolved automatically" note.
  *
  * Phase-2 exclusions (do NOT add): instance_ordinal, litho_correlation_edge,
  * connect/correlate gesture, .gmproj correlation round-trip, search/filter.
@@ -76,12 +78,22 @@ const ADMIXTURE_AMOUNT_OPTIONS: Array<{ code: string; label: string }> = [
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Group litho formations by parent_formation_id. */
+/**
+ * Group litho formations by parent_formation_id.
+ *
+ * Uses ``parent_formation_name`` (server-resolved, Slice 5) as the group
+ * heading when available; falls back to the ``geoFormations`` join for
+ * units whose name has not yet been resolved (orphan-safe).  Groups are
+ * ordered by the parent geo formation's ``display_order`` so the list
+ * follows the geological column order.
+ */
 function groupByParent(
   lithoFormations: readonly GeologicalFormationResponse[],
   geoFormations: readonly GeologicalFormationResponse[],
 ): Array<{ groupName: string; parentId: string | null; formations: GeologicalFormationResponse[] }> {
   const geoById = new Map(geoFormations.map(f => [f.id, f]))
+  // Map of parentId → first seen parent_formation_name (server-resolved).
+  const parentNameById = new Map<string, string>()
   const grouped = new Map<string | null, GeologicalFormationResponse[]>()
 
   for (const f of lithoFormations) {
@@ -89,18 +101,21 @@ function groupByParent(
     const bucket = grouped.get(key) ?? []
     bucket.push(f)
     grouped.set(key, bucket)
+    // Collect the server-resolved name if present — any unit in the group
+    // carries the same parent name, so first-seen is fine.
+    if (key !== null && f.parent_formation_name !== null && !parentNameById.has(key)) {
+      parentNameById.set(key, f.parent_formation_name)
+    }
   }
 
   // Build result: named geo-parent groups first, then "Unassigned".
   const result: ReturnType<typeof groupByParent> = []
   for (const [parentId, formations] of grouped) {
     if (parentId === null) continue
-    const parent = geoById.get(parentId)
-    result.push({
-      groupName: parent?.name ?? parentId,
-      parentId,
-      formations,
-    })
+    // Prefer server-resolved name; fall back to geo-join name; last resort id.
+    const groupName =
+      parentNameById.get(parentId) ?? geoById.get(parentId)?.name ?? parentId
+    result.push({ groupName, parentId, formations })
   }
   // Sort named groups by geo parent display_order so the list follows the
   // geological column order.
@@ -135,12 +150,16 @@ export interface LithoCompositionPickerProps {
     elevationM: number
   } | null
   /**
-   * Name of the parent geological formation at this depth, shown as
-   * "within: <name>".  Phase-1.5: SectionPanel always passes ``null`` —
-   * the parent is resolved server-side from the geology TIN at commit
-   * time, and a client-side approximation (to fill this in pre-commit)
-   * is Phase-2 debt.  When ``null`` the picker shows a neutral
-   * "resolved automatically" note, NOT an alarming warning (review S1).
+   * Name of the geological formation at the click depth, shown as
+   * "within: <name>" (new-unit placement context).  Resolved server-side
+   * from the geology TIN at commit time — the section always passes
+   * ``null`` because this requires a TIN lookup that runs at commit, not
+   * on click.  When ``null`` the picker shows a neutral "resolved
+   * automatically" note, NOT an alarming warning (review S1).
+   *
+   * NOTE: this is distinct from ``parent_formation_name`` on EXISTING
+   * litho units (Slice 5 / debt #67) — those are already server-resolved
+   * and surfaced directly in the "Existing units" group headings.
    */
   parentFormationName: string | null
   /** Existing-unit path — called with the formation id the user picked. */
@@ -380,8 +399,15 @@ export default function LithoCompositionPickerDialog({
                                 className="inline-block w-4 h-4 rounded border border-border-default shrink-0"
                                 style={{ backgroundColor: color }}
                               />
-                              <span className="text-xs font-medium text-text-primary truncate">
-                                {displayName || f.name}
+                              <span className="flex flex-col min-w-0">
+                                <span className="text-xs font-medium text-text-primary truncate">
+                                  {displayName || f.name}
+                                </span>
+                                {f.parent_formation_name !== null && (
+                                  <span className="text-[10px] text-text-muted truncate">
+                                    under {f.parent_formation_name}
+                                  </span>
+                                )}
                               </span>
                             </button>
                           </li>
