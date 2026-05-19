@@ -5,6 +5,7 @@ Covers:
 - Idempotent: non-existent edge returns False (no error).
 - Canonical ordering: (b, a) supplied → finds edge stored as (a, b).
 - Ordinals re-resolved on disconnect.
+- VULN-12 defence-in-depth: a model in another project raises ValueError.
 - #57-class guard: execute() has no section_id parameter.
 
 No DB or network I/O — session and repository are AsyncMock.
@@ -195,6 +196,38 @@ async def test_resolver_called_on_disconnect() -> None:
 
     assert result is True
     assert resolver_called == [_MODEL], "Resolver must be called with the model id after deletion"
+
+
+@pytest.mark.asyncio
+async def test_wrong_project_raises_value_error() -> None:
+    """VULN-12 defence-in-depth: a model owned by another project is rejected.
+
+    The router guards with get_in_project_or_404, but the use case
+    re-checks ``model.app_project_id`` so a non-API caller cannot skip
+    the scope check. This pins the negative arm — a future change that
+    drops the use-case check fails loudly (CLAUDE.md DoD §4).
+    """
+    session = AsyncMock()
+    other_project = UUID("99999999-0000-0000-0000-000000000000")
+    model_mock = MagicMock()
+    model_mock.app_project_id = other_project  # NOT _PROJECT
+    session.get = AsyncMock(return_value=model_mock)
+    session.execute = AsyncMock()
+    session.delete = AsyncMock()
+    session.commit = AsyncMock()
+
+    uc = _use_case(session)
+    with pytest.raises(ValueError, match="not found in project"):
+        await uc.execute(
+            project_id=_PROJECT,
+            model_id=_MODEL,
+            formation_a_id=_FA,
+            formation_b_id=_FB,
+        )
+    # Guard runs before any edge lookup / mutation.
+    session.execute.assert_not_awaited()
+    session.delete.assert_not_awaited()
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
