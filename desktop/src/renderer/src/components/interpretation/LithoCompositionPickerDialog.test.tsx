@@ -47,6 +47,7 @@ function makeGeoFormation(
     litho_admixtures: null,
     instance_ordinal: null,
     instance_ordinal_locked: false,
+    parent_formation_name: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
@@ -75,6 +76,7 @@ function makeLithoFormation(
     litho_admixtures: admixtures,
     instance_ordinal: null,
     instance_ordinal_locked: false,
+    parent_formation_name: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
@@ -157,6 +159,43 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
 
     expect(screen.getByText(/Unassigned/i)).toBeInTheDocument()
     expect(screen.getByText('Veen')).toBeInTheDocument()
+  })
+
+  it('D11: existing-unit row shows "under <parent>" suffix when parent_formation_name is set', () => {
+    const lithoWithParent: GeologicalFormationResponse = {
+      ...makeLithoFormation('lt-1', 'geo-a', 'KLEI'),
+      parent_formation_name: 'Boom Klei',
+    }
+    render(
+      <LithoCompositionPickerDialog
+        {...makeDefaultProps({
+          lithoFormations: [lithoWithParent],
+          geoFormations: [],
+          parentFormationName: null,
+        })}
+      />,
+    )
+    expect(screen.getByText(/under Boom Klei/i)).toBeInTheDocument()
+  })
+
+  it('D12: existing-unit row shows no suffix when parent_formation_name is null', () => {
+    const lithoNoParent = makeLithoFormation('lt-2', null, 'ZAND')
+    render(
+      <LithoCompositionPickerDialog
+        {...makeDefaultProps({
+          lithoFormations: [lithoNoParent],
+          geoFormations: [],
+          parentFormationName: null,
+        })}
+      />,
+    )
+    // No "under <parent name>" sub-label on the formation row — the span
+    // only renders when parent_formation_name is non-null.  The neutral
+    // "resolved automatically" note also contains "under" (as in "under
+    // Unassigned") but that is in the placement-context paragraph, not
+    // inside a formation row.  Verify no row-level suffix exists.
+    const formationRow = screen.getByRole('listitem')
+    expect(within(formationRow).queryByText(/^under /i)).toBeNull()
   })
 
   it('D4: clicking an existing-unit row fires onSelect with its id', async () => {
