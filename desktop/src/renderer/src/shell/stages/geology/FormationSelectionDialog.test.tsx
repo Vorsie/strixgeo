@@ -410,6 +410,11 @@ describe('FormationSelectionDialog', () => {
       description: null,
       lithology: null,
       nad_class: null,
+      parent_formation_id: null,
+      litho_main_soil_code: null,
+      litho_admixtures: null,
+      instance_ordinal: null,
+      instance_ordinal_locked: false,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
@@ -459,6 +464,11 @@ describe('FormationSelectionDialog', () => {
       description: null,
       lithology: null,
       nad_class: null,
+      parent_formation_id: null,
+      litho_main_soil_code: null,
+      litho_admixtures: null,
+      instance_ordinal: null,
+      instance_ordinal_locked: false,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     }
