@@ -330,6 +330,70 @@ GET    /projects/{pid}/geology/models/{mid}/export/plaxis3d
                                                     model / project
                                                     resolution fails.
 
+POST   /projects/{pid}/geology/models/{mid}/correlations
+                                                    Create a litho-correlation
+                                                    edge between two formations
+                                                    in the same model. Body:
+                                                    ``{formation_a_id,
+                                                    formation_b_id, source}``.
+                                                    Canonical ordering
+                                                    (formation_a_id <
+                                                    formation_b_id in UUID
+                                                    lex) enforced at write;
+                                                    duplicate edges return
+                                                    the existing edge's id
+                                                    (idempotent). 404 when
+                                                    either formation is not
+                                                    in the model. 422 when
+                                                    formation_a_id ==
+                                                    formation_b_id (self-loop).
+                                                    Shipped in Slice 1.
+GET    /projects/{pid}/geology/models/{mid}/correlations
+                                                    List all litho-correlation
+                                                    edges for the model,
+                                                    ordered by created_at.
+                                                    Each item: ``{id,
+                                                    formation_a_id,
+                                                    formation_b_id, source,
+                                                    created_at}``. Empty
+                                                    list when no edges exist.
+                                                    Project-scope-guarded —
+                                                    404 when model ∉ project.
+                                                    No section_id parameter
+                                                    (structural #57 guard).
+                                                    Shipped in Slice 3.
+DELETE /projects/{pid}/geology/models/{mid}/correlations/{cid}
+                                                    Remove one edge. 404 when
+                                                    edge missing or ∉ model.
+                                                    Shipped in Slice 1.
+POST   /projects/{pid}/geology/models/{mid}/correlations/resolve
+                                                    Re-run the BFS instance-
+                                                    ordinal resolver for the
+                                                    model's litho formations.
+                                                    Idempotent — running twice
+                                                    on the same graph yields
+                                                    the same ordinals. Assigns
+                                                    a 1-based ordinal per
+                                                    connected component
+                                                    (body 1, body 2, …);
+                                                    locked formations
+                                                    (instance_ordinal_locked)
+                                                    keep their current ordinal
+                                                    unless they lose a conflict.
+                                                    Response:
+                                                    ``{updated: [{formation_id,
+                                                    new_ordinal}]}`` — only
+                                                    rows whose ordinal changed.
+                                                    Stale surface flags on the
+                                                    model are set when any
+                                                    ordinal changes (ordinal
+                                                    re-number = model changed).
+                                                    Project-scope-guarded — 404
+                                                    when model ∉ project. No
+                                                    section_id parameter
+                                                    (structural #57 guard).
+                                                    Shipped in Slice 3.
+
 POST   /projects/{pid}/sections             Create a cross-section (line
                                             endpoints + projection buffer
                                             + view prefs). 422 when the
