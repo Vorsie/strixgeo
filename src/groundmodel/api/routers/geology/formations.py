@@ -52,6 +52,93 @@ logger = LoggerFactory.get_logger(__name__)
 # ``/projects/{project_id}/geology`` parent router (paths unchanged).
 router = APIRouter()
 
+
+# ---------------------------------------------------------------------------
+# parent_formation_name enrichment helpers (Slice 5 / debt #67)
+# ---------------------------------------------------------------------------
+
+
+def _build_parent_name_map(
+    formations: list[GeologicalFormationOrm],
+) -> dict[UUID, str]:
+    """Build an id → name lookup from an already-loaded formation list.
+
+    Used to resolve ``parent_formation_name`` without any extra DB round-trip
+    or SQLAlchemy relationship traversal (which would raise MissingGreenlet on
+    an async session).  The formation set is always loaded before this is
+    called — it is a pure dict comprehension over data already in memory.
+
+    Parameters
+    ----------
+    formations : list[GeologicalFormationOrm]
+        All formations for the project, loaded within the current session.
+
+    Returns
+    -------
+    dict[UUID, str]
+        ``{formation.id: formation.name}`` — covers every formation in the
+        project so any ``parent_formation_id`` can be resolved in O(1).
+    """
+    return {f.id: f.name for f in formations}
+
+
+def _enrich_formation(
+    row: GeologicalFormationOrm,
+    name_map: dict[UUID, str],
+) -> GeologicalFormationResponse:
+    """Construct a ``GeologicalFormationResponse`` with ``parent_formation_name`` resolved.
+
+    Uses ``model_validate`` (``from_attributes=True``) to copy every ORM
+    attribute, then injects the derived ``parent_formation_name`` from the
+    pre-built map.  No SQLAlchemy relationship is traversed — the name is
+    looked up in the already-loaded ``name_map``.
+
+    Parameters
+    ----------
+    row : GeologicalFormationOrm
+        The ORM row to serialise.
+    name_map : dict[UUID, str]
+        ``{formation.id: formation.name}`` for every project formation.
+
+    Returns
+    -------
+    GeologicalFormationResponse
+        Response schema with ``parent_formation_name`` populated (or ``None``
+        when the row has no parent or the parent id is absent from the map).
+    """
+    response = GeologicalFormationResponse.model_validate(row)
+    if row.parent_formation_id is not None:
+        # Defensive: a litho unit whose parent was deleted after creation
+        # returns None instead of raising (orphan case).
+        response.parent_formation_name = name_map.get(row.parent_formation_id)
+    # geological-model rows (parent_formation_id=None) → parent_formation_name stays None.
+    return response
+
+
+def _enrich_formation_list(
+    rows: list[GeologicalFormationOrm],
+) -> list[GeologicalFormationResponse]:
+    """Enrich a list of formation ORM rows with server-resolved parent names.
+
+    Builds the ``id → name`` map from the same list (parent formations are
+    always in the same project-scoped list), then calls :func:`_enrich_formation`
+    for each row.  One pass — O(n) for the map build, O(n) for the list.
+
+    Parameters
+    ----------
+    rows : list[GeologicalFormationOrm]
+        All project formations, already loaded from the DB.
+
+    Returns
+    -------
+    list[GeologicalFormationResponse]
+        Serialised responses with ``parent_formation_name`` resolved for each
+        litho unit (None for geological rows or orphans).
+    """
+    name_map = _build_parent_name_map(rows)
+    return [_enrich_formation(row, name_map) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Formations
 # ---------------------------------------------------------------------------
@@ -66,8 +153,23 @@ async def create_formation(
     project_id: UUID,
     request: GeologicalFormationCreateRequest,
     session: AsyncSession = Depends(get_session),
-) -> GeologicalFormationOrm:
-    """Create a new formation under the given project."""
+) -> GeologicalFormationResponse:
+    """Create a new formation under the given project.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope — the new formation is owned by this project.
+    request : GeologicalFormationCreateRequest
+        Creation body; only ``name`` is required.
+    session : AsyncSession
+        DB session provided by DI.
+
+    Returns
+    -------
+    GeologicalFormationResponse
+        The newly created formation with ``parent_formation_name`` resolved.
+    """
     repo = GeologyRepository(session)
     formation = await repo.create_formation(
         project_id,
@@ -82,17 +184,37 @@ async def create_formation(
     )
     await session.commit()
     await session.refresh(formation)
-    return formation
+    # Load the full project formation list for the parent-name map.
+    # A freshly created formation with parent_formation_id=null resolves to
+    # None trivially; a litho unit created here resolves its parent name.
+    all_formations = await repo.list_formations(project_id)
+    name_map = _build_parent_name_map(all_formations)
+    return _enrich_formation(formation, name_map)
 
 
 @router.get("/formations", response_model=list[GeologicalFormationResponse])
 async def list_formations(
     project_id: UUID,
     session: AsyncSession = Depends(get_session),
-) -> list[GeologicalFormationOrm]:
-    """List all formations defined for a project."""
+) -> list[GeologicalFormationResponse]:
+    """List all formations defined for a project.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project to list formations for.
+    session : AsyncSession
+        DB session provided by DI.
+
+    Returns
+    -------
+    list[GeologicalFormationResponse]
+        All formations ordered by ``display_order`` then name, with
+        ``parent_formation_name`` server-resolved from the same list.
+    """
     repo = GeologyRepository(session)
-    return await repo.list_formations(project_id)
+    formations = await repo.list_formations(project_id)
+    return _enrich_formation_list(formations)
 
 
 @router.get(
@@ -113,6 +235,18 @@ async def formation_codelist(
     routes so the static ``codelist`` segment is matched first.
     Project-independent vocabulary (``project_id`` is the router
     prefix); no project lookup needed.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Router-prefix parameter; unused for this vocabulary endpoint.
+    kind : ModelKind
+        Model kind to return vocabulary for.
+
+    Returns
+    -------
+    FormationCodelistResponse
+        Kind-appropriate vocabulary lists.
     """
     # str(...) coerces the BaseLithology Literal keys to plain str —
     # dict/list are invariant so the response model's dict[str, str] /
@@ -158,8 +292,30 @@ async def update_formation(
     formation_id: UUID,
     request: GeologicalFormationUpdateRequest,
     session: AsyncSession = Depends(get_session),
-) -> GeologicalFormationOrm:
-    """Partial update on a formation. Only fields present in the body are written."""
+) -> GeologicalFormationResponse:
+    """Partial update on a formation. Only fields present in the body are written.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Scope guard — the formation must belong to this project.
+    formation_id : UUID
+        Formation to update.
+    request : GeologicalFormationUpdateRequest
+        Partial body; only keys present are written.
+    session : AsyncSession
+        DB session provided by DI.
+
+    Returns
+    -------
+    GeologicalFormationResponse
+        Updated formation with ``parent_formation_name`` server-resolved.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the formation is missing or belongs to a different project.
+    """
     repo = GeologyRepository(session)
     # Scope-check pre-update so a leaked id from another project doesn't
     # mutate a row this caller has no business touching.
@@ -175,7 +331,10 @@ async def update_formation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Formation not found")
     await session.commit()
     await session.refresh(formation)
-    return formation
+    # Load the full project formation list for the parent-name map.
+    all_formations = await repo.list_formations(project_id)
+    name_map = _build_parent_name_map(all_formations)
+    return _enrich_formation(formation, name_map)
 
 
 @router.delete("/formations/{formation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -184,7 +343,17 @@ async def delete_formation(
     formation_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete a formation. Cascades to every contact that referenced it."""
+    """Delete a formation. Cascades to every contact that referenced it.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Scope guard.
+    formation_id : UUID
+        Formation to delete.
+    session : AsyncSession
+        DB session provided by DI.
+    """
     repo = GeologyRepository(session)
     await get_in_project_or_404(
         repo.get_formation(formation_id), project_id, detail="Formation not found"
@@ -215,6 +384,22 @@ async def create_unit(
     project. The unit's ``app_project_id`` is sourced from the parent
     formation (denormalised onto the row), not the URL — same data,
     one source of truth.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Scope guard.
+    formation_id : UUID
+        Parent formation.
+    request : GeotechnicalUnitCreateRequest
+        Creation body.
+    session : AsyncSession
+        DB session provided by DI.
+
+    Returns
+    -------
+    GeotechnicalUnitOrm
+        Newly created unit (FastAPI serialises via ``GeotechnicalUnitResponse``).
     """
     repo = GeologyRepository(session)
     formation = await get_in_project_or_404(
@@ -243,7 +428,22 @@ async def list_units(
     formation_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> list[GeotechnicalUnitOrm]:
-    """List the geotechnical units under one formation."""
+    """List the geotechnical units under one formation.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Scope guard.
+    formation_id : UUID
+        Parent formation.
+    session : AsyncSession
+        DB session provided by DI.
+
+    Returns
+    -------
+    list[GeotechnicalUnitOrm]
+        Units sorted by ``display_order`` then name.
+    """
     repo = GeologyRepository(session)
     # Scope-check the formation; a missing formation 404s rather than
     # silently returning an empty list under a wrong-project guess.
@@ -264,7 +464,31 @@ async def update_unit(
     request: GeotechnicalUnitUpdateRequest,
     session: AsyncSession = Depends(get_session),
 ) -> GeotechnicalUnitOrm:
-    """Partial update on a unit. Only fields present in the body are written."""
+    """Partial update on a unit. Only fields present in the body are written.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Scope guard — the formation must belong to this project.
+    formation_id : UUID
+        Parent formation.
+    unit_id : UUID
+        Unit to update.
+    request : GeotechnicalUnitUpdateRequest
+        Partial body.
+    session : AsyncSession
+        DB session provided by DI.
+
+    Returns
+    -------
+    GeotechnicalUnitOrm
+        Updated unit.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the unit or formation is missing or out of scope.
+    """
     repo = GeologyRepository(session)
     # Two-stage scope guard: the unit must point at this formation,
     # AND the formation must live in this project. Single 404 message
@@ -298,7 +522,19 @@ async def delete_unit(
     unit_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """Delete a geotechnical unit."""
+    """Delete a geotechnical unit.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Scope guard.
+    formation_id : UUID
+        Parent formation.
+    unit_id : UUID
+        Unit to delete.
+    session : AsyncSession
+        DB session provided by DI.
+    """
     repo = GeologyRepository(session)
     await get_in_project_or_404(
         repo.get_unit(unit_id),
