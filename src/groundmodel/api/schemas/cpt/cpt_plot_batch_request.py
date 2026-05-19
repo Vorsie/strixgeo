@@ -24,12 +24,14 @@ class CptPlotBatchRequest(BaseModel):
 
     ``app_project_id`` is the project scope. The endpoint filters
     returned CPTs to those that belong to this project so a caller
-    can't fetch series for a foreign-project CPT by guessing its
-    UUID. When omitted, no scope filter is applied — this path is
-    reserved for tests and admin tools and should NOT be used from
-    the desktop client. The cross-section panel always knows the
+    can't fetch series for a foreign-project CPT by guessing its UUID
+    (VULN-5). REQUIRED — the cross-section panel always knows the
     project id from the section row and threads it through.
     """
 
     ids: list[UUID] = Field(min_length=1, max_length=_MAX_IDS)
-    app_project_id: UUID | None = None
+    # Project scope is required — the unfiltered path (None) is no
+    # longer reachable from the API (VULN-5). The repository still
+    # accepts None for test/admin/CLI callers that construct the use
+    # case directly; the API boundary enforces the scope requirement.
+    app_project_id: UUID
