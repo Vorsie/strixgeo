@@ -1607,6 +1607,9 @@ export default function SectionPanel({
                 rejectedIndices={lithoGhostState.rejectedIndices}
                 onAccept={lithoGhostState.onAccept}
                 onReject={lithoGhostState.onReject}
+                // Pass formations so the ghost tooltip can show the parent
+                // formation name from suggestion.parent_formation_id.
+                formations={formations}
               />
             )}
 
