@@ -54,6 +54,9 @@ let capturedOnManualLithoUnitCreate:
       depthM: number,
     ) => Promise<{ formationId: string } | null>)
   | undefined = undefined
+// Capture axisMode so the geological-axis regression (S3) can assert the
+// litho picker is NOT wired on the geology axis.
+let capturedAxisMode: 'geological' | 'lithostratigraphic' | undefined = undefined
 
 vi.mock('../../../components/SectionPanel', () => ({
   default: (props: {
@@ -61,12 +64,14 @@ vi.mock('../../../components/SectionPanel', () => ({
     onCreateContact?: typeof capturedOnCreateContact
     onBatchCreateContacts?: typeof capturedOnBatchCreateContacts
     onManualLithoUnitCreate?: typeof capturedOnManualLithoUnitCreate
+    axisMode?: 'geological' | 'lithostratigraphic'
   }) => {
     // Capture the props each time SectionPanel renders.
     capturedContacts = props.contacts
     capturedOnCreateContact = props.onCreateContact
     capturedOnBatchCreateContacts = props.onBatchCreateContacts
     capturedOnManualLithoUnitCreate = props.onManualLithoUnitCreate
+    capturedAxisMode = props.axisMode
     return null
   },
 }))
@@ -426,6 +431,7 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   capturedContacts = undefined
   capturedOnManualLithoUnitCreate = undefined
+  capturedAxisMode = undefined
   // Reset to [] so T1–T3/T5 (render-based, no section list needed) are clean.
   mockSectionList.mockResolvedValue([])
   mockAcceptLithoSuggestions.mockReset()
@@ -693,6 +699,31 @@ describe('P2 explicit-content invariant — SectionsCanvas contact filtering', (
     expect(sectionGetMock).toHaveBeenCalledWith('proj-1', 'sec-1')
     expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// S3 — geological axis must NOT wire the litho picker (regression guard)
+// ---------------------------------------------------------------------------
+
+describe('Axis mode — geology axis keeps FormationPickerDialog', () => {
+  it('S3: geological axis passes axisMode=geological and no onManualLithoUnitCreate', () => {
+    const ctx = makeStubContext({
+      section: makeSection({ seeded_formation_contact_ids: [] }),
+      sectionModelAxis: 'geological',
+    })
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    // Geology axis must keep the unchanged FormationPickerDialog path:
+    // the litho-only manual-create prop must be absent and axisMode
+    // explicitly 'geological'.
+    expect(capturedAxisMode).toBe('geological')
+    expect(capturedOnManualLithoUnitCreate).toBeUndefined()
   })
 })
 
