@@ -272,9 +272,10 @@ export function useInvestigationData({
 
   const loadCptDetail = useCallback(
     async (id: string) => {
+      if (!project) return
       if (detailMap.has(id)) return
       try {
-        const detail = await api.cpt.get(id)
+        const detail = await api.cpt.get(id, project.id)
         setDetailMap(prev => new Map(prev).set(id, detail))
       } catch (err) {
         log.error('cpt', `loadCptDetail(${id}) failed`, err)
@@ -282,35 +283,49 @@ export function useInvestigationData({
         // shows fallback placeholder values).
       }
     },
-    [detailMap],
+    // reason: project.id is a stable scalar that changes only when the
+    // active project changes; including the whole project object would
+    // fire an extra load on every reference re-identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [detailMap, project?.id],
   )
 
   const loadChart = useCallback(
     async (id: string) => {
+      if (!project) return
       if (plotMap.has(id)) return
       try {
-        const plot = await api.cpt.plot(id)
+        const plot = await api.cpt.plot(id, project.id)
         setPlotMap(prev => new Map(prev).set(id, plot))
       } catch (err) {
         log.error('cpt', `loadChart(${id}) failed`, err)
         toast('error', 'Failed to load chart data')
       }
     },
-    [plotMap],
+    // reason: project.id is a stable scalar that changes only when the
+    // active project changes; including the whole project object would
+    // fire an extra load on every reference re-identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [plotMap, project?.id],
   )
 
   const loadBoreholeDetail = useCallback(
     async (id: string) => {
+      if (!project) return
       if (boreholeDetailMap.has(id)) return
       try {
-        const detail = await api.borehole.get(id)
+        const detail = await api.borehole.get(id, project.id)
         setBoreholeDetailMap(prev => new Map(prev).set(id, detail))
       } catch (err) {
         log.error('borehole', `loadDetail(${id}) failed`, err)
         toast('error', 'Failed to load borehole detail')
       }
     },
-    [boreholeDetailMap],
+    // reason: project.id is a stable scalar that changes only when the
+    // active project changes; including the whole project object would
+    // fire an extra load on every reference re-identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [boreholeDetailMap, project?.id],
   )
 
   // ---------------------------------------------------------------------------
@@ -452,12 +467,17 @@ export function useInvestigationData({
   // re-fetch), and register an undo command.
   const handlePatchCptElevation = useCallback(
     async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
+      if (!project) return
       // Snapshot pre-edit values from the list so undo can PATCH them
       // back even if the user has been clicking around between edits.
       const before = cpts.find(c => c.id === id)
       const beforeElev = before?.elevation_m ?? null
       const beforeZ = before?.z_epsg ?? null
-      const updated = await api.cpt.patchElevation(id, {
+      // Capture project.id in a local so the undo closures below don't
+      // close over the reactive reference (avoids a stale closure if the
+      // user somehow switches projects while an undo is pending).
+      const pid = project.id
+      const updated = await api.cpt.patchElevation(id, pid, {
         elevation_m: elevationM,
         z_epsg: zEpsg,
       })
@@ -473,7 +493,7 @@ export function useInvestigationData({
       pushUndo({
         description: 'Edit CPT elevation',
         revert: async () => {
-          const back = await api.cpt.patchElevation(id, {
+          const back = await api.cpt.patchElevation(id, pid, {
             elevation_m: beforeElev,
             z_epsg: beforeZ,
           })
@@ -487,7 +507,7 @@ export function useInvestigationData({
           )
         },
         reapply: async () => {
-          const fwd = await api.cpt.patchElevation(id, {
+          const fwd = await api.cpt.patchElevation(id, pid, {
             elevation_m: elevationM,
             z_epsg: zEpsg,
           })
@@ -502,15 +522,19 @@ export function useInvestigationData({
         },
       })
     },
-    [cpts, pushUndo],
+    [cpts, project, pushUndo],
   )
 
   const handlePatchBoreholeElevation = useCallback(
     async (id: string, elevationM: number | null, zEpsg: number | null): Promise<void> => {
+      if (!project) return
       const before = boreholes.find(b => b.id === id)
       const beforeElev = before?.elevation_m ?? null
       const beforeZ = before?.z_epsg ?? null
-      const updated = await api.borehole.patchElevation(id, {
+      // Capture project.id so undo closures don't close over the
+      // reactive reference (mirrors the CPT elevation handler pattern).
+      const pid = project.id
+      const updated = await api.borehole.patchElevation(id, pid, {
         elevation_m: elevationM,
         z_epsg: zEpsg,
       })
@@ -538,7 +562,7 @@ export function useInvestigationData({
       pushUndo({
         description: 'Edit borehole elevation',
         revert: async () => {
-          const back = await api.borehole.patchElevation(id, {
+          const back = await api.borehole.patchElevation(id, pid, {
             elevation_m: beforeElev,
             z_epsg: beforeZ,
           })
@@ -562,7 +586,7 @@ export function useInvestigationData({
           })
         },
         reapply: async () => {
-          const fwd = await api.borehole.patchElevation(id, {
+          const fwd = await api.borehole.patchElevation(id, pid, {
             elevation_m: elevationM,
             z_epsg: zEpsg,
           })
@@ -587,7 +611,7 @@ export function useInvestigationData({
         },
       })
     },
-    [boreholes, pushUndo],
+    [boreholes, project, pushUndo],
   )
 
   // ---------------------------------------------------------------------------
