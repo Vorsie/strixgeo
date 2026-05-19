@@ -63,6 +63,9 @@ def _scalar_result(value: object) -> MagicMock:
     r = MagicMock()
     r.scalar_one_or_none.return_value = value
     r.scalars.return_value.all.return_value = []
+    # run_resolver's depth query is now a single GROUP BY read via .all()
+    # (review S2) — make every result also satisfy .all() → [].
+    r.all.return_value = []
     return r
 
 
@@ -70,6 +73,7 @@ def _scalars_result(values: list) -> MagicMock:
     r = MagicMock()
     r.scalar_one_or_none.return_value = None
     r.scalars.return_value.all.return_value = values
+    r.all.return_value = []
     return r
 
 
@@ -230,7 +234,8 @@ async def test_canonical_ordering_enforced() -> None:
     # Resolver: no formations loaded (simplify — we test canonical ordering, not resolver).
     empty = _scalars_result([])
 
-    execute_results = [no_edge, empty, empty]
+    # existence-check + run_resolver's (formations, depth GROUP BY, edges).
+    execute_results = [no_edge, empty, empty, empty]
     session.execute = AsyncMock(side_effect=execute_results)
     session.flush = AsyncMock()
     session.commit = AsyncMock()
@@ -282,7 +287,8 @@ async def test_idempotent_existing_edge_returns_false() -> None:
     # Resolver loads: empty formations, empty edges.
     empty = _scalars_result([])
     # Resolver also needs model via session.get — already handled above.
-    session.execute = AsyncMock(side_effect=[edge_result, empty, empty])
+    # existence-check + run_resolver's (formations, depth GROUP BY, edges).
+    session.execute = AsyncMock(side_effect=[edge_result, empty, empty, empty])
     session.flush = AsyncMock()
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
