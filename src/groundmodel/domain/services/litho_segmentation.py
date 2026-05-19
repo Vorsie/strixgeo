@@ -46,6 +46,7 @@ from groundmodel.domain.services.robertson_2015 import (
     sbt_zone_series,
     stress_profile,
 )
+from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.shared.constants.litho_constants import BaseLithology
 from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
 
@@ -191,6 +192,11 @@ class LithoLayerSuggestion:
     dr_pct: float | None
     confidence: SuggestionConfidence
     source: str
+    # Admixtures aggregated from the contributing ObservationLayer.admixtures
+    # by thickness-weighted majority (>50% merged thickness).  Empty tuple for
+    # CPT-path suggestions (CPT cannot distinguish admixtures).
+    # Debt #66: heuristic — owner tunes at dogfeed.
+    suggested_admixtures: tuple[Admixture, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -449,11 +455,83 @@ def segment_cpt(
     return suggestions
 
 
+def _aggregate_admixtures(
+    admixtures_per_layer: Sequence[list[Admixture]],
+    thicknesses: Sequence[float],
+    start_idx: int,
+    end_idx_exclusive: int,
+) -> tuple[Admixture, ...]:
+    """Aggregate admixtures from contributing observation layers by thickness weight.
+
+    An admixture canonical key (``soil_code:amount``, ignoring ``locally``)
+    that is present in layers covering >50% of the merged run's total thickness
+    is included in the output.  For matching keys, the ``locally`` flag is set
+    to False unless ALL contributing layers have it set to True.
+
+    Debt #66: this heuristic is owner-tunable at dogfeed — the >50% majority
+    threshold is a reasonable default for Belgian borehole descriptions but may
+    need adjustment for thin interbedded sequences.
+
+    Parameters
+    ----------
+    admixtures_per_layer : Sequence[list[Admixture]]
+        Per-layer admixture lists, indexed parallel to the observation layers.
+    thicknesses : Sequence[float]
+        Per-layer thickness in metres (base - top), indexed parallel.
+    start_idx : int
+        First layer index (inclusive) of the merged run.
+    end_idx_exclusive : int
+        Last layer index (exclusive) of the merged run.
+
+    Returns
+    -------
+    tuple[Admixture, ...]
+        Admixtures present in >50% of the run's total thickness, ordered by
+        ``canonical_key()`` for determinism.
+    """
+    total_thickness = sum(thicknesses[i] for i in range(start_idx, end_idx_exclusive))
+    if total_thickness <= 0:
+        return ()
+
+    # Accumulate thickness per canonical key + track locally flag presence.
+    key_thickness: dict[str, float] = {}
+    key_not_local: dict[str, bool] = {}  # True when any contributing layer has locally=False
+    key_soil: dict[str, str] = {}
+    key_amount: dict[str, str] = {}
+
+    for i in range(start_idx, end_idx_exclusive):
+        th = thicknesses[i]
+        for adm in admixtures_per_layer[i]:
+            k = adm.canonical_key()
+            key_thickness[k] = key_thickness.get(k, 0.0) + th
+            if not adm.locally:
+                key_not_local[k] = True
+            elif k not in key_not_local:
+                key_not_local[k] = False
+            key_soil[k] = adm.soil_code
+            key_amount[k] = adm.amount
+
+    threshold = 0.5 * total_thickness
+    result: list[Admixture] = []
+    for k in sorted(key_thickness):
+        if key_thickness[k] > threshold:
+            result.append(
+                Admixture(
+                    soil_code=key_soil[k],
+                    amount=key_amount[k],
+                    # locally=False when ANY contributing layer has it globally
+                    locally=not key_not_local.get(k, False),
+                )
+            )
+    return tuple(result)
+
+
 def segment_borehole(
     layer_tops_m: Sequence[float],
     layer_bases_m: Sequence[float],
     main_soil_codes: Sequence[list[str]],
     minimum_layer_thickness_m: float = 0.5,
+    admixtures_per_layer: Sequence[list[Admixture]] | None = None,
 ) -> list[LithoLayerSuggestion]:
     """Segment borehole observation layers into lithostratigraphic layer suggestions.
 
@@ -472,6 +550,12 @@ def segment_borehole(
         is used as the primary soil type.  Empty lists yield ``None`` (skipped).
     minimum_layer_thickness_m : float
         Minimum layer thickness for the greedy-merge (default 0.5 m).
+    admixtures_per_layer : Sequence[list[Admixture]] | None, optional
+        Per-layer admixture lists (parallel to ``layer_tops_m``).  When provided
+        and non-empty, admixtures present in >50% of each merged run's total
+        thickness are propagated to ``LithoLayerSuggestion.suggested_admixtures``
+        (debt #66 heuristic).  ``None`` or absent → empty admixtures on every
+        suggestion (CPT path; borehole path without admixture data).
 
     Returns
     -------
@@ -484,6 +568,15 @@ def segment_borehole(
     n = len(layer_tops_m)
     if n == 0:
         return []
+
+    # Admixture data — default to empty lists per layer when not provided.
+    effective_admixtures: list[list[Admixture]] = (
+        [list(a) for a in admixtures_per_layer]
+        if admixtures_per_layer is not None and len(admixtures_per_layer) == n
+        else [[] for _ in range(n)]
+    )
+    # Per-layer thickness for the admixture aggregation weight.
+    layer_thicknesses = [max(0.0, b - t) for t, b in zip(layer_tops_m, layer_bases_m)]
 
     # Map each layer to a lithology token (None = unmappable).
     litho_per_layer: list[BaseLithology | None] = []
@@ -535,6 +628,8 @@ def segment_borehole(
         else:
             confidence = SuggestionConfidence.LOW
 
+        aggregated_admixtures = _aggregate_admixtures(effective_admixtures, layer_thicknesses, s, e)
+
         suggestions.append(
             LithoLayerSuggestion(
                 depth_top_m=depth_top,
@@ -545,6 +640,7 @@ def segment_borehole(
                 dr_pct=None,
                 confidence=confidence,
                 source="borehole_observation",
+                suggested_admixtures=aggregated_admixtures,
             )
         )
 
