@@ -115,3 +115,78 @@ class CrossSectionRepository(GroundModelLogger):
         await self._session.flush()
         self.info(f"Cross-section deleted: {section_id}")
         return True
+
+    async def union_seeded_contact_ids(
+        self,
+        section_id: UUID,
+        project_id: UUID,
+        contact_ids: set[UUID],
+        *,
+        operation: str,
+    ) -> CrossSectionOrm | None:
+        """Union ``contact_ids`` into a section's ``seeded_formation_contact_ids``.
+
+        The explicit-content invariant (owner directive 2026-05-17): formation
+        content appears on a section only where the user explicitly seeded or
+        drew it, tracked by ``cross_section.seeded_formation_contact_ids``. This
+        method is the single write path for that set — shared by the manual-draw
+        201 path, the dedup-survivor 409 path (debt #57), the Seed endpoint, and
+        the pinch-out use case.
+
+        Non-fatal by contract: the caller's primary operation (contact create /
+        Seed run / pinch-out commit) has already committed its own transaction.
+        A missing or out-of-project section, or a failed section commit here, is
+        logged and swallowed — it must never turn the caller's 200/201/409 into
+        a 500. On a swallowed failure the session is rolled back so it is clean
+        before ``get_session``'s finaliser closes it (a failed ``commit``
+        otherwise leaves it in ``PendingRollbackError`` and poisons the next
+        pooled use).
+
+        Parameters
+        ----------
+        section_id : UUID
+            Section whose seeded set to extend.
+        project_id : UUID
+            Project the section must belong to (scope guard against IDOR).
+        contact_ids : set[UUID]
+            Ids to union into the existing seeded set.
+        operation : str
+            Short label identifying the call site in log messages
+            (e.g. ``"create_contact"`` / ``"create_contact dedup"`` /
+            ``"Seed"`` / ``"pinch_out"``).
+
+        Returns
+        -------
+        CrossSectionOrm | None
+            The refreshed section ORM row on a successful update, else
+            ``None``. Callers that need a ``CrossSectionResponse`` map the
+            returned row themselves (layer boundary: repo returns ORM, the
+            router/use-case constructs the Pydantic response).
+        """
+        try:
+            section = await self.get(section_id)
+            if section is None or section.app_project_id != project_id:
+                self.warning(
+                    f"{operation}: section_id {section_id} not found in project "
+                    f"{project_id} — seeded set not updated"
+                )
+                return None
+            existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
+            merged = list(existing_seeded | contact_ids)
+            updated = await self.update(section_id, {"seeded_formation_contact_ids": merged})
+            await self._session.commit()
+            if updated is not None:
+                await self._session.refresh(updated)
+            self.info(
+                f"{operation}: section {section_id} seeded_formation_contact_ids "
+                f"updated — {len(merged)} id(s) total "
+                f"({len(contact_ids)} requested, {len(existing_seeded)} pre-existing)"
+            )
+            return updated
+        except Exception as exc:
+            await self._session.rollback()
+            self.warning(
+                f"{operation}: section seeding failed — section {section_id} "
+                f"seeded set not updated ({type(exc).__name__}): {exc!r}"
+            )
+            return None
