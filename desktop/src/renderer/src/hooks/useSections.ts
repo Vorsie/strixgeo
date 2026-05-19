@@ -21,6 +21,7 @@ import { wgs84ToProjected } from './useWgs84'
 import { log } from '../utils/log'
 import type { UndoCommand } from './useUndoStack'
 import type { FocusTarget } from '../components/sections/useFocusColumn'
+import type { CorrelationSource } from '../components/sections/useCorrelate'
 
 /** Which model the section editor renders and edits (slice 2, #55). */
 export type SectionModelAxis = 'geological' | 'lithostratigraphic'
@@ -112,6 +113,24 @@ export interface UseSectionsResult {
    * column to focus it or exits focus mode.
    */
   setSectionFocusedColumn: (col: FocusTarget | null) => void
+
+  // ---------------------------------------------------------------------------
+  // Correlate mode (Slice 4, #67-area).
+  // Transient UI state — never persisted to .gmproj. Cleared on axis switch
+  // and when the selected section changes.
+  // ---------------------------------------------------------------------------
+  /** Whether correlate mode is active on the litho axis. */
+  correlateMode: boolean
+  /** The armed source unit, or null when mode is on but nothing is armed. */
+  correlationSource: CorrelationSource | null
+  /** Enter correlate mode (no-op when already in mode). */
+  enterCorrelateMode: () => void
+  /** Exit correlate mode and clear armed state. */
+  exitCorrelateMode: () => void
+  /** Arm a source unit. Replaces any prior source. */
+  armCorrelationSource: (source: CorrelationSource) => void
+  /** Clear armed source without exiting mode (Esc layer 1). */
+  clearCorrelationSource: () => void
 }
 
 /** Shape of a borehole list-item as seen by the hook (x/y only needed). */
@@ -216,7 +235,7 @@ export function useSections({
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
   // Slice 2 (#55): which model the editor renders. Defaults to geological —
   // zero regression. Session-only (not persisted to .gmproj).
-  const [sectionModelAxis, setSectionModelAxis] = useState<SectionModelAxis>('geological')
+  const [sectionModelAxis, _setSectionModelAxis] = useState<SectionModelAxis>('geological')
   // Geological backdrop model override (#60). Null = use the active litho
   // model's parent_geological_model_id (derived in SectionsCanvas). Only
   // relevant when the project has more than one geological model. Session-only.
@@ -236,6 +255,36 @@ export function useSections({
       setSectionFocusedColumn(null)
     }
   }, [selectedSectionId])
+
+  // Correlate mode (Slice 4). Transient — session-only, not persisted.
+  // Cleared when the axis switches (via setSectionModelAxis callers) or
+  // when the selected section changes.
+  const [correlateMode, setCorrelateMode] = useState(false)
+  const [correlationSource, setCorrelationSource] = useState<CorrelationSource | null>(null)
+  // Clear correlate state when the section changes (stale armed source
+  // would reference a formation band that doesn't exist on the new section).
+  useEffect(() => {
+    setCorrelateMode(false)
+    setCorrelationSource(null)
+  }, [selectedSectionId])
+  const enterCorrelateMode = useCallback(() => setCorrelateMode(true), [])
+  const exitCorrelateMode = useCallback(() => {
+    setCorrelateMode(false)
+    setCorrelationSource(null)
+  }, [])
+  const armCorrelationSource = useCallback(
+    (source: CorrelationSource) => setCorrelationSource(source),
+    [],
+  )
+  const clearCorrelationSource = useCallback(() => setCorrelationSource(null), [])
+  // Wrap the axis setter to also clear correlate mode — switching axes
+  // leaves the armed source referencing a band that doesn't exist on
+  // the new axis (geological axis has no litho unit bands).
+  const setSectionModelAxis = useCallback((axis: SectionModelAxis) => {
+    _setSectionModelAxis(axis)
+    setCorrelateMode(false)
+    setCorrelationSource(null)
+  }, [])
   // Two-click draw mode — active while the user is placing a section
   // line on the map. Set by handleCreateSection, cleared by
   // cancelSectionDraw and handleSectionLineDrawn.
@@ -674,5 +723,11 @@ export function useSections({
     applyUpdatedSection,
     sectionFocusedColumn,
     setSectionFocusedColumn,
+    correlateMode,
+    correlationSource,
+    enterCorrelateMode,
+    exitCorrelateMode,
+    armCorrelationSource,
+    clearCorrelationSource,
   }
 }
