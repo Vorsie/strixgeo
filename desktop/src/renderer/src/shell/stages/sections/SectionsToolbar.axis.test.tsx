@@ -87,6 +87,8 @@ function makeCtx(overrides: {
   selectedSectionId?: string | null
   lithoStaleSurfaceCount?: number
   handleRebuildLithoSurfaces?: () => Promise<void>
+  lithoSuggestions?: import('../../../api/client').LithoLayerSuggestion[]
+  handleAcceptAllLithoSuggestions?: () => Promise<void>
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
 
@@ -212,7 +214,7 @@ function makeCtx(overrides: {
       applyBoreholeFormationSelection: noopAsync,
       handleDeleteModel: noopAsync,
       ensureActiveGeologicalModel: () => Promise.resolve(null),
-      lithoSuggestions: [],
+      lithoSuggestions: overrides.lithoSuggestions ?? [],
       lithoSuggestionInvestigationId: null,
       lithoSuggestionAnchorKind: null,
       lithoSuggestionAccepted: new Set<number>(),
@@ -220,6 +222,7 @@ function makeCtx(overrides: {
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,
       handleAcceptLithoSuggestion: noopAsync,
+      handleAcceptAllLithoSuggestions: overrides.handleAcceptAllLithoSuggestions ?? noopAsync,
       handleRejectLithoSuggestion: vi.fn(),
       clearLithoSuggestions: vi.fn(),
       pinchOutPreview: null,
@@ -619,60 +622,95 @@ describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', ()
 })
 
 // ---------------------------------------------------------------------------
-// Slice B: Build litho button (Slice B, #55 peer-stage scaffolding)
+// Slice B: Accept all button + Build litho relocation (Phase 1 accept flow)
+// ---------------------------------------------------------------------------
+// Note: "Build litho" was REMOVED from SectionsToolbar in Phase 1 (it moved
+// to LithologyToolbar). BL1–BL4 now test the "Accept all" button that
+// replaced it on the litho axis when suggestions are present.
 // ---------------------------------------------------------------------------
 
-describe('SectionsToolbar Build litho button (Slice B, #55)', () => {
-  // BL1: Build litho button is visible and enabled on the litho axis when
-  // an active litho model exists.
-  it('BL1 — Build litho button is visible and enabled on litho axis', () => {
+describe('SectionsToolbar Accept all button (Phase 1 litho accept flow)', () => {
+  // BL1: "Accept all" is visible and enabled on the litho axis when there
+  // are pending litho suggestions.
+  it('BL1 — Accept all button is visible and enabled when suggestions present', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
+      lithoSuggestions: [
+        {
+          depth_top_m: 0,
+          depth_base_m: 2,
+          suggested_lithology: 'ZAND',
+          suggested_nad_class: null,
+          mean_qc_mpa: null,
+          dr_pct: null,
+          confidence: 'medium' as const,
+          source: 'robertson2015',
+          suggested_admixtures: [],
+          parent_formation_id: null,
+          spans_boundary: false,
+        },
+      ],
     })
     renderToolbar(ctx)
-    const buildBtn = screen.getByRole('button', { name: /build litho model/i })
-    expect(buildBtn).toBeInTheDocument()
-    expect(buildBtn).not.toBeDisabled()
+    const acceptAllBtn = screen.getByRole('button', { name: /accept all/i })
+    expect(acceptAllBtn).toBeInTheDocument()
+    expect(acceptAllBtn).not.toBeDisabled()
   })
 
-  // BL2: Build litho button is absent on the geological axis (the geo Build
-  // button renders instead, handled by the existing geoVerbDisabled guard).
-  it('BL2 — Build litho button is absent on the geological axis', () => {
-    const ctx = makeCtx({
-      activeLithoModel: makeLithoModel(),
-      sectionModelAxis: 'geological',
-    })
-    renderToolbar(ctx)
-    expect(screen.queryByRole('button', { name: /build litho/i })).not.toBeInTheDocument()
-  })
-
-  // BL3: Clicking Build litho calls handleRebuildLithoSurfaces.
-  it('BL3 — clicking Build litho calls handleRebuildLithoSurfaces', async () => {
-    const rebuildLitho = vi.fn().mockResolvedValue(undefined)
+  // BL2: "Accept all" is absent when there are no suggestions (hasSuggestions=false).
+  it('BL2 — Accept all button is absent when no suggestions', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
-      handleRebuildLithoSurfaces: rebuildLitho,
+      lithoSuggestions: [],
+    })
+    renderToolbar(ctx)
+    expect(screen.queryByRole('button', { name: /accept all/i })).not.toBeInTheDocument()
+  })
+
+  // BL3: Clicking "Accept all" calls handleAcceptAllLithoSuggestions.
+  it('BL3 — clicking Accept all calls handleAcceptAllLithoSuggestions', async () => {
+    const acceptAll = vi.fn().mockResolvedValue(undefined)
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+      lithoSuggestions: [
+        {
+          depth_top_m: 0,
+          depth_base_m: 2,
+          suggested_lithology: 'ZAND',
+          suggested_nad_class: null,
+          mean_qc_mpa: null,
+          dr_pct: null,
+          confidence: 'medium' as const,
+          source: 'robertson2015',
+          suggested_admixtures: [],
+          parent_formation_id: null,
+          spans_boundary: false,
+        },
+      ],
+      handleAcceptAllLithoSuggestions: acceptAll,
     })
     renderToolbar(ctx)
 
-    const buildBtn = screen.getByRole('button', { name: /build litho model/i })
-    fireEvent.click(buildBtn)
+    const acceptAllBtn = screen.getByRole('button', { name: /accept all/i })
+    fireEvent.click(acceptAllBtn)
 
     await vi.waitFor(() => {
-      expect(rebuildLitho).toHaveBeenCalledOnce()
+      expect(acceptAll).toHaveBeenCalledOnce()
     })
   })
 
-  // BL4: When lithoStaleSurfaceCount > 0 the label carries the stale badge.
-  it('BL4 — stale badge appears in the label when lithoStaleSurfaceCount > 0', () => {
+  // BL4: "Build litho" is absent from SectionsToolbar on the litho axis
+  // (it moved to LithologyToolbar in Phase 1).
+  it('BL4 — Build litho button is NOT in SectionsToolbar (moved to LithologyToolbar)', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
       lithoStaleSurfaceCount: 3,
     })
     renderToolbar(ctx)
-    expect(screen.getByRole('button', { name: /build litho · 3 stale/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /build litho/i })).not.toBeInTheDocument()
   })
 })
