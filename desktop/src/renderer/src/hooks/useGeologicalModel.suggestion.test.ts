@@ -4,12 +4,14 @@
 // Claims pinned here:
 //   S1  handleSuggestLitho stores layers + sets investigationId/anchorKind.
 //   S2  handleRejectLithoSuggestion marks the index rejected only (no API
-//       call, no formation created, no contact created).
-//   S3  handleAcceptLithoSuggestion — distinct lithologies → N unique
-//       formation creations + N contact creations (one per distinct layer).
-//   S4  Reuse-not-duplicate: re-accepting the same lithology token reuses
-//       the formation already created (one createFormation, two createContact).
+//       call fired).
+//   S3  handleAcceptLithoSuggestion issues ONE acceptLithoSuggestions call
+//       (bulk endpoint, single-item payload) per accepted layer.
+//   S4  applyUpdatedSection is forwarded from the accept response — #57
+//       regression guard (explicit-content invariant).
 //   S5  clearLithoSuggestions resets all suggestion state atoms to empty.
+//   S6  handleAcceptAllLithoSuggestions issues ONE bulk call (not N).
+//   S7  Switching the active litho model clears a showing overlay (B-1).
 //
 // Strategy: mock the whole api.geology module so every call resolves to a
 // stable sentinel.  Drive handleSuggestLitho first (via mocked suggestLitho)
@@ -21,6 +23,7 @@ import { describe, expect, it, vi, beforeEach, type MockInstance } from 'vitest'
 
 import { useGeologicalModel } from './useGeologicalModel'
 import type {
+  AcceptLithoSuggestionsResponse,
   GeologicalFormationResponse,
   FormationContactResponse,
   GeologicalModelResponse,
@@ -46,6 +49,7 @@ vi.mock('../api/client', () => ({
       createFormation: vi.fn(),
       createContact: vi.fn(),
       suggestLitho: vi.fn(),
+      acceptLithoSuggestions: vi.fn(),
       // rarely-called methods — resolve empty so hooks don't throw
       updateFormation: vi.fn(),
       deleteFormation: vi.fn(),
@@ -176,6 +180,22 @@ function makeSuggestion(
   }
 }
 
+/** Minimal AcceptLithoSuggestionsResponse stub for accept-path tests. */
+function makeAcceptResponse(
+  overrides?: Partial<AcceptLithoSuggestionsResponse>,
+): AcceptLithoSuggestionsResponse {
+  return {
+    created_formation_ids: ['form-new'],
+    found_formation_ids: [],
+    created_contact_ids: ['contact-new'],
+    found_contact_ids: [],
+    straddle_split_count: 0,
+    stale_tin_fallback_count: 0,
+    updated_section: null,
+    ...overrides,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hook args factory
 // ---------------------------------------------------------------------------
@@ -247,6 +267,7 @@ function setupBootstrapMocks(): void {
   geoApi.createFormation.mockReset()
   geoApi.createContact.mockReset()
   geoApi.suggestLitho.mockReset()
+  geoApi.acceptLithoSuggestions.mockReset()
 }
 
 // ---------------------------------------------------------------------------
@@ -321,24 +342,18 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(geoApi.createContact).not.toHaveBeenCalled()
   })
 
-  it('S3 — distinct lithologies → N createFormation + N createContact calls', async () => {
+  it('S3 — handleAcceptLithoSuggestion issues ONE acceptLithoSuggestions call per accepted layer', async () => {
+    // Each per-layer accept calls the bulk endpoint with a single-item
+    // suggestions array.  Formation reuse / creation is the server's
+    // responsibility; the client only owns state marking.
     const suggestions: LithoLayerSuggestion[] = [
       makeSuggestion('ZAND', 0.0),
       makeSuggestion('KLEI', 3.0),
     ]
     geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
-
-    const zandFormation = makeFormation('form-zand', 'ZAND')
-    const kleiFormation = makeFormation('form-klei', 'KLEI')
-    geoApi.createFormation
-      .mockResolvedValueOnce(zandFormation)
-      .mockResolvedValueOnce(kleiFormation)
-
-    const zandContact = makeContact('c-zand', 'form-zand')
-    const kleiContact = makeContact('c-klei', 'form-klei')
-    geoApi.createContact
-      .mockResolvedValueOnce(zandContact)
-      .mockResolvedValueOnce(kleiContact)
+    geoApi.acceptLithoSuggestions
+      .mockResolvedValueOnce(makeAcceptResponse({ created_formation_ids: ['form-zand'], created_contact_ids: ['c-zand'] }))
+      .mockResolvedValueOnce(makeAcceptResponse({ created_formation_ids: ['form-klei'], created_contact_ids: ['c-klei'] }))
 
     const { args } = makeArgs()
     const { result } = renderHook(() => useGeologicalModel(args))
@@ -351,7 +366,7 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       await result.current.handleSuggestLitho('borehole', 'bh-1')
     })
 
-    // Accept both layers
+    // Accept both layers sequentially
     await act(async () => {
       await result.current.handleAcceptLithoSuggestion(0)
     })
@@ -359,54 +374,59 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       await result.current.handleAcceptLithoSuggestion(1)
     })
 
-    // Two formations created (one per distinct lithology)
-    expect(geoApi.createFormation).toHaveBeenCalledTimes(2)
-    expect(geoApi.createFormation).toHaveBeenCalledWith(
-      'proj-1',
-      expect.objectContaining({ lithology: 'ZAND' }),
-    )
-    expect(geoApi.createFormation).toHaveBeenCalledWith(
-      'proj-1',
-      expect.objectContaining({ lithology: 'KLEI' }),
-    )
-
-    // Two contacts created
-    expect(geoApi.createContact).toHaveBeenCalledTimes(2)
-    expect(geoApi.createContact).toHaveBeenCalledWith(
+    // Two separate bulk calls — one per layer.
+    expect(geoApi.acceptLithoSuggestions).toHaveBeenCalledTimes(2)
+    expect(geoApi.acceptLithoSuggestions).toHaveBeenCalledWith(
       'proj-1',
       'litho-model-1',
-      expect.objectContaining({ formation_id: 'form-zand', depth_top_m: 0.0 }),
+      expect.objectContaining({
+        borehole_id: 'bh-1',
+        suggestions: [expect.objectContaining({ suggested_lithology: 'ZAND' })],
+      }),
     )
-    expect(geoApi.createContact).toHaveBeenCalledWith(
+    expect(geoApi.acceptLithoSuggestions).toHaveBeenCalledWith(
       'proj-1',
       'litho-model-1',
-      expect.objectContaining({ formation_id: 'form-klei', depth_top_m: 3.0 }),
+      expect.objectContaining({
+        borehole_id: 'bh-1',
+        suggestions: [expect.objectContaining({ suggested_lithology: 'KLEI' })],
+      }),
     )
 
-    // Both accepted, none rejected
+    // Both accepted, none rejected.
     expect(result.current.lithoSuggestionAccepted.has(0)).toBe(true)
     expect(result.current.lithoSuggestionAccepted.has(1)).toBe(true)
     expect(result.current.lithoSuggestionRejected.size).toBe(0)
+
+    // The old client-side formation/contact creation is gone.
+    expect(geoApi.createFormation).not.toHaveBeenCalled()
+    expect(geoApi.createContact).not.toHaveBeenCalled()
   })
 
-  it('S4 — reuse-not-duplicate: re-accepting the same lithology token reuses formation', async () => {
-    // Two suggestions with the same lithology token at different depths.
-    // First accept creates the formation; second accept must reuse it.
-    const suggestions: LithoLayerSuggestion[] = [
-      makeSuggestion('ZAND', 0.0),
-      makeSuggestion('ZAND', 5.0),
-    ]
+  it('S4 — accept handler forwards updated_section via onSectionUpdated (#57 regression guard)', async () => {
+    // The explicit-content invariant (#57, recurred 3x): the accept
+    // handler MUST call onSectionUpdated when the response includes
+    // an updated_section, otherwise seeded contacts go invisible.
+    const suggestions: LithoLayerSuggestion[] = [makeSuggestion('ZAND', 0.0)]
     geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
 
-    const zandFormation = makeFormation('form-zand', 'ZAND')
-    // createFormation should only be called once — return the formation on first call
-    geoApi.createFormation.mockResolvedValueOnce(zandFormation)
-
-    const contactA = makeContact('c-zand-a', 'form-zand')
-    const contactB = { ...makeContact('c-zand-b', 'form-zand'), depth_top_m: 5.0 }
-    geoApi.createContact
-      .mockResolvedValueOnce(contactA)
-      .mockResolvedValueOnce(contactB)
+    const updatedSection = {
+      id: 'sec-1',
+      app_project_id: 'proj-1',
+      name: 'Section A',
+      start_x: 0,
+      start_y: 0,
+      end_x: 100,
+      end_y: 0,
+      width_m: 50,
+      epsg: 31370,
+      seeded_formation_contact_ids: ['contact-new'],
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    geoApi.acceptLithoSuggestions.mockResolvedValueOnce(
+      makeAcceptResponse({ updated_section: updatedSection }),
+    )
 
     const { args } = makeArgs()
     const { result } = renderHook(() => useGeologicalModel(args))
@@ -414,42 +434,21 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     await act(async () => {
       await new Promise(r => setTimeout(r, 0))
     })
-
     await act(async () => {
       await result.current.handleSuggestLitho('borehole', 'bh-1')
     })
 
-    // Accept index 0 — should create formation 'ZAND' + contact at 0.0m
+    const onSectionUpdated = vi.fn()
     await act(async () => {
-      await result.current.handleAcceptLithoSuggestion(0)
+      await result.current.handleAcceptLithoSuggestion(0, 'sec-1', onSectionUpdated)
     })
 
-    expect(geoApi.createFormation).toHaveBeenCalledTimes(1)
-    expect(geoApi.createContact).toHaveBeenCalledTimes(1)
-    expect(geoApi.createContact).toHaveBeenCalledWith(
-      'proj-1',
-      'litho-model-1',
-      expect.objectContaining({ formation_id: 'form-zand', depth_top_m: 0.0 }),
-    )
+    // The callback MUST have been called with the updated section.
+    expect(onSectionUpdated).toHaveBeenCalledOnce()
+    expect(onSectionUpdated).toHaveBeenCalledWith(updatedSection)
 
-    // Accept index 1 — same 'ZAND' lithology; formation must be reused, not recreated
-    await act(async () => {
-      await result.current.handleAcceptLithoSuggestion(1)
-    })
-
-    // Still only one formation created
-    expect(geoApi.createFormation).toHaveBeenCalledTimes(1)
-    // But two contacts created (different depths)
-    expect(geoApi.createContact).toHaveBeenCalledTimes(2)
-    expect(geoApi.createContact).toHaveBeenCalledWith(
-      'proj-1',
-      'litho-model-1',
-      expect.objectContaining({ formation_id: 'form-zand', depth_top_m: 5.0 }),
-    )
-
-    // Both accepted
+    // Layer is marked accepted.
     expect(result.current.lithoSuggestionAccepted.has(0)).toBe(true)
-    expect(result.current.lithoSuggestionAccepted.has(1)).toBe(true)
   })
 
   it('S5 — clearLithoSuggestions resets all suggestion state to empty', async () => {
@@ -482,27 +481,21 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(result.current.lithoSuggestionRejected.size).toBe(0)
   })
 
-  it('S6 — BURST reuse: two same-lithology accepts with NO flush between still create one formation', async () => {
-    // The real "accept the sand layers off a CPT" workflow: consecutive
-    // same-lithology accepts fired faster than React commits +
-    // refreshes lithoFormationsRef. S4 passes only because it act()s
-    // between accepts (flushing the ref). This pins the un-flushed
-    // burst — it FAILS on the pre-fix stale-ref code (two
-    // createFormation calls) and passes with the synchronous
-    // per-token guard.
+  it('S6 — handleAcceptAllLithoSuggestions issues ONE bulk call, skips rejected, marks all accepted', async () => {
+    // The "Accept all" button's contract: one server round-trip for
+    // the whole pending set.  Rejected layers are excluded.
     const suggestions: LithoLayerSuggestion[] = [
       makeSuggestion('ZAND', 0.0),
-      makeSuggestion('ZAND', 5.0),
+      makeSuggestion('KLEI', 3.0),
+      makeSuggestion('VEEN', 6.0), // will be rejected
     ]
     geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
-    const zandFormation = makeFormation('form-zand', 'ZAND')
-    geoApi.createFormation.mockResolvedValue(zandFormation)
-    geoApi.createContact
-      .mockResolvedValueOnce(makeContact('c-a', 'form-zand'))
-      .mockResolvedValueOnce({
-        ...makeContact('c-b', 'form-zand'),
-        depth_top_m: 5.0,
-      })
+    geoApi.acceptLithoSuggestions.mockResolvedValueOnce(
+      makeAcceptResponse({
+        created_formation_ids: ['form-zand', 'form-klei'],
+        created_contact_ids: ['c-zand', 'c-klei'],
+      }),
+    )
 
     const { args } = makeArgs()
     const { result } = renderHook(() => useGeologicalModel(args))
@@ -514,20 +507,36 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       await result.current.handleSuggestLitho('borehole', 'bh-1')
     })
 
-    // Both accepts inside ONE act, concurrently — no render/effect
-    // flush separates them (unlike S4).
-    await act(async () => {
-      await Promise.all([
-        result.current.handleAcceptLithoSuggestion(0),
-        result.current.handleAcceptLithoSuggestion(1),
-      ])
+    // Reject index 2 before accepting all.
+    act(() => {
+      result.current.handleRejectLithoSuggestion(2)
     })
 
-    // The race must NOT have duplicated the formation.
-    expect(geoApi.createFormation).toHaveBeenCalledTimes(1)
-    expect(geoApi.createContact).toHaveBeenCalledTimes(2)
+    const onSectionUpdated = vi.fn()
+    await act(async () => {
+      await result.current.handleAcceptAllLithoSuggestions('sec-1', onSectionUpdated)
+    })
+
+    // ONE call only (not N), payload excludes the rejected layer.
+    expect(geoApi.acceptLithoSuggestions).toHaveBeenCalledTimes(1)
+    const [, , body] = geoApi.acceptLithoSuggestions.mock.calls[0] as [string, string, { suggestions: LithoLayerSuggestion[], section_id: string | null }]
+    expect(body.suggestions).toHaveLength(2) // idx 0 + 1 only
+    expect(body.suggestions[0].suggested_lithology).toBe('ZAND')
+    expect(body.suggestions[1].suggested_lithology).toBe('KLEI')
+    expect(body.section_id).toBe('sec-1')
+
+    // Indices 0 and 1 are accepted; 2 is rejected (not accepted).
     expect(result.current.lithoSuggestionAccepted.has(0)).toBe(true)
     expect(result.current.lithoSuggestionAccepted.has(1)).toBe(true)
+    expect(result.current.lithoSuggestionAccepted.has(2)).toBe(false)
+    expect(result.current.lithoSuggestionRejected.has(2)).toBe(true)
+
+    // updated_section is null in the stub → onSectionUpdated not called.
+    expect(onSectionUpdated).not.toHaveBeenCalled()
+
+    // No old-style creation calls.
+    expect(geoApi.createFormation).not.toHaveBeenCalled()
+    expect(geoApi.createContact).not.toHaveBeenCalled()
   })
 
   it('S7 — switching the active litho model clears a showing suggestion overlay (B-1)', async () => {
