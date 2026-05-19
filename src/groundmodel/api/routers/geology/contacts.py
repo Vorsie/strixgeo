@@ -147,6 +147,7 @@ async def create_contact(
     )
     try:
         contact = await CreateFormationContact(session).execute(
+            project_id=project_id,
             model_id=model_id,
             formation_id=request.formation_id,
             depth_top_m=request.depth_top_m,
