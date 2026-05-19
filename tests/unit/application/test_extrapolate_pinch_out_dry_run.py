@@ -15,7 +15,7 @@ AutoPopulateContactsFromStratigraphy test style).
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -265,19 +265,25 @@ async def test_commit_path_still_creates_contacts() -> None:
 
     uc = ExtrapolatePinchOut(session)
     uc._repo = AsyncMock()
-    # _seed_section_contacts makes further DB calls; mock the whole helper
-    # so this test stays focused on the commit path contact creation.
-    uc._seed_section_contacts = AsyncMock(return_value=None)
 
-    result = await uc.execute(
-        project_id=PROJECT,
-        model_id=MODEL,
-        formation_id=FORMATION,
-        target_formation_id=TARGET,
-        section_id=SECTION,
-        direction="right",
-        dry_run=False,
-    )
+    with patch(
+        "groundmodel.application.extrapolate_pinch_out.CrossSectionRepository"
+    ) as MockCrossRepo:
+        # union_seeded_contact_ids makes further DB calls; mock the whole
+        # repo so this test stays focused on the commit path contact creation.
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.union_seeded_contact_ids = AsyncMock(return_value=None)
+        MockCrossRepo.return_value = mock_repo_instance
+
+        result = await uc.execute(
+            project_id=PROJECT,
+            model_id=MODEL,
+            formation_id=FORMATION,
+            target_formation_id=TARGET,
+            section_id=SECTION,
+            direction="right",
+            dry_run=False,
+        )
 
     # Two contacts created (tip + twin).
     assert session.add.call_count == 2
