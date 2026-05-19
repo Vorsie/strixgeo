@@ -6,6 +6,10 @@ A2 — straddle split: suggestion crosses a geology boundary → two contacts cr
 A3 — stale-TIN fallback: TIN is stale but contacts give depth ordering → WARNING, split still works.
 A4 — idempotent re-accept: same investigation, same suggestions → contacts found, nothing inserted.
 A5 — seeded section: section_id provided → ``_seed_section_contacts`` called with all ids.
+D1 — display_order: two litho units at different depths under the same parent get correct order.
+D2 — display_order idempotency: re-accept with no new formations does not trigger recompute.
+D3 — display_order cross-parent: parent geological display_order is the coarse sort key.
+D4 — display_order geological/non-litho formations untouched.
 
 The DB session is fully mocked.  No real DB or network I/O.
 """
@@ -13,7 +17,7 @@ The DB session is fully mocked.  No real DB or network I/O.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -75,6 +79,24 @@ def _execute_all_result(rows: list) -> MagicMock:
     return r
 
 
+def _make_formation_stub(
+    fid: object,
+    *,
+    display_order: int = 0,
+    parent_formation_id: object = None,
+    litho_main_soil_code: str = "ZAND",
+    name: str = "ZAND",
+) -> SimpleNamespace:
+    """Build a minimal GeologicalFormationOrm-shaped stub for mock execute returns."""
+    return SimpleNamespace(
+        id=fid,
+        display_order=display_order,
+        parent_formation_id=parent_formation_id,
+        litho_main_soil_code=litho_main_soil_code,
+        name=name,
+    )
+
+
 def _make_session(
     *,
     litho_model_kind: str = "lithostratigraphic",
@@ -89,8 +111,39 @@ def _make_session(
     formations: list | None = None,
     # Existing litho contacts (id or None for find-or-create)
     existing_contact_ids: list[object | None] | None = None,
+    # When True (default), append the three _recompute_litho_display_orders
+    # execute calls at the end of the side-effect list.  Set to False only
+    # for re-accept paths that create no new formations (A4).
+    expect_recompute: bool = True,
+    # Rows returned by the contacts query inside _recompute_litho_display_orders.
+    recompute_contact_rows: list | None = None,
+    # Rows returned by the formations query inside _recompute_litho_display_orders.
+    recompute_formation_rows: list | None = None,
+    # Rows returned by the parent-formations display_order query.
+    recompute_parent_rows: list | None = None,
 ) -> AsyncMock:
-    """Build a minimal mocked AsyncSession for AcceptLithoSuggestions tests."""
+    """Build a minimal mocked AsyncSession for AcceptLithoSuggestions tests.
+
+    Parameters
+    ----------
+    expect_recompute : bool
+        When True, three extra execute side-effects are appended for the
+        ``_recompute_litho_display_orders`` helper (contacts + formations +
+        parents).  Must be False for paths where no new formation is created
+        (e.g. pure idempotent re-accept) because ``_recompute_litho_display_orders``
+        is not called there and the extra side-effects would skew call counts.
+    recompute_contact_rows : list | None
+        Rows for the contacts query inside the recompute helper. Defaults to
+        an empty list (no contacts yet — safe for most tests).
+    recompute_formation_rows : list | None
+        Rows for the formations query inside the recompute helper. Defaults to
+        an empty list.
+    recompute_parent_rows : list | None
+        Rows for the parent-formations display_order query. Defaults to an
+        empty list (no parents — parent_ids is empty → query not issued; the
+        helper short-circuits when parent_ids is empty so this mock is still
+        consumed when parent_ids is non-empty).
+    """
 
     # The litho model ORM stub
     litho_model_stub = SimpleNamespace(
@@ -106,9 +159,6 @@ def _make_session(
 
     # Track calls to session.get
     def _get_side_effect(orm_class, id_val):
-        from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
-        from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-
         if orm_class.__name__ == "GeologicalModelOrm":
             return litho_model_stub
         if orm_class.__name__ == "BoreholeOrm":
@@ -122,11 +172,16 @@ def _make_session(
     session.flush = AsyncMock()
 
     # Build the execute side-effect sequence.
-    # AcceptLithoSuggestions issues these queries in order per suggestion:
+    # AcceptLithoSuggestions issues these queries in order:
     # 1. Formation surfaces query (one time, at the start)
     # 2. Geology contacts at investigation (one time)
-    # 3. Project formations list (one time via repo.list_formations)
-    # 4. Per-suggestion: existing contact id check
+    # 3. Per-suggestion: existing contact id check
+    # [4–6 when expect_recompute=True]
+    # 4. _recompute: contacts query (litho model contacts)
+    # 5. _recompute: formations query (formation rows by id)
+    # 6. _recompute: parent-formations display_order query (omitted when no
+    #    parent ids — the helper guards with ``if parent_ids``; we supply it
+    #    anyway so callers don't have to account for the guard in every test)
     # The repo.mark_surfaces_stale + repo.list_formations are mocked on _repo.
 
     surface_rows = surface_rows or []
@@ -142,6 +197,16 @@ def _make_session(
     # 3 — per-suggestion existing-contact checks
     for eid in existing_contact_ids:
         execute_calls.append(_execute_result(eid))
+
+    if expect_recompute:
+        # 4 — _recompute: contacts query
+        execute_calls.append(_execute_all_result(recompute_contact_rows or []))
+        # 5 — _recompute: formations query (scalars().all() path)
+        execute_calls.append(_execute_all_result(recompute_formation_rows or []))
+        # 6 — _recompute: parent-formations display_order query (.all() path)
+        #     Only consumed when the helper finds non-empty parent_ids.
+        #     Append it unconditionally — if not consumed it sits unused.
+        execute_calls.append(_execute_all_result(recompute_parent_rows or []))
 
     session.execute = AsyncMock(side_effect=execute_calls)
     session.refresh = AsyncMock()
@@ -264,6 +329,10 @@ async def test_a3_stale_tin_fallback_warns_and_still_splits() -> None:
             # two contact exists-checks → None (create both)
             _execute_result(None),
             _execute_result(None),
+            # _recompute_litho_display_orders: contacts, formations, parents
+            _execute_all_result([]),
+            _execute_all_result([]),
+            _execute_all_result([]),
         ]
     )
     uc = _use_case(session)
@@ -295,6 +364,8 @@ async def test_a4_idempotent_reaccept_returns_found_contacts() -> None:
         surface_rows=[],
         geo_contacts_at_inv=[],
         existing_contact_ids=[existing_contact_id],  # already exists
+        # No new formation created → _recompute_litho_display_orders not called.
+        expect_recompute=False,
     )
     # Pre-seed a litho formation matching the suggestion so find-or-create
     # lands on the existing formation.
@@ -371,7 +442,6 @@ async def test_a4b_idempotency_key_includes_depth_top_m() -> None:
 async def test_a5_section_seeding_called_with_all_contact_ids() -> None:
     """When section_id is provided, _seed_section_contacts is called with all ids."""
     section_id = uuid4()
-    created_cid = uuid4()
 
     session = _make_session(
         surface_rows=[],
@@ -516,4 +586,206 @@ async def test_a7_manual_pick_source_stamps_manual_pick() -> None:
     assert contact_rows[0].source == "manual_pick", (
         "Manual-pick suggestion source must reach the contact row as 'manual_pick'; "
         "a hard-coded anchor-derived source would break provenance tagging."
+    )
+
+
+# ---------------------------------------------------------------------------
+# D-series — display_order correctness (superposition rule)
+#
+# These tests exercise _recompute_litho_display_orders directly via a mocked
+# AsyncSession so there are no DB round-trips.  The helper's three execute
+# calls are mocked with controlled contact / formation / parent data.
+#
+# Convention reminder (CLAUDE.md "Stratigraphic order"):
+#   lower display_order = older = deeper
+#   older paints first so younger renders on top
+# ---------------------------------------------------------------------------
+
+PARENT_A_ID = uuid4()  # geological formation, display_order=0 (oldest)
+PARENT_B_ID = uuid4()  # geological formation, display_order=1 (younger)
+LITHO_SHALLOW_ID = uuid4()  # litho under PARENT_A, depth 2 m (shallower = younger)
+LITHO_DEEP_ID = uuid4()  # litho under PARENT_A, depth 8 m (deeper = older)
+LITHO_UNDER_B_ID = uuid4()  # litho under PARENT_B (younger parent band)
+
+
+def _make_recompute_session(
+    *,
+    contact_rows: list,
+    formation_rows: list,
+    parent_rows: list,
+) -> AsyncMock:
+    """Build a minimal session mock for _recompute_litho_display_orders tests.
+
+    The helper issues exactly three execute calls:
+    1. contacts query  → ``contact_rows`` (each has ``.formation_id`` + ``.depth_top_m``)
+    2. formations query → ``formation_rows`` (scalars().all() path)
+    3. parent display_order query → ``parent_rows`` (each has ``.id`` + ``.display_order``)
+    """
+    session = AsyncMock()
+    session.flush = AsyncMock()
+    session.execute = AsyncMock(
+        side_effect=[
+            _execute_all_result(contact_rows),
+            _execute_all_result(formation_rows),
+            _execute_all_result(parent_rows),
+        ]
+    )
+    return session
+
+
+def _use_case_for_recompute(session: AsyncMock) -> AcceptLithoSuggestions:
+    """Build a use-case instance suitable for direct _recompute calls."""
+    uc = AcceptLithoSuggestions(session)
+    uc._repo = AsyncMock()
+    return uc
+
+
+@pytest.mark.asyncio
+async def test_d1_deeper_unit_gets_lower_display_order_than_shallower() -> None:
+    """Two litho units at different depths under the same parent:
+    the deeper unit (older) must receive a LOWER display_order than the shallower
+    one (younger).  Lower display_order = older = painted first so younger renders
+    on top — the geological superposition rule.
+    """
+    # LITHO_DEEP_ID tops at 8 m, LITHO_SHALLOW_ID tops at 2 m.
+    contact_rows = [
+        SimpleNamespace(formation_id=LITHO_DEEP_ID, depth_top_m=8.0),
+        SimpleNamespace(formation_id=LITHO_SHALLOW_ID, depth_top_m=2.0),
+    ]
+    # Both formations share PARENT_A (display_order=0).
+    deep_f = _make_formation_stub(LITHO_DEEP_ID, parent_formation_id=PARENT_A_ID, name="KLEI_deep")
+    shallow_f = _make_formation_stub(
+        LITHO_SHALLOW_ID, parent_formation_id=PARENT_A_ID, name="KLEI_shallow"
+    )
+    parent_rows = [
+        SimpleNamespace(id=PARENT_A_ID, display_order=0),
+    ]
+
+    session = _make_recompute_session(
+        contact_rows=contact_rows,
+        formation_rows=[deep_f, shallow_f],
+        parent_rows=parent_rows,
+    )
+    uc = _use_case_for_recompute(session)
+
+    await uc._recompute_litho_display_orders(litho_model_id=LITHO_MODEL_ID)
+
+    # The helper mutates the ORM stubs in-place.
+    assert deep_f.display_order < shallow_f.display_order, (
+        f"Deeper unit should have lower display_order (older=deeper=lower), "
+        f"got deep={deep_f.display_order} shallow={shallow_f.display_order}"
+    )
+    # Compact ranks: the two formations get consecutive values 0 and 1.
+    assert {deep_f.display_order, shallow_f.display_order} == {0, 1}
+
+
+@pytest.mark.asyncio
+async def test_d2_recompute_is_idempotent_when_no_new_formations() -> None:
+    """Calling _recompute twice with the same contacts produces the same ranks
+    (no gratuitous churn on re-accept).
+    """
+    contact_rows = [
+        SimpleNamespace(formation_id=LITHO_DEEP_ID, depth_top_m=10.0),
+        SimpleNamespace(formation_id=LITHO_SHALLOW_ID, depth_top_m=3.0),
+    ]
+    deep_f = _make_formation_stub(
+        LITHO_DEEP_ID, display_order=0, parent_formation_id=PARENT_A_ID, name="GRIND"
+    )
+    shallow_f = _make_formation_stub(
+        LITHO_SHALLOW_ID, display_order=1, parent_formation_id=PARENT_A_ID, name="KLEI"
+    )
+    parent_rows = [SimpleNamespace(id=PARENT_A_ID, display_order=0)]
+
+    # First call — both formations start at their correct ranks (0, 1) →
+    # no mutations expected.
+    session1 = _make_recompute_session(
+        contact_rows=contact_rows,
+        formation_rows=[deep_f, shallow_f],
+        parent_rows=parent_rows,
+    )
+    uc1 = _use_case_for_recompute(session1)
+    await uc1._recompute_litho_display_orders(litho_model_id=LITHO_MODEL_ID)
+
+    # Ranks must be unchanged.
+    assert deep_f.display_order == 0
+    assert shallow_f.display_order == 1
+    # flush must NOT have been called (no-op path when nothing changed).
+    session1.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_d3_cross_parent_ordering_respects_parent_display_order() -> None:
+    """Units under an older geological parent (lower parent display_order) must
+    receive lower display_order values than units under a younger parent,
+    regardless of absolute depth.
+
+    Setup:
+        PARENT_A (display_order=0, older) has one litho unit at depth 1 m.
+        PARENT_B (display_order=1, younger) has one litho unit at depth 20 m.
+
+    Expected: LITHO_SHALLOW_ID (parent_A, depth 1 m) < LITHO_UNDER_B_ID
+    (parent_B, depth 20 m) because PARENT_A is the older (deeper) formation.
+    Even though 20 m is physically deeper than 1 m, the parent's age band
+    wins as the coarse sort key — the litho model hierarchy mirrors the
+    geological model hierarchy.
+    """
+    contact_rows = [
+        SimpleNamespace(formation_id=LITHO_SHALLOW_ID, depth_top_m=1.0),
+        SimpleNamespace(formation_id=LITHO_UNDER_B_ID, depth_top_m=20.0),
+    ]
+    under_a_f = _make_formation_stub(LITHO_SHALLOW_ID, parent_formation_id=PARENT_A_ID, name="KLEI")
+    under_b_f = _make_formation_stub(LITHO_UNDER_B_ID, parent_formation_id=PARENT_B_ID, name="ZAND")
+    parent_rows = [
+        SimpleNamespace(id=PARENT_A_ID, display_order=0),
+        SimpleNamespace(id=PARENT_B_ID, display_order=1),
+    ]
+
+    session = _make_recompute_session(
+        contact_rows=contact_rows,
+        formation_rows=[under_a_f, under_b_f],
+        parent_rows=parent_rows,
+    )
+    uc = _use_case_for_recompute(session)
+
+    await uc._recompute_litho_display_orders(litho_model_id=LITHO_MODEL_ID)
+
+    assert under_a_f.display_order < under_b_f.display_order, (
+        f"Unit under older geo parent (PARENT_A, display_order=0) must have "
+        f"lower display_order than unit under younger parent (PARENT_B, display_order=1); "
+        f"got under_a={under_a_f.display_order}, under_b={under_b_f.display_order}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_d4_geological_formations_are_not_modified() -> None:
+    """_recompute_litho_display_orders ONLY touches formations that have
+    contacts in the litho model.  Geological-model formations (parent rows)
+    are loaded for their display_order value but never mutated.
+    """
+    contact_rows = [
+        SimpleNamespace(formation_id=LITHO_SHALLOW_ID, depth_top_m=3.0),
+    ]
+    litho_f = _make_formation_stub(
+        LITHO_SHALLOW_ID, display_order=99, parent_formation_id=PARENT_A_ID, name="KLEI"
+    )
+    # Parent stub — simulates a geological formation row loaded for its display_order.
+    parent_stub = SimpleNamespace(id=PARENT_A_ID, display_order=0)
+
+    session = _make_recompute_session(
+        contact_rows=contact_rows,
+        formation_rows=[litho_f],
+        parent_rows=[parent_stub],
+    )
+    uc = _use_case_for_recompute(session)
+
+    await uc._recompute_litho_display_orders(litho_model_id=LITHO_MODEL_ID)
+
+    # The litho formation must have been reranked (99 → 0).
+    assert litho_f.display_order == 0
+
+    # The geological parent stub must be untouched.
+    assert parent_stub.display_order == 0, (
+        "Geological formation display_order must not be mutated by "
+        "_recompute_litho_display_orders — only litho formations with "
+        "contacts in the model are in scope"
     )
