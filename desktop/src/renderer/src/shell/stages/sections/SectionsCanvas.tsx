@@ -214,6 +214,25 @@ export default function SectionsCanvas(): JSX.Element {
   // Effective backdrop model — the ShellContext override takes precedence when set.
   const effectiveBackdropModelId = backdropModelIdOverride ?? defaultBackdropModelId
 
+  // Auto-load geological backdrop surfaces when switching to the litho axis.
+  //
+  // WHY: the "Sync geology" verb in SectionsToolbar loads backdrop surfaces
+  // on demand, but users expect to see the geological reference immediately
+  // when they switch to the litho axis — they should not have to know to
+  // press a separate button first.  Auto-loading on axis-switch is cheap
+  // (handleLoadBackdropSurfaces is idempotent: already-loaded surfaces are
+  // skipped in useGeologicalModel) and makes the litho axis useful out of
+  // the box.
+  //
+  // Gate: only fire when axis is litho AND a backdrop model id is known.
+  // null effectiveBackdropModelId means no litho model or no parent — nothing
+  // to load.
+  useEffect(() => {
+    if (!isLitho) return
+    if (!effectiveBackdropModelId) return
+    void handleLoadBackdropSurfaces(effectiveBackdropModelId)
+  }, [isLitho, effectiveBackdropModelId, handleLoadBackdropSurfaces])
+
   // P2-F — explicit-content filter (owner directive 2026-05-17).
   //
   // WHY filter at this data-boundary:
@@ -331,6 +350,22 @@ export default function SectionsCanvas(): JSX.Element {
     return bh?.elevation_m ?? null
   }, [lithoSuggestionInvestigationId, visibleCpts, visibleBoreholes])
 
+  // Section-context-threaded accept handler (#57 invariant).
+  //
+  // WHY the wrapper: handleAcceptLithoSuggestion calls the bulk endpoint which
+  // returns updated_section containing the freshly-seeded contact ids.  Without
+  // forwarding those ids via applyUpdatedSection, the explicit-content filter
+  // in P2-F hides every accepted contact immediately after acceptance — the #57
+  // class bug, recurred 3×.  The raw handler accepts an optional onSectionUpdated
+  // callback; we wire it here at the SectionsCanvas boundary where both
+  // selectedSection and applyUpdatedSection are in scope.
+  const sectionAwareAcceptLithoSuggestion = useCallback(
+    async (idx: number): Promise<void> => {
+      await handleAcceptLithoSuggestion(idx, selectedSection?.id ?? null, applyUpdatedSection)
+    },
+    [handleAcceptLithoSuggestion, selectedSection, applyUpdatedSection],
+  )
+
   // Build the lithoGhostState bundle passed to SectionPanel.
   // Only populated on the litho axis when suggestions are loaded for an
   // investigation — zero regression on the geological axis.
@@ -342,7 +377,7 @@ export default function SectionsCanvas(): JSX.Element {
       surfaceElevationM: lithoGhostSurfaceElevationM,
       acceptedIndices: lithoSuggestionAccepted,
       rejectedIndices: lithoSuggestionRejected,
-      onAccept: handleAcceptLithoSuggestion,
+      onAccept: sectionAwareAcceptLithoSuggestion,
       onReject: handleRejectLithoSuggestion,
     }
   }, [
@@ -352,7 +387,7 @@ export default function SectionsCanvas(): JSX.Element {
     lithoGhostSurfaceElevationM,
     lithoSuggestionAccepted,
     lithoSuggestionRejected,
-    handleAcceptLithoSuggestion,
+    sectionAwareAcceptLithoSuggestion,
     handleRejectLithoSuggestion,
   ])
 
