@@ -370,6 +370,15 @@ class AcceptLithoSuggestions(GroundModelLogger):
                 [(litho_model_id, fid) for fid in all_formation_ids]
             )
 
+        # Recompute display_order for litho formations whenever new formation
+        # rows were created.  The sort encodes the superposition rule:
+        # lower display_order = older = deeper (matches the geological
+        # model convention and the section/3D paint order in ContactsLayer +
+        # Geology3DViewer).  Re-accepts that produce no new formation rows
+        # skip this step — existing ranks are already correct.
+        if created_formation_ids:
+            await self._recompute_litho_display_orders(litho_model_id=litho_model_id)
+
         await self._session.commit()
         self.success(
             f"AcceptLithoSuggestions: litho_model={litho_model_id} — "
@@ -712,6 +721,139 @@ class AcceptLithoSuggestions(GroundModelLogger):
         self._session.add(formation)
         await self._session.flush()
         return formation
+
+    async def _recompute_litho_display_orders(
+        self,
+        *,
+        litho_model_id: UUID,
+    ) -> None:
+        """Assign compact, stratigraphically-ordered display_order values to
+        all litho formations that have at least one contact in ``litho_model_id``.
+
+        **Encoding (why this shape):**
+        Lower ``display_order`` = older = deeper — the project-wide superposition
+        convention used by ``ContactsLayer.tsx`` (paint order) and
+        ``Geology3DViewer.tsx`` (z-offset per unit).  Keeping values compact
+        (0 … N-1) is load-bearing for the 3D viewer: it multiplies
+        ``display_order`` by ``Z_OFFSET_PER_ORDER = 0.2 m`` — a large integer
+        would visually displace surfaces by tens of metres.
+
+        **Sort key:**
+
+        1. ``parent_geo.display_order ASC`` — older geological parent occupies
+           the lower band (the parent's own age-axis position is the coarse key).
+        2. ``min_contact_depth DESC`` — within a parent band, the deeper unit
+           (larger depth value) is older and gets the lower rank.
+
+        **Idempotency:** the same set of contacts always produces the same
+        sorted order, so a re-accept with unchanged suggestions is a no-op on
+        every formation's ``display_order``.
+
+        **Geological/non-litho rows untouched:** only formations that have
+        a contact in ``litho_model_id`` are touched; geological-model
+        formations have no contacts in the litho model and are never loaded
+        or mutated here.
+
+        Parameters
+        ----------
+        litho_model_id : UUID
+            The lithostratigraphic model whose formation display orders are
+            being recomputed.  Only formations with contacts in this model
+            are considered.
+        """
+        # -- Step 1: collect formation ids + shallowest contact depth ----------
+        contacts_stmt = select(
+            FormationContactOrm.formation_id,
+            FormationContactOrm.depth_top_m,
+        ).where(FormationContactOrm.model_id == litho_model_id)
+        contact_rows = (await self._session.execute(contacts_stmt)).all()
+
+        if not contact_rows:
+            self.debug(
+                f"_recompute_litho_display_orders: no contacts in model {litho_model_id}, skip"
+            )
+            return
+
+        # Shallowest contact depth per formation (= the formation's top in
+        # this model).  Deeper formations will have a larger minimum depth.
+        min_depth_by_fid: dict[UUID, float] = {}
+        for row in contact_rows:
+            fid: UUID = row.formation_id
+            if fid not in min_depth_by_fid or row.depth_top_m < min_depth_by_fid[fid]:
+                min_depth_by_fid[fid] = row.depth_top_m
+
+        # -- Step 2: load the litho formation ORM rows ------------------------
+        formation_ids = list(min_depth_by_fid.keys())
+        formations_stmt = select(GeologicalFormationOrm).where(
+            GeologicalFormationOrm.id.in_(formation_ids)
+        )
+        formations: list[GeologicalFormationOrm] = list(
+            (await self._session.execute(formations_stmt)).scalars().all()
+        )
+        self.debug(
+            f"_recompute_litho_display_orders: {len(formations)} formation(s) in model "
+            f"{litho_model_id}"
+        )
+
+        # -- Step 3: load parent geological formation display_orders -----------
+        parent_ids = {
+            f.parent_formation_id for f in formations if f.parent_formation_id is not None
+        }
+        parent_order: dict[UUID, int] = {}
+        if parent_ids:
+            parents_stmt = select(
+                GeologicalFormationOrm.id,
+                GeologicalFormationOrm.display_order,
+            ).where(GeologicalFormationOrm.id.in_(parent_ids))
+            for prow in (await self._session.execute(parents_stmt)).all():
+                parent_order[prow.id] = prow.display_order
+
+        # -- Step 4: sort by (parent age ASC, unit depth DESC) ----------------
+        # parent_order ASC  = older geological parent first (lower band number)
+        # -min_depth        = deeper (larger depth) sorts before shallower →
+        #                     deeper unit gets lower rank index → lower
+        #                     display_order → correctly "older"
+        def _sort_key(f: GeologicalFormationOrm) -> tuple[int, float]:
+            p_order = (
+                parent_order.get(f.parent_formation_id, 0)
+                if f.parent_formation_id is not None
+                else 0
+            )
+            # Negate depth so that a deeper unit (larger depth) sorts first,
+            # receiving a lower rank index (= lower display_order = older).
+            return (p_order, -min_depth_by_fid[f.id])
+
+        formations_sorted = sorted(formations, key=_sort_key)
+
+        # -- Step 5: write compact ranks (update only changed rows) -----------
+        updated = 0
+        for rank, formation in enumerate(formations_sorted):
+            if formation.display_order != rank:
+                p_ord = (
+                    parent_order.get(formation.parent_formation_id, 0)
+                    if formation.parent_formation_id is not None
+                    else 0
+                )
+                self.debug(
+                    f"  display_order: formation={formation.id} name={formation.name!r} "
+                    f"{formation.display_order} → {rank} "
+                    f"(parent_order={p_ord}, "
+                    f"min_depth={min_depth_by_fid[formation.id]:.2f}m)"
+                )
+                formation.display_order = rank
+                updated += 1
+
+        if updated:
+            await self._session.flush()
+            self.info(
+                f"_recompute_litho_display_orders: updated display_order for "
+                f"{updated}/{len(formations)} formation(s) in model {litho_model_id}"
+            )
+        else:
+            self.debug(
+                f"_recompute_litho_display_orders: all {len(formations)} formation(s) "
+                "already at correct display_order (no-op)"
+            )
 
     async def _find_or_create_contact(
         self,
