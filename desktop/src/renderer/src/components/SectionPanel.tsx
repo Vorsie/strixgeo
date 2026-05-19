@@ -1564,16 +1564,16 @@ export default function SectionPanel({
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
-              // Single-click stays inert — accidental clicks during
-              // pan/zoom were yanking the user into the detail panel.
-              // Double-click opens the detail panel instead: it
-              // requires deliberate intent and is unmistakable from
-              // a pan gesture. onSelectCpt / onSelectBorehole are
-              // wired to the double-click path, not the single-click.
+              // Both click gestures stay inert on the column itself.
+              // Single-click on a section column places a contact (the
+              // ContactPickBar overlay); double-click can't be the
+              // detail trigger because the first click already opened
+              // the picker. Detail-open lives on the right-click
+              // context menu instead ("Open detail").
               onSelectCpt={undefined}
               onSelectBorehole={undefined}
-              onDoubleClickCpt={onSelectCpt}
-              onDoubleClickBorehole={onSelectBorehole}
+              onDoubleClickCpt={undefined}
+              onDoubleClickBorehole={undefined}
               onColumnContextMenu={handleColumnContextMenu}
               hideStickIds={hideStickIds}
               labelModeById={labelModeById}
@@ -1732,6 +1732,15 @@ export default function SectionPanel({
                 id: contextMenu.id,
                 name: contextMenu.name,
               })
+            }
+            onOpenDetail={
+              contextMenu.kind === 'cpt'
+                ? onSelectCpt
+                  ? () => onSelectCpt(contextMenu.id)
+                  : undefined
+                : onSelectBorehole
+                  ? () => onSelectBorehole(contextMenu.id)
+                  : undefined
             }
             onRemoveFromSection={
               onPatch
