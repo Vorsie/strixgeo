@@ -73,6 +73,7 @@ class BoreholeRepository(GroundModelLogger):
         borehole_id: UUID,
         *,
         include_lab_tests: Iterable[str] | None = None,
+        app_project_id: UUID | None = None,
     ) -> BoreholeOrm | None:
         """Return a borehole with all of its child collections loaded, or ``None``.
 
@@ -105,6 +106,13 @@ class BoreholeRepository(GroundModelLogger):
             ``MissingGreenlet`` lazy load from inside the attribute
             extractor (async SQLAlchemy has no greenlet there).
             Caller-side validation lives in the API router.
+        app_project_id : UUID | None
+            When provided, the project-scope predicate is fused into the
+            single fetch query so a cross-project id returns ``None``
+            (→ 404 at the router) WITHOUT a second round-trip. This is the
+            IDOR scope guard (debt #4 / VULN-6): doing it in the WHERE
+            clause keeps the section-open hot path one query per borehole
+            (cf. debt #39) instead of adding a pre-check SELECT.
 
         Returns
         -------
@@ -151,7 +159,11 @@ class BoreholeRepository(GroundModelLogger):
                     selectinload(BoreholeOrm.samples).selectinload(getattr(SampleOrm, rel_name))
                 )
 
-        stmt = select(BoreholeOrm).where(BoreholeOrm.id == borehole_id).options(*options)
+        stmt = select(BoreholeOrm).where(BoreholeOrm.id == borehole_id)
+        if app_project_id is not None:
+            # IDOR scope guard fused into the fetch — see app_project_id docstring.
+            stmt = stmt.where(BoreholeOrm.app_project_id == app_project_id)
+        stmt = stmt.options(*options)
         result = await self._session.execute(stmt)
         borehole = result.scalar_one_or_none()
         if borehole is None:
