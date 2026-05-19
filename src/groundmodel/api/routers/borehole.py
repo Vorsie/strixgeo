@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.borehole.borehole_detail_response import (
     BoreholeDetailResponse,
 )
@@ -394,6 +395,7 @@ async def list_boreholes(
 @router.get("/{borehole_id}", response_model=BoreholeDetailResponse)
 async def get_borehole(
     borehole_id: UUID,
+    project_id: UUID,
     include: str | None = Query(
         None,
         description=(
@@ -420,6 +422,9 @@ async def get_borehole(
     ----------
     borehole_id : UUID
         Primary key of the borehole record.
+    project_id : UUID
+        Required project scope guard — the borehole must belong to this
+        project (VULN-6).
     include : str | None
         Comma-separated lab-test family aliases — see the ``Query``
         description above. Whitespace around entries is tolerated.
@@ -436,7 +441,7 @@ async def get_borehole(
         When ``include`` contains an alias that isn't in
         ``LAB_TEST_INCLUDE_ALIASES``.
     HTTPException(404)
-        When no borehole with that id exists.
+        When no borehole with that id exists, or it belongs to a different project.
     """
     include_relationships: list[str] | None = None
     if include is not None:
@@ -459,7 +464,8 @@ async def get_borehole(
         borehole_id,
         include_lab_tests=include_relationships,
     )
-    if borehole is None:
+    # Scope guard: reject if missing or belongs to a different project (VULN-6).
+    if borehole is None or borehole.app_project_id != project_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Borehole {borehole_id} not found",
@@ -478,6 +484,7 @@ async def get_borehole(
 @router.patch("/{borehole_id}/elevation", response_model=BoreholeListItem)
 async def patch_borehole_elevation(
     borehole_id: UUID,
+    project_id: UUID,
     request: ElevationPatchRequest,
     session: AsyncSession = Depends(get_session),
 ) -> BoreholeListItem:
@@ -493,16 +500,29 @@ async def patch_borehole_elevation(
     its sidebar list and badge state. The detail-cache entry can be patched
     in place client-side without re-fetching the heavy children.
 
+    Parameters
+    ----------
+    borehole_id : UUID
+        Primary key of the borehole record.
+    project_id : UUID
+        Required project scope guard (VULN-7).
+
     Raises
     ------
     HTTPException(404)
-        When no borehole with the given id exists.
+        When no borehole with the given id exists, or it belongs to a different project.
     """
     logger.info(
         f"PATCH /borehole/{borehole_id}/elevation: "
         f"elevation_m={request.elevation_m} z_epsg={request.z_epsg}"
     )
     repo = BoreholeRepository(session)
+    # Scope guard before any mutation: reject cross-project ids (VULN-7).
+    await get_in_project_or_404(
+        repo.get_by_id(borehole_id),
+        project_id,
+        detail=f"Borehole {borehole_id} not found",
+    )
     # The repository derives the canonical vertical CRS from the row's
     # horizontal EPSG when ``z_epsg`` is None — see ``vertical_crs.py``
     # for the table. Belgian DOV imports map to mTAW; future Dutch BRO
