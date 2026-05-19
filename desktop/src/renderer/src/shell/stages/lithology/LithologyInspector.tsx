@@ -30,7 +30,8 @@
 //   • Semantic tokens for chrome — no raw dark: pairs.
 //
 // Slice 4: // connect-gesture UI on the section canvas (not here)
-// Slice 5: // parent-name fold-in for ordinal labels (debt #67)
+// Slice 5: parent_formation_name server-resolved (debt #67) — consumed
+//           in LithoFormationRoster group labels below.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Lock, LockOpen, RefreshCw } from 'lucide-react'
@@ -426,35 +427,46 @@ function LithoFormationRoster({
 }: LithoFormationRosterProps): JSX.Element {
   // Group litho units by parent_formation_id.
   const byParent = new Map<string | null, GeologicalFormationResponse[]>()
+  // Slice 5 / debt #67: collect server-resolved parent names so the group
+  // heading uses the canonical name without an extra geoFormations join.
+  const parentNameById = new Map<string, string>()
   for (const lf of lithoFormations) {
     const key = lf.parent_formation_id ?? null
     const existing = byParent.get(key) ?? []
     existing.push(lf)
     byParent.set(key, existing)
+    if (key !== null && lf.parent_formation_name !== null && !parentNameById.has(key)) {
+      parentNameById.set(key, lf.parent_formation_name)
+    }
   }
 
   // Build the ordered parent sequence: geological formations ascending by
   // display_order, keeping only those with at least one litho child.
+  const geoById = new Map(geoFormations.map(gf => [gf.id, gf]))
   const sortedParents = [...geoFormations].sort((a, b) => a.display_order - b.display_order)
   const parentsWithChildren = sortedParents.filter(gf => byParent.has(gf.id))
   const unassigned = byParent.get(null) ?? []
 
   return (
     <div className="flex flex-col gap-2" aria-label="Litho formations">
-      {parentsWithChildren.map(gf => (
-        <section key={gf.id} aria-label={gf.name}>
+      {parentsWithChildren.map(gf => {
+        // Prefer server-resolved name (Slice 5); fall back to geo-join name.
+        const groupLabel = parentNameById.get(gf.id) ?? gf.name
+        const geoRow = geoById.get(gf.id)
+        return (
+        <section key={gf.id} aria-label={groupLabel}>
           {/* Parent geological formation header */}
           <div className="flex items-center gap-1.5 mb-0.5">
             <span
               className="h-2.5 w-2.5 flex-shrink-0 rounded-sm border border-border-subtle opacity-60"
-              style={{ backgroundColor: gf.color }}
+              style={{ backgroundColor: geoRow?.color ?? gf.color }}
               aria-hidden="true"
             />
             <span
               className="text-[10px] font-semibold text-text-muted uppercase tracking-wide truncate"
-              title={gf.name}
+              title={groupLabel}
             >
-              {gf.name}
+              {groupLabel}
             </span>
           </div>
           {/* Litho units under this parent */}
@@ -470,7 +482,8 @@ function LithoFormationRoster({
             ))}
           </ul>
         </section>
-      ))}
+        )
+      })}
 
       {/* Unassigned units — litho formations without a parent_formation_id */}
       {unassigned.length > 0 && (
