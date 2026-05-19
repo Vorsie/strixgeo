@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
@@ -170,7 +170,7 @@ class CorrelateLithoUnits(GroundModelLogger):
             )
             # Still run the resolver so ordinals are always fresh (a
             # prior run may have failed to write ordinals back).
-            updated = await self._run_resolver(model_id)
+            updated = await self.run_resolver(model_id)
             return CorrelateResult(
                 edge=existing,
                 was_created=False,
@@ -194,19 +194,13 @@ class CorrelateLithoUnits(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 7. Re-run the resolver across all formations in this model.          #
         # ------------------------------------------------------------------ #
-        updated = await self._run_resolver(model_id)
+        # run_resolver marks the changed formations' surfaces stale
+        # internally (review S1) so this path and uncorrelate behave
+        # identically — no separate step here.
+        updated = await self.run_resolver(model_id)
 
         # ------------------------------------------------------------------ #
-        # 8. Mark all formation surfaces stale (the label changed, the         #
-        #    visual grouping in the inspector changed → section view should    #
-        #    prompt a rebuild even though no geometry changed).                 #
-        # ------------------------------------------------------------------ #
-        pairs = [(model_id, fid) for entry in updated for fid in [UUID(entry["formation_id"])]]
-        if pairs:
-            await self._repo.mark_surfaces_stale(pairs)
-
-        # ------------------------------------------------------------------ #
-        # 9. Commit.                                                            #
+        # 8. Commit.                                                            #
         # ------------------------------------------------------------------ #
         await self._session.commit()
         await self._session.refresh(edge)
@@ -220,7 +214,7 @@ class CorrelateLithoUnits(GroundModelLogger):
             instance_ordinals_updated=updated,
         )
 
-    async def _run_resolver(self, model_id: UUID) -> list[dict]:
+    async def run_resolver(self, model_id: UUID) -> list[dict]:
         """Run the pure resolver and write instance_ordinal back to changed rows.
 
         Returns a list of ``{"formation_id": str, "new_ordinal": int}`` dicts
@@ -236,36 +230,50 @@ class CorrelateLithoUnits(GroundModelLogger):
         list[dict]
             One entry per formation whose ordinal changed.
         """
-        self.debug(f"_run_resolver: loading formations + edges for model {model_id}")
+        self.debug(f"run_resolver: loading formations + edges for model {model_id}")
 
-        # Load all formations for this model's project (scoped by app_project_id
-        # via the model row loaded in execute()).
+        # Scope formations to THIS model, NOT the whole project (review
+        # B1): a project may hold sibling litho models, and resolving one
+        # must never read or renumber another's formations. "In this
+        # model" = anchors a contact in this model OR is an endpoint of
+        # an edge in this model. parent_formation_id is_not None keeps it
+        # to litho-level units.
         model = await self._session.get(GeologicalModelOrm, model_id)
         if model is None:
-            self.warning(f"_run_resolver: model {model_id} gone — skipping")
+            self.warning(f"run_resolver: model {model_id} gone — skipping")
             return []
 
+        contacted = select(FormationContactOrm.formation_id).where(
+            FormationContactOrm.model_id == model_id
+        )
+        edge_a = select(LithoCorrelationEdgeOrm.formation_a_id).where(
+            LithoCorrelationEdgeOrm.model_id == model_id
+        )
+        edge_b = select(LithoCorrelationEdgeOrm.formation_b_id).where(
+            LithoCorrelationEdgeOrm.model_id == model_id
+        )
+        reachable = contacted.union(edge_a, edge_b)
         formations_stmt = select(GeologicalFormationOrm).where(
             GeologicalFormationOrm.app_project_id == model.app_project_id,
             GeologicalFormationOrm.parent_formation_id.is_not(None),
+            GeologicalFormationOrm.id.in_(reachable),
         )
         formations_rows = list((await self._session.execute(formations_stmt)).scalars().all())
 
-        # Earliest depth per formation in this model (min depth_top_m across
-        # all contacts anchored to the formation).
-        earliest: dict[UUID, float | None] = {}
-        for f in formations_rows:
-            depth_stmt = (
-                select(FormationContactOrm.depth_top_m)
-                .where(
-                    FormationContactOrm.formation_id == f.id,
-                    FormationContactOrm.model_id == model_id,
+        # Earliest depth per formation — ONE GROUP BY, not an N+1 of
+        # per-formation SELECTs (review S2). Formations with no contacts
+        # in this model are absent → earliest.get(id) yields None.
+        depth_rows = (
+            await self._session.execute(
+                select(
+                    FormationContactOrm.formation_id,
+                    func.min(FormationContactOrm.depth_top_m),
                 )
-                .order_by(FormationContactOrm.depth_top_m.asc())
-                .limit(1)
+                .where(FormationContactOrm.model_id == model_id)
+                .group_by(FormationContactOrm.formation_id)
             )
-            depth_val = (await self._session.execute(depth_stmt)).scalar_one_or_none()
-            earliest[f.id] = depth_val
+        ).all()
+        earliest: dict[UUID, float | None] = {fid: d for fid, d in depth_rows}
 
         nodes: list[FormationNode] = [
             FormationNode(
@@ -291,14 +299,14 @@ class CorrelateLithoUnits(GroundModelLogger):
             for e in edge_rows
         ]
 
-        self.debug(f"_run_resolver: {len(nodes)} formation node(s), {len(edges)} edge(s)")
+        self.debug(f"run_resolver: {len(nodes)} formation node(s), {len(edges)} edge(s)")
 
         result = resolve_litho_instances(formations=nodes, edges=edges)
 
         if result.lock_conflicts:
             for conflict in result.lock_conflicts:
                 self.warning(
-                    f"_run_resolver: lock conflict — "
+                    f"run_resolver: lock conflict — "
                     f"winner={conflict.winner_formation_id} "
                     f"loser={conflict.loser_formation_id} "
                     f"ordinal={conflict.contested_ordinal}"
@@ -319,19 +327,27 @@ class CorrelateLithoUnits(GroundModelLogger):
             if f_orm.instance_ordinal_locked and fid not in loser_ids:
                 continue
             if f_orm.instance_ordinal != new_ordinal:
+                # Capture BEFORE the mutation — reading f_orm.instance_ordinal
+                # after the assignment logs "X → X" and is useless for
+                # tracing ordinal drift (review B2).
+                old_ordinal = f_orm.instance_ordinal
                 f_orm.instance_ordinal = new_ordinal
                 updated.append({"formation_id": str(fid), "new_ordinal": new_ordinal})
-                self.debug(
-                    f"_run_resolver: formation {fid} ordinal "
-                    f"{f_orm.instance_ordinal} → {new_ordinal}"
-                )
+                self.debug(f"run_resolver: formation {fid} ordinal {old_ordinal} → {new_ordinal}")
 
         if updated:
             await self._session.flush()
+            # Ordinal/label changed → the inspector grouping changed, so the
+            # section view's stale-surface cue must fire even though no
+            # geometry moved. Done HERE (not in execute) so uncorrelate gets
+            # it too (review S1) — both callers route through run_resolver.
+            pairs = [(model_id, UUID(e["formation_id"])) for e in updated]
+            await self._repo.mark_surfaces_stale(pairs)
             self.info(
-                f"_run_resolver: wrote back {len(updated)} ordinal change(s) for model {model_id}"
+                f"run_resolver: wrote back {len(updated)} ordinal change(s) "
+                f"+ marked surfaces stale for model {model_id}"
             )
         else:
-            self.debug(f"_run_resolver: no ordinal changes for model {model_id}")
+            self.debug(f"run_resolver: no ordinal changes for model {model_id}")
 
         return updated
