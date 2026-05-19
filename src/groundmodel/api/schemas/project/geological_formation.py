@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,7 +56,13 @@ class GeologicalFormationUpdateRequest(BaseModel):
 
 
 class GeologicalFormationResponse(BaseModel):
-    """API representation of a GeologicalFormation row."""
+    """API representation of a GeologicalFormation row.
+
+    Includes the Phase 1 litho-builder columns (``parent_formation_id``,
+    ``litho_main_soil_code``, ``litho_admixtures``, ``instance_ordinal``).
+    These are ``None`` on geological-model formations and populated on
+    lithostratigraphic formations created by ``AcceptLithoSuggestions``.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -70,5 +77,13 @@ class GeologicalFormationResponse(BaseModel):
     description: str | None
     lithology: str | None
     nad_class: int | None
+    # Litho-builder Phase 1 fields — NULL on geological-model rows.
+    parent_formation_id: UUID | None = None
+    litho_main_soil_code: str | None = None
+    # JSONB list of {"soil_code": str, "amount": str, "locally": bool} dicts.
+    # NULL on geological rows; [] on a litho unit with no admixtures.
+    litho_admixtures: list[Any] | None = None
+    instance_ordinal: int | None = None
+    instance_ordinal_locked: bool = False
     created_at: datetime
     updated_at: datetime
