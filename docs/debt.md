@@ -1027,6 +1027,15 @@ a silent litho surface crossing as a confusing artefact.
 * Existing-unit search/filter — the "Existing units" tab shows the
   full grouped list; a fuzzy search box over formation names and soil
   codes would reduce friction on projects with many litho units.
+* Client-side parent-formation name in the picker — `parentFormationName`
+  is always `null` in Phase-1.5 (SectionPanel cannot resolve it without
+  a round-trip; the backend resolves the true parent from the geology
+  TIN at commit). The picker shows a neutral "resolved automatically"
+  note instead of the real "within: <name>" (review S1, 2026-05-19).
+  An O(contacts) client-side approximation (nearest geology contact
+  above the picked depth → name via `referenceFormations`) would let
+  the picker show the likely parent pre-commit. Approximation only —
+  doesn't account for TIN interpolation.
 
 **Why deferred.** Phase-1.5 scope was minimal-viable: one-click
 placement of a manually composed or pre-existing unit on the litho
