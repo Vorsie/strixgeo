@@ -11,7 +11,7 @@ keeps working unchanged — ``geology.router`` is now this aggregate.
 
 from fastapi import APIRouter
 
-from . import contacts, exports, formations, models, surfaces
+from . import contacts, correlations, exports, formations, models, surfaces
 
 router = APIRouter(prefix="/projects/{project_id}/geology", tags=["geology"])
 router.include_router(formations.router)
@@ -19,3 +19,4 @@ router.include_router(models.router)
 router.include_router(contacts.router)
 router.include_router(surfaces.router)
 router.include_router(exports.router)
+router.include_router(correlations.router)
