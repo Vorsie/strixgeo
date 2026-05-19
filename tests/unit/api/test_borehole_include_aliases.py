@@ -82,7 +82,11 @@ def test_unknown_include_value_returns_400() -> None:
     client = _client()
     resp = client.get(
         "/borehole/00000000-0000-0000-0000-000000000001",
-        params={"include": "grain_size,made_up_family"},
+        # project_id is now required (VULN-6 scope guard).
+        params={
+            "project_id": "00000000-0000-0000-0000-000000000000",
+            "include": "grain_size,made_up_family",
+        },
     )
     assert resp.status_code == 400
     body = resp.json()
@@ -105,7 +109,11 @@ def test_unknown_include_value_short_circuits_before_db() -> None:
     client = _client()
     resp = client.get(
         "/borehole/00000000-0000-0000-0000-000000000001",
-        params={"include": "totally_bogus"},
+        # project_id is now required (VULN-6 scope guard).
+        params={
+            "project_id": "00000000-0000-0000-0000-000000000000",
+            "include": "totally_bogus",
+        },
     )
     assert resp.status_code == 400
 
@@ -125,7 +133,11 @@ def test_empty_include_value_is_tolerated() -> None:
     try:
         resp = client.get(
             "/borehole/00000000-0000-0000-0000-000000000001",
-            params={"include": ", ,"},
+            # project_id is now required (VULN-6 scope guard).
+            params={
+                "project_id": "00000000-0000-0000-0000-000000000000",
+                "include": ", ,",
+            },
         )
         # If FastAPI swallows the stub's AssertionError into a 500,
         # check the status — must not be 400.
