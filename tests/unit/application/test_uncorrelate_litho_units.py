@@ -94,6 +94,10 @@ async def test_happy_path_returns_true() -> None:
 async def test_non_existent_edge_returns_false() -> None:
     """When the edge is not found, False is returned and nothing is deleted."""
     session = AsyncMock()
+    # VULN-12 defence-in-depth: model must belong to project_id.
+    model_mock = MagicMock()
+    model_mock.app_project_id = _PROJECT
+    session.get = AsyncMock(return_value=model_mock)
     session.execute = AsyncMock(return_value=_scalar_result(None))
     session.delete = AsyncMock()
     session.commit = AsyncMock()
@@ -161,6 +165,11 @@ async def test_resolver_called_on_disconnect() -> None:
     session = AsyncMock()
     edge = MagicMock()
     edge.id = UUID("00000000-0000-0000-0000-000000000055")
+
+    # VULN-12 defence-in-depth: model must belong to project_id.
+    model_mock = MagicMock()
+    model_mock.app_project_id = _PROJECT
+    session.get = AsyncMock(return_value=model_mock)
 
     edge_result = _scalar_result(edge)
     session.execute = AsyncMock(return_value=edge_result)
