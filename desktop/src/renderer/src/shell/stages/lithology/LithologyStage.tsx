@@ -6,12 +6,14 @@
 // 3D-view surface; the actual contact editing happens on the Sections
 // stage scoped to the active litho model.
 //
-// LithologyToolbar: shows a Reset Camera button when built litho
-// surfaces exist.  The button calls resetLithoCameraCallback.current
-// which is populated by Geology3DViewer when mounted as the litho
-// canvas — same pattern as GeologyCanvas / GeologyToolbar.
+// LithologyToolbar: Build litho (moved from SectionsToolbar in Phase 1
+// accept flow) + Reset Camera when built litho surfaces exist.
+// Build litho triggers handleRebuildLithoSurfaces which runs Delaunay
+// on all litho contacts for the active lithostratigraphic model.
+// The stale surface count badge mirrors the geological Build button.
 
-import { Rows3, RefreshCw } from 'lucide-react'
+import { useState } from 'react'
+import { Rows3, RefreshCw, Cpu } from 'lucide-react'
 
 import type { StageDescriptor, StageSummary } from '../../StageDescriptor'
 import { useShell } from '../../ShellContext'
@@ -22,34 +24,79 @@ import { ToolbarButton } from '../../ToolbarPrimitives'
 /**
  * Toolbar for the Lithology stage.
  *
- * Renders a Reset Camera button when at least one built litho surface
- * exists (i.e. when ``Geology3DViewer`` is mounted as the canvas).
- * The button calls ``resetLithoCameraCallback.current`` which
- * ``Geology3DViewer`` populates via ``resetCameraRef`` when mounted.
+ * Renders a "Build litho" button (always shown when a litho model is
+ * active) and a "Reset camera" button when at least one built litho
+ * surface exists.  Build litho was moved here from SectionsToolbar in
+ * Phase 1 of the accept flow so it lives with the model-management
+ * surface rather than the section-editing surface.
  *
  * Returns
  * -------
  * JSX.Element | null
- *     The Reset Camera button, or null when no surfaces exist.
+ *     The toolbar button group, or null when no litho model is active.
  */
 function LithologyToolbar(): JSX.Element | null {
   const {
-    geoModel: { lithoSurfacesByFormationId },
+    geoModel: {
+      activeLithoModel,
+      lithoSurfacesByFormationId,
+      lithoStaleSurfaceCount,
+      handleRebuildLithoSurfaces,
+    },
   } = useShell()
+
+  const [rebuilding, setRebuilding] = useState(false)
 
   const hasLithoSurfaces = Array.from(lithoSurfacesByFormationId.values()).some(
     s => s.vertices.length > 0,
   )
 
-  if (!hasLithoSurfaces) return null
+  if (!activeLithoModel) return null
+
+  const buildLabel =
+    rebuilding
+      ? 'Building…'
+      : lithoStaleSurfaceCount > 0
+        ? `Build litho · ${lithoStaleSurfaceCount} stale`
+        : 'Build litho'
+
+  async function handleBuild(): Promise<void> {
+    if (rebuilding) return
+    setRebuilding(true)
+    try {
+      await handleRebuildLithoSurfaces()
+    } finally {
+      setRebuilding(false)
+    }
+  }
 
   return (
-    <ToolbarButton
-      icon={<RefreshCw size={13} />}
-      label="Reset camera"
-      onClick={() => resetLithoCameraCallback.current?.()}
-      title="Fly the camera back to the model extent"
-    />
+    <>
+      <ToolbarButton
+        icon={<Cpu size={13} />}
+        label={buildLabel}
+        onClick={() => void handleBuild()}
+        disabled={rebuilding}
+        busy={rebuilding}
+        // Amber tint mirrors GeologyToolbar stale-count convention (debt #55).
+        amber={lithoStaleSurfaceCount > 0}
+        title={
+          rebuilding
+            ? 'Running Delaunay triangulation on litho contacts…'
+            : lithoStaleSurfaceCount > 0
+              ? `${lithoStaleSurfaceCount} litho surface(s) need rebuilding — click to update`
+              : 'Rebuild 3D lithostratigraphic surfaces from all accepted contacts'
+        }
+      />
+      {hasLithoSurfaces && (
+        <ToolbarButton
+          icon={<RefreshCw size={13} />}
+          label="Reset camera"
+          onClick={() => resetLithoCameraCallback.current?.()}
+          title="Fly the camera back to the model extent"
+        />
+      )}
+    </>
   )
 }
 
