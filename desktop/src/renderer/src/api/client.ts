@@ -171,6 +171,17 @@ export interface GeologicalFormationResponse {
   // formation; set on litho (lithology) / geotech (nad_class) units.
   lithology: string | null
   nad_class: number | null
+  // Litho-builder Phase 1 fields — null on geological-model rows.
+  // parent_formation_id: the geological GeologicalFormation this litho
+  // unit refines. null on geological-model formations.
+  parent_formation_id: string | null
+  litho_main_soil_code: string | null
+  // JSONB list of {soil_code, amount, locally} dicts from the backend.
+  // null on geological rows; [] on a litho unit with no admixtures.
+  litho_admixtures: AdmixtureItem[] | null
+  // instance_ordinal: Phase-2 correlation ordinal. null in Phase 1.
+  instance_ordinal: number | null
+  instance_ordinal_locked: boolean
   created_at: string
   updated_at: string
 }
@@ -301,6 +312,14 @@ export interface FormationContactCreatePayload {
 // real FormationContact (assisted-manual, never auto-committed).
 export type LithoSuggestionConfidence = 'high' | 'medium' | 'low'
 
+// Secondary soil component within a suggested litho layer. Mirrors the
+// backend AdmixtureItem schema verbatim.
+export interface AdmixtureItem {
+  soil_code: string
+  amount: string
+  locally: boolean
+}
+
 export interface LithoLayerSuggestion {
   depth_top_m: number
   depth_base_m: number
@@ -310,6 +329,45 @@ export interface LithoLayerSuggestion {
   dr_pct: number | null
   confidence: LithoSuggestionConfidence
   source: string
+  // Phase 1 additions — defaulted on the backend so older clients stay
+  // compatible; always present on fresh responses.
+  suggested_admixtures: AdmixtureItem[]
+  // Id of the geological formation this layer falls within. null when
+  // the investigation has no geology contacts or the model has no
+  // surfaces.
+  parent_formation_id: string | null
+  // True when this suggestion's depth interval crosses a geological-
+  // formation boundary (the backend splits it into two contacts on
+  // Accept). Frontend renders amber border + tooltip.
+  spans_boundary: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Accept-litho-suggestions — bulk endpoint that creates litho formations
+// + contacts in one server-side transaction (Phase 1 litho builder).
+// ---------------------------------------------------------------------------
+
+export interface AcceptLithoSuggestionsRequest {
+  // Exactly one of cpt_id / borehole_id must be present (XOR enforced
+  // by the backend validator).
+  cpt_id?: string | null
+  borehole_id?: string | null
+  // When provided, accepted contact ids are unioned into this section's
+  // seeded_formation_contact_ids (explicit-content invariant — #57).
+  section_id?: string | null
+  suggestions: LithoLayerSuggestion[]
+}
+
+export interface AcceptLithoSuggestionsResponse {
+  created_formation_ids: string[]
+  found_formation_ids: string[]
+  created_contact_ids: string[]
+  found_contact_ids: string[]
+  straddle_split_count: number
+  // Number of straddle splits that fell back to depth-ordering because
+  // the geology TIN was stale or absent (debt #68).
+  stale_tin_fallback_count: number
+  updated_section: CrossSectionResponse | null
 }
 
 export interface LithoSuggestionResponse {
@@ -1636,6 +1694,21 @@ export const api = {
     ): Promise<LithoSuggestionResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/contacts/suggest-litho`,
+        body,
+      ),
+
+    // Commit one or more litho-suggestion layers as real formation
+    // contacts. The server handles formation find-or-create, straddle
+    // splits, and section seeding atomically. The caller MUST apply
+    // updated_section via applyUpdatedSection — explicit-content
+    // invariant (#57 class trap, recurred 3×).
+    acceptLithoSuggestions: (
+      projectId: string,
+      modelId: string,
+      body: AcceptLithoSuggestionsRequest,
+    ): Promise<AcceptLithoSuggestionsResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contacts/accept-litho-suggestions`,
         body,
       ),
 
