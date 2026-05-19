@@ -68,6 +68,8 @@ from groundmodel.application.update_formation_contact import UpdateFormationCont
 from groundmodel.application.update_formation_contacts_batch import (
     UpdateFormationContactsBatch,
 )
+from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
+from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.cross_section_orm import (
     CrossSectionOrm,
 )
@@ -84,6 +86,7 @@ from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
 from groundmodel.infrastructure.db.session import get_session
+from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
@@ -937,21 +940,21 @@ async def accept_litho_suggestions(
     HTTPException(422)
         When the model is not ``kind='lithostratigraphic'``.
     """
-    await get_in_project_or_404(
+    # One scoped fetch — get_in_project_or_404 returns the row (non-None,
+    # project-matched) so the kind guard reuses it instead of a second
+    # session.get (review B2).
+    model = await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
         detail="Model not found",
     )
-
-    # Guard: model must be lithostratigraphic.
-    model = await session.get(GeologicalModelOrm, model_id)
-    if model is None or model.kind != "lithostratigraphic":
+    if model.kind != "lithostratigraphic":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "invalid_model_kind",
                 "message": (
-                    f"Model {model_id} has kind='{model.kind if model else 'not found'}'; "
+                    f"Model {model_id} has kind='{model.kind}'; "
                     "accept-litho-suggestions requires kind='lithostratigraphic'"
                 ),
             },
@@ -959,10 +962,6 @@ async def accept_litho_suggestions(
 
     # Convert API suggestion items back to domain objects so the use case
     # can operate on typed data rather than raw dicts.
-    from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
-    from groundmodel.domain.value_objects.admixture import Admixture
-    from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
-
     domain_suggestions: list[LithoLayerSuggestion] = []
     for item in request.suggestions:
         admixtures = tuple(
@@ -1015,8 +1014,6 @@ async def accept_litho_suggestions(
             log_label="AcceptLithoSuggestions",
         )
         if updated is not None:
-            from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
-
             updated_section_response = CrossSectionResponse.model_validate(updated)
 
     return AcceptLithoSuggestionsResponse(
