@@ -40,6 +40,7 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
+  LithoCorrelationEdge,
   LithoLayerSuggestion,
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
@@ -68,6 +69,9 @@ import {
 } from './sections/cptChannels'
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
+import CorrelationEdgesOverlay, {
+  type CorrelateGestureState,
+} from './sections/CorrelationEdgesOverlay'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import PinchOutGhostOverlay, {
   PinchOutConfirmPanel,
@@ -382,6 +386,26 @@ interface Props {
     /** Fire to dismiss the preview without committing. */
     onDismiss: () => void
   }
+  /**
+   * Litho correlation edges for the active model (Slice 4).
+   *
+   * When present on the litho axis, renders always-on dashed blue lines
+   * connecting the vertical midpoints of correlated formation bands across
+   * investigation columns, with body-N badges at each edge midpoint.
+   * Absent / undefined = no overlay (zero regression on the geological axis
+   * or when the model has no correlations).
+   */
+  correlationEdges?: readonly LithoCorrelationEdge[]
+  /**
+   * Gesture state for the two-step correlate connect interaction (Slice 4).
+   *
+   * When present and ``correlateMode`` is true, invisible click-capture rects
+   * render over every unit band.  First click arms the source; second click on
+   * a valid target fires ``onCorrelate``.  Right-clicking a rendered edge
+   * surfaces a one-item "Remove correlation" context menu.
+   * Absent / undefined = read-only (edges visible, no click interaction).
+   */
+  correlateGestureState?: CorrelateGestureState
 }
 
 export default function SectionPanel({
@@ -419,6 +443,8 @@ export default function SectionPanel({
   onChangeVirtueleBoringShowOnSection,
   lithoGhostState,
   pinchOutGhostState,
+  correlationEdges,
+  correlateGestureState,
   axisMode = 'geological',
   onManualLithoUnitCreate,
 }: Props): JSX.Element {
@@ -1113,12 +1139,21 @@ export default function SectionPanel({
       ) {
         return
       }
-      if (contextMenu !== null) dismissContextMenu()
-      else if (focusedColumn !== null) exitFocus()
+      if (contextMenu !== null) {
+        dismissContextMenu()
+      } else if (correlateGestureState?.correlationSource !== null && correlateGestureState?.correlationSource !== undefined) {
+        // L1: clear armed source, stay in correlate mode
+        correlateGestureState.onClearArmed()
+      } else if (correlateGestureState?.correlateMode) {
+        // L2: exit correlate mode entirely
+        correlateGestureState.onExitMode()
+      } else if (focusedColumn !== null) {
+        exitFocus()
+      }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [contextMenu, focusedColumn, exitFocus, dismissContextMenu])
+  }, [contextMenu, focusedColumn, exitFocus, dismissContextMenu, correlateGestureState])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -1734,6 +1769,26 @@ export default function SectionPanel({
                 plotBottom={MARGIN.top + plotHeight}
                 onConfirm={pinchOutGhostState.onConfirm}
                 onDismiss={pinchOutGhostState.onDismiss}
+              />
+            )}
+
+            {/* Litho correlation edges + gesture overlay (Slice 4, #55).
+                Renders always on the litho axis when edges are provided;
+                pointerEvents=none at the group level so the dashes never
+                intercept non-gesture clicks. The component enables its own
+                pointer-events only for gesture rects when correlateMode is
+                active. Absent on the geological axis (correlationEdges
+                undefined → component not mounted). */}
+            {correlationEdges !== undefined && (
+              <CorrelationEdgesOverlay
+                edges={correlationEdges}
+                contacts={contacts}
+                formations={formations}
+                placedColumns={visibleColumns}
+                levelToScreen={levelToScreen}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                correlateGestureState={correlateGestureState}
               />
             )}
 
