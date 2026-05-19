@@ -182,6 +182,11 @@ export interface GeologicalFormationResponse {
   // instance_ordinal: Phase-2 correlation ordinal. null in Phase 1.
   instance_ordinal: number | null
   instance_ordinal_locked: boolean
+  // Slice 5 / debt #67: server-resolved display name of the parent geological
+  // formation. Populated from the project-formation id→name map at response
+  // time; never stored in the DB. null on geological rows and on orphaned
+  // litho units whose parent id is not present in the project set.
+  parent_formation_name: string | null
   created_at: string
   updated_at: string
 }
