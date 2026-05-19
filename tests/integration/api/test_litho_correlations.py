@@ -107,6 +107,33 @@ async def test_correlate_creates_then_idempotent(
     assert r2.json()["edge_id"] == body1["edge_id"]
 
 
+async def test_correlate_accepts_clients_exact_source_body(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """Pin the client↔schema contract for `source` (Phase-2 span audit BLOCKER).
+
+    The frontend client posts ``source: 'manual'`` verbatim; the request
+    schema is ``Literal["manual"]``. A prior drift sent
+    ``'manual_connect'`` and 422'd EVERY correlate call — invisible to
+    the other tests because they omit ``source`` and rely on the Pydantic
+    default. This posts the client's EXACT body shape (→ 201) and an
+    out-of-literal token (→ 422), pinning both sides.
+    """
+    mid, a, b = await _two_formations_in_litho_model(async_client, project.id)
+    base = f"/projects/{project.id}/geology/models/{mid}/correlations"
+
+    ok = await async_client.post(
+        base, json={"formation_a_id": a, "formation_b_id": b, "source": "manual"}
+    )
+    assert ok.status_code == 201, ok.text
+
+    bad = await async_client.post(
+        base,
+        json={"formation_a_id": a, "formation_b_id": b, "source": "manual_connect"},
+    )
+    assert bad.status_code == 422, bad.text
+
+
 async def test_uncorrelate_idempotent_and_recreate(
     async_client: AsyncClient, project: ProjectOrm
 ) -> None:
