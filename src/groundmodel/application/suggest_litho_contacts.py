@@ -26,9 +26,12 @@ from groundmodel.domain.services.litho_segmentation import (
     segment_borehole,
     segment_cpt,
 )
+from groundmodel.domain.value_objects.admixture import Admixture
+from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -226,7 +229,11 @@ class SuggestLithoContacts(GroundModelLogger):
                     BoreholeOrm.id == borehole_id,
                     BoreholeOrm.app_project_id == project_id,
                 )
-                .options(selectinload(BoreholeOrm.observations).selectinload(ObservationOrm.layers))
+                .options(
+                    selectinload(BoreholeOrm.observations)
+                    .selectinload(ObservationOrm.layers)
+                    .selectinload(ObservationLayerOrm.admixtures)
+                )
             )
         ).scalar_one_or_none()
         if borehole is None:
@@ -257,12 +264,25 @@ class SuggestLithoContacts(GroundModelLogger):
         tops = [lyr.top_m for lyr in best_obs.layers]
         bases = [lyr.base_m for lyr in best_obs.layers]
         codes = [lyr.main_soil_codes for lyr in best_obs.layers]
+        # Build Admixture domain objects from ORM rows (eager-loaded above).
+        admixtures_per_layer: list[list[Admixture]] = [
+            [
+                Admixture(
+                    soil_code=adm.soil_code,
+                    amount=adm.amount or "",
+                    locally=adm.locally,
+                )
+                for adm in lyr.admixtures
+            ]
+            for lyr in best_obs.layers
+        ]
 
         suggestions = segment_borehole(
             layer_tops_m=tops,
             layer_bases_m=bases,
             main_soil_codes=codes,
             minimum_layer_thickness_m=minimum_layer_thickness_m,
+            admixtures_per_layer=admixtures_per_layer,
         )
 
         self.success(
