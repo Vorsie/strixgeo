@@ -52,6 +52,15 @@ desktop/src/
     │   ├── soilPatterns.tsx   SVG <pattern> defs (FZ/KL/SI/LE/KA/GL/ZS/XZ/NN/ST/VE/SN…)
     │   ├── labTestLabels.ts   Translations for DOV parameter / parametergroep + USCS
     │   │                      D2487 ASTM code descriptions (CL → "Clay (lean)", …)
+    │   ├── lithoLabels.ts     Dutch display-label helpers for lithostratigraphic units.
+    │   │                      `formatLithoDisplayName(mainCode, admixtures)` composes
+    │   │                      amount adjective + soil adjective + capitalised base name
+    │   │                      (e.g. "matig kleiige Zand", "lokaal siltige Klei").
+    │   │                      BASE_LITHOLOGIES: GRIND/ZAND/SILT/KLEI/VEEN. Admixture
+    │   │                      soil codes: GL/KL/SL/ZN/VE + aliases G/K/S/V/Z.
+    │   │                      Amount codes: W=weinig, M=matig, V=veel, S=sterk, Z=zwak,
+    │   │                      WM/MV compounds. Translation at the presentation boundary —
+    │   │                      raw DOV codes stored, Dutch label shown.
     │   ├── projectFile.ts     .gmproj file format helpers (build/serialise/parse).
     │   │                      Format version 1 — JSON pointer to a DB row. See
     │   │                      "Project files" below for the schema.
@@ -91,3 +100,45 @@ desktop/src/
 - Colors: `QC_CLR=#111827`, `FS_CLR=#16a34a`, `RF_CLR=#b45309`, `U2_CLR=#7c3aed`, `QT_CLR=#1d4ed8`, `PD_CLR=#dc2626`
 - `surfaceElevationRef` — ReferenceLine at depth=0 labelled with mTAW elevation when known
 - `IcZoneLabelsOverlay` — absolute overlay at `bottom: 46` inside the Ic panel; each label is pinned at its zone's x-centre and rotated -55° (`transformOrigin: bottom center`) so they read diagonally upward; uses `IC_ZONE_SHORT` for abbreviated names in narrow zones
+
+## Litho accept flow (Phase 1, #55)
+
+Accept flow wires the Robertson-SBT / borehole suggestion output through to the geological model.
+
+### Key handlers (useGeologicalModel)
+
+- `handleAcceptLithoSuggestion(idx, sectionId?, applyUpdatedSection?)` — accepts one
+  suggestion layer; calls `POST .../contacts/accept-litho-suggestions` (idempotent, server
+  handles find-or-create formation + straddle split). MUST forward `sectionId` +
+  `applyUpdatedSection` or the accepted contact's id won't land in
+  `seeded_formation_contact_ids` → contact invisible on the section (#57 invariant).
+- `handleAcceptAllLithoSuggestions(sectionId?, applyUpdatedSection?)` — bulk accept;
+  same invariant applies.
+- `handleRebuildLithoSurfaces()` — triggers `POST .../surfaces/rebuild` on the active litho
+  model; lives on the LithologyToolbar Build button (not on SectionsToolbar).
+
+### SectionsCanvas boundary
+
+`sectionAwareAcceptLithoSuggestion` wraps `handleAcceptLithoSuggestion` at the
+SectionsCanvas layer, closing over `selectedSection.id` and `applyUpdatedSection` so
+`LithoSuggestionGhostColumns` doesn't need to know about sections at all.
+
+Auto-load backdrop: a `useEffect` in SectionsCanvas fires `handleLoadBackdropSurfaces`
+whenever `isLitho && effectiveBackdropModelId != null` — idempotent, cache-first. Placed
+AFTER `effectiveBackdropModelId` declaration (TDZ guard).
+
+### LithoSuggestionGhostColumns
+
+- `spans_boundary: true` → amber (#d97706) dashed stroke (`4 2`); straddle note in tooltip.
+- `formations` prop (geological `GeologicalFormationResponse[]`) → parent formation name
+  resolved via a `formationNameById` Map (O(1), built once per render).
+- `confidence` always shown in the SVG `<title>` tooltip.
+- Props: `acceptedIndices`/`rejectedIndices` as `ReadonlySet<number>` for state visuals.
+
+### LithoFormationRoster (LithologyInspector private)
+
+Read-only roster of lithostratigraphic units grouped under parent geological formations,
+ordered ascending by `display_order` (oldest first — superposition convention). Units
+without `parent_formation_id` fall into an "Unassigned" group at the bottom. Each unit
+row shows: colour swatch + name + contact count for THIS litho model. No edit/delete —
+formation CRUD stays in GeologyInspector.
