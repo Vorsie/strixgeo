@@ -107,6 +107,9 @@ function makeContact(id: string): FormationContactResponse {
     source: 'manual_pick',
     confidence: 'high',
     notes: null,
+    synthetic_x: null,
+    synthetic_y: null,
+    synthetic_elevation_m: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
@@ -276,6 +279,8 @@ function makeStubContext(overrides?: {
       handleDeleteLithoModel: noopAsync,
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
+      lithoStaleSurfaceCount: 0,
+      handleRebuildLithoSurfaces: noopAsync,
     },
     sections: {
       sections: [section],
