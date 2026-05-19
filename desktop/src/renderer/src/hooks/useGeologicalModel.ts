@@ -38,11 +38,8 @@ import type { UndoCommand } from './useUndoStack'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { addAllToSet } from '../utils/sets'
 import { log } from '../utils/log'
-import {
-  LITHOLOGY_COLORS,
-  LITHOLOGY_FALLBACK_COLOR,
-  LITHOLOGY_LABELS,
-} from '../utils/lithoConstants'
+// LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
+// is now determined server-side by AcceptLithoSuggestions (Phase 1).
 
 /** Payload accepted by the ContactsLayer batch-copy handler. */
 export type ContactCopyPayload = import('../components/sections/ContactsLayer').ContactCopyPayload
@@ -298,11 +295,42 @@ export interface UseGeologicalModelResult {
     anchorId: string,
   ) => Promise<void>
   /**
-   * Accept suggestion layer ``idx``: ensure the formation exists in the
-   * litho model (reuse if present, create if absent), then create a contact
-   * at ``depth_top_m``.  Marks the layer accepted on success.
+   * Accept suggestion layer ``idx`` via the bulk endpoint (one-item call).
+   * The server handles formation find-or-create + section seeding atomically.
+   * Marks the layer accepted on success.
+   *
+   * Parameters
+   * ----------
+   * idx : number
+   *     Index into ``lithoSuggestions`` to commit.
+   * sectionId : string | null | undefined
+   *     When provided, the contact is seeded into this section's
+   *     explicit-content set (``#57`` invariant).
+   * onSectionUpdated : function | undefined
+   *     Callback forwarded with ``updated_section`` from the response so
+   *     the section filter updates without a manual refresh.
    */
-  handleAcceptLithoSuggestion: (idx: number) => Promise<void>
+  handleAcceptLithoSuggestion: (
+    idx: number,
+    sectionId?: string | null,
+    onSectionUpdated?: (s: CrossSectionResponse) => void,
+  ) => Promise<void>
+  /**
+   * Accept ALL non-rejected suggestion layers in one bulk endpoint call.
+   * Idempotent — already-committed layers are found and re-used by the
+   * server.  Marks every committed layer accepted on success.
+   *
+   * Parameters
+   * ----------
+   * sectionId : string | null | undefined
+   *     When provided, created contacts are seeded into this section.
+   * onSectionUpdated : function | undefined
+   *     Forwarded with ``updated_section`` from the bulk response.
+   */
+  handleAcceptAllLithoSuggestions: (
+    sectionId?: string | null,
+    onSectionUpdated?: (s: CrossSectionResponse) => void,
+  ) => Promise<void>
   /** Reject suggestion layer ``idx`` — marks it rejected (no network call). */
   handleRejectLithoSuggestion: (idx: number) => void
   /** Clear all suggestion state (close the ghost overlay). */
@@ -2539,21 +2567,6 @@ export function useGeologicalModel({
     lithoFormationsRef.current = lithoFormations
   }, [lithoFormations])
 
-  // #55 reuse-race fix: lithoFormationsRef only refreshes via the
-  // post-render effect above, so two same-lithology accepts fired
-  // before React commits (the common "accept the sand layers off a
-  // CPT" burst) would BOTH miss the just-created formation and
-  // duplicate it. These synchronous refs make
-  // handleAcceptLithoSuggestion's reuse decision burst-safe within a
-  // suggestion session: the token→id map is written the instant a
-  // formation id is known, and the in-flight map serialises
-  // concurrent creates of the same lithology token. Both are reset
-  // per suggestion session by clearLithoSuggestions.
-  const acceptedFormationByLithoRef = useRef<Map<string, string>>(new Map())
-  const lithoFormationInFlightRef = useRef<Map<string, Promise<string | null>>>(
-    new Map(),
-  )
-
   const clearLithoSuggestions = useCallback((): void => {
     setLithoSuggestions([])
     setLithoSuggestionInvestigationId(null)
@@ -2564,10 +2577,10 @@ export function useGeologicalModel({
     // is hit while a suggest fetch is in flight, the spinner would
     // otherwise stay stuck until the orphaned fetch settles.
     setLithoSuggesting(false)
-    // New suggestion session → drop the per-session reuse caches so a
-    // fresh segmentation cannot reuse a stale prior formation map.
-    acceptedFormationByLithoRef.current.clear()
-    lithoFormationInFlightRef.current.clear()
+    // The old burst-safe refs (acceptedFormationByLithoRef,
+    // lithoFormationInFlightRef) were removed in Phase 1 — the bulk
+    // endpoint is idempotent server-side (find-or-create), so the
+    // client no longer needs per-session formation caches.
   }, [])
 
   // B-1 (senior-review, data-integrity): a ghost overlay left showing
@@ -2620,11 +2633,16 @@ export function useGeologicalModel({
     [project, clearLithoSuggestions, toast],
   )
 
-  // Accept one suggestion layer: reuse an existing litho formation with the
-  // same base lithology, or create one. Then create the contact at depth_top_m.
-  // Marks the layer accepted (green tick) on success.
+  // Accept one suggestion layer via the bulk endpoint (one-item payload).
+  // The server handles formation find-or-create, straddle splits, and
+  // section seeding atomically. The caller MUST forward onSectionUpdated
+  // with the response's updated_section — explicit-content invariant (#57).
   const handleAcceptLithoSuggestion = useCallback(
-    async (idx: number): Promise<void> => {
+    async (
+      idx: number,
+      sectionId?: string | null,
+      onSectionUpdated?: (s: CrossSectionResponse) => void,
+    ): Promise<void> => {
       const model = activeLithoModelRef.current
       const layers = lithoSuggestions
       if (!project || !model || idx < 0 || idx >= layers.length) return
@@ -2634,98 +2652,34 @@ export function useGeologicalModel({
       if (!anchorKind || !anchorId) return
       log.debug(
         'geology',
-        `acceptLithoSuggestion idx=${idx} lithology=${layer.suggested_lithology} depth=${layer.depth_top_m.toFixed(2)}m`,
+        `acceptLithoSuggestion idx=${idx} lithology=${layer.suggested_lithology} depth=${layer.depth_top_m.toFixed(2)}m sectionId=${sectionId ?? 'none'}`,
       )
       try {
-        // Reuse-not-duplicate, BURST-SAFE (token match, case-insensitive).
-        // Four-step resolution so consecutive same-lithology accepts
-        // (the common "accept the sand layers off a CPT" workflow)
-        // share ONE formation even when fired faster than React can
-        // commit + refresh lithoFormationsRef:
-        const token = layer.suggested_lithology.toUpperCase()
-        let formationId: string | undefined =
-          // 1. Created earlier this suggestion session (synchronous).
-          acceptedFormationByLithoRef.current.get(token)
-
-        if (formationId === undefined) {
-          // 2. A pre-existing formation (post-render ref). Cache it so
-          //    the rest of the burst hits step 1.
-          const existing = lithoFormationsRef.current.find(
-            f =>
-              f.lithology != null && f.lithology.toUpperCase() === token,
-          )
-          if (existing) {
-            formationId = existing.id
-            acceptedFormationByLithoRef.current.set(token, existing.id)
-            log.debug(
-              'geology',
-              `acceptLithoSuggestion reuse formation id=${formationId} name="${existing.name}"`,
-            )
-          }
+        const body = {
+          ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
+          section_id: sectionId ?? null,
+          suggestions: [layer],
         }
-
-        if (formationId === undefined) {
-          // 3. A concurrent accept of the same token is mid-create —
-          //    await that single create instead of duplicating it.
-          const inflight = lithoFormationInFlightRef.current.get(token)
-          if (inflight) {
-            const id = await inflight
-            if (!id) return // the shared create failed (toast already fired)
-            formationId = id
-          }
-        }
-
-        if (formationId === undefined) {
-          // 4. Nobody has it — create it. Register the in-flight
-          //    promise SYNCHRONOUSLY before awaiting so a racing accept
-          //    hits step 3 rather than starting a second create.
-          // Shared name/colour tables (senior-review S-2) so the
-          // created formation matches what the ghost overlay showed.
-          const name =
-            LITHOLOGY_LABELS[layer.suggested_lithology] ?? layer.suggested_lithology
-          const color =
-            LITHOLOGY_COLORS[layer.suggested_lithology] ?? LITHOLOGY_FALLBACK_COLOR
-          const createPromise: Promise<string | null> =
-            handleInlineLithoCreateFormation({
-              name,
-              color,
-              lithology: layer.suggested_lithology,
-              nad_class: layer.suggested_nad_class ?? undefined,
-            }).then(r => {
-              const id = r?.id ?? null
-              if (id) acceptedFormationByLithoRef.current.set(token, id)
-              lithoFormationInFlightRef.current.delete(token)
-              return id
-            })
-          lithoFormationInFlightRef.current.set(token, createPromise)
-          const id = await createPromise
-          if (!id) return // toast already fired by handleInlineLithoCreateFormation
-          formationId = id
-        }
-        // Unreachable — every branch above either set formationId or
-        // returned. Explicit so TS narrows it to string for the call.
-        if (formationId === undefined) return
-        // Create the contact at the suggested top depth.
-        await handleCreateLithoContact(
-          anchorKind,
-          anchorId,
-          layer.depth_top_m,
-          formationId,
-          // Borehole-path suggestions come from observed stratigraphy —
-          // treat as snapped (high confidence). CPT is a model output —
-          // medium confidence (manual_pick equivalent).
-          anchorKind === 'borehole',
+        const result = await api.geology.acceptLithoSuggestions(
+          project.id,
+          model.id,
+          body,
         )
+        log.success(
+          'geology',
+          `acceptLithoSuggestion ok idx=${idx} created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count}`,
+        )
+        // Forward updated_section so the section's explicit-content filter
+        // includes the newly seeded contacts — #57 class trap.
+        if (result.updated_section != null && onSectionUpdated != null) {
+          onSectionUpdated(result.updated_section)
+        }
         // Mark accepted so the ghost overlay shows the tick.
         setLithoSuggestionAccepted(prev => {
           const next = new Set(prev)
           next.add(idx)
           return next
         })
-        log.success(
-          'geology',
-          `acceptLithoSuggestion ok idx=${idx} formation=${formationId}`,
-        )
       } catch (err) {
         log.error('geology', `acceptLithoSuggestion failed idx=${idx}`, err)
         toast('error', 'Could not accept the litho suggestion.')
@@ -2733,16 +2687,84 @@ export function useGeologicalModel({
     },
     // reason: lithoSuggestions / lithoSuggestionAnchorKind / lithoSuggestionInvestigationId
     // are read synchronously inside the callback body via closure. They are listed as deps
-    // so the callback identity refreshes when the active suggestion changes (a new suggest
-    // replaces all of them at once). lithoFormationsRef is a ref (stable identity).
+    // so the callback identity refreshes when the active suggestion set changes (a new
+    // suggest replaces all three at once). activeLithoModelRef is a ref (stable identity).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       project,
       lithoSuggestions,
       lithoSuggestionAnchorKind,
       lithoSuggestionInvestigationId,
-      handleInlineLithoCreateFormation,
-      handleCreateLithoContact,
+      toast,
+    ],
+  )
+
+  // Accept ALL non-rejected suggestion layers in one bulk call.
+  // Filters out already-accepted and rejected indices, then calls
+  // the same endpoint with the remaining layers.  The server's
+  // find-or-create is idempotent — re-accepting an already-accepted
+  // layer is safe and returns found_* ids.
+  const handleAcceptAllLithoSuggestions = useCallback(
+    async (
+      sectionId?: string | null,
+      onSectionUpdated?: (s: CrossSectionResponse) => void,
+    ): Promise<void> => {
+      const model = activeLithoModelRef.current
+      const layers = lithoSuggestions
+      const anchorKind = lithoSuggestionAnchorKind
+      const anchorId = lithoSuggestionInvestigationId
+      if (!project || !model || !anchorKind || !anchorId || layers.length === 0) return
+      // Collect only non-rejected layers; already-accepted layers are
+      // idempotent on the server but including them wastes a round-trip.
+      const pendingIndices = layers
+        .map((_, i) => i)
+        .filter(i => !lithoSuggestionRejected.has(i))
+      const pendingLayers = pendingIndices.map(i => layers[i])
+      if (pendingLayers.length === 0) return
+      log.debug(
+        'geology',
+        `acceptAllLithoSuggestions ${pendingLayers.length}/${layers.length} layers sectionId=${sectionId ?? 'none'}`,
+      )
+      try {
+        const body = {
+          ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
+          section_id: sectionId ?? null,
+          suggestions: pendingLayers,
+        }
+        const result = await api.geology.acceptLithoSuggestions(
+          project.id,
+          model.id,
+          body,
+        )
+        log.success(
+          'geology',
+          `acceptAllLithoSuggestions ok created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count} stale_tin_fallback=${result.stale_tin_fallback_count}`,
+        )
+        // Forward updated_section — #57 invariant.
+        if (result.updated_section != null && onSectionUpdated != null) {
+          onSectionUpdated(result.updated_section)
+        }
+        // Mark all pending layers accepted in the ghost overlay.
+        setLithoSuggestionAccepted(prev => {
+          const next = new Set(prev)
+          for (const i of pendingIndices) next.add(i)
+          return next
+        })
+      } catch (err) {
+        log.error('geology', 'acceptAllLithoSuggestions failed', err)
+        toast('error', 'Could not accept all litho suggestions.')
+      }
+    },
+    // reason: same pattern as handleAcceptLithoSuggestion — all suggestion
+    // state is read synchronously from the closure and listed as deps so
+    // the callback identity refreshes on each new suggestion set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      project,
+      lithoSuggestions,
+      lithoSuggestionAnchorKind,
+      lithoSuggestionInvestigationId,
+      lithoSuggestionRejected,
       toast,
     ],
   )
@@ -3014,6 +3036,7 @@ export function useGeologicalModel({
     lithoSuggesting,
     handleSuggestLitho,
     handleAcceptLithoSuggestion,
+    handleAcceptAllLithoSuggestions,
     handleRejectLithoSuggestion,
     clearLithoSuggestions,
     pinchOutPreview,
