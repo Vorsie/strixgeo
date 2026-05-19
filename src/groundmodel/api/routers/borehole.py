@@ -463,8 +463,11 @@ async def get_borehole(
     borehole = await repo.get_by_id(
         borehole_id,
         include_lab_tests=include_relationships,
+        app_project_id=project_id,
     )
-    # Scope guard: reject if missing or belongs to a different project (VULN-6).
+    # Scope guard: the project predicate is fused into the fetch above
+    # (M1), so a cross-project id already returns None here. The explicit
+    # check is kept as cheap defence-in-depth (VULN-6).
     if borehole is None or borehole.app_project_id != project_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
