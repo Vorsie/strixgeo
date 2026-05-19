@@ -1178,9 +1178,14 @@ export const api = {
     list: (projectId?: string): Promise<CptListItem[]> =>
       get(`/cpt/${projectId ? `?project_id=${projectId}` : ''}`),
 
-    get: (id: string): Promise<CptResponse> => get(`/cpt/${id}`),
+    // ``projectId`` is required — the backend now enforces project scope
+    // on every by-id fetch (VULN-1/4). The caller always has the active
+    // project in scope; the frontend never calls these without a project.
+    get: (id: string, projectId: string): Promise<CptResponse> =>
+      get(`/cpt/${id}?project_id=${projectId}`),
 
-    plot: (id: string): Promise<CptPlotResponse> => get(`/cpt/${id}/plot`),
+    plot: (id: string, projectId: string): Promise<CptPlotResponse> =>
+      get(`/cpt/${id}/plot?project_id=${projectId}`),
 
     // Batched plot fetch for the cross-section panel. Folds N
     // per-CPT round-trips into one. Order of the response isn't
@@ -1196,10 +1201,16 @@ export const api = {
     plotBatch: (ids: string[], appProjectId: string): Promise<CptPlotResponse[]> =>
       post(`/cpt/plot-batch`, { ids, app_project_id: appProjectId }),
 
-    delete: (id: string): Promise<void> => del(`/cpt/${id}`),
+    // ``projectId`` is required — scope guard ensures a caller cannot
+    // delete or patch a CPT from a foreign project (VULN-2/3).
+    delete: (id: string, projectId: string): Promise<void> =>
+      del(`/cpt/${id}?project_id=${projectId}`),
 
-    patchElevation: (id: string, body: ElevationPatchBody): Promise<CptResponse> =>
-      patch(`/cpt/${id}/elevation`, body),
+    patchElevation: (
+      id: string,
+      projectId: string,
+      body: ElevationPatchBody,
+    ): Promise<CptResponse> => patch(`/cpt/${id}/elevation?project_id=${projectId}`, body),
 
     importDov: async (
       bbox: { west: number; south: number; east: number; north: number },
@@ -1243,10 +1254,17 @@ export const api = {
     list: (projectId?: string): Promise<BoreholeListItem[]> =>
       get(`/borehole/${projectId ? `?project_id=${projectId}` : ''}`),
 
-    get: (id: string): Promise<BoreholeDetailResponse> => get(`/borehole/${id}`),
+    // ``projectId`` is required — scope guard prevents cross-project
+    // borehole detail fetch and elevation mutation (VULN-6/7).
+    get: (id: string, projectId: string): Promise<BoreholeDetailResponse> =>
+      get(`/borehole/${id}?project_id=${projectId}`),
 
-    patchElevation: (id: string, body: ElevationPatchBody): Promise<BoreholeListItem> =>
-      patch(`/borehole/${id}/elevation`, body),
+    patchElevation: (
+      id: string,
+      projectId: string,
+      body: ElevationPatchBody,
+    ): Promise<BoreholeListItem> =>
+      patch(`/borehole/${id}/elevation?project_id=${projectId}`, body),
 
     importDov: async (
       bbox: { west: number; south: number; east: number; north: number },
