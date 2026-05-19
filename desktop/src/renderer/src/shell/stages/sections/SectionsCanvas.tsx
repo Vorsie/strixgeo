@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Route } from 'lucide-react'
 
 import { api } from '../../../api/client'
+import type { AdmixtureItem } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
@@ -366,6 +367,108 @@ export default function SectionsCanvas(): JSX.Element {
     [handleAcceptLithoSuggestion, selectedSection, applyUpdatedSection],
   )
 
+  // Phase-1.5 manual litho composition picker — new-unit path.
+  //
+  // WHY a dedicated callback at this boundary:
+  //   The "new unit" tab in LithoCompositionPickerDialog produces a main soil
+  //   code + admixture list. The existing acceptLithoSuggestions endpoint is
+  //   reused with a synthetic one-item payload (source='manual_pick', sentinel
+  //   depth_base = depth_top + 0.01 so it never straddles). The response carries
+  //   updated_section which MUST be forwarded via applyUpdatedSection (#57
+  //   invariant). Returning the created/found formation id lets SectionPanel's
+  //   useContactPicker chain into handlePickerSelect to create the contact.
+  //
+  // The "existing unit" path goes through sectionAwareCreateContact (already
+  // #57-correct via GET) — DO NOT change it.
+  const handleManualLithoUnitCreate = useCallback(
+    async (
+      mainCode: string,
+      admixtures: AdmixtureItem[],
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      depthM: number,
+    ): Promise<{ formationId: string } | null> => {
+      if (!activeLithoModel || !selectedSection) {
+        log.warn('section', 'handleManualLithoUnitCreate: no active litho model or section')
+        return null
+      }
+
+      // Synthetic one-item payload. depth_base = depth_top + 0.01 is the sentinel
+      // that guarantees the suggestion never straddles (the use case splits on
+      // boundaries within [top, base] — a 1 cm window cannot span a formation
+      // boundary in practice). The server still resolves parent_formation_id from
+      // the geology TIN at the investigation's (x, y, depth_top).
+      const payload = {
+        [anchorKind === 'cpt' ? 'cpt_id' : 'borehole_id']: anchorId,
+        section_id: selectedSection.id,
+        suggestions: [
+          {
+            depth_top_m: depthM,
+            depth_base_m: depthM + 0.01,
+            suggested_lithology: mainCode,
+            suggested_nad_class: null,
+            mean_qc_mpa: null,
+            dr_pct: null,
+            confidence: 'medium' as const,
+            source: 'manual_pick',
+            suggested_admixtures: admixtures,
+            parent_formation_id: null,
+            spans_boundary: false,
+          },
+        ],
+      }
+
+      log.debug(
+        'section',
+        `handleManualLithoUnitCreate: litho_model=${activeLithoModel.id} ` +
+          `anchor=${anchorKind}/${anchorId} depth=${depthM.toFixed(2)}m soil=${mainCode}`,
+      )
+
+      try {
+        const result = await api.geology.acceptLithoSuggestions(
+          project.id,
+          activeLithoModel.id,
+          payload,
+        )
+
+        // #57 invariant: forward updated_section directly from the response echo —
+        // no GET. The endpoint returns the section with the new contact ids already
+        // unioned into seeded_formation_contact_ids.
+        if (result.updated_section) {
+          applyUpdatedSection(result.updated_section)
+          log.debug(
+            'section',
+            `handleManualLithoUnitCreate: applyUpdatedSection(section=${selectedSection.id})`,
+          )
+        } else {
+          log.warn(
+            'section',
+            'handleManualLithoUnitCreate: no updated_section in response — seeded set may be stale',
+          )
+        }
+
+        // Return the first created or found formation id so SectionPanel's
+        // useContactPicker can chain into onSelect → contact creation.
+        const formationId =
+          result.created_formation_ids[0] ?? result.found_formation_ids[0] ?? null
+        if (formationId === null) {
+          log.warn(
+            'section',
+            'handleManualLithoUnitCreate: no formation id in response (created=[], found=[])',
+          )
+          return null
+        }
+
+        log.debug('section', `handleManualLithoUnitCreate: formationId=${formationId}`)
+        return { formationId }
+      } catch (err) {
+        log.warn('section', 'handleManualLithoUnitCreate: acceptLithoSuggestions failed', err)
+        return null
+      }
+    },
+    [activeLithoModel, selectedSection, project.id, applyUpdatedSection],
+  )
+
   // Build the lithoGhostState bundle passed to SectionPanel.
   // Only populated on the litho axis when suggestions are loaded for an
   // investigation — zero regression on the geological axis.
@@ -534,6 +637,11 @@ export default function SectionsCanvas(): JSX.Element {
         // Lift the section-local focused column to the shell so
         // SectionsToolbar can use it for the litho-axis Suggest button.
         onFocusedColumnChange={setSectionFocusedColumn}
+        // Manual litho composition picker (Phase-1.5): the picker dialog
+        // is shown instead of the geological FormationPicker when the
+        // section is on the lithostratigraphic axis.
+        axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
+        onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
       />
     )
   }
