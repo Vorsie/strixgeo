@@ -333,7 +333,10 @@ export function useSectionData(
       setBoreholeDetails(new Map())
       return
     }
-    Promise.allSettled(inBufferBhIds.map(id => api.borehole.get(id)))
+    // Pass section.app_project_id for the scope guard (VULN-6).
+    Promise.allSettled(
+      inBufferBhIds.map(id => api.borehole.get(id, section.app_project_id)),
+    )
       .then(results => {
         if (cancelled) return
         const m = new Map<string, BoreholeDetailResponse>()
@@ -361,8 +364,10 @@ export function useSectionData(
     }
     // reason: same as inBufferCptIds — identity churn under default
     // empty arrays; the join key captures content stably.
+    // section.app_project_id is included because it is read inside the
+    // effect closure (passed to borehole.get for the scope guard).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section.id, inBufferBhIdsKey])
+  }, [section.id, section.app_project_id, inBufferBhIdsKey])
 
   return {
     cptChannels,
