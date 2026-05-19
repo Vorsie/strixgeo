@@ -137,16 +137,12 @@ def upgrade() -> None:
         _TABLE,
         ["model_id", "formation_b_id"],
     )
-    # Index supporting the idempotent upsert's existence check.  In
-    # PostgreSQL a UNIQUE constraint creates an index automatically, but
-    # naming it explicitly lets the index appear in EXPLAIN plans with a
-    # recognisable label.
-    op.create_index(
-        "idx_litho_correlation_edge_unique",
-        _TABLE,
-        ["model_id", "formation_a_id", "formation_b_id"],
-        unique=True,
-    )
+    # NOTE: no explicit index on (model_id, formation_a_id,
+    # formation_b_id) — the `uq_litho_correlation_edge_triple` UNIQUE
+    # constraint above already creates a backing btree index on exactly
+    # those columns. A second one would just double insert cost +
+    # storage (review S5). The idempotent-upsert existence check uses
+    # that constraint's index.
 
 
 def downgrade() -> None:
