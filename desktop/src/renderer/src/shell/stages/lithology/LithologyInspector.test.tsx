@@ -146,6 +146,8 @@ function makeFormation(
     litho_admixtures: null,
     instance_ordinal: null,
     instance_ordinal_locked: false,
+    // Slice 5 / debt #67: server-resolved parent name, null by default.
+    parent_formation_name: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -578,6 +580,62 @@ describe('LithologyInspector (Slice C, #55)', () => {
     expect(tertiairIdx).toBeGreaterThanOrEqual(0)
     expect(kwartairIdx).toBeGreaterThan(tertiairIdx)
     expect(unassignedIdx).toBeGreaterThan(kwartairIdx)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Slice 5 / debt #67 tests (I5)
+// ---------------------------------------------------------------------------
+
+describe('LithologyInspector (Slice 5 / debt #67 — parent_formation_name)', () => {
+  // I5: roster group heading uses parent_formation_name (server-resolved)
+  //     when present, rather than requiring the geo-join hit.
+  it('I5 — group label uses parent_formation_name when set, falls back to geo-join name', () => {
+    // Geological formation whose name differs from what a litho unit reports
+    // as parent_formation_name (simulates a display-name that differs from the
+    // raw ORM row name returned via the geoFormations join — e.g. DOV canonical
+    // name vs project shortname).
+    const geoParent = makeFormation('geo-p', 'Boom Klei (geo join)', { display_order: 0 })
+
+    // Litho unit with server-resolved parent_formation_name set to a different
+    // canonical value (Slice 5 enrichment).
+    const lithoWithResolvedName = makeFormation('lf-1', 'Zand', {
+      parent_formation_id: 'geo-p',
+      parent_formation_name: 'Boom Klei (resolved)',
+    })
+
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      formations: [geoParent],
+      lithoFormations: [lithoWithResolvedName],
+      lithoContacts: [],
+    })
+    renderInspector(ctx)
+
+    // The server-resolved name is preferred over the geo-join name.
+    expect(screen.getByText('Boom Klei (resolved)')).toBeInTheDocument()
+    expect(screen.queryByText('Boom Klei (geo join)')).not.toBeInTheDocument()
+  })
+
+  it('I5b — group label falls back to geo-join name when parent_formation_name is null', () => {
+    const geoParent = makeFormation('geo-q', 'Diest Zand', { display_order: 0 })
+
+    // Litho unit with no server-resolved parent name (null → fallback to join).
+    const lithoNoResolvedName = makeFormation('lf-2', 'Zand', {
+      parent_formation_id: 'geo-q',
+      parent_formation_name: null,
+    })
+
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      formations: [geoParent],
+      lithoFormations: [lithoNoResolvedName],
+      lithoContacts: [],
+    })
+    renderInspector(ctx)
+
+    // The geo-join name is used when parent_formation_name is null.
+    expect(screen.getByText('Diest Zand')).toBeInTheDocument()
   })
 })
 
