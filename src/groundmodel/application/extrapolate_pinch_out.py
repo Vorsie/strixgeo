@@ -52,6 +52,9 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import (
 from groundmodel.infrastructure.db.models.formation_surface_orm import (
     FormationSurfaceOrm,
 )
+from groundmodel.infrastructure.db.repositories.cross_section_repository import (
+    CrossSectionRepository,
+)
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
@@ -345,8 +348,8 @@ class ExtrapolatePinchOut(GroundModelLogger):
             # B2: the user explicitly invoked the tool on THIS section, so
             # the explicit-content invariant requires the existing
             # contacts to be seeded here too — not merely re-fetched.
-            seeded_section = await self._seed_section_contacts(
-                section_id, project_id, set(existing_ids)
+            seeded_section = await CrossSectionRepository(self._session).union_seeded_contact_ids(
+                section_id, project_id, set(existing_ids), operation="pinch_out"
             )
             return PinchOutResult(
                 created_contact_ids=existing_ids,
@@ -416,13 +419,10 @@ class ExtrapolatePinchOut(GroundModelLogger):
         # ------------------------------------------------------------------ #
         # 10. Seed section contacts (explicit-content invariant).             #
         # ------------------------------------------------------------------ #
-        # Import here to avoid a circular import (contacts router → this use
-        # case → contacts router). The helper is a module-level function in
-        # the router module; we replicate its minimal logic here inline so
-        # the use case doesn't import from the API layer (layer model:
-        # application MUST NOT import from api).
         new_ids = {contact_tip.id, contact_twin.id}
-        updated_section = await self._seed_section_contacts(section_id, project_id, new_ids)
+        updated_section = await CrossSectionRepository(self._session).union_seeded_contact_ids(
+            section_id, project_id, new_ids, operation="pinch_out"
+        )
 
         return PinchOutResult(
             created_contact_ids=[contact_tip.id, contact_twin.id],
@@ -486,65 +486,3 @@ class ExtrapolatePinchOut(GroundModelLogger):
             .all()
         )
         return list(rows)
-
-    async def _seed_section_contacts(
-        self,
-        section_id: UUID,
-        project_id: UUID,
-        contact_ids: set[UUID],
-    ) -> CrossSectionOrm | None:
-        """Union ``contact_ids`` into a section's ``seeded_formation_contact_ids``.
-
-        Non-fatal by contract: the primary operation (contact create +
-        stale flip) has already committed.  A missing section or a
-        commit failure here is logged and swallowed — it must never turn
-        a successful pinch-out into a 500.  The session is rolled back
-        on failure so it is clean before the pooled connection returns.
-
-        Parameters
-        ----------
-        section_id : UUID
-            Section whose seeded set to extend.
-        project_id : UUID
-            Project the section must belong to (scope guard).
-        contact_ids : set[UUID]
-            Ids to union into the existing seeded set.
-
-        Returns
-        -------
-        CrossSectionOrm | None
-            Refreshed section on success, else ``None``.
-        """
-        from groundmodel.infrastructure.db.repositories.cross_section_repository import (
-            CrossSectionRepository,
-        )
-
-        try:
-            section_repo = CrossSectionRepository(self._session)
-            section = await section_repo.get(section_id)
-            if section is None or section.app_project_id != project_id:
-                self.warning(
-                    f"pinch_out seed: section {section_id} not found in project "
-                    f"{project_id} — seeded set not updated"
-                )
-                return None
-            existing = frozenset(section.seeded_formation_contact_ids or [])
-            merged = list(existing | contact_ids)
-            updated = await section_repo.update(
-                section_id, {"seeded_formation_contact_ids": merged}
-            )
-            await self._session.commit()
-            if updated is not None:
-                await self._session.refresh(updated)
-            self.info(
-                f"pinch_out seed: section {section_id} seeded set updated — "
-                f"{len(merged)} id(s) total"
-            )
-            return updated
-        except Exception as exc:
-            await self._session.rollback()
-            self.warning(
-                f"pinch_out seed: section seeding failed for {section_id} "
-                f"({type(exc).__name__}): {exc!r}"
-            )
-            return None
