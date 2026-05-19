@@ -208,6 +208,26 @@ export interface GeologicalFormationUpdatePayload {
   description?: string | null
   lithology?: string | null
   nad_class?: number | null
+  // Phase-2 Slice 2: lock-toggle from LithologyInspector. When true the
+  // ordinal resolver skips this row; when false it may renumber freely.
+  instance_ordinal_locked?: boolean | null
+}
+
+// Phase-2 Slice 3: one edge in the litho correlation graph.
+// Consumed by the LithologyInspector stale-badge computation (to hash
+// the edge set) and by future Slice 4 section canvas rendering.
+// MODEL-level only — no section_id, no seeded_formation_contact_ids.
+export interface LithoCorrelationEdge {
+  id: string
+  formation_a_id: string
+  formation_b_id: string
+  source: string
+  created_at: string
+}
+
+// Phase-2 Slice 3: response from POST /correlations/resolve.
+export interface ResolveInstancesResponse {
+  updated: Array<{ formation_id: string; new_ordinal: number }>
 }
 
 // Geological-model response — a project can have multiple
@@ -1727,6 +1747,35 @@ export const api = {
         `/projects/${projectId}/geology/models/${modelId}/ground-surface/build`,
         {},
       ),
+
+    // --- Litho correlation (Phase-2 Slice 3) ----------------------------
+    //
+    // MODEL-level only — no section_id, no seeded_formation_contact_ids.
+    // The #57/applyUpdatedSection trap structurally cannot recur here.
+
+    // Re-run the connected-component ordinal resolver for a model.
+    // Idempotent: returns empty ``updated`` when nothing changed.
+    // Call after any edge mutation (correlate / uncorrelate) to keep
+    // the LithologyInspector ordinal display in sync.
+    resolveLithoInstances: (
+      projectId: string,
+      modelId: string,
+    ): Promise<ResolveInstancesResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/correlations/resolve`,
+        {},
+      ),
+
+    // List all correlation edges for the model, ordered by creation
+    // time.  Consumed by the inspector stale-badge (hash the edge set
+    // to detect structural changes since the last explicit resolve) and
+    // by future Slice 4 canvas rendering.
+    // Slice 4: // rendering of edges on the section canvas (connect-gesture UI)
+    listCorrelations: (
+      projectId: string,
+      modelId: string,
+    ): Promise<LithoCorrelationEdge[]> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/correlations`),
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
