@@ -58,6 +58,12 @@ let capturedOnManualLithoUnitCreate:
 // litho picker is NOT wired on the geology axis.
 let capturedAxisMode: 'geological' | 'lithostratigraphic' | undefined = undefined
 
+// Capture correlateGestureState so the S5 test can invoke onCorrelate
+// and assert the armed source is NOT cleared on a failed POST.
+let capturedCorrelateGestureState:
+  | { onCorrelate?: (a: string, b: string) => Promise<void> }
+  | undefined = undefined
+
 vi.mock('../../../components/SectionPanel', () => ({
   default: (props: {
     contacts?: readonly FormationContactResponse[]
@@ -65,6 +71,7 @@ vi.mock('../../../components/SectionPanel', () => ({
     onBatchCreateContacts?: typeof capturedOnBatchCreateContacts
     onManualLithoUnitCreate?: typeof capturedOnManualLithoUnitCreate
     axisMode?: 'geological' | 'lithostratigraphic'
+    correlateGestureState?: { onCorrelate?: (a: string, b: string) => Promise<void> }
   }) => {
     // Capture the props each time SectionPanel renders.
     capturedContacts = props.contacts
@@ -72,6 +79,7 @@ vi.mock('../../../components/SectionPanel', () => ({
     capturedOnBatchCreateContacts = props.onBatchCreateContacts
     capturedOnManualLithoUnitCreate = props.onManualLithoUnitCreate
     capturedAxisMode = props.axisMode
+    capturedCorrelateGestureState = props.correlateGestureState
     return null
   },
 }))
@@ -85,6 +93,8 @@ vi.mock('../../../components/MapView', () => ({
 const mockSectionList = vi.fn().mockResolvedValue([])
 // api.geology.acceptLithoSuggestions is exercised by M1/M2.
 const mockAcceptLithoSuggestions = vi.fn()
+// api.geology.correlate is exercised by S5 (armed-source-persists-on-422).
+const mockCorrelate = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
@@ -95,6 +105,10 @@ vi.mock('../../../api/client', async () => {
       geology: {
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
         acceptLithoSuggestions: (...args: unknown[]) => mockAcceptLithoSuggestions(...args),
+        correlate: (...args: unknown[]) => mockCorrelate(...args),
+        uncorrelate: vi.fn().mockResolvedValue(undefined),
+        resolveLithoInstances: vi.fn().mockResolvedValue({ updated: [] }),
+        listCorrelations: vi.fn().mockResolvedValue([]),
       },
       virtueleBoring: {
         getModels: vi.fn().mockResolvedValue([]),
@@ -438,9 +452,12 @@ beforeEach(() => {
   capturedContacts = undefined
   capturedOnManualLithoUnitCreate = undefined
   capturedAxisMode = undefined
+  capturedCorrelateGestureState = undefined
   // Reset to [] so T1–T3/T5 (render-based, no section list needed) are clean.
   mockSectionList.mockResolvedValue([])
   mockAcceptLithoSuggestions.mockReset()
+  mockCorrelate.mockReset()
+  mockCorrelate.mockResolvedValue(undefined)
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -835,5 +852,37 @@ describe('Manual litho unit creation — handleManualLithoUnitCreate', () => {
     // formationId comes from found_formation_ids[0] when created_formation_ids is empty.
     expect(result).toEqual({ formationId: 'form-existing-x' })
     expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// S5 — a failed correlate keeps the armed source + surfaces the error
+// ---------------------------------------------------------------------------
+
+describe('handleCorrelate — armed source persists on failure (review S5)', () => {
+  it('S5 — failed POST does NOT clear the armed source and toasts an error', async () => {
+    mockCorrelate.mockRejectedValue(new Error('422 cross-group race'))
+    const ctx = makeStubContext({
+      lithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+    })
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    // onCorrelate is wired on the litho axis regardless of correlate mode.
+    expect(capturedCorrelateGestureState?.onCorrelate).toBeDefined()
+    await act(async () => {
+      await capturedCorrelateGestureState!.onCorrelate!('f-a', 'f-b')
+    })
+
+    // Contract (spec / #57-adjacent): the armed source stays armed so the
+    // user can retry or pick a different target, and the failure is
+    // surfaced rather than silently swallowed.
+    expect(ctx.sections.clearCorrelationSource).not.toHaveBeenCalled()
+    expect(ctx.toasts.toast).toHaveBeenCalledWith('error', expect.any(String))
   })
 })
