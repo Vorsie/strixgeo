@@ -25,7 +25,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Route } from 'lucide-react'
 
 import { api } from '../../../api/client'
-import type { AdmixtureItem } from '../../../api/client'
+import type { AdmixtureItem, LithoCorrelationEdge } from '../../../api/client'
+import type { CorrelateGestureState } from '../../../components/sections/CorrelationEdgesOverlay'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
@@ -106,6 +107,12 @@ export default function SectionsCanvas(): JSX.Element {
       applyUpdatedSection,
       backdropModelIdOverride,
       setSectionFocusedColumn,
+      correlateMode,
+      correlationSource,
+      enterCorrelateMode,
+      exitCorrelateMode,
+      armCorrelationSource,
+      clearCorrelationSource,
     },
     overlays: {
       virtueleBoringSectionModels,
@@ -189,10 +196,119 @@ export default function SectionsCanvas(): JSX.Element {
     clearPinchOutPreview()
   }, [selectedSectionId, clearPinchOutPreview])
 
+  // Axis flag — defined early so both Slice 2 and Slice 4 blocks can use it.
+  const isLitho = sectionModelAxis === 'lithostratigraphic'
+
+  // Slice 4 (#55): litho correlation edges — fetch + gesture callbacks.
+  //
+  // Edges are MODEL-level only (no section_id) and must be fetched fresh
+  // after every edge mutation (correlate / uncorrelate) to keep ordinals
+  // in sync with the inspector stale badge. The effect re-runs whenever
+  // the active litho model or selected section changes — model changes swap
+  // the edge set; section changes can expose different visible formations.
+  const [correlationEdges, setCorrelationEdges] = useState<LithoCorrelationEdge[]>([])
+
+  const refetchEdges = useCallback(async () => {
+    if (!activeLithoModel) {
+      setCorrelationEdges([])
+      return
+    }
+    try {
+      const edges = await api.geology.listCorrelations(project.id, activeLithoModel.id)
+      setCorrelationEdges(edges)
+      log.debug('section', `correlation edges fetched: ${edges.length} for model ${activeLithoModel.id}`)
+    } catch (err) {
+      log.warn('section', 'refetchEdges: listCorrelations failed', err)
+    }
+  }, [activeLithoModel, project.id])
+
+  useEffect(() => {
+    if (!isLitho) {
+      setCorrelationEdges([])
+      return
+    }
+    void refetchEdges()
+    // reason: isLitho + activeLithoModel + selectedSectionId are the axes
+    // that change when the user switches model or section; refetchEdges
+    // already captures project.id + activeLithoModel.id via closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLitho, activeLithoModel?.id, selectedSectionId])
+
+  const handleCorrelate = useCallback(
+    async (formationAId: string, formationBId: string): Promise<void> => {
+      if (!activeLithoModel) return
+      try {
+        await api.geology.correlate(project.id, activeLithoModel.id, formationAId, formationBId)
+        log.debug('section', `correlate: edge ${formationAId} ↔ ${formationBId}`)
+        // Resolve ordinals + refetch edges — no toast on success (owner-decided)
+        await api.geology.resolveLithoInstances(project.id, activeLithoModel.id)
+        await refetchEdges()
+        // Clear armed state so user can arm the next source
+        clearCorrelationSource()
+      } catch (err) {
+        log.warn('section', 'handleCorrelate: POST failed', err)
+        // 422 or network error: let the CorrelationEdgesOverlay inline border
+        // flash handle local feedback; a 1-line toast covers network failures.
+        // The overlay currently does not have a flash mechanism; we log only.
+      }
+    },
+    [activeLithoModel, project.id, refetchEdges, clearCorrelationSource],
+  )
+
+  const handleUncorrelate = useCallback(
+    async (formationAId: string, formationBId: string): Promise<void> => {
+      if (!activeLithoModel) return
+      // Optimistic removal from local state before the DELETE resolves
+      setCorrelationEdges(prev =>
+        prev.filter(
+          e =>
+            !(
+              (e.formation_a_id === formationAId && e.formation_b_id === formationBId) ||
+              (e.formation_a_id === formationBId && e.formation_b_id === formationAId)
+            ),
+        ),
+      )
+      try {
+        await api.geology.uncorrelate(project.id, activeLithoModel.id, formationAId, formationBId)
+        log.debug('section', `uncorrelate: edge ${formationAId} ↔ ${formationBId} removed`)
+        await api.geology.resolveLithoInstances(project.id, activeLithoModel.id)
+        await refetchEdges()
+      } catch (err) {
+        log.warn('section', 'handleUncorrelate: DELETE failed — rolling back optimistic removal', err)
+        await refetchEdges()
+      }
+    },
+    [activeLithoModel, project.id, refetchEdges],
+  )
+
+  // Build the correlateGestureState passed to SectionPanel.
+  // Only wired on the litho axis; absent on the geological axis.
+  const correlateGestureState: CorrelateGestureState | undefined = useMemo(() => {
+    if (!isLitho) return undefined
+    return {
+      correlateMode,
+      correlationSource,
+      onArm: armCorrelationSource,
+      onClearArmed: clearCorrelationSource,
+      onExitMode: exitCorrelateMode,
+      onCorrelate: handleCorrelate,
+      onUncorrelate: handleUncorrelate,
+    }
+  }, [
+    isLitho,
+    correlateMode,
+    correlationSource,
+    armCorrelationSource,
+    clearCorrelationSource,
+    exitCorrelateMode,
+    handleCorrelate,
+    handleUncorrelate,
+  ])
+
   // Slice 2 (#55): axis-aware contact/formation/surface routing.
   // SectionPanel and ContactsLayer are UNCHANGED — the prop boundary absorbs
   // the switch. Geological is the default and existing behaviour is identical.
-  const isLitho = sectionModelAxis === 'lithostratigraphic'
+  // (isLitho is defined above the Slice 4 block so both slices share it.)
   // Active model for the chosen axis — used for export button gating.
   const activeAxisModel = isLitho ? activeLithoModel : activeGeologicalModel
   // Contact/formation/surface sets routed by axis.
@@ -646,6 +762,11 @@ export default function SectionsCanvas(): JSX.Element {
         // section is on the lithostratigraphic axis.
         axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
         onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
+        // Slice 4 (#55): correlation edges + gesture state, litho axis only.
+        // On the geological axis both props are undefined → CorrelationEdgesOverlay
+        // is not mounted (no regression, no stale edge data).
+        correlationEdges={isLitho ? correlationEdges : undefined}
+        correlateGestureState={correlateGestureState}
       />
     )
   }
