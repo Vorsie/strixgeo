@@ -195,3 +195,58 @@ both the created and found paths). `formationId` returned from
 `axisMode={isLitho ? 'lithostratigraphic' : 'geological'}` and
 `onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}` into
 `SectionPanel`.
+
+### Litho correlation connect gesture (Slice 4, #67 resolved)
+
+**State machine — `useCorrelate` hook** (`components/sections/useCorrelate.ts`):
+```
+Idle → enterMode() → Mode (no source)
+Mode → arm(source) → Armed
+Armed → clearArmed() → Mode  (Esc L1)
+Mode → exitMode() → Idle  (Esc L2)
+```
+Lifted into `UseSectionsResult` + shell bus so both SectionsToolbar and SectionsCanvas
+read the same state. `setSectionModelAxis` wrapper clears correlate state on axis switch;
+`selectedSectionId` effect clears on section switch.
+
+**Toolbar** — `GitMerge` `CorrelateButton` in the `{isLitho && …}` block:
+- Hidden on geological axis.
+- Disabled when `activeLithoModel === null` or `selectedSectionId === null`.
+- Label "Correlate" / "Correlating…" (active); amber tint when mode is on.
+- Click toggles `enterCorrelateMode` / `exitCorrelateMode`.
+
+**SectionsCanvas boundary** (`SectionsCanvas.tsx`):
+- `correlationEdges: LithoCorrelationEdge[]` state; `refetchEdges` via
+  `api.geology.listCorrelations`; useEffect keyed on `[isLitho, activeLithoModel?.id, selectedSectionId]`.
+- `handleCorrelate(aId, bId)`: POST → resolveLithoInstances → refetchEdges →
+  clearCorrelationSource. No toast on success (owner-decided).
+- `handleUncorrelate(aId, bId)`: optimistic local removal → DELETE →
+  resolveLithoInstances → refetchEdges; rollback (full refetch) on failure.
+- `correlateGestureState` useMemo → `CorrelateGestureState` (absent on geological axis).
+- Passes `correlationEdges={isLitho ? correlationEdges : undefined}` and
+  `correlateGestureState` to SectionPanel.
+
+**CorrelationEdgesOverlay** (`components/sections/CorrelationEdgesOverlay.tsx`):
+SVG `<g>` mounted inside SectionPanel's SVG when `correlationEdges !== undefined`.
+
+Edge rendering (always-on when edges exist):
+- Invisible hit line (16px wide, transparent) for right-click uncorrelate.
+- Visible dashed blue line: stroke `#3b82f6`, width 1.5px, dash `5 3`.
+- EdgeBadge at midpoint: "body N" (dark navy background) or "?" (amber #d97706) when
+  `instance_ordinal` is null.
+- Dangling suppression: edges only render when BOTH formations have a column on the
+  section (both x + midY resolvable).
+
+Correlate-mode gesture rects (only when `correlateGestureState.correlateMode`):
+- No source armed: crosshair arm rect (`data-testid="correlate-arm-{invId}-{fId}"`).
+- Source armed (isSource): 2px accent outline + floating label above band; click = clearArmed.
+- Valid target (`isValidTarget`): dim blue tint + dashed border (`data-testid="correlate-target-{invId}-{fId}"`); click = onCorrelate(source.formationId, gr.formationId).
+- Cross-group (placeholder for Phase 5 enforcement): not-allowed cursor + SVG title tooltip.
+
+True-spacing warning: amber italic text at plotTop − 4 when `correlateMode && any adjacent pair of columns < 1 m apart (proj.along delta)`.
+
+Esc peel in SectionPanel's keydown handler (LIFO):
+1. contextMenu → dismissContextMenu
+2. correlationSource armed → onClearArmed (stay in mode)
+3. correlateMode → onExitMode
+4. focusedColumn → exitFocus
