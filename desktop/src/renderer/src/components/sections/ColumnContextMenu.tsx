@@ -32,6 +32,12 @@ interface Props {
   name: string
   /** Fired when the user picks "Focus this test". */
   onFocus: () => void
+  /** Fired when the user picks "Open detail" — opens the test's full
+   * chart/borelog detail (routes to the Data stage). When omitted
+   * (read-only mounts / no detail handler) the item is hidden. Single-
+   * click on a section column places a contact, so detail-open lives
+   * here rather than on a click gesture. */
+  onOpenDetail?: () => void
   /** Fired when the user picks "Remove from this section". When
    * omitted (test harness, read-only mounts) the menu item is
    * hidden — the action is only meaningful when the parent owns
@@ -47,6 +53,7 @@ export default function ColumnContextMenu({
   y,
   name,
   onFocus,
+  onOpenDetail,
   onRemoveFromSection,
   onClose,
 }: Props): JSX.Element {
@@ -89,6 +96,19 @@ export default function ColumnContextMenu({
       >
         Focus this test
       </button>
+      {onOpenDetail && (
+        <button
+          type="button"
+          className="block w-full text-left px-3 py-2 hover:bg-gray-100 border-t border-gray-100"
+          onClick={() => {
+            onOpenDetail()
+            onClose()
+          }}
+          role="menuitem"
+        >
+          Open detail
+        </button>
+      )}
       {onRemoveFromSection && (
         <button
           type="button"
