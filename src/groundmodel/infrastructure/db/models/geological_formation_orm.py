@@ -100,7 +100,16 @@ class GeologicalFormationOrm(Base):
     litho_admixtures: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # Phase 2: ordinal for same-composition instances within a parent formation.
     # NULL throughout Phase 1 — Accept leaves it unassigned.
-    # Phase 2: instance_ordinal = NULL (assigned by resolve_litho_instances)
+    # Phase 2: assigned by resolve_litho_instances from the correlation
+    # edge graph. PROVENANCE (Data Integrity Rule §1): this is a DERIVED
+    # value, not a measurement. It IS serialised into the .gmproj bundle
+    # and restored verbatim, but it remains fully recomputable from the
+    # edge graph by re-running the resolver — UNLESS instance_ordinal_locked
+    # is True (then it is a user decision the resolver must preserve). A
+    # caller that runs the resolver mid-restore (before edges are restored)
+    # would transiently reset non-locked ordinals; restore is atomic today
+    # so this cannot happen, but keep that ordering invariant if the
+    # restore path is ever refactored (Phase-2 span audit should-fix).
     instance_ordinal: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # True when the user has locked the ordinal; Phase 2 auto-resolver skips it.
     instance_ordinal_locked: Mapped[bool] = mapped_column(
