@@ -7,10 +7,13 @@
 //   D4  Clicking a row in the existing-units list fires onSelect.
 //   D5  Tab 2 "New unit": ZAND + KL:M admixture → live preview shows
 //       "matig kleiige Zand" (the key usability feature from the design).
-//   D6  No-geology-context warning renders when parentFormationName is null.
+//   D6  Neutral "resolved automatically" note renders when
+//       parentFormationName is null (NOT an alarming warning — review S1).
 //   D7  Cancel clears and calls onCancel.
 //   D8  Tab 2 onCreateLithoUnit fired with the composed payload on confirm.
 //   D9  Dialog renders nothing when open is false.
+//   D10 Successful new-unit create closes WITHOUT chaining onSelect
+//       (the accept endpoint already made the contact — review B1).
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -213,26 +216,26 @@ describe('LithoCompositionPickerDialog — new unit tab preview', () => {
 // D6 — No-geology-context warning
 // ---------------------------------------------------------------------------
 
-describe('LithoCompositionPickerDialog — no-context warning', () => {
-  it('D6: shows amber warning when parentFormationName is null', () => {
+describe('LithoCompositionPickerDialog — no-context note', () => {
+  it('D6: shows the neutral auto-resolve note when parentFormationName is null', () => {
     render(
       <LithoCompositionPickerDialog
         {...makeDefaultProps({ parentFormationName: null })}
       />,
     )
     expect(
-      screen.getByText(/No geological context at this investigation/i),
+      screen.getByText(/resolved automatically when the contact is committed/i),
     ).toBeInTheDocument()
   })
 
-  it('does NOT show the warning when parentFormationName is provided', () => {
+  it('omits the auto-resolve note when parentFormationName is provided', () => {
     render(
       <LithoCompositionPickerDialog
         {...makeDefaultProps({ parentFormationName: 'Boom Klei' })}
       />,
     )
     expect(
-      screen.queryByText(/No geological context at this investigation/i),
+      screen.queryByText(/resolved automatically when the contact is committed/i),
     ).toBeNull()
   })
 })
@@ -276,5 +279,33 @@ describe('LithoCompositionPickerDialog — create unit confirm', () => {
     fireEvent.click(screen.getByRole('button', { name: /create unit/i }))
 
     await waitFor(() => expect(onCreateLithoUnit).toHaveBeenCalledWith('KLEI', []))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D10 — new-unit create must NOT double-create (review B1)
+// ---------------------------------------------------------------------------
+
+describe('LithoCompositionPickerDialog — new-unit does not double-create (B1)', () => {
+  it('D10: successful create closes via onCancel and does NOT chain onSelect', async () => {
+    const onCreateLithoUnit = vi.fn().mockResolvedValue({ formationId: 'lt-new' })
+    const onSelect = vi.fn().mockResolvedValue(undefined)
+    const onCancel = vi.fn()
+
+    render(
+      <LithoCompositionPickerDialog
+        {...makeDefaultProps({ onCreateLithoUnit, onSelect, onCancel })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /new unit/i }))
+    fireEvent.click(screen.getByRole('button', { name: /create unit/i }))
+
+    await waitFor(() => expect(onCreateLithoUnit).toHaveBeenCalled())
+    // onCreateLithoUnit already created the formation + contact + seeded
+    // the section. Chaining onSelect would re-POST the contact → 409 →
+    // false error toast (B1). It must NOT be called; the dialog closes.
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })
