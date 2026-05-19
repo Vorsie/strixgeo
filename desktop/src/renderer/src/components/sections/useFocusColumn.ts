@@ -97,12 +97,17 @@ export interface UseFocusColumnResult {
  * the test's depth range requires knowing the pixel box to solve
  * for VEX.
  *
- * ``plotLeft`` / ``scaleH`` are needed to convert each column's
- * rendered screen-X (``nudgedX`` — the actual draw position after
- * collision nudging) back to world-space metres so the focus window
- * centres on the column the user actually sees, not on its raw
- * projected along-distance (which may differ after the spacing
- * lerp + nudge pass).
+ * The focus window centres on the column's TRUE projected along-
+ * distance (``proj.along``), NOT on its multi-column rendered
+ * ``nudgedX``. An earlier version inverted ``nudgedX`` back to world
+ * space "so it centres on the column the user sees" — but that baked
+ * in the collision-nudge offset from the *packed* multi-column
+ * layout. Once focus re-lays-out at the tight ``FOCUS_X_HALF_WIDTH_M``
+ * window the column is effectively isolated (no neighbours close
+ * enough to collide) and renders at ``proj.along``, so centring on
+ * the stale nudged position left it off-centre by that nudge — the
+ * "had to pan to find the test" bug. ``proj.along`` is where the
+ * focused column actually draws, so it is the correct centre.
  */
 export function useFocusColumn(
   placedColumns: readonly PlacedColumn[],
@@ -110,8 +115,6 @@ export function useFocusColumn(
   vex: number,
   plotWidth: number,
   plotHeight: number,
-  plotLeft: number,
-  scaleH: number,
   setViewport: (next: Viewport) => void,
   setVex: (next: number) => void,
 ): UseFocusColumnResult {
@@ -165,27 +168,24 @@ export function useFocusColumn(
         const scaleV = plotHeight / vSpan
         newVex = clamp(scaleV / focusScaleH, VEX_MIN, VEX_MAX)
       }
-      // Convert the column's rendered screen-X (nudgedX) back to world
-      // metres so the focus window centres on the column the user sees,
-      // not on its raw projected along-distance. When columns have been
-      // nudged rightward by the collision-avoidance pass, using
-      // col.proj.along would land the centre off-screen from the actual
-      // drawn position. scaleH and plotLeft are the current-render values
-      // captured by the parent — inverse of ``xToScreen = plotLeft + (x - xMin) * scaleH``.
-      const renderedWorldX =
-        scaleH > 0
-          ? viewport.xMin + (col.nudgedX - plotLeft) / scaleH
-          : col.proj.along
+      // Centre the focus window on the column's TRUE projected along-
+      // distance. The previous nudgedX-inversion baked in the
+      // collision-nudge offset from the packed multi-column layout;
+      // once focus re-lays-out at this tight 40 m window the column is
+      // isolated and renders at proj.along, so centring on the stale
+      // nudged position left it off-centre — the user had to pan to
+      // find the test. proj.along is where it actually draws.
+      const focusWorldX = col.proj.along
       setViewport({
-        xMin: renderedWorldX - FOCUS_X_HALF_WIDTH_M,
-        xMax: renderedWorldX + FOCUS_X_HALF_WIDTH_M,
+        xMin: focusWorldX - FOCUS_X_HALF_WIDTH_M,
+        xMax: focusWorldX + FOCUS_X_HALF_WIDTH_M,
         levelMin: newLevelMin,
         levelMax: newLevelMax,
       })
       setVex(newVex)
       setFocusedColumn(target)
     },
-    [placedColumns, viewport, vex, plotWidth, plotHeight, plotLeft, scaleH, setViewport, setVex],
+    [placedColumns, viewport, vex, plotWidth, plotHeight, setViewport, setVex],
   )
 
   const exitFocus = useCallback(() => {
