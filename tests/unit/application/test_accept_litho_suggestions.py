@@ -10,6 +10,7 @@ D1 — display_order: two litho units at different depths under the same parent 
 D2 — display_order idempotency: re-accept with no new formations does not trigger recompute.
 D3 — display_order cross-parent: parent geological display_order is the coarse sort key.
 D4 — display_order geological/non-litho formations untouched.
+V10 — IDOR scope guard: litho model owned by another project → ValueError.
 
 The DB session is fully mocked.  No real DB or network I/O.
 """
@@ -830,3 +831,46 @@ async def test_d4_geological_formations_are_not_modified() -> None:
         "_recompute_litho_display_orders — only litho formations with "
         "contacts in the model are in scope"
     )
+
+
+# ---------------------------------------------------------------------------
+# V10 — IDOR scope guard: litho model owned by another project is rejected
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_v10_wrong_project_litho_model_raises_value_error() -> None:
+    """VULN-10 scope guard: a litho model in another project is rejected.
+
+    The router guards the endpoint, but ``execute`` re-checks
+    ``litho_model.app_project_id`` so a non-API caller cannot skip the
+    scope check. Pins the negative arm — a future change that drops the
+    use-case check fails loudly (CLAUDE.md DoD §4). The guard must fire
+    before any investigation load or contact write.
+    """
+    other_project = uuid4()
+    foreign_model = SimpleNamespace(
+        app_project_id=other_project,  # NOT PROJECT_ID
+        kind="lithostratigraphic",
+        parent_geological_model_id=GEO_MODEL_ID,
+    )
+
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=foreign_model)
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.commit = AsyncMock()
+    session.flush = AsyncMock()
+    uc = _use_case(session)
+
+    with pytest.raises(ValueError, match="not found in project"):
+        await uc.execute(
+            project_id=PROJECT_ID,
+            litho_model_id=LITHO_MODEL_ID,
+            suggestions=[_make_suggestion(0.0, 5.0, "KLEI")],
+            borehole_id=BOREHOLE_ID,
+        )
+    # Guard fires before any query or write.
+    session.execute.assert_not_awaited()
+    session.add.assert_not_called()
+    session.commit.assert_not_awaited()
