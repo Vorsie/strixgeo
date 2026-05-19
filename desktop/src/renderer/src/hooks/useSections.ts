@@ -21,6 +21,7 @@ import { wgs84ToProjected } from './useWgs84'
 import { log } from '../utils/log'
 import type { UndoCommand } from './useUndoStack'
 import type { FocusTarget } from '../components/sections/useFocusColumn'
+import { useCorrelate } from '../components/sections/useCorrelate'
 import type { CorrelationSource } from '../components/sections/useCorrelate'
 
 /** Which model the section editor renders and edits (slice 2, #55). */
@@ -259,32 +260,35 @@ export function useSections({
   // Correlate mode (Slice 4). Transient — session-only, not persisted.
   // Cleared when the axis switches (via setSectionModelAxis callers) or
   // when the selected section changes.
-  const [correlateMode, setCorrelateMode] = useState(false)
-  const [correlationSource, setCorrelationSource] = useState<CorrelationSource | null>(null)
-  // Clear correlate state when the section changes (stale armed source
-  // would reference a formation band that doesn't exist on the new section).
+  // Single source of truth for the correlate state machine: delegate to
+  // useCorrelate (review B1 — useSections previously re-implemented an
+  // identical machine, leaving the hook + its 8 unit tests testing dead
+  // code while the two copies could silently diverge). useSections owns
+  // only the bus-level side effects the hook intentionally does not:
+  // clearing on section change / axis switch.
+  const {
+    correlateMode,
+    correlationSource,
+    enterMode: enterCorrelateMode,
+    exitMode: exitCorrelateMode,
+    arm: armCorrelationSource,
+    clearArmed: clearCorrelationSource,
+  } = useCorrelate()
+  // Clear correlate state when the section changes (a stale armed source
+  // would reference a band that doesn't exist on the new section).
   useEffect(() => {
-    setCorrelateMode(false)
-    setCorrelationSource(null)
-  }, [selectedSectionId])
-  const enterCorrelateMode = useCallback(() => setCorrelateMode(true), [])
-  const exitCorrelateMode = useCallback(() => {
-    setCorrelateMode(false)
-    setCorrelationSource(null)
-  }, [])
-  const armCorrelationSource = useCallback(
-    (source: CorrelationSource) => setCorrelationSource(source),
-    [],
-  )
-  const clearCorrelationSource = useCallback(() => setCorrelationSource(null), [])
-  // Wrap the axis setter to also clear correlate mode — switching axes
+    exitCorrelateMode()
+  }, [selectedSectionId, exitCorrelateMode])
+  // Wrap the axis setter to also exit correlate mode — switching axes
   // leaves the armed source referencing a band that doesn't exist on
-  // the new axis (geological axis has no litho unit bands).
-  const setSectionModelAxis = useCallback((axis: SectionModelAxis) => {
-    _setSectionModelAxis(axis)
-    setCorrelateMode(false)
-    setCorrelationSource(null)
-  }, [])
+  // the new axis (the geological axis has no litho unit bands).
+  const setSectionModelAxis = useCallback(
+    (axis: SectionModelAxis) => {
+      _setSectionModelAxis(axis)
+      exitCorrelateMode()
+    },
+    [exitCorrelateMode],
+  )
   // Two-click draw mode — active while the user is placing a section
   // line on the map. Set by handleCreateSection, cleared by
   // cancelSectionDraw and handleSectionLineDrawn.
