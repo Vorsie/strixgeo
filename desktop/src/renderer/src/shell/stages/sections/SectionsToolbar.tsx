@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useState } from 'react'
-import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus } from 'lucide-react'
+import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
 import { ToolbarButton, PrimaryToolbarButton } from '../../ToolbarPrimitives'
@@ -43,6 +43,9 @@ export default function SectionsToolbar(): JSX.Element {
       applyUpdatedSection,
       backdropModelIdOverride,
       sectionFocusedColumn,
+      correlateMode,
+      enterCorrelateMode,
+      exitCorrelateMode,
     },
     geoModel: {
       activeGeologicalModel,
@@ -412,6 +415,31 @@ export default function SectionsToolbar(): JSX.Element {
               />
             </>
           )}
+          {/* Correlate mode toggle — arms the two-click connect gesture.
+              Enabled iff a litho model is active AND a section is open.
+              Active state rendered with accent background.
+              Clears correlate mode + armed source on axis switch (via
+              setSectionModelAxis which now wraps the raw setter). */}
+          <ToolbarButton
+            icon={<GitMerge size={13} />}
+            label={correlateMode ? 'Correlating…' : 'Correlate'}
+            onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
+            disabled={!activeLithoModel || !hasSection}
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : !hasSection
+                  ? 'Open a cross-section to correlate units'
+                  : correlateMode
+                    ? 'Exit correlate mode (Esc)'
+                    : 'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them'
+            }
+            // reason: correlateMode active = visually distinct from idle.
+            // We repurpose the amber style (which reads as "attention needed"
+            // here, not "unsaved") because it makes the active mode obvious
+            // without adding a new token. Amber = ongoing action in progress.
+            amber={correlateMode}
+          />
           {/* Separator after litho-specific actions */}
           <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
         </>
