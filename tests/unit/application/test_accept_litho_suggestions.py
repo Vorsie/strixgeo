@@ -153,6 +153,7 @@ def _make_session(
     )
     # The borehole ORM stub
     borehole_stub = SimpleNamespace(
+        app_project_id=PROJECT_ID,
         location_x=borehole_x,
         location_y=borehole_y,
     )
