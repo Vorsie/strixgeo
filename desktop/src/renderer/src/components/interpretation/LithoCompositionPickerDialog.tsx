@@ -1,0 +1,529 @@
+/**
+ * Litho composition picker for the click-to-place litho-contact workflow.
+ *
+ * Opens after the user picks a depth on a borehole or CPT in the cross-section
+ * when the section axis is 'lithostratigraphic'.  Presents two tabs:
+ *
+ *   Tab 1 "Existing units" — lists every litho formation in the active model,
+ *   grouped by parent geological formation.  Litho units whose parent is null
+ *   appear in an "Unassigned" group at the bottom.  Each row shows the
+ *   Dutch display name from ``formatLithoDisplayName`` + a lithology colour
+ *   swatch.  Clicking a row calls ``onSelect`` and closes the modal.
+ *
+ *   Tab 2 "New unit" — composition builder: a main-soil segmented control
+ *   (GRIND / ZAND / SILT / KLEI / VEEN) + a growable admixture row list
+ *   (soil-code dropdown, amount dropdown, "locally" checkbox, remove button) +
+ *   a live ``formatLithoDisplayName`` preview that updates as the user builds.
+ *   Confirm calls ``onCreateLithoUnit`` then chains to ``onSelect`` for the
+ *   created formation id and closes.
+ *
+ * No-geology-context case (``parentFormationName === null``): the picker still
+ * opens but shows a warning banner.  The created unit gets parent_formation_id=null
+ * (server resolves geometry at commit time) and appears in the "Unassigned"
+ * group.
+ *
+ * Phase-2 exclusions (do NOT add): instance_ordinal, litho_correlation_edge,
+ * connect/correlate gesture, .gmproj correlation round-trip, search/filter.
+ */
+
+import { useState } from 'react'
+import { Plus, X } from 'lucide-react'
+
+import type { AdmixtureItem, GeologicalFormationResponse } from '../../api/client'
+import { LITHOLOGY_COLORS, LITHOLOGY_FALLBACK_COLOR } from '../../utils/lithoConstants'
+import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import Button from '../ui/Button'
+import Modal from '../ui/Modal'
+
+// ---------------------------------------------------------------------------
+// Domain vocabulary — Dutch labels at the presentation boundary.
+// Keys match BASE_LITHOLOGIES in litho_constants.py.
+// ---------------------------------------------------------------------------
+
+const MAIN_SOIL_CODES = ['GRIND', 'ZAND', 'SILT', 'KLEI', 'VEEN'] as const
+type MainSoilCode = (typeof MAIN_SOIL_CODES)[number]
+
+const MAIN_SOIL_LABELS: Record<MainSoilCode, string> = {
+  GRIND: 'Grind',
+  ZAND: 'Zand',
+  SILT: 'Silt',
+  KLEI: 'Klei',
+  VEEN: 'Veen',
+}
+
+// Admixture soil-code options — DOV vocabulary codes.
+const ADMIXTURE_SOIL_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: 'GL', label: 'Grind (GL)' },
+  { code: 'ZN', label: 'Zand (ZN)' },
+  { code: 'SL', label: 'Silt (SL)' },
+  { code: 'KL', label: 'Klei (KL)' },
+  { code: 'VE', label: 'Veen (VE)' },
+]
+
+// Admixture amount-code options.
+const ADMIXTURE_AMOUNT_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: '', label: '— (niet gespecificeerd)' },
+  { code: 'Z', label: 'Zwak (Z)' },
+  { code: 'W', label: 'Weinig (W)' },
+  { code: 'M', label: 'Matig (M)' },
+  { code: 'V', label: 'Veel (V)' },
+  { code: 'S', label: 'Sterk (S)' },
+]
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Group litho formations by parent_formation_id. */
+function groupByParent(
+  lithoFormations: readonly GeologicalFormationResponse[],
+  geoFormations: readonly GeologicalFormationResponse[],
+): Array<{ groupName: string; parentId: string | null; formations: GeologicalFormationResponse[] }> {
+  const geoById = new Map(geoFormations.map(f => [f.id, f]))
+  const grouped = new Map<string | null, GeologicalFormationResponse[]>()
+
+  for (const f of lithoFormations) {
+    const key = f.parent_formation_id ?? null
+    const bucket = grouped.get(key) ?? []
+    bucket.push(f)
+    grouped.set(key, bucket)
+  }
+
+  // Build result: named geo-parent groups first, then "Unassigned".
+  const result: ReturnType<typeof groupByParent> = []
+  for (const [parentId, formations] of grouped) {
+    if (parentId === null) continue
+    const parent = geoById.get(parentId)
+    result.push({
+      groupName: parent?.name ?? parentId,
+      parentId,
+      formations,
+    })
+  }
+  // Sort named groups by geo parent display_order so the list follows the
+  // geological column order.
+  result.sort((a, b) => {
+    const aOrder = geoById.get(a.parentId ?? '')?.display_order ?? 0
+    const bOrder = geoById.get(b.parentId ?? '')?.display_order ?? 0
+    return aOrder - bOrder
+  })
+  // Append Unassigned group at the bottom.
+  const unassigned = grouped.get(null)
+  if (unassigned && unassigned.length > 0) {
+    result.push({ groupName: 'Unassigned', parentId: null, formations: unassigned })
+  }
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
+export interface LithoCompositionPickerProps {
+  open: boolean
+  /** All litho-model formations — used for the "Existing units" tab. */
+  lithoFormations: readonly GeologicalFormationResponse[]
+  /** Geological-model formations — used for the parent-group headings. */
+  geoFormations: readonly GeologicalFormationResponse[]
+  /** Anchor context surfaced in the subtitle. */
+  anchor: {
+    kind: 'cpt' | 'borehole'
+    name: string
+    depth_m: number
+    elevationM: number
+  } | null
+  /**
+   * Name of the parent geological formation at this depth.  Shown as
+   * "within: <name>" below the subtitle.  ``null`` when there is no
+   * geological context (no geology contacts at this investigation) — the picker
+   * still opens but shows a warning banner.
+   */
+  parentFormationName: string | null
+  /** Existing-unit path — called with the formation id the user picked. */
+  onSelect: (formationId: string) => Promise<void> | void
+  /**
+   * New-unit path — called with the composed main soil code + admixtures.
+   *
+   * On success the caller creates the formation server-side, chains into
+   * ``onSelect`` with the new id, and closes the dialog.  On failure (or when
+   * the caller returns ``null``) the dialog stays open.
+   */
+  onCreateLithoUnit: (
+    mainSoilCode: string,
+    admixtures: AdmixtureItem[],
+  ) => Promise<{ formationId: string } | null>
+  onCancel: () => void
+}
+
+// ---------------------------------------------------------------------------
+// Admixture row state
+// ---------------------------------------------------------------------------
+
+interface AdmixtureRow {
+  id: number // stable React key
+  soil_code: string
+  amount: string
+  locally: boolean
+}
+
+let _rowIdCounter = 0
+function nextRowId(): number {
+  return ++_rowIdCounter
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+/**
+ * Two-tab modal for placing a litho contact on the cross-section.
+ *
+ * Tab 1 "Existing units": pick from the model's litho formations.
+ * Tab 2 "New unit": build a composition and create a new formation.
+ */
+export default function LithoCompositionPickerDialog({
+  open,
+  lithoFormations,
+  geoFormations,
+  anchor,
+  parentFormationName,
+  onSelect,
+  onCreateLithoUnit,
+  onCancel,
+}: LithoCompositionPickerProps): JSX.Element | null {
+  type Tab = 'existing' | 'new'
+  const [activeTab, setActiveTab] = useState<Tab>('existing')
+
+  // --- Tab 1 state ---
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  // --- Tab 2 state ---
+  const [mainCode, setMainCode] = useState<MainSoilCode>('ZAND')
+  const [admixRows, setAdmixRows] = useState<AdmixtureRow[]>([])
+  const [creating, setCreating] = useState(false)
+
+  // Live preview from the current Tab 2 composition.
+  const previewLabel = formatLithoDisplayName(
+    mainCode,
+    admixRows.map(r => ({ soil_code: r.soil_code, amount: r.amount, locally: r.locally })),
+  )
+
+  // Reset Tab 2 state when the dialog closes so re-opening is fresh.
+  function handleCancel(): void {
+    setMainCode('ZAND')
+    setAdmixRows([])
+    setActiveTab('existing')
+    onCancel()
+  }
+
+  // --- Tab 1: existing-unit pick ---
+  async function pickExisting(formationId: string): Promise<void> {
+    if (busyId !== null || creating) return
+    setBusyId(formationId)
+    try {
+      await onSelect(formationId)
+      setActiveTab('existing')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // --- Tab 2: admixture row management ---
+  function addAdmixtureRow(): void {
+    setAdmixRows(prev => [
+      ...prev,
+      { id: nextRowId(), soil_code: 'KL', amount: '', locally: false },
+    ])
+  }
+
+  function removeAdmixtureRow(id: number): void {
+    setAdmixRows(prev => prev.filter(r => r.id !== id))
+  }
+
+  function updateAdmixtureRow(
+    id: number,
+    patch: Partial<Omit<AdmixtureRow, 'id'>>,
+  ): void {
+    setAdmixRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)))
+  }
+
+  // --- Tab 2: confirm ---
+  async function handleCreateConfirm(): Promise<void> {
+    if (creating || busyId !== null) return
+    setCreating(true)
+    try {
+      const admixtures: AdmixtureItem[] = admixRows.map(r => ({
+        soil_code: r.soil_code,
+        amount: r.amount,
+        locally: r.locally,
+      }))
+      const result = await onCreateLithoUnit(mainCode, admixtures)
+      if (result !== null) {
+        // Chain into onSelect then close — the caller closes by clearing
+        // pickContext; here we reset Tab 2 state so re-opening is fresh.
+        await onSelect(result.formationId)
+        setMainCode('ZAND')
+        setAdmixRows([])
+        setActiveTab('existing')
+      }
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const busy = busyId !== null || creating
+  const groups = groupByParent(lithoFormations, geoFormations)
+
+  return (
+    <Modal
+      open={open}
+      onCancel={handleCancel}
+      labelledBy="litho-picker-title"
+      busy={busy}
+      cardClassName="w-[32rem]"
+    >
+      <div className="p-5">
+        {/* Title */}
+        <h2
+          id="litho-picker-title"
+          className="text-base font-semibold text-text-primary mb-1"
+        >
+          Top of which litho unit?
+        </h2>
+
+        {/* Anchor subtitle */}
+        {anchor && (
+          <p className="text-xs text-text-secondary mb-2">
+            On <span className="font-medium text-text-primary">{anchor.name}</span>{' '}
+            at depth {anchor.depth_m.toFixed(2)} m (
+            {anchor.elevationM >= 0 ? '+' : ''}
+            {anchor.elevationM.toFixed(2)} m TAW)
+          </p>
+        )}
+
+        {/* Parent-formation context / no-context warning */}
+        {parentFormationName !== null ? (
+          <p className="text-xs text-text-secondary mb-3">
+            within:{' '}
+            <span className="font-medium text-text-primary">{parentFormationName}</span>
+          </p>
+        ) : (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1">
+            No geological context at this investigation — parent formation unknown.
+            The unit will appear under "Unassigned".
+          </p>
+        )}
+
+        {/* Tab bar */}
+        <div className="flex border-b border-border-subtle mb-3">
+          {(['existing', 'new'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              disabled={busy}
+              className={[
+                'px-3 py-1.5 text-xs font-medium -mb-px border-b-2 transition-colors',
+                activeTab === tab
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-text-secondary hover:text-text-primary',
+                busy ? 'opacity-50 cursor-not-allowed' : '',
+              ].join(' ')}
+            >
+              {tab === 'existing' ? 'Existing units' : 'New unit'}
+            </button>
+          ))}
+        </div>
+
+        {/* ---------------------------------------------------------------- */}
+        {/* Tab 1 — Existing units                                           */}
+        {/* ---------------------------------------------------------------- */}
+        {activeTab === 'existing' && (
+          <div className="max-h-72 overflow-y-auto -mx-2 px-2">
+            {lithoFormations.length === 0 ? (
+              <p className="text-xs text-text-muted italic px-1 py-3">
+                No litho units in this model yet — use the "New unit" tab to create
+                the first one.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {groups.map(group => (
+                  <div key={group.parentId ?? '__unassigned__'}>
+                    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide mb-1 px-1">
+                      {group.groupName}
+                    </p>
+                    <ul className="flex flex-col gap-1">
+                      {group.formations.map(f => {
+                        const color =
+                          f.litho_main_soil_code
+                            ? (LITHOLOGY_COLORS[f.litho_main_soil_code] ?? LITHOLOGY_FALLBACK_COLOR)
+                            : LITHOLOGY_FALLBACK_COLOR
+                        const displayName = formatLithoDisplayName(
+                          f.litho_main_soil_code ?? '',
+                          f.litho_admixtures,
+                        )
+                        return (
+                          <li key={f.id}>
+                            <button
+                              onClick={() => void pickExisting(f.id)}
+                              disabled={busy}
+                              className={[
+                                'w-full flex items-center gap-2 px-2 py-2 rounded text-left',
+                                'border border-border-default hover:border-accent hover:bg-surface-page',
+                                'disabled:opacity-60 disabled:cursor-not-allowed transition-colors',
+                              ].join(' ')}
+                            >
+                              <span
+                                className="inline-block w-4 h-4 rounded border border-border-default shrink-0"
+                                style={{ backgroundColor: color }}
+                              />
+                              <span className="text-xs font-medium text-text-primary truncate">
+                                {displayName || f.name}
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ---------------------------------------------------------------- */}
+        {/* Tab 2 — New unit                                                 */}
+        {/* ---------------------------------------------------------------- */}
+        {activeTab === 'new' && (
+          <div className="flex flex-col gap-3">
+            {/* Main soil segmented control */}
+            <div>
+              <p className="text-xs text-text-secondary mb-1.5">Main lithology</p>
+              <div className="flex gap-1 flex-wrap">
+                {MAIN_SOIL_CODES.map(code => {
+                  const color = LITHOLOGY_COLORS[code] ?? LITHOLOGY_FALLBACK_COLOR
+                  return (
+                    <button
+                      key={code}
+                      onClick={() => setMainCode(code)}
+                      disabled={busy}
+                      className={[
+                        'flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium border transition-colors',
+                        mainCode === code
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                          : 'border-border-default text-text-secondary hover:border-accent hover:bg-surface-page',
+                        busy ? 'opacity-50 cursor-not-allowed' : '',
+                      ].join(' ')}
+                    >
+                      <span
+                        className="inline-block w-3 h-3 rounded-sm shrink-0"
+                        style={{ backgroundColor: color }}
+                      />
+                      {MAIN_SOIL_LABELS[code]}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Admixture rows */}
+            <div>
+              <p className="text-xs text-text-secondary mb-1.5">Admixtures</p>
+              <div className="flex flex-col gap-1.5">
+                {admixRows.map(row => (
+                  <div key={row.id} className="flex items-center gap-1.5">
+                    {/* Soil code */}
+                    <select
+                      value={row.soil_code}
+                      onChange={e => updateAdmixtureRow(row.id, { soil_code: e.target.value })}
+                      disabled={busy}
+                      className="text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
+                      aria-label="Admixture soil code"
+                    >
+                      {ADMIXTURE_SOIL_OPTIONS.map(opt => (
+                        <option key={opt.code} value={opt.code}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    {/* Amount */}
+                    <select
+                      value={row.amount}
+                      onChange={e => updateAdmixtureRow(row.id, { amount: e.target.value })}
+                      disabled={busy}
+                      className="text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
+                      aria-label="Admixture amount"
+                    >
+                      {ADMIXTURE_AMOUNT_OPTIONS.map(opt => (
+                        <option key={opt.code} value={opt.code}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    {/* Locally checkbox */}
+                    <label className="flex items-center gap-1 text-xs text-text-secondary select-none cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={row.locally}
+                        onChange={e => updateAdmixtureRow(row.id, { locally: e.target.checked })}
+                        disabled={busy}
+                        className="rounded"
+                      />
+                      locally
+                    </label>
+                    {/* Remove */}
+                    <button
+                      onClick={() => removeAdmixtureRow(row.id)}
+                      disabled={busy}
+                      className="ml-auto text-text-muted hover:text-red-600 disabled:opacity-40"
+                      title="Remove admixture"
+                      aria-label="Remove admixture"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={addAdmixtureRow}
+                disabled={busy}
+                className="mt-1.5 flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary disabled:opacity-40"
+              >
+                <Plus size={11} />
+                Add admixture
+              </button>
+            </div>
+
+            {/* Live preview */}
+            <div className="rounded border border-border-subtle bg-surface-page px-3 py-2">
+              <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">Preview</p>
+              <p
+                className="text-sm font-medium text-text-primary"
+                data-testid="litho-preview"
+              >
+                {previewLabel}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Footer actions */}
+        <div className="flex justify-end items-center gap-2 mt-4 pt-3 border-t border-border-subtle">
+          <Button variant="secondary" size="md" onClick={handleCancel} disabled={busy}>
+            Cancel
+          </Button>
+          {activeTab === 'new' && (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => void handleCreateConfirm()}
+              disabled={busy}
+            >
+              {creating ? 'Creating…' : 'Create unit'}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
