@@ -346,6 +346,9 @@ class AcceptLithoSuggestions(GroundModelLogger):
                     )
 
                 # Find-or-create the contact.
+                # Thread sug.source directly so manual_pick payloads stamp
+                # 'manual_pick' and the bulk-segmenter paths keep their own
+                # source strings ('cpt_robertson_2015' / 'borehole_observation').
                 contact_id, was_created = await self._find_or_create_contact(
                     litho_model_id=litho_model_id,
                     formation_id=formation.id,
@@ -353,6 +356,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
                     borehole_id=borehole_id,
                     cpt_id=cpt_id,
                     confidence=sug.confidence.value.lower(),
+                    source=sug.source,
                 )
                 if was_created:
                     created_contact_ids.append(contact_id)
@@ -718,6 +722,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         borehole_id: UUID | None,
         cpt_id: UUID | None,
         confidence: str,
+        source: str,
     ) -> tuple[UUID, bool]:
         """Idempotent contact find-or-create.
 
@@ -730,6 +735,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
         cpt_id : UUID | None
         confidence : str
             Lowercased confidence string (``"high"`` / ``"medium"`` / ``"low"``).
+        source : str
+            Contact provenance token — passed through from the suggestion item
+            so the caller controls the value.  The bulk segmenter paths carry
+            ``"cpt_robertson_2015"`` or ``"borehole_observation"``; the manual-
+            pick path sends ``"manual_pick"``.
 
         Returns
         -------
@@ -775,7 +785,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             depth_top_m=depth_top_m,
             borehole_id=borehole_id,
             cpt_id=cpt_id,
-            source="borehole_observation" if borehole_id is not None else "cpt_robertson_2015",
+            source=source,
             confidence=confidence,
         )
         self._session.add(contact)

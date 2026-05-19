@@ -502,32 +502,35 @@ export default function App() {
   })
 
   // App-level selection wrappers. These live in App (not inside
-  // useInvestigationData) because they orchestrate across two hooks:
-  // they need ``clearSectionSelection`` from ``useSections`` AND they
-  // need ``loadCptDetail`` / ``loadChart`` / ``loadBoreholeDetail``
-  // from ``useInvestigationData``. Putting them in either hook would
-  // create a circular dependency.
+  // useInvestigationData) because they need ``loadCptDetail`` /
+  // ``loadChart`` / ``loadBoreholeDetail`` from ``useInvestigationData``
+  // alongside the App-level selection setters.
+  //
+  // They deliberately do NOT clear the section selection: opening a
+  // test's detail (right-click → Open detail on a section, or a map
+  // click) keeps the user's open cross-section as their workspace, so
+  // Esc / the Sections spine return straight to it instead of an empty
+  // Sections stage. On the Data-stage map no section is open, so this
+  // is a no-op there.
   const handleSelect = useCallback(
     async (id: string): Promise<void> => {
       setSelectedId(id)
       setSelectedBoreholeId(null)
-      clearSectionSelection()
       await loadCptDetail(id)
       await loadChart(id)
       setView('chart')
     },
-    [setSelectedId, setSelectedBoreholeId, clearSectionSelection, loadCptDetail, loadChart, setView],
+    [setSelectedId, setSelectedBoreholeId, loadCptDetail, loadChart, setView],
   )
 
   const handleSelectBorehole = useCallback(
     async (id: string): Promise<void> => {
       setSelectedBoreholeId(id)
       setSelectedId(null)
-      clearSectionSelection()
       await loadBoreholeDetail(id)
       setView('chart')
     },
-    [setSelectedBoreholeId, setSelectedId, clearSectionSelection, loadBoreholeDetail, setView],
+    [setSelectedBoreholeId, setSelectedId, loadBoreholeDetail, setView],
   )
 
 
