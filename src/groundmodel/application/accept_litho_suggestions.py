@@ -375,7 +375,16 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # lower display_order = older = deeper (matches the geological
         # model convention and the section/3D paint order in ContactsLayer +
         # Geology3DViewer).  Re-accepts that produce no new formation rows
-        # skip this step — existing ranks are already correct.
+        # skip this step — existing ranks are already correct for the
+        # PHASE-1 one-investigation-per-call model.
+        #
+        # Phase-2 caveat (review S2): with multi-investigation batch
+        # accepts, a NEW contact for an EXISTING formation could shift
+        # that formation's min-depth into a different relative position
+        # while creating no new formation row — this guard would then be
+        # too conservative and leave a stale rank. When batch-accept
+        # lands, widen to `if created_formation_ids or created_contact_ids:`
+        # (any new contact may change the min-depth ranking).
         if created_formation_ids:
             await self._recompute_litho_display_orders(litho_model_id=litho_model_id)
 
@@ -813,15 +822,26 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # -min_depth        = deeper (larger depth) sorts before shallower →
         #                     deeper unit gets lower rank index → lower
         #                     display_order → correctly "older"
-        def _sort_key(f: GeologicalFormationOrm) -> tuple[int, float]:
+        def _sort_key(f: GeologicalFormationOrm) -> tuple[int, float, str]:
+            # Parentless rows (geological parent deleted under ON DELETE
+            # SET NULL) fall back to band 0 — they interleave with the
+            # oldest parent's band. Acceptable today (deleting a parent
+            # with live litho children is a UI-blocked path); if that
+            # path ever opens, segregate them with float('inf') instead.
             p_order = (
                 parent_order.get(f.parent_formation_id, 0)
                 if f.parent_formation_id is not None
                 else 0
             )
-            # Negate depth so that a deeper unit (larger depth) sorts first,
+            # Negate depth so a deeper unit (larger depth) sorts first,
             # receiving a lower rank index (= lower display_order = older).
-            return (p_order, -min_depth_by_fid[f.id])
+            # `f.name` is the deterministic tiebreak (review S1): two units
+            # sharing a min depth (e.g. ZAND + KLEI both topping at 0.0 m
+            # on different boreholes of one investigation) must NOT depend
+            # on SQLAlchemy/Postgres row order — that is unstable across
+            # sessions and would flip ranks between accepts, defeating
+            # idempotency.
+            return (p_order, -min_depth_by_fid[f.id], f.name)
 
         formations_sorted = sorted(formations, key=_sort_key)
 
