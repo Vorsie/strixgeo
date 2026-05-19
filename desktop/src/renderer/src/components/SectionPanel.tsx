@@ -991,16 +991,32 @@ export default function SectionPanel({
     onFocusedColumnChange?.(focusedColumn)
   }, [focusedColumn, onFocusedColumnChange])
 
-  // Filter the layout pass to just the focused column when active.
-  // Downstream warpAnchors, showLabelsByCptId, hideStickIds all read
-  // through this so the focused view renders one column, centred on
-  // its existing nudgedX (the user can pan to recentre).
+  // Filter the layout pass to just the focused column when active, and
+  // re-anchor it to its TRUE projected X so it renders dead-centre at
+  // any columnSpacing. Downstream warpAnchors, showLabelsByCptId,
+  // hideStickIds all read through this.
   const visibleColumns = useMemo(() => {
     if (focusedColumn === null) return placedColumns
-    return placedColumns.filter(
-      c => c.kind === focusedColumn.kind && c.proj.item.id === focusedColumn.id,
-    )
-  }, [placedColumns, focusedColumn])
+    return placedColumns
+      .filter(
+        c => c.kind === focusedColumn.kind && c.proj.item.id === focusedColumn.id,
+      )
+      .map(c => {
+        // In focus the column is the sole subject. Render it at its TRUE
+        // projected position (xToScreen(along)) instead of the packed /
+        // nudged multi-column position. enterFocus centres the viewport
+        // on proj.along, so xToScreen(along) == plot centre — the column
+        // lands dead-centre at ANY columnSpacing. At spacing<1 the packed
+        // nudgedX is unrelated to along, which is why focusing while
+        // packed left the test off-screen ("had to pan to find it").
+        // xToScreen is pure-linear in the viewport, so this is stable
+        // (no packed-cumulative feedback loop). All focus consumers
+        // (ContactPickBar, InvestigationColumns, warpAnchors, labels)
+        // read nudgedX through visibleColumns, so they stay consistent.
+        const sx = xToScreen(c.proj.along)
+        return { ...c, trueX: sx, nudgedX: sx, displaced: false }
+      })
+  }, [placedColumns, focusedColumn, xToScreen])
 
   // Right-click context menu state + handlers — both the
   // ColumnGlyph hit-box handler and the SVG-level catch-all
