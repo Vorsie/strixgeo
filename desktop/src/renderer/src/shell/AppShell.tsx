@@ -86,6 +86,34 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context.project.id])
 
+  // Open-a-detail → Data stage. handleSelect / handleSelectBorehole are
+  // the single funnel for "show this investigation's detail" (map click
+  // AND section double-click): they set the selection + view='chart'.
+  // But the detail only renders inside the Data stage, so a double-click
+  // on a column while the Sections stage is active set the state and
+  // showed nothing — the user "landed on the map" (the #3 stage-router
+  // bug). Route any open-detail action to the Data stage.
+  //
+  // Keyed on the SELECTION + view (the action), deliberately NOT on
+  // activeStageId: manual spine navigation away from Data while a detail
+  // is still open changes only activeStageId, so this effect does not
+  // re-run and the user is NOT bounced back. setActiveStage('data') is
+  // idempotent (same-id set is a no-op) so no activeStageId guard is
+  // needed — which is also why exhaustive-deps stays satisfied.
+  useEffect(() => {
+    const hasSelection =
+      context.coordinator.selectedId !== null ||
+      context.coordinator.selectedBoreholeId !== null
+    if (hasSelection && context.coordinator.view === 'chart') {
+      setActiveStage('data')
+    }
+  }, [
+    context.coordinator.selectedId,
+    context.coordinator.selectedBoreholeId,
+    context.coordinator.view,
+    setActiveStage,
+  ])
+
   // Debt #43: the shell rework dropped the global "Esc backs out of the
   // detail view" behaviour. A gINT/Plaxis-trained engineer reflexively
   // hits Esc to leave a chart/borelog and nothing happened. This restores
