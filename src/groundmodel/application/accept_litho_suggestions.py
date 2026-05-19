@@ -234,7 +234,10 @@ class AcceptLithoSuggestions(GroundModelLogger):
         geology_model_id: UUID | None = litho_model.parent_geological_model_id
 
         # --- Load investigation x/y for straddle sampling -------------------
-        inv_x, inv_y = await self._load_investigation_xy(cpt_id=cpt_id, borehole_id=borehole_id)
+        # project_id is threaded in to enforce investigation scope (VULN-10).
+        inv_x, inv_y = await self._load_investigation_xy(
+            project_id=project_id, cpt_id=cpt_id, borehole_id=borehole_id
+        )
         self.debug(
             f"Investigation xy: ({inv_x:.1f}, {inv_y:.1f}) "
             f"{'cpt' if cpt_id else 'borehole'}={cpt_id or borehole_id}"
@@ -414,13 +417,17 @@ class AcceptLithoSuggestions(GroundModelLogger):
     async def _load_investigation_xy(
         self,
         *,
+        project_id: UUID,
         cpt_id: UUID | None,
         borehole_id: UUID | None,
     ) -> tuple[float, float]:
-        """Load raw (x, y) for the investigation.
+        """Load raw (x, y) for the investigation, verifying project scope.
 
         Parameters
         ----------
+        project_id : UUID
+            Owning project — the investigation must belong to this project
+            (VULN-10).
         cpt_id : UUID | None
         borehole_id : UUID | None
 
@@ -432,17 +439,18 @@ class AcceptLithoSuggestions(GroundModelLogger):
         Raises
         ------
         ValueError
-            When the investigation row does not exist.
+            When the investigation row does not exist or belongs to a
+            different project.
         """
         if cpt_id is not None:
             row = await self._session.get(CptOrm, cpt_id)
-            if row is None:
-                raise ValueError(f"CPT {cpt_id} not found")
+            if row is None or row.app_project_id != project_id:
+                raise ValueError(f"CPT {cpt_id} not found in project {project_id}")
             return row.location_x, row.location_y
         else:
             row = await self._session.get(BoreholeOrm, borehole_id)
-            if row is None:
-                raise ValueError(f"Borehole {borehole_id} not found")
+            if row is None or row.app_project_id != project_id:
+                raise ValueError(f"Borehole {borehole_id} not found in project {project_id}")
             return row.location_x, row.location_y
 
     async def _load_geology_surfaces(
