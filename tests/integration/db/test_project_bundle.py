@@ -669,6 +669,33 @@ async def test_bundle_carries_litho_correlation_edges(
     )
     assert len(edges_twice) == 1, "second restore must not duplicate the edge"
 
+    # ---- Injection guard: an edge whose model_id is NOT in this project
+    # is silently dropped on restore (bundle-injection defence) ---------
+    alien = dict(bundle["litho_correlation_edges"][0])
+    alien["id"] = str(uuid7())
+    alien["model_id"] = str(uuid7())  # a model that does not exist here
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        litho_correlation_edges_payload=[bundle["litho_correlation_edges"][0], alien],
+    )
+    await db_session.commit()
+    edges_guarded = list(
+        (
+            await db_session.execute(
+                select(LithoCorrelationEdgeOrm).where(LithoCorrelationEdgeOrm.model_id == model.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(edges_guarded) == 1, "alien-model_id edge must be dropped, not restored"
+
 
 async def test_restore_skips_geology_when_payload_omits_it(
     db_session: AsyncSession,
