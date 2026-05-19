@@ -75,6 +75,39 @@ describe('ColumnContextMenu', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('hides "Open detail" when onOpenDetail is omitted', () => {
+    render(
+      <ColumnContextMenu
+        x={0}
+        y={0}
+        name="CPT-42"
+        onFocus={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(
+      screen.queryByRole('menuitem', { name: /open detail/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('fires onOpenDetail then onClose when "Open detail" is clicked', () => {
+    const onOpenDetail = vi.fn()
+    const onClose = vi.fn()
+    render(
+      <ColumnContextMenu
+        x={0}
+        y={0}
+        name="CPT-42"
+        onFocus={vi.fn()}
+        onOpenDetail={onOpenDetail}
+        onClose={onClose}
+      />,
+    )
+    fireEvent.click(screen.getByRole('menuitem', { name: /open detail/i }))
+    expect(onOpenDetail).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('hides "Remove from this section" when onRemoveFromSection is omitted', () => {
     render(
       <ColumnContextMenu
