@@ -1049,3 +1049,23 @@ needing to distinguish two ZAND units within the same parent
 formation (ordinal), or wanting to express lateral continuity
 visually (correlation edge), or when the unit list grows large
 enough to make scrolling the tab impractical (search/filter).
+
+## 68. CorrelationEdgesOverlay uncorrelate menu state lives inside a `pointerEvents:none` SVG `<g>` (Tier E — robustness)
+
+**What.** The Slice-4 `CorrelationEdgesOverlay` owns its uncorrelate
+context-menu state and renders the menu as a `<foreignObject>` inside
+the overlay's root `<g style={{ pointerEvents: 'none' }}>`. It works
+because `foreignObject` HTML children do not inherit the SVG
+`pointer-events:none` — an SVG-spec oddity. The robust shape is the
+existing `ColumnContextMenu` pattern: lift the menu state to
+`SectionPanel` and render it as HTML above the SVG.
+
+**Why deferred.** Functionally correct on the only runtime Strix ships
+(Electron/Chromium, pinned). The reviewer's concern is a *speculative*
+future Chromium-upgrade regression, not a present bug — the lift is a
+non-trivial refactor (state ownership move + render relocation) not
+worth the churn/risk pre-ship (review S6).
+
+**When to revisit.** First sign the uncorrelate menu mis-behaves after
+an Electron/Chromium bump, OR when the section context-menu surfaces
+are next consolidated (fold the lift into that pass).
