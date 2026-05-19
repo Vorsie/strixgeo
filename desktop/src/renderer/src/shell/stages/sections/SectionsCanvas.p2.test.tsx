@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import SectionsCanvas from './SectionsCanvas'
-import type { FormationContactResponse } from '../../../api/client'
+import type { FormationContactResponse, GeologicalModelResponse } from '../../../api/client'
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -44,17 +44,29 @@ let capturedOnCreateContact:
 let capturedOnBatchCreateContacts:
   | ((creates: readonly unknown[]) => Promise<void>)
   | undefined = undefined
+// Capture the manual litho unit create callback for M1/M2 tests.
+let capturedOnManualLithoUnitCreate:
+  | ((
+      mainCode: string,
+      admixtures: unknown[],
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      depthM: number,
+    ) => Promise<{ formationId: string } | null>)
+  | undefined = undefined
 
 vi.mock('../../../components/SectionPanel', () => ({
   default: (props: {
     contacts?: readonly FormationContactResponse[]
     onCreateContact?: typeof capturedOnCreateContact
     onBatchCreateContacts?: typeof capturedOnBatchCreateContacts
+    onManualLithoUnitCreate?: typeof capturedOnManualLithoUnitCreate
   }) => {
     // Capture the props each time SectionPanel renders.
     capturedContacts = props.contacts
     capturedOnCreateContact = props.onCreateContact
     capturedOnBatchCreateContacts = props.onBatchCreateContacts
+    capturedOnManualLithoUnitCreate = props.onManualLithoUnitCreate
     return null
   },
 }))
@@ -66,6 +78,8 @@ vi.mock('../../../components/MapView', () => ({
 // api.section.list is used by useSections' auto-load effect (T4b).
 // Default resolves to [] so T1–T3/T5 are unaffected by pending fetches.
 const mockSectionList = vi.fn().mockResolvedValue([])
+// api.geology.acceptLithoSuggestions is exercised by M1/M2.
+const mockAcceptLithoSuggestions = vi.fn()
 
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
@@ -75,6 +89,7 @@ vi.mock('../../../api/client', async () => {
     api: {
       geology: {
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+        acceptLithoSuggestions: (...args: unknown[]) => mockAcceptLithoSuggestions(...args),
       },
       virtueleBoring: {
         getModels: vi.fn().mockResolvedValue([]),
@@ -141,12 +156,31 @@ function makeSection(overrides?: Partial<ShellContextValue['sections']['sections
   }
 }
 
+function makeLithoModel(id = 'litho-model-1'): GeologicalModelResponse {
+  return {
+    id,
+    app_project_id: 'proj-1',
+    name: 'Lithostratigraphic Model',
+    description: null,
+    is_active: true,
+    excluded_borehole_ids: [],
+    kind: 'lithostratigraphic',
+    parent_geological_model_id: 'geo-model-1',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
 function makeStubContext(overrides?: {
   section?: ReturnType<typeof makeSection>
   contacts?: FormationContactResponse[]
+  lithoModel?: GeologicalModelResponse | null
+  sectionModelAxis?: 'geological' | 'lithostratigraphic'
 }): ShellContextValue {
   const section = overrides?.section ?? makeSection()
   const contacts = overrides?.contacts ?? []
+  const lithoModel = overrides?.lithoModel !== undefined ? overrides.lithoModel : null
+  const sectionModelAxis = overrides?.sectionModelAxis ?? 'geological'
   const applyUpdatedSection = vi.fn()
 
   return {
@@ -224,7 +258,7 @@ function makeStubContext(overrides?: {
     geoModel: {
       activeGeologicalModel: null,
       models: [],
-      activeLithoModel: null,
+      activeLithoModel: lithoModel,
       handleCreateLithoModel: async () => null,
       handleActivateLithoModel: async () => {},
       lithoContacts: [],
@@ -290,7 +324,7 @@ function makeStubContext(overrides?: {
       focusedContactIds: [],
       visibleSections: [section],
       effectiveHorizontalEpsg: 31370,
-      sectionModelAxis: 'geological' as const,
+      sectionModelAxis: sectionModelAxis as 'geological' | 'lithostratigraphic',
       setSectionModelAxis: vi.fn(),
       backdropModelIdOverride: null,
       setBackdropModelIdOverride: vi.fn(),
@@ -391,8 +425,10 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   capturedContacts = undefined
+  capturedOnManualLithoUnitCreate = undefined
   // Reset to [] so T1–T3/T5 (render-based, no section list needed) are clean.
   mockSectionList.mockResolvedValue([])
+  mockAcceptLithoSuggestions.mockReset()
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -656,6 +692,111 @@ describe('P2 explicit-content invariant — SectionsCanvas contact filtering', (
     // one section refresh after the batch so P2-F shows the copies.
     expect(sectionGetMock).toHaveBeenCalledWith('proj-1', 'sec-1')
     expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// M1 / M2 — manual litho unit creation (#57 applyUpdatedSection invariant)
+// ---------------------------------------------------------------------------
+
+describe('Manual litho unit creation — handleManualLithoUnitCreate', () => {
+  it('M1: new unit → acceptLithoSuggestions called, updated_section forwarded to applyUpdatedSection', async () => {
+    // Regression net for the #57 class: onManualLithoUnitCreate MUST call
+    // acceptLithoSuggestions and, when the response carries updated_section,
+    // MUST forward it to applyUpdatedSection so the explicit-content filter
+    // sees the new contact immediately without a refetch.
+    const updatedSection = makeSection({
+      seeded_formation_contact_ids: ['contact-manual-1'],
+    })
+    mockAcceptLithoSuggestions.mockResolvedValue({
+      updated_section: updatedSection,
+      created_formation_ids: ['form-new-1'],
+      found_formation_ids: [],
+      created_contact_ids: ['contact-manual-1'],
+      found_contact_ids: [],
+    })
+
+    const applyUpdatedSection = vi.fn()
+    const ctx = makeStubContext({
+      section: makeSection({ seeded_formation_contact_ids: [] }),
+      lithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+    })
+    ;(ctx.sections as typeof ctx.sections).applyUpdatedSection = applyUpdatedSection
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    // onManualLithoUnitCreate must be wired (isLitho=true → prop is defined).
+    expect(capturedOnManualLithoUnitCreate).toBeDefined()
+
+    const result = await act(async () =>
+      capturedOnManualLithoUnitCreate!('ZAND', [], 'borehole', 'bh-1', 5.5),
+    )
+
+    // (a) acceptLithoSuggestions was called with a synthetic one-item suggestion.
+    expect(mockAcceptLithoSuggestions).toHaveBeenCalledTimes(1)
+    const [, , payload] = mockAcceptLithoSuggestions.mock.calls[0]
+    expect(payload.borehole_id).toBe('bh-1')
+    expect(payload.section_id).toBe('sec-1')
+    expect(payload.suggestions).toHaveLength(1)
+    expect(payload.suggestions[0].suggested_lithology).toBe('ZAND')
+    expect(payload.suggestions[0].source).toBe('manual_pick')
+    // depth_base = depth_top + 0.01 (sentinel)
+    expect(payload.suggestions[0].depth_base_m).toBeCloseTo(5.51)
+
+    // (b) updated_section forwarded — the #57 invariant.
+    expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
+
+    // (c) formationId returned so SectionPanel's useContactPicker can chain.
+    expect(result).toEqual({ formationId: 'form-new-1' })
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('M2: idempotent re-create (found not created) still calls applyUpdatedSection, returns formationId', async () => {
+    // When the unit already exists (found_formation_ids has the id, created=[]
+    // e.g. user re-picks the same composition), acceptLithoSuggestions returns
+    // updated_section and the found id. The handler MUST still call
+    // applyUpdatedSection (the contact may be newly seeded for this section
+    // even if the formation already existed) and MUST return the found formationId.
+    const updatedSection = makeSection({
+      seeded_formation_contact_ids: ['contact-existing-1'],
+    })
+    mockAcceptLithoSuggestions.mockResolvedValue({
+      updated_section: updatedSection,
+      created_formation_ids: [],
+      found_formation_ids: ['form-existing-x'],
+      created_contact_ids: [],
+      found_contact_ids: ['contact-existing-1'],
+    })
+
+    const applyUpdatedSection = vi.fn()
+    const ctx = makeStubContext({
+      section: makeSection({ seeded_formation_contact_ids: ['contact-existing-1'] }),
+      lithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+    })
+    ;(ctx.sections as typeof ctx.sections).applyUpdatedSection = applyUpdatedSection
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    expect(capturedOnManualLithoUnitCreate).toBeDefined()
+    const result = await act(async () =>
+      capturedOnManualLithoUnitCreate!('KLEI', [], 'cpt', 'cpt-7', 3.0),
+    )
+
+    // applyUpdatedSection must be called even for the idempotent path.
+    expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
+    // formationId comes from found_formation_ids[0] when created_formation_ids is empty.
+    expect(result).toEqual({ formationId: 'form-existing-x' })
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 })
