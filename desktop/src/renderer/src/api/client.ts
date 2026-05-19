@@ -1769,13 +1769,55 @@ export const api = {
     // List all correlation edges for the model, ordered by creation
     // time.  Consumed by the inspector stale-badge (hash the edge set
     // to detect structural changes since the last explicit resolve) and
-    // by future Slice 4 canvas rendering.
-    // Slice 4: // rendering of edges on the section canvas (connect-gesture UI)
+    // by Slice 4 canvas edge rendering.
     listCorrelations: (
       projectId: string,
       modelId: string,
     ): Promise<LithoCorrelationEdge[]> =>
       get(`/projects/${projectId}/geology/models/${modelId}/correlations`),
+
+    // --- Slice 4: on-section connect gesture ----------------------------
+    //
+    // Create an undirected correlation edge between two litho formations.
+    // Returns 201 on creation, 200 when the edge already existed
+    // (idempotent). The response includes the edge id for optimistic UI.
+    correlate: (
+      projectId: string,
+      modelId: string,
+      formationAId: string,
+      formationBId: string,
+    ): Promise<{ edge_id: string; was_created: boolean }> =>
+      post(`/projects/${projectId}/geology/models/${modelId}/correlations`, {
+        formation_a_id: formationAId,
+        formation_b_id: formationBId,
+        source: 'manual_connect',
+      }),
+
+    // Remove the edge between two formations (DELETE with JSON body).
+    // Returns 204 regardless of whether an edge existed.
+    // WHY not del(): the shared del() helper takes no body. The backend
+    // DELETE /correlations accepts a LithoCorrelationRequest body to
+    // identify which edge to remove — use a raw fetch so the body is sent.
+    uncorrelate: async (
+      projectId: string,
+      modelId: string,
+      formationAId: string,
+      formationBId: string,
+    ): Promise<void> => {
+      const path = `/projects/${projectId}/geology/models/${modelId}/correlations`
+      const res = await fetch(`${_base}${path}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          formation_a_id: formationAId,
+          formation_b_id: formationBId,
+        }),
+      })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      }
+    },
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
