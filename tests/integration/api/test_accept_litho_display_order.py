@@ -285,11 +285,12 @@ async def test_l2_reaccept_does_not_change_display_order(
 
 
 # ---------------------------------------------------------------------------
-# L3 — build_section_snapshot returns formations in stratigraphic order
+# L3 — DB display_order is stratigraphically correct (build_section_snapshot
+# sorts by it, so correct DB values ⇒ correct snapshot order by construction)
 # ---------------------------------------------------------------------------
 
 
-async def test_l3_db_formations_in_stratigraphic_order(
+async def test_l3_db_display_order_is_stratigraphically_correct(
     async_client: AsyncClient,
     project: ProjectOrm,
     stack: dict,
