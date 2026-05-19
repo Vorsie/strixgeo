@@ -979,8 +979,6 @@ export default function SectionPanel({
     vex,
     plotWidth,
     plotHeight,
-    MARGIN.left,
-    scaleH,
     setViewport,
     setVex,
   )
