@@ -167,6 +167,34 @@ def test_case4_two_components_same_group_ordinals_by_depth() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Case 4b — two SINGLETONS in the same group (no edges) — the common
+# Phase-2 starting state, distinct from Case 4's connected pairs (C2)
+# ---------------------------------------------------------------------------
+
+
+def test_two_singletons_same_group_get_distinct_ordinals() -> None:
+    """Two uncorrelated formations in the SAME (parent, soil) group are
+    two singleton components → ordinals 1 and 2 by earliest depth.
+
+    Before any edge is drawn every per-test occurrence is its own
+    singleton; they must auto-number within the group (shallowest = 1),
+    NOT all collapse to body 1 (review C2). Case 1 deliberately uses
+    different parents; Case 4 uses connected pairs — this pins the
+    singleton-as-component path in a single group.
+    """
+    a = UUID("10000000-0000-0000-0000-000000000000")
+    b = UUID("20000000-0000-0000-0000-000000000000")
+    nodes = [
+        _node(a, parent=_PARENT, soil=_SAND, depth=9.0),  # deeper → 2
+        _node(b, parent=_PARENT, soil=_SAND, depth=2.0),  # shallower → 1
+    ]
+    result = resolve_litho_instances(formations=nodes, edges=[])
+    assert result.ordinals[b] == 1
+    assert result.ordinals[a] == 2
+    assert result.lock_conflicts == []
+
+
+# ---------------------------------------------------------------------------
 # Case 5 — locked ordinal in a stable (no-conflict) component
 # ---------------------------------------------------------------------------
 
