@@ -31,6 +31,7 @@ import { Layers } from 'lucide-react'
 
 import { EmptyState } from '../shell/EmptyState'
 import type {
+  AdmixtureItem,
   BoreholeListItem,
   CptListItem,
   CrossSectionResponse,
@@ -47,6 +48,7 @@ import { nudgeColumns } from '../utils/columnLayout'
 import type { ProjectedInvestigation } from '../utils/sectionProjection'
 import { SoilPatterns } from '../utils/soilPatterns'
 import FormationPickerDialog from './interpretation/FormationPickerDialog'
+import LithoCompositionPickerDialog from './interpretation/LithoCompositionPickerDialog'
 import BoreholeColumn from './sections/BoreholeColumn'
 import ColumnContextMenu from './sections/ColumnContextMenu'
 import ContactPickBar from './sections/ContactPickBar'
@@ -231,6 +233,45 @@ interface Props {
    * stays storage-agnostic. Omitting it (or there being no active
    * geological model) hides the button. */
   onExportDxf?: () => Promise<void>
+  /**
+   * Which model axis is active on this section.  Defaults to
+   * ``'geological'`` (existing behaviour — zero regression).
+   *
+   * When ``'lithostratigraphic'``, the formation-contact picker
+   * renders ``LithoCompositionPickerDialog`` instead of
+   * ``FormationPickerDialog``.  The geological + geotechnical axes
+   * use the original dialog unchanged.
+   */
+  axisMode?: 'geological' | 'lithostratigraphic'
+  /**
+   * Litho axis: fired when the user picks a composition in the "New
+   * unit" tab of ``LithoCompositionPickerDialog``.  The caller posts
+   * the synthetic accept-litho-suggestions payload and returns the
+   * created (or found) formation id.
+   *
+   * When ``undefined`` the new-unit path in the picker is still
+   * reachable but ``onCreateLithoUnit`` no-ops (open/test render).
+   *
+   * Parameters
+   * ----------
+   * mainCode
+   *     Base lithology token (ZAND / KLEI / SILT / GRIND / VEEN).
+   * admixtures
+   *     Admixture items in the order the user added them.
+   * anchorKind
+   *     ``'cpt'`` or ``'borehole'``.
+   * anchorId
+   *     Id of the investigation the contact is placed on.
+   * depthM
+   *     Depth below ground surface for the contact.
+   */
+  onManualLithoUnitCreate?: (
+    mainCode: string,
+    admixtures: AdmixtureItem[],
+    anchorKind: 'cpt' | 'borehole',
+    anchorId: string,
+    depthM: number,
+  ) => Promise<{ formationId: string } | null>
   /** Fire the "Seed from stratigraphy" header action. Receives the
    * borehole IDs projected onto the active section (computed here
    * from placedColumns); the handler scopes the auto-populate call
@@ -378,6 +419,8 @@ export default function SectionPanel({
   onChangeVirtueleBoringShowOnSection,
   lithoGhostState,
   pinchOutGhostState,
+  axisMode = 'geological',
+  onManualLithoUnitCreate,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -1849,31 +1892,67 @@ export default function SectionPanel({
           </div>
         )}
 
-      {/* Formation picker — modal opens whenever a child fires
-          ``onCommitDepth`` (CPT click or borehole click). The
-          picker either selects an existing formation (POSTs the
-          contact via ``handlePickerSelect``) or kicks the user to
-          the inline-create dialog. */}
-      <FormationPickerDialog
-        open={pickContext !== null}
-        formations={formations}
-        anchor={
-          pickContext === null
-            ? null
-            : {
-                kind: pickContext.kind,
-                name: pickContext.anchorName,
-                depth_m: pickContext.depth_m,
-                elevationM: pickContext.elevationM,
-              }
-        }
-        onSelect={handlePickerSelect}
-        onCreateFormation={async payload => {
-          if (!onCreateFormation) return null
-          return onCreateFormation(payload)
-        }}
-        onCancel={cancelPicker}
-      />
+      {/* Formation picker — branches on axisMode.
+          - geological / geotechnical axis: FormationPickerDialog (unchanged).
+          - lithostratigraphic axis: LithoCompositionPickerDialog (Phase-1.5).
+          Opens whenever a child fires ``onCommitDepth``. */}
+      {axisMode === 'lithostratigraphic' ? (
+        <LithoCompositionPickerDialog
+          open={pickContext !== null}
+          lithoFormations={formations}
+          // referenceFormations carries the geological formations on the litho
+          // axis (the geological backdrop); used for group headings in Tab 1.
+          geoFormations={referenceFormations ?? []}
+          anchor={
+            pickContext === null
+              ? null
+              : {
+                  kind: pickContext.kind,
+                  name: pickContext.anchorName,
+                  depth_m: pickContext.depth_m,
+                  elevationM: pickContext.elevationM,
+                }
+          }
+          // Server resolves parent_formation_id from the geology TIN at accept
+          // time — we cannot cheaply determine it client-side without a round-trip.
+          // Always pass null so the no-context warning renders; the backend still
+          // assigns the correct parent (owner decision: allow with warning).
+          parentFormationName={null}
+          onSelect={handlePickerSelect}
+          onCreateLithoUnit={async (mainCode, admixtures) => {
+            if (!pickContext || !onManualLithoUnitCreate) return null
+            return onManualLithoUnitCreate(
+              mainCode,
+              admixtures,
+              pickContext.kind,
+              pickContext.anchorId,
+              pickContext.depth_m,
+            )
+          }}
+          onCancel={cancelPicker}
+        />
+      ) : (
+        <FormationPickerDialog
+          open={pickContext !== null}
+          formations={formations}
+          anchor={
+            pickContext === null
+              ? null
+              : {
+                  kind: pickContext.kind,
+                  name: pickContext.anchorName,
+                  depth_m: pickContext.depth_m,
+                  elevationM: pickContext.elevationM,
+                }
+          }
+          onSelect={handlePickerSelect}
+          onCreateFormation={async payload => {
+            if (!onCreateFormation) return null
+            return onCreateFormation(payload)
+          }}
+          onCancel={cancelPicker}
+        />
+      )}
     </div>
   )
 }
