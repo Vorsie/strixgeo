@@ -21,6 +21,9 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 
@@ -143,5 +146,45 @@ async def test_cross_project_formation_is_rejected(
     r = await async_client.post(
         f"/projects/{project.id}/geology/models/{mid}/correlations",
         json={"formation_a_id": a, "formation_b_id": foreign["id"]},
+    )
+    assert r.status_code == 422, r.text
+
+
+async def test_cross_group_different_soil_code_is_422(
+    async_client: AsyncClient, project: ProjectOrm, db_session: AsyncSession
+) -> None:
+    """Two formations in different (parent, soil) groups can't be correlated.
+
+    The resolver only groups within a single (parent_formation_id,
+    litho_main_soil_code) bucket; an edge across groups is meaningless
+    and rejected at the use case (→ 422). DoD structural-error path at
+    the integration level (review S3).
+    """
+    geo = await _geo_model(async_client, project.id)
+    litho = await _litho_model(async_client, project.id, geo["id"])
+    # Plain POST /formations has no litho_main_soil_code field, so set
+    # the differing codes directly on the ORM rows.
+    f_sand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="ZAND A",
+        color="#aaa",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+    )
+    f_clay = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="KLEI A",
+        color="#aaa",
+        display_order=1,
+        litho_main_soil_code="KLEI",
+    )
+    db_session.add_all([f_sand, f_clay])
+    await db_session.commit()
+
+    r = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho['id']}/correlations",
+        json={"formation_a_id": str(f_sand.id), "formation_b_id": str(f_clay.id)},
     )
     assert r.status_code == 422, r.text
