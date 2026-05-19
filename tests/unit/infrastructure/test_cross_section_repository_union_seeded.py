@@ -138,3 +138,37 @@ async def test_union_seeded_contact_ids_missing_section_returns_none() -> None:
     # update and commit must NOT have been called.
     repo.update.assert_not_awaited()
     session.commit.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# R4 — IDOR guard: section exists but belongs to a DIFFERENT project
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_union_seeded_contact_ids_wrong_project_returns_none() -> None:
+    """R4: a section owned by another project returns None without seeding.
+
+    This is the security-relevant arm of the guard — the whole reason
+    `project_id` is an explicit parameter (review S1). The `section is
+    None` branch is R3; this pins the `app_project_id != project_id`
+    branch so a future change that drops the project check fails loudly.
+    """
+    wrong_project_id = uuid4()  # caller presents a different project
+    section = _make_section([])  # section.app_project_id == PROJECT_ID
+
+    session = _make_session()
+    repo = CrossSectionRepository(session)
+    repo.get = AsyncMock(return_value=section)
+    repo.update = AsyncMock()
+
+    result = await repo.union_seeded_contact_ids(
+        SECTION_ID,
+        wrong_project_id,
+        {CONTACT_A},
+        operation="test_R4",
+    )
+
+    assert result is None
+    repo.update.assert_not_awaited()
+    session.commit.assert_not_awaited()
