@@ -331,7 +331,14 @@ class AcceptLithoSuggestions(GroundModelLogger):
                         f"{sug.suggested_lithology} parent={interval_parent_fid}"
                     )
                 else:
-                    if formation.id not in found_formation_ids:
+                    # A formation created earlier in THIS request (e.g. the
+                    # other half of a straddle split sharing the key) is in
+                    # litho_formations + created_formation_ids already — do
+                    # NOT also list it as "found" (review S1, bookkeeping).
+                    if (
+                        formation.id not in found_formation_ids
+                        and formation.id not in created_formation_ids
+                    ):
                         found_formation_ids.append(formation.id)
                     self.debug(
                         f"  Found litho formation {formation.id} — "
@@ -513,7 +520,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
         base = suggestion.depth_base_m
 
         if not geology_surfaces and not geology_contacts_at_inv:
-            # No geology context — return a single interval with no parent.
+            # No geology context AT ALL — single interval, no parent. Note
+            # the surfaces-exist-but-no-contacts-here case does NOT take
+            # this branch: it falls through to the "no boundaries" exit
+            # below (contacts_sorted empty → no boundary → parent_fid=None),
+            # which has identical semantics via a different path (review S2).
             return _StraddleResult(
                 intervals=[(top, None)],
                 stale_tin_fallback_count=0,
@@ -667,6 +678,13 @@ class AcceptLithoSuggestions(GroundModelLogger):
         GeologicalFormationOrm
             The freshly flushed row (id assigned, not yet committed).
         """
+        # Entry log (DoD §1): a private helper that flushes a real row logs
+        # its key params so a failed flush correlates to the inputs (S5).
+        self.debug(
+            f"  _create_litho_formation: soil={litho_main_soil_code} "
+            f"parent={parent_formation_id} sig='{sig}'"
+        )
+
         # Auto-name: e.g. "ZAND" or "KLEI (KL:Z)" — readable in the inspector.
         admix_label = f" ({sig})" if sig else ""
         name = f"{litho_main_soil_code}{admix_label}"
@@ -725,9 +743,21 @@ class AcceptLithoSuggestions(GroundModelLogger):
             if borehole_id is not None
             else FormationContactOrm.cpt_id == cpt_id
         )
+        # ``depth_top_m`` is part of the idempotency key. Without it, a
+        # re-accept after a re-segmentation that moved the boundary (param
+        # change, or a straddle re-split at a different geology-TIN depth)
+        # would match the OLD contact on (model, formation, anchor) alone
+        # and silently keep the stale depth (review B1). With it, the same
+        # suggestion re-accepts as a no-op; a moved boundary creates a new
+        # contact. Phase 1 limitation: re-segmenting at new depths leaves
+        # the old contacts — Clear the litho axis before re-accepting to
+        # avoid accumulation (Phase 2 adds boundary-move reconciliation).
+        # Float match is safe for the idempotent path: an unchanged
+        # suggestion yields a bit-identical depth from the same pipeline.
         existing_stmt = select(FormationContactOrm.id).where(
             FormationContactOrm.model_id == litho_model_id,
             FormationContactOrm.formation_id == formation_id,
+            FormationContactOrm.depth_top_m == depth_top_m,
             anchor_filter,
         )
         existing_id = (await self._session.execute(existing_stmt)).scalar_one_or_none()
