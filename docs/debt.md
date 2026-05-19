@@ -135,14 +135,26 @@ process + a thin "Activate license" UI.
 
 ## 4. Project-by-id endpoints rely on "only caller is local user" (medium → day-1 of #3)
 
-**What.** ``POST /projects/{id}/duplicate`` (project.py:281-300)
-and ``PATCH /projects/{id}/view-state`` (router-resolved via the
-project id) operate on the resolved row without an identity
-check. Today that's correct (single user, no auth). When debt
-#3 lands, these endpoints will need a ``user_owns(project_id)``
-predicate threaded through. The geology + cross-section + review
-routers already use a two-stage ``get_in_project_or_404`` pattern
-— mirror that.
+**What.** ``POST /projects/{id}/duplicate`` (project.py) and
+``PATCH /projects/{id}/view-state`` operate on the resolved row
+without an identity check. Today that's correct (single user, no
+auth). When debt #3 lands, these endpoints will need a
+``user_owns(project_id)`` predicate threaded through.
+
+**Resolved (2026-05-19) — IDOR scope-guard half**: All CPT and
+borehole by-id endpoints (``GET /cpt/{id}``,
+``GET /cpt/{id}/plot``, ``DELETE /cpt/{id}``,
+``PATCH /cpt/{id}/elevation``, ``GET /borehole/{id}``,
+``PATCH /borehole/{id}/elevation``) now require
+``?project_id=UUID`` and reject cross-project ids with 404 via
+``get_in_project_or_404`` (VULN-1..7). Application layer use
+cases ``CreateFormationContact``, ``AcceptLithoSuggestions``,
+``UncorrelateLithoUnits`` have defence-in-depth scope checks
+(VULN-9..12). Frontend ``client.ts`` / ``useInvestigationData.ts``
+/ ``useSectionData.ts`` updated in lockstep. Unit suite 895 green.
+
+**What remains.** The auth-threading step (``user_owns`` predicate
+on project-level endpoints) still waits on debt #3.
 
 **Why deferred.** No auth shipped.
 
