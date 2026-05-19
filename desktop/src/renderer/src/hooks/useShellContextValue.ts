@@ -82,6 +82,12 @@ export interface UseShellContextValueArgs {
   setSectionModelAxis: ShellContextValue['sections']['setSectionModelAxis']
   backdropModelIdOverride: ShellContextValue['sections']['backdropModelIdOverride']
   setBackdropModelIdOverride: ShellContextValue['sections']['setBackdropModelIdOverride']
+  correlateMode: ShellContextValue['sections']['correlateMode']
+  correlationSource: ShellContextValue['sections']['correlationSource']
+  enterCorrelateMode: ShellContextValue['sections']['enterCorrelateMode']
+  exitCorrelateMode: ShellContextValue['sections']['exitCorrelateMode']
+  armCorrelationSource: ShellContextValue['sections']['armCorrelationSource']
+  clearCorrelationSource: ShellContextValue['sections']['clearCorrelationSource']
   demSource: ShellContextValue['overlays']['demSource']
   demOverlay: ShellContextValue['overlays']['demOverlay']
   handleDemOverlayChange: ShellContextValue['overlays']['handleDemOverlayChange']
@@ -161,7 +167,8 @@ export function useShellContextValue(
     handleImportBoreholeDov, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, geo, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
-    handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride, demSource, demOverlay,
+    handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
+    correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource, demSource, demOverlay,
     handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
     cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, toasts,
@@ -272,6 +279,12 @@ export function useShellContextValue(
       applyUpdatedSection,
       sectionFocusedColumn,
       setSectionFocusedColumn,
+      correlateMode,
+      correlationSource,
+      enterCorrelateMode,
+      exitCorrelateMode,
+      armCorrelationSource,
+      clearCorrelationSource,
     },
     overlays: {
       demSource,
@@ -363,6 +376,7 @@ export function useShellContextValue(
     handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection,
     handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn,
+    correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource,
     // overlay fields
     demSource, demOverlay, handleDemOverlayChange,
     virtueleBoringOverlay, virtueleBoringSectionModels,
