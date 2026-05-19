@@ -67,6 +67,13 @@ class GeologicalFormationResponse(BaseModel):
     ``litho_main_soil_code``, ``litho_admixtures``, ``instance_ordinal``).
     These are ``None`` on geological-model formations and populated on
     lithostratigraphic formations created by ``AcceptLithoSuggestions``.
+
+    ``parent_formation_name`` is a server-resolved display value derived from
+    the project formation set (the name of the formation whose id equals
+    ``parent_formation_id``).  It is ``None`` on geological-model rows
+    (which have no parent) and on litho units whose parent id is not found
+    in the project (defensive / orphan case).  Never persisted — computed on
+    read per Data Integrity Rule §1 (compute on read over store-derived).
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -90,5 +97,10 @@ class GeologicalFormationResponse(BaseModel):
     litho_admixtures: list[Any] | None = None
     instance_ordinal: int | None = None
     instance_ordinal_locked: bool = False
+    # Slice 5 / debt #67: server-resolved display name of the parent geological
+    # formation.  Populated from the project-formation id→name map at response
+    # time; never stored in the DB.  None on geological rows and on orphaned
+    # litho units whose parent id is not present in the project set.
+    parent_formation_name: str | None = None
     created_at: datetime
     updated_at: datetime
