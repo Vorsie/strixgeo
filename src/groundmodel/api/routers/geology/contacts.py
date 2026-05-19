@@ -33,10 +33,13 @@ from groundmodel.api.schemas.project.formation_contact import (
     SeedLithoFromParentResponse,
 )
 from groundmodel.api.schemas.project.litho_suggestion import (
+    AcceptLithoSuggestionsRequest,
+    AcceptLithoSuggestionsResponse,
     LithoLayerSuggestionItem,
     LithoSuggestionRequest,
     LithoSuggestionResponse,
 )
+from groundmodel.application.accept_litho_suggestions import AcceptLithoSuggestions
 from groundmodel.application.auto_populate_contacts_from_stratigraphy import (
     AutoPopulateContactsFromStratigraphy,
     build_formal_informal_bridge,
@@ -841,6 +844,10 @@ async def suggest_litho_contacts(
             detail=str(exc),
         ) from exc
 
+    from groundmodel.api.schemas.project.litho_suggestion.litho_layer_suggestion_item import (
+        AdmixtureItem,
+    )
+
     return LithoSuggestionResponse(
         investigation_type=investigation_type,
         minimum_layer_thickness_m=request.minimum_layer_thickness_m,
@@ -854,9 +861,172 @@ async def suggest_litho_contacts(
                 dr_pct=lyr.dr_pct,
                 confidence=lyr.confidence,
                 source=lyr.source,
+                # Phase 1: surface admixtures from borehole path.
+                # CPT path always produces an empty tuple.
+                # parent_formation_id + spans_boundary are resolved at Accept
+                # time (straddle detection runs in AcceptLithoSuggestions);
+                # the suggest endpoint leaves them at their safe defaults.
+                suggested_admixtures=[
+                    AdmixtureItem(
+                        soil_code=adm.soil_code,
+                        amount=adm.amount,
+                        locally=adm.locally,
+                    )
+                    for adm in lyr.suggested_admixtures
+                ],
             )
             for lyr in layers
         ],
+    )
+
+
+@router.post(
+    "/models/{model_id}/contacts/accept-litho-suggestions",
+    response_model=AcceptLithoSuggestionsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def accept_litho_suggestions(
+    project_id: UUID,
+    model_id: UUID,
+    request: AcceptLithoSuggestionsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> AcceptLithoSuggestionsResponse:
+    """Bulk-accept litho suggestions, committing formations + contacts.
+
+    Converts the caller-provided suggestion list into committed
+    ``GeologicalFormation`` (litho unit) rows + ``FormationContact`` rows in
+    the lithostratigraphic model.  The operation is bulk + idempotent:
+    re-accepting the same suggestions for the same investigation is a
+    read-heavy no-op (find-or-create key matches → existing rows returned).
+
+    Suggestions whose depth interval spans a geological-formation boundary
+    are automatically split into two contacts — one per parent formation —
+    using the parent model's cached TIN surfaces to locate the boundary.
+    When the TIN is stale/absent the boundary is approximated from
+    depth-ordered contacts on the investigation (``stale_tin_fallback_count``
+    in the response; rebuild the geological model to improve precision).
+
+    When ``section_id`` is provided, all created + found contact ids are
+    unioned into the section's ``seeded_formation_contact_ids`` so they
+    appear on the section immediately (explicit-content invariant). The caller
+    must forward ``updated_section`` via ``applyUpdatedSection``.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Lithostratigraphic model — must be ``kind='lithostratigraphic'`` and
+        belong to ``project_id``.
+    request : AcceptLithoSuggestionsRequest
+        Body with one anchor (``cpt_id`` XOR ``borehole_id``), optional
+        ``section_id``, and the suggestion list.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    AcceptLithoSuggestionsResponse
+        Created/found formation + contact ids, straddle statistics, and
+        optionally the updated section.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model is not ``kind='lithostratigraphic'``.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+
+    # Guard: model must be lithostratigraphic.
+    model = await session.get(GeologicalModelOrm, model_id)
+    if model is None or model.kind != "lithostratigraphic":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_model_kind",
+                "message": (
+                    f"Model {model_id} has kind='{model.kind if model else 'not found'}'; "
+                    "accept-litho-suggestions requires kind='lithostratigraphic'"
+                ),
+            },
+        )
+
+    # Convert API suggestion items back to domain objects so the use case
+    # can operate on typed data rather than raw dicts.
+    from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
+    from groundmodel.domain.value_objects.admixture import Admixture
+    from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
+
+    domain_suggestions: list[LithoLayerSuggestion] = []
+    for item in request.suggestions:
+        admixtures = tuple(
+            Admixture(
+                soil_code=adm.soil_code,
+                amount=adm.amount,
+                locally=adm.locally,
+            )
+            for adm in item.suggested_admixtures
+        )
+        domain_suggestions.append(
+            LithoLayerSuggestion(
+                depth_top_m=item.depth_top_m,
+                depth_base_m=item.depth_base_m,
+                suggested_lithology=item.suggested_lithology,
+                suggested_nad_class=item.suggested_nad_class,
+                mean_qc_mpa=item.mean_qc_mpa,
+                dr_pct=item.dr_pct,
+                confidence=SuggestionConfidence(item.confidence.value),
+                source=item.source,
+                suggested_admixtures=admixtures,
+            )
+        )
+
+    try:
+        result = await AcceptLithoSuggestions(session).execute(
+            project_id=project_id,
+            litho_model_id=model_id,
+            suggestions=domain_suggestions,
+            cpt_id=request.cpt_id,
+            borehole_id=request.borehole_id,
+            section_id=request.section_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "accept_litho_error", "message": str(exc)},
+        ) from exc
+
+    # Explicit-content invariant: seed section after the use case committed.
+    updated_section_response = None
+    if request.section_id is not None:
+        all_contact_ids = set(result.created_contact_ids) | set(result.found_contact_ids)
+        updated = await _seed_section_contacts(
+            session,
+            logger,
+            request.section_id,
+            project_id,
+            all_contact_ids,
+            log_label="AcceptLithoSuggestions",
+        )
+        if updated is not None:
+            from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
+
+            updated_section_response = CrossSectionResponse.model_validate(updated)
+
+    return AcceptLithoSuggestionsResponse(
+        created_formation_ids=result.created_formation_ids,
+        found_formation_ids=result.found_formation_ids,
+        created_contact_ids=result.created_contact_ids,
+        found_contact_ids=result.found_contact_ids,
+        straddle_split_count=result.straddle_split_count,
+        stale_tin_fallback_count=result.stale_tin_fallback_count,
+        updated_section=updated_section_response,
     )
 
 
