@@ -28,6 +28,7 @@ from groundmodel.application.validate_borehole_stratigraphy import (
     ValidateBoreholeStratigraphy,
 )
 from groundmodel.application.validate_model_crossings import ValidateModelCrossings
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
@@ -49,6 +50,7 @@ logger = LoggerFactory.get_logger(__name__)
 # No prefix here — the package __init__ mounts this on the shared
 # /projects/{project_id}/geology parent router (paths unchanged).
 router = APIRouter()
+
 
 @router.post(
     "/models/{model_id}/surfaces/rebuild",
@@ -144,9 +146,21 @@ async def validate_no_gaps(
     Returns the list of issues found (empty list ⇒ all good). The
     editor calls this on save; the response surfaces as inline warnings
     in the section view.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to ``project_id``, or the borehole
+        does not belong to ``project_id`` (VULN-11).
     """
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id), project_id, detail="Model not found"
+    )
+    # Borehole scope guard — prevent cross-project id enumeration (VULN-11).
+    await get_in_project_or_404(
+        session.get(BoreholeOrm, borehole_id),
+        project_id,
+        detail="Borehole not found",
     )
     issues = await ValidateBoreholeStratigraphy(session).execute(model_id, borehole_id)
     return GapValidationResponse(
@@ -334,5 +348,3 @@ async def build_ground_surface(
             for i in result.issues
         ],
     )
-
-
