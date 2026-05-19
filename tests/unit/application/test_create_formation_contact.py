@@ -32,6 +32,7 @@ from groundmodel.application.create_formation_contact import (
 MODEL = uuid4()
 FORMATION = uuid4()
 BOREHOLE = uuid4()
+PROJECT = uuid4()
 
 
 def _execute_result(scalar: object | None) -> MagicMock:
@@ -39,6 +40,17 @@ def _execute_result(scalar: object | None) -> MagicMock:
     result = MagicMock()
     result.scalar_one_or_none.return_value = scalar
     return result
+
+
+def _in_project(project_id: object) -> SimpleNamespace:
+    """Return a stub ORM row whose ``app_project_id`` matches ``project_id``.
+
+    The VULN-9 defence-in-depth checks call ``session.get()`` for the
+    formation and the anchor (borehole / CPT) and verify their
+    ``app_project_id``. These stubs satisfy that check so the rest of
+    the use-case path is exercisable.
+    """
+    return SimpleNamespace(app_project_id=project_id)
 
 
 def _use_case(session: AsyncMock) -> CreateFormationContact:
@@ -54,11 +66,14 @@ async def test_duplicate_precheck_raises_before_insert() -> None:
     """The best-effort pre-check raises DuplicateContactError, no insert."""
     existing = uuid4()
     session = AsyncMock()
+    # session.get: formation check, then borehole check (VULN-9).
+    session.get = AsyncMock(side_effect=[_in_project(PROJECT), _in_project(PROJECT)])
     session.execute = AsyncMock(return_value=_execute_result(existing))
     uc = _use_case(session)
 
     with pytest.raises(DuplicateContactError) as exc:
         await uc.execute(
+            project_id=PROJECT,
             model_id=MODEL,
             formation_id=FORMATION,
             depth_top_m=2.0,
@@ -77,12 +92,15 @@ async def test_happy_path_flips_surface_stale_and_commits() -> None:
     """A clean insert flips the (model, formation) surface stale + commits."""
     contact = SimpleNamespace(id=uuid4())
     session = AsyncMock()
+    # session.get: formation check, then borehole check (VULN-9).
+    session.get = AsyncMock(side_effect=[_in_project(PROJECT), _in_project(PROJECT)])
     # Pre-check finds nothing.
     session.execute = AsyncMock(return_value=_execute_result(None))
     uc = _use_case(session)
     uc._repo.create_contact = AsyncMock(return_value=contact)
 
     result = await uc.execute(
+        project_id=PROJECT,
         model_id=MODEL,
         formation_id=FORMATION,
         depth_top_m=2.0,
@@ -100,7 +118,10 @@ async def test_happy_path_flips_surface_stale_and_commits() -> None:
 async def test_race_loser_maps_integrity_error_to_duplicate() -> None:
     """IntegrityError + a re-query winner → DuplicateContactError(winner)."""
     winner = uuid4()
+    cpt_id = uuid4()
     session = AsyncMock()
+    # session.get: formation check, then CPT check (VULN-9).
+    session.get = AsyncMock(side_effect=[_in_project(PROJECT), _in_project(PROJECT)])
     # 1st execute: pre-check finds nothing. 2nd execute (post-
     # IntegrityError re-query): the row that won the race.
     session.execute = AsyncMock(side_effect=[_execute_result(None), _execute_result(winner)])
@@ -111,6 +132,7 @@ async def test_race_loser_maps_integrity_error_to_duplicate() -> None:
 
     with pytest.raises(DuplicateContactError) as exc:
         await uc.execute(
+            project_id=PROJECT,
             model_id=MODEL,
             formation_id=FORMATION,
             depth_top_m=2.0,
@@ -125,7 +147,10 @@ async def test_race_loser_maps_integrity_error_to_duplicate() -> None:
 @pytest.mark.asyncio
 async def test_integrity_error_from_other_constraint_is_reraised() -> None:
     """A non-uniqueness IntegrityError (no winner) is re-raised as-is."""
+    cpt_id = uuid4()
     session = AsyncMock()
+    # session.get: formation check, then CPT check (VULN-9).
+    session.get = AsyncMock(side_effect=[_in_project(PROJECT), _in_project(PROJECT)])
     # Pre-check clean; re-query after IntegrityError also finds no
     # winner → it wasn't the uniqueness index, re-raise the original.
     session.execute = AsyncMock(side_effect=[_execute_result(None), _execute_result(None)])
@@ -135,9 +160,10 @@ async def test_integrity_error_from_other_constraint_is_reraised() -> None:
 
     with pytest.raises(IntegrityError):
         await uc.execute(
+            project_id=PROJECT,
             model_id=MODEL,
             formation_id=FORMATION,
             depth_top_m=2.0,
-            cpt_id=uuid4(),
+            cpt_id=cpt_id,
         )
     session.rollback.assert_awaited_once()
