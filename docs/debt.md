@@ -1010,46 +1010,6 @@ Lithology stage inspector.
 exclusion-toggle or when the first dogfeed session surfaces
 a silent litho surface crossing as a confusing artefact.
 
-## 67. Manual litho picker Phase-2 features absent (Tier E)
-
-**What.** The Phase-1.5 manual litho composition picker (shipped
-2026-05-19) intentionally defers several affordances to Phase 2:
-
-* `instance_ordinal` auto-increment and the lock checkbox — litho
-  units that share the same composition within a parent formation
-  need an ordinal (e.g. ZAND-1 / ZAND-2) so the section can
-  distinguish repeat occurrences. The ordinal column exists on the
-  ORM but the picker never sets it; the backend defaults it to `null`.
-* `litho_correlation_edge` connect / correlate gesture — draw a
-  horizontal tie-line between same-unit columns on different
-  investigations (communicates lateral continuity). No endpoint or
-  UX built yet.
-* Existing-unit search/filter — the "Existing units" tab shows the
-  full grouped list; a fuzzy search box over formation names and soil
-  codes would reduce friction on projects with many litho units.
-* Client-side parent-formation name in the picker — `parentFormationName`
-  is always `null` in Phase-1.5 (SectionPanel cannot resolve it without
-  a round-trip; the backend resolves the true parent from the geology
-  TIN at commit). The picker shows a neutral "resolved automatically"
-  note instead of the real "within: <name>" (review S1, 2026-05-19).
-  An O(contacts) client-side approximation (nearest geology contact
-  above the picked depth → name via `referenceFormations`) would let
-  the picker show the likely parent pre-commit. Approximation only —
-  doesn't account for TIN interpolation.
-
-**Why deferred.** Phase-1.5 scope was minimal-viable: one-click
-placement of a manually composed or pre-existing unit on the litho
-axis. These affordances require either a schema change
-(`instance_ordinal` strategy), a new endpoint
-(`litho_correlation_edge`), or additional UI complexity (search). All
-three need a focused design session before implementation.
-
-**When to revisit.** When the first dogfeed session shows the user
-needing to distinguish two ZAND units within the same parent
-formation (ordinal), or wanting to express lateral continuity
-visually (correlation edge), or when the unit list grows large
-enough to make scrolling the tab impractical (search/filter).
-
 ## 68. CorrelationEdgesOverlay uncorrelate menu state lives inside a `pointerEvents:none` SVG `<g>` (Tier E — robustness)
 
 **What.** The Slice-4 `CorrelationEdgesOverlay` owns its uncorrelate
