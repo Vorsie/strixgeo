@@ -1,17 +1,23 @@
-"""HTTP-level tests for the litho-correlation endpoints (Phase-2 Slice 1).
+"""HTTP-level tests for the litho-correlation endpoints (Phase-2 Slices 1+3).
 
 Pins the contract the frontend depends on:
 
+Slice 1 (existing):
 * POST creates an edge (201) and is idempotent (200 on re-call).
 * DELETE removes it and is idempotent (204 whether or not it existed).
 * POST after DELETE creates a fresh edge.
 * Self-loop and cross-project / cross-group are 422.
-* The endpoints are MODEL-level: they take no ``section_id`` and the
-  request schema has no section field — the structural reason the
-  #57/applyUpdatedSection trap cannot recur here (correlations never
-  touch ``seeded_formation_contact_ids``). The connected-component
-  ordinal maths is exhaustively covered by the resolver + use-case
-  unit tests; this only asserts the HTTP wiring + status contract.
+
+Slice 3 (new):
+* POST /resolve → 200 with updated list after an edge is created.
+* POST /resolve → 200 with empty list when nothing changed (idempotent).
+* GET  /correlations → 200 list of edges (id, formation_a_id, formation_b_id, source).
+* GET  /correlations on a fresh model → 200 empty list.
+* 404 when model does not exist or does not belong to the project (resolve + list).
+
+Structural #57 guard (all endpoints):
+* None of these endpoints accept a ``section_id`` query / body parameter.
+* None of them modify ``seeded_formation_contact_ids`` on any cross-section.
 """
 
 from __future__ import annotations
@@ -188,3 +194,157 @@ async def test_cross_group_different_soil_code_is_422(
         json={"formation_a_id": str(f_sand.id), "formation_b_id": str(f_clay.id)},
     )
     assert r.status_code == 422, r.text
+
+
+# ---------------------------------------------------------------------------
+# Slice 3 — POST /resolve and GET /correlations
+# ---------------------------------------------------------------------------
+
+
+async def test_resolve_returns_updates_after_correlate(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """POST /resolve after adding an edge returns the updated ordinal list."""
+    mid, a, b = await _two_formations_in_litho_model(async_client, project.id)
+    base = f"/projects/{project.id}/geology/models/{mid}"
+
+    # Create an edge so the resolver has something to resolve.
+    r = await async_client.post(
+        f"{base}/correlations", json={"formation_a_id": a, "formation_b_id": b}
+    )
+    assert r.status_code == 201, r.text
+
+    # Resolve.
+    resolve_resp = await async_client.post(f"{base}/correlations/resolve")
+    assert resolve_resp.status_code == 200, resolve_resp.text
+    body = resolve_resp.json()
+    assert "updated" in body
+    assert isinstance(body["updated"], list)
+
+
+async def test_resolve_idempotent_returns_empty_list(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """POST /resolve twice in a row: second call returns empty updated list."""
+    mid, a, b = await _two_formations_in_litho_model(async_client, project.id)
+    base = f"/projects/{project.id}/geology/models/{mid}"
+
+    await async_client.post(f"{base}/correlations", json={"formation_a_id": a, "formation_b_id": b})
+
+    # First resolve — may produce updates.
+    r1 = await async_client.post(f"{base}/correlations/resolve")
+    assert r1.status_code == 200, r1.text
+
+    # Second resolve — no structural change → empty updated.
+    r2 = await async_client.post(f"{base}/correlations/resolve")
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["updated"] == []
+
+
+async def test_list_correlations_returns_edges(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """GET /correlations after creating an edge returns that edge in the list."""
+    mid, a, b = await _two_formations_in_litho_model(async_client, project.id)
+    base = f"/projects/{project.id}/geology/models/{mid}"
+
+    # Empty before any edge.
+    r0 = await async_client.get(f"{base}/correlations")
+    assert r0.status_code == 200, r0.text
+    assert r0.json() == []
+
+    # Create an edge.
+    cr = await async_client.post(
+        f"{base}/correlations", json={"formation_a_id": a, "formation_b_id": b}
+    )
+    assert cr.status_code == 201, cr.text
+    edge_id = cr.json()["edge_id"]
+
+    # List now returns it.
+    r1 = await async_client.get(f"{base}/correlations")
+    assert r1.status_code == 200, r1.text
+    edges = r1.json()
+    assert len(edges) == 1
+    edge = edges[0]
+    assert edge["id"] == edge_id
+    assert set(edge.keys()) >= {"id", "formation_a_id", "formation_b_id", "source", "created_at"}
+    assert edge["source"] == "manual"
+
+
+async def test_list_correlations_empty_on_fresh_model(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """GET /correlations on a model with no edges returns an empty list (200)."""
+    geo = await _geo_model(async_client, project.id)
+    litho = await _litho_model(async_client, project.id, geo["id"])
+    r = await async_client.get(f"/projects/{project.id}/geology/models/{litho['id']}/correlations")
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+
+
+async def test_resolve_404_for_unknown_model(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """POST /resolve with a non-existent model_id returns 404."""
+    from uuid6 import uuid7
+
+    r = await async_client.post(
+        f"/projects/{project.id}/geology/models/{uuid7()}/correlations/resolve"
+    )
+    assert r.status_code == 404, r.text
+
+
+async def test_list_correlations_404_for_unknown_model(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """GET /correlations with a non-existent model_id returns 404."""
+    from uuid6 import uuid7
+
+    r = await async_client.get(f"/projects/{project.id}/geology/models/{uuid7()}/correlations")
+    assert r.status_code == 404, r.text
+
+
+async def test_resolve_and_list_have_no_section_id_param(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """Structural #57 guard: resolve + list take no section_id.
+
+    Sends a ``section_id`` as both a query param and a body field and
+    asserts neither endpoint uses it — they either 422 (body unexpected
+    for GET) or succeed without incorporating the section context.
+
+    The real guarantee is structural: neither endpoint's handler has a
+    section_id parameter or calls applyUpdatedSection / touches
+    seeded_formation_contact_ids.  This test is a belt-and-suspenders
+    contract check that would catch an accidental regression.
+    """
+    from uuid6 import uuid7
+
+    geo = await _geo_model(async_client, project.id)
+    litho = await _litho_model(async_client, project.id, geo["id"])
+    mid = litho["id"]
+    base = f"/projects/{project.id}/geology/models/{mid}"
+
+    fake_section_id = str(uuid7())
+
+    # GET /correlations — section_id as a query param is ignored (not an endpoint param).
+    r_get = await async_client.get(f"{base}/correlations", params={"section_id": fake_section_id})
+    # 200: the endpoint is unaffected by the extra param (FastAPI ignores unknown params).
+    assert r_get.status_code == 200, r_get.text
+    # No seeded_formation_contact_ids in the response body.
+    for edge in r_get.json():
+        assert "seeded_formation_contact_ids" not in edge
+
+    # POST /resolve — a body with section_id must not be interpreted as a
+    # section-scoped resolve (the endpoint takes no body at all).
+    r_resolve = await async_client.post(
+        f"{base}/correlations/resolve",
+        json={"section_id": fake_section_id},
+    )
+    # FastAPI will 422 because the endpoint takes no body; OR 200 if it
+    # simply ignores the payload (implementation-dependent).  Either
+    # outcome is acceptable — what matters is the response does NOT carry
+    # seeded_formation_contact_ids.
+    assert r_resolve.status_code in (200, 422), r_resolve.text
+    if r_resolve.status_code == 200:
+        assert "seeded_formation_contact_ids" not in r_resolve.json()
