@@ -19,11 +19,14 @@ vi.mock('./StageCanvas', () => ({ default: () => null }))
 vi.mock('./Inspector', () => ({ default: () => null }))
 
 let mockStage: StageId = 'data'
+// Stable across renders so the open-detail→Data-stage effect can be
+// asserted (a fresh vi.fn() per render would lose the call history).
+const mockSetActiveStage = vi.fn()
 vi.mock('./useShellState', () => ({
   useShellState: () => ({
     activeStageId: mockStage,
     inspectorOpen: true,
-    setActiveStage: vi.fn(),
+    setActiveStage: mockSetActiveStage,
     toggleInspector: vi.fn(),
     setInspectorOpen: vi.fn(),
   }),
@@ -43,6 +46,7 @@ function makeCtx(
     selectedSectionId?: string | null
     bboxImportType?: string | null
     drawingSection?: boolean
+    view?: 'map' | 'chart'
   } = {},
 ): Ctx {
   const setSelectedId = vi.fn()
@@ -61,6 +65,7 @@ function makeCtx(
     coordinator: {
       selectedId: over.selectedId ?? null,
       selectedBoreholeId: over.selectedBoreholeId ?? null,
+      view: over.view ?? 'map',
       setSelectedId,
       setSelectedBoreholeId,
       setView,
@@ -146,5 +151,38 @@ describe('AppShell Esc peel (debt #43)', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(setSelectedId).not.toHaveBeenCalled()
     input.remove()
+  })
+})
+
+// Open-a-detail → Data stage (#3 stage-router bug). A section
+// double-click sets the selection + view='chart' but the detail only
+// renders in the Data stage, so the user "landed on the map" until the
+// shell routed the open-detail action to Data.
+describe('AppShell open-detail → Data stage (#3)', () => {
+  it('switches to the Data stage when a detail is opened from another stage', () => {
+    mockStage = 'sections'
+    const { ctx } = makeCtx({ selectedId: null, view: 'map' })
+    const { rerender } = render(<AppShell context={ctx} />)
+    // Drop the mount-time project-open setActiveStage('data') so the
+    // assertion isolates the open-detail effect (project.id is unchanged
+    // on rerender, so that effect does not re-fire).
+    vi.clearAllMocks()
+
+    const { ctx: opened } = makeCtx({ selectedId: 'cpt-1', view: 'chart' })
+    rerender(<AppShell context={opened} />)
+
+    expect(mockSetActiveStage).toHaveBeenCalledWith('data')
+  })
+
+  it('does not route to Data when the selection is shown on the map', () => {
+    mockStage = 'sections'
+    const { ctx } = makeCtx({ selectedId: null, view: 'map' })
+    const { rerender } = render(<AppShell context={ctx} />)
+    vi.clearAllMocks()
+
+    const { ctx: mapSel } = makeCtx({ selectedId: 'cpt-1', view: 'map' })
+    rerender(<AppShell context={mapSel} />)
+
+    expect(mockSetActiveStage).not.toHaveBeenCalled()
   })
 })
