@@ -700,6 +700,11 @@ describe('SectionsToolbar Accept all button (Phase 1 litho accept flow)', () => 
     await vi.waitFor(() => {
       expect(acceptAll).toHaveBeenCalledOnce()
     })
+    // Regression (#57 class): the section-update callback MUST be the
+    // 2nd arg, or the server-echoed seeded_formation_contact_ids is
+    // dropped and the explicit-content filter hides every accepted
+    // litho contact. This exact bug has recurred 3× — pin it.
+    expect(acceptAll.mock.calls[0][1]).toBe(ctx.sections.applyUpdatedSection)
   })
 
   // BL4: "Build litho" is absent from SectionsToolbar on the litho axis
