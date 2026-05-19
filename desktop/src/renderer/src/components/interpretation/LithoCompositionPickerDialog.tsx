@@ -14,19 +14,21 @@
  *   (GRIND / ZAND / SILT / KLEI / VEEN) + a growable admixture row list
  *   (soil-code dropdown, amount dropdown, "locally" checkbox, remove button) +
  *   a live ``formatLithoDisplayName`` preview that updates as the user builds.
- *   Confirm calls ``onCreateLithoUnit`` then chains to ``onSelect`` for the
- *   created formation id and closes.
+ *   Confirm calls ``onCreateLithoUnit`` (which creates the formation +
+ *   contact and seeds the section server-side) then closes — it does NOT
+ *   chain ``onSelect`` (that would re-create the contact; review B1).
  *
- * No-geology-context case (``parentFormationName === null``): the picker still
- * opens but shows a warning banner.  The created unit gets parent_formation_id=null
- * (server resolves geometry at commit time) and appears in the "Unassigned"
- * group.
+ * The parent geological formation is resolved SERVER-SIDE from the geology
+ * TIN at commit time.  ``parentFormationName`` is currently always ``null``
+ * (a client-side approximation is Phase-2 debt) so the picker shows a neutral
+ * "resolved automatically" note; a unit with no mappable geology lands in the
+ * "Unassigned" group.
  *
  * Phase-2 exclusions (do NOT add): instance_ordinal, litho_correlation_edge,
  * connect/correlate gesture, .gmproj correlation round-trip, search/filter.
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 
 import type { AdmixtureItem, GeologicalFormationResponse } from '../../api/client'
@@ -133,10 +135,12 @@ export interface LithoCompositionPickerProps {
     elevationM: number
   } | null
   /**
-   * Name of the parent geological formation at this depth.  Shown as
-   * "within: <name>" below the subtitle.  ``null`` when there is no
-   * geological context (no geology contacts at this investigation) — the picker
-   * still opens but shows a warning banner.
+   * Name of the parent geological formation at this depth, shown as
+   * "within: <name>".  Phase-1.5: SectionPanel always passes ``null`` —
+   * the parent is resolved server-side from the geology TIN at commit
+   * time, and a client-side approximation (to fill this in pre-commit)
+   * is Phase-2 debt.  When ``null`` the picker shows a neutral
+   * "resolved automatically" note, NOT an alarming warning (review S1).
    */
   parentFormationName: string | null
   /** Existing-unit path — called with the formation id the user picked. */
@@ -164,11 +168,6 @@ interface AdmixtureRow {
   soil_code: string
   amount: string
   locally: boolean
-}
-
-let _rowIdCounter = 0
-function nextRowId(): number {
-  return ++_rowIdCounter
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +200,9 @@ export default function LithoCompositionPickerDialog({
   const [mainCode, setMainCode] = useState<MainSoilCode>('ZAND')
   const [admixRows, setAdmixRows] = useState<AdmixtureRow[]>([])
   const [creating, setCreating] = useState(false)
+  // Per-instance monotonic id for admixture row React keys (review C1 —
+  // was a module-level counter shared across all dialog instances).
+  const rowIdRef = useRef(0)
 
   // Live preview from the current Tab 2 composition.
   const previewLabel = formatLithoDisplayName(
@@ -232,7 +234,7 @@ export default function LithoCompositionPickerDialog({
   function addAdmixtureRow(): void {
     setAdmixRows(prev => [
       ...prev,
-      { id: nextRowId(), soil_code: 'KL', amount: '', locally: false },
+      { id: ++rowIdRef.current, soil_code: 'KL', amount: '', locally: false },
     ])
   }
 
@@ -259,12 +261,13 @@ export default function LithoCompositionPickerDialog({
       }))
       const result = await onCreateLithoUnit(mainCode, admixtures)
       if (result !== null) {
-        // Chain into onSelect then close — the caller closes by clearing
-        // pickContext; here we reset Tab 2 state so re-opening is fresh.
-        await onSelect(result.formationId)
-        setMainCode('ZAND')
-        setAdmixRows([])
-        setActiveTab('existing')
+        // onCreateLithoUnit already created the formation AND the contact
+        // AND seeded the section server-side (accept-litho-suggestions +
+        // applyUpdatedSection). Do NOT chain into onSelect — that re-POSTs
+        // the same contact, hits DuplicateContactError (409) and fires a
+        // false error toast on every successful placement (review B1).
+        // The work is done; just reset Tab 2 state and close.
+        handleCancel()
       }
     } finally {
       setCreating(false)
@@ -308,9 +311,10 @@ export default function LithoCompositionPickerDialog({
             <span className="font-medium text-text-primary">{parentFormationName}</span>
           </p>
         ) : (
-          <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1">
-            No geological context at this investigation — parent formation unknown.
-            The unit will appear under "Unassigned".
+          <p className="text-xs text-text-secondary mb-3">
+            The parent geological formation is resolved automatically when the
+            contact is committed. If no geology is mapped here, the unit appears
+            under "Unassigned".
           </p>
         )}
 
