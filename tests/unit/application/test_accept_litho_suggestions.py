@@ -422,3 +422,98 @@ def test_canonical_admixture_signature_sorted() -> None:
     assert "locally" not in sig1
     assert "GL:" in sig1
     assert "KL:Z" in sig1
+
+
+# ---------------------------------------------------------------------------
+# A6 — bulk-segmenter source passthrough: borehole_observation stays unchanged
+# A7 — manual_pick source: manual payload stamps 'manual_pick' on the contact
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a6_bulk_segmenter_source_passthrough() -> None:
+    """Bulk-accept with source='borehole_observation' stamps that source on the contact.
+
+    Regression guard: the parameterised _find_or_create_contact must forward
+    the suggestion's own source, not re-derive it from the anchor type (the
+    previous hard-coded behaviour).
+    """
+    session = _make_session(
+        surface_rows=[],
+        geo_contacts_at_inv=[],
+        existing_contact_ids=[None],
+    )
+    uc = _use_case(session)
+
+    suggestion = LithoLayerSuggestion(
+        depth_top_m=0.0,
+        depth_base_m=5.0,
+        suggested_lithology="KLEI",  # type: ignore[arg-type]
+        suggested_nad_class=None,
+        mean_qc_mpa=None,
+        dr_pct=None,
+        confidence=SuggestionConfidence.HIGH,
+        source="borehole_observation",
+        suggested_admixtures=(),
+    )
+    await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=[suggestion],
+        borehole_id=BOREHOLE_ID,
+    )
+
+    # The ORM contact row is passed to session.add — inspect the call.
+    added_objects = [call_args.args[0] for call_args in session.add.call_args_list]
+    contact_rows = [
+        obj for obj in added_objects if hasattr(obj, "source") and hasattr(obj, "confidence")
+    ]
+    assert len(contact_rows) == 1, "Expected exactly one FormationContactOrm created"
+    assert contact_rows[0].source == "borehole_observation", (
+        "Bulk segmenter suggestion source must pass through unchanged; "
+        "previously this was hard-coded from the anchor type."
+    )
+
+
+@pytest.mark.asyncio
+async def test_a7_manual_pick_source_stamps_manual_pick() -> None:
+    """A manual_pick payload produces a contact row with source='manual_pick'.
+
+    This is the Phase-1.5 manual litho composition picker path: the frontend
+    sends source='manual_pick' in the synthetic one-item suggestion and the
+    use case must NOT override it with the anchor-derived source.
+    """
+    session = _make_session(
+        surface_rows=[],
+        geo_contacts_at_inv=[],
+        existing_contact_ids=[None],
+    )
+    uc = _use_case(session)
+
+    suggestion = LithoLayerSuggestion(
+        depth_top_m=2.0,
+        depth_base_m=2.01,  # sentinel depth_base for manual pick
+        suggested_lithology="ZAND",  # type: ignore[arg-type]
+        suggested_nad_class=None,
+        mean_qc_mpa=None,
+        dr_pct=None,
+        confidence=SuggestionConfidence.MEDIUM,
+        source="manual_pick",
+        suggested_admixtures=(),
+    )
+    await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=[suggestion],
+        borehole_id=BOREHOLE_ID,
+    )
+
+    added_objects = [call_args.args[0] for call_args in session.add.call_args_list]
+    contact_rows = [
+        obj for obj in added_objects if hasattr(obj, "source") and hasattr(obj, "confidence")
+    ]
+    assert len(contact_rows) == 1, "Expected exactly one FormationContactOrm created"
+    assert contact_rows[0].source == "manual_pick", (
+        "Manual-pick suggestion source must reach the contact row as 'manual_pick'; "
+        "a hard-coded anchor-derived source would break provenance tagging."
+    )
