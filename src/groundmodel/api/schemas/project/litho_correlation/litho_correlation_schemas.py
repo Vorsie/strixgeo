@@ -1,10 +1,14 @@
-"""Request / response schemas for litho-correlation endpoints (Phase-2 Slice 1).
+"""Request / response schemas for litho-correlation endpoints (Phase-2 Slices 1+3).
 
-Endpoints:
+Endpoints (Slice 1):
   POST   /projects/{pid}/geology/models/{mid}/correlations
   DELETE /projects/{pid}/geology/models/{mid}/correlations
 
-These are MODEL-level operations.  No section_id, no
+Endpoints (Slice 3):
+  POST   /projects/{pid}/geology/models/{mid}/correlations/resolve
+  GET    /projects/{pid}/geology/models/{mid}/correlations
+
+All of these are MODEL-level operations.  No section_id, no
 seeded_formation_contact_ids — correlations live entirely in the
 geological model tree.  This is the structural boundary that prevents
 the #57/applyUpdatedSection trap from recurring here.
@@ -12,6 +16,7 @@ the #57/applyUpdatedSection trap from recurring here.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -88,3 +93,51 @@ class LithoCorrelationResponse(BaseModel):
     formation_b_id: UUID
     was_created: bool
     instance_ordinals_updated: list[OrdinalUpdateItem]
+
+
+# ---------------------------------------------------------------------------
+# Slice 3 — resolve endpoint + edge list endpoint
+# ---------------------------------------------------------------------------
+
+
+class ResolveInstancesResponse(BaseModel):
+    """Response body for POST /correlations/resolve.
+
+    Attributes
+    ----------
+    updated : list[OrdinalUpdateItem]
+        One entry per formation whose ``instance_ordinal`` changed
+        as a result of this resolve call.  Empty list when nothing
+        changed (idempotent re-resolve with no structural changes).
+    """
+
+    updated: list[OrdinalUpdateItem]
+
+
+class LithoCorrelationEdgeListItem(BaseModel):
+    """One edge returned by GET /correlations.
+
+    Attributes
+    ----------
+    id : UUID
+        Primary key of the ``litho_correlation_edge`` row.
+    formation_a_id : UUID
+        Canonical lesser endpoint (min ordering enforced by DB).
+    formation_b_id : UUID
+        Canonical greater endpoint.
+    source : str
+        Provenance token ('manual' in Phase 2; widened later when
+        automated paths ship).
+    created_at : datetime
+        Row creation timestamp — exposed so the frontend can sort edges
+        chronologically for display and track the edge-set snapshot hash
+        (stale-badge computation).
+    """
+
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    formation_a_id: UUID
+    formation_b_id: UUID
+    source: str
+    created_at: datetime
