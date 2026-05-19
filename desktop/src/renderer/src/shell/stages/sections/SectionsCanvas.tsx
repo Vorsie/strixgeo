@@ -466,6 +466,10 @@ export default function SectionsCanvas(): JSX.Element {
         return null
       }
     },
+    // toast intentionally NOT used / not a dep: the catch returns null so
+    // the picker simply stays open on failure (no error toast — intended
+    // UX). If a future edit adds toast() into the catch, add it here too
+    // or it becomes a stale-closure bug (review C3).
     [activeLithoModel, selectedSection, project.id, applyUpdatedSection],
   )
 
