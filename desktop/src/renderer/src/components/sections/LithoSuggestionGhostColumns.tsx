@@ -17,7 +17,7 @@
  * collision with existing overlays.
  */
 
-import type { LithoLayerSuggestion } from '../../api/client'
+import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
 import {
@@ -80,6 +80,12 @@ export interface LithoSuggestionGhostColumnsProps {
   onAccept: (idx: number) => void
   /** Fire when the user right-clicks or shift-clicks to reject a layer. */
   onReject: (idx: number) => void
+  /**
+   * Formations in the active litho model — used to resolve the parent
+   * formation name from ``suggestion.parent_formation_id`` for the tooltip.
+   * Optional: tooltip shows the raw id when absent.
+   */
+  formations?: readonly GeologicalFormationResponse[]
 }
 
 /**
@@ -111,6 +117,9 @@ export interface LithoSuggestionGhostColumnsProps {
  *     Callback when the user left-clicks a pending layer.
  * onReject
  *     Callback when the user right-clicks or Shift-clicks a pending layer.
+ * formations
+ *     Active model's formation list for parent-formation name lookup.
+ *     Optional — tooltip shows the raw id when absent.
  *
  * Returns
  * -------
@@ -131,11 +140,15 @@ export default function LithoSuggestionGhostColumns({
   rejectedIndices,
   onAccept,
   onReject,
+  formations = [],
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   if (suggestions.length === 0 || surfaceElevationM === null) return null
 
   const col = columns.find(c => c.proj.item.id === investigationId)
   if (!col) return null
+
+  // Build a name-by-id map so each layer can resolve its parent formation name.
+  const formationNameById = new Map(formations.map(f => [f.id, f.name]))
 
   // Place the ghost column to the LEFT of the data band.
   const right = col.nudgedX - bandHalfWidth - LITHO_GHOST_GAP_FROM_BAND_PX
@@ -170,6 +183,7 @@ export default function LithoSuggestionGhostColumns({
           rejected={rejectedIndices.has(idx)}
           onAccept={onAccept}
           onReject={onReject}
+          formationNameById={formationNameById}
         />
       ))}
     </g>
@@ -193,6 +207,7 @@ function LithoSuggestionLayer({
   rejected,
   onAccept,
   onReject,
+  formationNameById,
 }: {
   layer: LithoLayerSuggestion
   idx: number
@@ -206,6 +221,7 @@ function LithoSuggestionLayer({
   rejected: boolean
   onAccept: (idx: number) => void
   onReject: (idx: number) => void
+  formationNameById: ReadonlyMap<string, string>
 }): JSX.Element | null {
   // Convert depth-below-surface to mTAW using the investigation's elevation.
   const topMTaw = surfaceElevationM - layer.depth_top_m
@@ -224,6 +240,24 @@ function LithoSuggestionLayer({
       ? GHOST_OPACITY_REJECTED
       : GHOST_OPACITY_DEFAULT
 
+  // Resolve the parent formation name from the id (passed from the outer
+  // component's formations lookup).  Falls back to the raw id when the
+  // formation is not in the active model (edge case: stale suggestion while
+  // the model is being edited).
+  const parentName =
+    layer.parent_formation_id != null
+      ? (formationNameById.get(layer.parent_formation_id) ?? layer.parent_formation_id)
+      : null
+
+  // spans_boundary: this suggestion interval crosses a geological formation
+  // boundary.  The backend auto-splits it into two contacts at acceptance,
+  // but the ghost still covers the full original interval — amber border
+  // signals "straddles two formations, will be split on accept".
+  const straddleNote = layer.spans_boundary
+    ? ' ⚠ straddles formation boundary — will be split on accept'
+    : ''
+  const parentNote = parentName != null ? ` | parent: ${parentName}` : ''
+
   // Build the tooltip with all segmenter metadata.
   const nadNote = layer.suggested_nad_class != null ? ` · NAD ${layer.suggested_nad_class}` : ''
   const qcNote = layer.mean_qc_mpa != null ? ` · qc ${layer.mean_qc_mpa.toFixed(2)} MPa` : ''
@@ -231,7 +265,7 @@ function LithoSuggestionLayer({
   const statusNote = accepted ? ' ✓ accepted' : rejected ? ' ✗ rejected' : ' (click to accept)'
   const tooltip =
     `${labelText}${nadNote}: ${layer.depth_top_m.toFixed(2)} → ${layer.depth_base_m.toFixed(2)} m` +
-    ` [${layer.confidence}${qcNote}${drNote}]${statusNote}`
+    ` [${layer.confidence}${qcNote}${drNote}]${parentNote}${straddleNote}${statusNote}`
 
   const maxLines = maxLinesForHeight(height, LABEL_FONT_SIZE)
   const lines = maxLines > 0
@@ -260,7 +294,21 @@ function LithoSuggestionLayer({
     onReject(idx)
   }
 
-  // Visual marker: accepted gets a hairline stroke, rejected gets strikethrough diagonal.
+  // Visual markers:
+  //   accepted     → dark-green hairline stroke
+  //   spans_boundary (pending) → amber stroke (1.5px dashed) to warn "will be split"
+  //   rejected     → grey stroke
+  //   default      → matching fill stroke (subtle boundary)
+  const strokeColor = accepted
+    ? '#065f46'
+    : layer.spans_boundary && !rejected
+      ? '#d97706'  // amber-600 — straddle warning
+      : rejected
+        ? '#9ca3af'
+        : fill
+  const strokeWidth = accepted || (layer.spans_boundary && !rejected) ? 1.5 : 0.5
+  const strokeDasharray = layer.spans_boundary && !accepted && !rejected ? '4 2' : undefined
+
   return (
     <g>
       <rect
@@ -270,9 +318,10 @@ function LithoSuggestionLayer({
         height={height}
         fill={fill}
         fillOpacity={opacity}
-        stroke={accepted ? '#065f46' : rejected ? '#9ca3af' : fill}
-        strokeOpacity={accepted ? 0.9 : 0.5}
-        strokeWidth={accepted ? 1.5 : 0.5}
+        stroke={strokeColor}
+        strokeOpacity={accepted ? 0.9 : 0.7}
+        strokeWidth={strokeWidth}
+        strokeDasharray={strokeDasharray}
         style={{ cursor: accepted || rejected ? 'default' : 'pointer' }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
