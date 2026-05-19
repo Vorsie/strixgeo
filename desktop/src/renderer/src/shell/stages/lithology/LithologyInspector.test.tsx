@@ -20,9 +20,12 @@
 //       formations.
 //   S3  "Resolve instances" button calls resolveLithoInstances and then
 //       refetchFormations.
-//   S4  RO-3 amber stale badge appears on a locked formation when the
-//       edge count changed since the last resolve, and is absent when
-//       nothing is locked or the edge set is unchanged.
+//   S4  RO-3 amber stale badge is ABSENT after a resolve synchronises the
+//       baseline, when nothing is locked, or when the edge set is
+//       unchanged. (The badge-PRESENT happy path is not reachable through
+//       this component's public surface — it is unit-tested directly on
+//       the extracted pure predicate in ordinalStaleness.test.ts; review
+//       SF-1.)
 //
 // Pattern: render LithologyInspector inside a ShellContext.Provider —
 // same approach as SectionsToolbar.axis.test.tsx.  ModelKindPicker and
@@ -660,12 +663,14 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     })
   })
 
-  // S4a: RO-3 amber badge appears on a locked formation when the post-resolve
-  // edge count (new baseline) differs from the current live edge count.
-  // Scenario: resolve with 0 edges → baseline = 0. Then edges are re-fetched
-  // returning 1 (an edge was added externally). Badge shows because
-  // currentEdgeCount(1) ≠ lastResolvedEdgeCount(0).
-  it('S4a — amber stale badge appears on locked formation when edge count changed since last resolve', async () => {
+  // S4a: RO-3 amber badge is ABSENT once a resolve has synchronised the
+  // baseline (currentEdgeCount === lastResolvedEdgeCount). The badge-PRESENT
+  // branch is NOT reachable through this component's public surface (driving
+  // an edge-count divergence mid-render requires no external trigger) — it
+  // is unit-tested directly on the extracted pure predicate in
+  // ordinalStaleness.test.ts (review SF-1). This test pins the in-sync
+  // (absent) behaviour at the component level.
+  it('S4a — amber stale badge is absent after a resolve synchronises the baseline', async () => {
     // First resolve returns 0 edges (sets baseline = 0).
     // Second listCorrelations call (post-resolve refresh) returns 0 edges too.
     // Afterwards, the live state is manipulated: we re-render with 1 edge
