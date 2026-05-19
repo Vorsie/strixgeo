@@ -48,15 +48,14 @@ export default function SectionsToolbar(): JSX.Element {
       activeGeologicalModel,
       activeLithoModel,
       staleSurfaceCount,
-      lithoStaleSurfaceCount,
       handleRebuildSurfaces,
-      handleRebuildLithoSurfaces,
       handleDedupeContacts,
       handleExportModelPlaxis3d,
       handleAutoPopulateFromStratigraphy,
       lithoSuggesting,
       lithoSuggestions,
       handleSuggestLitho,
+      handleAcceptAllLithoSuggestions,
       clearLithoSuggestions,
       handleLoadBackdropSurfaces,
     },
@@ -70,7 +69,6 @@ export default function SectionsToolbar(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [seeding, setSeeding] = useState(false)
-  const [rebuildingLitho, setRebuildingLitho] = useState(false)
   // Delete confirm modal state — replaces window.confirm() per UX rules:
   // irreversible actions require a Modal with default-focus on Cancel and a
   // button labelled with the action name (not "OK"). See docs/ux.md.
@@ -79,6 +77,7 @@ export default function SectionsToolbar(): JSX.Element {
   const [deduping, setDeduping] = useState(false)
   const [exportingPlaxis, setExportingPlaxis] = useState(false)
   const [exportingDxf, setExportingDxf] = useState(false)
+  const [acceptingAll, setAcceptingAll] = useState(false)
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
@@ -231,21 +230,6 @@ export default function SectionsToolbar(): JSX.Element {
       ? `Build · ${staleSurfaceCount} stale`
       : 'Build model'
 
-  const lithoStaleLabel =
-    lithoStaleSurfaceCount > 0
-      ? `Build litho · ${lithoStaleSurfaceCount} stale`
-      : 'Build litho model'
-
-  async function handleBuildLitho(): Promise<void> {
-    if (rebuildingLitho || activeLithoModel === null) return
-    setRebuildingLitho(true)
-    try {
-      await handleRebuildLithoSurfaces()
-    } finally {
-      setRebuildingLitho(false)
-    }
-  }
-
   // Suggest litho — fetches Robertson-2015/borehole segmenter suggestions
   // for the focused column in the active section. On the litho axis the
   // source is the section-local focused column (right-click → Focus in the
@@ -268,6 +252,22 @@ export default function SectionsToolbar(): JSX.Element {
   async function handleSuggest(): Promise<void> {
     if (!canSuggest || lithoSuggesting || !focusedAnchorKind || !focusedAnchorId) return
     await handleSuggestLitho(focusedAnchorKind, focusedAnchorId)
+  }
+
+  // Accept all non-rejected litho suggestion layers in one bulk call.
+  // Threads the section id + applyUpdatedSection so the explicit-content
+  // filter includes the seeded contacts immediately (#57 invariant).
+  async function handleAcceptAll(): Promise<void> {
+    if (!hasSuggestions || acceptingAll) return
+    setAcceptingAll(true)
+    try {
+      await handleAcceptAllLithoSuggestions(
+        selectedSectionId ?? null,
+        applyUpdatedSection,
+      )
+    } finally {
+      setAcceptingAll(false)
+    }
   }
 
   // Handler for the axis toggle — validate the target axis before
@@ -390,33 +390,28 @@ export default function SectionsToolbar(): JSX.Element {
             }
           />
           {hasSuggestions && (
-            <ToolbarButton
-              icon={<Eraser size={13} />}
-              label="Clear"
-              onClick={clearLithoSuggestions}
-              title="Dismiss the current litho suggestion overlay"
-            />
+            <>
+              {/* Accept all pending (non-rejected) layers in one bulk call. */}
+              <ToolbarButton
+                icon={<Sparkles size={13} />}
+                label={acceptingAll ? 'Accepting…' : 'Accept all'}
+                onClick={() => void handleAcceptAll()}
+                disabled={acceptingAll}
+                busy={acceptingAll}
+                title={
+                  acceptingAll
+                    ? 'Committing all suggestion layers…'
+                    : 'Accept all non-rejected suggestion layers as lithostratigraphic contacts'
+                }
+              />
+              <ToolbarButton
+                icon={<Eraser size={13} />}
+                label="Clear"
+                onClick={clearLithoSuggestions}
+                title="Dismiss the current litho suggestion overlay"
+              />
+            </>
           )}
-          {/* Build litho — active on the litho axis (geoVerbDisabled guards
-              the geological-model Build; litho has its own handler).
-              Label carries a stale-count badge mirroring the geo Build button. */}
-          <ToolbarButton
-            icon={<RefreshCw size={13} className={rebuildingLitho ? 'animate-spin' : ''} />}
-            label={rebuildingLitho ? 'Building…' : lithoStaleLabel}
-            onClick={() => void handleBuildLitho()}
-            disabled={rebuildingLitho || activeLithoModel === null}
-            busy={rebuildingLitho}
-            amber={lithoStaleSurfaceCount > 0 && !rebuildingLitho}
-            title={
-              activeLithoModel === null
-                ? 'Create a lithostratigraphic model first'
-                : rebuildingLitho
-                  ? 'Building litho surfaces…'
-                  : lithoStaleSurfaceCount > 0
-                    ? `${lithoStaleSurfaceCount} litho surface${lithoStaleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
-                    : 'Rebuild TIN surfaces for the lithostratigraphic model from current contacts'
-            }
-          />
           {/* Separator after litho-specific actions */}
           <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
         </>
