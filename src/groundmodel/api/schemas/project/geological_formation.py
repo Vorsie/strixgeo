@@ -53,6 +53,11 @@ class GeologicalFormationUpdateRequest(BaseModel):
     description: str | None = None
     lithology: str | None = Field(default=None, max_length=20)
     nad_class: int | None = Field(default=None, ge=1, le=31)
+    # Phase-2 Slice 2: the LithologyInspector lock-toggle PATCHes this
+    # field to freeze a formation's instance_ordinal so the auto-resolver
+    # leaves it untouched.  When True the resolver skips this row unless
+    # it is a lock-conflict loser.  When False the resolver may renumber.
+    instance_ordinal_locked: bool | None = None
 
 
 class GeologicalFormationResponse(BaseModel):
