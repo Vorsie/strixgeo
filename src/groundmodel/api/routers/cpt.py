@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.cpt.cpt_list_item import CptListItem
 from groundmodel.api.schemas.cpt.cpt_plot_batch_request import CptPlotBatchRequest
 from groundmodel.api.schemas.cpt.cpt_plot_response import CptPlotResponse
@@ -521,13 +522,26 @@ async def list_cpts(
 @router.get("/{cpt_id}", response_model=CptResponse)
 async def get_cpt(
     cpt_id: UUID,
+    project_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> CptResponse:
-    """Return full CPT metadata for a single record."""
+    """Return full CPT metadata for a single record.
+
+    Parameters
+    ----------
+    cpt_id : UUID
+        Primary key of the CPT record.
+    project_id : UUID
+        Required project scope guard — the CPT must belong to this project.
+        Prevents cross-project id enumeration (VULN-1).
+
+    Raises
+    ------
+    HTTPException(404)
+        When no CPT with the given id exists, or it belongs to a different project.
+    """
     repo = CptRepository(session)
-    cpt = await repo.get_by_id(cpt_id)
-    if cpt is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+    cpt = await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
 
     return CptResponse(
         id=cpt.id,
@@ -549,6 +563,7 @@ async def get_cpt(
 @router.patch("/{cpt_id}/elevation", response_model=CptResponse)
 async def patch_cpt_elevation(
     cpt_id: UUID,
+    project_id: UUID,
     request: ElevationPatchRequest,
     session: AsyncSession = Depends(get_session),
 ) -> CptResponse:
@@ -562,15 +577,24 @@ async def patch_cpt_elevation(
     Returns the full ``CptResponse`` so the frontend can update its detail
     cache without firing a second ``GET`` after save.
 
+    Parameters
+    ----------
+    cpt_id : UUID
+        Primary key of the CPT record.
+    project_id : UUID
+        Required project scope guard (VULN-2).
+
     Raises
     ------
     HTTPException(404)
-        When no CPT with the given id exists.
+        When no CPT with the given id exists, or it belongs to a different project.
     """
     logger.info(
         f"PATCH /cpt/{cpt_id}/elevation: elevation_m={request.elevation_m} z_epsg={request.z_epsg}"
     )
     repo = CptRepository(session)
+    # Scope guard before any mutation: reject cross-project ids (VULN-2).
+    await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
     # The repository derives the canonical vertical CRS from the row's
     # horizontal EPSG when ``z_epsg`` is None (e.g. 31370 → 5710 mTAW for
     # Belgium, 28992 → 5709 NAP for the Netherlands). The desktop UI
@@ -610,27 +634,29 @@ async def patch_cpt_elevation(
 @router.delete("/{cpt_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cpt(
     cpt_id: UUID,
+    project_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> None:
     """Delete a CPT and its series data.
 
     Parameters
     ----------
-    cpt_id:
+    cpt_id : UUID
         UUID of the CPT to delete.
-    session:
+    project_id : UUID
+        Required project scope guard — the CPT must belong to this project
+        before deletion is permitted (VULN-3).
+    session : AsyncSession
         Database session injected by FastAPI dependency injection.
 
     Raises
     ------
     HTTPException(404)
-        When no CPT with the given ID exists.
+        When no CPT with the given ID exists, or it belongs to a different project.
     """
     logger.info(f"DELETE /cpt/{cpt_id}")
     repo = CptRepository(session)
-    cpt = await repo.get_by_id(cpt_id)
-    if cpt is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+    cpt = await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
     # Cascade-drop the polymorphic review row for this CPT before the
     # CPT itself goes away — investigation_review has no DB-side FK
     # to cpt, so without this call the review row dangles and shows
@@ -695,13 +721,26 @@ def _plot_response_from_cpt(cpt: CptOrm) -> CptPlotResponse:
 @router.get("/{cpt_id}/plot", response_model=CptPlotResponse)
 async def get_cpt_plot(
     cpt_id: UUID,
+    project_id: UUID,
     session: AsyncSession = Depends(get_session),
 ) -> CptPlotResponse:
-    """Return raw depth-series arrays for plotting qc, fs, and u2 vs depth."""
+    """Return raw depth-series arrays for plotting qc, fs, and u2 vs depth.
+
+    Parameters
+    ----------
+    cpt_id : UUID
+        Primary key of the CPT record.
+    project_id : UUID
+        Required project scope guard (VULN-4).
+
+    Raises
+    ------
+    HTTPException(404)
+        When no CPT with the given id exists, belongs to a different project,
+        or has no series data.
+    """
     repo = CptRepository(session)
-    cpt = await repo.get_by_id(cpt_id)
-    if cpt is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CPT not found")
+    cpt = await get_in_project_or_404(repo.get_by_id(cpt_id), project_id, detail="CPT not found")
     try:
         return _plot_response_from_cpt(cpt)
     except ValueError as err:
