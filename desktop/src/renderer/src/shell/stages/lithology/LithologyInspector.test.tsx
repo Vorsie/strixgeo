@@ -81,7 +81,11 @@ function makeLithoModel(): GeologicalModelResponse {
   }
 }
 
-function makeFormation(id: string, name: string): GeologicalFormationResponse {
+function makeFormation(
+  id: string,
+  name: string,
+  overrides?: Partial<GeologicalFormationResponse>,
+): GeologicalFormationResponse {
   return {
     id,
     app_project_id: 'proj-1',
@@ -94,8 +98,15 @@ function makeFormation(id: string, name: string): GeologicalFormationResponse {
     regional_ref: null,
     description: null,
     pinned_order: false,
+    // Phase 1 litho-builder fields — null on geological-model rows.
+    parent_formation_id: null,
+    litho_main_soil_code: null,
+    litho_admixtures: null,
+    instance_ordinal: null,
+    instance_ordinal_locked: false,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
   }
 }
 
