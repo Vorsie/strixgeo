@@ -241,21 +241,6 @@ function bandRect(
   return { topY, botY }
 }
 
-/**
- * Are two formations in the same correlation group (same instance_ordinal)?
- * null ordinals are never considered same-group.
- */
-function sameGroup(
-  fA: GeologicalFormationResponse,
-  fB: GeologicalFormationResponse,
-): boolean {
-  return (
-    fA.instance_ordinal !== null &&
-    fB.instance_ordinal !== null &&
-    fA.instance_ordinal === fB.instance_ordinal
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Badge sub-component
 // ---------------------------------------------------------------------------
@@ -563,25 +548,30 @@ export default function CorrelationEdgesOverlay({
         let isCrossGroup = false
 
         if (source !== null && !isSource) {
-          // Target must be on a different investigation
+          // Target must be on a DIFFERENT investigation (no self-edge, no
+          // within-column edge).
           if (invId !== source.investigationId) {
             const srcFormation = formationById.get(source.formationId)
             const tgtFormation = formation
             if (srcFormation && tgtFormation) {
-              if (sameGroup(srcFormation, tgtFormation)) {
-                // Same group already — valid (idempotent, user sees it as re-correlating)
+              // Correlation eligibility is the SERVER's group key:
+              // (parent_formation_id, litho_main_soil_code). A cross-group
+              // pair is rejected 422 by CorrelateLithoUnits — pre-empt it
+              // client-side with a not-allowed cursor instead of relying
+              // on the server error (review B3 / owner-approved ux spec).
+              // NOT instance_ordinal: that is the RESULT of correlation,
+              // not the eligibility key.
+              const sameCorrelationGroup =
+                srcFormation.parent_formation_id === tgtFormation.parent_formation_id &&
+                srcFormation.litho_main_soil_code === tgtFormation.litho_main_soil_code
+              if (sameCorrelationGroup) {
                 isValidTarget = true
-              } else if (
-                srcFormation.instance_ordinal === null ||
-                tgtFormation.instance_ordinal === null ||
-                !sameGroup(srcFormation, tgtFormation)
-              ) {
-                // Different groups or no ordinal yet — valid target unless already
-                // cross-group in an incompatible sense (Phase 5 concern; for MVP all
-                // cross-formation connects are valid from the UI perspective)
-                isValidTarget = true
+              } else {
+                isCrossGroup = true
               }
             } else {
+              // Formation rows not resolvable (shouldn't happen) — treat
+              // as valid; the server stays the final guard.
               isValidTarget = true
             }
           }
@@ -714,7 +704,15 @@ export default function CorrelationEdgesOverlay({
               >
                 {gr.label}
               </text>
-              {/* Click on source: clear armed (Esc L1 equivalent) */}
+              {/* Click on the armed source un-arms it (clear armed, stay
+                  in mode — the Esc-L1 equivalent). DELIBERATE departure
+                  from the spec's "same-band click = no-op / shake": a
+                  click on the highlighted source is unambiguous intent to
+                  cancel that source, and click-to-toggle is the lower-
+                  friction gesture (no separate Esc reach). Owner-aligned
+                  via the ux spec's reversible-action principle (review
+                  C1; the useCorrelate state-machine doc note is the only
+                  place still describing the old no-op variant). */}
               <rect
                 x={rectX}
                 y={gr.topY}
