@@ -252,9 +252,12 @@ export default function SectionsCanvas(): JSX.Element {
       )
       try {
         await api.geology.correlate(project.id, activeLithoModel.id, formationAId, formationBId)
-        // Resolve ordinals + refetch edges — no toast on success (owner-decided:
-        // the new edge line + ordinal badge ARE the confirmation).
-        await api.geology.resolveLithoInstances(project.id, activeLithoModel.id)
+        // The correlate endpoint resolves ordinals + commits internally
+        // (CorrelateLithoUnits.run_resolver, folded in at the Slice-0+1
+        // review) — a separate resolveLithoInstances call here is a
+        // redundant idempotent no-op round-trip (Phase-2 span audit
+        // should-fix). Just refetch the edges for the overlay; no toast
+        // on success (owner-decided: the edge line + badge ARE the cue).
         await refetchEdges()
         // Clear armed state so the user can arm the next source.
         clearCorrelationSource()
@@ -291,7 +294,9 @@ export default function SectionsCanvas(): JSX.Element {
       )
       try {
         await api.geology.uncorrelate(project.id, activeLithoModel.id, formationAId, formationBId)
-        await api.geology.resolveLithoInstances(project.id, activeLithoModel.id)
+        // UncorrelateLithoUnits re-runs the resolver + commits internally;
+        // a separate resolveLithoInstances call is a redundant no-op
+        // round-trip (Phase-2 span audit should-fix).
         await refetchEdges()
         log.success('section', `uncorrelate: edge ${formationAId} ↔ ${formationBId} removed`)
       } catch (err) {
