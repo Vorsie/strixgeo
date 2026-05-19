@@ -216,6 +216,17 @@ async def seeded_section(db_session: AsyncSession) -> dict:
     ]
     for c in contacts:
         db_session.add(c)
+
+    # Explicit-content invariant (commit 8606efea / owner directive
+    # 2026-05-17): BuildSectionSnapshot and the section-scoped exporters
+    # (DXF, Plaxis-2D) only render contacts whose id is in the section's
+    # seeded set. The production flow seeds these via
+    # CrossSectionRepository.union_seeded_contact_ids; this fixture
+    # mirrors that by registering every created contact id on the
+    # section directly. Without this the snapshot yields zero formation
+    # content and the export carries no formation polylines.
+    section.seeded_formation_contact_ids = [c.id for c in contacts]
+
     await db_session.commit()
 
     return {
