@@ -93,6 +93,9 @@ async def correlate_formations(
 
     Raises
     ------
+    404
+        When the model does not exist or does not belong to ``project_id``
+        (review L1 — uniform with the DELETE/resolve/list siblings).
     422
         When formation_a_id == formation_b_id (self-loop) or the body
         fails Pydantic validation.
@@ -100,6 +103,16 @@ async def correlate_formations(
         When either formation does not belong to the model / project, or
         the two formations are in different naming groups.
     """
+    # Project-scope guard mirrors the DELETE/resolve/list siblings so all
+    # four /correlations handlers enforce the HTTP-404 boundary uniformly
+    # (review L1). The use case also re-checks model.app_project_id as
+    # defence-in-depth.
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
     try:
         result = await CorrelateLithoUnits(session).execute(
             project_id=project_id,
