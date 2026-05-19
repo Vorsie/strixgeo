@@ -46,6 +46,7 @@ import { log } from '../../../utils/log'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
 import ModelKindPicker from './ModelKindPicker'
+import { computeOrdinalStale } from './ordinalStaleness'
 
 /**
  * Inspector for the Lithology stage.
@@ -165,26 +166,16 @@ export default function LithologyInspector(): JSX.Element {
     [project, refetchFormations],
   )
 
-  // RO-3 stale-ordinal badge computation: a locked formation is "stale"
-  // when the current edge count differs from the count at the last resolve.
-  // The badge is quiet when no formations are locked or there are no edges.
-  const hasLockedFormations = useMemo(
-    () => lithoFormations.some(f => f.instance_ordinal_locked),
-    [lithoFormations],
-  )
-  // Edge-count hash: the simplest stable representation of "did the edge
-  // set change?". A sorted join of edge ids would be more precise but
-  // costly; count + the individual ids are enough for v1 (adding an edge
-  // changes the count; removing one does too; re-ordering does not exist).
+  // RO-3 stale-ordinal badge: locked formation + edge set changed since
+  // the last explicit resolve. The predicate is the pure
+  // ``computeOrdinalStale`` helper so its PRESENT branch is unit-tested
+  // independently (review SF-1) — the in-component useMemo only ever
+  // memoises it.
   const currentEdgeCount = correlationEdges.length
-  // A formation's ordinal badge is amber when ALL of:
-  //   (a) the formation is locked
-  //   (b) there are edges in the model (resolver has something to do)
-  //   (c) the edge count changed since the last resolve
-  const ordinalIsStale = useMemo(() => {
-    if (lastResolvedEdgeCount === null) return false
-    return hasLockedFormations && currentEdgeCount !== lastResolvedEdgeCount
-  }, [hasLockedFormations, currentEdgeCount, lastResolvedEdgeCount])
+  const ordinalIsStale = useMemo(
+    () => computeOrdinalStale(lithoFormations, currentEdgeCount, lastResolvedEdgeCount),
+    [lithoFormations, currentEdgeCount, lastResolvedEdgeCount],
+  )
 
   // No geological backbone — the litho model requires one as a parent.
   if (activeGeologicalModel === null) {
@@ -292,6 +283,95 @@ export default function LithologyInspector(): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
+// LithoUnitRow — one litho-unit row (module scope, NOT defined inside
+// LithoFormationRoster: an inner component re-identifies every parent
+// render and React unmount/remounts it — review C-1).
+// ---------------------------------------------------------------------------
+
+interface LithoUnitRowProps {
+  f: GeologicalFormationResponse
+  lithoContacts: readonly FormationContactResponse[]
+  ordinalIsStale: boolean
+  onToggleLock: (formation: GeologicalFormationResponse) => Promise<void>
+}
+
+function LithoUnitRow({
+  f,
+  lithoContacts,
+  ordinalIsStale,
+  onToggleLock,
+}: LithoUnitRowProps): JSX.Element {
+  const contactCount = lithoContacts.filter(c => c.formation_id === f.id).length
+  // Ordinal badge: "body N" when resolved, "body ?" when still null.
+  const ordinalLabel = f.instance_ordinal !== null ? `body ${f.instance_ordinal}` : 'body ?'
+  // RO-3 amber badge: locked formation + edge set changed since last resolve.
+  const showStaleBadge = f.instance_ordinal_locked && ordinalIsStale
+
+  return (
+    <li
+      className="flex items-center gap-2 px-1 py-0.5 rounded text-xs text-text-primary"
+      data-testid={`litho-formation-row-${f.id}`}
+    >
+      <span
+        className="h-3 w-3 flex-shrink-0 rounded-sm border border-border-subtle"
+        style={{ backgroundColor: f.color }}
+        aria-hidden="true"
+      />
+      <span className="flex-1 truncate">{f.name}</span>
+
+      {/* Ordinal badge — "body N" or "body ?" when unresolved */}
+      <span
+        className="text-[10px] tabular-nums text-text-muted"
+        title={ordinalLabel}
+        data-testid={`ordinal-badge-${f.id}`}
+      >
+        {ordinalLabel}
+      </span>
+
+      {/* RO-3 amber stale badge — inline, quiet otherwise */}
+      {showStaleBadge && (
+        <span
+          className="text-amber-600"
+          title="Connections changed — re-resolve or unlock"
+          data-testid={`stale-ordinal-badge-${f.id}`}
+          aria-label="Connections changed — re-resolve or unlock"
+        >
+          <AlertCircle size={11} aria-hidden="true" />
+        </span>
+      )}
+
+      {/* Lock toggle — locks/unlocks the instance_ordinal for this unit */}
+      <button
+        type="button"
+        onClick={() => void onToggleLock(f)}
+        className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
+        title={
+          f.instance_ordinal_locked
+            ? 'Ordinal locked — click to unlock'
+            : 'Ordinal free — click to lock'
+        }
+        data-testid={`lock-toggle-${f.id}`}
+        aria-pressed={f.instance_ordinal_locked}
+      >
+        {f.instance_ordinal_locked ? (
+          <Lock size={11} aria-hidden="true" />
+        ) : (
+          <LockOpen size={11} aria-hidden="true" />
+        )}
+      </button>
+
+      {/* Contact count */}
+      <span
+        className="text-[10px] tabular-nums text-text-muted"
+        title={`${contactCount} contact${contactCount === 1 ? '' : 's'} in this model`}
+      >
+        {contactCount}
+      </span>
+    </li>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // LithoFormationRoster — grouped roster of litho units with ordinal badges
 // ---------------------------------------------------------------------------
 
@@ -359,79 +439,6 @@ function LithoFormationRoster({
   const parentsWithChildren = sortedParents.filter(gf => byParent.has(gf.id))
   const unassigned = byParent.get(null) ?? []
 
-  function LithoUnitRow({ f }: { f: GeologicalFormationResponse }): JSX.Element {
-    const contactCount = lithoContacts.filter(c => c.formation_id === f.id).length
-    // Ordinal badge: "body N" when resolved, "body ?" when still null.
-    const ordinalLabel =
-      f.instance_ordinal !== null ? `body ${f.instance_ordinal}` : 'body ?'
-    // RO-3 amber badge: locked formation + edge set changed since last resolve.
-    const showStaleBadge = f.instance_ordinal_locked && ordinalIsStale
-
-    return (
-      <li
-        key={f.id}
-        className="flex items-center gap-2 px-1 py-0.5 rounded text-xs text-text-primary"
-        data-testid={`litho-formation-row-${f.id}`}
-      >
-        <span
-          className="h-3 w-3 flex-shrink-0 rounded-sm border border-border-subtle"
-          style={{ backgroundColor: f.color }}
-          aria-hidden="true"
-        />
-        <span className="flex-1 truncate">{f.name}</span>
-
-        {/* Ordinal badge — "body N" or "body ?" when unresolved */}
-        <span
-          className="text-[10px] tabular-nums text-text-muted"
-          title={ordinalLabel}
-          data-testid={`ordinal-badge-${f.id}`}
-        >
-          {ordinalLabel}
-        </span>
-
-        {/* RO-3 amber stale badge — inline, quiet otherwise */}
-        {showStaleBadge && (
-          <span
-            className="text-amber-600"
-            title="Connections changed — re-resolve or unlock"
-            data-testid={`stale-ordinal-badge-${f.id}`}
-            aria-label="Connections changed — re-resolve or unlock"
-          >
-            <AlertCircle size={11} aria-hidden="true" />
-          </span>
-        )}
-
-        {/* Lock toggle — locks/unlocks the instance_ordinal for this unit */}
-        <button
-          type="button"
-          onClick={() => void onToggleLock(f)}
-          className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
-          title={
-            f.instance_ordinal_locked
-              ? 'Ordinal locked — click to unlock'
-              : 'Ordinal free — click to lock'
-          }
-          data-testid={`lock-toggle-${f.id}`}
-          aria-pressed={f.instance_ordinal_locked}
-        >
-          {f.instance_ordinal_locked ? (
-            <Lock size={11} aria-hidden="true" />
-          ) : (
-            <LockOpen size={11} aria-hidden="true" />
-          )}
-        </button>
-
-        {/* Contact count */}
-        <span
-          className="text-[10px] tabular-nums text-text-muted"
-          title={`${contactCount} contact${contactCount === 1 ? '' : 's'} in this model`}
-        >
-          {contactCount}
-        </span>
-      </li>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-2" aria-label="Litho formations">
       {parentsWithChildren.map(gf => (
@@ -453,7 +460,13 @@ function LithoFormationRoster({
           {/* Litho units under this parent */}
           <ul className="flex flex-col gap-0.5 pl-3 border-l border-border-subtle">
             {(byParent.get(gf.id) ?? []).map(f => (
-              <LithoUnitRow key={f.id} f={f} />
+              <LithoUnitRow
+                key={f.id}
+                f={f}
+                lithoContacts={lithoContacts}
+                ordinalIsStale={ordinalIsStale}
+                onToggleLock={onToggleLock}
+              />
             ))}
           </ul>
         </section>
@@ -467,7 +480,13 @@ function LithoFormationRoster({
           </div>
           <ul className="flex flex-col gap-0.5">
             {unassigned.map(f => (
-              <LithoUnitRow key={f.id} f={f} />
+              <LithoUnitRow
+                key={f.id}
+                f={f}
+                lithoContacts={lithoContacts}
+                ordinalIsStale={ordinalIsStale}
+                onToggleLock={onToggleLock}
+              />
             ))}
           </ul>
         </section>
