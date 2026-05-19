@@ -791,27 +791,6 @@ real dogfooding).  Not before.
 
 ---
 
-## 60. Consolidate `_seed_section_contacts` into CrossSectionRepository (Tier E — DRY/layer)
-
-**What.** The seeded-set union helper now exists in THREE places: the
-module-level `_seed_section_contacts` in `api/routers/geology/contacts.py`
-(used by create-201, dedup-409, seed-from-parent) and a re-implemented
-copy on `ExtrapolatePinchOut` (the application layer can't import the
-router's). Senior-review S1 of the pinch-out slice (2026-05-18) flagged
-this as past the extract-on-second-copy threshold.
-
-**Why deferred.** It works correctly in isolation; consolidating means
-moving the logic (incl. the non-fatal rollback-on-fail semantics) onto
-`CrossSectionRepository` as `async def union_seeded_contact_ids(...)`
-and repointing 4 call sites. Doing that blind at the tail of an already
-very large pinch-out session risked breaking the seed/dedup paths
-without room to re-verify; it is not a correctness blocker.
-
-**When to revisit.** Next time any seed-path code is touched, or a 4th
-call site appears — fold the consolidation into that change.
-
----
-
 ## 61. No end-to-end test of the pinch-out endpoint / idempotent path (Tier E — test gap)
 
 **What.** The pinch-out slice's pure crossing geometry is exhaustively
