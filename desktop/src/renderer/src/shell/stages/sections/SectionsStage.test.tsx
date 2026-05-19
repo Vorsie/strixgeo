@@ -197,6 +197,8 @@ function makeStubContext(): ShellContextValue {
       handleDeleteLithoModel: noopAsync,
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
+      lithoStaleSurfaceCount: 0,
+      handleRebuildLithoSurfaces: noopAsync,
     },
     sections: {
       sections: [],
