@@ -117,8 +117,10 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
   // Debt #43: the shell rework dropped the global "Esc backs out of the
   // detail view" behaviour. A gINT/Plaxis-trained engineer reflexively
   // hits Esc to leave a chart/borelog and nothing happened. This restores
-  // ONE peel layer: the Data-stage transient detail (CptChart / BoreholeLog
-  // that replaces the map) → clear the selection, returning to the map.
+  // ONE peel layer: the Data-stage transient detail (CptChart / BoreholeLog).
+  // Esc clears the detail selection and returns to wherever the user came
+  // from — back to their open cross-section (Sections stage) if one is
+  // selected, otherwise to the bare Data-stage map.
   //
   // Deliberately NOT closing the persistent right Inspector: it is an
   // always-on workspace panel (ui-shell §2.4 default-open + the
@@ -129,7 +131,7 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
   //   * an open Modal (renders role="dialog" + its own Esc handler),
   //   * an active draw mode (bbox / section line — their components own Esc),
   //   * the Sections-stage editor's per-layer Esc peel (we never act off
-  //     the Data stage, and bail when a section is selected),
+  //     the Data stage, so the editor's own Esc is untouched),
   //   * a typing target (input / textarea / select / contentEditable).
   // The handler reads live values off ``context`` (a useMemo'd object that
   // re-identifies when any slice changes) so the effect re-binds with
@@ -157,9 +159,8 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
         return
       }
       // Scoped to the Data-stage transient detail only — the Sections
-      // editor runs its own per-layer Esc peel and must not be touched.
+      // editor (not on the Data stage) runs its own per-layer Esc peel.
       if (activeStageId !== 'data') return
-      if (context.sections.selectedSectionId !== null) return
       const hasSelection =
         context.coordinator.selectedId !== null ||
         context.coordinator.selectedBoreholeId !== null
@@ -168,11 +169,21 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
       context.coordinator.setSelectedId(null)
       context.coordinator.setSelectedBoreholeId(null)
       context.coordinator.setView('map')
-      log.debug('shell', 'Esc → cleared data-stage detail selection')
+      if (context.sections.selectedSectionId !== null) {
+        // The detail was opened while a cross-section was the user's
+        // workspace (right-click → Open detail, or a map click with a
+        // section still open). Esc backs out DIRECTLY to that section
+        // instead of dropping to the bare map — the section is still
+        // selected because open-detail no longer clears it.
+        setActiveStage('sections')
+        log.debug('shell', 'Esc → back to cross-section from detail')
+      } else {
+        log.debug('shell', 'Esc → cleared data-stage detail selection')
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [activeStageId, context])
+  }, [activeStageId, context, setActiveStage])
 
   log.debug('shell', `render stage=${activeStageId} inspectorOpen=${inspectorOpen}`)
 
