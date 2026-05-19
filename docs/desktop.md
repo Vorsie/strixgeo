@@ -142,3 +142,56 @@ ordered ascending by `display_order` (oldest first — superposition convention)
 without `parent_formation_id` fall into an "Unassigned" group at the bottom. Each unit
 row shows: colour swatch + name + contact count for THIS litho model. No edit/delete —
 formation CRUD stays in GeologyInspector.
+
+### LithoCompositionPickerDialog
+
+Two-tab modal (`components/interpretation/LithoCompositionPickerDialog.tsx`) shown on
+the lithostratigraphic axis when the user picks a depth on a section column
+(`axisMode='lithostratigraphic'`). Replaces `FormationPickerDialog` on that axis.
+
+**Tab 1 — Existing units.** Shows all `lithoFormations` grouped by parent geological
+formation (resolved from `geoFormations` by `parent_formation_id`). Null-parent
+formations fall into an "Unassigned" group at the bottom. Groups are sorted ascending
+by parent `display_order`. Clicking a row calls `onSelect(formationId)`.
+
+**Tab 2 — New unit.** Composition builder:
+- Main soil code picker: `['GRIND', 'ZAND', 'SILT', 'KLEI', 'VEEN']` rendered as
+  buttons. Default: `ZAND`.
+- Admixture rows: soil code (`GL/ZN/SL/KL/VE`) + amount (`Z/W/M/V/S`) + "locally"
+  checkbox. "Add admixture" button appends a row; trash icon removes one.
+- Live preview (`data-testid="litho-preview"`): `formatLithoDisplayName(mainCode,
+  admixtures)` updated on every change. Shows the Dutch label the user will see on
+  the section.
+- Confirm button ("Create unit") calls `onCreateLithoUnit(mainCode, admixtures)`.
+  On a non-null result it chains into `onSelect(result.formationId)` and resets state.
+
+**No-geology-context warning.** When `parentFormationName` is `null`, an amber banner
+reads "No geological context at this investigation". The user CAN still confirm
+(`parent_formation_id` will be `null` on the created unit — the server resolves the
+TIN parent at accept-time). Never blocks placement.
+
+**Props:**
+| Prop | Type | Description |
+|---|---|---|
+| `open` | `boolean` | Show/hide the modal. |
+| `lithoFormations` | `GeologicalFormationResponse[]` | All litho units for the project. |
+| `geoFormations` | `GeologicalFormationResponse[]` | Parent geological formations for group labels. |
+| `anchor` | `{kind, name, depth_m, elevationM} \| null` | The clicked investigation + depth. |
+| `parentFormationName` | `string \| null` | Geological formation name at the clicked point. |
+| `onSelect` | `(id: string) => Promise<void> \| void` | Called with a formation id to create the contact. |
+| `onCreateLithoUnit` | `(code, admixtures) => Promise<{formationId} \| null>` | Create the unit, return the id. |
+| `onCancel` | `() => void` | Dismiss without creating anything. |
+
+**SectionsCanvas wiring.** `handleManualLithoUnitCreate` useCallback builds a
+synthetic one-item `acceptLithoSuggestions` payload:
+- `source: 'manual_pick'`
+- `depth_base_m: depth_top_m + 0.01` (sentinel — prevents boundary-spanning splits)
+- `parent_formation_id: null` (server resolves from geology TIN)
+- `suggested_admixtures: admixtures`
+
+On response: `updated_section` forwarded to `applyUpdatedSection` (#57 invariant,
+both the created and found paths). `formationId` returned from
+`created_formation_ids[0] ?? found_formation_ids[0]`. Prop wiring:
+`axisMode={isLitho ? 'lithostratigraphic' : 'geological'}` and
+`onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}` into
+`SectionPanel`.
