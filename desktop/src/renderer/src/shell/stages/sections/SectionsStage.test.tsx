@@ -226,6 +226,12 @@ function makeStubContext(): ShellContextValue {
       applyUpdatedSection: vi.fn(),
       sectionFocusedColumn: null,
       setSectionFocusedColumn: vi.fn(),
+      correlateMode: false,
+      correlationSource: null,
+      enterCorrelateMode: vi.fn(),
+      exitCorrelateMode: vi.fn(),
+      armCorrelationSource: vi.fn(),
+      clearCorrelationSource: vi.fn(),
     },
     overlays: {
       demSource: null,
