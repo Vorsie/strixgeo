@@ -39,3 +39,19 @@ class Admixture:
     def __post_init__(self) -> None:
         if not self.soil_code:
             raise ValueError("Admixture.soil_code cannot be empty")
+
+    def canonical_key(self) -> str:
+        """Deterministic string key for admixture identity.
+
+        Used to build the ``canonical_admixture_signature`` for the Accept
+        find-or-create key.  The ``locally`` flag is intentionally excluded
+        from the key so two admixtures that differ only in locality are
+        treated as the same composition for deduplication purposes (owner
+        decision: composition buckets, not presence-within-layer detail).
+
+        Returns
+        -------
+        str
+            ``"<soil_code>:<amount>"`` (e.g. ``"KL:Z"``).
+        """
+        return f"{self.soil_code}:{self.amount}"
