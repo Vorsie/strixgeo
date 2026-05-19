@@ -2714,8 +2714,10 @@ export function useGeologicalModel({
       const anchorKind = lithoSuggestionAnchorKind
       const anchorId = lithoSuggestionInvestigationId
       if (!project || !model || !anchorKind || !anchorId || layers.length === 0) return
-      // Collect only non-rejected layers; already-accepted layers are
-      // idempotent on the server but including them wastes a round-trip.
+      // Collect every non-rejected layer. Already-accepted layers ARE
+      // re-sent (we keep no per-layer accepted state on the client); the
+      // server is idempotent — find-or-create keyed on
+      // model+formation+depth+anchor — so a repeat is a cheap no-op.
       const pendingIndices = layers
         .map((_, i) => i)
         .filter(i => !lithoSuggestionRejected.has(i))
