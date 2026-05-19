@@ -111,14 +111,10 @@ async def test_create_contact_with_section_id_seeds_section() -> None:
         mock_uc.execute = AsyncMock(return_value=_CONTACT_ORM)
         MockCreate.return_value = mock_uc
 
-        # CrossSectionRepository.get returns a section owned by the project.
-        # CrossSectionRepository.update returns the updated section.
+        # CrossSectionRepository.union_seeded_contact_ids is the single write
+        # path for the seeded set (extracted from the former module-level helper).
         mock_section_repo = MagicMock()
-        updated_section = SimpleNamespace(
-            **{**vars(_SECTION_ORM), "seeded_formation_contact_ids": [CONTACT_ID]}
-        )
-        mock_section_repo.get = AsyncMock(return_value=_SECTION_ORM)
-        mock_section_repo.update = AsyncMock(return_value=updated_section)
+        mock_section_repo.union_seeded_contact_ids = AsyncMock(return_value=None)
         MockSectionRepo.return_value = mock_section_repo
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -135,17 +131,15 @@ async def test_create_contact_with_section_id_seeds_section() -> None:
 
         assert resp.status_code == 201, resp.text
 
-        # The repo's update must have been called with the new contact id
-        # merged into the seeded set.
-        mock_section_repo.update.assert_awaited_once()
-        call_args = mock_section_repo.update.await_args
+        # union_seeded_contact_ids must have been called with the new contact id
+        # and the correct section + project scope guard.
+        mock_section_repo.union_seeded_contact_ids.assert_awaited_once()
+        call_args = mock_section_repo.union_seeded_contact_ids.await_args
         assert call_args is not None
-        patched_section_id, patch_body = call_args.args
-        assert patched_section_id == SECTION_ID
-        assert CONTACT_ID in patch_body["seeded_formation_contact_ids"]
-
-        # The session must have been committed after the section update.
-        mock_session.commit.assert_awaited()
+        called_section_id, called_project_id, called_ids = call_args.args
+        assert called_section_id == SECTION_ID
+        assert called_project_id == PROJECT_ID
+        assert CONTACT_ID in called_ids
 
 
 # ---------------------------------------------------------------------------
@@ -184,11 +178,7 @@ async def test_create_contact_409_seeds_survivor_into_section() -> None:
         MockCreate.return_value = mock_uc
 
         mock_section_repo = MagicMock()
-        updated_section = SimpleNamespace(
-            **{**vars(_SECTION_ORM), "seeded_formation_contact_ids": [existing_id]}
-        )
-        mock_section_repo.get = AsyncMock(return_value=_SECTION_ORM)
-        mock_section_repo.update = AsyncMock(return_value=updated_section)
+        mock_section_repo.union_seeded_contact_ids = AsyncMock(return_value=None)
         MockSectionRepo.return_value = mock_section_repo
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -207,12 +197,15 @@ async def test_create_contact_409_seeds_survivor_into_section() -> None:
         assert resp.status_code == 409, resp.text
         assert resp.json()["detail"]["existing_contact_id"] == str(existing_id)
 
-        # Debt #57: the survivor id was unioned into the section's seeded set.
-        mock_section_repo.update.assert_awaited_once()
-        patched_section_id, patch_body = mock_section_repo.update.await_args.args
-        assert patched_section_id == SECTION_ID
-        assert existing_id in patch_body["seeded_formation_contact_ids"]
-        mock_session.commit.assert_awaited()
+        # Debt #57: union_seeded_contact_ids must have been called with the
+        # SURVIVOR id so it renders on the section (not the attempted new id).
+        mock_section_repo.union_seeded_contact_ids.assert_awaited_once()
+        call_args = mock_section_repo.union_seeded_contact_ids.await_args
+        assert call_args is not None
+        called_section_id, called_project_id, called_ids = call_args.args
+        assert called_section_id == SECTION_ID
+        assert called_project_id == PROJECT_ID
+        assert existing_id in called_ids
 
 
 # ---------------------------------------------------------------------------
