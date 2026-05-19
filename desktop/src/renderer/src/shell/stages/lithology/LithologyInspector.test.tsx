@@ -8,6 +8,10 @@
 //       correct contact count for THIS model.
 //   I3  When lithoStaleSurfaceCount > 0: the stale banner renders
 //       with the correct count.  When 0: banner is absent.
+//   I4  Litho formations are grouped under their parent geological
+//       formation, ordered ascending by display_order (oldest first).
+//       Units without a parent_formation_id appear in an "Unassigned"
+//       group at the bottom.
 //
 // Pattern: render LithologyInspector inside a ShellContext.Provider —
 // same approach as SectionsToolbar.axis.test.tsx.  ModelKindPicker is
@@ -138,6 +142,7 @@ function makeContact(id: string, formationId: string): FormationContactResponse 
 function makeCtx(overrides: {
   activeGeologicalModel?: GeologicalModelResponse | null
   activeLithoModel?: GeologicalModelResponse | null
+  formations?: GeologicalFormationResponse[]
   lithoFormations?: GeologicalFormationResponse[]
   lithoContacts?: FormationContactResponse[]
   lithoStaleSurfaceCount?: number
@@ -230,7 +235,7 @@ function makeCtx(overrides: {
       handleRebuildLithoSurfaces: noopAsync,
       handleCreateLithoContact: noopAsync,
       handleInlineLithoCreateFormation: () => Promise.resolve(null),
-      formations: [],
+      formations: overrides.formations ?? [],
       visibleFormations: [],
       formationsRefreshCounter: 0,
       contacts: [],
@@ -472,5 +477,58 @@ describe('LithologyInspector (Slice C, #55)', () => {
     renderInspector(ctx)
 
     expect(screen.queryByTestId('litho-stale-banner')).not.toBeInTheDocument()
+  })
+
+  // I4: litho formations grouped under geological parent ordered by display_order.
+  //
+  // Setup: two geological parents (Tertiair display_order=0, Kwartair display_order=1)
+  // + two litho units under Tertiair + one under Kwartair + one unassigned.
+  // Expected DOM order: Tertiair group first, then Kwartair, then Unassigned.
+  it('I4 — litho roster is grouped under geological parents ordered ascending by display_order', () => {
+    const tertiair = makeFormation('geo-t', 'Tertiair', { display_order: 0 })
+    const kwartair = makeFormation('geo-k', 'Kwartair', { display_order: 1 })
+
+    const lithoT1 = makeFormation('lf-t1', 'Zand (tertiair)', {
+      parent_formation_id: 'geo-t',
+    })
+    const lithoT2 = makeFormation('lf-t2', 'Klei (tertiair)', {
+      parent_formation_id: 'geo-t',
+    })
+    const lithoK1 = makeFormation('lf-k1', 'Zand (kwartair)', {
+      parent_formation_id: 'geo-k',
+    })
+    const lithoU = makeFormation('lf-u', 'Onbekend', {
+      parent_formation_id: null,
+    })
+
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      formations: [kwartair, tertiair], // deliberately out of order → must sort by display_order
+      lithoFormations: [lithoT1, lithoT2, lithoK1, lithoU],
+      lithoContacts: [],
+    })
+    renderInspector(ctx)
+
+    // All four litho unit rows must be present.
+    expect(screen.getByTestId('litho-formation-row-lf-t1')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-formation-row-lf-t2')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-formation-row-lf-k1')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-formation-row-lf-u')).toBeInTheDocument()
+
+    // Group headers: both geological parent names + "Unassigned" must appear.
+    expect(screen.getByText('Tertiair')).toBeInTheDocument()
+    expect(screen.getByText('Kwartair')).toBeInTheDocument()
+    expect(screen.getByText('Unassigned')).toBeInTheDocument()
+
+    // Verify DOM order: Tertiair section (display_order=0) precedes Kwartair (display_order=1),
+    // which in turn precedes Unassigned.
+    const allSections = document.querySelectorAll('[aria-label]')
+    const labels = Array.from(allSections).map(s => s.getAttribute('aria-label'))
+    const tertiairIdx = labels.indexOf('Tertiair')
+    const kwartairIdx = labels.indexOf('Kwartair')
+    const unassignedIdx = labels.indexOf('Unassigned')
+    expect(tertiairIdx).toBeGreaterThanOrEqual(0)
+    expect(kwartairIdx).toBeGreaterThan(tertiairIdx)
+    expect(unassignedIdx).toBeGreaterThan(kwartairIdx)
   })
 })
