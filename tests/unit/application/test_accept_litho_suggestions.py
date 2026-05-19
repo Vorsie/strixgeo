@@ -325,6 +325,44 @@ async def test_a4_idempotent_reaccept_returns_found_contacts() -> None:
 
 
 # ---------------------------------------------------------------------------
+# A4b — idempotency key must include depth_top_m (review B1 regression guard)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a4b_idempotency_key_includes_depth_top_m() -> None:
+    """The existing-contact lookup must filter on ``depth_top_m``.
+
+    Without depth in the WHERE clause, a re-accept after a re-segmentation
+    that moved the boundary (param change, or a straddle re-split at a
+    different geology-TIN depth) would match the OLD contact on
+    ``(model, formation, anchor)`` alone and silently keep the stale
+    depth (review B1). The A4 mock is depth-insensitive, so the only
+    honest unit-level guard is to pin the depth predicate into the SELECT.
+    """
+    session = _make_session(
+        surface_rows=[],
+        geo_contacts_at_inv=[],
+        existing_contact_ids=[None],
+    )
+    uc = _use_case(session)
+
+    await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=[_make_suggestion(2.5, 6.0, "ZAND")],
+        borehole_id=BOREHOLE_ID,
+    )
+
+    # Execute order: 1=surfaces, 2=geo contacts, 3=existing-contact check.
+    contact_check_stmt = session.execute.await_args_list[2].args[0]
+    assert "depth_top_m" in str(contact_check_stmt), (
+        "existing-contact lookup must filter on depth_top_m, else a "
+        "re-accept at a moved boundary silently returns the stale contact (B1)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # A5 — seeded section: section_id provided → _seed_section_contacts invoked
 # ---------------------------------------------------------------------------
 
