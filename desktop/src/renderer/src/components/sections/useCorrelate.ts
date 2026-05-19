@@ -9,8 +9,10 @@
  * -------------
  * Idle   → enterMode()          → Mode (no armed source)
  * Mode   → arm(source)          → Armed (source band highlighted)
- * Armed  → arm(same source)     → Armed (no-op / shake hint)
- * Armed  → clearArmed()         → Mode  (Esc layer 1)
+ * Armed  → clearArmed()         → Mode  (Esc layer 1; also fired by a
+ *                                 click on the armed source band —
+ *                                 click-to-un-arm, review C1)
+ * Armed  → arm(other source)    → Armed (re-armed on the new source)
  * Mode   → exitMode()           → Idle  (Esc layer 2)
  * Idle   → (no transitions out until enterMode)
  *
