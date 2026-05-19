@@ -1,0 +1,162 @@
+"""Unit tests for ResolveLithoInstances use case (Phase-2 Slice 3).
+
+Covers:
+  R1 — Happy path: delegates to run_resolver, commits, returns updates.
+  R2 — Idempotent no-op: when run_resolver returns empty, updated is [].
+  R3 — execute() signature has no section_id (structural #57 guard).
+  R4 — The use case does NOT duplicate resolution logic — it calls
+       CorrelateLithoUnits.run_resolver, not the pure domain service.
+
+No DB or network I/O — session and helpers are AsyncMock.
+"""
+
+from __future__ import annotations
+
+import inspect
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
+
+import pytest
+
+from groundmodel.application.resolve_litho_instances_use_case import (
+    ResolveLithoInstances,
+    ResolveResult,
+)
+
+_PROJECT = UUID("00000000-0000-0000-0000-000000000001")
+_MODEL = UUID("00000000-0000-0000-0000-000000000002")
+_FA = UUID("10000000-0000-0000-0000-000000000000")
+_FB = UUID("20000000-0000-0000-0000-000000000000")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_use_case(session: AsyncMock) -> ResolveLithoInstances:
+    """Return a ResolveLithoInstances with a mocked session."""
+    return ResolveLithoInstances(session)
+
+
+# ---------------------------------------------------------------------------
+# R1 — happy path: delegates and commits
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_r1_delegates_to_run_resolver_and_commits() -> None:
+    """execute() calls run_resolver with the model_id and commits the session.
+
+    The use case must NOT re-implement resolution logic — it is a thin
+    wrapper around CorrelateLithoUnits.run_resolver.
+    """
+    session = AsyncMock()
+    session.commit = AsyncMock()
+
+    raw_updates = [
+        {"formation_id": str(_FA), "new_ordinal": 1},
+        {"formation_id": str(_FB), "new_ordinal": 2},
+    ]
+
+    with patch(
+        "groundmodel.application.resolve_litho_instances_use_case.CorrelateLithoUnits"
+    ) as MockCorrelate:
+        mock_instance = MagicMock()
+        mock_instance.run_resolver = AsyncMock(return_value=raw_updates)
+        MockCorrelate.return_value = mock_instance
+
+        uc = _make_use_case(session)
+        result = await uc.execute(model_id=_MODEL)
+
+    # run_resolver was called with the correct model_id.
+    mock_instance.run_resolver.assert_awaited_once_with(_MODEL)
+
+    # Session was committed after the resolver ran.
+    session.commit.assert_awaited_once()
+
+    # Result carries the two updates.
+    assert isinstance(result, ResolveResult)
+    assert len(result.updated) == 2
+    update_map = {u.formation_id: u.new_ordinal for u in result.updated}
+    assert update_map[_FA] == 1
+    assert update_map[_FB] == 2
+
+
+# ---------------------------------------------------------------------------
+# R2 — idempotent no-op
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_r2_idempotent_noop_returns_empty_list() -> None:
+    """When run_resolver returns [], updated is [] and the session is still committed."""
+    session = AsyncMock()
+    session.commit = AsyncMock()
+
+    with patch(
+        "groundmodel.application.resolve_litho_instances_use_case.CorrelateLithoUnits"
+    ) as MockCorrelate:
+        mock_instance = MagicMock()
+        mock_instance.run_resolver = AsyncMock(return_value=[])
+        MockCorrelate.return_value = mock_instance
+
+        uc = _make_use_case(session)
+        result = await uc.execute(model_id=_MODEL)
+
+    assert result.updated == []
+    # Commit still fires so the session is cleanly closed even on no-ops.
+    session.commit.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# R3 — structural #57 guard: no section_id parameter
+# ---------------------------------------------------------------------------
+
+
+def test_r3_no_section_id_in_execute_signature() -> None:
+    """execute() must not accept a section_id argument.
+
+    Structural guard: correlations are MODEL-level — the #57
+    applyUpdatedSection trap structurally cannot recur when there is no
+    section in scope.
+    """
+    sig = inspect.signature(ResolveLithoInstances.execute)
+    assert "section_id" not in sig.parameters, (
+        "ResolveLithoInstances.execute() must not have a section_id parameter — "
+        "resolve is model-level (#57 structural guard)"
+    )
+
+    # ResolveResult must also be free of section artefacts.
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(ResolveResult)}
+    assert "seeded_formation_contact_ids" not in field_names
+    assert "updated_section" not in field_names
+    assert "section_id" not in field_names
+
+
+# ---------------------------------------------------------------------------
+# R4 — does NOT duplicate resolution logic
+# ---------------------------------------------------------------------------
+
+
+def test_r4_does_not_reimplement_resolver() -> None:
+    """ResolveLithoInstances.execute() must delegate to CorrelateLithoUnits.run_resolver.
+
+    The source of the execute method must reference run_resolver, not
+    re-implement BFS / ordinal assignment inline.  This is a governance
+    test: if execute() ever grows a full BFS loop, the test fails and
+    forces a code-review discussion.
+    """
+    src = inspect.getsource(ResolveLithoInstances.execute)
+    # The method must call run_resolver (the shared implementation).
+    assert "run_resolver" in src, (
+        "ResolveLithoInstances.execute() must call run_resolver — "
+        "do not duplicate the BFS/ordinal logic from CorrelateLithoUnits"
+    )
+    # It must NOT contain BFS keywords that would indicate inline reimplementation.
+    assert "deque" not in src, "BFS deque found in execute() — extract to run_resolver"
+    assert "connected_component" not in src, (
+        "Connected-component logic found in execute() — extract to run_resolver"
+    )
