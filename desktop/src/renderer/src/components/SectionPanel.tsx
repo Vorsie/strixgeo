@@ -623,6 +623,14 @@ export default function SectionPanel({
     const dy = Math.abs(e.clientY - rect.top - start.py)
     if (dx < 3 && dy < 3) {
       setSelectionResetCounter(c => c + 1)
+      // Slice 4 (review B2): a background click while armed clears the
+      // correlation source but stays in correlate mode (spec: "background
+      // click clears source, stays in mode"). Band clicks are captured by
+      // the overlay's per-band rects and never reach here, so this only
+      // fires for the true background (gaps / margin / ruler).
+      if (correlateGestureState?.correlationSource != null) {
+        correlateGestureState.onClearArmed()
+      }
     }
   }
 
