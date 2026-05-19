@@ -27,8 +27,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
+)
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
@@ -66,6 +71,7 @@ class CreateFormationContact(GroundModelLogger):
     async def execute(
         self,
         *,
+        project_id: UUID,
         model_id: UUID,
         formation_id: UUID,
         depth_top_m: float,
@@ -81,6 +87,9 @@ class CreateFormationContact(GroundModelLogger):
 
         Parameters
         ----------
+        project_id : UUID
+            Owning project — the formation, borehole/CPT anchor, and model
+            must all belong to this project (VULN-9 defence-in-depth).
         model_id : UUID
             Model the contact belongs to.
         formation_id : UUID
@@ -106,7 +115,8 @@ class CreateFormationContact(GroundModelLogger):
         Raises
         ------
         ValueError
-            When the anchor XOR rule is violated.
+            When the anchor XOR rule is violated, or when the formation
+            or anchor investigation do not belong to ``project_id``.
         DuplicateContactError
             When a contact for the same (model, anchor, formation)
             triple already exists. The router maps this to a 409 +
@@ -114,6 +124,23 @@ class CreateFormationContact(GroundModelLogger):
             existing" path instead of a duplicate insert.
         """
         self.info(f"Creating formation contact: model={model_id}, formation={formation_id}")
+
+        # Defence-in-depth: verify the formation and each supplied anchor
+        # belong to project_id.  The model scope is already checked by the
+        # router's get_in_project_or_404 guard; these checks prevent a
+        # crafted request from embedding a foreign-project formation_id or
+        # anchor id in the body (VULN-9).
+        formation = await self._session.get(GeologicalFormationOrm, formation_id)
+        if formation is None or formation.app_project_id != project_id:
+            raise ValueError(f"Formation {formation_id} not found in project {project_id}")
+        if borehole_id is not None:
+            borehole = await self._session.get(BoreholeOrm, borehole_id)
+            if borehole is None or borehole.app_project_id != project_id:
+                raise ValueError(f"Borehole {borehole_id} not found in project {project_id}")
+        if cpt_id is not None:
+            cpt = await self._session.get(CptOrm, cpt_id)
+            if cpt is None or cpt.app_project_id != project_id:
+                raise ValueError(f"CPT {cpt_id} not found in project {project_id}")
         # Per-(model, anchor, formation) uniqueness check. Geological
         # semantic: a formation has exactly one top per investigation.
         # Two-layer enforcement: this best-effort SELECT keeps the
