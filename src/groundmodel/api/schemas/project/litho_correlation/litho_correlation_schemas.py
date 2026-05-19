@@ -12,6 +12,7 @@ the #57/applyUpdatedSection trap from recurring here.
 
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, model_validator
@@ -28,14 +29,17 @@ class LithoCorrelationRequest(BaseModel):
         insert / delete.
     formation_b_id : UUID
         The other endpoint.
-    source : str
-        Provenance token.  Defaults to 'manual' (user-drawn gesture).
-        Future automated tokens: 'g3dv3_seed', 'cpt_sbt_auto'.
+    source : Literal["manual"]
+        Provenance token. Phase-2 only emits 'manual' (user-drawn
+        gesture); constrained to that literal so a typo / premature
+        automated token cannot silently persist (review C3). Widen the
+        Literal when an automated path (e.g. 'g3dv3_seed') actually
+        ships.
     """
 
     formation_a_id: UUID
     formation_b_id: UUID
-    source: str = "manual"
+    source: Literal["manual"] = "manual"
 
     @model_validator(mode="after")
     def _no_self_loop(self) -> LithoCorrelationRequest:
