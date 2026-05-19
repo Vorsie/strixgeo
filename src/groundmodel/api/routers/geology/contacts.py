@@ -70,9 +70,6 @@ from groundmodel.application.update_formation_contacts_batch import (
 )
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
 from groundmodel.domain.value_objects.admixture import Admixture
-from groundmodel.infrastructure.db.models.cross_section_orm import (
-    CrossSectionOrm,
-)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
@@ -87,7 +84,6 @@ from groundmodel.infrastructure.db.repositories.geology_repository import (
 )
 from groundmodel.infrastructure.db.session import get_session
 from groundmodel.shared.constants.suggestion_confidence import SuggestionConfidence
-from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.logging.logger_factory import LoggerFactory
 
 # Module-level logger — routers are stateless functions, not classes.
@@ -96,84 +92,6 @@ logger = LoggerFactory.get_logger(__name__)
 # No prefix here — the package __init__ mounts this on the shared
 # ``/projects/{project_id}/geology`` parent router (paths unchanged).
 router = APIRouter()
-
-
-async def _seed_section_contacts(
-    session: AsyncSession,
-    log: GroundModelLogger,
-    section_id: UUID,
-    project_id: UUID,
-    contact_ids: set[UUID],
-    *,
-    log_label: str,
-) -> CrossSectionOrm | None:
-    """Union ``contact_ids`` into a section's ``seeded_formation_contact_ids``.
-
-    The explicit-content invariant (owner directive 2026-05-17): formation
-    content appears on a section only where the user explicitly seeded or
-    drew it, tracked by ``cross_section.seeded_formation_contact_ids``. This
-    helper is the single write path for that set — shared by the manual-draw
-    201 path, the dedup-survivor 409 path (debt #57), and the Seed endpoint.
-
-    Non-fatal by contract: the caller's primary operation (contact create /
-    Seed run) has already committed its own transaction. A missing or
-    out-of-project section, or a failed section commit here, is logged and
-    swallowed — it must never turn the caller's 200/201/409 into a 500. On a
-    swallowed failure the session is rolled back so it is clean before
-    ``get_session``'s finaliser closes it (a failed ``commit`` otherwise
-    leaves it in ``PendingRollbackError`` and poisons the next pooled use).
-
-    Parameters
-    ----------
-    session : AsyncSession
-        Active request session (the caller's transaction is already done).
-    log : GroundModelLogger
-        Module logger, passed in per the helper-hygiene rule.
-    section_id : UUID
-        Section whose seeded set to extend.
-    project_id : UUID
-        Project the section must belong to (scope guard against IDOR).
-    contact_ids : set[UUID]
-        Ids to union into the existing seeded set.
-    log_label : str
-        Prefix distinguishing the call site in logs
-        (``"create_contact"`` / ``"create_contact dedup"`` / ``"Seed"``).
-
-    Returns
-    -------
-    CrossSectionOrm | None
-        The refreshed section on a successful update, else ``None``. The
-        Seed path wraps the return in ``CrossSectionResponse`` to echo the
-        section back in one round-trip; the create paths ignore it.
-    """
-    try:
-        section_repo = CrossSectionRepository(session)
-        section = await section_repo.get(section_id)
-        if section is None or section.app_project_id != project_id:
-            log.warning(
-                f"{log_label}: section_id {section_id} not found in project "
-                f"{project_id} — seeded set not updated"
-            )
-            return None
-        existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
-        merged = list(existing_seeded | contact_ids)
-        updated = await section_repo.update(section_id, {"seeded_formation_contact_ids": merged})
-        await session.commit()
-        if updated is not None:
-            await session.refresh(updated)
-        log.info(
-            f"{log_label}: section {section_id} seeded_formation_contact_ids "
-            f"updated — {len(merged)} id(s) total "
-            f"({len(contact_ids)} requested, {len(existing_seeded)} pre-existing)"
-        )
-        return updated
-    except Exception as exc:
-        await session.rollback()
-        log.warning(
-            f"{log_label}: section seeding failed — section {section_id} "
-            f"seeded set not updated ({type(exc).__name__}): {exc!r}"
-        )
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -251,13 +169,11 @@ async def create_contact(
         # set. Seed the survivor's id before raising; the 409 still tells
         # the frontend it was a dedup so it can message "used existing".
         if request.section_id is not None:
-            await _seed_section_contacts(
-                session,
-                logger,
+            await CrossSectionRepository(session).union_seeded_contact_ids(
                 request.section_id,
                 project_id,
                 {err.existing_contact_id},
-                log_label="create_contact dedup",
+                operation="create_contact dedup",
             )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -284,13 +200,11 @@ async def create_contact(
     # after an undo keeps the rest of the set). Non-fatal: a seeding failure
     # leaves the set stale but the 201 stands.
     if request.section_id is not None:
-        await _seed_section_contacts(
-            session,
-            logger,
+        await CrossSectionRepository(session).union_seeded_contact_ids(
             request.section_id,
             project_id,
             {contact.id},
-            log_label="create_contact",
+            operation="create_contact",
         )
 
     return contact
@@ -498,13 +412,11 @@ async def auto_populate_from_stratigraphy(
     updated_section_response: CrossSectionResponse | None = None
     if request.section_id is not None:
         new_ids = frozenset(outcome.created_contact_ids) | frozenset(outcome.found_contact_ids)
-        updated = await _seed_section_contacts(
-            session,
-            logger,
+        updated = await CrossSectionRepository(session).union_seeded_contact_ids(
             request.section_id,
             project_id,
             set(new_ids),
-            log_label="Seed",
+            operation="Seed",
         )
         if updated is not None:
             # Echo the patched section back so the frontend updates its
@@ -744,13 +656,11 @@ async def seed_litho_from_parent(
     updated_section_response: CrossSectionResponse | None = None
     if request.section_id is not None:
         seed_ids = frozenset(outcome.created_contact_ids) | frozenset(outcome.found_contact_ids)
-        updated = await _seed_section_contacts(
-            session,
-            logger,
+        updated = await CrossSectionRepository(session).union_seeded_contact_ids(
             request.section_id,
             project_id,
             set(seed_ids),
-            log_label="LithoSeed",
+            operation="LithoSeed",
         )
         if updated is not None:
             updated_section_response = CrossSectionResponse.model_validate(updated)
@@ -1005,13 +915,11 @@ async def accept_litho_suggestions(
     updated_section_response = None
     if request.section_id is not None:
         all_contact_ids = set(result.created_contact_ids) | set(result.found_contact_ids)
-        updated = await _seed_section_contacts(
-            session,
-            logger,
+        updated = await CrossSectionRepository(session).union_seeded_contact_ids(
             request.section_id,
             project_id,
             all_contact_ids,
-            log_label="AcceptLithoSuggestions",
+            operation="AcceptLithoSuggestions",
         )
         if updated is not None:
             updated_section_response = CrossSectionResponse.model_validate(updated)
