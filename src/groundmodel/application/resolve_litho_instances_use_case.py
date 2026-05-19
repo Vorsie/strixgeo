@@ -35,8 +35,12 @@ class OrdinalUpdate:
     formation_id : UUID
         Primary key of the geological_formation row.
     old_ordinal : int | None
-        The ordinal before the resolver ran.  ``None`` when the formation
-        had not yet been assigned an ordinal.
+        The ordinal before the resolver ran.  ALWAYS ``None`` on the
+        explicit-resolve path (``ResolveLithoInstances``): ``run_resolver``
+        captures the pre-mutation value only for its own debug log and
+        does not surface it in its return dict, so this use case cannot
+        populate it.  Reserved for future callers that thread the old
+        value through explicitly (review SF-2).
     new_ordinal : int
         The ordinal assigned by the resolver.
     """
