@@ -169,7 +169,22 @@ async def uncorrelate_formations(
     -------
     None
         204 No Content always.
+
+    Raises
+    ------
+    404
+        When the model does not exist or does not belong to ``project_id``
+        (VULN-12).
     """
+    # Project-scope guard mirrors resolve/list siblings (VULN-12). The
+    # use case also receives project_id but the router is the right place
+    # to enforce the HTTP-404 boundary; the use case's check is defence-in-depth.
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
     await UncorrelateLithoUnits(session).execute(
         project_id=project_id,
         model_id=model_id,

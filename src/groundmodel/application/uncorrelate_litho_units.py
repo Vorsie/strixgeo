@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.correlate_litho_units import CorrelateLithoUnits
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
     LithoCorrelationEdgeOrm,
 )
@@ -74,6 +75,16 @@ class UncorrelateLithoUnits(GroundModelLogger):
         trap structurally cannot recur here.
         """
         self.info(f"UncorrelateLithoUnits: model={model_id} a={formation_a_id} b={formation_b_id}")
+
+        # ------------------------------------------------------------------ #
+        # 0. Defence-in-depth: verify the model belongs to project_id.         #
+        #    The router already guards with get_in_project_or_404 (VULN-12);   #
+        #    this check mirrors CorrelateLithoUnits for parity so a non-API    #
+        #    caller can't skip the scope check.                                #
+        # ------------------------------------------------------------------ #
+        model = await self._session.get(GeologicalModelOrm, model_id)
+        if model is None or model.app_project_id != project_id:
+            raise ValueError(f"Model {model_id} not found in project {project_id}")
 
         # ------------------------------------------------------------------ #
         # 1. Canonical ordering — identical to the insert path.               #
