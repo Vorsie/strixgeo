@@ -6,13 +6,18 @@ Additive-only contract — see CLAUDE.md "Backwards Compatibility" for the depre
 POST   /cpt/import              Import a GEF file (multipart form; project_id form field)
 POST   /cpt/import-dov          Import CPTs from DOV bbox (JSON body: west,south,east,north,project_id)
 GET    /cpt/                    List CPTs (optional ?project_id=UUID filters by project)
-GET    /cpt/{id}                CPT metadata (location, elevation, cone props, summary)
-GET    /cpt/{id}/plot           Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt)
+GET    /cpt/{id}                CPT metadata (location, elevation, cone props, summary).
+                                Requires ``?project_id=UUID`` — the CPT must
+                                belong to that project, else 404 (VULN-1
+                                cross-project id enumeration guard).
+GET    /cpt/{id}/plot           Depth-series arrays for plotting (depths, qc, fs, u2, rf, qt).
+                                Requires ``?project_id=UUID`` (VULN-4).
 DELETE /cpt/{id}                Delete CPT and its series (cascade). NOTE: the
                                 desktop frontend no longer calls this — sidebar
                                 "remove from project" is project-local
                                 (localStorage), preserving the DB cache so a
                                 re-import doesn't refetch.
+                                Requires ``?project_id=UUID`` (VULN-3).
 PATCH  /cpt/{id}/elevation      Phase 3a manual surface-elevation editor.
                                 JSON body: ``{elevation_m: float | null,
                                 z_epsg?: int | null}``. ``elevation_m: null``
@@ -24,7 +29,9 @@ PATCH  /cpt/{id}/elevation      Phase 3a manual surface-elevation editor.
                                 vertical_crs.py``). Returns the full
                                 ``CptResponse`` so the frontend can patch its
                                 detail cache without a second GET. 404 when
-                                the id is unknown.
+                                the id is unknown or belongs to a different
+                                project. Requires ``?project_id=UUID``
+                                (VULN-2).
 
 POST   /borehole/import-dov     Import boreholes + 8 interpretation streams + samples
                                 + grain-size + Atterberg + CaCO3 + organic-C + water-content
@@ -36,7 +43,10 @@ POST   /borehole/import-dov     Import boreholes + 8 interpretation streams + sa
 GET    /borehole/{id}           Full borehole tree (header + drill segments + field log
                                 + observations with layers + admixtures + samples with
                                 grain-size + Atterberg + CaCO3 + organic + water-content
-                                + the ``scalar_lab_tests`` catch-all list). 404 when missing.
+                                + the ``scalar_lab_tests`` catch-all list). 404 when
+                                missing or belongs to a different project.
+                                Requires ``?project_id=UUID`` (VULN-6 cross-project
+                                id enumeration guard).
                                 Optional ``?include=`` query parameter scopes the
                                 per-sample lab-test families that get eager-loaded
                                 (debt #2): comma-separated aliases from
@@ -49,7 +59,8 @@ PATCH  /borehole/{id}/elevation Mirror of ``PATCH /cpt/{id}/elevation`` — same
                                 request body. Returns the lightweight
                                 ``BoreholeListItem`` shape so the frontend can
                                 refresh the sidebar badge without re-fetching
-                                the heavy detail tree.
+                                the heavy detail tree. Requires ``?project_id=UUID``
+                                (VULN-7).
 
 GET    /projects/               List active projects, most-recent first.
                                 Optional ``?include_archived=true`` returns
