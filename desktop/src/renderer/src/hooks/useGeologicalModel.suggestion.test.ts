@@ -122,6 +122,12 @@ function makeFormation(id: string, lithology: string): GeologicalFormationRespon
     regional_ref: null,
     description: null,
     pinned_order: false,
+    // Phase 1 litho-builder fields — null on geological-model rows.
+    parent_formation_id: null,
+    litho_main_soil_code: null,
+    litho_admixtures: null,
+    instance_ordinal: null,
+    instance_ordinal_locked: false,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
@@ -140,12 +146,19 @@ function makeContact(id: string, formationId: string): FormationContactResponse 
     observation_id: null,
     observation_layer_id: null,
     notes: null,
+    synthetic_x: null,
+    synthetic_y: null,
+    synthetic_elevation_m: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
 }
 
-function makeSuggestion(lithology: string, depth: number): LithoLayerSuggestion {
+function makeSuggestion(
+  lithology: string,
+  depth: number,
+  overrides?: Partial<LithoLayerSuggestion>,
+): LithoLayerSuggestion {
   return {
     depth_top_m: depth,
     depth_base_m: depth + 2.0,
@@ -155,6 +168,11 @@ function makeSuggestion(lithology: string, depth: number): LithoLayerSuggestion 
     dr_pct: null,
     confidence: 'medium' as const,
     source: 'robertson2015',
+    // Phase 1 additions.
+    suggested_admixtures: [],
+    parent_formation_id: null,
+    spans_boundary: false,
+    ...overrides,
   }
 }
 
