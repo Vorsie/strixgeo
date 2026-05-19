@@ -133,14 +133,19 @@ describe('AppShell Esc peel (debt #43)', () => {
     expect(setSelectedId).not.toHaveBeenCalled()
   })
 
-  it('bails when a section is selected (not the transient detail)', () => {
-    const { ctx, setSelectedId } = makeCtx({
+  it('Esc with a section open backs out to the Sections stage', () => {
+    // Detail opened while a cross-section was the workspace: Esc clears
+    // the detail AND returns directly to that section (not the bare map).
+    const { ctx, setSelectedId, setSelectedBoreholeId, setView } = makeCtx({
       selectedId: 'cpt-1',
       selectedSectionId: 'sec-1',
     })
     render(<AppShell context={ctx} />)
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(setSelectedId).not.toHaveBeenCalled()
+    expect(setSelectedId).toHaveBeenCalledWith(null)
+    expect(setSelectedBoreholeId).toHaveBeenCalledWith(null)
+    expect(setView).toHaveBeenCalledWith('map')
+    expect(mockSetActiveStage).toHaveBeenCalledWith('sections')
   })
 
   it('ignores Esc fired from a typing target', () => {
