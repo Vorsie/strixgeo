@@ -261,6 +261,7 @@ async def restore_project(
             request.cross_sections,
             request.investigation_reviews,
             geotechnical_units_payload=request.geotechnical_units,
+            litho_correlation_edges_payload=request.litho_correlation_edges,
         )
     except (ValueError, KeyError, TypeError) as err:
         # Surface bad bundle shape as 400 instead of letting it 500.

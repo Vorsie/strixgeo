@@ -117,6 +117,10 @@ _MAX_GEOTECH_UNITS_PER_BUNDLE = 5_000
 _MAX_GEOLOGICAL_MODELS_PER_BUNDLE = 1_000
 _MAX_CROSS_SECTIONS_PER_BUNDLE = 1_000
 _MAX_INVESTIGATION_REVIEWS_PER_BUNDLE = 50_000
+# An edge joins two formations.  A project with 5,000 formations can have at
+# most ~12.5M edges in a complete graph; the practical upper bound for a
+# v1.0 litho project is O(formations²) within each model, well under 50,000.
+_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE = 50_000
 
 
 class ProjectBundleRequest(BaseModel):
@@ -180,6 +184,15 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_INVESTIGATION_REVIEWS_PER_BUNDLE,
     )
+    # Litho correlation edges — Phase-2 (model-level, NOT section-level).
+    # Additive field: absence of this key in an older bundle restores
+    # cleanly via default_factory=list (no format_version bump required;
+    # backwards-compat is SUSPENDED pre-ship per project_backwards_compat_suspended.md,
+    # but keeping the field additive-optional is the post-ship-safe pattern).
+    litho_correlation_edges: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
+    )
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — absent in bundles saved before this field existed.
     # On restore: stored as bundle metadata only; NEVER re-applied
@@ -203,6 +216,9 @@ class ProjectBundleResponse(BaseModel):
     geological_models: list[dict[str, Any]] = Field(default_factory=list)
     cross_sections: list[dict[str, Any]] = Field(default_factory=list)
     investigation_reviews: list[dict[str, Any]] = Field(default_factory=list)
+    # Litho correlation edges (Phase-2).  Absent in bundles saved before
+    # Phase 2 shipped — default_factory=list so older files open cleanly.
+    litho_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — bundles saved before this field existed carry null.
     stratigraphy_lumping: StratigraphyLumping | None = None
