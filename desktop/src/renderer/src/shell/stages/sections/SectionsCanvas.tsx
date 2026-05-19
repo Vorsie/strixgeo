@@ -148,6 +148,7 @@ export default function SectionsCanvas(): JSX.Element {
       cancelBboxDraw,
       handleBboxDrawn,
     },
+    toasts: { toast },
   } = useShell()
 
   // CTA card dismiss state — the overlay disappears once the user has
@@ -208,19 +209,27 @@ export default function SectionsCanvas(): JSX.Element {
   // the edge set; section changes can expose different visible formations.
   const [correlationEdges, setCorrelationEdges] = useState<LithoCorrelationEdge[]>([])
 
+  // Key the fetch on the model ID, not the model object (review S2): the
+  // object re-identifies on unrelated mutations (e.g. a formation rename
+  // rebuilds it), which would churn refetchEdges + the whole gesture-state
+  // chain AND leave the effect (keyed on the id) out of sync — stale edges
+  // after a same-id rebuild. The primitive id is the true identity.
+  const lithoModelId = activeLithoModel?.id ?? null
+
   const refetchEdges = useCallback(async () => {
-    if (!activeLithoModel) {
+    if (lithoModelId === null) {
       setCorrelationEdges([])
       return
     }
+    log.debug('section', `listCorrelations: GET project=${project.id} model=${lithoModelId}`)
     try {
-      const edges = await api.geology.listCorrelations(project.id, activeLithoModel.id)
+      const edges = await api.geology.listCorrelations(project.id, lithoModelId)
       setCorrelationEdges(edges)
-      log.debug('section', `correlation edges fetched: ${edges.length} for model ${activeLithoModel.id}`)
+      log.debug('section', `listCorrelations: ${edges.length} edge(s) for model ${lithoModelId}`)
     } catch (err) {
       log.warn('section', 'refetchEdges: listCorrelations failed', err)
     }
-  }, [activeLithoModel, project.id])
+  }, [lithoModelId, project.id])
 
   useEffect(() => {
     if (!isLitho) {
@@ -237,27 +246,39 @@ export default function SectionsCanvas(): JSX.Element {
   const handleCorrelate = useCallback(
     async (formationAId: string, formationBId: string): Promise<void> => {
       if (!activeLithoModel) return
+      log.info(
+        'section',
+        `correlate: linking ${formationAId} ↔ ${formationBId} on model ${activeLithoModel.id}`,
+      )
       try {
         await api.geology.correlate(project.id, activeLithoModel.id, formationAId, formationBId)
-        log.debug('section', `correlate: edge ${formationAId} ↔ ${formationBId}`)
-        // Resolve ordinals + refetch edges — no toast on success (owner-decided)
+        // Resolve ordinals + refetch edges — no toast on success (owner-decided:
+        // the new edge line + ordinal badge ARE the confirmation).
         await api.geology.resolveLithoInstances(project.id, activeLithoModel.id)
         await refetchEdges()
-        // Clear armed state so user can arm the next source
+        // Clear armed state so the user can arm the next source.
         clearCorrelationSource()
+        log.success('section', `correlate: edge ${formationAId} ↔ ${formationBId} created`)
       } catch (err) {
         log.warn('section', 'handleCorrelate: POST failed', err)
-        // 422 or network error: let the CorrelationEdgesOverlay inline border
-        // flash handle local feedback; a 1-line toast covers network failures.
-        // The overlay currently does not have a flash mechanism; we log only.
+        // The armed source is deliberately NOT cleared (review spec: stay
+        // armed so the user can retry / pick a different target). Surface
+        // the failure — silence on a failed POST is worse than a toast
+        // (review S1; the cross-group case is pre-empted client-side so
+        // this is a genuine 422 race or a network error).
+        toast('error', 'Could not create the correlation — try again.')
       }
     },
-    [activeLithoModel, project.id, refetchEdges, clearCorrelationSource],
+    [activeLithoModel, project.id, refetchEdges, clearCorrelationSource, toast],
   )
 
   const handleUncorrelate = useCallback(
     async (formationAId: string, formationBId: string): Promise<void> => {
       if (!activeLithoModel) return
+      log.info(
+        'section',
+        `uncorrelate: removing ${formationAId} ↔ ${formationBId} on model ${activeLithoModel.id}`,
+      )
       // Optimistic removal from local state before the DELETE resolves
       setCorrelationEdges(prev =>
         prev.filter(
@@ -270,9 +291,9 @@ export default function SectionsCanvas(): JSX.Element {
       )
       try {
         await api.geology.uncorrelate(project.id, activeLithoModel.id, formationAId, formationBId)
-        log.debug('section', `uncorrelate: edge ${formationAId} ↔ ${formationBId} removed`)
         await api.geology.resolveLithoInstances(project.id, activeLithoModel.id)
         await refetchEdges()
+        log.success('section', `uncorrelate: edge ${formationAId} ↔ ${formationBId} removed`)
       } catch (err) {
         log.warn('section', 'handleUncorrelate: DELETE failed — rolling back optimistic removal', err)
         await refetchEdges()
