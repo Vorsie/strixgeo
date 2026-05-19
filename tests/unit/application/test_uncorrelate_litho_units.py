@@ -35,6 +35,8 @@ def _scalar_result(value: object) -> MagicMock:
     r = MagicMock()
     r.scalar_one_or_none.return_value = value
     r.scalars.return_value.all.return_value = []
+    # run_resolver's depth query is a single GROUP BY read via .all().
+    r.all.return_value = []
     return r
 
 
@@ -42,6 +44,7 @@ def _scalars_result(values: list) -> MagicMock:
     r = MagicMock()
     r.scalar_one_or_none.return_value = None
     r.scalars.return_value.all.return_value = values
+    r.all.return_value = []
     return r
 
 
@@ -69,7 +72,8 @@ async def test_happy_path_returns_true() -> None:
 
     edge_result = _scalar_result(edge)
     empty = _scalars_result([])
-    session.execute = AsyncMock(side_effect=[edge_result, empty, empty])
+    # edge-lookup + run_resolver's (formations, depth GROUP BY, edges).
+    session.execute = AsyncMock(side_effect=[edge_result, empty, empty, empty])
     session.delete = AsyncMock()
     session.flush = AsyncMock()
     session.commit = AsyncMock()
@@ -125,7 +129,8 @@ async def test_canonical_ordering_on_lookup() -> None:
 
     edge_result = _scalar_result(edge)
     empty = _scalars_result([])
-    session.execute = AsyncMock(side_effect=[edge_result, empty, empty])
+    # edge-lookup + run_resolver's (formations, depth GROUP BY, edges).
+    session.execute = AsyncMock(side_effect=[edge_result, empty, empty, empty])
     session.delete = AsyncMock()
     session.flush = AsyncMock()
     session.commit = AsyncMock()
@@ -144,12 +149,12 @@ async def test_canonical_ordering_on_lookup() -> None:
 
 @pytest.mark.asyncio
 async def test_resolver_called_on_disconnect() -> None:
-    """After deletion, _run_resolver is called to renumber components.
+    """After deletion, run_resolver is called to renumber components.
 
-    UncorrelateLithoUnits delegates to CorrelateLithoUnits._run_resolver.
-    We patch _run_resolver on the class directly (the module-level import
-    is already bound; patching the class method intercepts the call
-    regardless of when the import happened).
+    UncorrelateLithoUnits delegates to CorrelateLithoUnits.run_resolver
+    (a PUBLIC method since review C1). We patch it on the class directly
+    (patching the class method intercepts the call regardless of when
+    the import happened).
     """
     from groundmodel.application.correlate_litho_units import CorrelateLithoUnits
 
@@ -171,7 +176,7 @@ async def test_resolver_called_on_disconnect() -> None:
         resolver_called.append(model_id)
         return []
 
-    with patch.object(CorrelateLithoUnits, "_run_resolver", _fake_resolver):
+    with patch.object(CorrelateLithoUnits, "run_resolver", _fake_resolver):
         result = await uc.execute(
             project_id=_PROJECT,
             model_id=_MODEL,
