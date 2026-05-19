@@ -108,10 +108,13 @@ class UncorrelateLithoUnits(GroundModelLogger):
         # halves need new ordinals (e.g. the body that was ordinal 1 may now  #
         # become bodies 1 and 2, each numbered by earliest depth).            #
         # ------------------------------------------------------------------ #
-        # Reuse the resolver helper from CorrelateLithoUnits to avoid
-        # duplicating the formation-load + edge-load + write-back logic.
+        # The model-scoped resolver (formation-load + edge-load +
+        # write-back + stale-marking) lives as a PUBLIC method on
+        # CorrelateLithoUnits; reuse it directly — no cross-class private
+        # access (review C1). It also marks changed surfaces stale, so
+        # uncorrelate now gets that cue too (review S1).
         helper = CorrelateLithoUnits(self._session)
-        updated = await helper._run_resolver(model_id)  # noqa: SLF001
+        updated = await helper.run_resolver(model_id)
 
         # ------------------------------------------------------------------ #
         # 4. Commit.                                                            #
