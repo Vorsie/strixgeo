@@ -14,7 +14,7 @@ sections that follow):
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
 * **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #41 (Geology3DViewer untested — residual after pure-helper extract) *(#55 litho peer-stage scaffolding RESOLVED 2026-05-18: LithologyStage StageDescriptor + LithologyCanvas [single-viewport Geology3DViewer when hasLithoSurfaces, guided EmptyState otherwise, module-level resetLithoCameraCallback, ground-surface useEffect keyed on lithoModelId] + LithologyInspector [ModelKindPicker + stale-surface info banner + read-only formation roster with contact counts + workflow guidance footer] + LithologyToolbar [Reset Camera visible when hasLithoSurfaces] + `lithoStaleSurfaceCount` useMemo + `handleRebuildLithoSurfaces` useCallback in useGeologicalModel; SectionsToolbar litho-axis Build button with stale-count amber badge. L1–L5 hook + BL1–BL4 toolbar + I1–I3 inspector + C1–C2 canvas vitest green; 808 unit total. #58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
 * **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52, #60
-* **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53, #64, #65, #66
+* **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53, #64, #65, #66, #67
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -1010,7 +1010,7 @@ Lithology stage inspector.
 exclusion-toggle or when the first dogfeed session surfaces
 a silent litho surface crossing as a confusing artefact.
 
-## 66. Manual litho picker Phase-2 features absent (Tier E)
+## 67. Manual litho picker Phase-2 features absent (Tier E)
 
 **What.** The Phase-1.5 manual litho composition picker (shipped
 2026-05-19) intentionally defers several affordances to Phase 2:
