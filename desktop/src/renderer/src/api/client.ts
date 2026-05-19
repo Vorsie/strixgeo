@@ -1795,7 +1795,12 @@ export const api = {
       post(`/projects/${projectId}/geology/models/${modelId}/correlations`, {
         formation_a_id: formationAId,
         formation_b_id: formationBId,
-        source: 'manual_connect',
+        // MUST be exactly 'manual' — the request schema is
+        // Literal["manual"] (hardened in the Slice-1 review to bar
+        // premature/typo'd provenance tokens). 'manual_connect' here
+        // 422'd EVERY correlate call; the integration tests missed it
+        // because they omit source and rely on the Pydantic default.
+        source: 'manual',
       }),
 
     // Remove the edge between two formations (DELETE with JSON body).
