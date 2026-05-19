@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,7 +31,16 @@ class GeologicalFormationOrm(Base):
     """
 
     __tablename__ = "geological_formation"
-    __table_args__ = (Index("idx_geological_formation_app_project_id", "app_project_id"),)
+    __table_args__ = (
+        Index("idx_geological_formation_app_project_id", "app_project_id"),
+        # Composite index for the Accept find-or-create key lookup (litho builder).
+        Index(
+            "idx_geological_formation_litho_lookup",
+            "app_project_id",
+            "parent_formation_id",
+            "litho_main_soil_code",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
 
@@ -72,6 +82,30 @@ class GeologicalFormationOrm(Base):
     # yet — the class number is the future join key.
     lithology: Mapped[str | None] = mapped_column(String(20), nullable=True)
     nad_class: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Litho-builder Phase 1 columns ----------------------------------------
+    # Self-FK: a litho/geotech unit points at its parent geological formation.
+    # ON DELETE SET NULL — deleting a geological formation degrades the litho
+    # unit to parentless rather than cascading.  NULL on geological-model rows
+    # (they are the parent, not the child).
+    parent_formation_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("geological_formation.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # BaseLithology token (ZAND/KLEI/SILT/GRIND/VEEN). NULL on geological rows.
+    litho_main_soil_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ordered admixture list: [{"soil_code": str, "amount": str, "locally": bool}].
+    # NULL on geological rows; [] on a litho unit with no admixtures.
+    litho_admixtures: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Phase 2: ordinal for same-composition instances within a parent formation.
+    # NULL throughout Phase 1 — Accept leaves it unassigned.
+    # Phase 2: instance_ordinal = NULL (assigned by resolve_litho_instances)
+    instance_ordinal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # True when the user has locked the ordinal; Phase 2 auto-resolver skips it.
+    instance_ordinal_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
