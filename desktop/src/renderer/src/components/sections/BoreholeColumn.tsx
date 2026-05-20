@@ -147,6 +147,13 @@ export default function BoreholeColumn({
     const obs = detail.observations.find(o => o.observation_type === obsType) ?? null
     enabledSlots.push({ key, obs })
   }
+  // Single-vs-double-click gate. MUST sit above the early-return on
+  // ``enabledSlots.length === 0`` (and any later return) or React
+  // throws "Rendered fewer hooks than expected" the frame a borehole
+  // gains its first observation channel (CLAUDE.md "Temporal Dead
+  // Zone after reordering React component bodies" / Rules of Hooks).
+  const clickDebounce = useClickDebounce()
+
   if (enabledSlots.length === 0) return null
 
   const stripWidth = 2 * halfWidth
@@ -199,13 +206,10 @@ export default function BoreholeColumn({
     return Math.max(bandTopY, Math.min(bandBottomY, localY))
   }
 
-  // Single-vs-double-click gate. Without this, a dbl-click intent
-  // (open detail on the outer column) commits a contact on click 1
-  // because the rect's onClick fires before the outer onDoubleClick
-  // arrives. handleDoubleClick clears the queued single — the outer
-  // column's onDoubleClick still fires for detail-open via SVG
-  // event bubbling.
-  const clickDebounce = useClickDebounce()
+  // Single-vs-double-click gate — hook is declared above the
+  // early-return guard (Rules of Hooks). handleDoubleClick clears
+  // the queued single; the outer column's onDoubleClick still fires
+  // for detail-open via SVG event bubbling.
   function handleClick(e: React.MouseEvent<SVGRectElement>): void {
     if (!onCommitDepth) return
     // Shift held → user wants the bg-marquee (multi-select). Bail
