@@ -15,7 +15,7 @@ AutoPopulateContactsFromStratigraphy test style).
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -88,7 +88,6 @@ async def test_dry_run_returns_tip_geometry_no_commit() -> None:
     A pair of non-diverging TIN slices is set up so ``compute_pinch_tip``
     returns a valid tip.  After the call we assert that:
     - ``created_contact_ids`` is empty
-    - ``updated_section`` is None
     - ``session.commit`` was never called (no DB writes)
     - ``session.add`` was never called (no contact inserts)
     """
@@ -138,7 +137,8 @@ async def test_dry_run_returns_tip_geometry_no_commit() -> None:
     # The tip must be somewhere to the right of x=50 (the rightmost
     # slice point of the pinching surface) along the section line.
     assert result.created_contact_ids == []
-    assert result.updated_section is None
+    # `updated_section` removed from PinchOutResult by debt #62 item 3
+    # (router owns section seeding now); dry-run has no seeding either.
     assert result.was_idempotent is False
     assert result.tip_along_m > 50.0
     # Elevation at the crossing is between 0 and 5 m (pinching dips toward 0).
@@ -266,24 +266,19 @@ async def test_commit_path_still_creates_contacts() -> None:
     uc = ExtrapolatePinchOut(session)
     uc._repo = AsyncMock()
 
-    with patch(
-        "groundmodel.application.extrapolate_pinch_out.CrossSectionRepository"
-    ) as MockCrossRepo:
-        # union_seeded_contact_ids makes further DB calls; mock the whole
-        # repo so this test stays focused on the commit path contact creation.
-        mock_repo_instance = MagicMock()
-        mock_repo_instance.union_seeded_contact_ids = AsyncMock(return_value=None)
-        MockCrossRepo.return_value = mock_repo_instance
-
-        result = await uc.execute(
-            project_id=PROJECT,
-            model_id=MODEL,
-            formation_id=FORMATION,
-            target_formation_id=TARGET,
-            section_id=SECTION,
-            direction="right",
-            dry_run=False,
-        )
+    # No CrossSectionRepository patch needed — debt #62 item 3 moved
+    # section seeding out of this use case and into the router, so
+    # the commit path here is just: insert contacts → mark stale →
+    # commit, with no extra repository orchestration to mock.
+    result = await uc.execute(
+        project_id=PROJECT,
+        model_id=MODEL,
+        formation_id=FORMATION,
+        target_formation_id=TARGET,
+        section_id=SECTION,
+        direction="right",
+        dry_run=False,
+    )
 
     # Two contacts created (tip + twin).
     assert session.add.call_count == 2
