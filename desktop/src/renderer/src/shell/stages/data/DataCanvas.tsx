@@ -8,6 +8,7 @@
 // Borehole log. When a section is selected the canvas intentionally does
 // nothing special — SectionsCanvas (S5) owns that branch.
 
+import { useMemo } from 'react'
 import { Map as MapIcon, BarChart2 } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -16,6 +17,7 @@ import MapView from '../../../components/MapView'
 import CptChart from '../../../components/CptChart'
 import BoreholeLog from '../../../components/BoreholeLog'
 import DovImportProgressPanel from '../../../components/DovImportProgressPanel'
+import { buildContactOverlays } from '../../../utils/contactOverlays'
 
 /**
  * Center canvas for the Data stage.
@@ -105,9 +107,36 @@ export default function DataCanvas(): JSX.Element {
       cancelSectionDraw,
       handleSelectSection,
     },
+    geoModel: {
+      contacts: geoContacts,
+      formations: geoFormations,
+      lithoContacts,
+      lithoFormations,
+    },
   } = useShell()
 
   const selectedCpt = visibleCpts.find(c => c.id === selectedId)
+
+  // Faded depth-context overlay for the detail pane — every formation
+  // contact (geology) and litho contact anchored at the selected
+  // investigation, sorted by depth. Computed once per (selection,
+  // contact set) change; CptChart and BoreholeLog render them as
+  // ReferenceLines / SVG <line>s in the formation's colour.
+  const cptContactOverlays = useMemo(() => {
+    if (selectedId === null) return undefined
+    return buildContactOverlays(
+      geoContacts,
+      geoFormations,
+      lithoContacts,
+      lithoFormations,
+      selectedId,
+      'cpt',
+    )
+  }, [selectedId, geoContacts, geoFormations, lithoContacts, lithoFormations])
+
+  // BoreholeLog overlay wire lands in the next commit alongside its
+  // SVG line renderer — kept out of this commit to keep the slice
+  // self-contained (one render path per commit).
   const drawingBbox = bboxImportType !== null
   const hasSelection = selectedId !== null || selectedBoreholeId !== null
 
@@ -216,6 +245,7 @@ export default function DataCanvas(): JSX.Element {
               handleSetOverlayOverride('cpt', next)
             }
             virtueleBoringLoading={virtueleBoringLoading}
+            contactOverlays={cptContactOverlays}
           />
         ) : (
           <LoadingState label="Loading chart…" />
