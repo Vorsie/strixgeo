@@ -52,6 +52,7 @@ import type {
 } from '../../api/client'
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
+import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
 
@@ -592,6 +593,15 @@ export default function ContactsLayer({
     formationName: string
     anchorKind: 'cpt' | 'borehole'
     anchorId: string
+  } | null>(null)
+
+  // Pending-delete confirmation state (debt #62 item 1). Set when the
+  // user picks "Delete contact" from the context menu; the dialog
+  // renders while non-null. Replaces the prior naked window.confirm
+  // which couldn't default-focus Cancel or name its action button.
+  const [deletePending, setDeletePending] = useState<{
+    contactId: string
+    formationName: string
   } | null>(null)
 
   // ---- Selection model -------------------------------------------
@@ -2493,16 +2503,15 @@ export default function ContactsLayer({
           onDelete={
             onDeleteContact
               ? () => {
+                  // Open the styled confirm dialog (debt #62 item 1).
+                  // ContactContextMenu closes itself; we stash the
+                  // pending-delete intent and the dialog drives the
+                  // confirm-or-cancel branch.
+                  setDeletePending({
+                    contactId: contactMenu.contactId,
+                    formationName: contactMenu.formationName,
+                  })
                   setContactMenu(null)
-                  // Native confirm is the irreversible-action safety rail
-                  // per CLAUDE.md UX conventions.
-                  if (
-                    window.confirm(
-                      `Delete contact at ${contactMenu.formationName}? This cannot be undone.`,
-                    )
-                  ) {
-                    void onDeleteContact(contactMenu.contactId)
-                  }
                 }
               : undefined
           }
@@ -2520,6 +2529,21 @@ export default function ContactsLayer({
         />,
         document.body,
       )}
+    {/* Delete-contact confirmation dialog (debt #62 item 1). Replaces
+        the prior window.confirm with a Modal that default-focuses
+        Cancel and labels its destructive button "Delete contact". */}
+    {deletePending && onDeleteContact && (
+      <DeleteContactConfirmDialog
+        open
+        formationName={deletePending.formationName}
+        onConfirm={() => {
+          const id = deletePending.contactId
+          setDeletePending(null)
+          void onDeleteContact(id)
+        }}
+        onCancel={() => setDeletePending(null)}
+      />
+    )}
     </>
   )
 }
@@ -2536,8 +2560,9 @@ interface ContactContextMenuProps {
   /** Human-readable formation name — shown as the menu subtitle. */
   formationName: string
   /** Fired when the user picks "Delete contact". When absent the item
-   * is hidden. The handler must gate the irreversible action (e.g. via
-   * window.confirm) — ContactContextMenu does not add a second gate. */
+   * is hidden. The handler must gate the irreversible action via a
+   * styled confirm dialog (DeleteContactConfirmDialog) —
+   * ContactContextMenu itself does not add a second gate. */
   onDelete?: () => void
   /** Fired when the user picks "Extrapolate pinch-out…". When absent
    * the item is hidden. */
