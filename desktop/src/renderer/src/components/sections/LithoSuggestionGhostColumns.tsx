@@ -96,6 +96,85 @@ function nearestPendingIndexBelow(
   return null
 }
 
+/**
+ * Resolve the effective top/base of a suggestion — committed edits
+ * win over the raw segmenter output. Used to compute drag bounds
+ * from the live state of the neighbouring layers (debt #83 v1).
+ */
+function effectiveDepths(
+  suggestions: readonly LithoLayerSuggestion[],
+  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
+  idx: number,
+): { topM: number; baseM: number } {
+  const raw = suggestions[idx]
+  const committed = edits?.get(idx)
+  return {
+    topM: committed?.depth_top_m ?? raw.depth_top_m,
+    baseM: committed?.depth_base_m ?? raw.depth_base_m,
+  }
+}
+
+/**
+ * Compute the hard-clamp bounds + collapse targets for a drag at
+ * mousedown. The dragged edge cannot cross either bound; if the
+ * user releases at one of them, the layer named by the matching
+ * ``collapseIdx*`` is auto-rejected on mouseup.
+ *
+ * For a TOP-edge drag of layer ``idx``:
+ *   - boundsAboveM = next-pending-above's top (or 0 = ground)
+ *     → collapses the layer above when snapped (its base moves to its top)
+ *   - boundsBelowM = own base (existing #81 snap)
+ *     → collapses self when snapped
+ *
+ * For a BASE-edge drag, mirror:
+ *   - boundsAboveM = own top (existing #81 snap) → collapses self
+ *   - boundsBelowM = next-pending-below's base (or +Infinity = open)
+ *     → collapses the layer below when snapped
+ *
+ * Rejected/accepted neighbours are skipped (they don't render as
+ * obstacles — same topology rule the shared-boundary commit uses).
+ */
+function computeDragBounds(
+  edge: 'top' | 'base',
+  idx: number,
+  suggestions: readonly LithoLayerSuggestion[],
+  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+): {
+  boundsAboveM: number
+  boundsBelowM: number
+  collapseIdxAbove: number | null
+  collapseIdxBelow: number | null
+} {
+  const own = effectiveDepths(suggestions, edits, idx)
+  if (edge === 'top') {
+    const aboveIdx = nearestPendingIndexAbove(idx, acceptedIndices, rejectedIndices)
+    const boundsAboveM = aboveIdx !== null ? effectiveDepths(suggestions, edits, aboveIdx).topM : 0
+    return {
+      boundsAboveM,
+      boundsBelowM: own.baseM,
+      collapseIdxAbove: aboveIdx,
+      collapseIdxBelow: idx,
+    }
+  }
+  // edge === 'base'
+  const belowIdx = nearestPendingIndexBelow(
+    idx,
+    suggestions.length,
+    acceptedIndices,
+    rejectedIndices,
+  )
+  const boundsBelowM =
+    belowIdx !== null ? effectiveDepths(suggestions, edits, belowIdx).baseM : Number.POSITIVE_INFINITY
+  return {
+    boundsAboveM: own.topM,
+    boundsBelowM,
+    collapseIdxAbove: idx,
+    collapseIdxBelow: belowIdx,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -241,21 +320,54 @@ export default function LithoSuggestionGhostColumns({
     initialDepthM: number
     currentDepthM: number
     /**
-     * Depth (m) of the dragged layer's OPPOSITE edge, captured at
-     * mousedown. Used as the snap target for the collapse-to-reject
-     * gesture (debt #81 — dogfeed 2026-05-20: "pull down the upper
-     * boundary above or the lower boundary upwards and it needs to
-     * snap to the other boundary"). When currentDepthM lands within
-     * the snap threshold of this value, the gesture snaps and the
-     * dragged layer is auto-rejected on mouseup.
+     * Hard clamp on the shallow side (smaller depth). The dragged
+     * edge cannot cross this — captures collision with the next
+     * pending neighbour above (its top) OR with own opposite edge
+     * for a base-drag. ``0`` when the dragged edge is the outermost
+     * top with no pending layer above (= ground surface).
+     *
+     * Snap-to-collide UX (dogfeed 2026-05-20): the drag stops at
+     * a colliding boundary; if the user releases at that snap, the
+     * shared-boundary commit + auto-reject collapse one layer
+     * (own or the neighbour, depending which bound was hit).
      */
-    oppositeDepthM: number
+    boundsAboveM: number
     /**
-     * Whether the current drag position is snapped to the opposite
-     * edge. Drives the visible snap indicator + the on-mouseup
-     * auto-reject branch. Updated on every mousemove.
+     * Hard clamp on the deep side. Mirrors ``boundsAboveM`` for the
+     * other direction — own opposite edge for a top-drag, or the
+     * next pending neighbour below's base for a base-drag. Capped
+     * by the plot bottom (no infinite drag past the last layer).
+     */
+    boundsBelowM: number
+    /**
+     * Suggestion index whose layer collapses if the drag snaps at
+     * ``boundsAboveM`` — own idx (base-drag → own collapses) or the
+     * next-pending-above's idx (top-drag → neighbour collapses).
+     * ``null`` when the bound is the ground surface (no neighbour
+     * to collapse).
+     */
+    collapseIdxAbove: number | null
+    /** Mirror of ``collapseIdxAbove`` for ``boundsBelowM``. */
+    collapseIdxBelow: number | null
+    /**
+     * Whether the current drag position is snapped to either bound.
+     * Drives the visible snap indicator + the on-mouseup auto-reject.
      */
     snapped: boolean
+    /**
+     * Depth the current snap is bound to — equals ``boundsAboveM``
+     * when snapped at the shallow side, ``boundsBelowM`` when at the
+     * deep side, ``null`` when not snapped. Used by the indicator
+     * to render the amber dashed line at the correct depth.
+     */
+    snapTargetM: number | null
+    /**
+     * Layer to auto-reject on mouseup when ``snapped`` is true. This
+     * is whichever ``collapseIdx{Above,Below}`` corresponds to the
+     * bound that was hit. ``null`` when no snap fired or the snap is
+     * at the ground surface.
+     */
+    collapseOnReleaseIdx: number | null
   } | null>(null)
 
   // Composition editor (debt #72). Tracks which suggestion index is
@@ -319,20 +431,65 @@ export default function LithoSuggestionGhostColumns({
       if (!drag) return
       const pixelDelta = e.clientY - drag.initialClientY
       const depthDelta = pxPerM !== 0 ? pixelDelta / pxPerM : 0
-      // Clamp to non-negative depth — a layer top can't sit above
-      // the ground surface (depth 0). Base can't either; for both
-      // edges the same min applies.
+      // Cursor-derived depth, clamped to non-negative (top can't sit
+      // above ground; base can't either).
       const raw = Math.max(0, drag.initialDepthM + depthDelta)
-      // Snap-to-collapse (debt #81). When the dragged depth lands
-      // within snapThresholdM of the layer's opposite edge, snap and
-      // flag for auto-reject on mouseup. The mouseup commit still
-      // fires the depth edit so the visual layer collapses cleanly
-      // even before the reject takes effect.
-      const snapped =
+      // Hard-clamp to the bounds set at mousedown — the dragged edge
+      // physically cannot cross any other layer's boundary (debt #83
+      // v1 / dogfeed 2026-05-20: "if it collides it should just snap
+      // and attach to the boundary it collides with"). The clamp +
+      // snap together produce a satisfying "stick" against any wall.
+      const clamped = Math.max(
+        drag.boundsAboveM,
+        Math.min(drag.boundsBelowM, raw),
+      )
+      // Snap-to-collide: when the clamped depth lands within the
+      // pixel threshold of either bound, the gesture is "snapped".
+      // Snap-to-own-opposite (#81) and snap-to-neighbour-far-edge
+      // (#83 v1) go through the same code path — the only difference
+      // is which idx gets auto-rejected on mouseup.
+      const snappedAtAbove =
         snapThresholdM > 0 &&
-        Math.abs(raw - drag.oppositeDepthM) <= snapThresholdM
-      const next = snapped ? drag.oppositeDepthM : raw
-      setDrag(d => (d !== null ? { ...d, currentDepthM: next, snapped } : null))
+        drag.collapseIdxAbove !== null &&
+        Math.abs(clamped - drag.boundsAboveM) <= snapThresholdM
+      const snappedAtBelow =
+        snapThresholdM > 0 &&
+        drag.collapseIdxBelow !== null &&
+        Math.abs(clamped - drag.boundsBelowM) <= snapThresholdM
+      // If both bounds are within threshold simultaneously (a layer
+      // narrower than 2 * snapThresholdM), prefer the one closer to
+      // the cursor — keeps the snap intuitive when the layer is thin.
+      let snapTargetM: number | null = null
+      let collapseOnReleaseIdx: number | null = null
+      if (snappedAtAbove && snappedAtBelow) {
+        const aboveDist = Math.abs(clamped - drag.boundsAboveM)
+        const belowDist = Math.abs(clamped - drag.boundsBelowM)
+        if (aboveDist <= belowDist) {
+          snapTargetM = drag.boundsAboveM
+          collapseOnReleaseIdx = drag.collapseIdxAbove
+        } else {
+          snapTargetM = drag.boundsBelowM
+          collapseOnReleaseIdx = drag.collapseIdxBelow
+        }
+      } else if (snappedAtAbove) {
+        snapTargetM = drag.boundsAboveM
+        collapseOnReleaseIdx = drag.collapseIdxAbove
+      } else if (snappedAtBelow) {
+        snapTargetM = drag.boundsBelowM
+        collapseOnReleaseIdx = drag.collapseIdxBelow
+      }
+      const next = snapTargetM !== null ? snapTargetM : clamped
+      setDrag(d =>
+        d !== null
+          ? {
+              ...d,
+              currentDepthM: next,
+              snapped: snapTargetM !== null,
+              snapTargetM,
+              collapseOnReleaseIdx,
+            }
+          : null,
+      )
     }
     function handleUp(): void {
       if (!drag) return
@@ -378,12 +535,18 @@ export default function LithoSuggestionGhostColumns({
           onEdit(below, { depth_top_m: final })
         }
       }
-      // Snap-to-collapse → auto-reject the dragged layer (debt #81).
-      // The shared-edge commit above absorbs its space into the
-      // pending neighbour above/below; rejected/accepted layers in
-      // between keep their stored depths so un-rejecting later
-      // restores them at their original position.
-      if (drag.snapped) onReject(drag.idx)
+      // Snap-to-collapse auto-reject. The collapse target is the
+      // layer that became zero-thickness after the shared-boundary
+      // commit:
+      //   - snap to own opposite edge (#81) → collapseOnReleaseIdx
+      //     is the dragged layer itself
+      //   - snap to neighbour's far edge (#83 v1) → collapseOnReleaseIdx
+      //     is the neighbour whose near edge was absorbed
+      // Rejected/accepted layers in between keep their stored depths
+      // so un-rejecting later restores them at their original position.
+      if (drag.snapped && drag.collapseOnReleaseIdx !== null) {
+        onReject(drag.collapseOnReleaseIdx)
+      }
       setDrag(null)
     }
     document.addEventListener('mousemove', handleMove)
@@ -547,15 +710,24 @@ export default function LithoSuggestionGhostColumns({
                   onMouseDown={e => {
                     e.stopPropagation()
                     e.preventDefault()
+                    const bounds = computeDragBounds(
+                      'top',
+                      idx,
+                      suggestions,
+                      edits,
+                      acceptedIndices,
+                      rejectedIndices,
+                    )
                     setDrag({
                       idx,
                       edge: 'top',
                       initialClientY: e.clientY,
                       initialDepthM: topM,
                       currentDepthM: topM,
-                      // Snap target = own opposite edge depth (#81).
-                      oppositeDepthM: baseM,
+                      ...bounds,
                       snapped: false,
+                      snapTargetM: null,
+                      collapseOnReleaseIdx: null,
                     })
                   }}
                 />
@@ -571,15 +743,24 @@ export default function LithoSuggestionGhostColumns({
                   onMouseDown={e => {
                     e.stopPropagation()
                     e.preventDefault()
+                    const bounds = computeDragBounds(
+                      'base',
+                      idx,
+                      suggestions,
+                      edits,
+                      acceptedIndices,
+                      rejectedIndices,
+                    )
                     setDrag({
                       idx,
                       edge: 'base',
                       initialClientY: e.clientY,
                       initialDepthM: baseM,
                       currentDepthM: baseM,
-                      // Snap target = own opposite edge depth (#81).
-                      oppositeDepthM: topM,
+                      ...bounds,
                       snapped: false,
+                      snapTargetM: null,
+                      collapseOnReleaseIdx: null,
                     })
                   }}
                 />
@@ -594,14 +775,14 @@ export default function LithoSuggestionGhostColumns({
           snapped to the opposite edge; the dragged-layer rect's own
           rendering already collapses to zero height when this fires,
           so the indicator gives the user a "release to collapse" cue. */}
-      {drag?.snapped && (
+      {drag?.snapped && drag.snapTargetM !== null && (
         <g data-testid="litho-snap-indicator" style={{ pointerEvents: 'none' }}>
           {(() => {
             const y = Math.max(
               plotTop,
               Math.min(
                 plotBottom,
-                levelToScreen(surfaceElevationM - drag.oppositeDepthM),
+                levelToScreen(surfaceElevationM - drag.snapTargetM),
               ),
             )
             return (
