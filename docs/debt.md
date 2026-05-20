@@ -859,19 +859,28 @@ Three reviewer items were deliberately deferred:
    target+direction picker before the dry-run (the user explicitly
    picks instead of relying on inference) stays Phase-5/post-v1
    per the original code comment.
-3. **`PinchOutResult` returns `CrossSectionOrm`** (infra type) into the
-   application layer — pre-existing pattern across seed/auto-populate
-   use cases; refactor `updated_section` to a dict/domain type and
-   serialise inside the use case.
+3. ~~**`PinchOutResult` returns `CrossSectionOrm`** (infra type) into the
+   application layer~~ — **DONE 2026-05-20**: `PinchOutResult` no
+   longer carries an `updated_section: CrossSectionOrm | None`
+   field. Section-seeding (the explicit-content invariant) moved
+   from the use case into the router, matching the existing pattern
+   in `AcceptLithoSuggestions` / `autoPopulate` / `discoverFromStrat`.
+   Seed-id set equals `created_contact_ids` in both the happy +
+   idempotent paths, so the router needed no extra info. The use
+   case dropped the `CrossSectionRepository` import entirely;
+   `CrossSectionOrm` is still imported but only for the geometry
+   load (legitimate application-layer USE of an infra type, not
+   RETURN). 15 pinch-out unit + 3 pinch-out integration + full
+   120/120 API integration green.
 
-**Why deferred.** (1) + (2) v1-min shipped 2026-05-20 (above). (3) is
-pre-existing and out of slice scope. Fixing them at the original
-session tail risked unreviewed churn across already-large changes.
+**Why deferred.** (1) + (2) v1-min + (3) all shipped 2026-05-20
+(above). Fixing (3) at the original session tail risked unreviewed
+churn across already-large changes; here it landed alongside (2) as
+the same-area cleanup.
 
 **When to revisit.** (2)'s full target+direction picker — when a real
 user wants to override the inference (the auto-retry covers the
-opaque-422 case for now); (3) the next seed/auto-populate refactor —
-fix all the ORM-leaking results together.
+opaque-422 case for now). Nothing left on (3).
 
 ## 63. Desktop tsc gate absent — ~20 standing pre-existing errors, no pre-commit check (Tier E — code quality / safety net)
 
