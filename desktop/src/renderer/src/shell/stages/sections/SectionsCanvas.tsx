@@ -703,11 +703,14 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Pinch-out ghost state — wired on the geological axis only (same
   // axis that owns the formation contacts the user right-clicks on).
-  // The onPreviewPinchOut callback derives direction (always 'right'
-  // initially — the endpoint accepts both; the UX default is toward the
-  // termination edge which is typically the section's right end) and
-  // target formation (the next formation by display_order below the
-  // pinching one). Both heuristics are overridable in a future picker.
+  // The onPreviewPinchOut callback derives direction (defaults 'right'
+  // — the UX default is toward the termination edge which is typically
+  // the section's right end; useGeologicalModel.handlePreviewPinchOut
+  // auto-retries the opposite direction when the requested one returns
+  // a geometry-uncomputable 422, debt #62 item 2) and target formation
+  // (the next formation by display_order below the pinching one). A
+  // future picker overrides both heuristics; until then the auto-retry
+  // is the safety net for west-pinching formations / R→L sections.
   const pinchOutGhostState = useMemo(() => {
     if (isLitho || !activeGeologicalModel) return undefined
     const sectionId = selectedSection?.id ?? null
