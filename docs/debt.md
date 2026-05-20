@@ -839,13 +839,14 @@ mode, no-undo legibility, panel position, context-menu double-close).
 Three reviewer items were deliberately deferred:
 
 **What.**
-1. **`window.confirm` for contact delete** (`ContactsLayer.tsx`) — the
-   pre-existing delete gate is an OS-native `window.confirm`, which
-   violates `docs/ux.md §Destructive actions` (can't default-focus
-   Cancel, can't name the button "Delete contact"). Not introduced by
-   this slice, but the new context menu surfaces it to more users.
-   Replace with the project's styled confirm pattern (same shape as
-   `PinchOutConfirmPanel`).
+1. ~~**`window.confirm` for contact delete** (`ContactsLayer.tsx`)~~ —
+   **DONE 2026-05-20**: replaced with `DeleteContactConfirmDialog`
+   (focused 2-button Modal + default-focus on Cancel + danger-variant
+   "Delete contact" action button). 5 D-tests pin the contract; the
+   pre-existing ContactsLayer tests were rewritten to drive the new
+   dialog flow instead of `window.confirm` (53/53 green). Generic
+   ConfirmDialog primitive deferred per "extract on the second copy"
+   — wait until a 4th destructive confirm needs the same shape.
 2. **Pinch-out direction is hardcoded `'right'`** (`SectionsCanvas.tsx`)
    — no UI affordance/override. A formation terminating on the west
    (left) side, or a right-to-left-drawn section, gets an opaque 422.
@@ -857,14 +858,13 @@ Three reviewer items were deliberately deferred:
    use cases; refactor `updated_section` to a dict/domain type and
    serialise inside the use case.
 
-**Why deferred.** None are correctness blockers; (1) and (3) are
-pre-existing and out of this slice's scope; (2) is self-correcting via
-the backend 422 (just opaque). Fixing them at the session tail risked
+**Why deferred.** (1) shipped 2026-05-20 (above). (3) is pre-existing
+and out of slice scope; (2) is self-correcting via the backend 422
+(just opaque). Fixing them at the original session tail risked
 unreviewed churn across already-large changes.
 
-**When to revisit.** (1) next time the section context-menu / delete
-flow is touched; (2) the first time a real Gavere section pinches west
-or is drawn R→L (dogfeed will surface it fast); (3) the next
+**When to revisit.** (2) the first time a real Gavere section pinches
+west or is drawn R→L (dogfeed will surface it fast); (3) the next
 seed/auto-populate refactor — fix all the ORM-leaking results together.
 
 ## 63. Desktop tsc gate absent — ~20 standing pre-existing errors, no pre-commit check (Tier E — code quality / safety net)
