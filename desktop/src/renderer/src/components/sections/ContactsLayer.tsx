@@ -1133,12 +1133,33 @@ export default function ContactsLayer({
     const projected = polylines
       .map(line => {
         const sliced = slicedByFormationId.get(line.formationId)
-        const points =
-          sliced && sliced.length >= 2
-            ? [...sliced].sort((a, b) => a.x - b.x)
-            : line.vertices
-                .map(v => ({ x: v.screenX, y: v.screenY }))
-                .sort((a, b) => a.x - b.x)
+        const anchorPoints = line.vertices
+          .map(v => ({ x: v.screenX, y: v.screenY }))
+          .sort((a, b) => a.x - b.x)
+        // Merge slice + anchors:
+        //   * Slice points (smooth TIN curve) in the X range the TIN
+        //     actually covers.
+        //   * Anchor points OUTSIDE that range — so the fill reaches
+        //     every column with a contact, even when alpha-trim has
+        //     shaved the TIN inward from a real anchor (e.g. a long
+        //     unobserved gap forces the trim and the rightmost anchor
+        //     drops out of the slice's convex hull).
+        // Without this merge, the fill ends at the slice edge and the
+        // halfspace extension below propagates at the slice's edge
+        // elevation, which silently misses any anchor sitting at a
+        // different depth past the trim line — surfaces as a missing
+        // band between the slice end and the outlying anchor.
+        let points: { x: number; y: number }[]
+        if (sliced && sliced.length >= 2) {
+          const sortedSliced = [...sliced].sort((a, b) => a.x - b.x)
+          const sliceMinX = sortedSliced[0].x
+          const sliceMaxX = sortedSliced[sortedSliced.length - 1].x
+          const leftAnchors = anchorPoints.filter(p => p.x < sliceMinX)
+          const rightAnchors = anchorPoints.filter(p => p.x > sliceMaxX)
+          points = [...leftAnchors, ...sortedSliced, ...rightAnchors]
+        } else {
+          points = anchorPoints
+        }
         if (points.length >= 2) {
           // Halfspace extrapolation — extend the band laterally to the
           // section's plot bounds when those are available (gINT /

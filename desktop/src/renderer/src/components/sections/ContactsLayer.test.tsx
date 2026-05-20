@@ -1425,6 +1425,70 @@ describe('ContactsLayer', () => {
     ).toBeNull()
   })
 
+  it('fill band reaches anchors beyond a trim-shaved TIN slice', () => {
+    // Real-world dogfeed: Paleogeen has contacts on cols 1, 2, 3, 5;
+    // col 4 has no contact (unobserved). Alpha-trim shaves the TIN
+    // hull inward → slice ends near col 3 → previous fill builder
+    // stopped there and halfspace extended at col 3's Y, silently
+    // missing col 5's anchor at a different (lower) elevation. With
+    // the merge fix, anchors OUTSIDE the slice's X span are included
+    // so the fill reaches col 5 too.
+    const formation = makeFormation({ id: 'f', color: '#ff8800' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 3 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 4 }),
+      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 5 }),
+      makeContact({ id: 'c5', borehole_id: 'bh-5', formation_id: 'f', depth_top_m: 8 }),
+    ]
+    // TIN covers only cols 1-3 worth (trim removed col-5 corner).
+    // Slice X extent ≈ screen-X [10, 70] — well short of bh-5 at 110.
+    const surface: FormationSurfaceResponse = {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 7],
+        [60, -2, 6],
+        [30, 5, 5],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: false,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [
+        makeBoreholePlaced('bh-1', 0),
+        makeBoreholePlaced('bh-2', 30),
+        makeBoreholePlaced('bh-3', 60),
+        // No bh-4 — gap = the unobserved column.
+        makeBoreholePlaced('bh-5', 110),
+      ],
+      undefined,
+      {
+        surfacesByFormationId: new Map([['f', surface]]),
+        sectionLine: { startX: -10, startY: 0, endX: 130, endY: 0 },
+        alongMToScreenX: along => along + 10,
+        plotLeft: 0,
+        plotRight: 200,
+      },
+    )
+    const fill = container.querySelector('[data-testid="formation-fill-f"]')
+    expect(fill).not.toBeNull()
+    const d = fill!.getAttribute('d')!
+    // The fill's path must include the bh-5 anchor X (screen-x = 110,
+    // ``makeBoreholePlaced`` takes screen-X directly so anchors are
+    // not shifted by alongMToScreenX) on the top edge. The previous
+    // (slice-only) builder produced a path that stopped near the
+    // slice end (~71) and the halfspace extended at slice's edge Y,
+    // silently missing bh-5's lower-Y anchor.
+    expect(d).toMatch(/[ML] 110\.00 /)
+  })
+
   it('extends polyline laterally to plotLeft / plotRight (halfspace extrapolation)', () => {
     // Contacts on cols at screen-X 50 and 150. Plot bounds set to
     // 0..200 → the rendered polyline path must include vertices at
