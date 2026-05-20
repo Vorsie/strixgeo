@@ -1244,3 +1244,55 @@ ChatGPT cross-check 2026-05-20: confirmed the format-switch (JSON
 vs XML) is marginal (<1 s) and HTTP/2 is irrelevant for this
 workload (large single-document exports, not many small requests).
 The real win is at the parse layer + eventual mirror.
+
+
+## 80. Undo right-click reject on a ghost layer (Tier E — workflow recovery)
+
+**What.** Right-click on a pending ghost opens a context menu with
+[Edit composition…, Reject layer] (debt #72 / 2026-05-20). When the
+user picks Reject they have no in-overlay way to restore the layer
+— rejected layers are pointer-events:none (so clicks pass through
+to ContactPickBar underneath). Recovery today requires Clear (which
+wipes the entire ghost set including other accepts).
+
+Shape options:
+- Render a tiny "↻" icon on rejected layers (pointer-events:auto)
+  that fires onUnreject when clicked. Smallest fix.
+- Hook into the global undo stack so Ctrl+Z restores the reject.
+  More work; benefits other actions too.
+- Add an "Unreject" menu item that activates when right-clicking
+  a rejected layer. Requires lifting pointer-events:none for the
+  right-click case.
+
+**Why deferred.** Workflow gap, not a blocker. The user can re-run
+Suggest to get the rejected layer back, or Clear + restart. Filed
+because the user explicitly asked for the undo on dogfeed 2026-05-20.
+
+**When to revisit.** Next time the dogfeed user reports "I rejected
+the wrong one and can't get it back".
+
+## 81. Snap-to-adjacent-boundary when dragging ghost layer edge (Tier E — drag UX)
+
+**What.** During the Phase-2 shared-boundary drag, detect when the
+current drag depth is within a snap threshold (e.g. 3 px) of another
+boundary in the same column. Snap visually + on commit. If the user
+snaps onto the SAME layer's other edge → that layer collapses to
+zero thickness, effectively rejecting it. If they snap onto a
+NON-adjacent boundary → the in-between layers also collapse.
+
+Lets the user "delete redundant Sand sub-layers" by dragging the
+boundary above onto the boundary below, instead of right-clicking
+each one to reject. The owner described this on dogfeed 2026-05-20:
+"I want to pull down the upper boundary above or the lower boundary
+upwards and it needs to snap to the other boundary."
+
+**Why deferred.** The drag commit currently emits two onEdit calls
+(self + adjacent layer) — adding snap-to-collapse means handling N
+extra onEdit calls + the collapsed-layers' auto-reject. Plus a snap
+preview overlay (visible target line at the snap depth). ~150 LOC.
+Doable but bigger than the dbl-click-to-edit slice; better in its
+own focused window.
+
+**When to revisit.** When the dogfeed shows the user repeatedly
+right-clicking-rejecting adjacent sub-layers of the same lithology;
+that's the symptom snap-to-collapse cures.
