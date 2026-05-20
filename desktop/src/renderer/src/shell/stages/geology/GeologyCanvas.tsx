@@ -21,7 +21,7 @@
 // model-definition surface; the Data stage is the inspection surface.
 
 import * as Cesium from 'cesium'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Mountain, Plus } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -181,6 +181,20 @@ export default function GeologyCanvas(): JSX.Element {
 
   const projectEpsg = project.default_horizontal_epsg ?? 31370
 
+  // The geoModel bus exposes EVERY formation in the project — both
+  // geological (parent_formation_id === null) and lithostratigraphic
+  // (parent_formation_id !== null, also carries litho_main_soil_code).
+  // The Geology stage must only show the geological vocabulary; litho
+  // formations belong in the Litho stage. Filter here so the 3D
+  // viewer's Layers panel + body rendering both honour the boundary.
+  // Surfaces map stays unfiltered — Geology3DViewer iterates
+  // ``formations``, so any litho surfaces without a matching formation
+  // are silently ignored.
+  const geologicalFormations = useMemo(
+    () => formations.filter(f => f.parent_formation_id === null),
+    [formations],
+  )
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -190,7 +204,7 @@ export default function GeologyCanvas(): JSX.Element {
       <Geology3DViewer
         splitMode={splitMode}
         splitPlane={splitPlane}
-        formations={formations}
+        formations={geologicalFormations}
         surfacesByFormationId={surfacesByFormationId}
         projectEpsg={projectEpsg}
         onSplitPlaneDrawn={handleSplitPlaneDrawn}
@@ -211,7 +225,7 @@ export default function GeologyCanvas(): JSX.Element {
   // §5 addendum): the Geology canvas is 3D-or-message only; geographic
   // context lives in the Data stage.
   const { guidance, showAddFormation } = geologyEmptyState(
-    formations.length > 0,
+    geologicalFormations.length > 0,
     visibleBoreholes.length > 0,
   )
 
