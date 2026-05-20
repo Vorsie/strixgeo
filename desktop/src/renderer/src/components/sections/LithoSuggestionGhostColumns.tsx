@@ -92,6 +92,12 @@ export interface LithoSuggestionGhostColumnsProps {
   /** Fire when the user right-clicks or shift-clicks to reject a layer. */
   onReject: (idx: number) => void
   /**
+   * Fire when the user clicks the ↻ undo icon on a rejected layer to
+   * restore it to pending (debt #80). Optional — when absent, the icon
+   * is not rendered (zero regression for callers that haven't opted in).
+   */
+  onUnreject?: (idx: number) => void
+  /**
    * Formations in the active litho model — used to resolve the parent
    * formation name from ``suggestion.parent_formation_id`` for the tooltip.
    * Optional: tooltip shows the raw id when absent.
@@ -176,6 +182,7 @@ export default function LithoSuggestionGhostColumns({
   rejectedIndices,
   onAccept,
   onReject,
+  onUnreject,
   formations = [],
   edits,
   onEdit,
@@ -400,6 +407,7 @@ export default function LithoSuggestionGhostColumns({
               rejected={rejected}
               onAccept={onAccept}
               onReject={onReject}
+              onUnreject={onUnreject}
               onRequestEdit={onEdit ? setEditIdx : undefined}
               onRequestContextMenu={(layerIdx, x, y) =>
                 setContextMenu({ idx: layerIdx, x, y })
@@ -556,6 +564,7 @@ function LithoSuggestionLayer({
   rejected,
   onAccept,
   onReject,
+  onUnreject,
   onRequestEdit,
   onRequestContextMenu,
   formationNameById,
@@ -572,6 +581,8 @@ function LithoSuggestionLayer({
   rejected: boolean
   onAccept: (idx: number) => void
   onReject: (idx: number) => void
+  /** Restore a rejected layer to pending (debt #80). */
+  onUnreject?: (idx: number) => void
   /**
    * Fired on dbl-click. Opens the parent's composition editor seeded
    * with this layer's current composition (debt #72). Omitted by
@@ -739,6 +750,46 @@ function LithoSuggestionLayer({
           strokeWidth={1}
           style={{ pointerEvents: 'none' }}
         />
+      )}
+
+      {/* Undo (↻) icon on rejected layers — debt #80. The rect itself
+          has pointer-events:none so clicks pass through to the
+          ContactPickBar; this small handle re-enables pointer-events
+          on just the icon so the user can restore a mistaken reject
+          without having to re-run the segmenter. Hidden when:
+          - onUnreject prop absent (caller opt-in)
+          - layer too short to fit the icon comfortably (< 14 px)
+          - layer too narrow to fit the icon (< 14 px) */}
+      {rejected && onUnreject && height >= 14 && width >= 14 && (
+        <g
+          data-testid={`litho-unreject-${idx}`}
+          style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+          onClick={e => {
+            e.stopPropagation()
+            onUnreject(idx)
+          }}
+        >
+          <circle
+            cx={left + width - 8}
+            cy={topY + 8}
+            r={6}
+            fill="#ffffff"
+            fillOpacity={0.85}
+            stroke="#6b7280"
+            strokeWidth={0.75}
+          />
+          <text
+            x={left + width - 8}
+            y={topY + 11}
+            textAnchor="middle"
+            fontSize={9}
+            fill="#374151"
+            style={{ userSelect: 'none' }}
+          >
+            ↻
+          </text>
+          <title>Undo reject — restore layer to pending</title>
+        </g>
       )}
 
       {/* Accepted tick mark in top-right corner. */}
