@@ -155,6 +155,7 @@ function makeCtx(): ShellContextValue {
       handleRejectBulkLitho: () => {},
       handleEditBulkLitho: () => {},
       clearBulkLithoGhosts: () => {},
+      refetchLithoContacts: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,
       handleAcceptLithoSuggestion: noopAsync,
