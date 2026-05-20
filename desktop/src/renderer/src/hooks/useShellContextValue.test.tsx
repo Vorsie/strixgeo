@@ -145,6 +145,8 @@ function makeCtx(): ShellContextValue {
       lithoSuggestionAnchorKind: null,
       lithoSuggestionAccepted: new Set<number>(),
       lithoSuggestionRejected: new Set<number>(),
+      lithoSuggestionEdits: new Map<number, { depth_top_m?: number; depth_base_m?: number }>(),
+      handleEditLithoSuggestion: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,
       handleAcceptLithoSuggestion: noopAsync,
