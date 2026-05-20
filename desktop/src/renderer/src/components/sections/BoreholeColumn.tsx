@@ -35,6 +35,7 @@ import type {
   BoreholeDetailResponse,
   ObservationResponse,
 } from '../../api/client'
+import { useClickDebounce } from '../../hooks/useClickDebounce'
 import { getSoilFillUrl } from '../../utils/soilPatterns'
 import {
   BOREHOLE_CHANNEL_OBSERVATION_TYPES,
@@ -198,23 +199,38 @@ export default function BoreholeColumn({
     return Math.max(bandTopY, Math.min(bandBottomY, localY))
   }
 
+  // Single-vs-double-click gate. Without this, a dbl-click intent
+  // (open detail on the outer column) commits a contact on click 1
+  // because the rect's onClick fires before the outer onDoubleClick
+  // arrives. handleDoubleClick clears the queued single — the outer
+  // column's onDoubleClick still fires for detail-open via SVG
+  // event bubbling.
+  const clickDebounce = useClickDebounce()
   function handleClick(e: React.MouseEvent<SVGRectElement>): void {
     if (!onCommitDepth) return
     // Shift held → user wants the bg-marquee (multi-select). Bail
     // without firing the contact picker so the click bubbles up to
     // the section background's marquee mousedown handler.
     if (e.shiftKey) return
+    // Capture depth at click time — the queued thunk runs ~250 ms
+    // later, after the user may have moved the cursor.
     const clamped = clampedYFromEvent(e)
     const rawDepth = depthAtY(clamped)
     const { depth, snapped } = snapDepth(rawDepth, clamped)
-    onCommitDepth({
-      kind: 'borehole',
-      boreholeId: detail.id,
-      boreholeName: detail.name,
-      depth_m: depth,
-      elevationM: surfaceElevationM - depth,
-      snapped,
-    })
+    const elevationM = surfaceElevationM - depth
+    clickDebounce.schedule(() =>
+      onCommitDepth({
+        kind: 'borehole',
+        boreholeId: detail.id,
+        boreholeName: detail.name,
+        depth_m: depth,
+        elevationM,
+        snapped,
+      }),
+    )
+  }
+  function handleDoubleClick(): void {
+    clickDebounce.cancel()
   }
 
   function handleMouseMove(e: React.MouseEvent<SVGRectElement>): void {
@@ -257,6 +273,7 @@ export default function BoreholeColumn({
           style={{ cursor: onCommitDepth ? 'crosshair' : 'default' }}
           pointerEvents="auto"
           onClick={onCommitDepth ? handleClick : undefined}
+          onDoubleClick={onCommitDepth ? handleDoubleClick : undefined}
           onMouseMove={showHoverReadout ? handleMouseMove : undefined}
           onMouseLeave={showHoverReadout ? handleMouseLeave : undefined}
         />

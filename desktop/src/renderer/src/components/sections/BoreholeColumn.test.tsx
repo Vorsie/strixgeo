@@ -4,7 +4,7 @@
 // vertical strip (DOV "lengteprofiel" page-3 convention).
 
 import { fireEvent, render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   BoreholeDetailResponse,
@@ -124,6 +124,14 @@ function findClickCaptureRect(container: HTMLElement): SVGRectElement {
 }
 
 describe('BoreholeColumn — N-strip rendering', () => {
+  // Fake timers so the click debounce window (250 ms) can be advanced
+  // without real-clock waits in tests.
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
   it('renders one strip when only geotech is on (the default)', () => {
     const detail = makeDetail([
       makeObservation('geotechnical_coding', [
@@ -274,6 +282,8 @@ describe('BoreholeColumn — N-strip rendering', () => {
       onCommitDepth,
     })
     fireEvent.click(findClickCaptureRect(container), { clientY: 4 })
+    // Click is queued behind a 250 ms dbl-click gate.
+    vi.advanceTimersByTime(250)
     expect(onCommitDepth).toHaveBeenCalledTimes(1)
     expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(5, 5)
     // The anchor must report snapped=true so the App handler can
@@ -300,6 +310,7 @@ describe('BoreholeColumn — N-strip rendering', () => {
     // to Y=15 is 20 — both well outside the 8-px tolerance. Free
     // depth stays 25.
     fireEvent.click(findClickCaptureRect(container), { clientY: 25 })
+    vi.advanceTimersByTime(250)
     expect(onCommitDepth).toHaveBeenCalledTimes(1)
     expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(25, 5)
     expect(onCommitDepth.mock.calls[0][0].snapped).toBe(false)
@@ -322,9 +333,33 @@ describe('BoreholeColumn — N-strip rendering', () => {
     // Same click as the snap test but the toggle is off — raw
     // depth commits unchanged.
     fireEvent.click(findClickCaptureRect(container), { clientY: 4 })
+    vi.advanceTimersByTime(250)
     expect(onCommitDepth).toHaveBeenCalledTimes(1)
     expect(onCommitDepth.mock.calls[0][0].depth_m).toBeCloseTo(4, 5)
     expect(onCommitDepth.mock.calls[0][0].snapped).toBe(false)
+  })
+
+  it('double-click cancels the queued single-click — no contact placed', () => {
+    // Pins the dbl-click race fix: a dbl-click intent (open detail
+    // on the outer column) must not commit a contact on click 1.
+    const onCommitDepth = vi.fn()
+    const detail = {
+      ...makeDetail([
+        makeObservation('formal_stratigraphy', [
+          makeLayer({ id: 'f1', top_m: 0, base_m: 5 }),
+        ]),
+      ]),
+      total_depth_m: 30,
+    }
+    const { container } = renderColumn(detail, {}, {
+      snapToStratigraphy: false,
+      onCommitDepth,
+    })
+    const rect = findClickCaptureRect(container)
+    fireEvent.click(rect, { clientY: 4 })
+    fireEvent.doubleClick(rect, { clientY: 4 })
+    vi.advanceTimersByTime(500)
+    expect(onCommitDepth).not.toHaveBeenCalled()
   })
 
   it('keeps slot positions stable when a borehole is missing the enabled stream', () => {
