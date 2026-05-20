@@ -526,7 +526,7 @@ export default function SectionsToolbar(): JSX.Element {
               setSectionModelAxis which now wraps the raw setter). */}
           <ToolbarButton
             icon={<GitMerge size={13} />}
-            label={correlateMode ? 'Correlating…' : 'Correlate'}
+            label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate'}
             onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
             disabled={!activeLithoModel || !hasSection}
             title={

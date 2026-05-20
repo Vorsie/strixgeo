@@ -9,8 +9,12 @@
 //        (selectedSectionId = null), even with a litho model present.
 //   CT4  When activeLithoModel is set AND a section is selected, the button
 //        is enabled. Clicking it calls enterCorrelateMode.
-//   CT5  When correlateMode is true, the button label reads "Correlating…"
-//        and has the amber class. Clicking it calls exitCorrelateMode.
+//   CT5  When correlateMode is true, the button label spells out the
+//        next-step action ("Correlate · click 2 bands") and clicking
+//        it calls exitCorrelateMode. The label was changed from
+//        "Correlating…" on 2026-05-20 because users mistook the
+//        spinner-style phrasing for "work in progress, please wait"
+//        instead of "click bands to proceed".
 //   CT6  Switching the axis from lithostratigraphic back to geological
 //        invokes setSectionModelAxis('geological') — the toolbar delegates
 //        clearing correlate mode to the useSections axis-switch wrapper.
@@ -413,7 +417,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
     expect(enterCorrelateMode).toHaveBeenCalledOnce()
   })
 
-  it('CT5: when correlateMode=true label is "Correlating…" and click calls exitCorrelateMode', () => {
+  it('CT5: when correlateMode=true label tells user to click 2 bands; click calls exitCorrelateMode', () => {
     const exitCorrelateMode = vi.fn()
     renderWith(
       makeCtx({
@@ -424,7 +428,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         exitCorrelateMode,
       }),
     )
-    const btn = screen.getByRole('button', { name: /correlating/i })
+    const btn = screen.getByRole('button', { name: /click 2 bands/i })
     fireEvent.click(btn)
     expect(exitCorrelateMode).toHaveBeenCalledOnce()
   })
