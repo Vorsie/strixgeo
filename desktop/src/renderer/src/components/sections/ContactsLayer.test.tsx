@@ -1306,6 +1306,121 @@ describe('ContactsLayer', () => {
     expect(slice!.getAttribute('data-stale')).toBe('true')
   })
 
+  it('renders the polyline to anchors beyond the TIN slice extent (draw-through)', () => {
+    // The TIN slice covers along ∈ [0, 50]; the third borehole sits at
+    // along=100, well outside the slice. Previously the polyline was
+    // suppressed entirely when any slice existed → the rightmost
+    // contact had no connecting line. The fix renders polyline
+    // segments that REACH beyond the slice's X span, so the formation
+    // line "draws through" to the outlying column.
+    const formation = makeFormation({ id: 'f', color: '#ff0000' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c3', borehole_id: 'bh-3', formation_id: 'f', depth_top_m: 1 }),
+    ]
+    // Triangulation spans along ∈ [0, 50] only — well short of bh-3
+    // at along=100. The slice computed from this surface bounds at
+    // screen-X ≈ [10, 60] (alongMToScreenX = along + 10).
+    const surface: FormationSurfaceResponse = {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [0, -2, 9],
+        [50, -2, 9],
+        [25, 5, 9],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 3,
+      is_stale: false,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+    const surfacesByFormationId = new Map<string, FormationSurfaceResponse>([
+      ['f', surface],
+    ])
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [
+        makeBoreholePlaced('bh-1', 0),
+        makeBoreholePlaced('bh-2', 50),
+        makeBoreholePlaced('bh-3', 100),
+      ],
+      undefined,
+      {
+        surfacesByFormationId,
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+      },
+    )
+    // The slice renders as before.
+    expect(
+      container.querySelector('[data-testid="formation-surface-f"]'),
+    ).not.toBeNull()
+    // The polyline now ALSO renders — used to be null when any slice
+    // existed for this formation. The path must contain at least one
+    // L command (otherwise nothing draws), proving we connected the
+    // outside-slice anchor.
+    const poly = container.querySelector('[data-testid="formation-polyline-f"]')
+    expect(poly).not.toBeNull()
+    expect(poly!.getAttribute('d')).toMatch(/L /)
+  })
+
+  it('skips polyline render when slice fully covers every anchor', () => {
+    // Mirror of the above with the slice spanning beyond every anchor.
+    // Every segment is inside the slice's X span → polyline is
+    // suppressed (path would be only M commands). Pins the no-double-
+    // paint guarantee so the slice paints alone in covered regions.
+    //
+    // Geometry: a wide triangle (-50,-2)→(150,-2)→(50,5) intersected
+    // by the section line Y=0 crosses the triangle edges at
+    // world-X ≈ -21.4 and ≈ 121.4 — slice along ≈ [-11.4, 131.4]
+    // (sectionLine startX=-10), screen-X ≈ [-1.4, 141.4]
+    // (alongMToScreenX = along + 10). Both anchor screen-Xs (10, 110)
+    // sit comfortably inside that range.
+    const formation = makeFormation({ id: 'f', color: '#ff0000' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
+    ]
+    const surface: FormationSurfaceResponse = {
+      id: 's',
+      model_id: 'm',
+      formation_id: 'f',
+      method: 'tin',
+      vertices: [
+        [-50, -2, 9],
+        [150, -2, 9],
+        [50, 5, 9],
+      ],
+      triangles: [[0, 1, 2]],
+      source_contact_count: 2,
+      is_stale: false,
+      created_at: '2026-05-14T00:00:00Z',
+      updated_at: '2026-05-14T00:00:00Z',
+    }
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [makeBoreholePlaced('bh-1', 0), makeBoreholePlaced('bh-2', 100)],
+      undefined,
+      {
+        surfacesByFormationId: new Map([['f', surface]]),
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+      },
+    )
+    expect(
+      container.querySelector('[data-testid="formation-surface-f"]'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-testid="formation-polyline-f"]'),
+    ).toBeNull()
+  })
+
   it('paints formation polylines in stratigraphic order — older first, younger on top', () => {
     // Two formations: F-old (display_order=0) and F-young (display_order=10).
     // Each has contacts on two boreholes so both render as polylines.

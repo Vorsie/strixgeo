@@ -909,11 +909,28 @@ export default function ContactsLayer({
     plotBottom,
   ])
 
-  // Set of formation ids that have a slice rendered. The connect-the-
-  // dots polylines render below skips these to avoid double-painting.
-  const slicedFormationIds = useMemo(() => {
-    const out = new Set<string>()
-    for (const line of slicedPolylines) out.add(line.formationId)
+  // For each formation that has a TIN slice, the screen-X extent the
+  // slice actually covers. Used in the connect-the-dots render below
+  // to draw extrapolation segments only where they reach BEYOND the
+  // slice — anchors outside the TIN's hull (typically the leftmost or
+  // rightmost columns when the slice ends before them) keep their
+  // contact line connected. A single [min, max] range is a deliberate
+  // simplification: a slice with internal gaps (path 'M' breaks
+  // because the section line exits the plot box vertically) is treated
+  // as continuous between its endpoints, so we never extrapolate
+  // INSIDE that span. Refine if dogfeed shows wrong gaps.
+  const slicedXRangeByFormationId = useMemo(() => {
+    const out = new Map<string, { minX: number; maxX: number }>()
+    for (const line of slicedPolylines) {
+      if (line.screenPoints.length === 0) continue
+      let minX = Infinity
+      let maxX = -Infinity
+      for (const p of line.screenPoints) {
+        if (p.x < minX) minX = p.x
+        if (p.x > maxX) maxX = p.x
+      }
+      out.set(line.formationId, { minX, maxX })
+    }
     return out
   }, [slicedPolylines])
 
@@ -1901,47 +1918,97 @@ export default function ContactsLayer({
           data-stale={line.isStale ? 'true' : undefined}
         />
       ))}
-      {/* Cross-column polylines (formation surfaces). Drawn first so
-          the per-column top segments + name labels paint on top. */}
+      {/* Cross-column polylines (formation surfaces).
+          Two roles in one renderer:
+          1. No TIN slice for the formation → render every segment
+             (legacy connect-the-dots fallback).
+          2. TIN slice exists → render only the segments that REACH
+             BEYOND the slice's screen-X coverage. The TIN slice
+             stops at its hull; anchors outside that hull keep their
+             contact line via these extrapolation segments. Segments
+             fully inside the slice's X span are skipped so the slice
+             paints alone in its covered region (no visible chord
+             under a curving slice). The user's "lines should draw
+             through" requirement is satisfied by these segments. */}
       {polylines.map(line => {
         if (line.vertices.length < 2) return null
-        if (slicedFormationIds.has(line.formationId)) return null
-        const path = line.vertices
-          .map((v, i) => {
-            // Live-override the dragged vertex's Y so the surface
-            // line tracks the drag instead of snapping at commit.
-            // Works for every contact in the drag set, not just the
-            // primary — multi-drag previews stay coherent.
-            let y = v.screenY
-            if (drag !== null) {
-              const inDrag = drag.contactsInDrag.find(
-                c => c.contactId === v.contactId,
-              )
-              if (inDrag) {
-                const startDepth =
-                  (drag.startSegY - drag.surfaceY) / drag.pxPerMetre
-                const deltaM = drag.currentDepthM - startDepth
-                const newDepthM =
-                  v.contactId === drag.contactId
-                    ? drag.currentDepthM
-                    : Math.max(0, inDrag.originalDepthM + deltaM)
-                const target = drag.currentTargetCol
-                if (target !== null) {
-                  const tProj = surfaceYForColumn(target, levelToScreen)
-                  if (
-                    tProj.surfaceElevationM !== null &&
-                    tProj.pxPerMetre !== 0
-                  ) {
-                    y = tProj.surfaceY + newDepthM * tProj.pxPerMetre
-                  }
-                } else {
-                  y = inDrag.sourceSurfaceY + newDepthM * inDrag.sourcePxPerMetre
+        const sliceRange = slicedXRangeByFormationId.get(line.formationId)
+        // Project each vertex with the same drag-override logic as
+        // before so multi-drag previews stay coherent.
+        const projected = line.vertices.map(v => {
+          let y = v.screenY
+          if (drag !== null) {
+            const inDrag = drag.contactsInDrag.find(
+              c => c.contactId === v.contactId,
+            )
+            if (inDrag) {
+              const startDepth =
+                (drag.startSegY - drag.surfaceY) / drag.pxPerMetre
+              const deltaM = drag.currentDepthM - startDepth
+              const newDepthM =
+                v.contactId === drag.contactId
+                  ? drag.currentDepthM
+                  : Math.max(0, inDrag.originalDepthM + deltaM)
+              const target = drag.currentTargetCol
+              if (target !== null) {
+                const tProj = surfaceYForColumn(target, levelToScreen)
+                if (
+                  tProj.surfaceElevationM !== null &&
+                  tProj.pxPerMetre !== 0
+                ) {
+                  y = tProj.surfaceY + newDepthM * tProj.pxPerMetre
                 }
+              } else {
+                y = inDrag.sourceSurfaceY + newDepthM * inDrag.sourcePxPerMetre
               }
             }
-            return `${i === 0 ? 'M' : 'L'} ${v.screenX.toFixed(2)} ${y.toFixed(2)}`
-          })
-          .join(' ')
+          }
+          return { x: v.screenX, y }
+        })
+        // Build the path with M/L commands, emitting `M` (start a new
+        // sub-path) when the previous segment was skipped. A segment
+        // is skipped only when BOTH endpoints fall inside the slice's
+        // X span — anything that reaches outside renders, so a vertex
+        // at the slice's edge connects to the next outside vertex.
+        let path = ''
+        let prevDrawn = false
+        for (let i = 0; i < projected.length; i += 1) {
+          const cur = projected[i]
+          if (i === 0) {
+            path += `M ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `
+            prevDrawn = true
+            continue
+          }
+          const prev = projected[i - 1]
+          const segmentInsideSlice =
+            sliceRange !== undefined &&
+            prev.x >= sliceRange.minX &&
+            prev.x <= sliceRange.maxX &&
+            cur.x >= sliceRange.minX &&
+            cur.x <= sliceRange.maxX
+          if (segmentInsideSlice) {
+            // Skip this segment — slice covers it. Next vertex needs
+            // a fresh M so any subsequent drawn segment doesn't drag
+            // a line back into the slice region.
+            path += `M ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `
+            prevDrawn = false
+          } else {
+            path += `L ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `
+            prevDrawn = true
+          }
+        }
+        // If every segment was skipped (entire range inside slice),
+        // there's nothing to draw — the path is just `M` moves and
+        // SVG would render nothing anyway, but emitting null is
+        // cleaner and saves the DOM node.
+        if (!prevDrawn && sliceRange !== undefined) {
+          // Walked through and every segment was inside the slice.
+          // (prevDrawn === false here can also mean only the final
+          // segment was skipped; the `M` would have set it false but
+          // earlier `L`s might have set it true. Cheap check: did we
+          // emit any `L`?)
+          if (!path.includes('L')) return null
+        }
         return (
           <path
             key={`poly-${line.formationId}`}
