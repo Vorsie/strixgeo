@@ -218,6 +218,22 @@ interface Props {
    * invariant).  No writes, no .gmproj / bundle change, no migration.
    */
   referenceSurfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * Snap-to-contact backdrop. Geological contacts forwarded so the
+   * backdrop polyline draws a straight chord through the contact's
+   * (anchor_x, contact_elevation) at every column with a pick, instead
+   * of slicing the TIN. The TIN slice would render the formation
+   * surface at the section line's (x, y), but investigations project
+   * onto the section from offset positions — the slice's elevation at
+   * the projected_x silently diverges from the actual contact depth.
+   * This contact-anchored backdrop honours the user's intent
+   * ("I placed this pick at this depth") perfectly.
+   *
+   * On litho axis these are the geological-model contacts (the strato
+   * picks). When omitted, the TIN-slice backdrop above renders as
+   * before — zero regression on the geological axis or pre-Sync state.
+   */
+  referenceContacts?: readonly FormationContactResponse[]
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -553,6 +569,7 @@ export default function ContactsLayer({
   surfacesByFormationId,
   referenceFormations,
   referenceSurfacesByFormationId,
+  referenceContacts,
   sectionLine,
   alongMToScreenX,
   plotLeft,
@@ -1017,6 +1034,94 @@ export default function ContactsLayer({
     referenceSurfacesByFormationId,
     sectionLine,
     alongMToScreenX,
+    levelToScreen,
+    plotTop,
+    plotBottom,
+  ])
+
+  // Snap-to-contact backdrop — geological contact polylines drawn
+  // through every column with a pick. The TIN slice (above) gives the
+  // formation surface AT the section line's (x, y), which diverges
+  // from the user's actual contact depth for any investigation that
+  // is projected onto the section from an offset position (3D → 2D
+  // projection error). This backdrop pins the rendered surface to the
+  // contact depths directly: at each column with a referenceContact
+  // for the formation, the line passes EXACTLY through
+  // (anchor.nudgedX, surfaceElevationM - contact.depth_top_m).
+  //
+  // Rendered ABOVE the TIN-slice backdrop in the JSX so the contact-
+  // anchored line wins visually where both exist. The TIN backdrop is
+  // preserved underneath as a hint of the smooth surface between
+  // contacts. Gated entirely on referenceContacts being supplied;
+  // empty when on the geological axis (no regression).
+  const backdropContactPolylines = useMemo(() => {
+    if (
+      !referenceFormations ||
+      referenceFormations.length === 0 ||
+      !referenceContacts ||
+      referenceContacts.length === 0
+    ) {
+      return [] as { formationId: string; color: string; d: string }[]
+    }
+    const formationColorById = new Map<string, string>()
+    const sortedFormations = [...referenceFormations].sort(
+      (a, b) => a.display_order - b.display_order,
+    )
+    for (const f of sortedFormations) formationColorById.set(f.id, f.color)
+
+    // Pre-index reference contacts by anchor id (matches the active-set
+    // logic in slabs/polylineData above). O(K) per column.
+    const refContactsByAnchorId = new Map<string, FormationContactResponse[]>()
+    for (const c of referenceContacts) {
+      const anchorId = c.borehole_id ?? c.cpt_id
+      if (!anchorId) continue
+      if (c.borehole_id && excludedBoreholeIds?.has(c.borehole_id)) continue
+      const bucket = refContactsByAnchorId.get(anchorId)
+      if (bucket) bucket.push(c)
+      else refContactsByAnchorId.set(anchorId, [c])
+    }
+
+    // Per-formation vertex accumulator.
+    const byFormation = new Map<string, { x: number; y: number }[]>()
+    for (const col of placedColumns) {
+      const item = col.proj.item as { id: string; elevation_m: number | null }
+      if (item.elevation_m === null) continue
+      const colContacts = refContactsByAnchorId.get(item.id)
+      if (!colContacts || colContacts.length === 0) continue
+      const surfaceElev = item.elevation_m
+      for (const c of colContacts) {
+        if (!formationColorById.has(c.formation_id)) continue
+        const elev = surfaceElev - c.depth_top_m
+        const y = levelToScreen(elev)
+        if (y < plotTop || y > plotBottom) continue
+        const acc = byFormation.get(c.formation_id) ?? []
+        acc.push({ x: col.nudgedX, y })
+        byFormation.set(c.formation_id, acc)
+      }
+    }
+
+    const out: { formationId: string; color: string; d: string }[] = []
+    for (const f of sortedFormations) {
+      const verts = byFormation.get(f.id)
+      if (!verts || verts.length < 2) continue
+      verts.sort((a, b) => a.x - b.x)
+      let path = ''
+      for (let i = 0; i < verts.length; i += 1) {
+        const v = verts[i]
+        path += `${i === 0 ? 'M' : 'L'} ${v.x.toFixed(2)} ${v.y.toFixed(2)} `
+      }
+      out.push({
+        formationId: f.id,
+        color: formationColorById.get(f.id) ?? '#888888',
+        d: path,
+      })
+    }
+    return out
+  }, [
+    referenceFormations,
+    referenceContacts,
+    placedColumns,
+    excludedBoreholeIds,
     levelToScreen,
     plotTop,
     plotBottom,
@@ -1841,8 +1946,15 @@ export default function ContactsLayer({
   }, [marquee, layers, setMarquee])
 
   // Return null only when there is genuinely nothing to paint —
-  // the backdrop may still render even with no active contacts.
-  if (layers.length === 0 && polylines.length === 0 && backdropPolylines.length === 0) {
+  // EITHER backdrop source counts as "something to paint" so the
+  // snap-to-contact backdrop (referenceContacts) still renders on a
+  // pre-pick litho section.
+  if (
+    layers.length === 0 &&
+    polylines.length === 0 &&
+    backdropPolylines.length === 0 &&
+    backdropContactPolylines.length === 0
+  ) {
     return null
   }
 
@@ -1921,6 +2033,24 @@ export default function ContactsLayer({
           pointerEvents="none"
           data-testid={`backdrop-surface-${line.formationId}`}
           data-stale={line.isStale ? 'true' : undefined}
+        />
+      ))}
+      {/* Snap-to-contact backdrop — polyline straight through every
+          column with a geological contact for the formation. Painted
+          AFTER the TIN-slice backdrop above so the contact-anchored
+          line wins where they overlap. Solid stroke + higher opacity
+          than the TIN backdrop because the contact picks are the
+          user's intent — they're authoritative truth. */}
+      {backdropContactPolylines.map(line => (
+        <path
+          key={`backdrop-contact-${line.formationId}`}
+          d={line.d}
+          stroke={line.color}
+          strokeWidth={1.25}
+          strokeOpacity={0.55}
+          fill="none"
+          pointerEvents="none"
+          data-testid={`backdrop-contact-${line.formationId}`}
         />
       ))}
       {/* Filled coloured bands between adjacent formation tops.

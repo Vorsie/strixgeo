@@ -116,6 +116,8 @@ function renderLayer(
     alongMToScreenX?: (alongM: number) => number
     plotLeft?: number
     plotRight?: number
+    referenceFormations?: readonly GeologicalFormationResponse[]
+    referenceContacts?: readonly FormationContactResponse[]
   } = {},
 ) {
   return render(
@@ -138,6 +140,8 @@ function renderLayer(
         alongMToScreenX={extras.alongMToScreenX}
         plotLeft={extras.plotLeft}
         plotRight={extras.plotRight}
+        referenceFormations={extras.referenceFormations}
+        referenceContacts={extras.referenceContacts}
       />
     </svg>,
   )
@@ -1487,6 +1491,50 @@ describe('ContactsLayer', () => {
     // slice end (~71) and the halfspace extended at slice's edge Y,
     // silently missing bh-5's lower-Y anchor.
     expect(d).toMatch(/[ML] 110\.00 /)
+  })
+
+  it('renders a snap-to-contact backdrop polyline when referenceContacts provided', () => {
+    // The litho-axis backdrop should pass EXACTLY through every
+    // geological contact's anchor position, not through the TIN
+    // slice (which diverges due to the 3D→2D projection error when
+    // investigations are offset from the section line).
+    const refFormation = makeFormation({ id: 'geo-f', color: '#5fb3d6' })
+    const refContacts = [
+      makeContact({ id: 'rc1', borehole_id: 'bh-1', formation_id: 'geo-f', depth_top_m: 3 }),
+      makeContact({ id: 'rc2', borehole_id: 'bh-2', formation_id: 'geo-f', depth_top_m: 5 }),
+    ]
+    const { container } = renderLayer(
+      [],
+      [],
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
+      undefined,
+      {
+        referenceFormations: [refFormation],
+        referenceContacts: refContacts,
+      },
+    )
+    const path = container.querySelector('[data-testid="backdrop-contact-geo-f"]')
+    expect(path).not.toBeNull()
+    const d = path!.getAttribute('d')!
+    // Polyline must include both anchor X positions (50, 150). With
+    // surface elevation = 10 and depth = 3 / 5, elevation = 7 / 5,
+    // levelToScreen(7) = 13, levelToScreen(5) = 15.
+    expect(d).toMatch(/M 50\.00 13\.00 /)
+    expect(d).toMatch(/L 150\.00 15\.00/)
+  })
+
+  it('omits the snap-to-contact backdrop when referenceContacts is absent', () => {
+    const refFormation = makeFormation({ id: 'geo-f' })
+    const { container } = renderLayer(
+      [],
+      [],
+      [makeBoreholePlaced('bh-1', 50)],
+      undefined,
+      { referenceFormations: [refFormation] }, // contacts omitted
+    )
+    expect(
+      container.querySelector('[data-testid="backdrop-contact-geo-f"]'),
+    ).toBeNull()
   })
 
   it('extends polyline laterally to plotLeft / plotRight (halfspace extrapolation)', () => {
