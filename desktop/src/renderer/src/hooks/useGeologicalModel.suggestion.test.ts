@@ -577,4 +577,173 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(result.current.lithoSuggestionInvestigationId).toBeNull()
     expect(result.current.lithoSuggestionAnchorKind).toBeNull()
   })
+
+  // -- Phase 3 / debt #73 bulk-suggest tests ----------------------------
+
+  it('B1 — handleSuggestAllLitho fans out one segmenter call per anchor and populates the Map', async () => {
+    geoApi.suggestLitho.mockResolvedValue({
+      layers: [makeSuggestion('ZAND', 0.0)],
+    })
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'cpt-1', surfaceElevationM: 10 },
+        { kind: 'borehole', id: 'bh-1', surfaceElevationM: 12 },
+      ])
+    })
+    expect(geoApi.suggestLitho).toHaveBeenCalledTimes(2)
+    expect(result.current.bulkLithoGhosts.size).toBe(2)
+    expect(result.current.bulkLithoGhosts.get('cpt-1')?.kind).toBe('cpt')
+    expect(result.current.bulkLithoGhosts.get('cpt-1')?.surfaceElevationM).toBe(10)
+    expect(result.current.bulkLithoGhosts.get('bh-1')?.kind).toBe('borehole')
+    expect(result.current.bulkLithoGhosts.get('cpt-1')?.suggestions).toHaveLength(1)
+  })
+
+  it('B2 — handleAcceptBulkLitho commits one layer + marks the idx accepted on the anchor', async () => {
+    geoApi.suggestLitho.mockResolvedValue({
+      layers: [makeSuggestion('ZAND', 0.0), makeSuggestion('KLEI', 2.5)],
+    })
+    geoApi.acceptLithoSuggestions.mockResolvedValue({
+      created_formation_ids: ['fid-1'],
+      found_formation_ids: [],
+      created_contact_ids: ['cid-1'],
+      found_contact_ids: [],
+      straddle_split_count: 0,
+      stale_tin_fallback_count: 0,
+      updated_section: null,
+    })
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'cpt-1', surfaceElevationM: 10 },
+      ])
+    })
+    await act(async () => {
+      await result.current.handleAcceptBulkLitho('cpt-1', 1, null)
+    })
+    expect(geoApi.acceptLithoSuggestions).toHaveBeenCalledTimes(1)
+    const callBody = geoApi.acceptLithoSuggestions.mock.calls[0][2]
+    expect(callBody.cpt_id).toBe('cpt-1')
+    expect(callBody.suggestions).toHaveLength(1)
+    // Only the requested idx is marked accepted; idx 0 stays pending.
+    expect(result.current.bulkLithoGhosts.get('cpt-1')?.accepted.has(1)).toBe(true)
+    expect(result.current.bulkLithoGhosts.get('cpt-1')?.accepted.has(0)).toBe(false)
+  })
+
+  it('B3 — handleAcceptAllBulkLitho issues one call per anchor and skips rejected indices', async () => {
+    geoApi.suggestLitho.mockResolvedValue({
+      layers: [makeSuggestion('ZAND', 0.0), makeSuggestion('KLEI', 2.5)],
+    })
+    geoApi.acceptLithoSuggestions.mockResolvedValue({
+      created_formation_ids: [],
+      found_formation_ids: [],
+      created_contact_ids: ['cid-1', 'cid-2'],
+      found_contact_ids: [],
+      straddle_split_count: 0,
+      stale_tin_fallback_count: 0,
+      updated_section: null,
+    })
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'cpt-1', surfaceElevationM: 10 },
+        { kind: 'cpt', id: 'cpt-2', surfaceElevationM: 8 },
+      ])
+    })
+    // Reject layer 0 on cpt-1 — should be skipped in the bulk accept.
+    await act(async () => {
+      result.current.handleRejectBulkLitho('cpt-1', 0)
+    })
+    await act(async () => {
+      await result.current.handleAcceptAllBulkLitho(null)
+    })
+    // Two anchors × one or two pending layers per anchor → 2 calls total
+    // (one per anchor that has pending layers).
+    expect(geoApi.acceptLithoSuggestions).toHaveBeenCalledTimes(2)
+    // cpt-1 call carries only idx 1 (idx 0 was rejected).
+    const cpt1Call = geoApi.acceptLithoSuggestions.mock.calls.find(
+      (c: unknown[]) =>
+        (c[2] as { cpt_id?: string }).cpt_id === 'cpt-1',
+    )
+    expect(
+      (cpt1Call?.[2] as { suggestions: unknown[] }).suggestions,
+    ).toHaveLength(1)
+    // cpt-2 call carries both layers (nothing rejected).
+    const cpt2Call = geoApi.acceptLithoSuggestions.mock.calls.find(
+      (c: unknown[]) =>
+        (c[2] as { cpt_id?: string }).cpt_id === 'cpt-2',
+    )
+    expect(
+      (cpt2Call?.[2] as { suggestions: unknown[] }).suggestions,
+    ).toHaveLength(2)
+  })
+
+  it('B4 — handleEditBulkLitho overrides the layer depth at accept time', async () => {
+    geoApi.suggestLitho.mockResolvedValue({
+      layers: [makeSuggestion('ZAND', 0.0)],
+    })
+    geoApi.acceptLithoSuggestions.mockResolvedValue({
+      created_formation_ids: [],
+      found_formation_ids: [],
+      created_contact_ids: ['cid-1'],
+      found_contact_ids: [],
+      straddle_split_count: 0,
+      stale_tin_fallback_count: 0,
+      updated_section: null,
+    })
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'cpt-1', surfaceElevationM: 10 },
+      ])
+    })
+    await act(async () => {
+      result.current.handleEditBulkLitho('cpt-1', 0, { depth_top_m: 1.5 })
+    })
+    await act(async () => {
+      await result.current.handleAcceptBulkLitho('cpt-1', 0, null)
+    })
+    const callBody = geoApi.acceptLithoSuggestions.mock.calls[0][2] as {
+      suggestions: { depth_top_m: number }[]
+    }
+    // The edited depth wins — accept commits at 1.5 not the original 0.0.
+    expect(callBody.suggestions[0].depth_top_m).toBe(1.5)
+  })
+
+  it('B5 — clearBulkLithoGhosts empties the Map', async () => {
+    geoApi.suggestLitho.mockResolvedValue({
+      layers: [makeSuggestion('ZAND', 0.0)],
+    })
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestAllLitho([
+        { kind: 'cpt', id: 'cpt-1', surfaceElevationM: 10 },
+      ])
+    })
+    expect(result.current.bulkLithoGhosts.size).toBe(1)
+    await act(async () => {
+      result.current.clearBulkLithoGhosts()
+    })
+    expect(result.current.bulkLithoGhosts.size).toBe(0)
+  })
 })
