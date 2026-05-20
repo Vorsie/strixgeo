@@ -92,6 +92,17 @@ export default function SectionsInspector(): JSX.Element {
 
   const canCreate = (project.default_horizontal_epsg ?? null) !== null
 
+  // Sections inspector shows the GEOLOGICAL-MODEL vocabulary only —
+  // lithostratigraphic formations (parent_formation_id !== null) belong
+  // in the Litho stage's inspector. Without this filter the list leaks
+  // every litho unit (KLEI / SILT / ZAND / …) into the geology panel
+  // here. Mirrors the same filter applied in GeologyCanvas (commit
+  // 18b8f44e).
+  const geologicalFormations = useMemo(
+    () => formations.filter(f => f.parent_formation_id === null),
+    [formations],
+  )
+
   // Geological models from the full project model list, used for the backdrop
   // picker. Only shown when multiple geological models exist (rare — most
   // projects have one geological backbone; the picker surfaces only when the
@@ -140,13 +151,13 @@ export default function SectionsInspector(): JSX.Element {
       {/* ------------------------------------------------------------------ */}
       {/* Formation list (read-only)                                          */}
       {/* ------------------------------------------------------------------ */}
-      {formations.length > 0 && (
+      {geologicalFormations.length > 0 && (
         <InspectorSection
           label="Geological model"
           badge={staleSurfaceCount > 0 ? `${staleSurfaceCount} stale` : undefined}
           badgeAmber={staleSurfaceCount > 0}
         >
-          <FormationList formations={formations} />
+          <FormationList formations={geologicalFormations} />
         </InspectorSection>
       )}
 
