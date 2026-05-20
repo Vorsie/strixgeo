@@ -13,6 +13,7 @@ import {
   wrapLabelToLines,
 } from '../utils/labelWrap'
 import { SoilPatterns } from '../utils/soilPatterns'
+import type { ContactOverlay } from '../utils/contactOverlays'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
 import { isTypingTarget } from '../utils/keyboard'
 import LabTestPanel from './LabTestPanel'
@@ -99,6 +100,14 @@ interface Props {
   // True while the predictions network fetch is in flight. Surfaces a
   // spinner next to the DOV button so the pane doesn't appear hung.
   virtueleBoringLoading?: boolean
+  // Faded horizontal contact lines for every formation contact
+  // (geological model) and litho contact (lithostratigraphic model)
+  // anchored at this borehole. Built by ``buildContactOverlays``
+  // (see ``utils/contactOverlays.ts``). Spans the full data-track
+  // width, painted last so the lines sit on top of the soil patterns
+  // without obscuring them at the chosen opacity. Undefined / empty
+  // = no overlay (the borelog renders unchanged).
+  contactOverlays?: readonly ContactOverlay[]
 }
 
 // Per-model ghost-column width inside the borelog. Same vocabulary
@@ -119,6 +128,7 @@ export default function BoreholeLog({
   virtueleBoringOverrideModel = '',
   onChangeVirtueleBoringOverrideModel,
   virtueleBoringLoading = false,
+  contactOverlays,
 }: Props): React.ReactElement {
   const virtueleBoringCatalog = useVirtueleBoringCatalog(
     onChangeVirtueleBoringOverrideModel !== undefined,
@@ -670,6 +680,47 @@ export default function BoreholeLog({
               pxPerM={pxPerM}
               totalDepthM={layout.totalDepth}
             />
+          )}
+
+          {/* Faded geology + litho contact overlays — horizontal lines
+              spanning the data-track area at each contact depth, in
+              the formation's colour. Painted last so they sit on top
+              of the soil patterns without obscuring them at the chosen
+              opacity. Litho overlays are slightly more transparent
+              than geology so the stratigraphic hierarchy stays
+              visually distinguishable. */}
+          {contactOverlays && contactOverlays.length > 0 && (
+            <g data-testid="contact-overlays" aria-hidden="true">
+              {contactOverlays.map(ov => {
+                const y = SVG_Y_PAD + HEADER_HEIGHT + ov.depth_m * pxPerM
+                const x1 = SVG_X_PAD
+                const x2 = layout.totalWidth - SVG_X_PAD
+                const opacity = ov.source === 'litho' ? 0.28 : 0.4
+                return (
+                  <g key={ov.key}>
+                    <line
+                      x1={x1}
+                      y1={y}
+                      x2={x2}
+                      y2={y}
+                      stroke={ov.color}
+                      strokeOpacity={opacity}
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={x2 - 4}
+                      y={y - 2}
+                      textAnchor="end"
+                      fontSize={9}
+                      fill={ov.color}
+                      fillOpacity={0.85}
+                    >
+                      {ov.label}
+                    </text>
+                  </g>
+                )
+              })}
+            </g>
           )}
           </svg>
         </div>

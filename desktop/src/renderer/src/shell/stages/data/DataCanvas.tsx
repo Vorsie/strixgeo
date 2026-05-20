@@ -134,9 +134,17 @@ export default function DataCanvas(): JSX.Element {
     )
   }, [selectedId, geoContacts, geoFormations, lithoContacts, lithoFormations])
 
-  // BoreholeLog overlay wire lands in the next commit alongside its
-  // SVG line renderer — kept out of this commit to keep the slice
-  // self-contained (one render path per commit).
+  const boreholeContactOverlays = useMemo(() => {
+    if (selectedBoreholeId === null) return undefined
+    return buildContactOverlays(
+      geoContacts,
+      geoFormations,
+      lithoContacts,
+      lithoFormations,
+      selectedBoreholeId,
+      'borehole',
+    )
+  }, [selectedBoreholeId, geoContacts, geoFormations, lithoContacts, lithoFormations])
   const drawingBbox = bboxImportType !== null
   const hasSelection = selectedId !== null || selectedBoreholeId !== null
 
@@ -219,6 +227,7 @@ export default function DataCanvas(): JSX.Element {
                 handleSetOverlayOverride('borehole', next)
               }
               virtueleBoringLoading={virtueleBoringLoading}
+              contactOverlays={boreholeContactOverlays}
             />
           ) : (
             <LoadingState label="Loading borehole…" />

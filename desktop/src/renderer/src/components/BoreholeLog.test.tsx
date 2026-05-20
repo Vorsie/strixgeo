@@ -316,6 +316,46 @@ describe('BoreholeLog', () => {
     )
   })
 
+  it('renders a contact-overlays group when contactOverlays prop is supplied', () => {
+    // Pure SVG render assertion — the overlay group has a stable
+    // data-testid we can query for, and the formation label text is
+    // a regular SVG <text> element (not a Recharts-managed label),
+    // so testing-library can pick it up directly.
+    const borehole = makeFixtureBorehole()
+    const { container } = render(
+      <BoreholeLog
+        borehole={borehole}
+        contactOverlays={[
+          {
+            depth_m: 1.5,
+            color: '#5fb3d6',
+            label: 'Antropogeen',
+            source: 'geology',
+            key: 'geology:c-1',
+          },
+          {
+            depth_m: 3.0,
+            color: '#fef9c3',
+            label: 'ZAND',
+            source: 'litho',
+            key: 'litho:c-2',
+          },
+        ]}
+      />,
+    )
+    const overlayGroup = container.querySelector('[data-testid="contact-overlays"]')
+    expect(overlayGroup).not.toBeNull()
+    // One <line> + one <text> per overlay = 2 lines, 2 texts.
+    expect(overlayGroup!.querySelectorAll('line').length).toBe(2)
+    expect(screen.getByText('Antropogeen')).toBeInTheDocument()
+    expect(screen.getByText('ZAND')).toBeInTheDocument()
+  })
+
+  it('renders no contact-overlays group when prop is omitted', () => {
+    const { container } = render(<BoreholeLog borehole={makeFixtureBorehole()} />)
+    expect(container.querySelector('[data-testid="contact-overlays"]')).toBeNull()
+  })
+
   it('depth axis track id is never in the toggleable set', () => {
     // Structural: the mTAW / depth axis is the spine and cannot be hidden.
     // Tested here as a guard so a future refactor doesn't accidentally
