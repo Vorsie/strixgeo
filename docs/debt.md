@@ -1246,30 +1246,6 @@ workload (large single-document exports, not many small requests).
 The real win is at the parse layer + eventual mirror.
 
 
-## 80. Undo right-click reject on a ghost layer (Tier E — workflow recovery)
-
-**What.** Right-click on a pending ghost opens a context menu with
-[Edit composition…, Reject layer] (debt #72 / 2026-05-20). When the
-user picks Reject they have no in-overlay way to restore the layer
-— rejected layers are pointer-events:none (so clicks pass through
-to ContactPickBar underneath). Recovery today requires Clear (which
-wipes the entire ghost set including other accepts).
-
-Shape options:
-- Render a tiny "↻" icon on rejected layers (pointer-events:auto)
-  that fires onUnreject when clicked. Smallest fix.
-- Hook into the global undo stack so Ctrl+Z restores the reject.
-  More work; benefits other actions too.
-- Add an "Unreject" menu item that activates when right-clicking
-  a rejected layer. Requires lifting pointer-events:none for the
-  right-click case.
-
-**Why deferred.** Workflow gap, not a blocker. The user can re-run
-Suggest to get the rejected layer back, or Clear + restart. Filed
-because the user explicitly asked for the undo on dogfeed 2026-05-20.
-
-**When to revisit.** Next time the dogfeed user reports "I rejected
-the wrong one and can't get it back".
 
 ## 81. Snap-to-adjacent-boundary when dragging ghost layer edge (Tier E — drag UX)
 
