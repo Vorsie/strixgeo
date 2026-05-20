@@ -178,6 +178,17 @@ interface Props {
    * Forwarded straight to ContactsLayer.  Absent when no backdrop is loaded yet.
    */
   referenceSurfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
+  /**
+   * Geological contacts for the backdrop polyline render — snap-to-contact
+   * version of the backdrop on the litho axis. The TIN-slice backdrop
+   * (``referenceSurfacesByFormationId``) shows the formation surface AT the
+   * section line's (x,y), but investigations are projected onto the section
+   * from offset positions and the slice elevation at the projected_x diverges
+   * from the user's actual contact depth. These contacts let ContactsLayer
+   * draw the backdrop as a polyline through every contact's (anchor_x,
+   * contact_elevation) so the line goes exactly through the picks.
+   */
+  referenceContacts?: readonly FormationContactResponse[]
   /** Contact ids the user has asked to be visually highlighted —
    * driven by the crossings banner click (debt #9). Forwarded to
    * ContactsLayer which renders the ring + pulse. Transient: App
@@ -421,6 +432,7 @@ export default function SectionPanel({
   surfacesByFormationId,
   referenceFormations,
   referenceSurfacesByFormationId,
+  referenceContacts,
   focusedContactIds,
   onCreateContact,
   onUpdateContactDepth,
@@ -1757,6 +1769,7 @@ export default function SectionPanel({
               surfacesByFormationId={surfacesByFormationId}
               referenceFormations={referenceFormations}
               referenceSurfacesByFormationId={referenceSurfacesByFormationId}
+              referenceContacts={referenceContacts}
               focusedContactIds={
                 focusedContactIds && focusedContactIds.length > 0
                   ? new Set(focusedContactIds)
