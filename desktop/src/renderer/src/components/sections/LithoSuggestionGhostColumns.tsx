@@ -31,6 +31,12 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Width of the suggestion ghost column in pixels. */
+/**
+ * Width retained for backwards-compat with external imports (none in
+ * the current tree). The ghost column now uses ``bandHalfWidth * 2``
+ * to match the focused investigation's data band; this constant is
+ * the historical default that was used before the overlay change.
+ */
 export const LITHO_GHOST_COLUMN_WIDTH_PX = 48
 /** Gap between the data band and the ghost column. */
 export const LITHO_GHOST_GAP_FROM_BAND_PX = 6
@@ -150,15 +156,23 @@ export default function LithoSuggestionGhostColumns({
   // Build a name-by-id map so each layer can resolve its parent formation name.
   const formationNameById = new Map(formations.map(f => [f.id, f.name]))
 
-  // Place the ghost column to the LEFT of the data band.
-  const right = col.nudgedX - bandHalfWidth - LITHO_GHOST_GAP_FROM_BAND_PX
-  const left = right - LITHO_GHOST_COLUMN_WIDTH_PX
+  // Always OVERLAY the ghost column on top of the focused
+  // investigation's data band (owner directive 2026-05-20). Previously
+  // the ghost was placed to the LEFT of the band with a fixed gap; at
+  // dense column spacing it overlapped the neighbouring test. Overlay
+  // never collides with neighbours and visually anchors the preview to
+  // the test it was generated from. The qc / Ic trace shows through
+  // at the ghost's 0.55 default opacity. Width matches the data band
+  // (``bandHalfWidth * 2``) so the ghost spans the same area the CPT
+  // plot occupies — same horizontal real estate, no neighbour overlap.
+  const left = col.nudgedX - bandHalfWidth
+  const ghostWidth = bandHalfWidth * 2
 
   return (
     <g data-testid="litho-suggestion-ghosts">
       {/* Column header — "Litho" label above the plot top. */}
       <text
-        x={left + LITHO_GHOST_COLUMN_WIDTH_PX / 2}
+        x={left + ghostWidth / 2}
         y={plotTop - 3}
         textAnchor="middle"
         fontSize={HEADER_FONT_SIZE}
@@ -174,7 +188,7 @@ export default function LithoSuggestionGhostColumns({
           layer={layer}
           idx={idx}
           left={left}
-          width={LITHO_GHOST_COLUMN_WIDTH_PX}
+          width={ghostWidth}
           surfaceElevationM={surfaceElevationM}
           levelToScreen={levelToScreen}
           plotTop={plotTop}

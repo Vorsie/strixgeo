@@ -178,4 +178,17 @@ describe('LithoSuggestionGhostColumns', () => {
     const { container } = renderGhost([])
     expect(container.querySelector('[data-testid="litho-suggestion-ghosts"]')).toBeNull()
   })
+
+  // G8: overlay positioning (2026-05-20 owner directive). The ghost
+  // column overlays the focused investigation's data band — never sits
+  // to the left or right of it — so it can't overlap a neighbouring
+  // test at dense column spacing. With nudgedX=200, bandHalfWidth=20,
+  // every layer rect must start at x=180 and span width=40.
+  it('G8 — overlay starts at nudgedX - bandHalfWidth and spans the full band', () => {
+    const { container } = renderGhost([makeSuggestion()])
+    const rect = container.querySelector('rect')
+    expect(rect).not.toBeNull()
+    expect(rect!.getAttribute('x')).toBe('180')
+    expect(rect!.getAttribute('width')).toBe('40')
+  })
 })
