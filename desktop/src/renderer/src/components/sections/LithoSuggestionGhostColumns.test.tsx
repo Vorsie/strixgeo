@@ -13,7 +13,7 @@
 //   G6  Renders null when surfaceElevationM is null (cannot place layers).
 //   G7  Renders null when suggestions array is empty.
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
@@ -92,6 +92,8 @@ function renderGhost(
     rejectedIndices?: ReadonlySet<number>
     edits?: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
     onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
+    onReject?: (idx: number) => void
+    onAccept?: (idx: number) => void
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -110,8 +112,8 @@ function renderGhost(
         bandHalfWidth={20}
         acceptedIndices={opts.acceptedIndices ?? new Set()}
         rejectedIndices={opts.rejectedIndices ?? new Set()}
-        onAccept={vi.fn()}
-        onReject={vi.fn()}
+        onAccept={opts.onAccept ?? vi.fn()}
+        onReject={opts.onReject ?? vi.fn()}
         formations={opts.formations}
         edits={opts.edits}
         onEdit={opts.onEdit}
@@ -342,6 +344,41 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.doubleClick(rect)
     // The modal heading should NOT be in the document.
     expect(document.querySelector('h2#ghost-composition-editor-title')).toBeNull()
+  })
+
+  it('G21 — right-click on pending layer opens context menu, not direct reject', () => {
+    // Dogfeed 2026-05-20: users expect right-click to open a menu of
+    // options (edit composition / reject), not destroy the suggestion
+    // outright. Pin the new gesture: right-click opens the menu;
+    // onReject is NOT called unless the user picks "Reject layer".
+    const onReject = vi.fn()
+    const { container } = renderGhost([makeSuggestion()], {
+      onReject,
+      onEdit: vi.fn(), // wire onEdit so the Edit composition menu item renders
+    })
+    const rect = container.querySelector('rect') as SVGRectElement
+    fireEvent.contextMenu(rect, { clientX: 100, clientY: 50 })
+    // Menu rendered (via portal at document.body).
+    expect(screen.getByRole('menu', { name: /ghost layer actions/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /edit composition/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /reject layer/i })).toBeInTheDocument()
+    // onReject must NOT fire yet — only when the user picks the menu item.
+    expect(onReject).not.toHaveBeenCalled()
+  })
+
+  it('G22 — context menu "Reject layer" item fires onReject and closes the menu', () => {
+    const onReject = vi.fn()
+    const { container } = renderGhost([makeSuggestion()], {
+      onReject,
+      onEdit: vi.fn(),
+    })
+    const rect = container.querySelector('rect') as SVGRectElement
+    fireEvent.contextMenu(rect, { clientX: 100, clientY: 50 })
+    fireEvent.click(screen.getByRole('button', { name: /reject layer/i }))
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject.mock.calls[0][0]).toBe(0)
+    // Menu must have closed after the click.
+    expect(screen.queryByRole('menu', { name: /ghost layer actions/i })).toBeNull()
   })
 
   it('G15 — pending layer rect keeps pointer cursor (drives click-to-accept)', () => {

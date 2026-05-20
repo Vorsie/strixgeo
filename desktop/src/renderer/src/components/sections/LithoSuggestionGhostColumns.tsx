@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
 import { useClickDebounce } from '../../hooks/useClickDebounce'
@@ -205,6 +206,35 @@ export default function LithoSuggestionGhostColumns({
   // handlers are wired.
   const [editIdx, setEditIdx] = useState<number | null>(null)
 
+  // Per-layer context menu (dogfeed 2026-05-20). Right-click on a
+  // pending layer opens a small floating menu with [Edit composition,
+  // Reject layer]. Replaces the prior direct-right-click-rejects
+  // gesture, which surprised users who expected a menu.
+  const [contextMenu, setContextMenu] = useState<
+    { idx: number; x: number; y: number } | null
+  >(null)
+
+  // Dismiss the context menu on Esc / outside click. document-level
+  // listeners attached only while the menu is open.
+  useEffect(() => {
+    if (!contextMenu) return
+    function handleClickAway(): void {
+      setContextMenu(null)
+    }
+    function handleKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setContextMenu(null)
+    }
+    // mousedown not click — closes the menu BEFORE the click that
+    // opened the next thing (e.g. another right-click reopens
+    // immediately without flashing).
+    document.addEventListener('mousedown', handleClickAway)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClickAway)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [contextMenu])
+
   // pxPerM derived from levelToScreen (a linear transform — sample
   // two points). Guards against zero when the section is too narrow
   // to render the band. Lifted before the early returns so the ref
@@ -371,6 +401,9 @@ export default function LithoSuggestionGhostColumns({
               onAccept={onAccept}
               onReject={onReject}
               onRequestEdit={onEdit ? setEditIdx : undefined}
+              onRequestContextMenu={(layerIdx, x, y) =>
+                setContextMenu({ idx: layerIdx, x, y })
+              }
               formationNameById={formationNameById}
             />
             {dragHandlesEnabled && (
@@ -457,6 +490,51 @@ export default function LithoSuggestionGhostColumns({
         onCancel={() => setEditIdx(null)}
       />
     )}
+    {/* Right-click context menu (dogfeed 2026-05-20). Rendered via
+        a portal at clientX/Y so it doesn't have to live inside the
+        SVG coordinate space. Esc + outside-click dismiss are wired
+        in the effect above. */}
+    {contextMenu !== null &&
+      createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: contextMenu.x,
+            top: contextMenu.y,
+            zIndex: 10000,
+          }}
+          // Stop the document mousedown handler from immediately
+          // closing the menu when the user clicks an item.
+          onMouseDown={e => e.stopPropagation()}
+          className="bg-surface-overlay border border-border-default rounded shadow-lg py-1 min-w-[10rem] text-xs"
+          role="menu"
+          aria-label="Ghost layer actions"
+        >
+          {onEdit && (
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-1.5 hover:bg-surface-page text-text-primary"
+              onClick={() => {
+                setEditIdx(contextMenu.idx)
+                setContextMenu(null)
+              }}
+            >
+              Edit composition…
+            </button>
+          )}
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 hover:bg-surface-page text-text-primary"
+            onClick={() => {
+              onReject(contextMenu.idx)
+              setContextMenu(null)
+            }}
+          >
+            Reject layer
+          </button>
+        </div>,
+        document.body,
+      )}
     </>
   )
 }
@@ -479,6 +557,7 @@ function LithoSuggestionLayer({
   onAccept,
   onReject,
   onRequestEdit,
+  onRequestContextMenu,
   formationNameById,
 }: {
   layer: LithoLayerSuggestion
@@ -500,6 +579,14 @@ function LithoSuggestionLayer({
    * twice as the default browser behaviour.
    */
   onRequestEdit?: (idx: number) => void
+  /**
+   * Fired on right-click of a pending layer. Replaces the direct
+   * right-click-rejects gesture from earlier iterations — the parent
+   * now opens a context menu at (clientX, clientY) with multiple
+   * options (Edit composition / Reject). Dogfeed 2026-05-20: users
+   * expect right-click to open a menu, not destroy.
+   */
+  onRequestContextMenu?: (idx: number, clientX: number, clientY: number) => void
   formationNameById: ReadonlyMap<string, string>
 }): JSX.Element | null {
   // Click-debounce gate — without it, the first click of a dbl-click
@@ -584,11 +671,15 @@ function LithoSuggestionLayer({
   function handleContextMenu(e: React.MouseEvent): void {
     e.preventDefault()
     e.stopPropagation()
-    // Accepted layers can't be un-accepted here; already-rejected
-    // layers shouldn't re-fire onReject (senior-review C-2 — avoids a
-    // spurious no-op state update + log line).
+    // Accepted / rejected layers are frozen — no context menu for
+    // them. (Pending layers open the layer context menu via the
+    // onRequestContextMenu callback below; the menu offers Edit
+    // composition + Reject, which previously was the only right-click
+    // action — the menu is more discoverable per dogfeed 2026-05-20.)
     if (accepted || rejected) return
-    onReject(idx)
+    if (onRequestContextMenu) {
+      onRequestContextMenu(idx, e.clientX, e.clientY)
+    }
   }
 
   // Visual markers:
