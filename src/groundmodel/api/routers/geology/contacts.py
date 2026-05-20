@@ -1029,9 +1029,24 @@ async def extrapolate_pinch_out(
             },
         ) from exc
 
-    updated_section_response = None
-    if result.updated_section is not None:
-        updated_section_response = CrossSectionResponse.model_validate(result.updated_section)
+    # Section-seeding (explicit-content invariant): the user explicitly
+    # invoked the tool on THIS section, so the created (or pre-existing
+    # idempotent) contact ids must land in its seeded set. Pattern
+    # matches AcceptLithoSuggestions / autoPopulate / discoverFromStrat
+    # (debt #62 item 3 — the use case no longer returns an ORM section
+    # row, the router owns the seed + serialise). Dry-runs return
+    # created_contact_ids=[] so the union is a no-op then.
+    updated_section_response: CrossSectionResponse | None = None
+    if request.section_id is not None and result.created_contact_ids:
+        seed_ids = {cid for cid in result.created_contact_ids}
+        updated = await CrossSectionRepository(session).union_seeded_contact_ids(
+            request.section_id,
+            project_id,
+            seed_ids,
+            operation="PinchOut",
+        )
+        if updated is not None:
+            updated_section_response = CrossSectionResponse.model_validate(updated)
 
     # Idempotent re-invocation: the use case detected pre-existing synthetic
     # contacts for this formation and returned them without creating more.
