@@ -67,26 +67,36 @@ class FormationContactOrm(Base):
         ),
         Index("idx_formation_contact_model_borehole", "model_id", "borehole_id"),
         Index("idx_formation_contact_model_formation", "model_id", "formation_id"),
-        # Partial unique indexes enforce the "one formation top per
-        # investigation" invariant at the DB layer. One per anchor
-        # flavour because borehole_id and cpt_id form an XOR pair —
-        # a single full unique index can't express "unique when this
-        # one column is non-null". Defeats the application-layer race
-        # in CreateFormationContact (parallel POSTs sliding past the
-        # scalar_one_or_none check).
+        # Partial unique indexes enforce "no exact-duplicate contacts"
+        # at the DB layer — same (model, formation, anchor, depth) cannot
+        # appear twice. Includes depth_top_m so multiple distinct-depth
+        # contacts on the same (model, formation, anchor) ARE allowed —
+        # the litho-model use case needs this (e.g. multiple Sand layers
+        # at different depths on the same CPT all map to one "ZAND"
+        # formation per the Phase-2 instance design). Migration
+        # ``c3d7e982f146`` widened the key from (model, formation,
+        # anchor) to (model, formation, anchor, depth_top_m).
+        #
+        # The geological-side "one Boom Klei top per borehole" invariant
+        # is still enforced — application-layer in
+        # ``CreateFormationContact`` (DuplicateContactError pre-check +
+        # race-loser re-query). The widened DB index remains the safety
+        # net for exact duplicates (re-accept idempotency relies on it).
         Index(
-            "uq_formation_contact_model_formation_borehole",
+            "uq_formation_contact_model_formation_borehole_depth",
             "model_id",
             "formation_id",
             "borehole_id",
+            "depth_top_m",
             unique=True,
             postgresql_where=text("borehole_id IS NOT NULL"),
         ),
         Index(
-            "uq_formation_contact_model_formation_cpt",
+            "uq_formation_contact_model_formation_cpt_depth",
             "model_id",
             "formation_id",
             "cpt_id",
+            "depth_top_m",
             unique=True,
             postgresql_where=text("cpt_id IS NOT NULL"),
         ),
