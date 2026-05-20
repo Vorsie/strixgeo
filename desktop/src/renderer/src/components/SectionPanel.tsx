@@ -341,6 +341,8 @@ interface Props {
     onAccept: (idx: number) => void
     /** Fire when the user right-clicks / Shift-clicks to reject. */
     onReject: (idx: number) => void
+    /** Undo a prior reject — restore the layer to pending (debt #80). */
+    onUnreject?: (idx: number) => void
     /**
      * Drag-resize state (Phase 2). Map from suggestion index to user
      * edits on its top / base depth. The ghost renderer applies these
@@ -377,6 +379,8 @@ interface Props {
     >
     onAccept: (anchorId: string, idx: number) => void | Promise<void>
     onReject: (anchorId: string, idx: number) => void
+    /** Undo a prior bulk reject — restore the layer to pending (debt #80). */
+    onUnreject?: (anchorId: string, idx: number) => void
     onEdit: (
       anchorId: string,
       idx: number,
@@ -1774,6 +1778,7 @@ export default function SectionPanel({
                 rejectedIndices={lithoGhostState.rejectedIndices}
                 onAccept={lithoGhostState.onAccept}
                 onReject={lithoGhostState.onReject}
+                onUnreject={lithoGhostState.onUnreject}
                 // Pass formations so the ghost tooltip can show the parent
                 // formation name from suggestion.parent_formation_id.
                 formations={formations}
@@ -1814,6 +1819,13 @@ export default function SectionPanel({
                     onReject={idx => {
                       bulkLithoGhostState.onReject(anchorId, idx)
                     }}
+                    onUnreject={
+                      bulkLithoGhostState.onUnreject
+                        ? idx => {
+                            bulkLithoGhostState.onUnreject?.(anchorId, idx)
+                          }
+                        : undefined
+                    }
                     formations={formations}
                     edits={ghost.edits}
                     onEdit={(idx, edit) => {
