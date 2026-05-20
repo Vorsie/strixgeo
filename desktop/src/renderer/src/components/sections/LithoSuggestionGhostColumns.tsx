@@ -495,9 +495,19 @@ function LithoSuggestionLayer({
         strokeOpacity={accepted ? 0.9 : 0.7}
         strokeWidth={strokeWidth}
         strokeDasharray={strokeDasharray}
-        style={{ cursor: accepted || rejected ? 'default' : 'pointer' }}
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
+        // Accepted / rejected layers let clicks pass through to the
+        // ContactPickBar underneath so the user can place a NEW
+        // contact at a different depth without first dismissing the
+        // accepted ghost (dogfeed bug 2026-05-20). Pending layers
+        // keep cursor=pointer + click handler so accept/reject still
+        // works.
+        style={
+          accepted || rejected
+            ? { cursor: 'default', pointerEvents: 'none' }
+            : { cursor: 'pointer' }
+        }
+        onClick={accepted || rejected ? undefined : handleClick}
+        onContextMenu={accepted || rejected ? undefined : handleContextMenu}
       >
         <title>{tooltip}</title>
       </rect>

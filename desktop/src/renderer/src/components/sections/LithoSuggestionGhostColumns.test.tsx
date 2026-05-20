@@ -240,6 +240,31 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(edit.depth_base_m).toBeUndefined()
   })
 
+  it('G14 — accepted layer rect has pointerEvents=none so clicks pass through', () => {
+    // Pins the dogfeed 2026-05-20 bug: existing accepted litho was
+    // capturing left-clicks the user intended for the underlying
+    // ContactPickBar (place a new contact). Accepted/rejected layers
+    // are now click-through to let the underlying bar receive the
+    // event. The rect's style.pointerEvents must be 'none' to enable
+    // SVG event pass-through.
+    const { container } = renderGhost([makeSuggestion()], {
+      acceptedIndices: new Set([0]),
+    })
+    const rect = container.querySelector('rect')
+    expect(rect).not.toBeNull()
+    expect((rect as SVGRectElement).style.pointerEvents).toBe('none')
+  })
+
+  it('G15 — pending layer rect keeps pointer cursor (drives click-to-accept)', () => {
+    const { container } = renderGhost([makeSuggestion()])
+    const rect = container.querySelector('rect')
+    expect((rect as SVGRectElement).style.cursor).toBe('pointer')
+    // pointerEvents not explicitly set on the inline style for pending
+    // layers — it falls back to the SVG default (auto), so clicks
+    // still register.
+    expect((rect as SVGRectElement).style.pointerEvents).toBe('')
+  })
+
   it('G13 — base handle fires onEdit with depth_base_m only', () => {
     // Layer base starts at depth 2 → drag 50 px down → delta 0.5 m
     // → new depth_base_m = 2.5.
