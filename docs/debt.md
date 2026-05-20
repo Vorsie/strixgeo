@@ -1215,3 +1215,31 @@ refactor that should land in a quiet pre-ship window, not mid-dogfeed.
 **When to revisit.** Before the first external user receives the
 binary — clean state shape lowers the surface area of future
 features (#72 ghost composition edit, #76 accept-all diagnostics).
+
+
+## 78. Drag-to-correlate gesture — drag a ghost-layer boundary horizontally onto another investigation (Tier D — Phase 2.5 gesture)
+
+**What.** When a ghost-layer boundary is being dragged, allow the
+drag to leave the source investigation's column and snap onto the
+matching boundary of a neighbouring investigation. On release: link
+the two layers as a correlation edge (same machinery as the
+`Correlate` toolbar verb's two-click gesture). Provides a more
+direct gesture than entering correlate mode + clicking source +
+clicking target.
+
+UX shape (TBD with dogfeed): cursor changes during the drag when
+hovering over a valid target column; the source column's ghost
+shows a "snap" preview line connecting the two; mouseup commits.
+
+**Why deferred.** Substantial gesture work — the LithoSuggestionGhostColumns
+drag handler currently only knows its own (idx, edge) tuple. Needs
+hit-testing against neighbour columns' ghost rectangles, a snap
+indicator overlay, and a commit path that fires `handleCorrelate`
+instead of `handleEditLithoSuggestion`. Owner asked for it in
+dogfeed 2026-05-20; the toolbar Correlate verb (with the relabel
+"click 2 bands") is the documented workaround until then.
+
+**When to revisit.** After the next litho dogfeed session, if the
+toolbar gesture still feels indirect / the user instinctively tries
+to drag. The drag-to-correlate gesture replaces it ergonomically;
+keep the toolbar verb as the discoverable fallback.
