@@ -1100,29 +1100,6 @@ deterministic, reviewable outputs first.
 200 litho accepts across ≥ 3 real projects AND the owner has spot-
 audited a representative sample. Don't fit a model on toy data.
 
-## 72. Editable ghost composition — drag layer to a different soil / admixture before accept (Tier D — post-MVP feature)
-
-**What.** Right-click a litho ghost layer → context menu → "Edit
-composition…" → opens the existing `LithoCompositionPickerDialog`
-seeded with the suggestion's current `suggested_lithology` +
-`suggested_admixtures`. User picks a new soil / admixture combo →
-the ghost rect updates immediately (new colour, label); accept
-commits at the edited composition.
-
-Mechanics piggyback on the Phase-2 edits Map: extend the Map entry
-to optionally carry `suggested_lithology` + `suggested_admixtures`
-overrides; `effectiveLithoSuggestionAt` merges them; accept payload
-carries the edited composition. Composition picker already exists for
-the manual create flow — re-use, no new dialog.
-
-**Why deferred.** Workflow gap, not a blocker — the user can `Reject`
-a wrong-composition suggestion and `Manual create` the right one as
-a workaround.
-
-**When to revisit.** Either when bulk-suggest (debt #73) lands and
-the per-test edit-then-accept workflow makes individual edits common
-enough to bother, OR when an early customer reports it as friction.
-
 ## 74. Segmenter over-segmentation — multiple same-lithology layers stacked (Tier E — segmenter tuning)
 
 **What.** Robertson-2015 / borehole segmenter sometimes outputs 4+
