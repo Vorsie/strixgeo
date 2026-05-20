@@ -1231,3 +1231,44 @@ two-call onEdit contract into an N-call one.
 **When to revisit.** When the dogfeed user drags past the immediate
 boundary expecting further collapse — the symptom that proves
 cascade is worth the contract change.
+
+## 84. Merge prompt when dragging same-NAD-class same-lithology layers (Tier D — geotechnically-aware edit)
+
+**What.** Dogfeed 2026-05-20 (alongside the rejected-neighbour drag
+bug): "when we drag one clay layer to the next, shouldn't we ask the
+user if they want to merge if the qc falls in the same NAD category?
+And no stratigraphic boundaries are crossed."
+
+The gesture: the user drags a layer's edge until it meets (or crosses
+into) another layer of the SAME lithology in the same column. Today
+the snap-to-collapse (#81) collapses the dragged layer into its
+opposite edge regardless of what's next door. The proposed feature
+adds a geotechnically-aware variant: if the dragged layer and the
+target layer share lithology + NAD class + parent geological
+formation, prompt "Merge into one layer?" — accept → delete the
+intermediate (already in the snap path) AND extend the survivor.
+
+Why per-NAD-class: a thin Sand sub-layer between two larger Sand
+layers is often segmenter over-segmentation when all three have the
+same Dr / NAD class. Merging gives the user one geotechnically-
+homogeneous unit instead of three. Per stratigraphic-boundary check:
+do NOT auto-merge across a geological-formation boundary even when
+lithology + NAD agree (the boundary is the harder geological signal).
+
+**Why deferred.** Three pieces of unresolved design:
+
+1. **Detect target on drag**: which "next" layer counts as the merge
+   candidate — the immediately-adjacent one, or any layer in the
+   column the dragged edge sweeps past? (Ties to debt #83 cascade.)
+2. **NAD class on a ghost suggestion**: `LithoLayerSuggestion` carries
+   `suggested_nad_class` but it can be null on borehole-sourced
+   suggestions. The merge eligibility check needs a non-null path or
+   a falls-back-to-lithology-only branch.
+3. **UI surface**: an inline confirm at the drag-release vs a modal
+   vs the existing snap "release to merge" hint upgraded with a
+   "(merge with Sand below — same NAD)" subtitle. Owner-decided.
+
+**When to revisit.** Right after #83 cascade — the gesture pieces are
+shared (cross-multiple-layers detection). Bundle (1)+(2)+(3) into one
+focused design session; ship the snap-to-collapse path first as the
+strict subset that doesn't need NAD lookup.
