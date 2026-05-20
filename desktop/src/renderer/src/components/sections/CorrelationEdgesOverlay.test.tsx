@@ -362,4 +362,183 @@ describe('CorrelationEdgesOverlay', () => {
     fireEvent.click(targetRect)
     expect(onCorrelate).toHaveBeenCalledWith('f-a', 'f-b')
   })
+
+  // -------------------------------------------------------------------
+  // Drag-arm gesture (debt #78) — drag-inside-correlate-mode.
+  // -------------------------------------------------------------------
+
+  it('CE9: mousedown on un-armed band fires onArm and shows preview line', () => {
+    const onArm = vi.fn()
+    const gestureState: CorrelateGestureState = {
+      correlateMode: true,
+      correlationSource: null,
+      onArm,
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+    }
+    const fA = makeFormation('f-a', 'Zand', null)
+    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
+    const columns = [makeColumn('inv-1', 100, 10, 5)]
+    const { container } = renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA],
+      placedColumns: columns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
+    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 0 })
+    expect(onArm).toHaveBeenCalledWith(
+      expect.objectContaining({ formationId: 'f-a', investigationId: 'inv-1' }),
+    )
+    // Preview line renders while drag is in flight.
+    expect(container.querySelector('[data-testid="correlate-drag-preview"]')).not.toBeNull()
+  })
+
+  it('CE10: mouseup over another band fires onCorrelate with source + target ids', () => {
+    const onCorrelate = vi.fn().mockResolvedValue(undefined)
+    const gestureState: CorrelateGestureState = {
+      correlateMode: true,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate,
+      onUncorrelate: vi.fn(),
+    }
+    const fA = makeFormation('f-a', 'Zand', null)
+    const fB = makeFormation('f-b', 'Zand', null) // same parent/litho → valid target
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const columns = [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)]
+    renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: columns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
+    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 0 })
+    // Stub elementsFromPoint to return a fake element carrying the
+    // target band's data attrs. jsdom doesn't implement layout, so
+    // the real call returns []; stubbing isolates the handler logic.
+    const fakeTarget = document.createElement('div')
+    fakeTarget.setAttribute('data-correlate-investigation-id', 'inv-2')
+    fakeTarget.setAttribute('data-correlate-formation-id', 'f-b')
+    const original = document.elementsFromPoint
+    document.elementsFromPoint = vi.fn().mockReturnValue([fakeTarget as unknown as Element])
+    fireEvent.mouseUp(document, { clientX: 200, clientY: 50 })
+    expect(onCorrelate).toHaveBeenCalledWith('f-a', 'f-b')
+    document.elementsFromPoint = original
+  })
+
+  it('CE11: mouseup over the same band does NOT fire onCorrelate', () => {
+    const onCorrelate = vi.fn().mockResolvedValue(undefined)
+    const gestureState: CorrelateGestureState = {
+      correlateMode: true,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate,
+      onUncorrelate: vi.fn(),
+    }
+    const fA = makeFormation('f-a', 'Zand', null)
+    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
+    const columns = [makeColumn('inv-1', 100, 10, 5)]
+    renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA],
+      placedColumns: columns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
+    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 0 })
+    const sameTarget = document.createElement('div')
+    sameTarget.setAttribute('data-correlate-investigation-id', 'inv-1')
+    sameTarget.setAttribute('data-correlate-formation-id', 'f-a')
+    const original = document.elementsFromPoint
+    document.elementsFromPoint = vi.fn().mockReturnValue([sameTarget as unknown as Element])
+    fireEvent.mouseUp(document, { clientX: 100, clientY: 50 })
+    expect(onCorrelate).not.toHaveBeenCalled()
+    document.elementsFromPoint = original
+  })
+
+  it('CE12: mouseup on empty space does NOT fire onCorrelate', () => {
+    const onCorrelate = vi.fn().mockResolvedValue(undefined)
+    const gestureState: CorrelateGestureState = {
+      correlateMode: true,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate,
+      onUncorrelate: vi.fn(),
+    }
+    const fA = makeFormation('f-a', 'Zand', null)
+    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
+    const columns = [makeColumn('inv-1', 100, 10, 5)]
+    renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA],
+      placedColumns: columns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
+    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 0 })
+    const original = document.elementsFromPoint
+    document.elementsFromPoint = vi.fn().mockReturnValue([])
+    fireEvent.mouseUp(document, { clientX: 500, clientY: 500 })
+    expect(onCorrelate).not.toHaveBeenCalled()
+    document.elementsFromPoint = original
+  })
+
+  it('CE13: right-mousedown does NOT open a drag (button !== 0)', () => {
+    const onArm = vi.fn()
+    const gestureState: CorrelateGestureState = {
+      correlateMode: true,
+      correlationSource: null,
+      onArm,
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+    }
+    const fA = makeFormation('f-a', 'Zand', null)
+    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
+    const columns = [makeColumn('inv-1', 100, 10, 5)]
+    const { container } = renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA],
+      placedColumns: columns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
+    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 2 })
+    expect(onArm).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="correlate-drag-preview"]')).toBeNull()
+  })
 })
