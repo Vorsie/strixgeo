@@ -1,7 +1,15 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu, session, shell } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import { readFileSync, statSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import {
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+} from 'fs'
 
 import {
   buildContentSecurityPolicy,
@@ -380,7 +388,11 @@ function readRecentProjects(): RecentProject[] {
 function writeRecentProjects(entries: RecentProject[]): void {
   const dir = app.getPath('userData')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(recentProjectsFile(), JSON.stringify(entries, null, 2), 'utf-8')
+  // Atomic write so a kill mid-write (or a second writer racing) can't
+  // leave the file half-overwritten. Reader handles corruption by
+  // falling back to an empty list, but recovery is friendlier than
+  // silent data loss of the user's recent-projects list.
+  writeFileAtomic(recentProjectsFile(), JSON.stringify(entries, null, 2))
 }
 
 function addRecentProject(path: string, name: string): RecentProject[] {
@@ -495,13 +507,49 @@ ipcMain.handle('project:read-file', (_event, filePath: string): string => {
   return readFileSync(filePath, 'utf-8')
 })
 
+/**
+ * Atomic file write — writes to a sibling temp file, then renames into
+ * place. Rationale: a project save that gets interrupted (process kill,
+ * power loss between two saves, second save racing the first) MUST NOT
+ * leave the user's `.strix` file half-overwritten. The dogfeed bug on
+ * 2026-05-20 was exactly this — a `\x08` (backspace) byte mid-array
+ * with a partially-duplicated value, traced to two writes overlapping.
+ *
+ * `renameSync` on the same filesystem is atomic at the directory
+ * metadata level on both NTFS (Windows) and ext4/APFS — either the old
+ * file or the new file is visible to readers, never a half-written
+ * blend. The temp lives in the same directory as the target so no
+ * cross-filesystem rename fall-back to copy+delete occurs.
+ *
+ * Crash mid-write leaves a `.<basename>.tmp.<pid>` orphan that the
+ * user can safely delete (no automatic cleanup — that path would risk
+ * deleting a tmp from a concurrent save that hasn't renamed yet).
+ */
+function writeFileAtomic(filePath: string, contents: string): void {
+  const tmpPath = `${filePath}.tmp.${process.pid}`
+  writeFileSync(tmpPath, contents, 'utf-8')
+  try {
+    renameSync(tmpPath, filePath)
+  } catch (renameErr) {
+    // Rename failed — best-effort tmp cleanup so we don't leak. Swallow
+    // unlink errors (the tmp may already be gone, or perms changed)
+    // and re-throw the original rename failure as the user-visible one.
+    try {
+      unlinkSync(tmpPath)
+    } catch {
+      /* swallow */
+    }
+    throw renameErr
+  }
+}
+
 ipcMain.handle(
   'project:write-file',
   (_event, filePath: string, contents: string): void => {
     if (!pathIsAuthorised(filePath)) {
       throw new Error(`project:write-file refused — path not authorised: ${filePath}`)
     }
-    writeFileSync(filePath, contents, 'utf-8')
+    writeFileAtomic(filePath, contents)
   },
 )
 
