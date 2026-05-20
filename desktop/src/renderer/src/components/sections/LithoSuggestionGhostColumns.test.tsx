@@ -225,8 +225,12 @@ describe('LithoSuggestionGhostColumns', () => {
 
   it('G12 — mousedown→mouseup on top handle fires onEdit with depth_top_m', () => {
     // Test levelToScreen has pxPerM = 100 (slope of the linear
-    // transform). Drag 250 px down → depth delta = 2.5 m.
-    // Layer top starts at depth 0 → after drag, depth_top_m = 2.5.
+    // transform). Drag 100 px down → depth delta = 1.0 m.
+    // Layer top starts at depth 0 → after drag, depth_top_m = 1.0.
+    // (Pre-#83 this test dragged past own base = 2 m to assert
+    // depth_top_m = 2.5; the new hard clamp correctly prevents the
+    // inverted layer that would create. 1.0 m stays within bounds
+    // and still exercises the top-edge depth-commit contract.)
     const onEdit = vi.fn()
     const { container } = renderGhost(
       [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
@@ -235,12 +239,12 @@ describe('LithoSuggestionGhostColumns', () => {
     const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')
     expect(topHandle).not.toBeNull()
     fireEvent.mouseDown(topHandle!, { clientY: 100 })
-    fireEvent.mouseMove(document, { clientY: 350 })
+    fireEvent.mouseMove(document, { clientY: 200 })
     fireEvent.mouseUp(document)
     expect(onEdit).toHaveBeenCalledTimes(1)
     const [idx, edit] = onEdit.mock.calls[0]
     expect(idx).toBe(0)
-    expect(edit.depth_top_m).toBeCloseTo(2.5, 5)
+    expect(edit.depth_top_m).toBeCloseTo(1.0, 5)
     expect(edit.depth_base_m).toBeUndefined()
   })
 
@@ -490,6 +494,99 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.mouseUp(document)
     expect(onReject).not.toHaveBeenCalled()
     expect(onEdit).toHaveBeenCalledWith(0, { depth_top_m: 1 })
+  })
+
+  // -----------------------------------------------------------------
+  // Snap-to-collide on neighbour's far edge (debt #83 v1) — dogfeed
+  // 2026-05-20: "i can still drag a layer over other layers, if it
+  // collides it should just snap and attach to the boundary it
+  // collides with". The hard clamp prevents overlap; the snap at
+  // the neighbour's far edge auto-rejects the now-collapsed neighbour.
+  // -----------------------------------------------------------------
+
+  // G32: drag layer 0's BASE down far enough to hit layer 1's BASE
+  // (the next-pending-below's far edge). The clamp stops the drag
+  // at layer 1's base; the snap fires; on release, the shared-
+  // boundary commit collapses layer 1 to zero thickness and onReject
+  // fires with idx=1 (the NEIGHBOUR, not self).
+  it('G32 — drag past adjacent neighbour clamps + auto-rejects the neighbour', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onReject },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // Base of layer 0 sits at depth 2 → clientY = 200. Drag down 500 px
+    // (5 m) — well past layer 1's base at depth 4 m (clientY = 400).
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 700 })
+    // Snap indicator visible mid-drag (clamped at the neighbour's far edge).
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
+    fireEvent.mouseUp(document)
+    // Reject fires on the NEIGHBOUR (idx=1), not on self (idx=0).
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(1)
+    // Both layers' shared boundary moved to layer 1's base (depth 4).
+    const calls = onEdit.mock.calls.map(([idx, edit]) => ({ idx, edit }))
+    expect(calls.find(c => c.idx === 0)!.edit.depth_base_m).toBeCloseTo(4, 5)
+    expect(calls.find(c => c.idx === 1)!.edit.depth_top_m).toBeCloseTo(4, 5)
+  })
+
+  // G33: mirror — drag layer 1's TOP up to hit layer 0's TOP. Clamp +
+  // snap; onReject fires on the layer above (idx=0), not self (idx=1).
+  it('G33 — drag past adjacent above clamps + auto-rejects the layer above', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onReject },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
+    // Top of layer 1 sits at depth 2 → clientY = 200. Drag UP 500 px
+    // (5 m) — past layer 0's top at depth 0 (clientY = 0) and into
+    // the ground-surface clamp.
+    fireEvent.mouseDown(topHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: -300 })
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
+    fireEvent.mouseUp(document)
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(0)
+    const calls = onEdit.mock.calls.map(([idx, edit]) => ({ idx, edit }))
+    expect(calls.find(c => c.idx === 1)!.edit.depth_top_m).toBeCloseTo(0, 5)
+    expect(calls.find(c => c.idx === 0)!.edit.depth_base_m).toBeCloseTo(0, 5)
+  })
+
+  // G34: with the immediate neighbour rejected (skipped per the
+  // topology fix), the drag clamps at the NEXT-pending-after-skip
+  // neighbour's far edge. Confirms the bounds use the same
+  // nearestPendingIndex* helpers as the shared-boundary commit.
+  it('G34 — drag past rejected neighbour clamps at next pending', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+        makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+      ],
+      { onEdit, onReject, rejectedIndices: new Set([1]) },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    // Drag way past everything → clamps at layer 2's base (depth 6).
+    fireEvent.mouseMove(document, { clientY: 1500 })
+    fireEvent.mouseUp(document)
+    // Reject fires on idx=2 (the next-pending-below, not idx=1 which
+    // is already rejected, not idx=0 which is the dragged layer).
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(2)
   })
 
   // -----------------------------------------------------------------
