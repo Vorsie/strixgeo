@@ -97,6 +97,42 @@ function nearestPendingIndexBelow(
 }
 
 /**
+ * Find the nearest VISIBLE neighbour (pending OR accepted) above
+ * ``idx`` — only REJECTED layers are skipped. Used by the drag CLAMP
+ * (debt #83 v1.1, dogfeed 2026-05-20 correction): the dragged edge
+ * physically stops at the next visible layer's near edge. Accepted
+ * layers are visible barriers (their committed contact says "this
+ * boundary exists, you can't pass through"); rejected layers are
+ * crossed out so the drag treats them as gone.
+ *
+ * Differs from ``nearestPendingIndexAbove`` which is used by the
+ * shared-boundary COMMIT — that one skips both accepted AND rejected
+ * because accepted layers' edits must not be mutated (their depth
+ * is the committed contact, not the edits map).
+ */
+function nearestVisibleIndexAbove(
+  idx: number,
+  rejectedIndices: ReadonlySet<number>,
+): number | null {
+  for (let i = idx - 1; i >= 0; i--) {
+    if (!rejectedIndices.has(i)) return i
+  }
+  return null
+}
+
+/** Mirror of ``nearestVisibleIndexAbove`` for the other direction. */
+function nearestVisibleIndexBelow(
+  idx: number,
+  total: number,
+  rejectedIndices: ReadonlySet<number>,
+): number | null {
+  for (let i = idx + 1; i < total; i++) {
+    if (!rejectedIndices.has(i)) return i
+  }
+  return null
+}
+
+/**
  * Resolve the effective top/base of a suggestion — committed edits
  * win over the raw segmenter output. Used to compute drag bounds
  * from the live state of the neighbouring layers (debt #83 v1).
@@ -117,29 +153,50 @@ function effectiveDepths(
 /**
  * Compute the hard-clamp bounds + collapse targets for a drag at
  * mousedown. The dragged edge cannot cross either bound; if the
- * user releases at one of them, the layer named by the matching
- * ``collapseIdx*`` is auto-rejected on mouseup.
+ * user releases at one of them and the matching ``collapseIdx*`` is
+ * non-null, that layer is auto-rejected on mouseup (only fires for
+ * the own-opposite-edge snap — the #81 self-collapse).
+ *
+ * Two distinct topology rules apply (dogfeed 2026-05-20 correction
+ * to the original #83 v1):
+ *
+ *   - **CLAMP toward a NEIGHBOUR** uses ``nearestVisibleIndex*``
+ *     (skips only rejected; accepted is a visible barrier) and stops
+ *     at the neighbour's NEAR edge — the immediate shared boundary
+ *     with the dragged layer. The drag cannot pass through any
+ *     visible layer. ``collapseIdx*`` is ``null`` for this side, so
+ *     mouseup never auto-rejects the neighbour. To extend through a
+ *     visible neighbour, the user must reject it first; this is the
+ *     explicit workflow the owner asked for ("if i reject silt
+ *     between two clay layers, drag down the top clay's base to the
+ *     bottom clay's top — no drag-overs").
+ *
+ *   - **CLAMP toward OWN OPPOSITE EDGE** keeps the #81 self-collapse:
+ *     dragging own top to own base (or own base to own top) snaps
+ *     and auto-rejects the dragged layer on release. ``collapseIdx*``
+ *     equals ``idx`` for that side.
  *
  * For a TOP-edge drag of layer ``idx``:
- *   - boundsAboveM = next-pending-above's top (or 0 = ground)
- *     → collapses the layer above when snapped (its base moves to its top)
- *   - boundsBelowM = own base (existing #81 snap)
- *     → collapses self when snapped
+ *   - boundsAboveM = nearest-visible-above's BASE (the shared
+ *     boundary), or 0 = ground when no neighbour. No auto-collapse.
+ *   - boundsBelowM = own BASE (#81). Auto-collapse self on snap.
  *
- * For a BASE-edge drag, mirror:
- *   - boundsAboveM = own top (existing #81 snap) → collapses self
- *   - boundsBelowM = next-pending-below's base (or +Infinity = open)
- *     → collapses the layer below when snapped
+ * For a BASE-edge drag of layer ``idx``:
+ *   - boundsAboveM = own TOP (#81). Auto-collapse self on snap.
+ *   - boundsBelowM = nearest-visible-below's TOP (the shared
+ *     boundary), or +Infinity = open below. No auto-collapse.
  *
- * Rejected/accepted neighbours are skipped (they don't render as
- * obstacles — same topology rule the shared-boundary commit uses).
+ * Rejected neighbours are skipped (the user has marked them gone);
+ * accepted neighbours form barriers (their committed contact says
+ * "this boundary is real"). Two adjacent PENDING layers also barrier
+ * each other (their shared boundary is the current depth → drag is
+ * effectively a no-op until one is rejected).
  */
 function computeDragBounds(
   edge: 'top' | 'base',
   idx: number,
   suggestions: readonly LithoLayerSuggestion[],
   edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
-  acceptedIndices: ReadonlySet<number>,
   rejectedIndices: ReadonlySet<number>,
 ): {
   boundsAboveM: number
@@ -149,29 +206,27 @@ function computeDragBounds(
 } {
   const own = effectiveDepths(suggestions, edits, idx)
   if (edge === 'top') {
-    const aboveIdx = nearestPendingIndexAbove(idx, acceptedIndices, rejectedIndices)
-    const boundsAboveM = aboveIdx !== null ? effectiveDepths(suggestions, edits, aboveIdx).topM : 0
+    const aboveIdx = nearestVisibleIndexAbove(idx, rejectedIndices)
+    const boundsAboveM =
+      aboveIdx !== null ? effectiveDepths(suggestions, edits, aboveIdx).baseM : 0
     return {
       boundsAboveM,
       boundsBelowM: own.baseM,
-      collapseIdxAbove: aboveIdx,
+      collapseIdxAbove: null,
       collapseIdxBelow: idx,
     }
   }
   // edge === 'base'
-  const belowIdx = nearestPendingIndexBelow(
-    idx,
-    suggestions.length,
-    acceptedIndices,
-    rejectedIndices,
-  )
+  const belowIdx = nearestVisibleIndexBelow(idx, suggestions.length, rejectedIndices)
   const boundsBelowM =
-    belowIdx !== null ? effectiveDepths(suggestions, edits, belowIdx).baseM : Number.POSITIVE_INFINITY
+    belowIdx !== null
+      ? effectiveDepths(suggestions, edits, belowIdx).topM
+      : Number.POSITIVE_INFINITY
   return {
     boundsAboveM: own.topM,
     boundsBelowM,
     collapseIdxAbove: idx,
-    collapseIdxBelow: belowIdx,
+    collapseIdxBelow: null,
   }
 }
 
@@ -515,24 +570,25 @@ export default function LithoSuggestionGhostColumns({
       // below for the last idx's base) update only the dragged layer.
       if (drag.edge === 'top') {
         if (onEdit) onEdit(drag.idx, { depth_top_m: final })
-        const above = nearestPendingIndexAbove(
-          drag.idx,
-          acceptedIndices,
-          rejectedIndices,
-        )
-        if (above !== null && onEdit) {
-          onEdit(above, { depth_base_m: final })
+        // Propagate to the nearest VISIBLE neighbour above (skip only
+        // rejected, same topology as the clamp); but skip the edit if
+        // that visible is ACCEPTED — its committed-contact depth must
+        // not be mutated via the edits map. The clamp guarantees
+        // `final` can't move past an accepted barrier anyway, so no
+        // propagation is needed in that case.
+        const visible = nearestVisibleIndexAbove(drag.idx, rejectedIndices)
+        if (visible !== null && !acceptedIndices.has(visible) && onEdit) {
+          onEdit(visible, { depth_base_m: final })
         }
       } else {
         if (onEdit) onEdit(drag.idx, { depth_base_m: final })
-        const below = nearestPendingIndexBelow(
+        const visible = nearestVisibleIndexBelow(
           drag.idx,
           suggestions.length,
-          acceptedIndices,
           rejectedIndices,
         )
-        if (below !== null && onEdit) {
-          onEdit(below, { depth_top_m: final })
+        if (visible !== null && !acceptedIndices.has(visible) && onEdit) {
+          onEdit(visible, { depth_top_m: final })
         }
       }
       // Snap-to-collapse auto-reject. The collapse target is the
@@ -630,12 +686,15 @@ export default function LithoSuggestionGhostColumns({
             !acceptedIndices.has(idx) &&
             !rejectedIndices.has(idx)
           ) {
+            // Match the commit's propagation topology: nearestVisible
+            // (skip only rejected), then gate-out if accepted. Preview
+            // follows the drag iff this layer is the next PENDING in
+            // the drag direction with no accepted barrier between.
             if (
               drag.edge === 'base' &&
-              nearestPendingIndexBelow(
+              nearestVisibleIndexBelow(
                 drag.idx,
                 suggestions.length,
-                acceptedIndices,
                 rejectedIndices,
               ) === idx
             ) {
@@ -643,11 +702,7 @@ export default function LithoSuggestionGhostColumns({
             }
             if (
               drag.edge === 'top' &&
-              nearestPendingIndexAbove(
-                drag.idx,
-                acceptedIndices,
-                rejectedIndices,
-              ) === idx
+              nearestVisibleIndexAbove(drag.idx, rejectedIndices) === idx
             ) {
               baseM = drag.currentDepthM
             }
@@ -715,7 +770,6 @@ export default function LithoSuggestionGhostColumns({
                       idx,
                       suggestions,
                       edits,
-                      acceptedIndices,
                       rejectedIndices,
                     )
                     setDrag({
@@ -748,7 +802,6 @@ export default function LithoSuggestionGhostColumns({
                       idx,
                       suggestions,
                       edits,
-                      acceptedIndices,
                       rejectedIndices,
                     )
                     setDrag({
