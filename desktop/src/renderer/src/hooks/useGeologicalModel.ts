@@ -82,6 +82,27 @@ export interface LumpingCollision {
   droppedCount: number
 }
 
+/**
+ * One investigation's ghost-suggestion state in the bulk-suggest
+ * Map (debt #73). Mirrors the per-anchor structure the single-
+ * anchor state spreads across several useState hooks; collected
+ * here so the bulk store is a Map<anchorId, BulkAnchorGhost>.
+ */
+export interface BulkAnchorGhost {
+  /** ``cpt`` or ``borehole`` discriminator for the anchor. */
+  kind: 'cpt' | 'borehole'
+  /** Segmenter output for this anchor, ordered top → bottom. */
+  suggestions: LithoLayerSuggestion[]
+  /** Surface elevation (mTAW) for ghost rendering. */
+  surfaceElevationM: number | null
+  /** Layer indices the user has accepted. */
+  accepted: ReadonlySet<number>
+  /** Layer indices the user has explicitly rejected. */
+  rejected: ReadonlySet<number>
+  /** User-edited depths per layer (drag-resize). */
+  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+}
+
 export interface UseGeologicalModelResult {
   activeGeologicalModel: GeologicalModelResponse | null
   // Three-level hierarchy (#55, model-kind picker). The geological
@@ -304,6 +325,62 @@ export interface UseGeologicalModelResult {
   ) => void
   /** Whether a suggestion fetch is in flight. */
   lithoSuggesting: boolean
+  /**
+   * Multi-anchor ghost-suggestion state (debt #73 / Phase 3).
+   * Map<anchorId, BulkAnchorGhost>. Populated by
+   * ``handleSuggestAllLitho``; renders simultaneously with the
+   * single-anchor state above. Both can coexist on a section.
+   */
+  bulkLithoGhosts: ReadonlyMap<string, BulkAnchorGhost>
+  /** Whether a bulk-suggest fetch is in flight. */
+  bulkLithoSuggesting: boolean
+  /**
+   * Bulk-suggest: fan out the segmenter across N investigations.
+   * Replaces any prior bulk state. Per-anchor results stream into
+   * ``bulkLithoGhosts`` as they arrive; partial state visible mid-flight.
+   *
+   * Parameters
+   * ----------
+   * anchors : array
+   *     List of (kind, id) tuples to suggest for.
+   */
+  handleSuggestAllLitho: (
+    anchors: readonly {
+      kind: 'cpt' | 'borehole'
+      id: string
+      surfaceElevationM: number | null
+    }[],
+  ) => Promise<void>
+  /**
+   * Accept one suggestion layer for one bulk-anchor. Mirrors
+   * ``handleAcceptLithoSuggestion`` but anchor-scoped via the
+   * ``anchorId`` arg (bulk has many anchors, not one current).
+   */
+  handleAcceptBulkLitho: (
+    anchorId: string,
+    idx: number,
+    sectionId?: string | null,
+    onSectionUpdated?: (s: CrossSectionResponse) => void,
+  ) => Promise<void>
+  /**
+   * Accept ALL non-rejected layers across ALL bulk anchors. Calls
+   * the segmenter accept endpoint once per anchor (sequential to
+   * keep DB/section update ordering coherent).
+   */
+  handleAcceptAllBulkLitho: (
+    sectionId?: string | null,
+    onSectionUpdated?: (s: CrossSectionResponse) => void,
+  ) => Promise<void>
+  /** Mark one bulk anchor's layer rejected (dismissed in the overlay). */
+  handleRejectBulkLitho: (anchorId: string, idx: number) => void
+  /** Apply a depth edit to one bulk anchor's layer (drag-resize). */
+  handleEditBulkLitho: (
+    anchorId: string,
+    idx: number,
+    edit: { depth_top_m?: number; depth_base_m?: number },
+  ) => void
+  /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
+  clearBulkLithoGhosts: () => void
   /**
    * Fetch lithostratigraphic suggestions for one investigation.
    * Stores results in ``lithoSuggestions`` for the ghost overlay.
@@ -2591,6 +2668,21 @@ export function useGeologicalModel({
   >(new Map())
   const [lithoSuggesting, setLithoSuggesting] = useState(false)
 
+  // Multi-anchor bulk-suggest state (debt #73, 2026-05-20). Holds
+  // ghost suggestions for N investigations at once — the "Suggest
+  // litho for all tests" toolbar verb fans out per-anchor segmenter
+  // calls and populates this Map. Renders simultaneously with the
+  // single-anchor state above; both can coexist on the section.
+  //
+  // Tech debt accepted: there are TWO state shapes during dogfeed
+  // (single-anchor and this multi-anchor map). Single-anchor will be
+  // unified into the map post-MVP — filed as part of debt #73's
+  // post-MVP cleanup.
+  const [bulkLithoGhosts, setBulkLithoGhosts] = useState<
+    ReadonlyMap<string, BulkAnchorGhost>
+  >(new Map())
+  const [bulkLithoSuggesting, setBulkLithoSuggesting] = useState(false)
+
   // Stable ref to lithoFormations — lets handleAcceptLithoSuggestion close
   // over it without listing the array as a dep (which would recreate the
   // callback on every formation change). Mirrors the activeLithoModelRef pattern.
@@ -2652,6 +2744,64 @@ export function useGeologicalModel({
     // endpoint is idempotent server-side (find-or-create), so the
     // client no longer needs per-session formation caches.
   }, [])
+
+  // ---------- Bulk-suggest (debt #73 / Phase 3) ----------
+  // Multi-anchor handlers. The Map is the source of truth; each
+  // handler is anchor-scoped via the anchorId arg.
+
+  const clearBulkLithoGhosts = useCallback((): void => {
+    setBulkLithoGhosts(new Map())
+    setBulkLithoSuggesting(false)
+  }, [])
+
+  // Apply a partial update to one anchor's bulk-ghost entry.
+  const _updateBulkAnchor = useCallback(
+    (anchorId: string, partial: Partial<BulkAnchorGhost>): void => {
+      setBulkLithoGhosts(prev => {
+        const existing = prev.get(anchorId)
+        if (!existing) return prev
+        const next = new Map(prev)
+        next.set(anchorId, { ...existing, ...partial })
+        return next
+      })
+    },
+    [],
+  )
+
+  const handleRejectBulkLitho = useCallback(
+    (anchorId: string, idx: number): void => {
+      setBulkLithoGhosts(prev => {
+        const existing = prev.get(anchorId)
+        if (!existing) return prev
+        const nextRejected = new Set(existing.rejected)
+        nextRejected.add(idx)
+        const next = new Map(prev)
+        next.set(anchorId, { ...existing, rejected: nextRejected })
+        return next
+      })
+    },
+    [],
+  )
+
+  const handleEditBulkLitho = useCallback(
+    (
+      anchorId: string,
+      idx: number,
+      edit: { depth_top_m?: number; depth_base_m?: number },
+    ): void => {
+      setBulkLithoGhosts(prev => {
+        const existing = prev.get(anchorId)
+        if (!existing) return prev
+        const nextEdits = new Map(existing.edits)
+        const prior = nextEdits.get(idx) ?? {}
+        nextEdits.set(idx, { ...prior, ...edit })
+        const next = new Map(prev)
+        next.set(anchorId, { ...existing, edits: nextEdits })
+        return next
+      })
+    },
+    [],
+  )
 
   // B-1 (senior-review, data-integrity): a ghost overlay left showing
   // when the active litho model SWITCHES would accept onto the new
@@ -2874,6 +3024,248 @@ export function useGeologicalModel({
     })
     log.debug('geology', `rejectLithoSuggestion idx=${idx}`)
   }, [])
+
+  // ---------- Bulk-suggest fan-out + accept (debt #73) ----------
+
+  /**
+   * Fan out segmenter calls across N investigations in parallel
+   * (capped to 5 concurrent). Replaces any prior bulk ghost state.
+   * Per-anchor results stream into bulkLithoGhosts as they arrive
+   * — partial state is visible mid-fetch so the user sees columns
+   * fill in incrementally.
+   *
+   * Surface elevations come from the existing cpts/boreholes
+   * lists (closures over the latest refs).
+   */
+  const handleSuggestAllLitho = useCallback(
+    async (
+      anchors: readonly {
+        kind: 'cpt' | 'borehole'
+        id: string
+        surfaceElevationM: number | null
+      }[],
+    ): Promise<void> => {
+      const model = activeLithoModelRef.current
+      if (!project || !model || anchors.length === 0) return
+      log.debug(
+        'geology',
+        `handleSuggestAllLitho fan-out anchors=${anchors.length}`,
+      )
+      // Wipe prior bulk state — confirmation dialog warned the user.
+      setBulkLithoGhosts(new Map())
+      setBulkLithoSuggesting(true)
+      const CONCURRENCY = 5
+      let cursor = 0
+      const failures: string[] = []
+      async function worker(): Promise<void> {
+        while (cursor < anchors.length) {
+          const anchorIdx = cursor++
+          if (anchorIdx >= anchors.length) return
+          const { kind, id, surfaceElevationM } = anchors[anchorIdx]
+          try {
+            const body =
+              kind === 'cpt' ? { cpt_id: id } : { borehole_id: id }
+            const resp = await api.geology.suggestLitho(project!.id, model!.id, body)
+            setBulkLithoGhosts(prev => {
+              const next = new Map(prev)
+              next.set(id, {
+                kind,
+                suggestions: resp.layers,
+                surfaceElevationM,
+                accepted: new Set(),
+                rejected: new Set(),
+                edits: new Map(),
+              })
+              return next
+            })
+          } catch (err) {
+            log.warn('geology', `bulk suggest failed anchor=${id}`, err)
+            failures.push(id)
+          }
+        }
+      }
+      const workers = Array.from(
+        { length: Math.min(CONCURRENCY, anchors.length) },
+        () => worker(),
+      )
+      try {
+        await Promise.all(workers)
+        log.success(
+          'geology',
+          `handleSuggestAllLitho done anchors=${anchors.length} failures=${failures.length}`,
+        )
+        if (failures.length > 0) {
+          toast(
+            'error',
+            `Suggested ${anchors.length - failures.length}/${anchors.length} — ${failures.length} failed.`,
+          )
+        }
+      } finally {
+        setBulkLithoSuggesting(false)
+      }
+    },
+    // reason: activeLithoModelRef is a ref (stable). Project + toast
+    // are the true deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, toast],
+  )
+
+  /**
+   * Accept one suggestion layer for one bulk anchor — single-item call.
+   * Uses the same backend endpoint as ``handleAcceptLithoSuggestion``
+   * but pulls the layer out of the bulk Map instead of the single-anchor
+   * state. The accepted layer's idx is added to the anchor's accepted set
+   * so the ghost overlay marks it.
+   *
+   * Refetches litho contacts on success so the section renders the
+   * committed contact immediately (same fix shape as the single-anchor
+   * path — dogfeed 2026-05-20).
+   */
+  const handleAcceptBulkLitho = useCallback(
+    async (
+      anchorId: string,
+      idx: number,
+      sectionId?: string | null,
+      onSectionUpdated?: (s: CrossSectionResponse) => void,
+    ): Promise<void> => {
+      const model = activeLithoModelRef.current
+      if (!project || !model) return
+      const ghost = bulkLithoGhosts.get(anchorId)
+      if (!ghost || idx < 0 || idx >= ghost.suggestions.length) return
+      const raw = ghost.suggestions[idx]
+      const edit = ghost.edits.get(idx)
+      const layer = edit
+        ? {
+            ...raw,
+            depth_top_m: edit.depth_top_m ?? raw.depth_top_m,
+            depth_base_m: edit.depth_base_m ?? raw.depth_base_m,
+          }
+        : raw
+      try {
+        const body = {
+          ...(ghost.kind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
+          section_id: sectionId ?? null,
+          suggestions: [layer],
+        }
+        const result = await api.geology.acceptLithoSuggestions(
+          project.id,
+          model.id,
+          body,
+        )
+        log.success(
+          'geology',
+          `acceptBulkLitho ok anchor=${anchorId} idx=${idx} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
+        )
+        if (result.updated_section != null && onSectionUpdated != null) {
+          onSectionUpdated(result.updated_section)
+        }
+        // Mark this idx accepted on the anchor.
+        setBulkLithoGhosts(prev => {
+          const existing = prev.get(anchorId)
+          if (!existing) return prev
+          const nextAccepted = new Set(existing.accepted)
+          nextAccepted.add(idx)
+          const next = new Map(prev)
+          next.set(anchorId, { ...existing, accepted: nextAccepted })
+          return next
+        })
+        refetchLithoContacts()
+      } catch (err) {
+        log.error('geology', `acceptBulkLitho failed anchor=${anchorId} idx=${idx}`, err)
+        toast('error', 'Could not accept the litho suggestion.')
+      }
+    },
+    // reason: activeLithoModelRef is a ref (stable identity); not listed.
+    // bulkLithoGhosts is in deps so the callback refreshes when the user
+    // suggests/accepts/edits — the read of bulkLithoGhosts.get(anchorId)
+    // must see the latest map.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, bulkLithoGhosts, refetchLithoContacts, toast],
+  )
+
+  /**
+   * Accept ALL non-rejected layers across ALL bulk anchors. One
+   * accept-litho-suggestions call per anchor (sequential to keep the
+   * section's seeded_formation_contact_ids update ordering coherent).
+   * Edited depths are applied per anchor; failures per anchor are
+   * surfaced via a single warning toast at the end.
+   */
+  const handleAcceptAllBulkLitho = useCallback(
+    async (
+      sectionId?: string | null,
+      onSectionUpdated?: (s: CrossSectionResponse) => void,
+    ): Promise<void> => {
+      const model = activeLithoModelRef.current
+      if (!project || !model || bulkLithoGhosts.size === 0) return
+      log.debug('geology', `acceptAllBulkLitho anchors=${bulkLithoGhosts.size}`)
+      const failures: string[] = []
+      let totalCommitted = 0
+      // Snapshot the Map entries so subsequent setState calls don't
+      // mutate what we're iterating.
+      const entries = Array.from(bulkLithoGhosts.entries())
+      for (const [anchorId, ghost] of entries) {
+        const pendingIndices = ghost.suggestions
+          .map((_, i) => i)
+          .filter(i => !ghost.rejected.has(i))
+        if (pendingIndices.length === 0) continue
+        // Apply edits per index.
+        const pendingLayers = pendingIndices.map(i => {
+          const raw = ghost.suggestions[i]
+          const edit = ghost.edits.get(i)
+          return edit
+            ? {
+                ...raw,
+                depth_top_m: edit.depth_top_m ?? raw.depth_top_m,
+                depth_base_m: edit.depth_base_m ?? raw.depth_base_m,
+              }
+            : raw
+        })
+        try {
+          const body = {
+            ...(ghost.kind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
+            section_id: sectionId ?? null,
+            suggestions: pendingLayers,
+          }
+          const result = await api.geology.acceptLithoSuggestions(
+            project.id,
+            model.id,
+            body,
+          )
+          totalCommitted += result.created_contact_ids.length + result.found_contact_ids.length
+          if (result.updated_section != null && onSectionUpdated != null) {
+            onSectionUpdated(result.updated_section)
+          }
+          // Mark all attempted indices accepted on this anchor.
+          setBulkLithoGhosts(prev => {
+            const existing = prev.get(anchorId)
+            if (!existing) return prev
+            const nextAccepted = new Set(existing.accepted)
+            for (const i of pendingIndices) nextAccepted.add(i)
+            const next = new Map(prev)
+            next.set(anchorId, { ...existing, accepted: nextAccepted })
+            return next
+          })
+        } catch (err) {
+          log.warn('geology', `acceptAllBulkLitho anchor=${anchorId} failed`, err)
+          failures.push(anchorId)
+        }
+      }
+      log.success(
+        'geology',
+        `acceptAllBulkLitho done anchors=${entries.length} contacts=${totalCommitted} failures=${failures.length}`,
+      )
+      if (failures.length > 0) {
+        toast('error', `Accepted ${entries.length - failures.length}/${entries.length} — ${failures.length} failed.`)
+      }
+      // Refetch once at the end — cheaper than once per anchor.
+      refetchLithoContacts()
+    },
+    // reason: activeLithoModelRef is a ref. bulkLithoGhosts is in
+    // deps so the snapshot the loop iterates is always the latest
+    // (a stale closure would iterate yesterday's anchors).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [project, bulkLithoGhosts, refetchLithoContacts, toast],
+  )
 
   // R4 (debt #12): the visible-list filter now lives HERE, not as an
   // App.tsx post-spread. ``manifestFormationIds`` undefined (no project
@@ -3138,6 +3530,15 @@ export function useGeologicalModel({
     handleAcceptAllLithoSuggestions,
     handleRejectLithoSuggestion,
     clearLithoSuggestions,
+    // Bulk-suggest (debt #73 / Phase 3)
+    bulkLithoGhosts,
+    bulkLithoSuggesting,
+    handleSuggestAllLitho,
+    handleAcceptBulkLitho,
+    handleAcceptAllBulkLitho,
+    handleRejectBulkLitho,
+    handleEditBulkLitho,
+    clearBulkLithoGhosts,
     pinchOutPreview,
     pinchOutLoading,
     handlePreviewPinchOut,
