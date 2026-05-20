@@ -1123,28 +1123,6 @@ a workaround.
 the per-test edit-then-accept workflow makes individual edits common
 enough to bother, OR when an early customer reports it as friction.
 
-## 73. Bulk "Suggest litho for all tests" with confirmation dialog (Tier C — workflow velocity)
-
-**What.** Toolbar verb "Suggest all" (litho axis, requires open
-section + active litho model). Confirmation dialog: "Suggest lithos
-for **N investigations** on this section? Existing suggestions will
-be replaced. [Suggest all / Cancel]". On Yes → segmenter runs on
-every visible investigation in the section in parallel (capped
-concurrency ~5); ghost overlays render simultaneously for each
-investigation; user drags / accepts per column or globally.
-
-**Why deferred.** Requires reshaping the ghost state from one
-`lithoSuggestionInvestigationId` to a Map keyed by anchor and
-updating every reader (SectionsCanvas → SectionPanel →
-LithoSuggestionGhostColumns → accept handler chain). ~300 LOC.
-Per-test workflow works today (Phase-2 ghost UX shipped); bulk is
-acceleration, not blocker. Owner indicated bulk is the typical
-project-level workflow target.
-
-**When to revisit.** When the per-test workflow becomes the
-bottleneck for a real dogfeed import (≥ 10 investigations on one
-section).
-
 ## 74. Segmenter over-segmentation — multiple same-lithology layers stacked (Tier E — segmenter tuning)
 
 **What.** Robertson-2015 / borehole segmenter sometimes outputs 4+
@@ -1208,3 +1186,32 @@ firing. Without that, "fix" is shooting in the dark.
 the backend log line `acceptAllLithoSuggestions ok created=N
 found=M straddle=K …` — if K > 0 it's straddle-split (expected); if
 K = 0 and N > the displayed-layer count it's #74 territory.
+
+
+## 77. Unify single-anchor + bulk litho-suggestion state into one Map (Tier E — post-MVP cleanup)
+
+**What.** The 2026-05-20 ship of debt #73 (bulk-suggest "Suggest all")
+added an additive `bulkLithoGhosts: Map<anchorId, BulkAnchorGhost>`
+state slot in `useGeologicalModel` alongside the existing single-
+anchor state (`lithoSuggestions` / `lithoSuggestionInvestigationId` /
+`lithoSuggestionAnchorKind` / `lithoSuggestionAccepted` /
+`lithoSuggestionRejected` / `lithoSuggestionEdits`). Both modes
+coexist on a section — focus + Suggest stays in the single-anchor
+slot; "Suggest all" populates the Map. The duplication is the cost
+of shipping bulk without a deep refactor.
+
+Cleanup: replace the single-anchor state with a Map<anchorId,
+BulkAnchorGhost> of one entry. Every handler becomes anchor-scoped;
+selectors derive the current focus from a separate
+`currentFocusedAnchorId` hint. SectionsCanvas / SectionPanel render
+the same `LithoSuggestionGhostColumns` instance set in both modes
+(N=1 for single, N>1 for bulk).
+
+**Why deferred.** The dual-state shape is dogfeed-acceptable and the
+extra LOC is bounded. Unifying touches ~115 references across many
+files and is the kind of "fundamentally-the-same-but-rewire-everything"
+refactor that should land in a quiet pre-ship window, not mid-dogfeed.
+
+**When to revisit.** Before the first external user receives the
+binary — clean state shape lowers the surface area of future
+features (#72 ghost composition edit, #76 accept-all diagnostics).
