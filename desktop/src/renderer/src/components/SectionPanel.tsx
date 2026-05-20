@@ -1586,6 +1586,9 @@ export default function SectionPanel({
                     onCommitDepth={onCreateContact ? handlePickBorehole : undefined}
                     snapToStratigraphy={snapToStratigraphy}
                     showHoverReadout={focusedColumn !== null}
+                    onDoubleClickOpen={
+                      onSelectBorehole ? () => onSelectBorehole(item.id) : undefined
+                    }
                   />
                 )
               })}
@@ -1636,6 +1639,9 @@ export default function SectionPanel({
                     bgBottomY={bgBottomY}
                     levelToScreen={levelToScreen}
                     onCommitDepth={onCreateContact ? handlePickCpt : undefined}
+                    onDoubleClickOpen={
+                      onSelectCpt ? () => onSelectCpt(item.id) : undefined
+                    }
                   />
                 )
               })}
@@ -1650,16 +1656,17 @@ export default function SectionPanel({
               levelToScreen={levelToScreen}
               plotTop={MARGIN.top}
               plotBottom={MARGIN.top + plotHeight}
-              // Both click gestures stay inert on the column itself.
-              // Single-click on a section column places a contact (the
-              // ContactPickBar overlay); double-click can't be the
-              // detail trigger because the first click already opened
-              // the picker. Detail-open lives on the right-click
-              // context menu instead ("Open detail").
+              // Single-click stays inert on the column itself — the
+              // ContactPickBar / BoreholeColumn overlays own the
+              // contact-place gesture (now debounced 250 ms behind a
+              // dbl-click gate, see useClickDebounce). Double-click on
+              // the outer column glyph opens detail; the inner pick
+              // rects forward their own dbl-click via onDoubleClickOpen
+              // so dbl-clicks on the data band also open detail.
               onSelectCpt={undefined}
               onSelectBorehole={undefined}
-              onDoubleClickCpt={undefined}
-              onDoubleClickBorehole={undefined}
+              onDoubleClickCpt={onSelectCpt}
+              onDoubleClickBorehole={onSelectBorehole}
               onColumnContextMenu={handleColumnContextMenu}
               hideStickIds={hideStickIds}
               labelModeById={labelModeById}
