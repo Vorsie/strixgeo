@@ -1174,32 +1174,35 @@ binary — clean state shape lowers the surface area of future
 features (#72 ghost composition edit, #76 accept-all diagnostics).
 
 
-## 78. Drag-to-correlate gesture — drag a ghost-layer boundary horizontally onto another investigation (Tier D — Phase 2.5 gesture)
+## 82. Drag-from-ghost-edge → correlation (Tier E — Phase 2.5 gesture follow-on)
 
 **What.** When a ghost-layer boundary is being dragged, allow the
-drag to leave the source investigation's column and snap onto the
-matching boundary of a neighbouring investigation. On release: link
-the two layers as a correlation edge (same machinery as the
-`Correlate` toolbar verb's two-click gesture). Provides a more
-direct gesture than entering correlate mode + clicking source +
-clicking target.
+drag to leave the source column horizontally and land on a
+neighbouring band — auto-accept the source ghost and create a
+correlation edge in one gesture. Two sub-variants:
 
-UX shape (TBD with dogfeed): cursor changes during the drag when
-hovering over a valid target column; the source column's ghost
-shows a "snap" preview line connecting the two; mouseup commits.
+- **B.** Drop on an accepted band → auto-accept source ghost +
+  fire `handleCorrelate(srcFormationId, targetFormationId)`.
+- **C.** Drop on another ghost → auto-accept BOTH ghosts (target
+  may straddle the parent geology, requiring a composition picker)
+  + create the edge.
 
-**Why deferred.** Substantial gesture work — the LithoSuggestionGhostColumns
-drag handler currently only knows its own (idx, edge) tuple. Needs
-hit-testing against neighbour columns' ghost rectangles, a snap
-indicator overlay, and a commit path that fires `handleCorrelate`
-instead of `handleEditLithoSuggestion`. Owner asked for it in
-dogfeed 2026-05-20; the toolbar Correlate verb (with the relabel
-"click 2 bands") is the documented workaround until then.
+**Why deferred.** Owner scope decision 2026-05-20 (debt #78 split):
+the smallest valuable slice — drag-INSIDE-correlate-mode on
+accepted bands — shipped first because it doesn't overload the
+existing ghost edge-resize handle. Variants B + C require
+direction-dominance detection on the resize drag (horizontal-vs-
+vertical motion), DOM-level hit-testing across ghost component
+instances (acceptable, the data attribute pattern from #78 ports
+directly), and an auto-accept code path that, for variant C, must
+also handle straddle + composition-picker dialogs.
 
-**When to revisit.** After the next litho dogfeed session, if the
-toolbar gesture still feels indirect / the user instinctively tries
-to drag. The drag-to-correlate gesture replaces it ergonomically;
-keep the toolbar verb as the discoverable fallback.
+**When to revisit.** Next time the dogfeed user says "I wanted to
+drag a ghost boundary to the next CPT" (the original 2026-05-20
+dogfeed complaint, still active). The toolbar Correlate gesture
+(now with the 1-drag enhancement from #78) is the workaround until
+then. Variant B is the cleaner first slice — straddle handling on C
+is non-trivial.
 
 
 ## 79. DOV Phase-2 parse-offload diagnostic + re-baseline (Tier E — performance investigation)
