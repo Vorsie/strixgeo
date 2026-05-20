@@ -327,6 +327,23 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onEdit.mock.calls[0][0]).toBe(0)
   })
 
+  it('G19 — dbl-click on a pending layer opens the composition editor (debt #72)', () => {
+    const onEdit = vi.fn()
+    const { container, getByRole } = renderGhost([makeSuggestion()], { onEdit })
+    const rect = container.querySelector('rect') as SVGRectElement
+    fireEvent.doubleClick(rect)
+    // Editor renders via a portal; query by its title.
+    expect(getByRole('heading', { name: /edit suggestion composition/i })).toBeInTheDocument()
+  })
+
+  it('G20 — dbl-click is inert when onEdit is not wired (read-only ghosts)', () => {
+    const { container } = renderGhost([makeSuggestion()]) // onEdit undefined
+    const rect = container.querySelector('rect') as SVGRectElement
+    fireEvent.doubleClick(rect)
+    // The modal heading should NOT be in the document.
+    expect(document.querySelector('h2#ghost-composition-editor-title')).toBeNull()
+  })
+
   it('G15 — pending layer rect keeps pointer cursor (drives click-to-accept)', () => {
     const { container } = renderGhost([makeSuggestion()])
     const rect = container.querySelector('rect')

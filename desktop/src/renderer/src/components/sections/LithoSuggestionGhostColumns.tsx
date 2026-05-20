@@ -20,6 +20,8 @@
 import { useEffect, useState } from 'react'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
+import { useClickDebounce } from '../../hooks/useClickDebounce'
+import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
 import {
@@ -101,14 +103,24 @@ export interface LithoSuggestionGhostColumnsProps {
    * drag live. Independent edges: dragging only one edge composes
    * with a previously-dragged other edge.
    */
-  edits?: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+  edits?: ReadonlyMap<number, {
+    depth_top_m?: number
+    depth_base_m?: number
+    suggested_lithology?: string
+    suggested_admixtures?: readonly { soil_code: string; amount: string; locally: boolean }[]
+  }>
   /**
    * Commit a drag-resize edit. The parent state owner merges it into
    * the edits Map; the next render reflects the new depth. Called
    * exactly once per mouseup (the live drag preview stays local to
    * this component until commit).
    */
-  onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
+  onEdit?: (idx: number, edit: {
+    depth_top_m?: number
+    depth_base_m?: number
+    suggested_lithology?: string
+    suggested_admixtures?: readonly { soil_code: string; amount: string; locally: boolean }[]
+  }) => void
 }
 
 /**
@@ -185,6 +197,13 @@ export default function LithoSuggestionGhostColumns({
     initialDepthM: number
     currentDepthM: number
   } | null>(null)
+
+  // Composition editor (debt #72). Tracks which suggestion index is
+  // open for edit; null when closed. Lives in this parent component
+  // so it can survive across LithoSuggestionLayer remounts and so
+  // the Save handler can call onEdit at the same level the click
+  // handlers are wired.
+  const [editIdx, setEditIdx] = useState<number | null>(null)
 
   // pxPerM derived from levelToScreen (a linear transform — sample
   // two points). Guards against zero when the section is too narrow
@@ -266,7 +285,16 @@ export default function LithoSuggestionGhostColumns({
   const left = col.nudgedX - bandHalfWidth
   const ghostWidth = bandHalfWidth * 2
 
+  // Resolve the composition seed for the editor (debt #72). Looks up
+  // the current effective composition for ``editIdx`` so the editor
+  // opens populated with the user's already-applied edits (drag-resize
+  // doesn't touch composition, but a previous composition edit would).
+  const editingLayer = editIdx !== null ? suggestions[editIdx] : null
+  const editingCommitted = editIdx !== null ? edits?.get(editIdx) : undefined
+  const editorOpen = editingLayer !== null
+
   return (
+    <>
     <g data-testid="litho-suggestion-ghosts">
       {/* Column header — "Litho" label above the plot top. */}
       <text
@@ -342,6 +370,7 @@ export default function LithoSuggestionGhostColumns({
               rejected={rejected}
               onAccept={onAccept}
               onReject={onReject}
+              onRequestEdit={onEdit ? setEditIdx : undefined}
               formationNameById={formationNameById}
             />
             {dragHandlesEnabled && (
@@ -395,6 +424,40 @@ export default function LithoSuggestionGhostColumns({
         )
       })}
     </g>
+    {/* Composition editor (debt #72). Lives in a sibling Modal that
+        renders via createPortal, so its JSX legally co-exists with
+        the SVG <g> above in the same Fragment. Closed unless the
+        user dbl-clicked a pending layer. */}
+    {editorOpen && editingLayer !== null && (
+      <LithoGhostCompositionEditor
+        open
+        // Seed initial values from the COMMITTED edit first, then
+        // fall back to the raw segmenter values. This way the editor
+        // reopens with whatever the user previously saved.
+        initialMainSoilCode={
+          editingCommitted?.suggested_lithology ?? editingLayer.suggested_lithology
+        }
+        initialAdmixtures={
+          (editingCommitted?.suggested_admixtures ??
+            editingLayer.suggested_admixtures).map(a => ({
+            soil_code: a.soil_code,
+            amount: a.amount,
+            locally: a.locally,
+          }))
+        }
+        onSave={(mainCode, admix) => {
+          if (onEdit && editIdx !== null) {
+            onEdit(editIdx, {
+              suggested_lithology: mainCode,
+              suggested_admixtures: admix,
+            })
+          }
+          setEditIdx(null)
+        }}
+        onCancel={() => setEditIdx(null)}
+      />
+    )}
+    </>
   )
 }
 
@@ -415,6 +478,7 @@ function LithoSuggestionLayer({
   rejected,
   onAccept,
   onReject,
+  onRequestEdit,
   formationNameById,
 }: {
   layer: LithoLayerSuggestion
@@ -429,8 +493,23 @@ function LithoSuggestionLayer({
   rejected: boolean
   onAccept: (idx: number) => void
   onReject: (idx: number) => void
+  /**
+   * Fired on dbl-click. Opens the parent's composition editor seeded
+   * with this layer's current composition (debt #72). Omitted by
+   * read-only mounts; when missing dbl-click is inert + accept fires
+   * twice as the default browser behaviour.
+   */
+  onRequestEdit?: (idx: number) => void
   formationNameById: ReadonlyMap<string, string>
 }): JSX.Element | null {
+  // Click-debounce gate — without it, the first click of a dbl-click
+  // sequence fires onAccept before the dbl-click handler runs, which
+  // would commit a contact at the OLD composition and only THEN open
+  // the editor. Hook lives ABOVE the early-return so the hook count
+  // is invariant (Rules of Hooks; CLAUDE.md "Temporal Dead Zone
+  // after reordering React component bodies").
+  const clickDebounce = useClickDebounce()
+
   // Convert depth-below-surface to mTAW using the investigation's elevation.
   const topMTaw = surfaceElevationM - layer.depth_top_m
   const baseMTaw = surfaceElevationM - layer.depth_base_m
@@ -480,16 +559,26 @@ function LithoSuggestionLayer({
     ? wrapLabelToLines(labelText, maxCharsForWidth(width, LABEL_FONT_SIZE), maxLines)
     : []
 
-  // Interaction: left-click → accept (unless already decided); right-click
-  // or Shift+click → reject.
+  // Interaction:
+  //   left-click  → accept (debounced 250 ms so a dbl-click can cancel)
+  //   dbl-click   → open the composition editor (cancels the queued accept)
+  //   right-click → reject (also Shift+click for keyboard parity)
+  //   accepted / rejected layers ignore all of the above (already-decided)
   function handleClick(e: React.MouseEvent): void {
     e.stopPropagation()
     if (accepted || rejected) return
     if (e.shiftKey) {
       onReject(idx)
-    } else {
-      onAccept(idx)
+      return
     }
+    clickDebounce.schedule(() => onAccept(idx))
+  }
+
+  function handleDoubleClick(e: React.MouseEvent): void {
+    e.stopPropagation()
+    if (accepted || rejected) return
+    clickDebounce.cancel()
+    if (onRequestEdit) onRequestEdit(idx)
   }
 
   function handleContextMenu(e: React.MouseEvent): void {
@@ -542,6 +631,7 @@ function LithoSuggestionLayer({
             : { cursor: 'pointer' }
         }
         onClick={accepted || rejected ? undefined : handleClick}
+        onDoubleClick={accepted || rejected ? undefined : handleDoubleClick}
         onContextMenu={accepted || rejected ? undefined : handleContextMenu}
       >
         <title>{tooltip}</title>
