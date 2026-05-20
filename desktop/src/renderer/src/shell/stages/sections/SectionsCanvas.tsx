@@ -80,6 +80,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleEditLithoSuggestion,
       handleAcceptLithoSuggestion,
       handleRejectLithoSuggestion,
+      handleUnrejectLithoSuggestion,
       // Bulk-suggest (debt #73 / Phase 3) — multi-anchor ghost state.
       bulkLithoGhosts,
       handleSuggestAllLitho,
@@ -87,6 +88,7 @@ export default function SectionsCanvas(): JSX.Element {
       refetchLithoContacts,
       handleAcceptAllBulkLitho,
       handleRejectBulkLitho,
+      handleUnrejectBulkLitho,
       handleEditBulkLitho,
       clearBulkLithoGhosts,
       pinchOutPreview,
@@ -645,6 +647,7 @@ export default function SectionsCanvas(): JSX.Element {
       rejectedIndices: lithoSuggestionRejected,
       onAccept: sectionAwareAcceptLithoSuggestion,
       onReject: handleRejectLithoSuggestion,
+      onUnreject: handleUnrejectLithoSuggestion,
       // Drag-resize edits — the user's depth modifications per ghost
       // index (Phase 2). LithoSuggestionGhostColumns reads `edits` at
       // render time so the ghost rect tracks the live drag commit.
@@ -660,6 +663,7 @@ export default function SectionsCanvas(): JSX.Element {
     lithoSuggestionRejected,
     sectionAwareAcceptLithoSuggestion,
     handleRejectLithoSuggestion,
+    handleUnrejectLithoSuggestion,
     lithoSuggestionEdits,
     handleEditLithoSuggestion,
   ])
@@ -685,6 +689,7 @@ export default function SectionsCanvas(): JSX.Element {
       anchorGhosts: bulkLithoGhosts,
       onAccept: sectionAwareAcceptBulkLitho,
       onReject: handleRejectBulkLitho,
+      onUnreject: handleUnrejectBulkLitho,
       onEdit: handleEditBulkLitho,
     }
   }, [
@@ -692,6 +697,7 @@ export default function SectionsCanvas(): JSX.Element {
     bulkLithoGhosts,
     sectionAwareAcceptBulkLitho,
     handleRejectBulkLitho,
+    handleUnrejectBulkLitho,
     handleEditBulkLitho,
   ])
 
