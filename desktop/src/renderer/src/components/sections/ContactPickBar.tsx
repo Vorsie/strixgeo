@@ -95,6 +95,14 @@ export default function ContactPickBar({
     return { depths, qc, rf }
   }, [plot])
 
+  // Single-vs-double-click gate. MUST sit above any early-return
+  // below or React throws "Rendered fewer hooks than expected" the
+  // first frame ``bgBottomY - bgTopY > 0`` flips from false to true
+  // (CLAUDE.md "Temporal Dead Zone after reordering React component
+  // bodies" / Rules of Hooks). The hook itself is cheap — one ref
+  // + a cleanup effect — so paying it on every render is free.
+  const clickDebounce = useClickDebounce()
+
   if (bgBottomY - bgTopY <= 0) return null
 
   // Inverse of levelToScreen is callable from the closure since
@@ -133,13 +141,10 @@ export default function ContactPickBar({
     setCursorY(null)
   }
 
-  // Single-vs-double-click gate. Without this, a dbl-click intent
-  // (open detail on the outer column) commits a contact on the first
-  // click because the rect's onClick fires before the outer onDblClick
-  // arrives. ``handleDoubleClick`` clears the queued single — the
-  // outer column's onDoubleClick still fires for detail-open via
-  // event bubbling.
-  const clickDebounce = useClickDebounce()
+  // Single-vs-double-click gate — hook is declared above the
+  // early-return guard (Rules of Hooks). handleDoubleClick clears
+  // the queued single; the outer column's onDoubleClick still fires
+  // for detail-open via SVG event bubbling.
   function handleClick(e: React.MouseEvent<SVGRectElement>): void {
     if (cursorY === null || !onCommitDepth) return
     // Shift held → user wants the section bg-marquee for multi-
