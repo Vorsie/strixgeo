@@ -283,6 +283,25 @@ export interface UseGeologicalModelResult {
   lithoSuggestionAccepted: ReadonlySet<number>
   /** Layer indices the user has explicitly rejected (dismissed). */
   lithoSuggestionRejected: ReadonlySet<number>
+  /**
+   * User edits to a ghost layer's depth. Keyed by suggestion index;
+   * partial — only the touched edge is set. Applied at both render
+   * time (the ghost rect reflects the drag) and accept time (the
+   * committed contact lands at the edited depth).
+   */
+  lithoSuggestionEdits: ReadonlyMap<
+    number,
+    { depth_top_m?: number; depth_base_m?: number }
+  >
+  /**
+   * Apply a depth edit to one suggestion. Partial: pass any subset
+   * of ``{ depth_top_m, depth_base_m }``. Composes with prior edits
+   * on the same idx — a second drag adds to the first.
+   */
+  handleEditLithoSuggestion: (
+    idx: number,
+    edit: { depth_top_m?: number; depth_base_m?: number },
+  ) => void
   /** Whether a suggestion fetch is in flight. */
   lithoSuggesting: boolean
   /**
@@ -2557,6 +2576,19 @@ export function useGeologicalModel({
   const [lithoSuggestionRejected, setLithoSuggestionRejected] = useState<ReadonlySet<number>>(
     new Set(),
   )
+  // User-edited depths for ghost layers. Map from suggestion index to
+  // overrides on its top and/or base depth. When present, the edited
+  // depth wins at both render time (ghost overlay paints the resized
+  // layer) and accept time (the committed contact uses the edited
+  // depth_top_m). Original (segmenter) depths stay on the suggestion
+  // row itself so a future "save pre+post for ML training" pipeline
+  // can read both — see project_remaining_v1_essentials.md and the
+  // follow-up suggestion-acceptance-log table.
+  //
+  // Cleared alongside accepted/rejected on Clear or on a new Suggest.
+  const [lithoSuggestionEdits, setLithoSuggestionEdits] = useState<
+    ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+  >(new Map())
   const [lithoSuggesting, setLithoSuggesting] = useState(false)
 
   // Stable ref to lithoFormations — lets handleAcceptLithoSuggestion close
@@ -2567,12 +2599,50 @@ export function useGeologicalModel({
     lithoFormationsRef.current = lithoFormations
   }, [lithoFormations])
 
+  // Apply a user edit to one suggestion's top and/or base depth. Partial:
+  // pass just { depth_top_m } to move only the top, just { depth_base_m }
+  // for the base. The edit is merged with any prior edit on the same idx
+  // so dragging the same layer twice composes.
+  const handleEditLithoSuggestion = useCallback(
+    (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }): void => {
+      setLithoSuggestionEdits(prev => {
+        const next = new Map(prev)
+        const existing = next.get(idx) ?? {}
+        next.set(idx, { ...existing, ...edit })
+        return next
+      })
+    },
+    [],
+  )
+
+  /**
+   * Returns the depth-effective layer for a suggestion index — original
+   * suggestion with any user edits applied. Used at accept time so the
+   * committed contact lands at the edited depth, AND by the ghost
+   * renderer so the layer rect matches the user's drag.
+   */
+  const effectiveLithoSuggestionAt = useCallback(
+    (idx: number): LithoLayerSuggestion | null => {
+      const layer = lithoSuggestions[idx]
+      if (layer === undefined) return null
+      const edit = lithoSuggestionEdits.get(idx)
+      if (!edit) return layer
+      return {
+        ...layer,
+        depth_top_m: edit.depth_top_m ?? layer.depth_top_m,
+        depth_base_m: edit.depth_base_m ?? layer.depth_base_m,
+      }
+    },
+    [lithoSuggestions, lithoSuggestionEdits],
+  )
+
   const clearLithoSuggestions = useCallback((): void => {
     setLithoSuggestions([])
     setLithoSuggestionInvestigationId(null)
     setLithoSuggestionAnchorKind(null)
     setLithoSuggestionAccepted(new Set())
     setLithoSuggestionRejected(new Set())
+    setLithoSuggestionEdits(new Map())
     // S-1 (senior-review): also release the Suggest button — if Clear
     // is hit while a suggest fetch is in flight, the spinner would
     // otherwise stay stuck until the orphaned fetch settles.
@@ -2646,7 +2716,10 @@ export function useGeologicalModel({
       const model = activeLithoModelRef.current
       const layers = lithoSuggestions
       if (!project || !model || idx < 0 || idx >= layers.length) return
-      const layer = layers[idx]
+      // Apply user edits (drag-resized depths) before sending. effectiveLayer
+      // has the user's modified top/base; the original is still in layers[idx]
+      // for the future ML training log (#4).
+      const layer = effectiveLithoSuggestionAt(idx) ?? layers[idx]
       const anchorKind = lithoSuggestionAnchorKind
       const anchorId = lithoSuggestionInvestigationId
       if (!anchorKind || !anchorId) return
@@ -2695,6 +2768,7 @@ export function useGeologicalModel({
       lithoSuggestions,
       lithoSuggestionAnchorKind,
       lithoSuggestionInvestigationId,
+      effectiveLithoSuggestionAt,
       toast,
     ],
   )
@@ -2721,7 +2795,12 @@ export function useGeologicalModel({
       const pendingIndices = layers
         .map((_, i) => i)
         .filter(i => !lithoSuggestionRejected.has(i))
-      const pendingLayers = pendingIndices.map(i => layers[i])
+      // Apply user edits (drag-resized depths) per index so the bulk
+      // commit honours the same depth modifications the per-layer
+      // accept handler would have sent.
+      const pendingLayers = pendingIndices.map(
+        i => effectiveLithoSuggestionAt(i) ?? layers[i],
+      )
       if (pendingLayers.length === 0) return
       log.debug(
         'geology',
@@ -2767,6 +2846,7 @@ export function useGeologicalModel({
       lithoSuggestionAnchorKind,
       lithoSuggestionInvestigationId,
       lithoSuggestionRejected,
+      effectiveLithoSuggestionAt,
       toast,
     ],
   )
@@ -3035,6 +3115,8 @@ export function useGeologicalModel({
     lithoSuggestionAnchorKind,
     lithoSuggestionAccepted,
     lithoSuggestionRejected,
+    lithoSuggestionEdits,
+    handleEditLithoSuggestion,
     lithoSuggesting,
     handleSuggestLitho,
     handleAcceptLithoSuggestion,
