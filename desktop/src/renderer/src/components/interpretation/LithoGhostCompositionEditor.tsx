@@ -113,25 +113,45 @@ export default function LithoGhostCompositionEditor({
     })),
   )
   const nextRowIdRef = useRef(initialAdmixtures.length)
+  // Tracks whether the dialog was open on the previous render so we
+  // can detect the false→true transition (the moment to seed state)
+  // without re-firing on every parent re-render. Dogfeed bug
+  // 2026-05-20: the parent's ghost columns pass `initialAdmixtures`
+  // through an inline `.map(...)` so the prop is a new array on
+  // every render; a naive `[open, initialAdmixtures]` dep array
+  // reset the rows mid-edit, wiping any admixture the user just
+  // added — including the dropdown selection they were about to
+  // change. Open-transition gating fixes that without losing the
+  // "seed when reopened for a different ghost layer" requirement.
+  const wasOpenRef = useRef(false)
 
-  // Reset internal state whenever the dialog reopens with a new
-  // initial composition — required because the same component
-  // instance is reused across multiple ghost layers (open → edit
-  // layer A → close → open → edit layer B), and React doesn't
-  // remount unless the key changes.
   useEffect(() => {
-    if (!open) return
-    setMainCode(initialNormalised)
-    setRows(
-      initialAdmixtures.map((a, i) => ({
-        id: i,
-        soil_code: a.soil_code,
-        amount: a.amount,
-        locally: a.locally,
-      })),
-    )
-    nextRowIdRef.current = initialAdmixtures.length
-  }, [open, initialNormalised, initialAdmixtures, nextRowIdRef])
+    if (open && !wasOpenRef.current) {
+      // false → true transition: seed from the just-passed props.
+      // We DELIBERATELY read initialNormalised / initialAdmixtures
+      // off the closure at this exact tick — that captures the
+      // intended seed for this open-cycle. Any subsequent prop
+      // identity changes while open stays true are ignored (the
+      // user is mid-edit, their state is the source of truth).
+      setMainCode(initialNormalised)
+      setRows(
+        initialAdmixtures.map((a, i) => ({
+          id: i,
+          soil_code: a.soil_code,
+          amount: a.amount,
+          locally: a.locally,
+        })),
+      )
+      nextRowIdRef.current = initialAdmixtures.length
+    }
+    wasOpenRef.current = open
+    // reason: prop-identity deps (initialNormalised / initialAdmixtures)
+    // would re-fire this effect on every parent re-render and clobber
+    // in-progress edits — the dogfeed bug. The wasOpenRef gate is the
+    // correct seeding trigger (false→true transition only), so reading
+    // the props off the closure inside the if is safe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   function addAdmixtureRow(): void {
     const id = nextRowIdRef.current++
