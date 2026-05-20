@@ -133,6 +133,70 @@ function nearestVisibleIndexBelow(
 }
 
 /**
+ * Look up the first visible neighbour in one direction and the
+ * topology between it and the dragged layer. Used by the drag clamp
+ * (debt #83 v1.2 — three regimes depending on what's between):
+ *
+ *   - PENDING immediately adjacent (no rejected between): standard
+ *     resize gesture. Clamp at the neighbour's FAR edge; snap there
+ *     auto-collapses the neighbour (the original #83 v1 behaviour
+ *     for the typical case).
+ *   - PENDING with rejected between (the dogfeed gap-fill scenario):
+ *     clamp at the neighbour's NEAR edge; no auto-collapse — the
+ *     drag fills the rejected gap and the next-pending stays put.
+ *   - ACCEPTED (immediate or via rejected): clamp at the accepted's
+ *     NEAR edge; no auto-collapse, no commit propagation past it
+ *     (its committed contact is the source of truth).
+ *   - No visible neighbour (outer edge): outer ground / open below.
+ */
+interface VisibleNeighbour {
+  idx: number
+  kind: 'pending' | 'accepted'
+  crossedRejected: boolean
+}
+
+function findVisibleNeighbourAbove(
+  idx: number,
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+): VisibleNeighbour | null {
+  let crossedRejected = false
+  for (let i = idx - 1; i >= 0; i--) {
+    if (rejectedIndices.has(i)) {
+      crossedRejected = true
+      continue
+    }
+    return {
+      idx: i,
+      kind: acceptedIndices.has(i) ? 'accepted' : 'pending',
+      crossedRejected,
+    }
+  }
+  return null
+}
+
+function findVisibleNeighbourBelow(
+  idx: number,
+  total: number,
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+): VisibleNeighbour | null {
+  let crossedRejected = false
+  for (let i = idx + 1; i < total; i++) {
+    if (rejectedIndices.has(i)) {
+      crossedRejected = true
+      continue
+    }
+    return {
+      idx: i,
+      kind: acceptedIndices.has(i) ? 'accepted' : 'pending',
+      crossedRejected,
+    }
+  }
+  return null
+}
+
+/**
  * Resolve the effective top/base of a suggestion — committed edits
  * win over the raw segmenter output. Used to compute drag bounds
  * from the live state of the neighbouring layers (debt #83 v1).
@@ -197,6 +261,7 @@ function computeDragBounds(
   idx: number,
   suggestions: readonly LithoLayerSuggestion[],
   edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
+  acceptedIndices: ReadonlySet<number>,
   rejectedIndices: ReadonlySet<number>,
 ): {
   boundsAboveM: number
@@ -206,27 +271,56 @@ function computeDragBounds(
 } {
   const own = effectiveDepths(suggestions, edits, idx)
   if (edge === 'top') {
-    const aboveIdx = nearestVisibleIndexAbove(idx, rejectedIndices)
-    const boundsAboveM =
-      aboveIdx !== null ? effectiveDepths(suggestions, edits, aboveIdx).baseM : 0
+    const above = findVisibleNeighbourAbove(idx, acceptedIndices, rejectedIndices)
+    let boundsAboveM = 0
+    let collapseIdxAbove: number | null = null
+    if (above !== null) {
+      const neighbour = effectiveDepths(suggestions, edits, above.idx)
+      if (above.kind === 'pending' && !above.crossedRejected) {
+        // Standard resize gesture: clamp at neighbour's FAR edge
+        // (its top), allowing the shared boundary to move through
+        // the neighbour. Snap there auto-collapses the neighbour.
+        boundsAboveM = neighbour.topM
+        collapseIdxAbove = above.idx
+      } else {
+        // Either pending-via-rejected-gap (fill the gap, neighbour
+        // stays put) or accepted barrier — clamp at NEAR edge with
+        // no auto-collapse.
+        boundsAboveM = neighbour.baseM
+      }
+    }
     return {
       boundsAboveM,
       boundsBelowM: own.baseM,
-      collapseIdxAbove: null,
+      collapseIdxAbove,
       collapseIdxBelow: idx,
     }
   }
   // edge === 'base'
-  const belowIdx = nearestVisibleIndexBelow(idx, suggestions.length, rejectedIndices)
-  const boundsBelowM =
-    belowIdx !== null
-      ? effectiveDepths(suggestions, edits, belowIdx).topM
-      : Number.POSITIVE_INFINITY
+  const below = findVisibleNeighbourBelow(
+    idx,
+    suggestions.length,
+    acceptedIndices,
+    rejectedIndices,
+  )
+  let boundsBelowM = Number.POSITIVE_INFINITY
+  let collapseIdxBelow: number | null = null
+  if (below !== null) {
+    const neighbour = effectiveDepths(suggestions, edits, below.idx)
+    if (below.kind === 'pending' && !below.crossedRejected) {
+      // Standard resize gesture: clamp at neighbour's FAR edge.
+      boundsBelowM = neighbour.baseM
+      collapseIdxBelow = below.idx
+    } else {
+      // Gap-fill (pending after rejected) OR accepted barrier.
+      boundsBelowM = neighbour.topM
+    }
+  }
   return {
     boundsAboveM: own.topM,
     boundsBelowM,
     collapseIdxAbove: idx,
-    collapseIdxBelow: null,
+    collapseIdxBelow,
   }
 }
 
@@ -770,6 +864,7 @@ export default function LithoSuggestionGhostColumns({
                       idx,
                       suggestions,
                       edits,
+                      acceptedIndices,
                       rejectedIndices,
                     )
                     setDrag({
@@ -802,6 +897,7 @@ export default function LithoSuggestionGhostColumns({
                       idx,
                       suggestions,
                       edits,
+                      acceptedIndices,
                       rejectedIndices,
                     )
                     setDrag({
