@@ -129,4 +129,83 @@ describe('LithoGhostCompositionEditor', () => {
     expect(admixtures[0].amount).toBe('')
     expect(admixtures[0].locally).toBe(false)
   })
+
+  // E6 — dogfeed regression (2026-05-20). The parent passes
+  // initialAdmixtures via an inline .map(...) so the array reference
+  // changes on every parent re-render. A parent re-render WHILE the
+  // editor is open must NOT clobber in-progress edits (added rows,
+  // changed dropdown selections). The pre-fix bug: "the box clears
+  // and I can't select from the admixture menu anymore."
+  it('E6 — parent re-render mid-edit does not reset added rows', () => {
+    const { rerender } = render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={[]}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    // User adds an admixture row + changes its soil code to ZN.
+    fireEvent.click(screen.getByRole('button', { name: /add admixture/i }))
+    const soilSelect = screen.getByLabelText(
+      /Admixture soil code/i,
+    ) as HTMLSelectElement
+    fireEvent.change(soilSelect, { target: { value: 'ZN' } })
+    expect(soilSelect.value).toBe('ZN')
+    // Parent re-renders with a fresh-identity initialAdmixtures
+    // (same content, new reference — the dogfeed bug trigger).
+    rerender(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={[]}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    // The added row must still be present + the user's selection
+    // preserved. Pre-fix: the row was wiped (no soil-code select
+    // visible) and the dropdown reverted to its default.
+    const soilSelectAfter = screen.getByLabelText(
+      /Admixture soil code/i,
+    ) as HTMLSelectElement
+    expect(soilSelectAfter.value).toBe('ZN')
+  })
+
+  // E7 — variant of E6: the parent passes a non-empty initialAdmixtures
+  // and re-renders mid-edit. The user's CHANGES to the seeded rows
+  // must survive.
+  it('E7 — parent re-render does not undo edits to seeded rows', () => {
+    const initial = [{ soil_code: 'GL', amount: 'M', locally: false }]
+    const { rerender } = render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={initial}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    // User changes the seeded row's soil code to VE.
+    const soilSelect = screen.getByLabelText(
+      /Admixture soil code/i,
+    ) as HTMLSelectElement
+    fireEvent.change(soilSelect, { target: { value: 'VE' } })
+    // Parent re-renders, passing a FRESH array with the original
+    // content (the inline .map(...) pattern).
+    rerender(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={[{ soil_code: 'GL', amount: 'M', locally: false }]}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const soilSelectAfter = screen.getByLabelText(
+      /Admixture soil code/i,
+    ) as HTMLSelectElement
+    expect(soilSelectAfter.value).toBe('VE')
+  })
 })
