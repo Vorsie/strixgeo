@@ -76,6 +76,8 @@ export default function SectionsCanvas(): JSX.Element {
       lithoSuggestionInvestigationId,
       lithoSuggestionAccepted,
       lithoSuggestionRejected,
+      lithoSuggestionEdits,
+      handleEditLithoSuggestion,
       handleAcceptLithoSuggestion,
       handleRejectLithoSuggestion,
       pinchOutPreview,
@@ -628,6 +630,11 @@ export default function SectionsCanvas(): JSX.Element {
       rejectedIndices: lithoSuggestionRejected,
       onAccept: sectionAwareAcceptLithoSuggestion,
       onReject: handleRejectLithoSuggestion,
+      // Drag-resize edits — the user's depth modifications per ghost
+      // index (Phase 2). LithoSuggestionGhostColumns reads `edits` at
+      // render time so the ghost rect tracks the live drag commit.
+      edits: lithoSuggestionEdits,
+      onEdit: handleEditLithoSuggestion,
     }
   }, [
     isLitho,
@@ -638,6 +645,8 @@ export default function SectionsCanvas(): JSX.Element {
     lithoSuggestionRejected,
     sectionAwareAcceptLithoSuggestion,
     handleRejectLithoSuggestion,
+    lithoSuggestionEdits,
+    handleEditLithoSuggestion,
   ])
 
   // Pinch-out ghost state — wired on the geological axis only (same
