@@ -1718,8 +1718,18 @@ export const api = {
             },
           )
         }
-        throw new Error(
-          detail.detail?.message ?? detail.detail ?? `Pinch-out failed: ${res.status}`,
+        // Preserve the backend's `code` discriminator on the thrown
+        // error so callers can branch on it without substring-matching
+        // the message. The current set of codes:
+        //   - "pinch_out_geometry_error" (HTTP 422): uncomputable tip;
+        //     the auto-retry-with-opposite-direction path in
+        //     handlePreviewPinchOut keys on this (debt #62 item 2).
+        const code = detail.detail?.code as string | undefined
+        throw Object.assign(
+          new Error(
+            detail.detail?.message ?? detail.detail ?? `Pinch-out failed: ${res.status}`,
+          ),
+          { status: res.status, code },
         )
       }
       return res.json() as Promise<PinchOutExtrapolationResponse>
