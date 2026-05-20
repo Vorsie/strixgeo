@@ -52,9 +52,6 @@ from groundmodel.infrastructure.db.models.formation_contact_orm import (
 from groundmodel.infrastructure.db.models.formation_surface_orm import (
     FormationSurfaceOrm,
 )
-from groundmodel.infrastructure.db.repositories.cross_section_repository import (
-    CrossSectionRepository,
-)
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
@@ -74,20 +71,28 @@ class PinchOutResult:
         Absolute elevation (m above datum) of the pinch-out tip.
     tip_along_m : float
         Distance along the section line (m from start) of the tip.
-    updated_section : CrossSectionOrm | None
-        Refreshed section row after its seeded set was patched, or
-        ``None`` when no section_id was provided.
     was_idempotent : bool
         True when synthetic contacts already existed for this formation and
         the use case returned them WITHOUT creating new ones. The router
         maps this to a 409 (existing ids still in the body) so the caller
         knows the invocation was a no-op.
+
+    Notes
+    -----
+    The section-seeding (explicit-content invariant) is performed by
+    the ROUTER after the use case returns, matching the pattern used
+    by AcceptLithoSuggestions / autoPopulate / discoverFromStratigraphy
+    — every other section-creating router does the seeding itself
+    instead of letting the application layer return an ORM row (debt
+    #62 item 3, fixed 2026-05-20). The seed ids equal
+    ``created_contact_ids`` in both the new-creation and idempotent
+    paths, so the router has everything it needs without a domain
+    type for the refreshed section.
     """
 
     created_contact_ids: list[UUID]
     tip_elevation_m: float
     tip_along_m: float
-    updated_section: CrossSectionOrm | None
     was_idempotent: bool = False
 
 
@@ -155,7 +160,7 @@ class ExtrapolatePinchOut(GroundModelLogger):
             crossing geometry, coordinate conversion) and return the tip
             geometry WITHOUT creating contacts, marking the surface stale,
             seeding the section, or committing.  The returned result
-            carries ``created_contact_ids=[]`` and ``updated_section=None``.
+            carries ``created_contact_ids=[]``.
             All ``ValueError`` (uncomputable geometry) paths remain active
             so the frontend ghost preview can surface a meaningful error.
 
@@ -302,7 +307,6 @@ class ExtrapolatePinchOut(GroundModelLogger):
                 created_contact_ids=[],
                 tip_elevation_m=tip_elevation_m,
                 tip_along_m=tip_along_m,
-                updated_section=None,
                 was_idempotent=False,
             )
 
@@ -347,15 +351,13 @@ class ExtrapolatePinchOut(GroundModelLogger):
                     stored_tip_elev = c.synthetic_elevation_m
             # B2: the user explicitly invoked the tool on THIS section, so
             # the explicit-content invariant requires the existing
-            # contacts to be seeded here too — not merely re-fetched.
-            seeded_section = await CrossSectionRepository(self._session).union_seeded_contact_ids(
-                section_id, project_id, set(existing_ids), operation="pinch_out"
-            )
+            # contacts to be seeded back into the section. The router
+            # does that seeding after this use case returns (debt #62
+            # item 3) — the seed-id set equals `created_contact_ids`.
             return PinchOutResult(
                 created_contact_ids=existing_ids,
                 tip_elevation_m=stored_tip_elev,
                 tip_along_m=stored_tip_along,
-                updated_section=seeded_section,
                 was_idempotent=True,
             )
 
@@ -416,19 +418,14 @@ class ExtrapolatePinchOut(GroundModelLogger):
             f"along={tip_along_m:.2f} m elev={tip_elevation_m:.3f} m"
         )
 
-        # ------------------------------------------------------------------ #
-        # 10. Seed section contacts (explicit-content invariant).             #
-        # ------------------------------------------------------------------ #
-        new_ids = {contact_tip.id, contact_twin.id}
-        updated_section = await CrossSectionRepository(self._session).union_seeded_contact_ids(
-            section_id, project_id, new_ids, operation="pinch_out"
-        )
-
+        # Section-seeding (explicit-content invariant) is handled by
+        # the router after this use case returns (debt #62 item 3) —
+        # the seed-id set equals `created_contact_ids`, so no domain
+        # type for the refreshed section needs to leak out here.
         return PinchOutResult(
             created_contact_ids=[contact_tip.id, contact_twin.id],
             tip_elevation_m=tip_elevation_m,
             tip_along_m=tip_along_m,
-            updated_section=updated_section,
         )
 
     # ---------------------------------------------------------------------- #
