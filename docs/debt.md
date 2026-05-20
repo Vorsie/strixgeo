@@ -847,25 +847,31 @@ Three reviewer items were deliberately deferred:
    dialog flow instead of `window.confirm` (53/53 green). Generic
    ConfirmDialog primitive deferred per "extract on the second copy"
    — wait until a 4th destructive confirm needs the same shape.
-2. **Pinch-out direction is hardcoded `'right'`** (`SectionsCanvas.tsx`)
-   — no UI affordance/override. A formation terminating on the west
-   (left) side, or a right-to-left-drawn section, gets an opaque 422.
-   v1-min: auto-retry the opposite direction on a direction-inconsistent
-   422 before surfacing the error; full target+direction picker before
-   the dry-run is the post-v1 enhancement (the code comment notes this).
+2. ~~**Pinch-out direction is hardcoded `'right'`** (`SectionsCanvas.tsx`)~~
+   — **v1-min DONE 2026-05-20**: `handlePreviewPinchOut` now
+   auto-retries the opposite direction on a 422 carrying the backend's
+   `code: 'pinch_out_geometry_error'` discriminator. A west-pinching
+   formation or R→L-drawn section is silently retried and the preview
+   state carries the direction that actually worked (so the commit
+   uses it too). 4 PO-tests pin the contract: happy path no-retry,
+   geometry-error retry succeeds, geometry-error retry also fails,
+   non-geometry error skips retry. **Residual:** the full
+   target+direction picker before the dry-run (the user explicitly
+   picks instead of relying on inference) stays Phase-5/post-v1
+   per the original code comment.
 3. **`PinchOutResult` returns `CrossSectionOrm`** (infra type) into the
    application layer — pre-existing pattern across seed/auto-populate
    use cases; refactor `updated_section` to a dict/domain type and
    serialise inside the use case.
 
-**Why deferred.** (1) shipped 2026-05-20 (above). (3) is pre-existing
-and out of slice scope; (2) is self-correcting via the backend 422
-(just opaque). Fixing them at the original session tail risked
-unreviewed churn across already-large changes.
+**Why deferred.** (1) + (2) v1-min shipped 2026-05-20 (above). (3) is
+pre-existing and out of slice scope. Fixing them at the original
+session tail risked unreviewed churn across already-large changes.
 
-**When to revisit.** (2) the first time a real Gavere section pinches
-west or is drawn R→L (dogfeed will surface it fast); (3) the next
-seed/auto-populate refactor — fix all the ORM-leaking results together.
+**When to revisit.** (2)'s full target+direction picker — when a real
+user wants to override the inference (the auto-retry covers the
+opaque-422 case for now); (3) the next seed/auto-populate refactor —
+fix all the ORM-leaking results together.
 
 ## 63. Desktop tsc gate absent — ~20 standing pre-existing errors, no pre-commit check (Tier E — code quality / safety net)
 
