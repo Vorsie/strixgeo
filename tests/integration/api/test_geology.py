@@ -1243,12 +1243,18 @@ async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
     model = await _create_model(async_client, project.id)
     # Insert 3 duplicates directly. The dedupe endpoint exists to
     # clean up legacy pre-migration data — fresh DBs running migration
-    # c9f4e72a3811 cannot create this shape anymore (partial unique
-    # index rejects it). Temporarily drop the index to stage the
-    # legacy-shape fixture, then restore it so the assertion runs
-    # against the same constraint set production code sees.
+    # c9f4e72a3811 (later widened by c3d7e982f146 to include depth)
+    # cannot create this shape anymore (partial unique index rejects
+    # it). Temporarily drop the index(es) to stage the legacy-shape
+    # fixture, then restore them so the assertion runs against the
+    # same constraint set production code sees. Drop both the old and
+    # the new (depth-widened) index names because the DB may have
+    # either depending on its migration history.
     await db_session.execute(
         _sql("DROP INDEX IF EXISTS uq_formation_contact_model_formation_borehole")
+    )
+    await db_session.execute(
+        _sql("DROP INDEX IF EXISTS uq_formation_contact_model_formation_borehole_depth")
     )
     now = datetime.now(UTC)
     auto_old = FCO(
@@ -1294,12 +1300,14 @@ async def test_dedupe_removes_legacy_duplicates_keeps_one_survivor(
     assert body["inspected_groups"] == 1
     assert body["duplicates_removed"] == 2
     # Restore the unique index for the rest of the session. Dedupe
-    # has left one survivor per (model, formation, anchor), so the
-    # CREATE INDEX no longer collides.
+    # has left one survivor per (model, formation, anchor, depth_top_m),
+    # so the CREATE INDEX no longer collides. Uses the depth-widened
+    # index shape (migration c3d7e982f146) so the post-test state
+    # matches production.
     await db_session.execute(
         _sql(
-            "CREATE UNIQUE INDEX uq_formation_contact_model_formation_borehole "
-            "ON formation_contact (model_id, formation_id, borehole_id) "
+            "CREATE UNIQUE INDEX uq_formation_contact_model_formation_borehole_depth "
+            "ON formation_contact (model_id, formation_id, borehole_id, depth_top_m) "
             "WHERE borehole_id IS NOT NULL"
         )
     )
