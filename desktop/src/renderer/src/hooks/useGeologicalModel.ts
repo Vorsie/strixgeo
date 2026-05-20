@@ -2753,6 +2753,14 @@ export function useGeologicalModel({
           next.add(idx)
           return next
         })
+        // Refetch litho contacts so the committed contact lands in
+        // local state. Without this the section view keeps rendering
+        // off stale `lithoContacts` — when the user focuses a
+        // different investigation and re-suggests, the previous
+        // CPT's accepted contacts vanish from view (dogfeed bug
+        // 2026-05-20). The contact IS in the DB; only local state
+        // was stale.
+        refetchLithoContacts()
       } catch (err) {
         log.error('geology', `acceptLithoSuggestion failed idx=${idx}`, err)
         toast('error', 'Could not accept the litho suggestion.')
@@ -2769,6 +2777,7 @@ export function useGeologicalModel({
       lithoSuggestionAnchorKind,
       lithoSuggestionInvestigationId,
       effectiveLithoSuggestionAt,
+      refetchLithoContacts,
       toast,
     ],
   )
@@ -2831,6 +2840,11 @@ export function useGeologicalModel({
           for (const i of pendingIndices) next.add(i)
           return next
         })
+        // Refetch litho contacts so the committed contacts land in
+        // local state — without this the previous investigation's
+        // committed contacts vanish from the section view when the
+        // user re-focuses (dogfeed bug 2026-05-20, see handler above).
+        refetchLithoContacts()
       } catch (err) {
         log.error('geology', 'acceptAllLithoSuggestions failed', err)
         toast('error', 'Could not accept all litho suggestions.')
@@ -2847,6 +2861,7 @@ export function useGeologicalModel({
       lithoSuggestionInvestigationId,
       lithoSuggestionRejected,
       effectiveLithoSuggestionAt,
+      refetchLithoContacts,
       toast,
     ],
   )
