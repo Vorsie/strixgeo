@@ -1021,32 +1021,6 @@ worth the churn/risk pre-ship (review S6).
 an Electron/Chromium bump, OR when the section context-menu surfaces
 are next consolidated (fold the lift into that pass).
 
-## 69. "Build 3D model" on the geological model silently renumbers litho display_orders (Tier E — latent ordering risk)
-
-**What.** `rebuild_model_surfaces._reorder_by_age` (rebuild_model_surfaces.py
-~line 216) loads ALL project formations (`where app_project_id ==
-project_id`, no `kind` / `litho_main_soil_code` filter) and reassigns
-compact ranks 0..N-1 across the whole set. So clicking "Build 3D model"
-on the GEOLOGICAL model rewrites the litho-unit display_orders that
-`AcceptLithoSuggestions._recompute_litho_display_orders` just set
-(litho rows have no contacts in the geological model → treated as
-"orphans", sorted after geological rows by current display_order).
-`pinned_order` guards manual drags but litho rows are never pinned.
-
-**Why deferred.** Pre-existing (not introduced by the Phase-2 span
-audit fixes); surfaced by the CONSIDER-1 review. Not a blocker — the
-litho recompute re-runs on the next Accept, and the orphan-sorted
-result preserves relative litho order in the common case. Fixing it
-means scoping `_reorder_by_age` to the model's own `kind` (a change to
-the sensitive geological Build path) which deserves its own focused
-design+review session, not an autonomous-pass inline patch.
-
-**When to revisit.** First dogfeed session where a user Builds the
-geological model AFTER accepting litho units and the litho section/3D
-band paint order visibly regresses; OR the next time `_reorder_by_age`
-/ the Build path is touched for any reason (scope it to `kind` then).
-
-
 ## 70. Decision-log table for ML training — schema scaffold + per-decision wiring (Tier D — post-MVP ML, owner-audited)
 
 **What.** Ship a `user_decision_log` table that captures every manual
