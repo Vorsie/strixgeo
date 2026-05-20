@@ -152,6 +152,44 @@ describe('ContactPickBar', () => {
     expect(texts.some(t => t.includes('Rf'))).toBe(true)
   })
 
+  it('rerendering across the early-return guard does not violate Rules of Hooks', () => {
+    // Pins the bug fixed in the dbl-click-gate follow-up: every hook
+    // (incl. useClickDebounce) MUST sit above the
+    // ``bgBottomY - bgTopY <= 0`` early-return, or React throws
+    // "Rendered fewer hooks than expected" on the frame the band's
+    // height flips from 0 to non-zero (CLAUDE.md "Temporal Dead Zone
+    // after reordering React component bodies"). Mount with the
+    // collapsed shape, then rerender expanded — the original bug
+    // crashes here.
+    const defaults: React.ComponentProps<typeof ContactPickBar> = {
+      plot: makePlot(),
+      cptType: 'CPTU',
+      cptName: 'CPT-1',
+      cptId: 'cpt-1',
+      screenX: 100,
+      halfWidth: 24,
+      surfaceElevationM: 10,
+      plotTop: 0,
+      plotBottom: 50,
+      bgTopY: 10,
+      bgBottomY: 10,  // collapsed → early return
+      levelToScreen: flipped,
+      onCommitDepth: vi.fn(),
+    }
+    const { rerender } = render(
+      <svg>
+        <ContactPickBar {...defaults} />
+      </svg>,
+    )
+    expect(() =>
+      rerender(
+        <svg>
+          <ContactPickBar {...defaults} bgBottomY={15} />
+        </svg>,
+      ),
+    ).not.toThrow()
+  })
+
   it('double-click cancels the queued single-click — no contact placed', () => {
     // Pins the dbl-click race fix: a dbl-click intent (open detail
     // on the outer column) must not commit a contact on click 1.
