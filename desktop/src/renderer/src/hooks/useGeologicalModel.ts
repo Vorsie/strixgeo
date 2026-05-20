@@ -3417,18 +3417,60 @@ export function useGeologicalModel({
       // render with loading=false, so the spinner never shows during the
       // dry_run. finally{} restores loading=false.
       setPinchOutPreview(null)
-      try {
-        const resp = await api.geology.extrapolatePinchOut(project.id, params.modelId, {
+
+      /**
+       * Inner attempt: one dry-run call at a given direction. Returns
+       * the successful response or throws — the outer try/catch turns
+       * the throw into the user-visible error path. Pulled out as a
+       * local helper so the auto-retry below can call it twice (once
+       * with the user's direction, once with the opposite) without
+       * duplicating the request body or success-set machinery.
+       */
+      const tryDirection = async (
+        direction: 'left' | 'right',
+      ): Promise<PinchOutExtrapolationResponse> => {
+        return api.geology.extrapolatePinchOut(project.id, params.modelId, {
           formation_id: params.formationId,
           target_formation_id: params.targetFormationId,
           section_id: params.sectionId,
-          direction: params.direction,
+          direction,
           dip_override_m_per_m: params.dipOverrideMMPerM ?? null,
           dry_run: true,
         })
+      }
+
+      try {
+        let usedDirection = params.direction
+        let resp: PinchOutExtrapolationResponse
+        try {
+          resp = await tryDirection(params.direction)
+        } catch (firstErr) {
+          // Debt #62 item 2 — auto-retry the opposite direction when
+          // the geometry is uncomputable in the requested direction.
+          // The backend tags this specific failure mode with
+          // `code: 'pinch_out_geometry_error'` so we can branch on it
+          // without substring-matching the human-readable message; any
+          // other 4xx / 5xx falls through to the outer catch unchanged.
+          // Today the direction is always hardcoded 'right' (the future
+          // picker is debt #62 follow-on); the retry covers formations
+          // that pinch west or sections drawn R→L without forcing the
+          // user to debug an opaque 422.
+          const errCode = (firstErr as { code?: string })?.code
+          if (errCode !== 'pinch_out_geometry_error') throw firstErr
+          const opposite: 'left' | 'right' =
+            params.direction === 'right' ? 'left' : 'right'
+          log.info(
+            'geology',
+            `pinchOut direction=${params.direction} uncomputable; ` +
+              `retrying direction=${opposite}`,
+          )
+          resp = await tryDirection(opposite)
+          usedDirection = opposite
+        }
         log.success(
           'geology',
-          `pinchOut dry_run ok along=${resp.tip_along_m.toFixed(2)} m ` +
+          `pinchOut dry_run ok direction=${usedDirection} ` +
+            `along=${resp.tip_along_m.toFixed(2)} m ` +
             `elev=${resp.tip_elevation_m.toFixed(3)} m`,
         )
         setPinchOutPreview({
@@ -3436,7 +3478,7 @@ export function useGeologicalModel({
           tip_elevation_m: resp.tip_elevation_m,
           formation_id: params.formationId,
           target_formation_id: params.targetFormationId,
-          direction: params.direction,
+          direction: usedDirection,
           section_id: params.sectionId,
           model_id: params.modelId,
         })
