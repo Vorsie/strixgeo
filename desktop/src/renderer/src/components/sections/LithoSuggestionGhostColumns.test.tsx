@@ -94,6 +94,7 @@ function renderGhost(
     onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
     onReject?: (idx: number) => void
     onAccept?: (idx: number) => void
+    onUnreject?: (idx: number) => void
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -114,6 +115,7 @@ function renderGhost(
         rejectedIndices={opts.rejectedIndices ?? new Set()}
         onAccept={opts.onAccept ?? vi.fn()}
         onReject={opts.onReject ?? vi.fn()}
+        onUnreject={opts.onUnreject}
         formations={opts.formations}
         edits={opts.edits}
         onEdit={opts.onEdit}
@@ -408,5 +410,40 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(idx).toBe(0)
     expect(edit.depth_top_m).toBeUndefined()
     expect(edit.depth_base_m).toBeCloseTo(2.5, 5)
+  })
+
+  // G23: ↻ undo icon renders on rejected layer when onUnreject wired (debt #80).
+  it('G23 — rejected layer shows ↻ undo icon when onUnreject is wired', () => {
+    const { container } = renderGhost([makeSuggestion()], {
+      rejectedIndices: new Set([0]),
+      onUnreject: vi.fn(),
+    })
+    const icon = container.querySelector('[data-testid="litho-unreject-0"]')
+    expect(icon).not.toBeNull()
+    // Pointer events must be auto on the icon group so it stays
+    // clickable even though the parent rect is pointer-events:none.
+    expect((icon as SVGGElement).style.pointerEvents).toBe('auto')
+  })
+
+  // G24: clicking the ↻ icon fires onUnreject with the layer index.
+  it('G24 — clicking ↻ icon fires onUnreject with the layer idx', () => {
+    const onUnreject = vi.fn()
+    const { container } = renderGhost([makeSuggestion()], {
+      rejectedIndices: new Set([0]),
+      onUnreject,
+    })
+    const icon = container.querySelector('[data-testid="litho-unreject-0"]')
+    fireEvent.click(icon!)
+    expect(onUnreject).toHaveBeenCalledTimes(1)
+    expect(onUnreject).toHaveBeenCalledWith(0)
+  })
+
+  // G25: icon is omitted when onUnreject prop is not wired (opt-in).
+  it('G25 — rejected layer omits ↻ icon when onUnreject is undefined', () => {
+    const { container } = renderGhost([makeSuggestion()], {
+      rejectedIndices: new Set([0]),
+      // onUnreject omitted
+    })
+    expect(container.querySelector('[data-testid="litho-unreject-0"]')).toBeNull()
   })
 })
