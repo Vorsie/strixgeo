@@ -1701,6 +1701,125 @@ async def test_rebuild_auto_reorders_display_order_by_per_anchor_depth(
     assert rows["Aalbeke"]["display_order"] == 2
 
 
+async def test_geo_rebuild_does_not_renumber_litho_unit_display_orders(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Debt #69: building the GEOLOGICAL model must not rewrite the
+    display_order of litho units that belong to a sibling
+    lithostratigraphic model.
+
+    Before the fix, ``_reorder_by_age`` loaded EVERY project formation
+    regardless of kind, treated the litho units as orphans (they have
+    no contacts in the geological model), and compacted display_orders
+    0..N-1 across the whole set — silently renumbering the litho rows
+    that AcceptLithoSuggestions._recompute_litho_display_orders had
+    just set. The fix scopes the reorder pool to formations with
+    ``parent_formation_id IS NULL AND nad_class IS NULL`` (geological
+    vocabulary only).
+    """
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+
+    project, borehole = project_with_borehole
+    # Two geological formations + one geological model + contacts so
+    # the rebuild reorder has something to do.
+    aalbeke = await _create_formation(async_client, project.id, name="Aalbeke")
+    antropogeen = await _create_formation(async_client, project.id, name="Antropogeen")
+    geo_model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, geo_model["id"], antropogeen["id"], borehole.id, depth=0.5
+    )
+    await _create_contact(
+        async_client, project.id, geo_model["id"], aalbeke["id"], borehole.id, depth=15.0
+    )
+
+    # Insert two litho units directly via the ORM with hand-picked
+    # display_orders we expect to survive the geo rebuild. They share
+    # Antropogeen as parent; their litho_main_soil_codes differ.
+    litho_zand = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Antropogeen — Zand",
+        color="#deb887",
+        display_order=100,  # arbitrary high value Build would otherwise compact
+        pinned_order=False,
+        parent_formation_id=UUID(antropogeen["id"]),
+        litho_main_soil_code="ZAND",
+    )
+    litho_klei = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Antropogeen — Klei",
+        color="#a0522d",
+        display_order=101,
+        pinned_order=False,
+        parent_formation_id=UUID(antropogeen["id"]),
+        litho_main_soil_code="KLEI",
+    )
+    db_session.add(litho_zand)
+    db_session.add(litho_klei)
+    await db_session.commit()
+
+    # Now run the geological model rebuild. Pre-fix this renumbered
+    # every project formation 0..3 by treating litho rows as orphans.
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{geo_model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200, resp.text
+
+    # Re-fetch the litho rows directly — the API list endpoint also
+    # returns them but the ORM read is the authoritative check.
+    await db_session.refresh(litho_zand)
+    await db_session.refresh(litho_klei)
+    assert litho_zand.display_order == 100, (
+        f"litho display_order was renumbered by geo rebuild "
+        f"(expected 100, got {litho_zand.display_order})"
+    )
+    assert litho_klei.display_order == 101, (
+        f"litho display_order was renumbered by geo rebuild "
+        f"(expected 101, got {litho_klei.display_order})"
+    )
+
+
+async def test_litho_rebuild_skips_age_reorder(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Debt #69: building a NON-STRATIGRAPHIC model (lithostratigraphic
+    or geotechnical) short-circuits the age-reorder pass — these
+    kinds explicitly do NOT obey strict superposition (the
+    interfingering-sand-clay rule encoded in NON_STRATIGRAPHIC_KINDS).
+    The response's ``formations_reordered`` field must be 0 regardless
+    of how many formations live in the project.
+    """
+    project, _borehole = project_with_borehole
+    # Need a geological parent model for the litho-create to be valid.
+    geo_model = await _create_model(async_client, project.id)
+    litho_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models",
+        json={
+            "name": "Litho model",
+            "kind": "lithostratigraphic",
+            "parent_geological_model_id": geo_model["id"],
+        },
+    )
+    assert litho_resp.status_code == 201, litho_resp.text
+    litho_model = litho_resp.json()
+
+    # Build the litho model — with no contacts of its own the rebuild
+    # is a no-op at the surface-rebuild layer; what we care about is
+    # that the kind short-circuit fired and formations_reordered == 0.
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho_model['id']}/surfaces/rebuild",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["formations_reordered"] == 0
+
+
 async def test_rebuild_keeps_pinned_formation_order(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
