@@ -1100,26 +1100,6 @@ deterministic, reviewable outputs first.
 200 litho accepts across ≥ 3 real projects AND the owner has spot-
 audited a representative sample. Don't fit a model on toy data.
 
-## 74. Segmenter over-segmentation — multiple same-lithology layers stacked (Tier E — segmenter tuning)
-
-**What.** Robertson-2015 / borehole segmenter sometimes outputs 4+
-adjacent same-lithology layers (e.g. 4 Sand zones with no obvious
-geological boundary between them) instead of merging into one. Owner
-hypothesis: packing-density (NAD class) transitions trigger the
-split. Current greedy-merge keeps splits when the Robertson zone
-INTEGER changes; small-amplitude zone jitter survives.
-
-**Why deferred.** Not strictly a bug — segmenter is honest about
-zone changes; merging would lose information. Tuning the merge
-threshold or exposing it as a user-tunable slider is a real design
-decision (per-investigation? per-project? global?). Workaround
-today: user manually drags adjacent layer boundaries or rejects the
-redundant ones.
-
-**When to revisit.** When ≥ 3 dogfeed sessions independently flag
-this as workflow friction; OR when the bulk-suggest workflow (debt
-#73) lands and the friction multiplies across N investigations.
-
 ## 75. Drag handles in cross-section global (zoomed-out) view (Tier E — gesture reach)
 
 **What.** Phase-2 drag-to-resize handles (6 px hit zones above /
