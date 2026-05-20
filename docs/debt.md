@@ -1212,25 +1212,46 @@ The real win is at the parse layer + eventual mirror.
 
 
 
-## 83. Snap-to-non-adjacent boundary cascade (Tier E — follow-on to #81)
+## 85. Uncouple shared boundary to insert a layer between two pending lithos (Tier D — gesture + insertion UI)
 
-**What.** Extend the snap-to-collapse gesture from #81 so the snap
-target set includes ALL other boundaries in the column, not just the
-dragged layer's own opposite edge. Dragging past the adjacent
-boundary snaps to the next-further one and auto-rejects every layer
-swept over.
+**What.** Dogfeed 2026-05-20 (alongside the snap-to-collide ask):
+"of course we need to be able to uncouple 2 lithologies to add a
+third in between through a protected right click action."
 
-**Why deferred.** v1 of #81 (shipped 2026-05-20) snaps only to the
-own opposite edge — the dogfeed user's exact ask ("pull down the
-upper boundary above or the lower boundary upwards and it needs to
-snap to the other boundary"). Cascade across multiple layers needs
-the shared-boundary commit to cascade as well (not just self +
-adjacent), which is bigger than the v1 footprint and changes the
-two-call onEdit contract into an N-call one.
+The shared-boundary invariant (`base_i == top_{i+1}` enforced by the
+drag commit + the snap clamp #83 v1) means the user cannot pull
+adjacent layers apart to make room for a NEW layer between them.
+The proposed gesture: right-click on a shared boundary line → context
+menu "Insert layer here…" → opens the composition picker for the new
+layer → on save, the boundary becomes TWO (the upper layer's base
+moves up, the lower layer's top moves down, the new layer M fills
+the gap).
 
-**When to revisit.** When the dogfeed user drags past the immediate
-boundary expecting further collapse — the symptom that proves
-cascade is worth the contract change.
+"Protected right click" = don't make it the primary gesture; the
+left-click + drag stays clamped per #83 v1. Right-click is the
+explicit escape hatch for the rare "I need a sub-layer here"
+workflow.
+
+**Why deferred.** Three design pieces unresolved:
+
+1. **Where does the new layer get its thickness?** Halve the
+   adjacent layer's space? Ask the user via the picker? Default to
+   a small sentinel and let them drag?
+2. **What composition does the picker prefill?** Inherit from one
+   of the neighbours, or blank? If blank, the picker's existing
+   no-default path applies.
+3. **Hit target for the right-click** — the shared-boundary line
+   currently has no hit zone of its own (the layer rects own
+   click/right-click). A new ~6 px tall transparent strip overlaid
+   on each boundary, similar to the existing drag handle but with
+   onContextMenu wired.
+
+**When to revisit.** When the dogfeed user hits the "I want to add
+a sub-layer between these two" workflow and the existing
+LithoCompositionPickerDialog manual-create path proves too indirect
+(today: pick "manual" anchor mode + drag in the new layer's depths
+via the composition picker, then drag-resize the neighbours to make
+room). The right-click gesture collapses that to one menu click.
 
 ## 84. Merge prompt when dragging same-NAD-class same-lithology layers (Tier D — geotechnically-aware edit)
 
