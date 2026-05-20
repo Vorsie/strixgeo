@@ -1220,3 +1220,47 @@ dogfeed 2026-05-20; the toolbar Correlate verb (with the relabel
 toolbar gesture still feels indirect / the user instinctively tries
 to drag. The drag-to-correlate gesture replaces it ergonomically;
 keep the toolbar verb as the discoverable fallback.
+
+
+## 79. DOV Phase-2 parse-offload diagnostic + re-baseline (Tier E — performance investigation)
+
+**What.** The current cold-import wall-clock for 316 deep CPTs is
+~54 s (per `CLAUDE.local.md`). Benchmark says parse is ~170 ms per
+CPT on the event loop, so 316 × 170 ms ≈ 53.7 s — the entire wall
+matches parse, not network. Memory notes a `ProcessPoolExecutor`
+parse offload is implemented (`PARSE_OFFLOAD_MIN_BYTES = 50_000`)
+that should bring this to roughly `316 × 170 ms / Ncores ≈ 13 s
+on a 4-core box`. The fact that we still see ~54 s suggests one
+of: (a) the offload isn't firing for some reason, (b) the byte
+threshold is too high in practice, (c) the baseline was measured
+before the offload landed and was never re-run.
+
+Plan when revisited:
+1. Add per-CPT decomposition timing in Phase 2 — network wait,
+   ElementTree parse, Polars frame build (3 timers, ~30 LOC).
+2. Re-import the same 316-CPT bbox cold; log the split.
+3. If parse is on the event loop → check why offload isn't firing
+   (threshold, ProcessPool initialisation, single-import path
+   that skips it).
+4. If parse IS in the pool but wall is still high → check process
+   start-up cost (cold-pool overhead is high; warm-pool reuse
+   might be needed).
+
+This bench-then-decide approach is cheap (3-min dogfeed import +
+30 LOC) and avoids speculative refactor of the wrong layer.
+
+**Why deferred.** Phase-2 throughput isn't a v1.0 MVP blocker — the
+import works, just takes longer than ideal. The decomposition is a
+prerequisite for any further work (local DOV mirror, parse-pool
+warm-up, etc.) so it should land BEFORE the next attempt at speed.
+
+**When to revisit.** Next time the dogfeed import noticeably annoys
+the user with wait time; OR before the first external distribution
+where speed-of-first-import shapes the trial experience. Local
+DOV mirror is the ceiling-break above this (already noted in
+`CLAUDE.md` "DOV Import" section).
+
+ChatGPT cross-check 2026-05-20: confirmed the format-switch (JSON
+vs XML) is marginal (<1 s) and HTTP/2 is irrelevant for this
+workload (large single-document exports, not many small requests).
+The real win is at the parse layer + eventual mirror.
