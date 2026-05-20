@@ -290,6 +290,49 @@ describe('SectionPanel — investigation columns', () => {
     restore()
   })
 
+  it('Esc with nothing else to peel calls onClose (back to map view)', async () => {
+    // Final LIFO level of the section's Esc peel: when no context menu
+    // is open, no correlate source armed, not in correlate mode, no
+    // focused column — the Esc closes the section panel via onClose,
+    // which the parent (SectionsCanvas) wires to clearSectionSelection,
+    // and the canvas falls back to MapView.
+    const restore = withFixedSize(800, 400)
+    const onClose = vi.fn()
+    render(
+      <SectionPanel
+        section={horizontal1km}
+        zEpsg={5710}
+        onClose={onClose}
+      />,
+    )
+    await new Promise(r => setTimeout(r, 0))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    restore()
+  })
+
+  it('Esc inside a text input does not call onClose (preserves text-edit Esc)', async () => {
+    // Guard from the existing Esc handler — typing targets keep their
+    // own Esc semantics (e.g. cancelling IME composition).
+    const restore = withFixedSize(800, 400)
+    const onClose = vi.fn()
+    render(
+      <SectionPanel
+        section={horizontal1km}
+        zEpsg={5710}
+        onClose={onClose}
+      />,
+    )
+    await new Promise(r => setTimeout(r, 0))
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    document.body.removeChild(input)
+    restore()
+  })
+
   it('adds an offset hint to the name label when |offset| ≥ 1 m', async () => {
     const restore = withFixedSize(800, 400)
     // Borehole at y=12 → offset = -12 m (right side of the line per

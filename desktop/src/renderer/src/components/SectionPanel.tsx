@@ -1157,11 +1157,17 @@ export default function SectionPanel({
         correlateGestureState.onExitMode()
       } else if (focusedColumn !== null) {
         exitFocus()
+      } else if (onClose) {
+        // L-final: nothing else to peel — deselect the section, which
+        // unmounts SectionPanel and falls back to the section map view
+        // (SectionsCanvas renders MapView when selectedSectionId is
+        // null). Mirrors the Data-stage Esc-to-map peel (debt #43).
+        onClose()
       }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [contextMenu, focusedColumn, exitFocus, dismissContextMenu, correlateGestureState])
+  }, [contextMenu, focusedColumn, exitFocus, dismissContextMenu, correlateGestureState, onClose])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
