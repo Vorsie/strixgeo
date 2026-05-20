@@ -339,6 +339,53 @@ describe('BoreholeColumn — N-strip rendering', () => {
     expect(onCommitDepth.mock.calls[0][0].snapped).toBe(false)
   })
 
+  it('rerendering across the early-return guard does not violate Rules of Hooks', () => {
+    // Pins the bug fixed in the dbl-click-gate follow-up: every hook
+    // (incl. useClickDebounce) MUST sit above the
+    // ``enabledSlots.length === 0`` early-return, or React throws
+    // "Rendered fewer hooks than expected" the frame a borehole
+    // gains its first observation channel (CLAUDE.md "Temporal Dead
+    // Zone after reordering React component bodies"). Mount with no
+    // observations (empty enabledSlots → early return), then
+    // rerender with an observation — the original bug crashes here.
+    const empty = makeDetail([])
+    const populated = makeDetail([
+      makeObservation('formal_stratigraphy', [
+        makeLayer({ id: 'f1', top_m: 0, base_m: 5 }),
+      ]),
+    ])
+    const { rerender } = render(
+      <svg>
+        <BoreholeColumn
+          detail={empty}
+          channels={DEFAULT_BOREHOLE_CHANNELS}
+          screenX={100}
+          halfWidth={20}
+          surfaceElevationM={10}
+          plotTop={0}
+          plotBottom={50}
+          levelToScreen={flipped}
+        />
+      </svg>,
+    )
+    expect(() =>
+      rerender(
+        <svg>
+          <BoreholeColumn
+            detail={populated}
+            channels={DEFAULT_BOREHOLE_CHANNELS}
+            screenX={100}
+            halfWidth={20}
+            surfaceElevationM={10}
+            plotTop={0}
+            plotBottom={50}
+            levelToScreen={flipped}
+          />
+        </svg>,
+      ),
+    ).not.toThrow()
+  })
+
   it('double-click cancels the queued single-click — no contact placed', () => {
     // Pins the dbl-click race fix: a dbl-click intent (open detail
     // on the outer column) must not commit a contact on click 1.
