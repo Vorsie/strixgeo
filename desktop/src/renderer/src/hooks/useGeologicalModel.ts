@@ -83,6 +83,24 @@ export interface LumpingCollision {
 }
 
 /**
+ * One user edit on a ghost suggestion. Each field is partial — the
+ * caller sends only the edges / fields they touched. ``depth_top_m``
+ * + ``depth_base_m`` come from drag-resize (Phase 2);
+ * ``suggested_lithology`` + ``suggested_admixtures`` come from the
+ * composition editor (Phase 2.5 / debt #72).
+ */
+export interface LithoSuggestionEdit {
+  depth_top_m?: number
+  depth_base_m?: number
+  suggested_lithology?: string
+  suggested_admixtures?: readonly {
+    soil_code: string
+    amount: string
+    locally: boolean
+  }[]
+}
+
+/**
  * One investigation's ghost-suggestion state in the bulk-suggest
  * Map (debt #73). Mirrors the per-anchor structure the single-
  * anchor state spreads across several useState hooks; collected
@@ -99,8 +117,8 @@ export interface BulkAnchorGhost {
   accepted: ReadonlySet<number>
   /** Layer indices the user has explicitly rejected. */
   rejected: ReadonlySet<number>
-  /** User-edited depths per layer (drag-resize). */
-  edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+  /** User edits per layer — depth + composition overrides. */
+  edits: ReadonlyMap<number, LithoSuggestionEdit>
 }
 
 export interface UseGeologicalModelResult {
@@ -312,7 +330,7 @@ export interface UseGeologicalModelResult {
    */
   lithoSuggestionEdits: ReadonlyMap<
     number,
-    { depth_top_m?: number; depth_base_m?: number }
+    LithoSuggestionEdit
   >
   /**
    * Apply a depth edit to one suggestion. Partial: pass any subset
@@ -321,7 +339,7 @@ export interface UseGeologicalModelResult {
    */
   handleEditLithoSuggestion: (
     idx: number,
-    edit: { depth_top_m?: number; depth_base_m?: number },
+    edit: LithoSuggestionEdit,
   ) => void
   /** Whether a suggestion fetch is in flight. */
   lithoSuggesting: boolean
@@ -377,7 +395,7 @@ export interface UseGeologicalModelResult {
   handleEditBulkLitho: (
     anchorId: string,
     idx: number,
-    edit: { depth_top_m?: number; depth_base_m?: number },
+    edit: LithoSuggestionEdit,
   ) => void
   /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
   clearBulkLithoGhosts: () => void
@@ -2653,18 +2671,18 @@ export function useGeologicalModel({
   const [lithoSuggestionRejected, setLithoSuggestionRejected] = useState<ReadonlySet<number>>(
     new Set(),
   )
-  // User-edited depths for ghost layers. Map from suggestion index to
-  // overrides on its top and/or base depth. When present, the edited
-  // depth wins at both render time (ghost overlay paints the resized
-  // layer) and accept time (the committed contact uses the edited
-  // depth_top_m). Original (segmenter) depths stay on the suggestion
-  // row itself so a future "save pre+post for ML training" pipeline
-  // can read both — see project_remaining_v1_essentials.md and the
-  // follow-up suggestion-acceptance-log table.
+  // User edits to a ghost layer's depth and/or composition. Map from
+  // suggestion index to partial overrides on top/base depth (Phase 2
+  // drag-resize) and main soil code / admixtures (Phase 2.5 ghost-
+  // composition editor, debt #72). When present, the edited values
+  // win at both render time (the ghost overlay paints the changed
+  // rect / colour / label) and accept time (the committed contact
+  // uses the edited values). Original (segmenter) values stay on the
+  // suggestion row itself so a future ML training log can read both.
   //
   // Cleared alongside accepted/rejected on Clear or on a new Suggest.
   const [lithoSuggestionEdits, setLithoSuggestionEdits] = useState<
-    ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+    ReadonlyMap<number, LithoSuggestionEdit>
   >(new Map())
   const [lithoSuggesting, setLithoSuggesting] = useState(false)
 
@@ -2696,7 +2714,7 @@ export function useGeologicalModel({
   // for the base. The edit is merged with any prior edit on the same idx
   // so dragging the same layer twice composes.
   const handleEditLithoSuggestion = useCallback(
-    (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }): void => {
+    (idx: number, edit: LithoSuggestionEdit): void => {
       setLithoSuggestionEdits(prev => {
         const next = new Map(prev)
         const existing = next.get(idx) ?? {}
@@ -2723,6 +2741,15 @@ export function useGeologicalModel({
         ...layer,
         depth_top_m: edit.depth_top_m ?? layer.depth_top_m,
         depth_base_m: edit.depth_base_m ?? layer.depth_base_m,
+        // Composition overrides (Phase 2.5 / debt #72). Lithology
+        // cast safe — the editor's dropdown is constrained to
+        // BaseLithology codes (ZAND / KLEI / SILT / GRIND / VEEN).
+        suggested_lithology:
+          (edit.suggested_lithology as LithoLayerSuggestion['suggested_lithology']) ??
+          layer.suggested_lithology,
+        suggested_admixtures: edit.suggested_admixtures
+          ? edit.suggested_admixtures.map(a => ({ ...a }))
+          : layer.suggested_admixtures,
       }
     },
     [lithoSuggestions, lithoSuggestionEdits],
@@ -2787,7 +2814,7 @@ export function useGeologicalModel({
     (
       anchorId: string,
       idx: number,
-      edit: { depth_top_m?: number; depth_base_m?: number },
+      edit: LithoSuggestionEdit,
     ): void => {
       setBulkLithoGhosts(prev => {
         const existing = prev.get(anchorId)
@@ -3139,6 +3166,12 @@ export function useGeologicalModel({
             ...raw,
             depth_top_m: edit.depth_top_m ?? raw.depth_top_m,
             depth_base_m: edit.depth_base_m ?? raw.depth_base_m,
+            suggested_lithology:
+              (edit.suggested_lithology as LithoLayerSuggestion['suggested_lithology']) ??
+              raw.suggested_lithology,
+            suggested_admixtures: edit.suggested_admixtures
+              ? edit.suggested_admixtures.map(a => ({ ...a }))
+              : raw.suggested_admixtures,
           }
         : raw
       try {
@@ -3208,7 +3241,8 @@ export function useGeologicalModel({
           .map((_, i) => i)
           .filter(i => !ghost.rejected.has(i))
         if (pendingIndices.length === 0) continue
-        // Apply edits per index.
+        // Apply edits per index — depth + composition overrides
+        // (Phase 2 + Phase 2.5 / debt #72).
         const pendingLayers = pendingIndices.map(i => {
           const raw = ghost.suggestions[i]
           const edit = ghost.edits.get(i)
@@ -3217,6 +3251,12 @@ export function useGeologicalModel({
                 ...raw,
                 depth_top_m: edit.depth_top_m ?? raw.depth_top_m,
                 depth_base_m: edit.depth_base_m ?? raw.depth_base_m,
+                suggested_lithology:
+                  (edit.suggested_lithology as LithoLayerSuggestion['suggested_lithology']) ??
+                  raw.suggested_lithology,
+                suggested_admixtures: edit.suggested_admixtures
+                  ? edit.suggested_admixtures.map(a => ({ ...a }))
+                  : raw.suggested_admixtures,
               }
             : raw
         })
