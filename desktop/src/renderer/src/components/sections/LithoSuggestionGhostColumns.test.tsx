@@ -446,4 +446,68 @@ describe('LithoSuggestionGhostColumns', () => {
     })
     expect(container.querySelector('[data-testid="litho-unreject-0"]')).toBeNull()
   })
+
+  // -----------------------------------------------------------------
+  // Snap-to-collapse (debt #81) — dragging an edge onto the opposite
+  // edge snaps and auto-rejects the layer on mouseup.
+  // -----------------------------------------------------------------
+
+  // G26: drag layer top down ~200 px (full layer height) → snap onto
+  // own base → indicator visible + mouseup fires onReject(0).
+  it('G26 — drag top down onto base snaps and auto-rejects the layer', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit, onReject },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')
+    fireEvent.mouseDown(topHandle!, { clientY: 0 })
+    // Move 200 px = 2 m down → currentDepth lands on base (2 m).
+    fireEvent.mouseMove(document, { clientY: 200 })
+    // Snap indicator is visible during the drag.
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
+    fireEvent.mouseUp(document)
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(0)
+    // onEdit still fires the depth commit at the snap point.
+    expect(onEdit).toHaveBeenCalledWith(0, { depth_top_m: 2 })
+  })
+
+  // G27: drag top down only ~100 px (midway) → NOT snapped → no
+  // reject, no indicator, depth edit fires at the moved position.
+  it('G27 — drag top within layer (not near base) does not snap or reject', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit, onReject },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')
+    fireEvent.mouseDown(topHandle!, { clientY: 0 })
+    fireEvent.mouseMove(document, { clientY: 100 }) // 1 m down — midway
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
+    fireEvent.mouseUp(document)
+    expect(onReject).not.toHaveBeenCalled()
+    expect(onEdit).toHaveBeenCalledWith(0, { depth_top_m: 1 })
+  })
+
+  // G28: drag base up onto top → snap from the opposite direction.
+  it('G28 — drag base up onto top snaps and auto-rejects the layer', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit, onReject },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // base sits at depth 2 → clientY = 200 (per levelToScreen).
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 0 }) // 2 m up → lands on top
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
+    fireEvent.mouseUp(document)
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(0)
+    expect(onEdit).toHaveBeenCalledWith(0, { depth_base_m: 0 })
+  })
 })
