@@ -56,6 +56,7 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
 from groundmodel.infrastructure.db.models.geological_model_orm import (
     GeologicalModelOrm,
 )
+from groundmodel.shared.constants.model_kind import NON_STRATIGRAPHIC_KINDS
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
@@ -201,20 +202,43 @@ class RebuildModelSurfaces(GroundModelLogger):
             contacts_by_anchor[anchor].append((depth, fid))
             with_contacts.add(fid)
 
-        # Find the model's project so we can include orphan formations
-        # (those without any contact in this model) in the final
-        # ordering — they keep their existing display_order's relative
-        # position rather than getting reshuffled by the algorithm.
-        project_id = (
+        # Debt #69: load the model's kind AND project_id together so we
+        # can scope the formation set + short-circuit on non-stratigraphic
+        # models. Without this, building any model rewrote display_order
+        # across EVERY project formation regardless of kind — so a
+        # geological Build silently renumbered the litho units that
+        # AcceptLithoSuggestions._recompute_litho_display_orders just
+        # set, treating them as orphans sorted after all geo rows.
+        model_row = (
             await self._session.execute(
-                select(GeologicalModelOrm.app_project_id).where(GeologicalModelOrm.id == model_id)
+                select(
+                    GeologicalModelOrm.app_project_id,
+                    GeologicalModelOrm.kind,
+                ).where(GeologicalModelOrm.id == model_id)
             )
-        ).scalar_one()
+        ).one()
+        project_id = model_row.app_project_id
+        kind = model_row.kind
+        # Non-stratigraphic kinds (lithostratigraphic, geotechnical) do
+        # not obey strict age superposition — interfingering sand/clay
+        # is real geology — so age-based reorder is meaningless for them
+        # AND would clobber the per-instance ordinal display_orders set
+        # by the litho accept path. The crossings validator already
+        # honours this invariant via the same constant.
+        if kind in NON_STRATIGRAPHIC_KINDS:
+            return 0
+        # Geological build: include ONLY geological-level formations in
+        # the reorder pool. Litho units have parent_formation_id NOT
+        # NULL; geotech units have nad_class NOT NULL. Filtering both
+        # out scopes the reorder to the geological vocabulary even
+        # though geological_formation is shared across all three kinds.
         all_formations = list(
             (
                 await self._session.execute(
                     select(GeologicalFormationOrm).where(
-                        GeologicalFormationOrm.app_project_id == project_id
+                        GeologicalFormationOrm.app_project_id == project_id,
+                        GeologicalFormationOrm.parent_formation_id.is_(None),
+                        GeologicalFormationOrm.nad_class.is_(None),
                     )
                 )
             )
