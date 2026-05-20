@@ -341,6 +341,19 @@ interface Props {
     onAccept: (idx: number) => void
     /** Fire when the user right-clicks / Shift-clicks to reject. */
     onReject: (idx: number) => void
+    /**
+     * Drag-resize state (Phase 2). Map from suggestion index to user
+     * edits on its top / base depth. The ghost renderer applies these
+     * at render time so the layer rect tracks the user's drag commit.
+     * Empty Map / undefined = no edits.
+     */
+    edits?: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+    /**
+     * Commit a drag edit to one suggestion. Partial: set just the
+     * touched edge. The state owner merges into existing edits so
+     * dragging the same edge twice composes.
+     */
+    onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
   }
   /**
    * Pinch-out ghost-preview state (ghost-UX slice).  When present, a
@@ -1735,6 +1748,11 @@ export default function SectionPanel({
                 // Pass formations so the ghost tooltip can show the parent
                 // formation name from suggestion.parent_formation_id.
                 formations={formations}
+                // Phase 2 drag-resize state — the renderer applies edits
+                // on top of the raw suggestions and commits new edits
+                // via onEdit on mouseup.
+                edits={lithoGhostState.edits}
+                onEdit={lithoGhostState.onEdit}
               />
             )}
 
