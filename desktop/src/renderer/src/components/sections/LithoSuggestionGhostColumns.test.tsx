@@ -255,6 +255,78 @@ describe('LithoSuggestionGhostColumns', () => {
     expect((rect as SVGRectElement).style.pointerEvents).toBe('none')
   })
 
+  it('G16 — shared boundary: dragging interior layer top fires onEdit on BOTH dragged + above', () => {
+    // Owner directive 2026-05-20 (reversal of the earlier independent-
+    // edges design). Dragging layer 1's TOP edge = the boundary between
+    // layer 0 and layer 1. Both layers' touching edges must move
+    // together so the join stays one boundary (no whitespace, no
+    // overlap). The drag commit fires onEdit twice: depth_top_m on
+    // layer 1 + depth_base_m on layer 0, both at the same depth.
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
+    expect(topHandle).not.toBeNull()
+    fireEvent.mouseDown(topHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 250 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalledTimes(2)
+    // First call moves layer 1's top.
+    expect(onEdit.mock.calls[0][0]).toBe(1)
+    expect(onEdit.mock.calls[0][1].depth_top_m).toBeCloseTo(2.5, 5)
+    // Second call moves layer 0's base to match.
+    expect(onEdit.mock.calls[1][0]).toBe(0)
+    expect(onEdit.mock.calls[1][1].depth_base_m).toBeCloseTo(2.5, 5)
+  })
+
+  it('G17 — shared boundary: dragging interior layer base fires onEdit on BOTH dragged + below', () => {
+    // Mirror of G16 for the BASE edge. Drag layer 0's base → both
+    // layer 0's base AND layer 1's top move.
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 250 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalledTimes(2)
+    expect(onEdit.mock.calls[0][0]).toBe(0)
+    expect(onEdit.mock.calls[0][1].depth_base_m).toBeCloseTo(2.5, 5)
+    expect(onEdit.mock.calls[1][0]).toBe(1)
+    expect(onEdit.mock.calls[1][1].depth_top_m).toBeCloseTo(2.5, 5)
+  })
+
+  it('G18 — outer edges (idx=0 top, last idx base) fire only ONE onEdit (no adjacent)', () => {
+    // The suggestion list's outer boundary has no adjacent layer to
+    // share — only the dragged edge updates. Top edge of layer 0:
+    // no layer above. Base edge of last layer: no layer below.
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit },
+    )
+    // Drag layer 0's top (outer edge, no above-neighbour).
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')
+    fireEvent.mouseDown(topHandle!, { clientY: 100 })
+    fireEvent.mouseMove(document, { clientY: 110 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    expect(onEdit.mock.calls[0][0]).toBe(0)
+  })
+
   it('G15 — pending layer rect keeps pointer cursor (drives click-to-accept)', () => {
     const { container } = renderGhost([makeSuggestion()])
     const rect = container.querySelector('rect')

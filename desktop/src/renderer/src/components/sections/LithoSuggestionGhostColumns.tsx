@@ -214,11 +214,28 @@ export default function LithoSuggestionGhostColumns({
     }
     function handleUp(): void {
       if (!drag) return
-      const edit =
-        drag.edge === 'top'
-          ? { depth_top_m: drag.currentDepthM }
-          : { depth_base_m: drag.currentDepthM }
-      if (onEdit) onEdit(drag.idx, edit)
+      const final = drag.currentDepthM
+      // Shared-boundary commit (owner directive 2026-05-20 reversal of
+      // the earlier "independent edges" design). A boundary BETWEEN
+      // two adjacent layers is one boundary, not two — moving it slides
+      // both the layer above's base AND the layer below's top to the
+      // same depth. This prevents whitespace gaps + overlapping ranges
+      // (both flagged as geologically nonsense on dogfeed).
+      //
+      // Edges at the suggestion list's outer boundary (idx 0's top,
+      // last idx's base) have no adjacent layer to move — they update
+      // only the dragged layer's edge.
+      if (drag.edge === 'top') {
+        if (onEdit) onEdit(drag.idx, { depth_top_m: final })
+        if (drag.idx > 0 && onEdit) {
+          onEdit(drag.idx - 1, { depth_base_m: final })
+        }
+      } else {
+        if (onEdit) onEdit(drag.idx, { depth_base_m: final })
+        if (drag.idx < suggestions.length - 1 && onEdit) {
+          onEdit(drag.idx + 1, { depth_top_m: final })
+        }
+      }
       setDrag(null)
     }
     document.addEventListener('mousemove', handleMove)
@@ -265,12 +282,30 @@ export default function LithoSuggestionGhostColumns({
 
       {suggestions.map((rawLayer, idx) => {
         // Resolve effective depths: committed edits → live drag override.
+        // Shared-boundary preview: if the user is dragging an adjacent
+        // layer's matching edge, this layer's opposite edge follows
+        // live so the user sees the join move together.
         const committed = edits?.get(idx)
         let topM = committed?.depth_top_m ?? rawLayer.depth_top_m
         let baseM = committed?.depth_base_m ?? rawLayer.depth_base_m
-        if (drag?.idx === idx) {
-          if (drag.edge === 'top') topM = drag.currentDepthM
-          else baseM = drag.currentDepthM
+        if (drag) {
+          // This layer's own edge is being dragged.
+          if (drag.idx === idx) {
+            if (drag.edge === 'top') topM = drag.currentDepthM
+            else baseM = drag.currentDepthM
+          }
+          // Layer (idx-1)'s base is the same boundary as this layer's
+          // top. When the user drags the layer ABOVE's base, follow it
+          // on this layer's top so the boundary stays one line.
+          if (drag.idx === idx - 1 && drag.edge === 'base') {
+            topM = drag.currentDepthM
+          }
+          // Mirror: layer (idx+1)'s top is the same boundary as this
+          // layer's base. Drag the layer BELOW's top → follow on this
+          // layer's base.
+          if (drag.idx === idx + 1 && drag.edge === 'top') {
+            baseM = drag.currentDepthM
+          }
         }
         const effective: LithoLayerSuggestion = {
           ...rawLayer,
