@@ -5,7 +5,7 @@
 // Sections stage.  All handlers are sourced from useShell() — no props accepted
 // (matches the StageDescriptor.ToolbarComponent contract).
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
@@ -61,7 +61,14 @@ export default function SectionsToolbar(): JSX.Element {
       handleAcceptAllLithoSuggestions,
       clearLithoSuggestions,
       handleLoadBackdropSurfaces,
+      // Bulk-suggest (debt #73 / Phase 3).
+      bulkLithoGhosts,
+      bulkLithoSuggesting,
+      handleSuggestAllLitho,
+      handleAcceptAllBulkLitho,
+      clearBulkLithoGhosts,
     },
+    visibleCpts,
     coordinator: {
       selectedId,
       selectedBoreholeId,
@@ -81,6 +88,9 @@ export default function SectionsToolbar(): JSX.Element {
   const [exportingPlaxis, setExportingPlaxis] = useState(false)
   const [exportingDxf, setExportingDxf] = useState(false)
   const [acceptingAll, setAcceptingAll] = useState(false)
+  // Bulk-suggest (debt #73 / Phase 3) — confirmation modal + accept-all state.
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
+  const [acceptingAllBulk, setAcceptingAllBulk] = useState(false)
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
@@ -273,6 +283,56 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }
 
+  // Bulk-suggest (debt #73 / Phase 3) — derive the anchors list from
+  // visible CPTs + boreholes, filtered by the section's exclusion sets.
+  // Skips anchors with no elevation (the ghost overlay needs surface Z
+  // to position layers). On click the confirmation dialog has already
+  // fired; this kicks off the fan-out.
+  const bulkAnchors = useMemo(() => {
+    if (!selectedSection) return [] as {
+      kind: 'cpt' | 'borehole'
+      id: string
+      surfaceElevationM: number | null
+    }[]
+    const excludedCptIds = new Set(selectedSection.excluded_cpt_ids ?? [])
+    const excludedBhIds = new Set(selectedSection.excluded_borehole_ids ?? [])
+    const out: {
+      kind: 'cpt' | 'borehole'
+      id: string
+      surfaceElevationM: number | null
+    }[] = []
+    for (const c of visibleCpts) {
+      if (excludedCptIds.has(c.id)) continue
+      if (c.elevation_m == null) continue
+      out.push({ kind: 'cpt', id: c.id, surfaceElevationM: c.elevation_m })
+    }
+    for (const b of visibleBoreholes) {
+      if (excludedBhIds.has(b.id)) continue
+      if (b.elevation_m == null) continue
+      out.push({ kind: 'borehole', id: b.id, surfaceElevationM: b.elevation_m })
+    }
+    return out
+  }, [selectedSection, visibleCpts, visibleBoreholes])
+
+  async function handleBulkSuggestConfirm(): Promise<void> {
+    setBulkConfirmOpen(false)
+    if (bulkAnchors.length === 0) return
+    await handleSuggestAllLitho(bulkAnchors)
+  }
+
+  async function handleAcceptAllBulk(): Promise<void> {
+    if (bulkLithoGhosts.size === 0 || acceptingAllBulk) return
+    setAcceptingAllBulk(true)
+    try {
+      await handleAcceptAllBulkLitho(
+        selectedSectionId ?? null,
+        applyUpdatedSection,
+      )
+    } finally {
+      setAcceptingAllBulk(false)
+    }
+  }
+
   // Handler for the axis toggle — validate the target axis before
   // switching so a disabled "Litho" segment can't be clicked.
   function handleAxisChange(axis: SectionModelAxis): void {
@@ -412,6 +472,50 @@ export default function SectionsToolbar(): JSX.Element {
                 label="Clear"
                 onClick={clearLithoSuggestions}
                 title="Dismiss the current litho suggestion overlay"
+              />
+            </>
+          )}
+          {/* Bulk-suggest (debt #73 / Phase 3) — fans out the segmenter
+              over every visible investigation in this section. Visible
+              only on the litho axis. The confirmation dialog warns that
+              prior bulk ghosts will be replaced. */}
+          {hasSection && (
+            <ToolbarButton
+              icon={<Sparkles size={13} />}
+              label={bulkLithoSuggesting ? 'Suggesting…' : 'Suggest all'}
+              onClick={() => setBulkConfirmOpen(true)}
+              disabled={
+                !activeLithoModel || bulkLithoSuggesting || lithoSuggesting
+              }
+              busy={bulkLithoSuggesting}
+              title={
+                !activeLithoModel
+                  ? 'Create a lithostratigraphic model first'
+                  : bulkLithoSuggesting
+                    ? 'Running segmenter on every investigation in this section…'
+                    : 'Suggest lithostratigraphic layers for every investigation in this section at once'
+              }
+            />
+          )}
+          {bulkLithoGhosts.size > 0 && (
+            <>
+              <ToolbarButton
+                icon={<Sparkles size={13} />}
+                label={acceptingAllBulk ? 'Accepting…' : 'Accept all (bulk)'}
+                onClick={() => void handleAcceptAllBulk()}
+                disabled={acceptingAllBulk}
+                busy={acceptingAllBulk}
+                title={
+                  acceptingAllBulk
+                    ? 'Committing all bulk suggestion layers…'
+                    : `Accept every non-rejected suggestion across all ${bulkLithoGhosts.size} bulk-ghost investigation${bulkLithoGhosts.size === 1 ? '' : 's'}`
+                }
+              />
+              <ToolbarButton
+                icon={<Eraser size={13} />}
+                label="Clear bulk"
+                onClick={clearBulkLithoGhosts}
+                title="Dismiss the bulk-suggest ghost overlays for every investigation"
               />
             </>
           )}
@@ -647,6 +751,58 @@ export default function SectionsToolbar(): JSX.Element {
               disabled={deleting}
             >
               {deleting ? 'Deleting…' : 'Delete cross-section'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Bulk-suggest confirmation (debt #73 / Phase 3). Replaces
+          existing bulk ghosts wholesale, so the dialog warns + names
+          the count. Cancel has default focus per the dialog rules
+          (not destructive in the DB sense, but does wipe pending
+          bulk preview state — worth confirming). */}
+      <Modal
+        open={bulkConfirmOpen}
+        onCancel={() => setBulkConfirmOpen(false)}
+        labelledBy="bulk-suggest-title"
+        cardClassName="w-96"
+      >
+        <div className="p-5">
+          <h2
+            id="bulk-suggest-title"
+            className="text-sm font-semibold text-text-primary mb-1"
+          >
+            Suggest lithos for all tests?
+          </h2>
+          <p className="text-xs text-text-muted mb-4">
+            The lithology segmenter will run for{' '}
+            <span className="font-medium text-text-secondary">
+              {bulkAnchors.length} investigation{bulkAnchors.length === 1 ? '' : 's'}
+            </span>{' '}
+            in this section. Any existing bulk-suggest ghosts will be replaced.
+            Already-committed contacts on the section stay untouched.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="md"
+              // reason: Cancel has default focus on a state-wiping
+              // confirmation modal — user must actively pick the action.
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onClick={() => setBulkConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => void handleBulkSuggestConfirm()}
+              disabled={bulkAnchors.length === 0}
+            >
+              {bulkAnchors.length === 0
+                ? 'No investigations'
+                : `Suggest all (${bulkAnchors.length})`}
             </Button>
           </div>
         </div>
