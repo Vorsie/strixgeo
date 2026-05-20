@@ -204,6 +204,22 @@ export default function LithoSuggestionGhostColumns({
     initialClientY: number
     initialDepthM: number
     currentDepthM: number
+    /**
+     * Depth (m) of the dragged layer's OPPOSITE edge, captured at
+     * mousedown. Used as the snap target for the collapse-to-reject
+     * gesture (debt #81 — dogfeed 2026-05-20: "pull down the upper
+     * boundary above or the lower boundary upwards and it needs to
+     * snap to the other boundary"). When currentDepthM lands within
+     * the snap threshold of this value, the gesture snaps and the
+     * dragged layer is auto-rejected on mouseup.
+     */
+    oppositeDepthM: number
+    /**
+     * Whether the current drag position is snapped to the opposite
+     * edge. Drives the visible snap indicator + the on-mouseup
+     * auto-reject branch. Updated on every mousemove.
+     */
+    snapped: boolean
   } | null>(null)
 
   // Composition editor (debt #72). Tracks which suggestion index is
@@ -258,6 +274,11 @@ export default function LithoSuggestionGhostColumns({
   // depth fires through ``onEdit`` exactly once on mouseup.
   useEffect(() => {
     if (!drag) return
+    // Snap threshold in metres — 4 screen-px translated to depth via
+    // pxPerM. Wide enough to be discoverable, tight enough that small
+    // resize moves near the opposite edge don't auto-collapse.
+    const SNAP_PX = 4
+    const snapThresholdM = pxPerM > 0 ? SNAP_PX / pxPerM : 0
     function handleMove(e: MouseEvent): void {
       if (!drag) return
       const pixelDelta = e.clientY - drag.initialClientY
@@ -265,8 +286,17 @@ export default function LithoSuggestionGhostColumns({
       // Clamp to non-negative depth — a layer top can't sit above
       // the ground surface (depth 0). Base can't either; for both
       // edges the same min applies.
-      const next = Math.max(0, drag.initialDepthM + depthDelta)
-      setDrag(d => (d !== null ? { ...d, currentDepthM: next } : null))
+      const raw = Math.max(0, drag.initialDepthM + depthDelta)
+      // Snap-to-collapse (debt #81). When the dragged depth lands
+      // within snapThresholdM of the layer's opposite edge, snap and
+      // flag for auto-reject on mouseup. The mouseup commit still
+      // fires the depth edit so the visual layer collapses cleanly
+      // even before the reject takes effect.
+      const snapped =
+        snapThresholdM > 0 &&
+        Math.abs(raw - drag.oppositeDepthM) <= snapThresholdM
+      const next = snapped ? drag.oppositeDepthM : raw
+      setDrag(d => (d !== null ? { ...d, currentDepthM: next, snapped } : null))
     }
     function handleUp(): void {
       if (!drag) return
@@ -292,6 +322,11 @@ export default function LithoSuggestionGhostColumns({
           onEdit(drag.idx + 1, { depth_top_m: final })
         }
       }
+      // Snap-to-collapse → auto-reject the dragged layer (debt #81).
+      // The shared-edge commit above absorbs its space into the
+      // neighbour (top-drag: layer i-1 grows; base-drag: layer i+1
+      // grows), so the rejected layer disappears cleanly.
+      if (drag.snapped) onReject(drag.idx)
       setDrag(null)
     }
     document.addEventListener('mousemove', handleMove)
@@ -300,7 +335,7 @@ export default function LithoSuggestionGhostColumns({
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleUp)
     }
-  }, [drag, pxPerM, onEdit])
+  }, [drag, pxPerM, onEdit, onReject])
 
   if (suggestions.length === 0 || surfaceElevationM === null) return null
 
@@ -435,6 +470,9 @@ export default function LithoSuggestionGhostColumns({
                       initialClientY: e.clientY,
                       initialDepthM: topM,
                       currentDepthM: topM,
+                      // Snap target = own opposite edge depth (#81).
+                      oppositeDepthM: baseM,
+                      snapped: false,
                     })
                   }}
                 />
@@ -456,6 +494,9 @@ export default function LithoSuggestionGhostColumns({
                       initialClientY: e.clientY,
                       initialDepthM: baseM,
                       currentDepthM: baseM,
+                      // Snap target = own opposite edge depth (#81).
+                      oppositeDepthM: topM,
+                      snapped: false,
                     })
                   }}
                 />
@@ -464,6 +505,48 @@ export default function LithoSuggestionGhostColumns({
           </g>
         )
       })}
+      {/* Snap-to-collapse indicator (debt #81). A short amber dashed
+          line at the snap target depth, drawn across the ghost column,
+          plus a "merge" hint label. Visible only while the drag is
+          snapped to the opposite edge; the dragged-layer rect's own
+          rendering already collapses to zero height when this fires,
+          so the indicator gives the user a "release to collapse" cue. */}
+      {drag?.snapped && (
+        <g data-testid="litho-snap-indicator" style={{ pointerEvents: 'none' }}>
+          {(() => {
+            const y = Math.max(
+              plotTop,
+              Math.min(
+                plotBottom,
+                levelToScreen(surfaceElevationM - drag.oppositeDepthM),
+              ),
+            )
+            return (
+              <>
+                <line
+                  x1={left - 2}
+                  y1={y}
+                  x2={left + ghostWidth + 2}
+                  y2={y}
+                  stroke="#d97706"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 2"
+                />
+                <text
+                  x={left + ghostWidth / 2}
+                  y={y - 4}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fill="#d97706"
+                  style={{ userSelect: 'none' }}
+                >
+                  release to merge
+                </text>
+              </>
+            )
+          })()}
+        </g>
+      )}
     </g>
     {/* Composition editor (debt #72). Lives in a sibling Modal that
         renders via createPortal, so its JSX legally co-exists with
