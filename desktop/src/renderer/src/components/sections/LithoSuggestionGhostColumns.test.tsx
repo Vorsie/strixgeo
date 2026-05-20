@@ -492,6 +492,102 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onEdit).toHaveBeenCalledWith(0, { depth_top_m: 1 })
   })
 
+  // -----------------------------------------------------------------
+  // Topology — shared-boundary propagation skips rejected + accepted
+  // layers (dogfeed bug 2026-05-20: rejecting a middle layer let the
+  // two surrounding pending layers be dragged independently into
+  // overlap because the commit was hardwired to idx ± 1).
+  // -----------------------------------------------------------------
+
+  // G29: with a rejected layer between A (idx=0) and C (idx=2),
+  // dragging A's base fires the shared-boundary commit on C (idx=2),
+  // NOT on the rejected B (idx=1). Pre-fix: the propagation landed
+  // on idx=1 (rejected → invisible) so C.top never moved, leaving
+  // A.base and C.top out of sync.
+  it('G29 — drag with rejected layer between propagates to next pending', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    // Three contiguous pending layers; idx=1 is then rejected.
+    const layers = [
+      makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+      makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+    ]
+    const { container } = renderGhost(layers, {
+      onEdit,
+      onReject,
+      rejectedIndices: new Set([1]),
+    })
+    // Drag layer 0's BASE down 100 px (1 m) — not enough to snap.
+    // levelToScreen's pxPerM = 100 so 100 px = 1 m.
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 300 })
+    fireEvent.mouseUp(document)
+    // onEdit fired on the dragged layer (0) and on the NEXT pending
+    // layer below (idx=2, skipping the rejected idx=1).
+    const calls = onEdit.mock.calls.map(([idx, edit]) => ({ idx, edit }))
+    const idxs = calls.map(c => c.idx).sort()
+    expect(idxs).toEqual([0, 2])
+    const onZero = calls.find(c => c.idx === 0)!
+    const onTwo = calls.find(c => c.idx === 2)!
+    expect(onZero.edit.depth_base_m).toBeCloseTo(3, 5)
+    expect(onTwo.edit.depth_top_m).toBeCloseTo(3, 5)
+    // The rejected layer (1) is NEVER touched — its stored depths
+    // stay where they were so un-rejecting restores it cleanly.
+    expect(calls.find(c => c.idx === 1)).toBeUndefined()
+  })
+
+  // G30: same topology but the middle layer is ACCEPTED (not rejected).
+  // Same fix applies — accepted layers' rendered depths are frozen
+  // (their contact is committed in the DB), so the shared boundary
+  // must skip them too. Pre-fix: idx=1 was touched, visually shifting
+  // the accepted-layer rect without changing the DB contact.
+  it('G30 — drag with accepted layer between propagates to next pending', () => {
+    const onEdit = vi.fn()
+    const layers = [
+      makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+      makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+    ]
+    const { container } = renderGhost(layers, {
+      onEdit,
+      acceptedIndices: new Set([1]),
+    })
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 300 })
+    fireEvent.mouseUp(document)
+    const calls = onEdit.mock.calls.map(([idx, edit]) => ({ idx, edit }))
+    const idxs = calls.map(c => c.idx).sort()
+    expect(idxs).toEqual([0, 2])
+    expect(calls.find(c => c.idx === 1)).toBeUndefined()
+    expect(calls.find(c => c.idx === 2)!.edit.depth_top_m).toBeCloseTo(3, 5)
+  })
+
+  // G31: when EVERY layer below the dragged one is rejected/accepted
+  // (no pending neighbour to share the boundary with), the commit
+  // fires only on the dragged layer — no propagation, no spurious
+  // edit on a frozen layer.
+  it('G31 — drag with no pending neighbour below fires only own edit', () => {
+    const onEdit = vi.fn()
+    const layers = [
+      makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+      makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+    ]
+    const { container } = renderGhost(layers, {
+      onEdit,
+      rejectedIndices: new Set([1]),
+    })
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 250 })
+    fireEvent.mouseUp(document)
+    const calls = onEdit.mock.calls.map(([idx, edit]) => ({ idx, edit }))
+    expect(calls.map(c => c.idx)).toEqual([0])
+    expect(calls[0].edit.depth_base_m).toBeCloseTo(2.5, 5)
+  })
+
   // G28: drag base up onto top → snap from the opposite direction.
   it('G28 — drag base up onto top snaps and auto-rejects the layer', () => {
     const onEdit = vi.fn()
