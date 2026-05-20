@@ -65,6 +65,17 @@ interface Props {
      * BoreholeColumn's anchor shape. Debt #22/#23. */
     snapped: false
   }) => void
+  /** Fires on dbl-click ON THE PICK RECT so the dbl-click intent
+   * (open detail) works even when the user dbl-clicks on the CPT
+   * data band. The outer ColumnGlyph's onDoubleClick handler does
+   * NOT see this event because the pick rect is an SVG sibling of
+   * the column glyph (not a child) — events on the rect bubble up
+   * its own <g>, not into ColumnGlyph. Without this passthrough,
+   * a dbl-click on the data band cancels the queued single-click
+   * (good) but never opens detail (bad). Optional: when wired,
+   * the queued click is cancelled AND this fires; when not wired,
+   * cancellation still happens (no detail-open). */
+  onDoubleClickOpen?: () => void
 }
 
 export default function ContactPickBar({
@@ -81,6 +92,7 @@ export default function ContactPickBar({
   bgBottomY,
   levelToScreen,
   onCommitDepth,
+  onDoubleClickOpen,
 }: Props): JSX.Element | null {
   const [cursorY, setCursorY] = useState<number | null>(null)
   const overlayRef = useRef<SVGRectElement>(null)
@@ -167,6 +179,10 @@ export default function ContactPickBar({
   }
   function handleDoubleClick(): void {
     clickDebounce.cancel()
+    // Forward the dbl-click intent to the column's detail-open
+    // handler — see the prop docstring for why this passthrough is
+    // necessary (the outer ColumnGlyph doesn't see this event).
+    if (onDoubleClickOpen) onDoubleClickOpen()
   }
 
   const leftX = screenX - halfWidth
@@ -198,7 +214,13 @@ export default function ContactPickBar({
         onMouseMove={handleMove}
         onMouseLeave={handleLeave}
         onClick={onCommitDepth ? handleClick : undefined}
-        onDoubleClick={onCommitDepth ? handleDoubleClick : undefined}
+        // onDoubleClick wires when EITHER onCommitDepth is wired (to
+        // cancel the queued single) OR onDoubleClickOpen is wired (to
+        // open detail). Without one of these the rect has nothing to
+        // dbl-click for.
+        onDoubleClick={
+          onCommitDepth || onDoubleClickOpen ? handleDoubleClick : undefined
+        }
       />
       {cursorY !== null && (
         <g pointerEvents="none">

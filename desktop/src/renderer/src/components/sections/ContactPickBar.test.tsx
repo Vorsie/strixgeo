@@ -190,6 +190,35 @@ describe('ContactPickBar', () => {
     ).not.toThrow()
   })
 
+  it('double-click forwards to onDoubleClickOpen so detail still opens', () => {
+    // Pins the dbl-click passthrough fix: a dbl-click on the pick
+    // rect must cancel the queued single AND call the column's
+    // detail-open handler. Without this, dbl-click on the data band
+    // cancels the queued contact (good) but never opens detail (bad).
+    const onCommitDepth = vi.fn()
+    const onDoubleClickOpen = vi.fn()
+    const { container } = renderBar({ onCommitDepth, onDoubleClickOpen })
+    const overlay = container.querySelector('rect[fill="transparent"]') as SVGRectElement
+    overlay.getBoundingClientRect = () =>
+      ({
+        top: 10,
+        bottom: 15,
+        left: 76,
+        right: 124,
+        x: 76,
+        y: 10,
+        width: 48,
+        height: 5,
+        toJSON: () => ({}),
+      }) as DOMRect
+    fireEvent.mouseMove(overlay, { clientY: 13 })
+    fireEvent.click(overlay)
+    fireEvent.doubleClick(overlay)
+    vi.advanceTimersByTime(500)
+    expect(onCommitDepth).not.toHaveBeenCalled()
+    expect(onDoubleClickOpen).toHaveBeenCalledTimes(1)
+  })
+
   it('double-click cancels the queued single-click — no contact placed', () => {
     // Pins the dbl-click race fix: a dbl-click intent (open detail
     // on the outer column) must not commit a contact on click 1.
