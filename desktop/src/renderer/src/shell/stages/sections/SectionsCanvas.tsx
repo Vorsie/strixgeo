@@ -84,6 +84,7 @@ export default function SectionsCanvas(): JSX.Element {
       bulkLithoGhosts,
       handleSuggestAllLitho,
       handleAcceptBulkLitho,
+      refetchLithoContacts,
       handleAcceptAllBulkLitho,
       handleRejectBulkLitho,
       handleEditBulkLitho,
@@ -612,6 +613,12 @@ export default function SectionsCanvas(): JSX.Element {
         }
 
         log.debug('section', `handleManualLithoUnitCreate: formationId=${formationId}`)
+        // Refetch litho contacts so the section view picks up the new
+        // contact immediately. Without this the contact is in the DB
+        // but local lithoContacts stays stale and the user sees
+        // "nothing happened" (dogfeed bug 2026-05-20 — same class as
+        // the earlier handleAcceptLithoSuggestion fix).
+        refetchLithoContacts()
         return { formationId }
       } catch (err) {
         log.warn('section', 'handleManualLithoUnitCreate: acceptLithoSuggestions failed', err)
@@ -622,7 +629,7 @@ export default function SectionsCanvas(): JSX.Element {
     // the picker simply stays open on failure (no error toast — intended
     // UX). If a future edit adds toast() into the catch, add it here too
     // or it becomes a stale-closure bug (review C3).
-    [activeLithoModel, selectedSection, project.id, applyUpdatedSection],
+    [activeLithoModel, selectedSection, project.id, applyUpdatedSection, refetchLithoContacts],
   )
 
   // Build the lithoGhostState bundle passed to SectionPanel.
