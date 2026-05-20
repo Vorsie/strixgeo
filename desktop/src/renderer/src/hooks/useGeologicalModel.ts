@@ -400,6 +400,8 @@ export interface UseGeologicalModelResult {
   ) => Promise<void>
   /** Mark one bulk anchor's layer rejected (dismissed in the overlay). */
   handleRejectBulkLitho: (anchorId: string, idx: number) => void
+  /** Undo a prior bulk reject — restore the layer to pending state (debt #80). */
+  handleUnrejectBulkLitho: (anchorId: string, idx: number) => void
   /** Apply a depth edit to one bulk anchor's layer (drag-resize). */
   handleEditBulkLitho: (
     anchorId: string,
@@ -456,6 +458,8 @@ export interface UseGeologicalModelResult {
   ) => Promise<void>
   /** Reject suggestion layer ``idx`` — marks it rejected (no network call). */
   handleRejectLithoSuggestion: (idx: number) => void
+  /** Undo a prior reject — restore the layer to pending state (debt #80). */
+  handleUnrejectLithoSuggestion: (idx: number) => void
   /** Clear all suggestion state (close the ghost overlay). */
   clearLithoSuggestions: () => void
 
@@ -2819,6 +2823,25 @@ export function useGeologicalModel({
     [],
   )
 
+  /**
+   * Undo a prior bulk reject — debt #80 mirror of the single-anchor
+   * variant. No-op when idx wasn't rejected on the anchor.
+   */
+  const handleUnrejectBulkLitho = useCallback(
+    (anchorId: string, idx: number): void => {
+      setBulkLithoGhosts(prev => {
+        const existing = prev.get(anchorId)
+        if (!existing || !existing.rejected.has(idx)) return prev
+        const nextRejected = new Set(existing.rejected)
+        nextRejected.delete(idx)
+        const next = new Map(prev)
+        next.set(anchorId, { ...existing, rejected: nextRejected })
+        return next
+      })
+    },
+    [],
+  )
+
   const handleEditBulkLitho = useCallback(
     (
       anchorId: string,
@@ -3059,6 +3082,20 @@ export function useGeologicalModel({
       return next
     })
     log.debug('geology', `rejectLithoSuggestion idx=${idx}`)
+  }, [])
+
+  /**
+   * Undo a prior reject — return the ghost layer to pending state.
+   * Debt #80 (2026-05-20 dogfeed). No-op when idx wasn't rejected.
+   */
+  const handleUnrejectLithoSuggestion = useCallback((idx: number): void => {
+    setLithoSuggestionRejected(prev => {
+      if (!prev.has(idx)) return prev
+      const next = new Set(prev)
+      next.delete(idx)
+      return next
+    })
+    log.debug('geology', `unrejectLithoSuggestion idx=${idx}`)
   }, [])
 
   // ---------- Bulk-suggest fan-out + accept (debt #73) ----------
@@ -3579,6 +3616,7 @@ export function useGeologicalModel({
     handleAcceptLithoSuggestion,
     handleAcceptAllLithoSuggestions,
     handleRejectLithoSuggestion,
+    handleUnrejectLithoSuggestion,
     clearLithoSuggestions,
     // Bulk-suggest (debt #73 / Phase 3)
     bulkLithoGhosts,
@@ -3587,6 +3625,7 @@ export function useGeologicalModel({
     handleAcceptBulkLitho,
     handleAcceptAllBulkLitho,
     handleRejectBulkLitho,
+    handleUnrejectBulkLitho,
     handleEditBulkLitho,
     clearBulkLithoGhosts,
     pinchOutPreview,
