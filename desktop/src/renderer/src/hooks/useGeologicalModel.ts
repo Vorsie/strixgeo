@@ -166,6 +166,15 @@ export interface UseGeologicalModelResult {
    * No-ops when no litho model is active.
    */
   handleRebuildLithoSurfaces: () => Promise<void>
+  /**
+   * Re-fetch the active litho model's contacts from the server.
+   * Called after a manual contact create (handleManualLithoUnitCreate)
+   * so the section view shows the new contact immediately — without
+   * this the contact lands in the DB but local lithoContacts stays
+   * stale and the user sees "nothing happened" (dogfeed bug 2026-05-20).
+   * No-op when no litho model is active.
+   */
+  refetchLithoContacts: () => void
   /** Create a formation contact on the active LITHO model (mirrors
    * handleCreateContact exactly, closes over activeLithoModel). */
   handleCreateLithoContact: (
@@ -3527,6 +3536,7 @@ export function useGeologicalModel({
     lithoSurfacesByFormationId,
     lithoStaleSurfaceCount,
     handleRebuildLithoSurfaces,
+    refetchLithoContacts,
     handleCreateLithoContact,
     handleInlineLithoCreateFormation,
     formations,
