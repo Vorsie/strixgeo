@@ -803,33 +803,6 @@ real dogfooding).  Not before.
 
 ---
 
-## 61. No end-to-end test of the pinch-out endpoint / idempotent path (Tier E — test gap)
-
-**What.** The pinch-out slice's pure crossing geometry is exhaustively
-unit-tested (`tests/unit/domain/test_pinch_out_geometry.py`, 11 cases
-incl. the B1 last-endpoint regression) and the synthetic-anchor
-RecomputeFormationSurface branch + migrated XOR constraint are
-integration-tested (`tests/integration/api/test_pinch_out_synthetic_contacts.py`).
-But the `ExtrapolatePinchOut` orchestration use case and the
-`POST .../contacts/pinch-out` endpoint — including the senior-review
-B2/B3 idempotent-path fixes (seed-on-409, stored-geometry reporting) —
-have no direct end-to-end test.
-
-**Why deferred.** A faithful test needs the heavy fixture chain (a
-section + two formations with built TINs whose slices make
-`compute_pinch_tip` succeed). The B2/B3 fixes were implemented exactly
-to the senior-review spec and are small/reviewed; the documented
-project boundary (CLAUDE.md #38) already integration-tests
-orchestration use cases rather than mock-forcing them. Writing a
-rushed flaky fixture at the session tail was the worse risk.
-
-**When to revisit.** Before the pinch-out frontend ghost-UX slice
-ships (that slice will need the endpoint exercised anyway) — add one
-integration test that drives the endpoint end-to-end and re-invokes it
-to assert the 409 + section-seed + stored-geometry contract.
-
----
-
 ## 62. Pinch-out ghost-UX follow-ups (Tier E — post-slice review residue)
 
 The pinch-out ghost-UX slice shipped 2026-05-18; senior + ux review
