@@ -292,13 +292,12 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onEdit.mock.calls[1][1].depth_base_m).toBeCloseTo(2.5, 5)
   })
 
-  it('G17 — pending-adjacent base-drag DOWN clamps at current shared boundary', () => {
-    // Dogfeed 2026-05-20 (#83 v1.1 correction): drag of layer 0's
-    // BASE downward is clamped at layer 1's TOP (= current shared
-    // boundary). The dragged edge cannot push into a pending
-    // neighbour's region — the user must reject the neighbour first.
-    // Pre-fix this drag moved the shared boundary deeper, growing
-    // layer 0 into layer 1's space.
+  it('G17 — shared boundary: dragging interior layer base fires onEdit on BOTH dragged + below', () => {
+    // Pending-adjacent base-drag DOWN moves the shared boundary
+    // deeper — layer 0 grows, layer 1 shrinks from above. This is
+    // the standard resize gesture; the #83 v1.2 fix (regime split)
+    // preserves it for pending-adjacent while clamping at NEAR edge
+    // for the rejected-gap-fill case (G34) and accepted barriers (G30).
     const onEdit = vi.fn()
     const { container } = renderGhost(
       [
@@ -311,19 +310,12 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: 250 })
     fireEvent.mouseUp(document)
-    // Both edits fire but at the CLAMPED depth (= 2.0, current
-    // shared boundary). The propagation depth is unchanged from the
-    // pre-drag state — effectively a no-op commit.
-    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
-    const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
-    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(2.0, 5)
-    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(2.0, 5)
+    expect(onEdit).toHaveBeenCalledTimes(2)
+    expect(onEdit.mock.calls[0][0]).toBe(0)
+    expect(onEdit.mock.calls[0][1].depth_base_m).toBeCloseTo(2.5, 5)
+    expect(onEdit.mock.calls[1][0]).toBe(1)
+    expect(onEdit.mock.calls[1][1].depth_top_m).toBeCloseTo(2.5, 5)
   })
-
-  // The OLD G17 behaviour (drag pushes through a pending neighbour
-  // and grows the dragged layer) is now expressed by the explicit
-  // reject-first workflow — see G34 below for the rejected-between
-  // version of that same gesture.
 
   it('G18 — outer edges (idx=0 top, last idx base) fire only ONE onEdit (no adjacent)', () => {
     // The suggestion list's outer boundary has no adjacent layer to
@@ -520,13 +512,12 @@ describe('LithoSuggestionGhostColumns', () => {
   // at layer 1's base; the snap fires; on release, the shared-
   // boundary commit collapses layer 1 to zero thickness and onReject
   // fires with idx=1 (the NEIGHBOUR, not self).
-  // G32: dogfeed 2026-05-20 v1.1 correction — drag of layer 0's BASE
-  // DOWN past pending-adjacent layer 1 is HARD-CLAMPED at layer 1's
-  // TOP (the current shared boundary). NO auto-reject of the
-  // neighbour; the dragged edge can't push into a pending region.
-  // To merge the two layers the user has to reject layer 1 first
-  // (see G34 for that follow-on workflow).
-  it('G32 — drag base DOWN past pending neighbour is clamped, no auto-collapse', () => {
+  // G32: pending-adjacent base-drag DOWN past neighbour's BASE.
+  // The drag clamps at layer 1's FAR edge (its base = 4 m, the
+  // total bottom of the dragged + neighbour pair); the snap there
+  // auto-collapses layer 1 — the standard "absorb the neighbour
+  // by dragging through it" gesture.
+  it('G32 — pending-adjacent base-drag past neighbour clamps + collapses neighbour', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -539,21 +530,20 @@ describe('LithoSuggestionGhostColumns', () => {
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: 700 })
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
-    // No auto-reject — the neighbour stays put.
-    expect(onReject).not.toHaveBeenCalled()
-    // Edits fire at the CLAMPED depth (= layer 1 top = 2.0, current
-    // shared boundary). Effectively no-op.
+    // Reject fires on the NEIGHBOUR (idx=1), not self.
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(1)
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
-    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(2, 5)
-    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(2, 5)
+    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
+    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(4, 5)
   })
 
-  // G33: mirror — drag layer 1's TOP UP past pending layer 0 is
-  // clamped at layer 0's BASE (= current shared boundary). No
-  // auto-collapse.
-  it('G33 — drag top UP past pending neighbour is clamped, no auto-collapse', () => {
+  // G33: mirror — drag layer 1's TOP UP past pending layer 0 to
+  // layer 0's TOP (=0 m, ground). Auto-collapses layer 0.
+  it('G33 — pending-adjacent top-drag past neighbour clamps + collapses neighbour above', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -566,12 +556,14 @@ describe('LithoSuggestionGhostColumns', () => {
     const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
     fireEvent.mouseDown(topHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: -300 })
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
-    expect(onReject).not.toHaveBeenCalled()
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(0)
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
-    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(2, 5)
-    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(2, 5)
+    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(0, 5)
+    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(0, 5)
   })
 
   // G34: the user's exact scenario from the 2026-05-20 dogfeed —
