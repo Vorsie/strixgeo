@@ -13,6 +13,7 @@ import ElevationEditor from './ElevationEditor'
 import { verticalDatumLabel, verticalDatumShort } from '../utils/verticalDatum'
 import VirtueleBoringDepthColumn from './VirtueleBoringDepthColumn'
 import { useVirtueleBoringCatalog } from '../hooks/useVirtueleBoringCatalog'
+import type { ContactOverlay } from '../utils/contactOverlays'
 
 interface Props {
   plot:   CptPlotResponse
@@ -48,6 +49,14 @@ interface Props {
   // True while the predictions network fetch is in flight. Surfaces a
   // spinner next to the DOV button so the pane doesn't appear hung.
   virtueleBoringLoading?: boolean
+  // Faded depth-context lines for every formation contact (geological
+  // model) and litho contact (lithostratigraphic model) anchored at
+  // this CPT. The engineer sees, in the same pane as the qc/Ic trace,
+  // where each formation top + litho-unit top sits. Computed by
+  // ``buildContactOverlays`` (see ``utils/contactOverlays.ts``); empty
+  // / undefined means "no overlay" (renders unchanged). The chart is
+  // informative-only — never interactive on these lines.
+  contactOverlays?: readonly ContactOverlay[]
 }
 
 // ── DOV standard axis ranges ────────────────────────────────────────────────
@@ -217,6 +226,7 @@ export default function CptChart({
   virtueleBoringOverrideModel = '',
   onChangeVirtueleBoringOverrideModel,
   virtueleBoringLoading = false,
+  contactOverlays,
 }: Props) {
   // Lazy-load the catalogue when the model dropdown is present —
   // most CPT detail views never need it (engineers leaving overlays
@@ -373,6 +383,39 @@ export default function CptChart({
       />
     )
   }
+  // Faded depth-context overlays — one ReferenceLine per geology or
+  // litho contact anchored at this CPT. The label is shown only on
+  // the leftmost panel (xAxisId 'qc' here is the leftmost data column
+  // when the qc/Fs panel renders); other panels get the line without
+  // the label so the chart doesn't repeat the same name four times.
+  // Litho overlays are slightly more transparent than geology so the
+  // engineer can read the stratigraphic hierarchy at a glance.
+  function contactOverlayLines(xAxisId: string, showLabels: boolean) {
+    if (!contactOverlays || contactOverlays.length === 0) return null
+    return contactOverlays.map(ov => {
+      const opacity = ov.source === 'litho' ? 0.28 : 0.4
+      return (
+        <ReferenceLine
+          key={`${xAxisId}-${ov.key}`}
+          yAxisId="y"
+          xAxisId={xAxisId}
+          y={ov.depth_m}
+          stroke={ov.color}
+          strokeOpacity={opacity}
+          strokeWidth={1}
+          label={
+            showLabels
+              ? {
+                  value: ov.label,
+                  position: 'insideBottomRight',
+                  style: { fontSize: 9, fill: ov.color, fillOpacity: 0.85 },
+                }
+              : undefined
+          }
+        />
+      )
+    })
+  }
 
   function renderU2Panel(isLeft: boolean, isRight: boolean) {
     return (
@@ -389,6 +432,7 @@ export default function CptChart({
         <ReferenceLine yAxisId="y" xAxisId="u2" x={0} stroke={SURFACE_REF_CLR} strokeWidth={0.5} />
         {preDrillZone('u2')}
         {surfaceElevationRef('u2')}
+        {contactOverlayLines('u2', false)}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(1)} kPa`, key]}
           labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
@@ -418,6 +462,7 @@ export default function CptChart({
         }
         {surfaceElevationRef('qc')}
         {preDrillZone('qc')}
+        {contactOverlayLines('qc', true)}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(4)}`, key]}
           labelFormatter={d =>
@@ -455,6 +500,7 @@ export default function CptChart({
         />
         {preDrillZone('rf')}
         {surfaceElevationRef('rf')}
+        {contactOverlayLines('rf', false)}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(2)} %`, key]}
           labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}
@@ -488,6 +534,7 @@ export default function CptChart({
         ))}
         {surfaceElevationRef('ic')}
         {preDrillZone('ic')}
+        {contactOverlayLines('ic', false)}
         <Tooltip contentStyle={{ fontSize: 10 }}
           formatter={(val, key) => val === null ? ['—', key] : [`${Number(val).toFixed(2)}`, key]}
           labelFormatter={d => `Depth: ${Number(d).toFixed(2)} m`}

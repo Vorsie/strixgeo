@@ -206,6 +206,45 @@ describe('CptChart — elevation editor surface', () => {
     )
     expect(screen.getByText('Z missing')).toBeInTheDocument()
   })
+
+  it('accepts contactOverlays prop and renders without crashing', () => {
+    // Recharts SVG <ReferenceLine label> text doesn't reliably surface
+    // through testing-library queries in jsdom (no real layout), so
+    // the assertion stays structural: the chart still renders its
+    // header chrome when overlays are present. The pure overlay
+    // builder is exhaustively tested in utils/contactOverlays.test.ts;
+    // here we just pin that the prop wiring doesn't blow up the chart.
+    render(
+      <CptChart
+        plot={makePlot()}
+        detail={makeDetail()}
+        name="CPT-1"
+        contactOverlays={[
+          {
+            depth_m: 2.5,
+            color: '#5fb3d6',
+            label: 'Antropogeen',
+            source: 'geology',
+            key: 'geology:c-1',
+          },
+          {
+            depth_m: 6.0,
+            color: '#fef9c3',
+            label: 'ZAND',
+            source: 'litho',
+            key: 'litho:c-2',
+          },
+        ]}
+      />,
+    )
+    // Header chrome still renders — proves the chart body assembled.
+    expect(screen.getByText(/Z = 5\.00/)).toBeInTheDocument()
+  })
+
+  it('renders unchanged when contactOverlays is omitted', () => {
+    render(<CptChart plot={makePlot()} detail={makeDetail()} name="CPT-1" />)
+    expect(screen.getByText(/Z = 5\.00/)).toBeInTheDocument()
+  })
 })
 
 // ── injectDepthGaps — pure unit tests (no rendering needed) ──────────────────
