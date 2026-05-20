@@ -1045,3 +1045,166 @@ design+review session, not an autonomous-pass inline patch.
 geological model AFTER accepting litho units and the litho section/3D
 band paint order visibly regresses; OR the next time `_reorder_by_age`
 / the Build path is touched for any reason (scope it to `kind` then).
+
+
+## 70. Decision-log table for ML training — schema scaffold + per-decision wiring (Tier D — post-MVP ML, owner-audited)
+
+**What.** Ship a `user_decision_log` table that captures every manual
+user decision in the app (litho suggestion accept, suggestion reject,
+formation contact create / move / delete, formation rename / reorder /
+pin, build trigger, sync geology, manual composition pick, cross-
+section seed, geotech NAD assignment, …). Schema sketch: `id UUID PK`,
+`project_id UUID FK`, `user_id UUID NULL` (filled once auth lands —
+debt #3 / #4), `decision_type VARCHAR` (discriminator: `litho_accept`,
+`litho_reject`, `contact_create`, `contact_move`, …),
+`decision_at TIMESTAMP`, `before_state JSONB NULL` (the suggested /
+prior state), `after_state JSONB NULL` (the committed state),
+`context JSONB` (anchor ids, model id, section id, …).
+
+For each decision, store **only the suggested position and the last
+committed position** (owner directive 2026-05-20). Intermediate drag
+previews are NOT logged — transient UI state, not decisions.
+
+Each relevant use case calls a shared `record_decision(decision_type,
+before, after, context)` helper at its commit step. The helper
+inserts the row in the same transaction so partial-decision failure
+(use case rolls back) doesn't leave a phantom log row.
+
+**Why deferred.** Owner explicitly asked the ML wiring to live in
+post-MVP debt so the ML training pipeline can be audited rigorously
+by hand after launch. The log table itself ships now (captures data
+from day 1); the ML reader / training pipeline is the deferred half —
+see #71 / #72.
+
+**When to revisit.** As each use case lands or is touched, add the
+`record_decision` call alongside its existing commit. Don't bulk-wire
+in one pass — risks coupling unrelated paths. The log starts useful
+the moment ONE use case is wired; broader coverage compounds.
+
+## 71. ML training pipeline that consumes the decision log (Tier D — post-MVP, owner-audited)
+
+**What.** Read `user_decision_log` rows for `decision_type =
+litho_accept` (initially) and train a model that predicts which
+ghost layers the user will keep / move / reject. Inputs: segmenter
+output + investigation features (qc / Ic / soil_code at depth) +
+project metadata. Outputs: refined layer suggestions, ranked. Re-
+trains as the log grows.
+
+**Why deferred.** Owner directive — audit ML rigorously by hand
+before any pipeline ships. ML accuracy claims need a human-in-the-
+loop validation round; the log table (#70) is the data plumbing for
+that audit. The training itself is post-MVP — geotechs care about
+deterministic, reviewable outputs first.
+
+**When to revisit.** After the decision-log table has accumulated N ≥
+200 litho accepts across ≥ 3 real projects AND the owner has spot-
+audited a representative sample. Don't fit a model on toy data.
+
+## 72. Editable ghost composition — drag layer to a different soil / admixture before accept (Tier D — post-MVP feature)
+
+**What.** Right-click a litho ghost layer → context menu → "Edit
+composition…" → opens the existing `LithoCompositionPickerDialog`
+seeded with the suggestion's current `suggested_lithology` +
+`suggested_admixtures`. User picks a new soil / admixture combo →
+the ghost rect updates immediately (new colour, label); accept
+commits at the edited composition.
+
+Mechanics piggyback on the Phase-2 edits Map: extend the Map entry
+to optionally carry `suggested_lithology` + `suggested_admixtures`
+overrides; `effectiveLithoSuggestionAt` merges them; accept payload
+carries the edited composition. Composition picker already exists for
+the manual create flow — re-use, no new dialog.
+
+**Why deferred.** Workflow gap, not a blocker — the user can `Reject`
+a wrong-composition suggestion and `Manual create` the right one as
+a workaround.
+
+**When to revisit.** Either when bulk-suggest (debt #73) lands and
+the per-test edit-then-accept workflow makes individual edits common
+enough to bother, OR when an early customer reports it as friction.
+
+## 73. Bulk "Suggest litho for all tests" with confirmation dialog (Tier C — workflow velocity)
+
+**What.** Toolbar verb "Suggest all" (litho axis, requires open
+section + active litho model). Confirmation dialog: "Suggest lithos
+for **N investigations** on this section? Existing suggestions will
+be replaced. [Suggest all / Cancel]". On Yes → segmenter runs on
+every visible investigation in the section in parallel (capped
+concurrency ~5); ghost overlays render simultaneously for each
+investigation; user drags / accepts per column or globally.
+
+**Why deferred.** Requires reshaping the ghost state from one
+`lithoSuggestionInvestigationId` to a Map keyed by anchor and
+updating every reader (SectionsCanvas → SectionPanel →
+LithoSuggestionGhostColumns → accept handler chain). ~300 LOC.
+Per-test workflow works today (Phase-2 ghost UX shipped); bulk is
+acceleration, not blocker. Owner indicated bulk is the typical
+project-level workflow target.
+
+**When to revisit.** When the per-test workflow becomes the
+bottleneck for a real dogfeed import (≥ 10 investigations on one
+section).
+
+## 74. Segmenter over-segmentation — multiple same-lithology layers stacked (Tier E — segmenter tuning)
+
+**What.** Robertson-2015 / borehole segmenter sometimes outputs 4+
+adjacent same-lithology layers (e.g. 4 Sand zones with no obvious
+geological boundary between them) instead of merging into one. Owner
+hypothesis: packing-density (NAD class) transitions trigger the
+split. Current greedy-merge keeps splits when the Robertson zone
+INTEGER changes; small-amplitude zone jitter survives.
+
+**Why deferred.** Not strictly a bug — segmenter is honest about
+zone changes; merging would lose information. Tuning the merge
+threshold or exposing it as a user-tunable slider is a real design
+decision (per-investigation? per-project? global?). Workaround
+today: user manually drags adjacent layer boundaries or rejects the
+redundant ones.
+
+**When to revisit.** When ≥ 3 dogfeed sessions independently flag
+this as workflow friction; OR when the bulk-suggest workflow (debt
+#73) lands and the friction multiplies across N investigations.
+
+## 75. Drag handles in cross-section global (zoomed-out) view (Tier E — gesture reach)
+
+**What.** Phase-2 drag-to-resize handles (6 px hit zones above /
+below each ghost layer) work in the per-investigation focus view but
+the owner reports they don't work in the multi-column zoomed-out
+section view (2026-05-20 dogfeed). Possible causes: handles too
+narrow at small column widths to hit reliably; z-ordering issue with
+another section overlay; focus view may have a different event-
+capture chain.
+
+**Why deferred.** Need to reproduce on dogfeed to diagnose — without
+the bug in hand the fix is speculation. Workaround: focus the
+investigation (right-click) before dragging.
+
+**When to revisit.** Owner shares a screenshot of the cross-section
+view with drag attempted; OR a third dogfeed session flags it
+independently.
+
+## 76. Accept-all sometimes "splits" displayed layers post-accept (Tier E — diagnostic needed)
+
+**What.** Owner observed (2026-05-20 dogfeed) that clicking `Accept
+all` on a ghost overlay results in layers being visually "split"
+into smaller layers post-commit. Two likely causes both worth ruling
+out:
+
+- **Straddle splits** (expected): a suggestion that crosses a
+  geological-formation boundary is auto-split into TWO contacts by
+  `_compute_straddle_splits` — one per parent formation. The ghost
+  showed one layer; the committed result is two. Correct geological
+  semantics.
+- **Over-segmentation visible post-accept** (debt #74): the
+  segmenter produces multiple thin same-lithology layers that all
+  accept as separate contacts.
+
+**Why deferred.** Needs an explicit `accept_litho_suggestions`
+response log from a dogfeed session — the `straddle_split_count` +
+`created_contact_ids.length` fields tell us which mechanism is
+firing. Without that, "fix" is shooting in the dark.
+
+**When to revisit.** Next time the dogfeed shows the symptom, look at
+the backend log line `acceptAllLithoSuggestions ok created=N
+found=M straddle=K …` — if K > 0 it's straddle-split (expected); if
+K = 0 and N > the displayed-layer count it's #74 territory.
