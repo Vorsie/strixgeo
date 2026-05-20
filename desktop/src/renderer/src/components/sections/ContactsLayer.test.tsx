@@ -718,9 +718,8 @@ describe('ContactsLayer', () => {
     ).toBe(1)
   })
 
-  it('right-click + confirm fires onDeleteContact with the contact id', () => {
+  it('right-click + confirm-dialog confirms fires onDeleteContact with the contact id', () => {
     const onDeleteContact = vi.fn().mockResolvedValue(undefined)
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const contacts = [makeContact({ id: 'c-7', borehole_id: 'bh-1' })]
     const { container } = renderLayer(
       contacts,
@@ -733,26 +732,34 @@ describe('ContactsLayer', () => {
       '[data-testid="contact-drag-strip"]',
     )!
     // Right-click opens the portal context menu in document.body.
-    // We then click "Delete contact" — that is what triggers window.confirm.
+    // Clicking "Delete contact" now opens the styled confirm dialog
+    // (debt #62 item 1) instead of firing window.confirm.
     act(() => {
       strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
     })
     const menu = document.body.querySelector('[data-testid="contact-context-menu"]')!
-    const deleteBtn = Array.from(menu.querySelectorAll('button')).find(
+    const menuDeleteBtn = Array.from(menu.querySelectorAll('button')).find(
       b => b.textContent?.trim() === 'Delete contact',
     )!
     act(() => {
-      fireEvent.click(deleteBtn)
+      fireEvent.click(menuDeleteBtn)
     })
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    // The dialog now renders; find its "Delete contact" button and
+    // click to confirm. There are two buttons with the same label
+    // (menu item + dialog action); the menu closed on click so only
+    // the dialog's remains.
+    const dialogDeleteBtn = Array.from(
+      document.body.querySelectorAll('button'),
+    ).find(b => b.textContent?.trim() === 'Delete contact')!
+    act(() => {
+      fireEvent.click(dialogDeleteBtn)
+    })
     expect(onDeleteContact).toHaveBeenCalledTimes(1)
     expect(onDeleteContact.mock.calls[0][0]).toBe('c-7')
-    confirmSpy.mockRestore()
   })
 
-  it('right-click + cancel does NOT fire onDeleteContact', () => {
+  it('right-click + confirm-dialog cancel does NOT fire onDeleteContact', () => {
     const onDeleteContact = vi.fn().mockResolvedValue(undefined)
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const contacts = [makeContact({ id: 'c-7', borehole_id: 'bh-1' })]
     const { container } = renderLayer(
       contacts,
@@ -764,27 +771,29 @@ describe('ContactsLayer', () => {
     const strip = container.querySelector(
       '[data-testid="contact-drag-strip"]',
     )!
-    // Right-click opens the portal context menu in document.body.
-    // Clicking "Delete contact" triggers window.confirm; returning false
-    // means onDeleteContact must NOT be called.
     act(() => {
       strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
     })
     const menu = document.body.querySelector('[data-testid="contact-context-menu"]')!
-    const deleteBtn = Array.from(menu.querySelectorAll('button')).find(
+    const menuDeleteBtn = Array.from(menu.querySelectorAll('button')).find(
       b => b.textContent?.trim() === 'Delete contact',
     )!
     act(() => {
-      fireEvent.click(deleteBtn)
+      fireEvent.click(menuDeleteBtn)
     })
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    // Dialog opens; click Cancel — onDeleteContact must NOT fire.
+    const cancelBtn = Array.from(
+      document.body.querySelectorAll('button'),
+    ).find(b => b.textContent?.trim() === 'Cancel')!
+    act(() => {
+      fireEvent.click(cancelBtn)
+    })
     expect(onDeleteContact).not.toHaveBeenCalled()
-    confirmSpy.mockRestore()
   })
 
-  it('right-click is a no-op when onDeleteContact is absent', () => {
-    // Drag wired but no delete handler — confirm() must NEVER appear.
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('right-click hides the Delete item entirely when onDeleteContact is absent', () => {
+    // No delete handler → the context menu hides the Delete item so
+    // there is no path that could ever open the confirm dialog.
     const contacts = [makeContact({ id: 'c-1', borehole_id: 'bh-1' })]
     const { container } = renderLayer(
       contacts,
@@ -796,9 +805,18 @@ describe('ContactsLayer', () => {
     const strip = container.querySelector(
       '[data-testid="contact-drag-strip"]',
     )!
-    strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
-    expect(confirmSpy).not.toHaveBeenCalled()
-    confirmSpy.mockRestore()
+    act(() => {
+      strip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    })
+    const menu = document.body.querySelector('[data-testid="contact-context-menu"]')
+    // Menu may render (for pinch-out / other actions) but no Delete
+    // contact item is visible.
+    const deleteItem =
+      menu &&
+      Array.from(menu.querySelectorAll('button')).find(
+        b => b.textContent?.trim() === 'Delete contact',
+      )
+    expect(deleteItem).toBeFalsy()
   })
 
   // -----------------------------------------------------------------
