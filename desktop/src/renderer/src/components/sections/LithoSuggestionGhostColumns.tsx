@@ -17,6 +17,8 @@
  * collision with existing overlays.
  */
 
+import { useEffect, useState } from 'react'
+
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
@@ -92,6 +94,21 @@ export interface LithoSuggestionGhostColumnsProps {
    * Optional: tooltip shows the raw id when absent.
    */
   formations?: readonly GeologicalFormationResponse[]
+  /**
+   * Phase-2 drag-resize edits. Map from suggestion index to the
+   * user's depth overrides on its top / base edges. When present,
+   * the rect renders at the edited depth so the user sees their
+   * drag live. Independent edges: dragging only one edge composes
+   * with a previously-dragged other edge.
+   */
+  edits?: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+  /**
+   * Commit a drag-resize edit. The parent state owner merges it into
+   * the edits Map; the next render reflects the new depth. Called
+   * exactly once per mouseup (the live drag preview stays local to
+   * this component until commit).
+   */
+  onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
 }
 
 /**
@@ -147,7 +164,71 @@ export default function LithoSuggestionGhostColumns({
   onAccept,
   onReject,
   formations = [],
+  edits,
+  onEdit,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
+  // Live drag preview state. Set on mousedown on an edge handle;
+  // updated on document mousemove; cleared on mouseup which fires
+  // ``onEdit`` once with the final depth. Pre-commit edit lives only
+  // in this local state — committed edits are echoed back via the
+  // ``edits`` prop on the next render.
+  //
+  // Hooks live ABOVE all early returns (suggestions.length === 0 /
+  // !surfaceElevationM / !col) so the hook count is invariant —
+  // CLAUDE.md "Temporal Dead Zone after reordering React component
+  // bodies" / Rules of Hooks. The drag state is cheap (one ref +
+  // one effect) so paying it on every render is free.
+  const [drag, setDrag] = useState<{
+    idx: number
+    edge: 'top' | 'base'
+    initialClientY: number
+    initialDepthM: number
+    currentDepthM: number
+  } | null>(null)
+
+  // pxPerM derived from levelToScreen (a linear transform — sample
+  // two points). Guards against zero when the section is too narrow
+  // to render the band. Lifted before the early returns so the ref
+  // stays stable; the inner JSX guards on surfaceElevationM anyway.
+  const surfaceY = surfaceElevationM != null ? levelToScreen(surfaceElevationM) : 0
+  const pxPerM =
+    surfaceElevationM != null
+      ? levelToScreen(surfaceElevationM - 1) - surfaceY
+      : 0
+
+  // Document-level mousemove + mouseup while a drag is active. The
+  // hit-zones are SVG rects but the mouse can leave them during a
+  // drag; attaching to document keeps the gesture coherent. Final
+  // depth fires through ``onEdit`` exactly once on mouseup.
+  useEffect(() => {
+    if (!drag) return
+    function handleMove(e: MouseEvent): void {
+      if (!drag) return
+      const pixelDelta = e.clientY - drag.initialClientY
+      const depthDelta = pxPerM !== 0 ? pixelDelta / pxPerM : 0
+      // Clamp to non-negative depth — a layer top can't sit above
+      // the ground surface (depth 0). Base can't either; for both
+      // edges the same min applies.
+      const next = Math.max(0, drag.initialDepthM + depthDelta)
+      setDrag(d => (d !== null ? { ...d, currentDepthM: next } : null))
+    }
+    function handleUp(): void {
+      if (!drag) return
+      const edit =
+        drag.edge === 'top'
+          ? { depth_top_m: drag.currentDepthM }
+          : { depth_base_m: drag.currentDepthM }
+      if (onEdit) onEdit(drag.idx, edit)
+      setDrag(null)
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+  }, [drag, pxPerM, onEdit])
+
   if (suggestions.length === 0 || surfaceElevationM === null) return null
 
   const col = columns.find(c => c.proj.item.id === investigationId)
@@ -182,24 +263,102 @@ export default function LithoSuggestionGhostColumns({
         Litho
       </text>
 
-      {suggestions.map((layer, idx) => (
-        <LithoSuggestionLayer
-          key={`${idx}-${layer.suggested_lithology}-${layer.depth_top_m}`}
-          layer={layer}
-          idx={idx}
-          left={left}
-          width={ghostWidth}
-          surfaceElevationM={surfaceElevationM}
-          levelToScreen={levelToScreen}
-          plotTop={plotTop}
-          plotBottom={plotBottom}
-          accepted={acceptedIndices.has(idx)}
-          rejected={rejectedIndices.has(idx)}
-          onAccept={onAccept}
-          onReject={onReject}
-          formationNameById={formationNameById}
-        />
-      ))}
+      {suggestions.map((rawLayer, idx) => {
+        // Resolve effective depths: committed edits → live drag override.
+        const committed = edits?.get(idx)
+        let topM = committed?.depth_top_m ?? rawLayer.depth_top_m
+        let baseM = committed?.depth_base_m ?? rawLayer.depth_base_m
+        if (drag?.idx === idx) {
+          if (drag.edge === 'top') topM = drag.currentDepthM
+          else baseM = drag.currentDepthM
+        }
+        const effective: LithoLayerSuggestion = {
+          ...rawLayer,
+          depth_top_m: topM,
+          depth_base_m: baseM,
+        }
+        // Compute hit-zone Y positions from effective depths so the
+        // handles track the drag preview live.
+        const topY = Math.max(
+          plotTop,
+          Math.min(plotBottom, levelToScreen(surfaceElevationM - topM)),
+        )
+        const baseY = Math.max(
+          plotTop,
+          Math.min(plotBottom, levelToScreen(surfaceElevationM - baseM)),
+        )
+        const accepted = acceptedIndices.has(idx)
+        const rejected = rejectedIndices.has(idx)
+        // Drag handles only when onEdit is wired AND the layer is
+        // still pending. Accepted/rejected layers are frozen.
+        const dragHandlesEnabled = onEdit !== undefined && !accepted && !rejected
+        return (
+          <g key={`${idx}-${rawLayer.suggested_lithology}-${rawLayer.depth_top_m}`}>
+            <LithoSuggestionLayer
+              layer={effective}
+              idx={idx}
+              left={left}
+              width={ghostWidth}
+              surfaceElevationM={surfaceElevationM}
+              levelToScreen={levelToScreen}
+              plotTop={plotTop}
+              plotBottom={plotBottom}
+              accepted={accepted}
+              rejected={rejected}
+              onAccept={onAccept}
+              onReject={onReject}
+              formationNameById={formationNameById}
+            />
+            {dragHandlesEnabled && (
+              <>
+                {/* Top-edge handle — drag moves only this layer's TOP.
+                    6 px tall hit zone centred on the top edge. */}
+                <rect
+                  x={left}
+                  y={topY - 3}
+                  width={ghostWidth}
+                  height={6}
+                  fill="transparent"
+                  style={{ cursor: 'ns-resize' }}
+                  data-testid={`litho-drag-top-${idx}`}
+                  onMouseDown={e => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    setDrag({
+                      idx,
+                      edge: 'top',
+                      initialClientY: e.clientY,
+                      initialDepthM: topM,
+                      currentDepthM: topM,
+                    })
+                  }}
+                />
+                {/* Base-edge handle — drag moves only this layer's BASE. */}
+                <rect
+                  x={left}
+                  y={baseY - 3}
+                  width={ghostWidth}
+                  height={6}
+                  fill="transparent"
+                  style={{ cursor: 'ns-resize' }}
+                  data-testid={`litho-drag-base-${idx}`}
+                  onMouseDown={e => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    setDrag({
+                      idx,
+                      edge: 'base',
+                      initialClientY: e.clientY,
+                      initialDepthM: baseM,
+                      currentDepthM: baseM,
+                    })
+                  }}
+                />
+              </>
+            )}
+          </g>
+        )
+      })}
     </g>
   )
 }

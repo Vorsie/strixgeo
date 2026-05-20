@@ -13,7 +13,7 @@
 //   G6  Renders null when surfaceElevationM is null (cannot place layers).
 //   G7  Renders null when suggestions array is empty.
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
@@ -90,6 +90,8 @@ function renderGhost(
     investigationId?: string
     acceptedIndices?: ReadonlySet<number>
     rejectedIndices?: ReadonlySet<number>
+    edits?: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+    onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -111,6 +113,8 @@ function renderGhost(
         onAccept={vi.fn()}
         onReject={vi.fn()}
         formations={opts.formations}
+        edits={opts.edits}
+        onEdit={opts.onEdit}
       />
     </svg>,
   )
@@ -190,5 +194,68 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(rect).not.toBeNull()
     expect(rect!.getAttribute('x')).toBe('180')
     expect(rect!.getAttribute('width')).toBe('40')
+  })
+
+  // G9: drag-edge handles render only when onEdit is wired AND the
+  // layer is still pending. The hit zones are testid'd so we can
+  // assert their presence without inspecting layout.
+  it('G9 — drag handles render for pending layers when onEdit is wired', () => {
+    const { container } = renderGhost([makeSuggestion()], { onEdit: vi.fn() })
+    expect(container.querySelector('[data-testid="litho-drag-top-0"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="litho-drag-base-0"]')).not.toBeNull()
+  })
+
+  it('G10 — drag handles are omitted when onEdit is missing (read-only ghosts)', () => {
+    const { container } = renderGhost([makeSuggestion()]) // onEdit undefined
+    expect(container.querySelector('[data-testid="litho-drag-top-0"]')).toBeNull()
+    expect(container.querySelector('[data-testid="litho-drag-base-0"]')).toBeNull()
+  })
+
+  it('G11 — drag handles are omitted for accepted layers', () => {
+    const { container } = renderGhost([makeSuggestion()], {
+      onEdit: vi.fn(),
+      acceptedIndices: new Set([0]),
+    })
+    expect(container.querySelector('[data-testid="litho-drag-top-0"]')).toBeNull()
+  })
+
+  it('G12 — mousedown→mouseup on top handle fires onEdit with depth_top_m', () => {
+    // Test levelToScreen has pxPerM = 100 (slope of the linear
+    // transform). Drag 250 px down → depth delta = 2.5 m.
+    // Layer top starts at depth 0 → after drag, depth_top_m = 2.5.
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')
+    expect(topHandle).not.toBeNull()
+    fireEvent.mouseDown(topHandle!, { clientY: 100 })
+    fireEvent.mouseMove(document, { clientY: 350 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    const [idx, edit] = onEdit.mock.calls[0]
+    expect(idx).toBe(0)
+    expect(edit.depth_top_m).toBeCloseTo(2.5, 5)
+    expect(edit.depth_base_m).toBeUndefined()
+  })
+
+  it('G13 — base handle fires onEdit with depth_base_m only', () => {
+    // Layer base starts at depth 2 → drag 50 px down → delta 0.5 m
+    // → new depth_base_m = 2.5.
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 250 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    const [idx, edit] = onEdit.mock.calls[0]
+    expect(idx).toBe(0)
+    expect(edit.depth_top_m).toBeUndefined()
+    expect(edit.depth_base_m).toBeCloseTo(2.5, 5)
   })
 })
