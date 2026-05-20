@@ -60,6 +60,42 @@ function lithoLabel(lithology: string): string {
   return LITHOLOGY_LABELS[lithology] ?? lithology
 }
 
+/**
+ * Find the nearest index strictly above (smaller than) ``idx`` that
+ * is still a PENDING layer (not accepted, not rejected).  Used by
+ * the shared-boundary drag commit + the live drag preview so that
+ * rejected / accepted layers don't get treated as adjacency partners
+ * — dogfeed bug 2026-05-20: rejecting a middle layer let the
+ * two surrounding pending layers be dragged independently into
+ * overlap because the propagation was hardwired to ``drag.idx-1``.
+ *
+ * Returns ``null`` when no pending layer exists above ``idx`` (the
+ * dragged layer is the topmost pending one — outer edge case).
+ */
+function nearestPendingIndexAbove(
+  idx: number,
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+): number | null {
+  for (let i = idx - 1; i >= 0; i--) {
+    if (!acceptedIndices.has(i) && !rejectedIndices.has(i)) return i
+  }
+  return null
+}
+
+/** Mirror of ``nearestPendingIndexAbove`` for the other direction. */
+function nearestPendingIndexBelow(
+  idx: number,
+  total: number,
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+): number | null {
+  for (let i = idx + 1; i < total; i++) {
+    if (!acceptedIndices.has(i) && !rejectedIndices.has(i)) return i
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -308,24 +344,45 @@ export default function LithoSuggestionGhostColumns({
       // same depth. This prevents whitespace gaps + overlapping ranges
       // (both flagged as geologically nonsense on dogfeed).
       //
-      // Edges at the suggestion list's outer boundary (idx 0's top,
-      // last idx's base) have no adjacent layer to move — they update
-      // only the dragged layer's edge.
+      // Adjacency skips REJECTED and ACCEPTED layers (dogfeed bug
+      // 2026-05-20): rejected layers are hidden so propagating to them
+      // doesn't move what the user sees, leaving A.base and C.top out
+      // of sync across the gap; accepted layers' depths are committed
+      // contacts and mutating their stored top/base via the edits map
+      // visually distorts the green-tick ghost rect without changing
+      // the actual contact in the DB. Both classes therefore stop the
+      // shared-boundary propagation cold (or, when there is a further
+      // pending neighbour, propagate ACROSS them to that neighbour).
+      //
+      // Outer edges (no pending neighbour above for idx 0's top, none
+      // below for the last idx's base) update only the dragged layer.
       if (drag.edge === 'top') {
         if (onEdit) onEdit(drag.idx, { depth_top_m: final })
-        if (drag.idx > 0 && onEdit) {
-          onEdit(drag.idx - 1, { depth_base_m: final })
+        const above = nearestPendingIndexAbove(
+          drag.idx,
+          acceptedIndices,
+          rejectedIndices,
+        )
+        if (above !== null && onEdit) {
+          onEdit(above, { depth_base_m: final })
         }
       } else {
         if (onEdit) onEdit(drag.idx, { depth_base_m: final })
-        if (drag.idx < suggestions.length - 1 && onEdit) {
-          onEdit(drag.idx + 1, { depth_top_m: final })
+        const below = nearestPendingIndexBelow(
+          drag.idx,
+          suggestions.length,
+          acceptedIndices,
+          rejectedIndices,
+        )
+        if (below !== null && onEdit) {
+          onEdit(below, { depth_top_m: final })
         }
       }
       // Snap-to-collapse → auto-reject the dragged layer (debt #81).
       // The shared-edge commit above absorbs its space into the
-      // neighbour (top-drag: layer i-1 grows; base-drag: layer i+1
-      // grows), so the rejected layer disappears cleanly.
+      // pending neighbour above/below; rejected/accepted layers in
+      // between keep their stored depths so un-rejecting later
+      // restores them at their original position.
       if (drag.snapped) onReject(drag.idx)
       setDrag(null)
     }
@@ -335,7 +392,7 @@ export default function LithoSuggestionGhostColumns({
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleUp)
     }
-  }, [drag, pxPerM, onEdit, onReject])
+  }, [drag, pxPerM, onEdit, onReject, suggestions.length, acceptedIndices, rejectedIndices])
 
   if (suggestions.length === 0 || surfaceElevationM === null) return null
 
@@ -394,17 +451,43 @@ export default function LithoSuggestionGhostColumns({
             if (drag.edge === 'top') topM = drag.currentDepthM
             else baseM = drag.currentDepthM
           }
-          // Layer (idx-1)'s base is the same boundary as this layer's
-          // top. When the user drags the layer ABOVE's base, follow it
-          // on this layer's top so the boundary stays one line.
-          if (drag.idx === idx - 1 && drag.edge === 'base') {
-            topM = drag.currentDepthM
-          }
-          // Mirror: layer (idx+1)'s top is the same boundary as this
-          // layer's base. Drag the layer BELOW's top → follow on this
-          // layer's base.
-          if (drag.idx === idx + 1 && drag.edge === 'top') {
-            baseM = drag.currentDepthM
+          // Shared-boundary live preview: when the user is dragging
+          // another layer's edge, follow it on this layer's edge IFF
+          // this layer is the NEAREST PENDING neighbour in that
+          // direction (skipping rejected/accepted layers). Hardwired
+          // ±1 here would visually link the wrong pair of layers when
+          // a rejected/accepted layer sits between, leaving gaps /
+          // overlaps that contradict the commit topology (dogfeed
+          // 2026-05-20 bug — drag commit fix above this).
+          //
+          // Only check the link when this layer is itself pending —
+          // accepted/rejected layers don't render their edits as a
+          // live preview either (their rect is frozen).
+          if (
+            !acceptedIndices.has(idx) &&
+            !rejectedIndices.has(idx)
+          ) {
+            if (
+              drag.edge === 'base' &&
+              nearestPendingIndexBelow(
+                drag.idx,
+                suggestions.length,
+                acceptedIndices,
+                rejectedIndices,
+              ) === idx
+            ) {
+              topM = drag.currentDepthM
+            }
+            if (
+              drag.edge === 'top' &&
+              nearestPendingIndexAbove(
+                drag.idx,
+                acceptedIndices,
+                rejectedIndices,
+              ) === idx
+            ) {
+              baseM = drag.currentDepthM
+            }
           }
         }
         const effective: LithoLayerSuggestion = {
