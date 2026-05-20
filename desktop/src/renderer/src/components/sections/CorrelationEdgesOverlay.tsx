@@ -23,7 +23,7 @@
  * no state.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   FormationContactResponse,
   GeologicalFormationResponse,
@@ -398,6 +398,42 @@ export default function CorrelationEdgesOverlay({
 }: Props): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
 
+  // Drag-arm state (debt #78 — drag-inside-correlate-mode). A mousedown
+  // on an un-armed band arms the source AND starts tracking the pointer
+  // in SVG coords so we can render a preview line. The mouseup handler
+  // then hit-tests the cursor against another band rect via the DOM
+  // `data-testid="correlate-arm-*" / "correlate-target-*"` attribute
+  // and fires onCorrelate if it lands on a different band.
+  //
+  // currentSvgX/Y track the cursor in the overlay's SVG coordinate
+  // space (clientX − svgRect.left, identity transform — no zoom inside
+  // SectionPanel's SVG). srcCx / srcCy are the source band's centre in
+  // the same coord space so the preview line is a single SVG <line>.
+  const [drag, setDrag] = useState<{
+    srcInvestigationId: string
+    srcFormationId: string
+    srcCx: number
+    srcCy: number
+    currentSvgX: number
+    currentSvgY: number
+  } | null>(null)
+
+  // Anchor used to invert clientX/Y → SVG coords. Placed on the root
+  // <g> so getBoundingClientRect() gives the overlay's screen origin.
+  const rootRef = useRef<SVGGElement | null>(null)
+
+  /**
+   * Convert a clientX/Y pair to SVG-local coords for the preview line.
+   * Identity transform inside SectionPanel's SVG so a simple subtract
+   * from the root's bounding-rect origin is exact. Returns null when
+   * the ref isn't mounted yet (test environments before first render).
+   */
+  function clientToSvg(clientX: number, clientY: number): { x: number; y: number } | null {
+    const rect = rootRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    return { x: clientX - rect.left, y: clientY - rect.top }
+  }
+
   // Invert levelToScreen at plotBottom to get the minimum visible level.
   // We approximate: levelToScreen is monotone-decreasing (higher level = smaller Y),
   // so the bottom of the plot corresponds to the lowest visible level.
@@ -613,8 +649,100 @@ export default function CorrelationEdgesOverlay({
       onUncorrelate: async () => {},
     }
 
+  /**
+   * Drag-arm mousedown handler (debt #78). Arms the source via the
+   * existing onArm callback AND opens the drag state so the mouseup
+   * handler below can fire onCorrelate when the cursor lands on
+   * another band. The eligibility check (cross-group / same-band)
+   * happens at mouseup against the resolved target — we don't pre-
+   * filter the gesture target because the cursor may pass over many
+   * bands before release.
+   */
+  function handleArmMouseDown(
+    e: React.MouseEvent<SVGRectElement>,
+    src: CorrelationSource,
+    cx: number,
+    cy: number,
+  ): void {
+    // Only left-button drag — right-click would conflict with the
+    // edge-uncorrelate context menu and ContextMenu events fire their
+    // own path.
+    if (e.button !== 0) return
+    e.stopPropagation()
+    onArm(src)
+    const svgPt = clientToSvg(e.clientX, e.clientY) ?? { x: cx, y: cy }
+    setDrag({
+      srcInvestigationId: src.investigationId,
+      srcFormationId: src.formationId,
+      srcCx: cx,
+      srcCy: cy,
+      currentSvgX: svgPt.x,
+      currentSvgY: svgPt.y,
+    })
+  }
+
+  // Document mousemove + mouseup while drag-arm is active. Tracks
+  // the cursor in SVG coords for the preview line and, on release,
+  // hit-tests via document.elementsFromPoint to find a target band
+  // by its data-testid. Esc cancels the drag (the existing
+  // useCorrelate Esc handler clears the armed source separately).
+  useEffect(() => {
+    if (!drag) return
+    function handleMove(e: MouseEvent): void {
+      const svgPt = clientToSvg(e.clientX, e.clientY)
+      if (!svgPt) return
+      setDrag(d => (d ? { ...d, currentSvgX: svgPt.x, currentSvgY: svgPt.y } : null))
+    }
+    function handleUp(e: MouseEvent): void {
+      const elements = document.elementsFromPoint(e.clientX, e.clientY)
+      let targetInvId: string | null = null
+      let targetFormationId: string | null = null
+      // Hit-test via dedicated data attributes — using the testid
+      // string would fail on real UUID ids with dashes (greedy split).
+      for (const el of elements) {
+        const invId = el.getAttribute('data-correlate-investigation-id')
+        const formId = el.getAttribute('data-correlate-formation-id')
+        if (invId && formId) {
+          targetInvId = invId
+          targetFormationId = formId
+          break
+        }
+      }
+      setDrag(null)
+      // Same-band drop — leave the source armed for the user to
+      // either click a target normally or Esc out. Do NOT clear,
+      // since the user clearly opened correlate mode for a reason.
+      if (
+        targetInvId === drag!.srcInvestigationId &&
+        targetFormationId === drag!.srcFormationId
+      ) {
+        return
+      }
+      if (targetInvId !== null && targetFormationId !== null) {
+        void onCorrelate(drag!.srcFormationId, targetFormationId)
+      }
+      // Dropped on empty space — leave armed so the user can complete
+      // the gesture with a normal click on a target.
+    }
+    function handleKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setDrag(null)
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [drag, onCorrelate])
+
   return (
-    <g data-testid="correlation-edges-overlay" style={{ pointerEvents: 'none' }}>
+    <g
+      ref={rootRef}
+      data-testid="correlation-edges-overlay"
+      style={{ pointerEvents: 'none' }}
+    >
       {/* True-spacing warning header */}
       {showTrueSpacingWarning && (
         <text
@@ -732,6 +860,8 @@ export default function CorrelationEdgesOverlay({
             <g key={`gesture-${gr.investigationId}-${gr.formationId}`} style={{ pointerEvents: 'auto' }}>
               <rect
                 data-testid={`correlate-target-${gr.investigationId}-${gr.formationId}`}
+                data-correlate-investigation-id={gr.investigationId}
+                data-correlate-formation-id={gr.formationId}
                 x={rectX}
                 y={gr.topY}
                 width={rectWidth}
@@ -769,25 +899,32 @@ export default function CorrelationEdgesOverlay({
           )
         }
 
-        // No source armed yet: invisible click target to arm as source
+        // No source armed yet: invisible click target to arm as source.
+        // Also accepts a mousedown to start a drag-to-target gesture
+        // (debt #78) — the same gesture, collapsed from click+click to
+        // one drag. The original click path stays so existing tests +
+        // users keep working.
         if (correlationSource === null) {
+          const src: CorrelationSource = {
+            formationId: gr.formationId,
+            investigationId: gr.investigationId,
+            label: gr.label,
+          }
+          const cy = (gr.topY + gr.botY) / 2
           return (
             <rect
               key={`gesture-${gr.investigationId}-${gr.formationId}`}
               data-testid={`correlate-arm-${gr.investigationId}-${gr.formationId}`}
+              data-correlate-investigation-id={gr.investigationId}
+              data-correlate-formation-id={gr.formationId}
               x={rectX}
               y={gr.topY}
               width={rectWidth}
               height={rectHeight}
               fill="transparent"
               style={{ pointerEvents: 'auto', cursor: 'crosshair' }}
-              onClick={() =>
-                onArm({
-                  formationId: gr.formationId,
-                  investigationId: gr.investigationId,
-                  label: gr.label,
-                })
-              }
+              onClick={() => onArm(src)}
+              onMouseDown={e => handleArmMouseDown(e, src, gr.x, cy)}
             />
           )
         }
@@ -805,6 +942,25 @@ export default function CorrelationEdgesOverlay({
           />
         )
       })}
+
+      {/* Drag-arm preview line (debt #78). Dashed blue line from the
+          source band centre to the live cursor, while a drag-arm
+          gesture is in flight. Pointer-events:none so it never
+          intercepts the mouseup that completes the gesture. */}
+      {drag && (
+        <line
+          data-testid="correlate-drag-preview"
+          x1={drag.srcCx}
+          y1={drag.srcCy}
+          x2={drag.currentSvgX}
+          y2={drag.currentSvgY}
+          stroke={EDGE_COLOR}
+          strokeWidth={EDGE_WIDTH}
+          strokeDasharray={EDGE_DASH}
+          pointerEvents="none"
+          opacity={0.6}
+        />
+      )}
 
       {/* Uncorrelate context menu */}
       {contextMenu && (
