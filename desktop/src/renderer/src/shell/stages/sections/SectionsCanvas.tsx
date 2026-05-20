@@ -780,6 +780,12 @@ export default function SectionsCanvas(): JSX.Element {
             ? backdropSurfacesByFormationId
             : undefined
         }
+        // Snap-to-contact backdrop: on the litho axis, the geological
+        // contacts are passed through so ContactsLayer can draw a
+        // polyline that goes EXACTLY through each pick (no 3D→2D
+        // projection error). The user picks each strato contact with
+        // intent; the rendered backdrop honours that.
+        referenceContacts={isLitho && contacts.length > 0 ? contacts : undefined}
         // Lift the section-local focused column to the shell so
         // SectionsToolbar can use it for the litho-axis Suggest button.
         onFocusedColumnChange={setSectionFocusedColumn}
