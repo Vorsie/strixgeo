@@ -199,7 +199,8 @@ async def test_dry_run_returns_geometry_no_db_rows(db_session: AsyncSession) -> 
 
     # Geometry must be computable and tip must be beyond the last slice point.
     assert result.created_contact_ids == []
-    assert result.updated_section is None
+    # `updated_section` field removed from PinchOutResult (debt #62
+    # item 3); section seeding moved to the router.
     assert result.was_idempotent is False
     # The last pinching contact is at x=start+50 → along_m=50.
     # The crossing tip must lie further right.
