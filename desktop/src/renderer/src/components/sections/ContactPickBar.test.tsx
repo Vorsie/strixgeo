@@ -4,7 +4,7 @@
 // anchor payload.
 
 import { fireEvent, render } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CptPlotResponse } from '../../api/client'
 import ContactPickBar from './ContactPickBar'
@@ -54,6 +54,14 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof ContactPickBar
 }
 
 describe('ContactPickBar', () => {
+  // Fake timers so the click debounce window (250 ms) can be advanced
+  // without real-clock waits in tests.
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
   it('renders the invisible click-capture overlay over the band', () => {
     const { container } = renderBar()
     // The transparent capture rect spans 2 × halfWidth wide and
@@ -104,6 +112,10 @@ describe('ContactPickBar', () => {
     // [10, 15] → depth = (13 - surfaceY=10) / 1 = 3 m.
     fireEvent.mouseMove(overlay, { clientY: 13 })
     fireEvent.click(overlay)
+    // Click is queued behind a 250 ms dbl-click gate — fires only
+    // after the timer elapses with no cancel.
+    expect(onCommitDepth).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(250)
     expect(onCommitDepth).toHaveBeenCalledTimes(1)
     const arg = onCommitDepth.mock.calls[0][0]
     expect(arg.kind).toBe('cpt')
@@ -138,5 +150,33 @@ describe('ContactPickBar', () => {
     expect(texts.some(t => t.includes('+8.00 m TAW'))).toBe(true)
     expect(texts.some(t => t.includes('qc'))).toBe(true)
     expect(texts.some(t => t.includes('Rf'))).toBe(true)
+  })
+
+  it('double-click cancels the queued single-click — no contact placed', () => {
+    // Pins the dbl-click race fix: a dbl-click intent (open detail
+    // on the outer column) must not commit a contact on click 1.
+    const onCommitDepth = vi.fn()
+    const { container } = renderBar({ onCommitDepth })
+    const overlay = container.querySelector('rect[fill="transparent"]') as SVGRectElement
+    overlay.getBoundingClientRect = () =>
+      ({
+        top: 10,
+        bottom: 15,
+        left: 76,
+        right: 124,
+        x: 76,
+        y: 10,
+        width: 48,
+        height: 5,
+        toJSON: () => ({}),
+      }) as DOMRect
+    fireEvent.mouseMove(overlay, { clientY: 13 })
+    fireEvent.click(overlay)
+    // Within the gate window, a dblclick fires and clears the queued
+    // commit. Browser semantics: click, click, dblclick — we simulate
+    // click then dblclick directly.
+    fireEvent.doubleClick(overlay)
+    vi.advanceTimersByTime(500)
+    expect(onCommitDepth).not.toHaveBeenCalled()
   })
 })

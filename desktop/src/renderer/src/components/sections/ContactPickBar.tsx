@@ -25,6 +25,7 @@
 import { useMemo, useRef, useState } from 'react'
 
 import type { CptPlotResponse } from '../../api/client'
+import { useClickDebounce } from '../../hooks/useClickDebounce'
 import { lookupCptValueAtDepth } from './cptInterpolation'
 import HoverReadoutCard from './HoverReadoutCard'
 
@@ -132,20 +133,35 @@ export default function ContactPickBar({
     setCursorY(null)
   }
 
+  // Single-vs-double-click gate. Without this, a dbl-click intent
+  // (open detail on the outer column) commits a contact on the first
+  // click because the rect's onClick fires before the outer onDblClick
+  // arrives. ``handleDoubleClick`` clears the queued single — the
+  // outer column's onDoubleClick still fires for detail-open via
+  // event bubbling.
+  const clickDebounce = useClickDebounce()
   function handleClick(e: React.MouseEvent<SVGRectElement>): void {
     if (cursorY === null || !onCommitDepth) return
     // Shift held → user wants the section bg-marquee for multi-
     // select; let the click bubble up by bailing here.
     if (e.shiftKey) return
+    // Capture depth at click time — the queued thunk runs ~250 ms
+    // later, after the user may have moved the cursor.
     const depth = depthAtY(cursorY)
-    onCommitDepth({
-      kind: 'cpt',
-      cptId,
-      cptName,
-      depth_m: depth,
-      elevationM: surfaceElevationM - depth,
-      snapped: false,
-    })
+    const elevationM = surfaceElevationM - depth
+    clickDebounce.schedule(() =>
+      onCommitDepth({
+        kind: 'cpt',
+        cptId,
+        cptName,
+        depth_m: depth,
+        elevationM,
+        snapped: false,
+      }),
+    )
+  }
+  function handleDoubleClick(): void {
+    clickDebounce.cancel()
   }
 
   const leftX = screenX - halfWidth
@@ -177,6 +193,7 @@ export default function ContactPickBar({
         onMouseMove={handleMove}
         onMouseLeave={handleLeave}
         onClick={onCommitDepth ? handleClick : undefined}
+        onDoubleClick={onCommitDepth ? handleDoubleClick : undefined}
       />
       {cursorY !== null && (
         <g pointerEvents="none">
