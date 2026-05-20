@@ -555,6 +555,8 @@ export default function ContactsLayer({
   referenceSurfacesByFormationId,
   sectionLine,
   alongMToScreenX,
+  plotLeft,
+  plotRight,
   focusedContactIds,
 }: Props): JSX.Element | null {
   // ---- Contact context-menu state --------------------------------
@@ -1137,11 +1139,30 @@ export default function ContactsLayer({
             : line.vertices
                 .map(v => ({ x: v.screenX, y: v.screenY }))
                 .sort((a, b) => a.x - b.x)
-        if (points.length >= 2 && fillBufferPx > 0) {
+        if (points.length >= 2) {
+          // Halfspace extrapolation — extend the band laterally to the
+          // section's plot bounds when those are available (gINT /
+          // LeapFrog convention: formations are geologically
+          // continuous, so the unit is presumed to extend past the
+          // last anchor that has a contact). When plot bounds are not
+          // wired we fall back to ±fillBufferPx (the legacy "breathe
+          // past the last test" pad).
           const left = points[0]
           const right = points[points.length - 1]
-          points.unshift({ x: left.x - fillBufferPx, y: left.y })
-          points.push({ x: right.x + fillBufferPx, y: right.y })
+          const leftTargetX =
+            plotLeft !== undefined && plotLeft < left.x
+              ? plotLeft
+              : fillBufferPx > 0
+                ? left.x - fillBufferPx
+                : left.x
+          const rightTargetX =
+            plotRight !== undefined && plotRight > right.x
+              ? plotRight
+              : fillBufferPx > 0
+                ? right.x + fillBufferPx
+                : right.x
+          if (leftTargetX < left.x) points.unshift({ x: leftTargetX, y: left.y })
+          if (rightTargetX > right.x) points.push({ x: rightTargetX, y: right.y })
         }
         // 3-state fill contract (§10 on-click build):
         //   fresh surface (exists + !is_stale + triangles > 0) → solid 0.18
@@ -1205,6 +1226,8 @@ export default function ContactsLayer({
     surfacesByFormationId,
     dataExtentFloor,
     fillBufferPx,
+    plotLeft,
+    plotRight,
   ])
 
   // Drag state lives in the component so its update path is
@@ -1965,6 +1988,26 @@ export default function ContactsLayer({
           }
           return { x: v.screenX, y }
         })
+        // Halfspace extrapolation — prepend / append synthetic vertices
+        // at the section's plot bounds with the leftmost / rightmost
+        // real vertex's Y, so the formation line extends LATERALLY
+        // past the last anchor that has a contact (gINT / LeapFrog
+        // convention: formations are presumed continuous). Synthetic
+        // vertices fall well outside any slice's X range so they
+        // always render (segment to/from them is "outside slice").
+        // Guarded by both plotLeft/plotRight being wired and the
+        // synthetic point being strictly outside the real range so
+        // we don't insert a duplicate at the same X.
+        if (projected.length > 0) {
+          const leftmost = projected[0]
+          const rightmost = projected[projected.length - 1]
+          if (plotLeft !== undefined && plotLeft < leftmost.x) {
+            projected.unshift({ x: plotLeft, y: leftmost.y })
+          }
+          if (plotRight !== undefined && plotRight > rightmost.x) {
+            projected.push({ x: plotRight, y: rightmost.y })
+          }
+        }
         // Build the path with M/L commands, emitting `M` (start a new
         // sub-path) when the previous segment was skipped. A segment
         // is skipped only when BOTH endpoints fall inside the slice's

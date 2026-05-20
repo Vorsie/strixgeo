@@ -114,6 +114,8 @@ function renderLayer(
     surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
     sectionLine?: { startX: number; startY: number; endX: number; endY: number }
     alongMToScreenX?: (alongM: number) => number
+    plotLeft?: number
+    plotRight?: number
   } = {},
 ) {
   return render(
@@ -134,6 +136,8 @@ function renderLayer(
         surfacesByFormationId={extras.surfacesByFormationId}
         sectionLine={extras.sectionLine}
         alongMToScreenX={extras.alongMToScreenX}
+        plotLeft={extras.plotLeft}
+        plotRight={extras.plotRight}
       />
     </svg>,
   )
@@ -1419,6 +1423,33 @@ describe('ContactsLayer', () => {
     expect(
       container.querySelector('[data-testid="formation-polyline-f"]'),
     ).toBeNull()
+  })
+
+  it('extends polyline laterally to plotLeft / plotRight (halfspace extrapolation)', () => {
+    // Contacts on cols at screen-X 50 and 150. Plot bounds set to
+    // 0..200 → the rendered polyline path must include vertices at
+    // x=0 and x=200 (the synthetic halfspace endpoints) so the
+    // formation line "draws through" past the outermost anchor.
+    // gINT / LeapFrog convention.
+    const formation = makeFormation({ id: 'f', color: '#ff0000' })
+    const contacts = [
+      makeContact({ id: 'c1', borehole_id: 'bh-1', formation_id: 'f', depth_top_m: 1 }),
+      makeContact({ id: 'c2', borehole_id: 'bh-2', formation_id: 'f', depth_top_m: 1 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [formation],
+      [makeBoreholePlaced('bh-1', 50), makeBoreholePlaced('bh-2', 150)],
+      undefined,
+      { plotLeft: 0, plotRight: 200 },
+    )
+    const poly = container.querySelector('[data-testid="formation-polyline-f"]')
+    expect(poly).not.toBeNull()
+    const d = poly!.getAttribute('d')!
+    // First vertex must be the synthetic plotLeft (x=0), last must be
+    // the synthetic plotRight (x=200). Path is "M 0.00 ... L ... L 200.00 ...".
+    expect(d.startsWith('M 0.00 ')).toBe(true)
+    expect(d).toMatch(/L 200\.00 /)
   })
 
   it('paints formation polylines in stratigraphic order — older first, younger on top', () => {
