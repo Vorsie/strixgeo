@@ -1250,28 +1250,22 @@ The real win is at the parse layer + eventual mirror.
 
 
 
-## 81. Snap-to-adjacent-boundary when dragging ghost layer edge (Tier E — drag UX)
+## 83. Snap-to-non-adjacent boundary cascade (Tier E — follow-on to #81)
 
-**What.** During the Phase-2 shared-boundary drag, detect when the
-current drag depth is within a snap threshold (e.g. 3 px) of another
-boundary in the same column. Snap visually + on commit. If the user
-snaps onto the SAME layer's other edge → that layer collapses to
-zero thickness, effectively rejecting it. If they snap onto a
-NON-adjacent boundary → the in-between layers also collapse.
+**What.** Extend the snap-to-collapse gesture from #81 so the snap
+target set includes ALL other boundaries in the column, not just the
+dragged layer's own opposite edge. Dragging past the adjacent
+boundary snaps to the next-further one and auto-rejects every layer
+swept over.
 
-Lets the user "delete redundant Sand sub-layers" by dragging the
-boundary above onto the boundary below, instead of right-clicking
-each one to reject. The owner described this on dogfeed 2026-05-20:
-"I want to pull down the upper boundary above or the lower boundary
-upwards and it needs to snap to the other boundary."
+**Why deferred.** v1 of #81 (shipped 2026-05-20) snaps only to the
+own opposite edge — the dogfeed user's exact ask ("pull down the
+upper boundary above or the lower boundary upwards and it needs to
+snap to the other boundary"). Cascade across multiple layers needs
+the shared-boundary commit to cascade as well (not just self +
+adjacent), which is bigger than the v1 footprint and changes the
+two-call onEdit contract into an N-call one.
 
-**Why deferred.** The drag commit currently emits two onEdit calls
-(self + adjacent layer) — adding snap-to-collapse means handling N
-extra onEdit calls + the collapsed-layers' auto-reject. Plus a snap
-preview overlay (visible target line at the snap depth). ~150 LOC.
-Doable but bigger than the dbl-click-to-edit slice; better in its
-own focused window.
-
-**When to revisit.** When the dogfeed shows the user repeatedly
-right-clicking-rejecting adjacent sub-layers of the same lithology;
-that's the symptom snap-to-collapse cures.
+**When to revisit.** When the dogfeed user drags past the immediate
+boundary expecting further collapse — the symptom that proves
+cascade is worth the contract change.
