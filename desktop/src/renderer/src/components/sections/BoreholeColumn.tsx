@@ -113,6 +113,12 @@ interface Props {
    * renders even without ``onCommitDepth`` when this flag is on, so
    * the readout is available outside the contact-pick flow. */
   showHoverReadout?: boolean
+  /** Fires on dbl-click ON THE PICK RECT so the dbl-click intent
+   * (open detail) works even when the user dbl-clicks on the
+   * borehole's data band. Mirror of ContactPickBar's
+   * onDoubleClickOpen — see that prop's docstring for the SVG
+   * bubbling explanation. Optional. */
+  onDoubleClickOpen?: () => void
 }
 
 export default function BoreholeColumn({
@@ -127,6 +133,7 @@ export default function BoreholeColumn({
   onCommitDepth,
   snapToStratigraphy = false,
   showHoverReadout = false,
+  onDoubleClickOpen,
 }: Props): JSX.Element | null {
   const [cursorY, setCursorY] = useState<number | null>(null)
 
@@ -235,6 +242,10 @@ export default function BoreholeColumn({
   }
   function handleDoubleClick(): void {
     clickDebounce.cancel()
+    // Forward the dbl-click intent to the column's detail-open
+    // handler — the outer ColumnGlyph's onDoubleClick doesn't see
+    // this event (sibling, not parent in the SVG tree).
+    if (onDoubleClickOpen) onDoubleClickOpen()
   }
 
   function handleMouseMove(e: React.MouseEvent<SVGRectElement>): void {
@@ -277,7 +288,12 @@ export default function BoreholeColumn({
           style={{ cursor: onCommitDepth ? 'crosshair' : 'default' }}
           pointerEvents="auto"
           onClick={onCommitDepth ? handleClick : undefined}
-          onDoubleClick={onCommitDepth ? handleDoubleClick : undefined}
+          // onDoubleClick wires when EITHER onCommitDepth is wired
+          // (to cancel the queued single) OR onDoubleClickOpen is
+          // wired (to open detail).
+          onDoubleClick={
+            onCommitDepth || onDoubleClickOpen ? handleDoubleClick : undefined
+          }
           onMouseMove={showHoverReadout ? handleMouseMove : undefined}
           onMouseLeave={showHoverReadout ? handleMouseLeave : undefined}
         />

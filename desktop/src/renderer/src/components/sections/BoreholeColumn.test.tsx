@@ -386,6 +386,42 @@ describe('BoreholeColumn — N-strip rendering', () => {
     ).not.toThrow()
   })
 
+  it('double-click forwards to onDoubleClickOpen so detail still opens', () => {
+    // Pins the dbl-click passthrough fix mirror of ContactPickBar.
+    const onCommitDepth = vi.fn()
+    const onDoubleClickOpen = vi.fn()
+    const detail = {
+      ...makeDetail([
+        makeObservation('formal_stratigraphy', [
+          makeLayer({ id: 'f1', top_m: 0, base_m: 5 }),
+        ]),
+      ]),
+      total_depth_m: 30,
+    }
+    const { container } = render(
+      <svg>
+        <BoreholeColumn
+          detail={detail}
+          channels={DEFAULT_BOREHOLE_CHANNELS}
+          screenX={100}
+          halfWidth={20}
+          surfaceElevationM={10}
+          plotTop={0}
+          plotBottom={50}
+          levelToScreen={flipped}
+          onCommitDepth={onCommitDepth}
+          onDoubleClickOpen={onDoubleClickOpen}
+        />
+      </svg>,
+    )
+    const rect = findClickCaptureRect(container)
+    fireEvent.click(rect, { clientY: 4 })
+    fireEvent.doubleClick(rect, { clientY: 4 })
+    vi.advanceTimersByTime(500)
+    expect(onCommitDepth).not.toHaveBeenCalled()
+    expect(onDoubleClickOpen).toHaveBeenCalledTimes(1)
+  })
+
   it('double-click cancels the queued single-click — no contact placed', () => {
     // Pins the dbl-click race fix: a dbl-click intent (open detail
     // on the outer column) must not commit a contact on click 1.
