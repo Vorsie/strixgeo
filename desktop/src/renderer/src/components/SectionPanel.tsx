@@ -356,6 +356,34 @@ interface Props {
     onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
   }
   /**
+   * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
+   * — one entry per investigation the bulk "Suggest all" verb fanned
+   * out to. SectionPanel renders one LithoSuggestionGhostColumns per
+   * entry simultaneously, in addition to any single-anchor ghost
+   * above. Handlers are anchor-scoped via the anchorId arg so each
+   * ghost column commits to its own anchor.
+   */
+  bulkLithoGhostState?: {
+    anchorGhosts: ReadonlyMap<
+      string,
+      {
+        kind: 'cpt' | 'borehole'
+        suggestions: readonly LithoLayerSuggestion[]
+        surfaceElevationM: number | null
+        accepted: ReadonlySet<number>
+        rejected: ReadonlySet<number>
+        edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+      }
+    >
+    onAccept: (anchorId: string, idx: number) => void | Promise<void>
+    onReject: (anchorId: string, idx: number) => void
+    onEdit: (
+      anchorId: string,
+      idx: number,
+      edit: { depth_top_m?: number; depth_base_m?: number },
+    ) => void
+  }
+  /**
    * Pinch-out ghost-preview state (ghost-UX slice).  When present, a
    * dashed semi-transparent wedge renders from the formation's last real
    * contact toward the computed tip, with a floating Confirm/Dismiss
@@ -467,6 +495,7 @@ export default function SectionPanel({
   onChangeVirtueleBoringPicker,
   onChangeVirtueleBoringShowOnSection,
   lithoGhostState,
+  bulkLithoGhostState,
   pinchOutGhostState,
   correlationEdges,
   correlateGestureState,
@@ -1755,6 +1784,44 @@ export default function SectionPanel({
                 onEdit={lithoGhostState.onEdit}
               />
             )}
+
+            {/* Bulk-suggest ghost overlays (debt #73 / Phase 3) —
+                one LithoSuggestionGhostColumns instance per bulk
+                anchor. Each gets the same widget but bound to its
+                own (kind, id, accepted/rejected/edits) slice of
+                the bulk Map. Handlers are anchor-scoped — onAccept
+                / onReject / onEdit forward the anchorId so the
+                parent commits to the right column. Renders nothing
+                when the prop is absent. */}
+            {bulkLithoGhostState != null &&
+              Array.from(bulkLithoGhostState.anchorGhosts.entries()).map(
+                ([anchorId, ghost]) => (
+                  <LithoSuggestionGhostColumns
+                    key={`bulk-ghost-${anchorId}`}
+                    columns={visibleColumns}
+                    investigationId={anchorId}
+                    suggestions={ghost.suggestions}
+                    levelToScreen={levelToScreen}
+                    surfaceElevationM={ghost.surfaceElevationM}
+                    plotTop={MARGIN.top}
+                    plotBottom={MARGIN.top + plotHeight}
+                    bandHalfWidth={bandHalfWidth}
+                    acceptedIndices={ghost.accepted}
+                    rejectedIndices={ghost.rejected}
+                    onAccept={idx => {
+                      void bulkLithoGhostState.onAccept(anchorId, idx)
+                    }}
+                    onReject={idx => {
+                      bulkLithoGhostState.onReject(anchorId, idx)
+                    }}
+                    formations={formations}
+                    edits={ghost.edits}
+                    onEdit={(idx, edit) => {
+                      bulkLithoGhostState.onEdit(anchorId, idx, edit)
+                    }}
+                  />
+                ),
+              )}
 
             {/* Geological-model formation contacts. Each formation
                 with ≥1 contact in this section renders as a

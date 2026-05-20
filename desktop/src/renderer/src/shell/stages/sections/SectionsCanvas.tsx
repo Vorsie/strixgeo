@@ -80,6 +80,14 @@ export default function SectionsCanvas(): JSX.Element {
       handleEditLithoSuggestion,
       handleAcceptLithoSuggestion,
       handleRejectLithoSuggestion,
+      // Bulk-suggest (debt #73 / Phase 3) — multi-anchor ghost state.
+      bulkLithoGhosts,
+      handleSuggestAllLitho,
+      handleAcceptBulkLitho,
+      handleAcceptAllBulkLitho,
+      handleRejectBulkLitho,
+      handleEditBulkLitho,
+      clearBulkLithoGhosts,
       pinchOutPreview,
       pinchOutLoading,
       handlePreviewPinchOut,
@@ -649,6 +657,37 @@ export default function SectionsCanvas(): JSX.Element {
     handleEditLithoSuggestion,
   ])
 
+  // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
+  // so it can render one LithoSuggestionGhostColumns per bulk anchor.
+  // The accept handler wraps to forward the section id +
+  // applyUpdatedSection for the explicit-content invariant (#57).
+  const sectionAwareAcceptBulkLitho = useCallback(
+    async (anchorId: string, idx: number): Promise<void> => {
+      await handleAcceptBulkLitho(
+        anchorId,
+        idx,
+        selectedSection?.id ?? null,
+        applyUpdatedSection,
+      )
+    },
+    [handleAcceptBulkLitho, selectedSection, applyUpdatedSection],
+  )
+  const bulkLithoGhostState = useMemo(() => {
+    if (!isLitho || bulkLithoGhosts.size === 0) return undefined
+    return {
+      anchorGhosts: bulkLithoGhosts,
+      onAccept: sectionAwareAcceptBulkLitho,
+      onReject: handleRejectBulkLitho,
+      onEdit: handleEditBulkLitho,
+    }
+  }, [
+    isLitho,
+    bulkLithoGhosts,
+    sectionAwareAcceptBulkLitho,
+    handleRejectBulkLitho,
+    handleEditBulkLitho,
+  ])
+
   // Pinch-out ghost state — wired on the geological axis only (same
   // axis that owns the formation contacts the user right-clicks on).
   // The onPreviewPinchOut callback derives direction (always 'right'
@@ -777,6 +816,7 @@ export default function SectionsCanvas(): JSX.Element {
           handleSetShowOverlay('section', next)
         }
         lithoGhostState={lithoGhostState}
+        bulkLithoGhostState={bulkLithoGhostState}
         pinchOutGhostState={pinchOutGhostState}
         // Geological surface backdrop (#60): only on the litho axis and only
         // when at least one geological formation exists. The geological
