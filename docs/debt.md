@@ -1382,30 +1382,3 @@ they ARE visible, just under a generic heading.
 distribution (the orphan rows still serialise into `.gmproj`
 bundles, so cleanup before a paid release matters).
 
-## 89. Bus `lithoFormations` as derived view over global `formations` (Tier E — coupling cleanup)
-
-**What.** `lithoFormations` lives as a separate `useState` set inside
-the bootstrap useEffect — refetched independently via
-`refetchLithoFormations` after every litho accept. The same data
-already lives in the global `formations` state; `lithoFormations`
-is just `formations.filter(isLithoUnit)`. Two state atoms holding
-the same authority creates the kind of staleness that surfaced as
-debt #88 — a missed refetch on one side desynced the bus.
-
-A cleaner shape: drop the `useState`, derive via `useMemo` over
-`formations`. Every refetch path that updates `formations` then
-implicitly updates `lithoFormations` without an explicit second
-call. Saves one `listFormations` round-trip per accept too.
-
-**Why deferred.** Touches three sites — bootstrap useEffect (delete
-the setLithoFormations branch), `handleInlineLithoCreateFormation`
-(call setFormations instead of setLithoFormations), and the dep
-arrays of every callback that lists `refetchLithoFormations`. Low-
-risk, behaviour-preserving, but >5 files of churn for a refactor
-that doesn't change product behaviour. The current explicit-refetch
-state is correct (per the #88 fix); switch to derived when next
-touching this part of `useGeologicalModel.ts`.
-
-**When to revisit.** When the litho bootstrap useEffect or the
-accept-handler dep arrays are touched for another reason — fold the
-derive-from-formations change into that PR.
