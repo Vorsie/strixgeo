@@ -24,6 +24,7 @@ import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../ap
 import { useClickDebounce } from '../../hooks/useClickDebounce'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
+import MergeConfirmDialog from './MergeConfirmDialog'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
 import {
@@ -194,6 +195,117 @@ function findVisibleNeighbourBelow(
 }
 
 /**
+ * Cascade chain — debt #83 (cascade) + #84 (merge prompt).
+ *
+ * Walks through consecutive pending neighbours of the same geological
+ * parent (same ``parent_formation_id`` AND ``spans_boundary === false``).
+ * Returns:
+ *
+ * * ``chain`` — the indices of pending layers that would be fully
+ *   absorbed if the drag snaps at the FAR edge of the LAST chain entry.
+ *   Empty when no cascade is possible:
+ *
+ *     - first visible above/below is accepted (barrier — no walk)
+ *     - first visible is pending-via-rejected-gap (gap-fill regime —
+ *       single neighbour, no cascade through it)
+ *     - first visible pending has different parent / spans boundary
+ *       (geological barrier — clamp at its near edge, chain empty)
+ *
+ * * ``barrier`` — the visible layer that stopped the cascade (the
+ *   accepted/different-parent/spans_boundary one), or ``null`` when
+ *   the walk reached the outer edge of the suggestion list.
+ *
+ * * ``crossedRejected`` — whether any rejected layers were between
+ *   ``idx`` and the first chain entry. Carried through so the existing
+ *   gap-fill regime (#83 v1.2) keeps its semantics.
+ *
+ * The dragged layer's own parent + spans_boundary drive the eligibility
+ * check — every chain entry must agree.
+ */
+export interface CascadeResult {
+  chain: number[]
+  barrier: VisibleNeighbour | null
+  crossedRejected: boolean
+}
+
+function _isSameParent(
+  draggedLayer: LithoLayerSuggestion,
+  candidate: LithoLayerSuggestion,
+): boolean {
+  // A suggestion that already crosses a geological boundary cannot join
+  // the cascade — by definition it straddles two parents. Refuse it
+  // even if its `parent_formation_id` happens to match the dragged
+  // layer (the segmenter assigned the upper parent to a straddler).
+  if (draggedLayer.spans_boundary || candidate.spans_boundary) return false
+  return draggedLayer.parent_formation_id === candidate.parent_formation_id
+}
+
+function findCascadeChainAbove(
+  idx: number,
+  suggestions: readonly LithoLayerSuggestion[],
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+): CascadeResult {
+  const dragged = suggestions[idx]
+  const chain: number[] = []
+  let crossedRejected = false
+  let firstHit = true
+  for (let i = idx - 1; i >= 0; i--) {
+    if (rejectedIndices.has(i)) {
+      crossedRejected = true
+      continue
+    }
+    if (acceptedIndices.has(i)) {
+      return { chain, barrier: { idx: i, kind: 'accepted', crossedRejected }, crossedRejected }
+    }
+    // Pending: gap-fill rule (crossedRejected on the FIRST hit) wins —
+    // no cascade, single neighbour as barrier with its NEAR edge as the
+    // clamp.
+    if (firstHit && crossedRejected) {
+      return { chain, barrier: { idx: i, kind: 'pending', crossedRejected }, crossedRejected }
+    }
+    // Geological barrier: different parent OR spans_boundary on either
+    // side — clamp at this layer's near edge, no cascade.
+    if (!_isSameParent(dragged, suggestions[i])) {
+      return { chain, barrier: { idx: i, kind: 'pending', crossedRejected }, crossedRejected }
+    }
+    chain.push(i)
+    firstHit = false
+  }
+  return { chain, barrier: null, crossedRejected }
+}
+
+function findCascadeChainBelow(
+  idx: number,
+  suggestions: readonly LithoLayerSuggestion[],
+  acceptedIndices: ReadonlySet<number>,
+  rejectedIndices: ReadonlySet<number>,
+): CascadeResult {
+  const dragged = suggestions[idx]
+  const chain: number[] = []
+  let crossedRejected = false
+  let firstHit = true
+  for (let i = idx + 1; i < suggestions.length; i++) {
+    if (rejectedIndices.has(i)) {
+      crossedRejected = true
+      continue
+    }
+    if (acceptedIndices.has(i)) {
+      return { chain, barrier: { idx: i, kind: 'accepted', crossedRejected }, crossedRejected }
+    }
+    if (firstHit && crossedRejected) {
+      return { chain, barrier: { idx: i, kind: 'pending', crossedRejected }, crossedRejected }
+    }
+    if (!_isSameParent(dragged, suggestions[i])) {
+      return { chain, barrier: { idx: i, kind: 'pending', crossedRejected }, crossedRejected }
+    }
+    chain.push(i)
+    firstHit = false
+  }
+  return { chain, barrier: null, crossedRejected }
+}
+
+/**
  * Resolve the effective top/base of a suggestion — committed edits
  * win over the raw segmenter output. Used to compute drag bounds
  * from the live state of the neighbouring layers (debt #83 v1).
@@ -253,71 +365,71 @@ function effectiveDepths(
  * each other (their shared boundary is the current depth → drag is
  * effectively a no-op until one is rejected).
  */
-function computeDragBounds(
+export interface DragBoundsResult {
+  boundsAboveM: number
+  boundsBelowM: number
+  /**
+   * Pending-layer indices fully absorbed when the drag snaps at
+   * ``boundsAboveM``. The dragged layer itself (``idx``) appears here
+   * for the #81 self-collapse path (snap to own opposite edge). Cascade
+   * neighbours appear in walk order (closest-first). Empty = no
+   * collapse target on this side.
+   */
+  collapseChainAbove: number[]
+  /** Mirror of ``collapseChainAbove`` for the BELOW direction. */
+  collapseChainBelow: number[]
+}
+
+export function computeDragBounds(
   edge: 'top' | 'base',
   idx: number,
   suggestions: readonly LithoLayerSuggestion[],
   edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
   acceptedIndices: ReadonlySet<number>,
   rejectedIndices: ReadonlySet<number>,
-): {
-  boundsAboveM: number
-  boundsBelowM: number
-  collapseIdxAbove: number | null
-  collapseIdxBelow: number | null
-} {
+): DragBoundsResult {
   const own = effectiveDepths(suggestions, edits, idx)
   if (edge === 'top') {
-    const above = findVisibleNeighbourAbove(idx, acceptedIndices, rejectedIndices)
+    const cascade = findCascadeChainAbove(idx, suggestions, acceptedIndices, rejectedIndices)
     let boundsAboveM = 0
-    let collapseIdxAbove: number | null = null
-    if (above !== null) {
-      const neighbour = effectiveDepths(suggestions, edits, above.idx)
-      if (above.kind === 'pending' && !above.crossedRejected) {
-        // Standard resize gesture: clamp at neighbour's FAR edge
-        // (its top), allowing the shared boundary to move through
-        // the neighbour. Snap there auto-collapses the neighbour.
-        boundsAboveM = neighbour.topM
-        collapseIdxAbove = above.idx
-      } else {
-        // Either pending-via-rejected-gap (fill the gap, neighbour
-        // stays put) or accepted barrier — clamp at NEAR edge with
-        // no auto-collapse.
-        boundsAboveM = neighbour.baseM
-      }
+    let collapseChainAbove: number[] = []
+    if (cascade.chain.length > 0) {
+      // Standard resize / cascade: clamp at the FAR edge of the LAST
+      // chain entry (the one furthest from the dragged layer). Snap
+      // there absorbs every chain entry.
+      const farthest = cascade.chain[cascade.chain.length - 1]
+      boundsAboveM = effectiveDepths(suggestions, edits, farthest).topM
+      collapseChainAbove = cascade.chain
+    } else if (cascade.barrier !== null) {
+      // No cascade — barrier blocked the walk. Clamp at the barrier's
+      // NEAR edge (its BASE for an above-walk) with no auto-collapse.
+      // Covers: accepted barrier, gap-fill via rejected, geological
+      // boundary (different parent OR spans_boundary).
+      boundsAboveM = effectiveDepths(suggestions, edits, cascade.barrier.idx).baseM
     }
     return {
       boundsAboveM,
       boundsBelowM: own.baseM,
-      collapseIdxAbove,
-      collapseIdxBelow: idx,
+      collapseChainAbove,
+      collapseChainBelow: [idx],
     }
   }
   // edge === 'base'
-  const below = findVisibleNeighbourBelow(
-    idx,
-    suggestions.length,
-    acceptedIndices,
-    rejectedIndices,
-  )
+  const cascade = findCascadeChainBelow(idx, suggestions, acceptedIndices, rejectedIndices)
   let boundsBelowM = Number.POSITIVE_INFINITY
-  let collapseIdxBelow: number | null = null
-  if (below !== null) {
-    const neighbour = effectiveDepths(suggestions, edits, below.idx)
-    if (below.kind === 'pending' && !below.crossedRejected) {
-      // Standard resize gesture: clamp at neighbour's FAR edge.
-      boundsBelowM = neighbour.baseM
-      collapseIdxBelow = below.idx
-    } else {
-      // Gap-fill (pending after rejected) OR accepted barrier.
-      boundsBelowM = neighbour.topM
-    }
+  let collapseChainBelow: number[] = []
+  if (cascade.chain.length > 0) {
+    const farthest = cascade.chain[cascade.chain.length - 1]
+    boundsBelowM = effectiveDepths(suggestions, edits, farthest).baseM
+    collapseChainBelow = cascade.chain
+  } else if (cascade.barrier !== null) {
+    boundsBelowM = effectiveDepths(suggestions, edits, cascade.barrier.idx).topM
   }
   return {
     boundsAboveM: own.topM,
     boundsBelowM,
-    collapseIdxAbove: idx,
-    collapseIdxBelow,
+    collapseChainAbove: [idx],
+    collapseChainBelow,
   }
 }
 
@@ -486,18 +598,20 @@ export default function LithoSuggestionGhostColumns({
      */
     boundsBelowM: number
     /**
-     * Suggestion index whose layer collapses if the drag snaps at
-     * ``boundsAboveM`` — own idx (base-drag → own collapses) or the
-     * next-pending-above's idx (top-drag → neighbour collapses).
-     * ``null`` when the bound is the ground surface (no neighbour
-     * to collapse).
+     * Indices of pending layers absorbed when the drag snaps at
+     * ``boundsAboveM``. Single-element ``[idx]`` for the #81
+     * self-collapse path (snap to own opposite edge); multi-element
+     * for a cascade through same-parent neighbours (debt #83); empty
+     * when no collapse target on this side (ground surface, accepted
+     * barrier, geological boundary).
      */
-    collapseIdxAbove: number | null
-    /** Mirror of ``collapseIdxAbove`` for ``boundsBelowM``. */
-    collapseIdxBelow: number | null
+    collapseChainAbove: number[]
+    /** Mirror of ``collapseChainAbove`` for ``boundsBelowM``. */
+    collapseChainBelow: number[]
     /**
      * Whether the current drag position is snapped to either bound.
-     * Drives the visible snap indicator + the on-mouseup auto-reject.
+     * Drives the visible snap indicator + the on-mouseup auto-reject /
+     * merge-confirm prompt.
      */
     snapped: boolean
     /**
@@ -508,12 +622,28 @@ export default function LithoSuggestionGhostColumns({
      */
     snapTargetM: number | null
     /**
-     * Layer to auto-reject on mouseup when ``snapped`` is true. This
-     * is whichever ``collapseIdx{Above,Below}`` corresponds to the
-     * bound that was hit. ``null`` when no snap fired or the snap is
-     * at the ground surface.
+     * Chain of layers to auto-reject on mouseup when ``snapped`` is
+     * true. The dialog (debt #84) only opens when this chain contains
+     * a NEIGHBOUR (#83 cascade or #83 v1 single-neighbour); the #81
+     * self-collapse path (chain == [own idx]) skips the dialog and
+     * auto-rejects directly — that gesture is the user's explicit
+     * "fold this layer into its opposite edge" intent and asking is
+     * friction.
      */
-    collapseOnReleaseIdx: number | null
+    collapseChainOnRelease: number[]
+  } | null>(null)
+
+  // Debt #83 cascade + #84 merge prompt. When mouseup snaps with a
+  // non-self collapse chain, defer the commit and open a confirm
+  // dialog. ``pendingCommit`` carries the would-be edit + the chain
+  // so Confirm can fire onEdit + onReject(...), and Cancel can drop
+  // the whole gesture without touching anything.
+  const [pendingCommit, setPendingCommit] = useState<{
+    idx: number
+    edge: 'top' | 'base'
+    finalDepthM: number
+    chain: number[]
+    propagateIdx: number | null
   } | null>(null)
 
   // Composition editor (debt #72). Tracks which suggestion index is
@@ -596,33 +726,33 @@ export default function LithoSuggestionGhostColumns({
       // is which idx gets auto-rejected on mouseup.
       const snappedAtAbove =
         snapThresholdM > 0 &&
-        drag.collapseIdxAbove !== null &&
+        drag.collapseChainAbove.length > 0 &&
         Math.abs(clamped - drag.boundsAboveM) <= snapThresholdM
       const snappedAtBelow =
         snapThresholdM > 0 &&
-        drag.collapseIdxBelow !== null &&
+        drag.collapseChainBelow.length > 0 &&
         Math.abs(clamped - drag.boundsBelowM) <= snapThresholdM
       // If both bounds are within threshold simultaneously (a layer
       // narrower than 2 * snapThresholdM), prefer the one closer to
       // the cursor — keeps the snap intuitive when the layer is thin.
       let snapTargetM: number | null = null
-      let collapseOnReleaseIdx: number | null = null
+      let collapseChainOnRelease: number[] = []
       if (snappedAtAbove && snappedAtBelow) {
         const aboveDist = Math.abs(clamped - drag.boundsAboveM)
         const belowDist = Math.abs(clamped - drag.boundsBelowM)
         if (aboveDist <= belowDist) {
           snapTargetM = drag.boundsAboveM
-          collapseOnReleaseIdx = drag.collapseIdxAbove
+          collapseChainOnRelease = drag.collapseChainAbove
         } else {
           snapTargetM = drag.boundsBelowM
-          collapseOnReleaseIdx = drag.collapseIdxBelow
+          collapseChainOnRelease = drag.collapseChainBelow
         }
       } else if (snappedAtAbove) {
         snapTargetM = drag.boundsAboveM
-        collapseOnReleaseIdx = drag.collapseIdxAbove
+        collapseChainOnRelease = drag.collapseChainAbove
       } else if (snappedAtBelow) {
         snapTargetM = drag.boundsBelowM
-        collapseOnReleaseIdx = drag.collapseIdxBelow
+        collapseChainOnRelease = drag.collapseChainBelow
       }
       const next = snapTargetM !== null ? snapTargetM : clamped
       setDrag(d =>
@@ -632,7 +762,7 @@ export default function LithoSuggestionGhostColumns({
               currentDepthM: next,
               snapped: snapTargetM !== null,
               snapTargetM,
-              collapseOnReleaseIdx,
+              collapseChainOnRelease,
             }
           : null,
       )
@@ -640,12 +770,41 @@ export default function LithoSuggestionGhostColumns({
     function handleUp(): void {
       if (!drag) return
       const final = drag.currentDepthM
+      // Cascade gate (debt #83 + #84). When the snap chain contains
+      // any NEIGHBOUR (chain != [drag.idx]), defer everything to the
+      // MergeConfirmDialog: no onEdit, no onReject. The dialog's
+      // Confirm/Cancel decides whether to commit. The #81 self-collapse
+      // path (chain == [drag.idx]) skips the dialog — that's the user's
+      // explicit "fold this layer" intent and asking is friction.
+      const chain = drag.snapped ? drag.collapseChainOnRelease : []
+      const isSelfCollapseOnly = chain.length === 1 && chain[0] === drag.idx
+      if (chain.length > 0 && !isSelfCollapseOnly) {
+        // Defer — open dialog. The visible-neighbour propagation idx
+        // is resolved now (before clearing the drag state) so Confirm
+        // can fire it without recomputing.
+        const propagateIdx =
+          drag.edge === 'top'
+            ? nearestVisibleIndexAbove(drag.idx, rejectedIndices)
+            : nearestVisibleIndexBelow(drag.idx, suggestions.length, rejectedIndices)
+        setPendingCommit({
+          idx: drag.idx,
+          edge: drag.edge,
+          finalDepthM: final,
+          chain,
+          propagateIdx:
+            propagateIdx !== null && !acceptedIndices.has(propagateIdx) ? propagateIdx : null,
+        })
+        setDrag(null)
+        return
+      }
+      // Normal commit path — no neighbour cascade. Either no snap, or
+      // a self-collapse-only snap (#81).
+      //
       // Shared-boundary commit (owner directive 2026-05-20 reversal of
       // the earlier "independent edges" design). A boundary BETWEEN
       // two adjacent layers is one boundary, not two — moving it slides
       // both the layer above's base AND the layer below's top to the
-      // same depth. This prevents whitespace gaps + overlapping ranges
-      // (both flagged as geologically nonsense on dogfeed).
+      // same depth.
       //
       // Adjacency skips REJECTED and ACCEPTED layers (dogfeed bug
       // 2026-05-20): rejected layers are hidden so propagating to them
@@ -653,47 +812,22 @@ export default function LithoSuggestionGhostColumns({
       // of sync across the gap; accepted layers' depths are committed
       // contacts and mutating their stored top/base via the edits map
       // visually distorts the green-tick ghost rect without changing
-      // the actual contact in the DB. Both classes therefore stop the
-      // shared-boundary propagation cold (or, when there is a further
-      // pending neighbour, propagate ACROSS them to that neighbour).
-      //
-      // Outer edges (no pending neighbour above for idx 0's top, none
-      // below for the last idx's base) update only the dragged layer.
+      // the actual contact in the DB.
       if (drag.edge === 'top') {
         if (onEdit) onEdit(drag.idx, { depth_top_m: final })
-        // Propagate to the nearest VISIBLE neighbour above (skip only
-        // rejected, same topology as the clamp); but skip the edit if
-        // that visible is ACCEPTED — its committed-contact depth must
-        // not be mutated via the edits map. The clamp guarantees
-        // `final` can't move past an accepted barrier anyway, so no
-        // propagation is needed in that case.
         const visible = nearestVisibleIndexAbove(drag.idx, rejectedIndices)
         if (visible !== null && !acceptedIndices.has(visible) && onEdit) {
           onEdit(visible, { depth_base_m: final })
         }
       } else {
         if (onEdit) onEdit(drag.idx, { depth_base_m: final })
-        const visible = nearestVisibleIndexBelow(
-          drag.idx,
-          suggestions.length,
-          rejectedIndices,
-        )
+        const visible = nearestVisibleIndexBelow(drag.idx, suggestions.length, rejectedIndices)
         if (visible !== null && !acceptedIndices.has(visible) && onEdit) {
           onEdit(visible, { depth_top_m: final })
         }
       }
-      // Snap-to-collapse auto-reject. The collapse target is the
-      // layer that became zero-thickness after the shared-boundary
-      // commit:
-      //   - snap to own opposite edge (#81) → collapseOnReleaseIdx
-      //     is the dragged layer itself
-      //   - snap to neighbour's far edge (#83 v1) → collapseOnReleaseIdx
-      //     is the neighbour whose near edge was absorbed
-      // Rejected/accepted layers in between keep their stored depths
-      // so un-rejecting later restores them at their original position.
-      if (drag.snapped && drag.collapseOnReleaseIdx !== null) {
-        onReject(drag.collapseOnReleaseIdx)
-      }
+      // #81 self-collapse auto-reject.
+      if (isSelfCollapseOnly) onReject(drag.idx)
       setDrag(null)
     }
     document.addEventListener('mousemove', handleMove)
@@ -887,7 +1021,7 @@ export default function LithoSuggestionGhostColumns({
                       ...bounds,
                       snapped: false,
                       snapTargetM: null,
-                      collapseOnReleaseIdx: null,
+                      collapseChainOnRelease: [],
                     })
                   }}
                 />
@@ -920,7 +1054,7 @@ export default function LithoSuggestionGhostColumns({
                       ...bounds,
                       snapped: false,
                       snapTargetM: null,
-                      collapseOnReleaseIdx: null,
+                      collapseChainOnRelease: [],
                     })
                   }}
                 />
@@ -1050,6 +1184,33 @@ export default function LithoSuggestionGhostColumns({
         </div>,
         document.body,
       )}
+    {/* Drag-cascade merge confirm dialog (debt #83 + #84). Opens when
+        mouseup snaps with one or more NEIGHBOUR layers absorbed.
+        Confirm commits both the depth edit AND the chain rejections;
+        Cancel drops the whole gesture. */}
+    <MergeConfirmDialog
+      open={pendingCommit !== null}
+      chainLayers={pendingCommit?.chain.map(i => suggestions[i]) ?? []}
+      draggedLayer={pendingCommit !== null ? suggestions[pendingCommit.idx] : null}
+      onConfirm={() => {
+        if (pendingCommit === null) return
+        const { idx, edge, finalDepthM, chain, propagateIdx } = pendingCommit
+        if (edge === 'top') {
+          if (onEdit) onEdit(idx, { depth_top_m: finalDepthM })
+          if (propagateIdx !== null && onEdit) {
+            onEdit(propagateIdx, { depth_base_m: finalDepthM })
+          }
+        } else {
+          if (onEdit) onEdit(idx, { depth_base_m: finalDepthM })
+          if (propagateIdx !== null && onEdit) {
+            onEdit(propagateIdx, { depth_top_m: finalDepthM })
+          }
+        }
+        for (const collapseIdx of chain) onReject(collapseIdx)
+        setPendingCommit(null)
+      }}
+      onCancel={() => setPendingCommit(null)}
+    />
     </>
   )
 }
