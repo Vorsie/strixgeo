@@ -1042,46 +1042,63 @@ LithoCompositionPickerDialog manual-create path proves too indirect
 via the composition picker, then drag-resize the neighbours to make
 room). The right-click gesture collapses that to one menu click.
 
-## 84. Merge prompt when dragging same-NAD-class same-lithology layers (Tier D — geotechnically-aware edit)
+## 83 cascade + 84 merge prompt — RESOLVED 2026-05-21
 
-**What.** Dogfeed 2026-05-20 (alongside the rejected-neighbour drag
-bug): "when we drag one clay layer to the next, shouldn't we ask the
-user if they want to merge if the qc falls in the same NAD category?
-And no stratigraphic boundaries are crossed."
+Owner directives chosen:
+* Cascade behaviour: **Multi-collapse with prompt** — drag clamps walk
+  through ALL same-parent pending neighbours; release opens a single
+  confirm dialog naming the layers about to be absorbed.
+* Merge wording: **Merge title with NAD fallback** — title morphs
+  between "Merge N <Lithology> layers (NAD K)?", "Merge N <Lithology>
+  layers?", and "Collapse N layers?" based on the shared
+  ``suggested_lithology`` + ``suggested_nad_class`` of the dragged
+  layer and the chain.
+* Geological boundary rule: **Refuse across boundary** — the cascade
+  hard-clamps at the first layer whose ``parent_formation_id`` differs
+  from the dragged layer's parent OR whose ``spans_boundary`` is true
+  (straddler). The geological signal beats the NAD signal.
 
-The gesture: the user drags a layer's edge until it meets (or crosses
-into) another layer of the SAME lithology in the same column. Today
-the snap-to-collapse (#81) collapses the dragged layer into its
-opposite edge regardless of what's next door. The proposed feature
-adds a geotechnically-aware variant: if the dragged layer and the
-target layer share lithology + NAD class + parent geological
-formation, prompt "Merge into one layer?" — accept → delete the
-intermediate (already in the snap path) AND extend the survivor.
+**Implementation.** ``computeDragBounds`` returns ``collapseChainAbove``
++ ``collapseChainBelow: number[]`` (replacing the prior single
+``collapseIdx{Above,Below}: number | null``).  Pure walk helpers
+``findCascadeChainAbove`` / ``findCascadeChainBelow`` traverse same-
+parent same-non-straddle pending neighbours; the gap-fill regime
+(rejected between dragged and first pending) wins over cascade by
+returning an empty chain; accepted barriers and geological barriers
+also empty the chain.  The drag state's mouseup gate now defers to
+``MergeConfirmDialog`` whenever ``snapped`` AND the chain contains
+any non-self entry; Confirm fires the deferred ``onEdit(idx, depth)``
++ shared-boundary propagation + ``onReject(...)`` per chain entry;
+Cancel drops the whole gesture (no edits, no rejections — the
+pre-drag visual is restored on the next render because no commit
+happened).  The #81 self-collapse path (chain == [own idx]) bypasses
+the dialog — that gesture is the user's explicit "fold this layer"
+intent and asking is friction.
 
-Why per-NAD-class: a thin Sand sub-layer between two larger Sand
-layers is often segmenter over-segmentation when all three have the
-same Dr / NAD class. Merging gives the user one geotechnically-
-homogeneous unit instead of three. Per stratigraphic-boundary check:
-do NOT auto-merge across a geological-formation boundary even when
-lithology + NAD agree (the boundary is the harder geological signal).
+The merge dialog title comes from a pure helper
+``buildMergeConfirmTitle(dragged, chain)`` that computes the
+commonality.  When all four checks agree (same litho, all NAD non-
+null, same NAD), the title carries the NAD parenthetical; when any
+NAD is null, the title drops the parenthetical; when lithology
+mixes, the wording falls back to "Collapse".
 
-**Why deferred.** Three pieces of unresolved design:
+**Tests.** Cascade chain pure tests C1-C6 + dialog title M1-M5 in
+``LithoSuggestionGhostColumns.cascade.test.ts`` (11 cases — cascade
+3-chain, geological boundary stop, spans_boundary barrier, accepted
+barrier, rejected-gap inhibits cascade, top-drag mirror; title NAD
+shared, NAD fallback, mixed-litho collapse, empty defensive, total-
+count plural).  ``LithoSuggestionGhostColumns.test.tsx`` updated:
+G32 + G33 now drive Confirm in the dialog (was: assert inline edit
++ reject); new G37 pins Cancel as a no-op.  Backwards-compat: all
+pre-existing tests pass — non-snap drags, rejected-gap (#83 v1.2 G34),
+self-collapse (#81) all still commit inline without the dialog.
 
-1. **Detect target on drag**: which "next" layer counts as the merge
-   candidate — the immediately-adjacent one, or any layer in the
-   column the dragged edge sweeps past? (Ties to debt #83 cascade.)
-2. **NAD class on a ghost suggestion**: `LithoLayerSuggestion` carries
-   `suggested_nad_class` but it can be null on borehole-sourced
-   suggestions. The merge eligibility check needs a non-null path or
-   a falls-back-to-lithology-only branch.
-3. **UI surface**: an inline confirm at the drag-release vs a modal
-   vs the existing snap "release to merge" hint upgraded with a
-   "(merge with Sand below — same NAD)" subtitle. Owner-decided.
-
-**When to revisit.** Right after #83 cascade — the gesture pieces are
-shared (cross-multiple-layers detection). Bundle (1)+(2)+(3) into one
-focused design session; ship the snap-to-collapse path first as the
-strict subset that doesn't need NAD lookup.
+**Documented residual (#85 still open).** Right-click on a shared
+boundary to insert a layer between two pendings stays Tier E; the
+gesture surface is different (insertion, not collapse) and the
+deferred design pieces (where the new layer's thickness comes from,
+composition prefill, hit zone) don't share infrastructure with the
+cascade.  The cascade ship doesn't change #85's trigger condition.
 
 ## 86. Horizontal drag-to-copy composition across layers (Tier D — new gesture)
 
