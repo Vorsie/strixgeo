@@ -550,3 +550,64 @@ def relative_density_sand(
         # this can only occur when seff is extremely large. Avoid log(0).
         return None
     return 100.0 * (0.268 * math.log(ratio) - compression_factor)
+
+
+def ic_series_2015(
+    depths_m: Sequence[float],
+    qc_mpa: Sequence[float],
+    fs_mpa: Sequence[float | None],
+    gwt_m: float = 1.0,
+) -> list[float | None]:
+    """High-level wrapper: per-depth-point Ic via the Robertson 2015 pipeline.
+
+    Mirrors the signature of the older ``cpt_interpretation.calculate_ic_series``
+    so call sites can swap one for the other without reshaping their inputs.
+    Internally builds the unit-weight + stress profile and runs the iterative
+    Qtn / F / Ic / n convergence — the same path the litho segmenter uses.
+
+    Debt #22 reconciliation (2026-05-21): the CPT detail chart's ``/cpt/{id}/plot``
+    endpoint now sources Ic from THIS function instead of the Robertson 1990
+    preview in ``cpt_interpretation.calculate_ic_series``, so the whole app
+    (segmenter + chart) is consistent on Daniel Verastegui's 2015/2009 method.
+
+    Parameters
+    ----------
+    depths_m : Sequence[float]
+        Measurement depths in metres below ground surface, ascending.
+    qc_mpa : Sequence[float]
+        Cone resistance in MPa, parallel to ``depths_m``.
+    fs_mpa : Sequence[float | None]
+        Sleeve friction in MPa; ``None`` rows yield ``None`` in the output.
+    gwt_m : float
+        Depth to groundwater below ground surface in metres (default 1.0,
+        matching the older ``calculate_ic_series`` default).
+
+    Returns
+    -------
+    list[float | None]
+        Ic per depth point.  ``None`` where ``fs`` is missing or the
+        convergence cannot produce a valid result.  Same length as
+        ``depths_m``.
+    """
+    if not depths_m:
+        return []
+    # The stress profile takes ABSOLUTE elevations (niveau_m, yw_m).  The
+    # only quantity that drives the three water-position branches is the
+    # difference ``niveau - yw``, which equals the depth to water (gwt_m).
+    # Picking niveau=0 and yw=-gwt_m makes that difference equal to gwt_m
+    # without needing the surveyed ground elevation — useful for CPTs that
+    # have no ``elevation_m`` recorded.
+    stress = stress_profile(
+        depths_m=depths_m,
+        qc_mpa=qc_mpa,
+        fs_mpa=fs_mpa,
+        niveau_m=0.0,
+        yw_m=-gwt_m,
+    )
+    results = qtn_f_ic_series(
+        depths_m=depths_m,
+        qc_mpa=qc_mpa,
+        fs_mpa=fs_mpa,
+        stress=stress,
+    )
+    return [r.ic if r is not None else None for r in results]

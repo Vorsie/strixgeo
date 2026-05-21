@@ -16,6 +16,7 @@ import pytest
 
 from groundmodel.domain.services.robertson_2015 import (
     StressResult,
+    ic_series_2015,
     qtn_f_ic_series,
     relative_density_sand,
     sbt_zone_series,
@@ -153,3 +154,32 @@ def test_stress_profile_water_at_surface_is_buoyant() -> None:
         assert p.seff_kpa < p.stot_kpa  # buoyant
         assert p.seff_kpa > 0.0  # floored positive
     assert prof[2].stot_kpa > prof[0].stot_kpa  # monotone with depth
+
+
+def test_ic_series_2015_empty_input_returns_empty() -> None:
+    """Empty depth array short-circuits to an empty result list."""
+    assert ic_series_2015([], [], []) == []
+
+
+def test_ic_series_2015_returns_one_value_per_depth_point() -> None:
+    """The wrapper preserves length and produces a numeric Ic for typical inputs."""
+    depths = [0.5, 1.0, 1.5, 2.0]
+    qc = [5.0, 8.0, 12.0, 18.0]
+    fs = [0.05, 0.08, 0.12, 0.18]
+    ic = ic_series_2015(depths, qc, fs, gwt_m=1.0)
+    assert len(ic) == 4
+    for v in ic:
+        assert v is not None
+        assert 0.5 < v < 4.5  # Ic always lives in roughly this band for real CPTs
+
+
+def test_ic_series_2015_returns_none_when_fs_is_missing_at_a_row() -> None:
+    """A None entry in fs propagates to None in the Ic output (per QtnResult contract)."""
+    depths = [0.5, 1.0, 1.5]
+    qc = [5.0, 8.0, 12.0]
+    fs = [0.05, None, 0.12]
+    ic = ic_series_2015(depths, qc, fs, gwt_m=1.0)
+    assert len(ic) == 3
+    assert ic[1] is None
+    assert ic[0] is not None
+    assert ic[2] is not None
