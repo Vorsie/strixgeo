@@ -612,7 +612,81 @@ server-managed timestamps) and promote them to `_SKIP_COLUMNS`; add a
 fixture test per top-level bundle array asserting its exact column
 set, so a new column forces a conscious format-version decision.
 
-## 52. PDF report export (Tier D — Phase 5 reporting deliverable)
+## 52. PDF report export (Tier D — Phase 5 reporting deliverable; slice 1 shipped 2026-05-21)
+
+**Slice 1 shipped 2026-05-21.** Single-section PDF report. Engine
+choice: ReportLab (layout + text) + matplotlib (figures, Agg headless
+backend) — both deps added to pyproject.toml. The exporter
+``infrastructure/exporters/section_pdf_report_exporter.py`` consumes a
+``SectionSnapshot`` + a ``ReportMetadata`` bundle (title / author /
+notes / date) and produces PDF bytes via ``SimpleDocTemplate``.
+
+Content shipped:
+* Title block with the user-editable title.
+* Project metadata table (project, section, EPSG, vertical datum,
+  section length, author, date).
+* Optional free-text notes under the metadata table.
+* Main figure (A4 portrait, ~180 mm × 130 mm):
+  * Section drawing — depth × along-section distance, investigation
+    columns at packed-but-nudge-capped positions (35 m cap per the
+    owner directive — see ``infrastructure/exporters/pdf_layout.py``).
+  * Formation contact polylines threaded across columns, formation
+    name labels, colour-keyed legend.
+  * **Location-map inset (top-right)** with the section line + every
+    investigation as a dot + explicit **L / R end-of-line markers** so
+    the engineer reads the orientation correctly off the figure.
+* Footer: project + section + generation timestamp + page number.
+
+Surfaces:
+* Endpoint: ``GET /projects/{pid}/sections/{sid}/export/pdf`` with
+  ``model_id`` required and ``title`` / ``author`` / ``notes``
+  optional query params.  Same Content-Disposition pattern as the
+  existing DXF / Plaxis 2D section endpoints.
+* Frontend: new ``ReportMetadataDialog`` (title / author / notes —
+  default title built from section name) opened from the Sections
+  toolbar's ``Export ▾`` dropdown (third item, alongside Section DXF
+  + Plaxis 3D script).  App-level ``handleExportSectionPdf`` owns
+  the save-dialog + file-write flow.
+* ``SectionSnapshot`` extended additively with ``start_x / start_y /
+  end_x / end_y`` so the exporter can render the location-map inset
+  without re-fetching the section row.  Pre-#52 test fixtures with
+  the default ``0.0`` keep working (the map degenerates to a single
+  point when endpoints are zero).
+
+Tests:
+* P1-P8 on ``packed_column_positions`` (empty / length-mismatch /
+  no-nudge / pack-from-overlap / cap-binds / order-preserved / edge-
+  gap / default-cap pin).
+* Integration: ``test_pdf_export_happy_path`` +
+  ``test_pdf_export_works_without_metadata`` — 200 OK,
+  ``application/pdf`` content-type, ``%PDF`` magic header,
+  Content-Disposition filename.
+* D1-D4 vitest pins on ``ReportMetadataDialog`` (default title,
+  trimmed-value submit, cancel = no submit, empty-title fallback).
+* 924 unit + 6 cross-section integration + 1053 vitest green; tsc
+  clean.
+
+**Slices B / C / D still open under #52.**
+
+* **Slice B — Project geometries report** (per the owner ask): all
+  sections + investigation inventory + formation names, no parameter
+  values.  One PDF for the whole project, not per-section.  Reuses
+  the same exporter primitives (matplotlib figures + ReportLab
+  layout); the main new piece is the section-list iteration + a top-
+  level project location map.
+* **Slice C — Full geological + lithological report**: slice B plus
+  per-section pages for BOTH the geological model AND the litho
+  model, plus per-borehole stratigraphy tables and per-CPT
+  segmenter-derived layer stacks.  No parameter values yet.  Bigger
+  paginator work than slice B.
+* **Slice D — Full report with parameters (Phase 5)**: slice C plus
+  per-unit parameter tables (φ′ / c′ / cu / E50 / OCR / Vs / G0 / M
+  — Phase 5 backend work, not just a reporting layer).  Owner
+  directive holds: parameter VALUES stay out of v1.0 (MVP scope is
+  characterisation indicators only — Ic zone, Dr, NAD class,
+  γ-estimate).  Slice D ships alongside the Phase-5 backend port.
+
+**Original-entry residuals (kept for slice-B/C/D rationale).**
 
 **What.** The Export stage hub (shipped with #30) surfaces machine
 targets — DXF, Plaxis 3D (Plaxis 2D / D-Series / GeoStudio / IFC as
