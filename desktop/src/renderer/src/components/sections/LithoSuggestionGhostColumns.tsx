@@ -22,13 +22,13 @@ import { createPortal } from 'react-dom'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
 import { useClickDebounce } from '../../hooks/useClickDebounce'
+import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
 import {
   LITHOLOGY_COLORS,
   LITHOLOGY_FALLBACK_COLOR,
-  LITHOLOGY_LABELS,
 } from '../../utils/lithoConstants'
 
 // ---------------------------------------------------------------------------
@@ -56,9 +56,6 @@ function lithoFill(lithology: string): string {
   return LITHOLOGY_COLORS[lithology] ?? LITHOLOGY_FALLBACK_COLOR
 }
 
-function lithoLabel(lithology: string): string {
-  return LITHOLOGY_LABELS[lithology] ?? lithology
-}
 
 /**
  * Find the nearest index strictly above (smaller than) ``idx`` that
@@ -802,8 +799,22 @@ export default function LithoSuggestionGhostColumns({
             }
           }
         }
+        // Composition overrides from the LithoGhostCompositionEditor
+        // (debt #72) — when the user edits a layer's main soil or
+        // admixture list, the dialog's onSave stashes the new values
+        // in the edits Map alongside any depth edits. The render must
+        // read them or the dialog appears to "do nothing" (dogfeed
+        // bug 2026-05-20): the layer label / fill / admixture
+        // indicator would stay at the segmenter's raw value while
+        // the user clearly saw their edit in the modal. Spread order
+        // matters: rawLayer first, then committed-composition over
+        // it, then computed depths last.
         const effective: LithoLayerSuggestion = {
           ...rawLayer,
+          suggested_lithology:
+            committed?.suggested_lithology ?? rawLayer.suggested_lithology,
+          suggested_admixtures: (committed?.suggested_admixtures ??
+            rawLayer.suggested_admixtures) as LithoLayerSuggestion['suggested_admixtures'],
           depth_top_m: topM,
           depth_base_m: baseM,
         }
@@ -1114,7 +1125,17 @@ function LithoSuggestionLayer({
   if (height <= 0.5) return null
 
   const fill = lithoFill(layer.suggested_lithology)
-  const labelText = lithoLabel(layer.suggested_lithology)
+  // Rich Dutch label includes the admixture qualifier (e.g.
+  // "Zwak siltig zand" instead of plain "Zand"). Mirrors the
+  // composition picker's live preview so the user sees the same
+  // text in the dialog and the ghost rect (dogfeed bug 2026-05-20:
+  // editing the composition produced no visible change because the
+  // label was just the base lithology). Falls back to base name
+  // when there are no admixtures.
+  const labelText = formatLithoDisplayName(
+    layer.suggested_lithology,
+    layer.suggested_admixtures ?? [],
+  )
   const opacity = accepted
     ? GHOST_OPACITY_ACCEPTED
     : rejected
