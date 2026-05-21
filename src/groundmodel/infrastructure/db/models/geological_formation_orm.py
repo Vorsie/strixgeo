@@ -93,6 +93,15 @@ class GeologicalFormationOrm(Base):
         ForeignKey("geological_formation.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Debt #87: True when ``parent_formation_id`` was inferred from TIN
+    # extrapolation rather than from a geology contact at the investigation
+    # the litho unit was created on.  The LithologyInspector renders an
+    # amber dot + "extrapolated" tooltip on flagged units and offers a
+    # confirm/reassign/detach dialog.  False on contact-based assignments
+    # and on geological-model rows (no parent to infer).
+    parent_extrapolated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # BaseLithology token (ZAND/KLEI/SILT/GRIND/VEEN). NULL on geological rows.
     litho_main_soil_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Ordered admixture list: [{"soil_code": str, "amount": str, "locally": bool}].
