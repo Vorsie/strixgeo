@@ -619,7 +619,13 @@ export function useGeologicalModel({
   // contact set — mutations in one set never invalidate the other.
   // Loaded / cleared by a useEffect that watches activeLithoModel.
   const [lithoContacts, setLithoContacts] = useState<FormationContactResponse[]>([])
-  const [lithoFormations, setLithoFormations] = useState<GeologicalFormationResponse[]>([])
+  // lithoFormations was a separate useState until debt #89 — that dual
+  // atom caused the staleness class behind debt #88 (one half refreshed
+  // after accept, the other didn't). Now a useMemo over the global
+  // ``formations`` state filtered by ``isLithoUnit``: every refetch of
+  // ``formations`` implicitly updates ``lithoFormations`` for free, so
+  // the bug class can't recur. The useMemo declaration lives further
+  // down — has to follow the ``formations`` useState.
   const [lithoSurfacesByFormationId, setLithoSurfacesByFormationId] = useState<
     ReadonlyMap<string, FormationSurfaceResponse>
   >(new Map())
@@ -630,6 +636,16 @@ export function useGeologicalModel({
     activeLithoModelRef.current = activeLithoModel
   }, [activeLithoModel])
   const [formations, setFormations] = useState<GeologicalFormationResponse[]>([])
+  // Litho units derived from the global formation list (debt #89).
+  // Every refetch of ``formations`` updates this implicitly — the
+  // bug class behind debt #88 (one atom refreshed while the other
+  // didn't) cannot recur. ``isLithoUnit`` checks litho_main_soil_code
+  // (the unconditionally-set Phase-1 column) instead of the legacy
+  // ``lithology`` field that the accept-suggestion path doesn't set.
+  const lithoFormations = useMemo(
+    () => formations.filter(isLithoUnit),
+    [formations],
+  )
   // Refresh signal for InterpretationPane. The pane keeps its own
   // formations cache; bumping this counter forces a refetch.
   // Bumped after auto-populate from stratigraphy because the new
@@ -850,7 +866,6 @@ export function useGeologicalModel({
   useEffect(() => {
     if (!project || !activeLithoModel) {
       setLithoContacts([])
-      setLithoFormations([])
       setLithoSurfacesByFormationId(new Map())
       return
     }
@@ -859,40 +874,27 @@ export function useGeologicalModel({
     const modelId = activeLithoModel.id
     ;(async () => {
       try {
-        const [forms, conts, surfs] = await Promise.all([
-          api.geology.listFormations(projectId),
+        // Formations are derived from the global ``formations`` state
+        // (debt #89) — fetched once by the geological bootstrap, so no
+        // separate listFormations call here. Just contacts + surfaces
+        // for the active litho model.
+        const [conts, surfs] = await Promise.all([
           api.geology.listContacts(projectId, modelId),
           api.geology.listSurfaces(projectId, modelId),
         ])
         if (cancelled) return
-        // listFormations is PROJECT-scoped — it returns geological +
-        // litho + geotech formations. Filter to litho units only via
-        // ``isLithoUnit`` (utils/formationKind.ts) so the inspector
-        // roster + the picker dialog's "Existing units" tab stay
-        // litho-only.
-        //
-        // History: the prior filter used ``f.lithology != null``, but
-        // the accept-suggestion path (``_create_litho_formation``)
-        // sets ``litho_main_soil_code`` and never ``lithology`` (which
-        // is the explicit 3-level-model column populated only by
-        // ``POST /geology/formations`` with ``lithology=`` in the
-        // body). So the old filter silently dropped every
-        // builder-created unit. Debt #88, surfaced during the
-        // 2026-05-21 geology-leak investigation.
-        setLithoFormations(forms.filter(isLithoUnit))
         setLithoContacts(conts)
         const sm = new Map<string, FormationSurfaceResponse>()
         for (const s of surfs) sm.set(s.formation_id, s)
         setLithoSurfacesByFormationId(sm)
         log.debug(
           'geology',
-          `litho model ${modelId}: loaded ${conts.length} contacts, ${forms.length} formations, ${surfs.length} surfaces`,
+          `litho model ${modelId}: loaded ${conts.length} contacts, ${surfs.length} surfaces`,
         )
       } catch (err) {
         if (!cancelled) {
           log.warn('geology', `litho model ${modelId}: load failed`, err)
           setLithoContacts([])
-          setLithoFormations([])
           setLithoSurfacesByFormationId(new Map())
         }
       }
@@ -966,22 +968,9 @@ export function useGeologicalModel({
       })
   }, [project])
 
-  // Refetch the project formation list and re-apply the litho filter.
-  // Without this, AcceptLithoSuggestions creates a new litho formation
-  // on the server but the local ``lithoFormations`` state stays empty
-  // until the user switches models (which re-fires the bootstrap
-  // useEffect). Pairs with refetchLithoContacts in the accept flow —
-  // formation must land in state before any consumer (inspector,
-  // picker dialog, overlay) can render it. Debt #88, 2026-05-21.
-  const refetchLithoFormations = useCallback(() => {
-    if (!project) return
-    void api.geology
-      .listFormations(project.id)
-      .then(forms => setLithoFormations(forms.filter(isLithoUnit)))
-      .catch(err => {
-        log.warn('geology', `litho listFormations refetch failed`, err)
-      })
-  }, [project])
+  // (refetchLithoFormations removed in debt #89 — lithoFormations is now
+  // a useMemo over the global ``formations`` state, so ``refetchFormations``
+  // alone is sufficient to bring newly-created litho units into view.)
 
   // Fetch (or re-fetch) the geological model's surfaces for the backdrop.
   // Called from SectionsCanvas when the user clicks the rewired "Sync geology"
@@ -2655,8 +2644,10 @@ export function useGeologicalModel({
   )
 
   // Slice 2, #55: inline-create a formation inside the active LITHO model.
-  // Mirror of handleInlineCreateFormation — same optimistic-update pattern,
-  // DIFFERENT state atom (setLithoFormations). Closes over activeLithoModelRef.
+  // Mirror of handleInlineCreateFormation — same optimistic-update pattern.
+  // After debt #89: writes to the GLOBAL ``formations`` atom because
+  // ``lithoFormations`` is now derived from it (useMemo). The new unit
+  // appears in the litho roster automatically on the next render.
   const handleInlineLithoCreateFormation = useCallback(
     async (
       payload: GeologicalFormationCreatePayload,
@@ -2670,7 +2661,7 @@ export function useGeologicalModel({
         // payload spreads caller-provided fields only (name, color, lithology
         // for litho formations; nad_class for geotech).
         const created = await api.geology.createFormation(project.id, payload)
-        setLithoFormations(prev => [...prev, created])
+        setFormations(prev => [...prev, created])
         log.success(
           'geology',
           `handleInlineLithoCreateFormation ok id=${created.id} name="${created.name}"`,
@@ -2737,13 +2728,10 @@ export function useGeologicalModel({
   >(new Map())
   const [bulkLithoSuggesting, setBulkLithoSuggesting] = useState(false)
 
-  // Stable ref to lithoFormations — lets handleAcceptLithoSuggestion close
-  // over it without listing the array as a dep (which would recreate the
-  // callback on every formation change). Mirrors the activeLithoModelRef pattern.
-  const lithoFormationsRef = useRef<GeologicalFormationResponse[]>([])
-  useEffect(() => {
-    lithoFormationsRef.current = lithoFormations
-  }, [lithoFormations])
+  // (lithoFormationsRef removed in debt #89 — it was written but never
+  // read anywhere. Originally intended for use inside accept-handler
+  // callbacks to dodge a dep on a frequently-changing array, but the
+  // accept handlers never reach for it. Dead code on removal.)
 
   // Apply a user edit to one suggestion's top and/or base depth. Partial:
   // pass just { depth_top_m } to move only the top, just { depth_base_m }
@@ -2993,12 +2981,10 @@ export function useGeologicalModel({
         // 2026-05-20). The contact IS in the DB; only local state
         // was stale.
         refetchLithoContacts()
-        // Refetch litho formations so a newly created unit appears in
-        // the inspector roster + the picker dialog's "Existing units"
-        // tab without needing a model switch. Also refresh the global
-        // formations list so every downstream consumer (overlays,
-        // section bands) sees the new unit's name/colour. Debt #88.
-        refetchLithoFormations()
+        // Refresh the global formations list so newly-created units land
+        // in the inspector + picker dialog + overlays. lithoFormations
+        // is a useMemo derived from formations (debt #89) so this single
+        // call updates both.
         refetchFormations()
       } catch (err) {
         log.error('geology', `acceptLithoSuggestion failed idx=${idx}`, err)
@@ -3017,7 +3003,6 @@ export function useGeologicalModel({
       lithoSuggestionInvestigationId,
       effectiveLithoSuggestionAt,
       refetchLithoContacts,
-      refetchLithoFormations,
       refetchFormations,
       toast,
     ],
@@ -3086,10 +3071,9 @@ export function useGeologicalModel({
         // committed contacts vanish from the section view when the
         // user re-focuses (dogfeed bug 2026-05-20, see handler above).
         refetchLithoContacts()
-        // Same refresh discipline as handleAcceptLithoSuggestion —
-        // newly created units must reach the inspector roster + the
-        // global formations list immediately. Debt #88.
-        refetchLithoFormations()
+        // Single global-formations refresh — lithoFormations derives
+        // from it (debt #89), so the inspector roster + picker dialog
+        // update automatically.
         refetchFormations()
       } catch (err) {
         log.error('geology', 'acceptAllLithoSuggestions failed', err)
@@ -3108,7 +3092,6 @@ export function useGeologicalModel({
       lithoSuggestionRejected,
       effectiveLithoSuggestionAt,
       refetchLithoContacts,
-      refetchLithoFormations,
       refetchFormations,
       toast,
     ],
@@ -3288,8 +3271,6 @@ export function useGeologicalModel({
           return next
         })
         refetchLithoContacts()
-        // Debt #88 — see handleAcceptLithoSuggestion for rationale.
-        refetchLithoFormations()
         refetchFormations()
       } catch (err) {
         log.error('geology', `acceptBulkLitho failed anchor=${anchorId} idx=${idx}`, err)
@@ -3301,7 +3282,7 @@ export function useGeologicalModel({
     // suggests/accepts/edits — the read of bulkLithoGhosts.get(anchorId)
     // must see the latest map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, bulkLithoGhosts, refetchLithoContacts, refetchLithoFormations, refetchFormations, toast],
+    [project, bulkLithoGhosts, refetchLithoContacts, refetchFormations, toast],
   )
 
   /**
@@ -3387,15 +3368,13 @@ export function useGeologicalModel({
       }
       // Refetch once at the end — cheaper than once per anchor.
       refetchLithoContacts()
-      // Debt #88 — single end-of-loop refresh; cheaper than per-anchor.
-      refetchLithoFormations()
       refetchFormations()
     },
     // reason: activeLithoModelRef is a ref. bulkLithoGhosts is in
     // deps so the snapshot the loop iterates is always the latest
     // (a stale closure would iterate yesterday's anchors).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, bulkLithoGhosts, refetchLithoContacts, refetchLithoFormations, refetchFormations, toast],
+    [project, bulkLithoGhosts, refetchLithoContacts, refetchFormations, toast],
   )
 
   // R4 (debt #12): the visible-list filter now lives HERE, not as an
