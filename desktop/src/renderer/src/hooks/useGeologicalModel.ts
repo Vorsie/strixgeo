@@ -2685,48 +2685,82 @@ export function useGeologicalModel({
   // never triggers a re-render of the whole geological model state.
   // -------------------------------------------------------------------------
 
-  const [lithoSuggestions, setLithoSuggestions] = useState<LithoLayerSuggestion[]>([])
-  const [lithoSuggestionInvestigationId, setLithoSuggestionInvestigationId] = useState<
-    string | null
-  >(null)
-  const [lithoSuggestionAnchorKind, setLithoSuggestionAnchorKind] = useState<
-    'cpt' | 'borehole' | null
-  >(null)
-  const [lithoSuggestionAccepted, setLithoSuggestionAccepted] = useState<ReadonlySet<number>>(
-    new Set(),
-  )
-  const [lithoSuggestionRejected, setLithoSuggestionRejected] = useState<ReadonlySet<number>>(
-    new Set(),
-  )
-  // User edits to a ghost layer's depth and/or composition. Map from
-  // suggestion index to partial overrides on top/base depth (Phase 2
-  // drag-resize) and main soil code / admixtures (Phase 2.5 ghost-
-  // composition editor, debt #72). When present, the edited values
-  // win at both render time (the ghost overlay paints the changed
-  // rect / colour / label) and accept time (the committed contact
-  // uses the edited values). Original (segmenter) values stay on the
-  // suggestion row itself so a future ML training log can read both.
+  // Unified ghost-suggestion state (debt #77 — Phase 1, 2026-05-21).
+  // ONE Map<anchorId, BulkAnchorGhost> backs both the single-anchor
+  // workflow (focus + Suggest) and the bulk workflow (Suggest all).
+  // ``focusedSuggestAnchorId`` flags which anchor is the "single"
+  // focus; all other entries are the "bulk" set. The bus interface
+  // keeps its prior single/bulk shape via derived selectors below so
+  // consumers don't churn (Phase 2 would simplify the bus too).
   //
-  // Cleared alongside accepted/rejected on Clear or on a new Suggest.
-  const [lithoSuggestionEdits, setLithoSuggestionEdits] = useState<
-    ReadonlyMap<number, LithoSuggestionEdit>
-  >(new Map())
-  const [lithoSuggesting, setLithoSuggesting] = useState(false)
-
-  // Multi-anchor bulk-suggest state (debt #73, 2026-05-20). Holds
-  // ghost suggestions for N investigations at once — the "Suggest
-  // litho for all tests" toolbar verb fans out per-anchor segmenter
-  // calls and populates this Map. Renders simultaneously with the
-  // single-anchor state above; both can coexist on the section.
-  //
-  // Tech debt accepted: there are TWO state shapes during dogfeed
-  // (single-anchor and this multi-anchor map). Single-anchor will be
-  // unified into the map post-MVP — filed as part of debt #73's
-  // post-MVP cleanup.
-  const [bulkLithoGhosts, setBulkLithoGhosts] = useState<
+  // History: until 2026-05-21 there were SIX single-anchor useState
+  // atoms (lithoSuggestions / Investigation / AnchorKind / Accepted /
+  // Rejected / Edits) plus a separate bulkLithoGhosts Map. The shapes
+  // were identical (BulkAnchorGhost mirrors the single tuple exactly)
+  // and the dual state invited the kind of partial-refresh bugs the
+  // #88/#89 pair surfaced for a similar dual-atom case in formations.
+  const [ghostsByAnchor, setGhostsByAnchor] = useState<
     ReadonlyMap<string, BulkAnchorGhost>
   >(new Map())
+  const [focusedSuggestAnchorId, setFocusedSuggestAnchorId] = useState<string | null>(null)
+  // Stable ref of focusedSuggestAnchorId so handler callbacks with
+  // empty dep arrays can read the current focus without triggering
+  // identity churn on every focus change.
+  const focusedSuggestAnchorIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    focusedSuggestAnchorIdRef.current = focusedSuggestAnchorId
+  }, [focusedSuggestAnchorId])
+  const [lithoSuggesting, setLithoSuggesting] = useState(false)
   const [bulkLithoSuggesting, setBulkLithoSuggesting] = useState(false)
+
+  // Stable empty primitives — returned by the derived selectors when
+  // no focused anchor or its entry is missing. Module-level frozen
+  // refs would also work; locals are fine because the useMemos below
+  // depend on (ghostsByAnchor, focusedSuggestAnchorId) which gate
+  // the empty-vs-populated branch.
+  const EMPTY_SUGGESTIONS: readonly LithoLayerSuggestion[] = useMemo(() => [], [])
+  const EMPTY_SET: ReadonlySet<number> = useMemo(() => new Set<number>(), [])
+  const EMPTY_EDITS: ReadonlyMap<number, LithoSuggestionEdit> = useMemo(
+    () => new Map<number, LithoSuggestionEdit>(),
+    [],
+  )
+
+  // Derived: focused-anchor accessors — the single-anchor bus shape.
+  // Each is a useMemo over (ghostsByAnchor, focusedSuggestAnchorId)
+  // so reads remain stable when neither changed.
+  const lithoSuggestions = useMemo<LithoLayerSuggestion[]>(() => {
+    if (focusedSuggestAnchorId === null) return EMPTY_SUGGESTIONS as LithoLayerSuggestion[]
+    const entry = ghostsByAnchor.get(focusedSuggestAnchorId)
+    return entry ? entry.suggestions : (EMPTY_SUGGESTIONS as LithoLayerSuggestion[])
+  }, [ghostsByAnchor, focusedSuggestAnchorId, EMPTY_SUGGESTIONS])
+  const lithoSuggestionInvestigationId = focusedSuggestAnchorId
+  const lithoSuggestionAnchorKind = useMemo<'cpt' | 'borehole' | null>(() => {
+    if (focusedSuggestAnchorId === null) return null
+    return ghostsByAnchor.get(focusedSuggestAnchorId)?.kind ?? null
+  }, [ghostsByAnchor, focusedSuggestAnchorId])
+  const lithoSuggestionAccepted = useMemo<ReadonlySet<number>>(() => {
+    if (focusedSuggestAnchorId === null) return EMPTY_SET
+    return ghostsByAnchor.get(focusedSuggestAnchorId)?.accepted ?? EMPTY_SET
+  }, [ghostsByAnchor, focusedSuggestAnchorId, EMPTY_SET])
+  const lithoSuggestionRejected = useMemo<ReadonlySet<number>>(() => {
+    if (focusedSuggestAnchorId === null) return EMPTY_SET
+    return ghostsByAnchor.get(focusedSuggestAnchorId)?.rejected ?? EMPTY_SET
+  }, [ghostsByAnchor, focusedSuggestAnchorId, EMPTY_SET])
+  const lithoSuggestionEdits = useMemo<ReadonlyMap<number, LithoSuggestionEdit>>(() => {
+    if (focusedSuggestAnchorId === null) return EMPTY_EDITS
+    return ghostsByAnchor.get(focusedSuggestAnchorId)?.edits ?? EMPTY_EDITS
+  }, [ghostsByAnchor, focusedSuggestAnchorId, EMPTY_EDITS])
+
+  // Bulk selector excludes the focused anchor so SectionPanel's two
+  // render paths (single + bulk) don't double-render the same column.
+  // When no focused id, this IS the full Map.
+  const bulkLithoGhosts = useMemo<ReadonlyMap<string, BulkAnchorGhost>>(() => {
+    if (focusedSuggestAnchorId === null) return ghostsByAnchor
+    if (!ghostsByAnchor.has(focusedSuggestAnchorId)) return ghostsByAnchor
+    const next = new Map(ghostsByAnchor)
+    next.delete(focusedSuggestAnchorId)
+    return next
+  }, [ghostsByAnchor, focusedSuggestAnchorId])
 
   // (lithoFormationsRef removed in debt #89 — it was written but never
   // read anywhere. Originally intended for use inside accept-handler
@@ -2736,13 +2770,20 @@ export function useGeologicalModel({
   // Apply a user edit to one suggestion's top and/or base depth. Partial:
   // pass just { depth_top_m } to move only the top, just { depth_base_m }
   // for the base. The edit is merged with any prior edit on the same idx
-  // so dragging the same layer twice composes.
+  // so dragging the same layer twice composes. Writes to the focused
+  // anchor's entry in the unified Map (debt #77).
   const handleEditLithoSuggestion = useCallback(
     (idx: number, edit: LithoSuggestionEdit): void => {
-      setLithoSuggestionEdits(prev => {
+      setGhostsByAnchor(prev => {
+        const focusedId = focusedSuggestAnchorIdRef.current
+        if (focusedId === null) return prev
+        const existing = prev.get(focusedId)
+        if (!existing) return prev
+        const nextEdits = new Map(existing.edits)
+        const prior = nextEdits.get(idx) ?? {}
+        nextEdits.set(idx, { ...prior, ...edit })
         const next = new Map(prev)
-        const existing = next.get(idx) ?? {}
-        next.set(idx, { ...existing, ...edit })
+        next.set(focusedId, { ...existing, edits: nextEdits })
         return next
       })
     },
@@ -2780,12 +2821,19 @@ export function useGeologicalModel({
   )
 
   const clearLithoSuggestions = useCallback((): void => {
-    setLithoSuggestions([])
-    setLithoSuggestionInvestigationId(null)
-    setLithoSuggestionAnchorKind(null)
-    setLithoSuggestionAccepted(new Set())
-    setLithoSuggestionRejected(new Set())
-    setLithoSuggestionEdits(new Map())
+    // Delete the focused anchor's entry from the unified Map (debt
+    // #77). Other entries (the bulk set) survive — Clear is the
+    // single-anchor clear gesture, not a "wipe all ghosts" verb.
+    const focusedId = focusedSuggestAnchorIdRef.current
+    if (focusedId !== null) {
+      setGhostsByAnchor(prev => {
+        if (!prev.has(focusedId)) return prev
+        const next = new Map(prev)
+        next.delete(focusedId)
+        return next
+      })
+    }
+    setFocusedSuggestAnchorId(null)
     // S-1 (senior-review): also release the Suggest button — if Clear
     // is hit while a suggest fetch is in flight, the spinner would
     // otherwise stay stuck until the orphaned fetch settles.
@@ -2801,14 +2849,26 @@ export function useGeologicalModel({
   // handler is anchor-scoped via the anchorId arg.
 
   const clearBulkLithoGhosts = useCallback((): void => {
-    setBulkLithoGhosts(new Map())
+    // After unification (debt #77) the Map holds both single + bulk.
+    // ``clearBulkLithoGhosts`` is the bulk-clear verb — preserve any
+    // focused (single) entry, drop everything else.
+    setGhostsByAnchor(prev => {
+      const focusedId = focusedSuggestAnchorIdRef.current
+      if (focusedId === null) return new Map()
+      const entry = prev.get(focusedId)
+      if (!entry) return new Map()
+      return new Map([[focusedId, entry]])
+    })
     setBulkLithoSuggesting(false)
   }, [])
 
-  // Apply a partial update to one anchor's bulk-ghost entry.
-  const _updateBulkAnchor = useCallback(
+  // Shared helper — apply a partial update to one entry in the
+  // unified Map. Used by every per-anchor update site (single accept,
+  // single reject, bulk accept, bulk reject, edit, ...). The closure
+  // reads no external state besides the setter — stable dep list.
+  const _updateGhostEntry = useCallback(
     (anchorId: string, partial: Partial<BulkAnchorGhost>): void => {
-      setBulkLithoGhosts(prev => {
+      setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
         const next = new Map(prev)
@@ -2821,7 +2881,7 @@ export function useGeologicalModel({
 
   const handleRejectBulkLitho = useCallback(
     (anchorId: string, idx: number): void => {
-      setBulkLithoGhosts(prev => {
+      setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
         const nextRejected = new Set(existing.rejected)
@@ -2840,7 +2900,7 @@ export function useGeologicalModel({
    */
   const handleUnrejectBulkLitho = useCallback(
     (anchorId: string, idx: number): void => {
-      setBulkLithoGhosts(prev => {
+      setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing || !existing.rejected.has(idx)) return prev
         const nextRejected = new Set(existing.rejected)
@@ -2859,7 +2919,7 @@ export function useGeologicalModel({
       idx: number,
       edit: LithoSuggestionEdit,
     ): void => {
-      setBulkLithoGhosts(prev => {
+      setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
         const nextEdits = new Map(existing.edits)
@@ -2888,7 +2948,8 @@ export function useGeologicalModel({
   }, [activeLithoModelId, clearLithoSuggestions])
 
   // Fetch suggestions for one investigation against the active litho model.
-  // Replaces any prior suggestion set (one investigation at a time).
+  // Replaces any prior single-anchor focus + writes the new entry into
+  // the unified Map (debt #77).
   const handleSuggestLitho = useCallback(
     async (anchorKind: 'cpt' | 'borehole', anchorId: string): Promise<void> => {
       const model = activeLithoModelRef.current
@@ -2898,7 +2959,8 @@ export function useGeologicalModel({
         `handleSuggestLitho entry kind=${anchorKind} anchor=${anchorId} model=${model.id}`,
       )
       setLithoSuggesting(true)
-      // Clear prior suggestion before the fetch so stale data never shows.
+      // Clear prior single-anchor focus before the fetch so stale data
+      // never shows. Bulk entries on OTHER anchors survive.
       clearLithoSuggestions()
       try {
         const body =
@@ -2910,9 +2972,23 @@ export function useGeologicalModel({
           'geology',
           `suggestLitho ok ${resp.layers.length} layers for ${anchorKind} ${anchorId}`,
         )
-        setLithoSuggestions(resp.layers)
-        setLithoSuggestionInvestigationId(anchorId)
-        setLithoSuggestionAnchorKind(anchorKind)
+        // Write a fresh entry under anchorId and set it as the focused
+        // (single) one. If a bulk entry already existed for this anchor,
+        // it is replaced — matches the prior semantics where a Suggest
+        // cleared and overwrote single state.
+        setGhostsByAnchor(prev => {
+          const next = new Map(prev)
+          next.set(anchorId, {
+            kind: anchorKind,
+            suggestions: resp.layers,
+            surfaceElevationM: null,
+            accepted: new Set<number>(),
+            rejected: new Set<number>(),
+            edits: new Map<number, LithoSuggestionEdit>(),
+          })
+          return next
+        })
+        setFocusedSuggestAnchorId(anchorId)
       } catch (err) {
         log.error('geology', `handleSuggestLitho failed for ${anchorId}`, err)
         toast('error', 'Could not fetch lithostratigraphic suggestions.')
@@ -2967,10 +3043,17 @@ export function useGeologicalModel({
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
         }
-        // Mark accepted so the ghost overlay shows the tick.
-        setLithoSuggestionAccepted(prev => {
-          const next = new Set(prev)
-          next.add(idx)
+        // Mark accepted so the ghost overlay shows the tick — updates
+        // the focused entry in the unified Map (debt #77).
+        setGhostsByAnchor(prev => {
+          const focusedId = focusedSuggestAnchorIdRef.current
+          if (focusedId === null) return prev
+          const existing = prev.get(focusedId)
+          if (!existing) return prev
+          const nextAccepted = new Set(existing.accepted)
+          nextAccepted.add(idx)
+          const next = new Map(prev)
+          next.set(focusedId, { ...existing, accepted: nextAccepted })
           return next
         })
         // Refetch litho contacts so the committed contact lands in
@@ -3060,10 +3143,17 @@ export function useGeologicalModel({
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
         }
-        // Mark all pending layers accepted in the ghost overlay.
-        setLithoSuggestionAccepted(prev => {
-          const next = new Set(prev)
-          for (const i of pendingIndices) next.add(i)
+        // Mark all pending layers accepted in the focused entry
+        // (debt #77 — single + bulk now share the unified Map).
+        setGhostsByAnchor(prev => {
+          const focusedId = focusedSuggestAnchorIdRef.current
+          if (focusedId === null) return prev
+          const existing = prev.get(focusedId)
+          if (!existing) return prev
+          const nextAccepted = new Set(existing.accepted)
+          for (const i of pendingIndices) nextAccepted.add(i)
+          const next = new Map(prev)
+          next.set(focusedId, { ...existing, accepted: nextAccepted })
           return next
         })
         // Refetch litho contacts so the committed contacts land in
@@ -3098,9 +3188,16 @@ export function useGeologicalModel({
   )
 
   const handleRejectLithoSuggestion = useCallback((idx: number): void => {
-    setLithoSuggestionRejected(prev => {
-      const next = new Set(prev)
-      next.add(idx)
+    // Update the focused entry in the unified Map (debt #77).
+    setGhostsByAnchor(prev => {
+      const focusedId = focusedSuggestAnchorIdRef.current
+      if (focusedId === null) return prev
+      const existing = prev.get(focusedId)
+      if (!existing) return prev
+      const nextRejected = new Set(existing.rejected)
+      nextRejected.add(idx)
+      const next = new Map(prev)
+      next.set(focusedId, { ...existing, rejected: nextRejected })
       return next
     })
     log.debug('geology', `rejectLithoSuggestion idx=${idx}`)
@@ -3111,10 +3208,15 @@ export function useGeologicalModel({
    * Debt #80 (2026-05-20 dogfeed). No-op when idx wasn't rejected.
    */
   const handleUnrejectLithoSuggestion = useCallback((idx: number): void => {
-    setLithoSuggestionRejected(prev => {
-      if (!prev.has(idx)) return prev
-      const next = new Set(prev)
-      next.delete(idx)
+    setGhostsByAnchor(prev => {
+      const focusedId = focusedSuggestAnchorIdRef.current
+      if (focusedId === null) return prev
+      const existing = prev.get(focusedId)
+      if (!existing || !existing.rejected.has(idx)) return prev
+      const nextRejected = new Set(existing.rejected)
+      nextRejected.delete(idx)
+      const next = new Map(prev)
+      next.set(focusedId, { ...existing, rejected: nextRejected })
       return next
     })
     log.debug('geology', `unrejectLithoSuggestion idx=${idx}`)
@@ -3147,7 +3249,16 @@ export function useGeologicalModel({
         `handleSuggestAllLitho fan-out anchors=${anchors.length}`,
       )
       // Wipe prior bulk state — confirmation dialog warned the user.
-      setBulkLithoGhosts(new Map())
+      // Preserve any focused (single) entry so a Suggest-all alongside
+      // a focused single doesn't drop the focus (matches prior intent;
+      // previously single + bulk were independent states).
+      setGhostsByAnchor(prev => {
+        const focusedId = focusedSuggestAnchorIdRef.current
+        if (focusedId === null) return new Map()
+        const entry = prev.get(focusedId)
+        if (!entry) return new Map()
+        return new Map([[focusedId, entry]])
+      })
       setBulkLithoSuggesting(true)
       const CONCURRENCY = 5
       let cursor = 0
@@ -3161,7 +3272,7 @@ export function useGeologicalModel({
             const body =
               kind === 'cpt' ? { cpt_id: id } : { borehole_id: id }
             const resp = await api.geology.suggestLitho(project!.id, model!.id, body)
-            setBulkLithoGhosts(prev => {
+            setGhostsByAnchor(prev => {
               const next = new Map(prev)
               next.set(id, {
                 kind,
@@ -3260,8 +3371,8 @@ export function useGeologicalModel({
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
         }
-        // Mark this idx accepted on the anchor.
-        setBulkLithoGhosts(prev => {
+        // Mark this idx accepted on the anchor (unified Map — debt #77).
+        setGhostsByAnchor(prev => {
           const existing = prev.get(anchorId)
           if (!existing) return prev
           const nextAccepted = new Set(existing.accepted)
@@ -3344,8 +3455,9 @@ export function useGeologicalModel({
           if (result.updated_section != null && onSectionUpdated != null) {
             onSectionUpdated(result.updated_section)
           }
-          // Mark all attempted indices accepted on this anchor.
-          setBulkLithoGhosts(prev => {
+          // Mark all attempted indices accepted on this anchor
+          // (unified Map — debt #77).
+          setGhostsByAnchor(prev => {
             const existing = prev.get(anchorId)
             if (!existing) return prev
             const nextAccepted = new Set(existing.accepted)
