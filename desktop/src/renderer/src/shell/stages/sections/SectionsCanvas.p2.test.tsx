@@ -323,6 +323,7 @@ function makeStubContext(overrides?: {
       handleRejectBulkLitho: () => {},
       handleUnrejectBulkLitho: () => {},
       handleEditBulkLitho: () => {},
+    handleInsertLithoLayer: vi.fn(),
       clearBulkLithoGhosts: () => {},
       refetchLithoContacts: () => {},
       lithoSuggesting: false,

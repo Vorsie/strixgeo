@@ -150,6 +150,7 @@ function makeCtx(): ShellContextValue {
       handleRejectBulkLitho: () => {},
       handleUnrejectBulkLitho: () => {},
       handleEditBulkLitho: () => {},
+    handleInsertLithoLayer: vi.fn(),
       clearBulkLithoGhosts: () => {},
       refetchLithoContacts: () => {},
       lithoSuggesting: false,
