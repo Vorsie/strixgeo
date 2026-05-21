@@ -449,7 +449,55 @@ water-body mask that routes cells to a null sampler vs a bed sampler,
 ``BHVlaBathymetry`` data, or (c) accept the limitation and expose it
 in the UI as "DEM accuracy may be reduced near water bodies."
 
-## 28. Surface confidence signal — RESOLVED 2026-05-21
+## 28. Surface confidence signal — RESOLVED 2026-05-21 (true per-vertex gradient follow-up shipped same day)
+
+**Follow-up ship 2026-05-21 (late evening — owner directive "geen half
+werk").**  The original implementation rendered the continuous distance-
+to-data signal as a BINARY split (>= 0.7 → full alpha; < 0.7 → faded).
+A user-visible cliff at the threshold made the cue read as "two
+distinct regions" instead of the smooth distance signal underneath.
+
+Replaced with true per-vertex gradient end-to-end:
+
+* **``utils/tinConfidence.ts``** gains:
+  * ``computeVertexConfidence`` — averages incident triangle
+    confidences onto each vertex.
+  * ``confidenceToAlphaMultiplier`` — linear lerp
+    ``[CONFIDENCE_FLOOR, 1.0] → [LOW_CONFIDENCE_ALPHA_MULTIPLIER, 1.0]``.
+    Clamped at both ends.
+  * ``partitionByConfidence`` kept as back-compat but no longer used
+    by the production renderers.
+* **``Geology3DViewer``** gains a custom Cesium ``Appearance`` with
+  GLSL shaders that read a per-vertex ``color`` attribute (vs the
+  one-color-per-primitive ``PerInstanceColorAppearance``).
+  ``buildTinPrimitiveWithVertexColor`` packs per-vertex RGBA into the
+  geometry attributes; the GPU interpolates per-pixel across each
+  triangle. Result: a TRUE gradient — no bands, no cliff.
+  ``rebuildSurfacePrimitives`` drops the high/low partition; emits one
+  primitive per formation per render. When the confidence-fade toggle
+  is OFF, falls back to the original ``PerInstanceColorAppearance``
+  path (uniform alpha — visually disables the cue at zero perf cost).
+* **``ContactsLayer``** drops the dHigh/dLow concatenated paths; emits
+  ONE ``<path>`` per slice segment with per-segment opacity =
+  ``baseOpacity × confidenceToAlphaMultiplier(segmentConfidence)``.
+  ~50-200 SVG nodes per polyline; modern browsers handle thousands
+  without issue. When the toggle is OFF, falls back to a single
+  concatenated path with uniform opacity.
+* **Split-mode caveat.**  In split (clipped) mode the Cesium triangle
+  soup loses vertex sharing.  Each clipped triangle is rendered with
+  a SOLID alpha = average of its three source vertices' alphas
+  (within-triangle gradient lost in split mode; across-triangle
+  continuity preserved).  Acceptable per "geen half werk" call: the
+  user uses split for inspection, not gradient study.
+* **Tests.**  A1-A6 on ``confidenceToAlphaMultiplier`` + V1-V4 on
+  ``computeVertexConfidence``.  Existing ContactsLayer pins updated
+  to query a child segment path (the testid now hangs off a ``<g>``
+  wrapper, opacity lives on the children).
+* **Result.**  1064/1064 vitest + tsc clean.  The visual shows
+  continuous fading from data-backed regions out toward the hull;
+  the section editor mirrors the same gradient per-segment.
+
+## 28-orig. Surface confidence signal — RESOLVED 2026-05-21
 
 Owner directives chosen:
 * **Metric: hull-edge + edge-length gradient.** Hull-edge triangles
