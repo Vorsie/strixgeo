@@ -1263,6 +1263,30 @@ export const api = {
     get: (id: string, projectId: string): Promise<BoreholeDetailResponse> =>
       get(`/borehole/${id}?project_id=${projectId}`),
 
+    /**
+     * Batch the per-borehole detail GET into one round-trip (debt
+     * #39). Cross-section panel uses this on open so a dense corridor
+     * is one DB query instead of N. Unknown ids drop from the
+     * response (skip-on-missing); body cap is 500 ids.
+     *
+     * ``include`` follows the per-id endpoint's contract: ``undefined``
+     * loads every lab-test family (the original always-load
+     * behaviour); an explicit array (including empty) narrows the
+     * load. Section views typically pass ``[]`` — column glyphs don't
+     * render lab data, so skipping the 6 lab-family SELECTs is pure
+     * win.
+     */
+    detailBatch: (
+      ids: string[],
+      projectId: string,
+      include?: string[],
+    ): Promise<BoreholeDetailResponse[]> =>
+      post(`/borehole/detail-batch`, {
+        ids,
+        app_project_id: projectId,
+        include: include ?? null,
+      }),
+
     patchElevation: (
       id: string,
       projectId: string,
