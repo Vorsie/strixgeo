@@ -1477,23 +1477,6 @@ export default function SectionPanel({
         scaleH={scaleH}
         scaleV={scaleV}
         onReset={resetView}
-        onExportDxf={onExportDxf}
-        onAutoPopulateFromStratigraphy={
-          // Scope the action to boreholes on the active section
-          // only — CPTs are skipped (no stratigraphy observations
-          // there) and projects with hundreds of boreholes get a
-          // bounded request size. Hidden when no boreholes are on
-          // the section, since the action would no-op.
-          onAutoPopulateFromStratigraphy &&
-          placedColumns.some(c => c.kind === 'borehole')
-            ? () =>
-                onAutoPopulateFromStratigraphy(
-                  placedColumns
-                    .filter(c => c.kind === 'borehole')
-                    .map(c => c.proj.item.id),
-                )
-            : undefined
-        }
       />
 
       {/* DOV Virtuele Boring overlay controls — picker dropdowns +

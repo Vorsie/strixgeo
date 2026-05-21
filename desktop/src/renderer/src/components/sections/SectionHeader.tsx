@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Download, Minus, Plus, RotateCcw, Wand2, X } from 'lucide-react'
+import { Minus, Plus, RotateCcw, X } from 'lucide-react'
 
 import type { CrossSectionResponse } from '../../api/client'
 import {
@@ -81,8 +81,6 @@ export default function SectionHeader({
   scaleH,
   scaleV,
   onReset,
-  onExportDxf,
-  onAutoPopulateFromStratigraphy,
 }: {
   section: CrossSectionResponse
   lengthM: number
@@ -132,16 +130,6 @@ export default function SectionHeader({
   scaleH: number
   scaleV: number
   onReset: () => void
-  /** Trigger the "Export DXF" flow — the caller owns the fetch +
-   * save-dialog + file-write. The button is hidden when this prop
-   * is omitted (no active geological model, or test-render mode
-   * without an export seam). */
-  onExportDxf?: () => Promise<void>
-  /** Trigger the "Auto-populate from stratigraphy" flow — caller
-   * supplies the borehole IDs (scoped to the active section) when
-   * wiring. Button hidden when omitted (no active model, or no
-   * boreholes on the section). */
-  onAutoPopulateFromStratigraphy?: () => Promise<void>
 }): JSX.Element {
   const sliderValue = Math.round(
     ((Math.log10(vex) - Math.log10(VEX_MIN)) /
@@ -159,41 +147,6 @@ export default function SectionHeader({
   useEffect(() => {
     setLocalBuffer(section.projection_buffer_m)
   }, [section.id, section.projection_buffer_m])
-
-  // Disable the Export DXF button while the request is in flight so
-  // double-clicks don't fire a second download. The caller owns
-  // user-facing error UI (toast in App.tsx); the catch here is
-  // defensive — if the caller forgets a try/catch we still want the
-  // button to return to its idle state instead of staying stuck.
-  const [exporting, setExporting] = useState(false)
-  async function handleExport(): Promise<void> {
-    if (!onExportDxf || exporting) return
-    setExporting(true)
-    try {
-      await onExportDxf()
-    } catch {
-      // Swallowed on purpose — see comment above.
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  // Same disable-while-pending pattern as Export DXF. Auto-populate
-  // runs on the backend in one transaction; the round-trip is
-  // typically <1s for a section's worth of boreholes, but UI gating
-  // is cheap insurance against double-clicks.
-  const [autoPopulating, setAutoPopulating] = useState(false)
-  async function handleAutoPopulate(): Promise<void> {
-    if (!onAutoPopulateFromStratigraphy || autoPopulating) return
-    setAutoPopulating(true)
-    try {
-      await onAutoPopulateFromStratigraphy()
-    } catch {
-      // Caller owns user-facing error UI (toast in App.tsx).
-    } finally {
-      setAutoPopulating(false)
-    }
-  }
 
   return (
     // ``flex-wrap`` so the controls fall onto a second row in narrow
@@ -391,44 +344,13 @@ export default function SectionHeader({
         Reset
       </button>
 
-      {/* Seed from stratigraphy — always rendered so the user knows
-          the affordance exists, but the button is disabled/greyed when
-          the prop is absent. In the Sections stage the caller passes
-          undefined so the button stays permanently greyed with the
-          "define in Geology stage first" tooltip — enforcing the
-          contract that formation definition belongs to the Geology stage
-          (S6/S7). When wired (future Geology stage), the button becomes
-          functional. See CLAUDE.md "Geology stage owns model definition". */}
-      <button
-        onClick={() => void handleAutoPopulate()}
-        disabled={!onAutoPopulateFromStratigraphy || autoPopulating}
-        className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        title={
-          !onAutoPopulateFromStratigraphy
-            ? 'Define the geological model in the Geology stage first — Seed places contacts for already-defined layers.'
-            : autoPopulating
-              ? 'Seeding…'
-              : 'Seed contacts on this section\'s boreholes from their formal stratigraphy (informal as fallback). Idempotent — re-running is a no-op.'
-        }
-        aria-label="Auto-populate contacts from stratigraphy"
-        data-testid="auto-populate-stratigraphy-button"
-      >
-        <Wand2 size={11} />
-        {autoPopulating ? 'Seeding…' : 'Seed from stratigraphy'}
-      </button>
-
-      {onExportDxf && (
-        <button
-          onClick={() => void handleExport()}
-          disabled={exporting}
-          className="flex items-center gap-1 px-2 py-1 rounded border border-border-subtle text-text-secondary hover:bg-surface-page hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Export the active model's layer geometry on this section to DXF (AutoCAD / Plaxis / D-Sheet)"
-          aria-label="Export DXF"
-        >
-          <Download size={11} />
-          {exporting ? 'Exporting…' : 'DXF'}
-        </button>
-      )}
+      {/* Debt #93 (2026-05-21): the "Seed from stratigraphy" and "DXF"
+          buttons that used to live here were duplicates of the
+          SectionsToolbar "Seed" / "Export DXF" actions and added clutter
+          (visible-but-disabled on the litho axis). Removed; the toolbar
+          is now the canonical surface for those verbs. Reset stays
+          because it acts on section-view-state (zoom/pan/spacing), not
+          a model action. */}
 
       {onClose && (
         <button
