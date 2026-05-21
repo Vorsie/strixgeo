@@ -48,6 +48,11 @@ import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/b
 import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
 import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
 import {
+  computeTriangleConfidence,
+  LOW_CONFIDENCE_ALPHA_MULTIPLIER,
+  partitionByConfidence,
+} from '../../../utils/tinConfidence'
+import {
   buildCutFaceBands,
   computeBasemapBounds,
   sampleTinZ,
@@ -818,8 +823,7 @@ function rebuildSurfacePrimitives(
     const hexColor = formation.color.startsWith('#')
       ? formation.color
       : `#${formation.color}`
-    const csColor = Cesium.Color.fromCssColorString(hexColor) ?? Cesium.Color.GRAY
-    csColor.alpha = alpha
+    const baseColor = Cesium.Color.fromCssColorString(hexColor) ?? Cesium.Color.GRAY
 
     // Apply the per-formation z-offset to vertex elevations before building
     // the primitive so co-planar surfaces don't z-fight.
@@ -827,15 +831,40 @@ function rebuildSurfacePrimitives(
       ([x, y, z]) => [x, y, z + zOffset],
     )
 
-    const primitive = buildTinPrimitive(
-      offsetVertices,
-      surface.triangles,
-      csColor,
-      projectEpsg,
-      clip,
-    )
-    if (primitive) {
-      scene.primitives.add(primitive)
+    // Debt #28: split into two confidence bands per formation. High-
+    // confidence triangles render at the full surface alpha; low-
+    // confidence (hull-edge or long-edge interior) render at the
+    // reduced multiplier so the engineer reads the fade as
+    // "extrapolation, no nearby data".
+    const confidence = computeTriangleConfidence(surface.vertices, surface.triangles)
+    const { high, low } = partitionByConfidence(confidence)
+
+    const highColor = baseColor.clone()
+    highColor.alpha = alpha
+    const lowColor = baseColor.clone()
+    lowColor.alpha = alpha * LOW_CONFIDENCE_ALPHA_MULTIPLIER
+
+    if (high.length > 0) {
+      const highTris = high.map(i => surface.triangles[i])
+      const primitive = buildTinPrimitive(
+        offsetVertices,
+        highTris,
+        highColor,
+        projectEpsg,
+        clip,
+      )
+      if (primitive) scene.primitives.add(primitive)
+    }
+    if (low.length > 0) {
+      const lowTris = low.map(i => surface.triangles[i])
+      const primitive = buildTinPrimitive(
+        offsetVertices,
+        lowTris,
+        lowColor,
+        projectEpsg,
+        clip,
+      )
+      if (primitive) scene.primitives.add(primitive)
     }
   }
 }

@@ -53,6 +53,11 @@ import type {
   GeologicalFormationResponse,
 } from '../../api/client'
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
+import {
+  CONFIDENCE_THRESHOLD,
+  computeTriangleConfidence,
+  LOW_CONFIDENCE_ALPHA_MULTIPLIER,
+} from '../../utils/tinConfidence'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
@@ -872,7 +877,8 @@ export default function ContactsLayer({
         formationId: string
         color: string
         name: string
-        d: string
+        dHigh: string
+        dLow: string
         screenPoints: readonly { x: number; y: number }[]
         isStale: boolean
       }[]
@@ -881,7 +887,8 @@ export default function ContactsLayer({
       formationId: string
       color: string
       name: string
-      d: string
+      dHigh: string
+      dLow: string
       screenPoints: readonly { x: number; y: number }[]
       isStale: boolean
     }[] = []
@@ -898,33 +905,64 @@ export default function ContactsLayer({
       if (points.length < 2) continue
       const meta = { color: line.color, name: line.name }
       const formationId = line.formationId
+      // Debt #28: per-triangle confidence drives a split into two
+      // SVG paths per formation — high-confidence band at full
+      // strokeOpacity, low-confidence at the reduced multiplier.
+      // Each segment between two consecutive slice points sits inside
+      // ONE triangle, so the segment's confidence is the triangle's.
+      const confidence = computeTriangleConfidence(surface.vertices, surface.triangles)
       // Project each (alongM, elevationM) into screen space; clip
-      // segments that leave the plot area in Y so we don't paint over
-      // the chrome. We render as a single path with M/L commands;
-      // out-of-range vertices break the path with a fresh M. Raw
-      // screen points are retained alongside the path string so the
-      // formation-fill band builder can pair adjacent surfaces by X
-      // without re-parsing the SVG.
-      let path = ''
-      let pendingMove = true
+      // segments that leave the plot area in Y. Raw screen points are
+      // retained for the formation-fill band builder downstream.
       const screenPoints: { x: number; y: number }[] = []
+      // For each consecutive pair of points, decide which band the
+      // segment belongs to via the triangleIdx, and append to dHigh
+      // or dLow accordingly. Out-of-range vertices break the current
+      // sub-path with a fresh M on the NEXT in-range vertex.
+      let dHigh = ''
+      let dLow = ''
+      let prevX: number | null = null
+      let prevY: number | null = null
+      let prevTriIdx: number | undefined = undefined
       for (const p of points) {
         const x = alongMToScreenX(p.alongM)
         const y = levelToScreen(p.elevationM)
         if (y < plotTop || y > plotBottom) {
-          pendingMove = true
+          prevX = null
+          prevY = null
+          prevTriIdx = undefined
           continue
         }
-        path += `${pendingMove ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)} `
-        pendingMove = false
         screenPoints.push({ x, y })
+        if (prevX === null || prevY === null) {
+          // Pen-up; pen-down on this point happens via the segment-
+          // append on the NEXT iteration. Hold this point as the
+          // segment start.
+          prevX = x
+          prevY = y
+          prevTriIdx = p.triangleIdx
+          continue
+        }
+        // Determine the segment's band. The two consecutive points
+        // come from the same triangle (sliceTin enumerates triangle-
+        // by-triangle); we read from the SECOND point's triangleIdx,
+        // falling back to the first when undefined (degenerate row).
+        const tri = p.triangleIdx ?? prevTriIdx
+        const isHighBand = tri !== undefined && confidence[tri] >= CONFIDENCE_THRESHOLD
+        const seg = `M ${prevX.toFixed(2)} ${prevY.toFixed(2)} L ${x.toFixed(2)} ${y.toFixed(2)} `
+        if (isHighBand) dHigh += seg
+        else dLow += seg
+        prevX = x
+        prevY = y
+        prevTriIdx = p.triangleIdx
       }
-      if (path === '') continue
+      if (dHigh === '' && dLow === '') continue
       out.push({
         formationId,
         color: meta.color,
         name: meta.name,
-        d: path,
+        dHigh,
+        dLow,
         screenPoints,
         isStale: surface.is_stale === true,
       })
@@ -2086,24 +2124,49 @@ export default function ContactsLayer({
           stroke distinguishes them from the dashed connect-the-dots
           fallback — the user sees at a glance which formations have a
           full surface vs. which are still 2-pick tie-lines. */}
-      {slicedPolylines.map(line => (
+      {slicedPolylines.map(line => {
         // On-click build pivot: stale TINs render dashed + faded so
         // the engineer can see "this is your last build, refresh to
         // update". Distinct from the connect-the-dots fallback (also
         // dashed but with a longer pattern + different opacity).
-        <path
-          key={`slice-${line.formationId}`}
-          d={line.d}
-          stroke={line.color}
-          strokeWidth={1.25}
-          strokeOpacity={line.isStale ? 0.35 : 0.7}
-          strokeDasharray={line.isStale ? '6 3' : undefined}
-          fill="none"
-          pointerEvents="none"
-          data-testid={`formation-surface-${line.formationId}`}
-          data-stale={line.isStale ? 'true' : undefined}
-        />
-      ))}
+        // Debt #28: per-confidence band split — high-confidence
+        // (data-backed) segments render at full opacity; low-
+        // confidence (hull-edge / sparse-data) segments render at the
+        // reduced multiplier so the user reads the fade as
+        // "extrapolation, no nearby data".
+        const baseOpacity = line.isStale ? 0.35 : 0.7
+        const dash = line.isStale ? '6 3' : undefined
+        return (
+          <g key={`slice-${line.formationId}`}>
+            {line.dHigh !== '' && (
+              <path
+                d={line.dHigh}
+                stroke={line.color}
+                strokeWidth={1.25}
+                strokeOpacity={baseOpacity}
+                strokeDasharray={dash}
+                fill="none"
+                pointerEvents="none"
+                data-testid={`formation-surface-${line.formationId}`}
+                data-stale={line.isStale ? 'true' : undefined}
+              />
+            )}
+            {line.dLow !== '' && (
+              <path
+                d={line.dLow}
+                stroke={line.color}
+                strokeWidth={1.25}
+                strokeOpacity={baseOpacity * LOW_CONFIDENCE_ALPHA_MULTIPLIER}
+                strokeDasharray={dash}
+                fill="none"
+                pointerEvents="none"
+                data-testid={`formation-surface-${line.formationId}-low`}
+                data-stale={line.isStale ? 'true' : undefined}
+              />
+            )}
+          </g>
+        )
+      })}
       {/* Cross-column polylines (formation surfaces).
           Two roles in one renderer:
           1. No TIN slice for the formation → render every segment
