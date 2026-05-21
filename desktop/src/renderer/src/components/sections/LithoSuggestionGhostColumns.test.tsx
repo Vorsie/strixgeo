@@ -761,16 +761,16 @@ describe('LithoSuggestionGhostColumns', () => {
     // not the raw value.
     const fill = rect.getAttribute('fill') ?? ''
     expect(fill.toLowerCase()).not.toBe('#deb887')  // not the sand fill
-    // The tooltip text starts with the rich Dutch label of the
-    // edited composition — base is "Klei" not "Zand".
+    // The tooltip text starts with the rich English label of the
+    // edited composition — base is "Clay" not "Sand".
     const title = container.querySelector('title')!.textContent ?? ''
-    expect(title).toMatch(/^Klei/i)
+    expect(title).toMatch(/^Clay/i)
   })
 
   // G36: an edits-Map entry with suggested_admixtures changes the
-  // rendered LABEL to the rich Dutch form (e.g. "Zwak siltig zand"
-  // instead of plain "Zand"). The label appears in the tooltip
-  // <title> the layer rect carries.
+  // rendered LABEL to the rich English form (e.g. "weakly silty
+  // Sand" instead of plain "Sand"). The label appears in the
+  // tooltip <title> the layer rect carries.
   it('G36 — committed suggested_admixtures change the rendered label', () => {
     const edits = new Map([
       [
@@ -794,7 +794,7 @@ describe('LithoSuggestionGhostColumns', () => {
       { edits },
     )
     const title = container.querySelector('title')!.textContent ?? ''
-    // "Zwak siltig zand" — base "Zand" with admixture "Zwak siltig".
-    expect(title.toLowerCase()).toMatch(/siltig/)
+    // "weakly silty Sand" — base "Sand" with admixture "weakly silty".
+    expect(title.toLowerCase()).toMatch(/silty/)
   })
 })
