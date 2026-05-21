@@ -164,7 +164,9 @@ describe('CptChart — legend / panel dispatch per cone kind', () => {
         name="CPT-Ic"
       />,
     )
-    expect(screen.getByText('Ic (Robertson 1990)')).toBeInTheDocument()
+    // Debt #22 interim cue: legend label promotes the "interpretation"
+    // word right next to the colour swatch.
+    expect(screen.getByText('Ic (interpretation, Robertson 1990)')).toBeInTheDocument()
     // The SBT key strip surfaces each Robertson zone label (also
     // rendered in the Ic panel overlay — getAllByText is forgiving).
     expect(screen.getAllByText('Sand').length).toBeGreaterThan(0)

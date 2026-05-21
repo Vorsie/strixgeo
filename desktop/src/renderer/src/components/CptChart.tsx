@@ -584,7 +584,7 @@ export default function CptChart({
           {hasFs  && <LegendItem color={FS_CLR} label="fs (MPa)" />}
           {hasRf  && <LegendItem color={RF_CLR} label="Rf (%)" />}
           {showU2 && <LegendItem color={U2_CLR} label="u (kPa)" />}
-          {hasIc  && <LegendItem color={IC_CLR} label="Ic (Robertson 1990)" />}
+          {hasIc  && <LegendItem color={IC_CLR} label="Ic (interpretation, Robertson 1990)" />}
           {preDrillM > 0 && <LegendItem color={PD_CLR} label={`Pre-drill ${preDrillM.toFixed(1)} m`} dashed />}
         </div>
         <div className="flex items-center gap-1 shrink-0 text-gray-400 dark:text-slate-400 text-[10px] select-none">
@@ -737,7 +737,24 @@ export default function CptChart({
         )}
 
         {hasIc && (
-          <div style={{ flex: 1, position: 'relative' }} className="min-w-0">
+          // Debt #22: thicker amber-tinted left border marks the
+          // measurement / interpretation partition. The Ic column
+          // carries the Robertson Ic curve + SBT zone bands — both
+          // are interpretation, not measured data. Phase 5 will move
+          // this panel out of the raw-curve chart entirely (into the
+          // Parameters stage); the border is the interim cue so a
+          // user reading the chart today doesn't read the curve as
+          // just another measured channel. ``border-l-status-amber``
+          // matches the same dirty-marker hue the app uses elsewhere
+          // for "needs attention" (CLAUDE.md / docs/ux.md). The
+          // raw-data columns still have their own gray-border-r
+          // dividers between qc / Rf / etc. — the visual hierarchy
+          // is "subtle gray for inside the measured group, bolder
+          // amber on the boundary between measured and interpreted".
+          <div
+            style={{ flex: 1, position: 'relative' }}
+            className="min-w-0 border-l-2 border-l-status-amber"
+          >
             <ResponsiveContainer width="100%" height="100%">
               {/* leftmost is among u2/qcfs only — `ic` is never the
                   leftmost. Pass literal false. */}
