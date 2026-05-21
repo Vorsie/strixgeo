@@ -333,26 +333,21 @@ export function useSectionData(
       setBoreholeDetails(new Map())
       return
     }
-    // Pass section.app_project_id for the scope guard (VULN-6).
-    Promise.allSettled(
-      inBufferBhIds.map(id => api.borehole.get(id, section.app_project_id)),
-    )
-      .then(results => {
+    // Debt #39: one batch call replaces N parallel GETs. Section
+    // glyphs don't render lab data, so include=[] skips every lab-
+    // family selectinload — the backend's `include` parameter widens
+    // the saving beyond just the round-trip count. Project scope is
+    // enforced server-side via app_project_id (VULN-6).
+    api.borehole
+      .detailBatch(inBufferBhIds, section.app_project_id, [])
+      .then(boreholes => {
         if (cancelled) return
         const m = new Map<string, BoreholeDetailResponse>()
-        let failed = 0
-        for (const r of results) {
-          if (r.status === 'fulfilled') {
-            m.set(r.value.id, r.value)
-          } else {
-            failed += 1
-          }
-        }
+        for (const bh of boreholes) m.set(bh.id, bh)
         setBoreholeDetails(m)
         log.debug(
           'section',
-          `loaded ${m.size}/${inBufferBhIds.length} borehole details` +
-            (failed > 0 ? ` (${failed} failed)` : ''),
+          `loaded ${m.size}/${inBufferBhIds.length} borehole details (batch)`,
         )
       })
       .catch(err => {
