@@ -624,30 +624,6 @@ server-managed timestamps) and promote them to `_SKIP_COLUMNS`; add a
 fixture test per top-level bundle array asserting its exact column
 set, so a new column forces a conscious format-version decision.
 
-## 48. `project_bundle.py` procedural logger style — residual (Tier E; progress logging shipped 2026-05-17)
-
-**What.** **Done (c6678e0):** `restore_project_bundle`'s CPT/borehole
-loops now log phase-start + phase-summary INFO and per-row
-`[i/total]` DEBUG, including what was SKIPPED and why (no-id payload /
-already-present) — the DoD bulk-loop rule. A stuck 500-CPT restore is
-no longer indistinguishable from a running one.
-
-**Residual.** The ~880-line module still uses a module-level
-`LoggerFactory.get_logger(__name__)` rather than the
-`self.info()` `GroundModelLogger` convention. This is legitimate
-(it's procedural, not a class) and purely a style-consistency gap —
-the observability half that actually mattered is closed.
-
-**Why deferred.** Wrapping the whole module in a
-`ProjectBundleService(GroundModelLogger)` is a non-trivial refactor of
-the `.gmproj`-contract critical path for zero behaviour gain — not
-worth the regression surface blind.
-
-**When to revisit.** Only if the module is being substantially
-restructured for a functional reason anyway; fold the class-ification
-into that change. Otherwise leave as-is — a working procedural logger
-is not a defect.
-
 ## 52. PDF report export (Tier D — Phase 5 reporting deliverable)
 
 **What.** The Export stage hub (shipped with #30) surfaces machine
