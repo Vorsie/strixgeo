@@ -45,6 +45,7 @@ import type {
 } from '../../../api/client'
 import type { BasemapSource, BasemapId } from '../../../utils/basemapSources'
 import { BASEMAP_SOURCES, readBasemapId, writeBasemapId } from '../../../utils/basemapSources'
+import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
 import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
 import {
   buildCutFaceBands,
@@ -1396,6 +1397,15 @@ export default function Geology3DViewer({
   // Basemap on/off (the user toggle). Default on.
   const [basemapEnabled, setBasemapEnabled] = useState(true)
 
+  // Debt #26: when offline, the basemap "lid" texture fetch fails and
+  // the canvas shows formation surfaces against a black globe — users
+  // read that as "viewer broken". The banner below explains it's a
+  // network issue, not a bug. ``useOnlineStatus`` reacts to
+  // ``navigator.onLine`` transitions; the banner only shows when
+  // both offline AND the user actually expected to see the basemap.
+  const online = useOnlineStatus()
+  const showOfflineBanner = !online && basemapEnabled
+
   // Split-line free-draw is EXPLICIT: armed by the "Split model" button,
   // not always-on. Without this every click in single view tried to
   // start a split (and silently failed on the flat ellipsoid).
@@ -1464,6 +1474,27 @@ export default function Geology3DViewer({
           hiddenFormationIds={hiddenFormationIds}
           basemapEnabled={basemapEnabled}
         />
+
+        {/* Debt #26 offline banner — overlays the primary viewport when
+            the browser reports no network connectivity AND the user
+            expected a basemap. Bottom-center so it doesn't collide
+            with the top-corner basemap picker / layer legend.
+            Pointer-events-none so the user can still drag the camera
+            through it. */}
+        {showOfflineBanner && (
+          <div
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 bg-amber-50/95 dark:bg-amber-950/80 border border-status-amber rounded shadow-lg px-3 py-1.5 text-[11px] text-text-primary pointer-events-none flex items-center gap-2"
+            role="status"
+            data-testid="geology3d-offline-banner"
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>
+              Offline — basemap unavailable. Formation geometry is
+              still rendered; the globe will repaint when the network
+              returns.
+            </span>
+          </div>
+        )}
 
         {/* Basemap picker — only on the primary viewport */}
         <BasemapPanel activeBasemapId={basemapId} onSelect={handleBasemapSelect} />
