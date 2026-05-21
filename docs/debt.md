@@ -1277,6 +1277,46 @@ is the common case (the user just edited a composition and is
 pasting next door); cross-column overwrite without confirmation is
 a one-step undoable action via re-opening the editor.
 
+## 91. Stale-TIN straddle-fallback diagnostic — RESOLVED 2026-05-21
+
+The original tracking was a one-liner in CLAUDE.md's Tier E that
+collided with the existing ``#68`` (CorrelationEdgesOverlay). Resolved
+under a fresh number to clean the bookkeeping at the same time.
+
+**What.** ``AcceptLithoSuggestions._compute_straddle_splits`` falls
+back to depth-ordered geology contacts when the parent geology TIN is
+stale or absent. The fallback is geometrically correct but less
+precise than a fresh TIN sample; the response carries
+``stale_tin_fallback_count`` per the contract introduced with #87.
+Frontend only logged the count to the debug log — the dogfeed user
+never saw a signal that the geology model needed a rebuild.
+
+**Resolution.** Three pieces:
+
+1. ``useGeologicalModel`` accumulates a new ``lithoStaleTinSessionCount``
+   state across every accept-litho-suggestions response in the current
+   session. Cleared on (a) successful geology rebuild + (b) the
+   existing ``clearLithoSuggestions`` reset.
+2. Exposed via ``geoModel`` on the ShellContext bus alongside
+   ``lithoStaleSurfaceCount`` (mirror surface).
+3. ``LithologyInspector`` renders an amber pill
+   (``litho-stale-tin-pill``) next to the existing stale-surface
+   banner whenever the counter is non-zero, with copy "N stale-TIN
+   straddle fallback(s) this session — rebuild geology for precision."
+   Singular wording for N=1.
+
+**Tests.** T1-T3 vitest pins in ``LithologyInspector.test.tsx``: pill
+renders with the count when > 0 / hidden when 0 / singular wording
+for 1. Hook-level integration covered through the existing accept-
+litho test paths (all four accept sites bump the counter). 1049/1049
+vitest + tsc clean.
+
+**Bookkeeping note.** The previous CLAUDE.md Tier E note listed this
+item as "#68" which collided with the docs/debt.md ``#68``
+(CorrelationEdgesOverlay uncorrelate menu). Tier E in CLAUDE.md is
+updated to drop the stale-TIN reference and the new #68/#91 numbers
+no longer collide.
+
 ## 87. Orphan litho units — RESOLVED 2026-05-21
 
 Owner directive: **extrapolate from TIN with engineer notification + a
