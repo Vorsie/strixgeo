@@ -49,8 +49,8 @@ import { useOnlineStatus } from '../../../hooks/useOnlineStatus'
 import { projectedToWgs84, wgs84ToProjected } from '../../../hooks/useWgs84'
 import {
   computeTriangleConfidence,
-  LOW_CONFIDENCE_ALPHA_MULTIPLIER,
-  partitionByConfidence,
+  computeVertexConfidence,
+  confidenceToAlphaMultiplier,
 } from '../../../utils/tinConfidence'
 import {
   buildCutFaceBands,
@@ -637,6 +637,185 @@ function buildTinPrimitive(
   })
 }
 
+// ---------------------------------------------------------------------------
+// Per-vertex gradient appearance (debt #28 follow-up, 2026-05-21).
+//
+// PerInstanceColorAppearance gives a single colour to the whole primitive.
+// To render the confidence signal as a *true* gradient (vs the prior
+// binary high/low partition), each vertex carries its own RGBA in a
+// vertex attribute and the fragment shader uses the GPU-interpolated
+// value.  Cesium's `Appearance` accepts custom GLSL — the shaders here
+// follow Cesium's relative-to-eye conventions
+// (``position3DHigh``/``position3DLow`` + ``czm_computePosition`` +
+// ``czm_modelViewProjectionRelativeToEye``).  ``ALPHA_BLEND`` with
+// depthMask off is the standard translucent setup the existing
+// PerInstanceColorAppearance(translucent:true, flat:true) uses too.
+// ---------------------------------------------------------------------------
+
+const _vertexColorAppearanceVS = [
+  'attribute vec3 position3DHigh;',
+  'attribute vec3 position3DLow;',
+  'attribute vec4 color;',
+  'attribute float batchId;',
+  'varying vec4 v_color;',
+  'void main() {',
+  '  vec4 p = czm_computePosition();',
+  '  v_color = color;',
+  '  gl_Position = czm_modelViewProjectionRelativeToEye * p;',
+  '}',
+].join('\n')
+
+const _vertexColorAppearanceFS = [
+  'varying vec4 v_color;',
+  'void main() {',
+  '  gl_FragColor = v_color;',
+  '}',
+].join('\n')
+
+function makeVertexColorAppearance(): Cesium.Appearance {
+  return new Cesium.Appearance({
+    vertexShaderSource: _vertexColorAppearanceVS,
+    fragmentShaderSource: _vertexColorAppearanceFS,
+    translucent: true,
+    closed: false,
+    renderState: {
+      blending: Cesium.BlendingState.ALPHA_BLEND,
+      depthTest: { enabled: true },
+      depthMask: false,
+      cull: { enabled: false, face: Cesium.CullFace.BACK },
+    } as unknown as object,
+  })
+}
+
+/**
+ * Build a TIN primitive with per-vertex RGBA — true gradient rendering.
+ *
+ * Same vertex/index layout as ``buildTinPrimitive`` but adds a ``color``
+ * vertex attribute (Uint8Array, normalized RGBA per vertex).  Uses the
+ * custom vertex-color appearance so the GPU interpolates colour across
+ * each triangle.  Both the non-clipped path and the split-mode clipped
+ * path are supported:
+ *
+ *  - Non-clipped: ``perVertexColors`` aligns 1-to-1 with ``vertices``.
+ *  - Clipped (split mode): the soup has new vertices on triangle edges.
+ *    The caller supplies ``perTriangleColors`` (one RGBA per source
+ *    triangle) and we paint each clipped triangle solid with its source
+ *    triangle's colour.  Within-triangle interpolation is lost in split
+ *    mode but the across-triangle continuity is preserved — acceptable
+ *    given the split view is for inspection, not gradient study.
+ */
+function buildTinPrimitiveWithVertexColor(
+  vertices: [number, number, number][],
+  triangles: [number, number, number][],
+  perVertexColors: Uint8Array,
+  projectEpsg: number,
+  clip?: { plane: Cesium.Plane; keepPositive: boolean },
+  perTriangleColorsForClip?: Uint8Array,
+): Cesium.Primitive | null {
+  if (triangles.length === 0) return null
+  if (perVertexColors.length !== vertices.length * 4) {
+    throw new Error(
+      `buildTinPrimitiveWithVertexColor: perVertexColors length ${perVertexColors.length} != vertices*4 ${vertices.length * 4}`,
+    )
+  }
+
+  const ecef = vertices.map(([x, y, z]) => {
+    const [lat, lng] = projectedToWgs84(x, y, projectEpsg)
+    return Cesium.Cartesian3.fromDegrees(lng, lat, z)
+  })
+
+  let positionValues: Float64Array
+  let indices: Uint32Array
+  let colorValues: Uint8Array
+
+  if (!clip) {
+    positionValues = new Float64Array(ecef.length * 3)
+    let i = 0
+    for (const v of ecef) {
+      positionValues[i++] = v.x
+      positionValues[i++] = v.y
+      positionValues[i++] = v.z
+    }
+    indices = new Uint32Array(triangles.length * 3)
+    let j = 0
+    for (const [i0, i1, i2] of triangles) {
+      indices[j++] = i0
+      indices[j++] = i1
+      indices[j++] = i2
+    }
+    colorValues = perVertexColors
+  } else {
+    // Clip path: emit a triangle soup. Each output triangle gets its
+    // source triangle's solid colour (per-clipped-triangle solid).
+    const tris: Cesium.Cartesian3[][] = triangles.map(([a, b, c]) => [
+      ecef[a],
+      ecef[b],
+      ecef[c],
+    ])
+    // clipTrisToHalfSpace returns the kept triangles in source-order;
+    // each input triangle can produce 0, 1, or 2 output triangles.
+    // We re-walk the algorithm here to track which source triangle each
+    // output came from so the per-triangle colour assignment is right.
+    const clippedWithSrc: { tri: Cesium.Cartesian3[]; srcIdx: number }[] = []
+    for (let srcIdx = 0; srcIdx < tris.length; srcIdx += 1) {
+      const out = clipTrisToHalfSpace([tris[srcIdx]], clip.plane, clip.keepPositive)
+      for (const t of out) {
+        clippedWithSrc.push({ tri: t, srcIdx })
+      }
+    }
+    if (clippedWithSrc.length === 0) return null
+    positionValues = new Float64Array(clippedWithSrc.length * 9)
+    indices = new Uint32Array(clippedWithSrc.length * 3)
+    colorValues = new Uint8Array(clippedWithSrc.length * 12)
+    let pi = 0
+    let ii = 0
+    let ci = 0
+    const triColors = perTriangleColorsForClip
+    for (const { tri, srcIdx } of clippedWithSrc) {
+      const r = triColors ? triColors[srcIdx * 4 + 0] : 255
+      const g = triColors ? triColors[srcIdx * 4 + 1] : 255
+      const b = triColors ? triColors[srcIdx * 4 + 2] : 255
+      const a = triColors ? triColors[srcIdx * 4 + 3] : 255
+      for (const v of tri) {
+        positionValues[pi++] = v.x
+        positionValues[pi++] = v.y
+        positionValues[pi++] = v.z
+        indices[ii] = ii
+        ii++
+        colorValues[ci++] = r
+        colorValues[ci++] = g
+        colorValues[ci++] = b
+        colorValues[ci++] = a
+      }
+    }
+  }
+
+  const geometry = new Cesium.Geometry({
+    attributes: {
+      position: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+        componentsPerAttribute: 3,
+        values: positionValues,
+      }),
+      color: new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.UNSIGNED_BYTE,
+        componentsPerAttribute: 4,
+        normalize: true,
+        values: colorValues,
+      }),
+    } as unknown as Cesium.GeometryAttributes,
+    indices,
+    primitiveType: Cesium.PrimitiveType.TRIANGLES,
+    boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
+  })
+
+  return new Cesium.Primitive({
+    geometryInstances: new Cesium.GeometryInstance({ geometry }),
+    appearance: makeVertexColorAppearance(),
+    asynchronous: false,
+  })
+}
+
 /**
  * Add TIN surface primitives to a Cesium scene for the ground surface and all
  * formations.
@@ -839,39 +1018,67 @@ function rebuildSurfacePrimitives(
       ([x, y, z]) => [x, y, z + zOffset],
     )
 
-    // Debt #28: split into two confidence bands per formation. High-
-    // confidence triangles render at the full surface alpha; low-
-    // confidence (hull-edge or long-edge interior) render at the
-    // reduced multiplier so the engineer reads the fade as
-    // "extrapolation, no nearby data".
-    const confidence = computeTriangleConfidence(surface.vertices, surface.triangles)
-    const { high, low } = partitionByConfidence(confidence)
-
-    const highColor = baseColor.clone()
-    highColor.alpha = alpha
-    const lowColor = baseColor.clone()
-    // Debt #94 follow-up: gate the fade behind the per-project toggle.
-    // When the toggle is off, low-confidence triangles render at the
-    // same alpha as high-confidence — visually disabling the cue.
-    lowColor.alpha = alpha * (showConfidenceFade ? LOW_CONFIDENCE_ALPHA_MULTIPLIER : 1.0)
-
-    if (high.length > 0) {
-      const highTris = high.map(i => surface.triangles[i])
-      const primitive = buildTinPrimitive(
+    // Debt #28 follow-up (2026-05-21): true per-vertex gradient.
+    // Replaces the prior two-bin (high/low) partition with a single
+    // primitive carrying per-vertex RGBA — the GPU interpolates the
+    // alpha across each triangle, producing a smooth fade that
+    // mirrors the continuous distance-to-data signal underneath.
+    //
+    // When the toggle is OFF, ``showConfidenceFade=false`` → we keep
+    // the old single-colour PerInstanceColor primitive path with the
+    // surface's base alpha (uniform colour — fade visually disabled).
+    if (showConfidenceFade) {
+      const triConf = computeTriangleConfidence(surface.vertices, surface.triangles)
+      const vertConf = computeVertexConfidence(surface.vertices, surface.triangles, triConf)
+      const r = Math.round(baseColor.red * 255)
+      const g = Math.round(baseColor.green * 255)
+      const b = Math.round(baseColor.blue * 255)
+      // Per-vertex RGBA (alpha = baseAlpha × confidenceMultiplier(vertConf[i])).
+      const perVertexColors = new Uint8Array(surface.vertices.length * 4)
+      for (let i = 0; i < surface.vertices.length; i += 1) {
+        const mult = confidenceToAlphaMultiplier(vertConf[i])
+        const a = Math.round(alpha * mult * 255)
+        perVertexColors[i * 4 + 0] = r
+        perVertexColors[i * 4 + 1] = g
+        perVertexColors[i * 4 + 2] = b
+        perVertexColors[i * 4 + 3] = a
+      }
+      // For the split (clip) path the soup loses vertex sharing —
+      // pass per-source-triangle solid colour so each clipped triangle
+      // renders with a consistent alpha derived from its source.
+      // Within-triangle gradient is lost in split mode (acceptable;
+      // the across-triangle continuity still reads as a gradient).
+      let perTriangleColorsForClip: Uint8Array | undefined
+      if (clip) {
+        perTriangleColorsForClip = new Uint8Array(surface.triangles.length * 4)
+        for (let t = 0; t < surface.triangles.length; t += 1) {
+          const [va, vb, vc] = surface.triangles[t]
+          const triAvgConf = (vertConf[va] + vertConf[vb] + vertConf[vc]) / 3
+          const mult = confidenceToAlphaMultiplier(triAvgConf)
+          const a = Math.round(alpha * mult * 255)
+          perTriangleColorsForClip[t * 4 + 0] = r
+          perTriangleColorsForClip[t * 4 + 1] = g
+          perTriangleColorsForClip[t * 4 + 2] = b
+          perTriangleColorsForClip[t * 4 + 3] = a
+        }
+      }
+      const primitive = buildTinPrimitiveWithVertexColor(
         offsetVertices,
-        highTris,
-        highColor,
+        surface.triangles,
+        perVertexColors,
         projectEpsg,
         clip,
+        perTriangleColorsForClip,
       )
       if (primitive) scene.primitives.add(primitive)
-    }
-    if (low.length > 0) {
-      const lowTris = low.map(i => surface.triangles[i])
+    } else {
+      // Toggle off: uniform alpha, current PerInstanceColor primitive.
+      const uniformColor = baseColor.clone()
+      uniformColor.alpha = alpha
       const primitive = buildTinPrimitive(
         offsetVertices,
-        lowTris,
-        lowColor,
+        surface.triangles,
+        uniformColor,
         projectEpsg,
         clip,
       )
