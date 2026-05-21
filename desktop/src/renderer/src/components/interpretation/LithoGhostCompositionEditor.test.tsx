@@ -30,7 +30,7 @@ describe('LithoGhostCompositionEditor', () => {
     // Main soil select shows KLEI.
     const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
     expect(main.value).toBe('KLEI')
-    // Live preview reflects the Dutch label (KLEI + matig zandhoudend).
+    // Live preview reflects the English label (KLEI + moderately sandy).
     const preview = screen.getByTestId('ghost-edit-preview')
     expect(preview.textContent ?? '').not.toBe('')
   })
