@@ -35,6 +35,7 @@ import type {
   ProjectResponse,
 } from '../api/client'
 import { formatAcceptParentSummary } from '../utils/acceptLithoSummary'
+import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import type { UndoCommand } from './useUndoStack'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
@@ -403,6 +404,23 @@ export interface UseGeologicalModelResult {
     anchorId: string,
     idx: number,
     edit: LithoSuggestionEdit,
+  ) => void
+  /**
+   * Debt #85: insert a new pending litho layer at the shared boundary
+   * between ``afterIdx`` and ``afterIdx+1`` for ``anchorId``. The new
+   * layer arrives as a 10 cm sentinel — the user resizes after via
+   * the standard drag handles. Accepted / rejected / edits indices
+   * shift by +1 above the insertion point; the lower neighbour's
+   * ``depth_top`` is auto-edited to the new sentinel boundary so the
+   * three layers stay geometrically consistent.
+   */
+  handleInsertLithoLayer: (
+    anchorId: string,
+    afterIdx: number,
+    composition: {
+      suggested_lithology: string
+      suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+    },
   ) => void
   /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
   clearBulkLithoGhosts: () => void
@@ -2916,6 +2934,31 @@ export function useGeologicalModel({
     [],
   )
 
+  // Debt #85: insert a new pending litho layer at the shared boundary
+  // between layers ``afterIdx`` and ``afterIdx+1``. The mutation is a
+  // pure helper (insertLithoLayer) so the index-shift math has its own
+  // unit test; this hook just plugs it into setGhostsByAnchor.
+  const handleInsertLithoLayer = useCallback(
+    (
+      anchorId: string,
+      afterIdx: number,
+      composition: {
+        suggested_lithology: string
+        suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+      },
+    ): void => {
+      setGhostsByAnchor(prev => {
+        const existing = prev.get(anchorId)
+        if (!existing) return prev
+        const updated = insertLithoLayer(existing, afterIdx, composition)
+        const next = new Map(prev)
+        next.set(anchorId, updated)
+        return next
+      })
+    },
+    [],
+  )
+
   // B-1 (senior-review, data-integrity): a ghost overlay left showing
   // when the active litho model SWITCHES would accept onto the new
   // model (activeLithoModelRef points at the new one) while the
@@ -3825,6 +3868,7 @@ export function useGeologicalModel({
     handleRejectBulkLitho,
     handleUnrejectBulkLitho,
     handleEditBulkLitho,
+    handleInsertLithoLayer,
     clearBulkLithoGhosts,
     pinchOutPreview,
     pinchOutLoading,
