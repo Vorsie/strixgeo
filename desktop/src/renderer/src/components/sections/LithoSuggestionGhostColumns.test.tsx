@@ -121,6 +121,13 @@ function renderGhost(
         suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
       },
     ) => void
+    onInsertLayer?: (
+      afterIdx: number,
+      composition: {
+        suggested_lithology: string
+        suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+      },
+    ) => void
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -146,6 +153,7 @@ function renderGhost(
         edits={opts.edits}
         onEdit={opts.onEdit}
         onCrossColumnPaste={opts.onCrossColumnPaste}
+        onInsertLayer={opts.onInsertLayer}
       />
     </svg>,
   )
@@ -1017,5 +1025,94 @@ describe('LithoSuggestionGhostColumns', () => {
       0,
       expect.objectContaining({ suggested_lithology: 'KLEI' }),
     )
+  })
+
+  // -----------------------------------------------------------------
+  // Debt #85 — right-click shared boundary to insert a layer
+  // -----------------------------------------------------------------
+
+  // R1: boundary hit-strip rendered between two pending layers when
+  // onInsertLayer is wired.
+  it('R1 — boundary strip rendered between two adjacent pendings when onInsertLayer wired', () => {
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit: vi.fn(), onInsertLayer: vi.fn() },
+    )
+    expect(container.querySelector('[data-testid="litho-boundary-strip-0"]')).not.toBeNull()
+  })
+
+  // R2: no boundary strip when onInsertLayer is absent (opt-in only).
+  it('R2 — boundary strip not rendered when onInsertLayer is undefined', () => {
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit: vi.fn() },
+    )
+    expect(container.querySelector('[data-testid="litho-boundary-strip-0"]')).toBeNull()
+  })
+
+  // R3: no strip between pending and accepted neighbour (the accepted
+  // layer's depths are committed contacts, mutating via the edits map
+  // would distort the green-tick rect without changing the DB).
+  it('R3 — no boundary strip between pending and accepted neighbour', () => {
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      {
+        onEdit: vi.fn(),
+        onInsertLayer: vi.fn(),
+        acceptedIndices: new Set([1]),
+      },
+    )
+    expect(container.querySelector('[data-testid="litho-boundary-strip-0"]')).toBeNull()
+  })
+
+  // R4: right-click on the boundary strip opens the boundary menu.
+  it('R4 — right-click on boundary strip opens the boundary menu', () => {
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit: vi.fn(), onInsertLayer: vi.fn() },
+    )
+    const strip = container.querySelector('[data-testid="litho-boundary-strip-0"]')
+    expect(strip).not.toBeNull()
+    fireEvent.contextMenu(strip!, { clientX: 300, clientY: 200 })
+    expect(screen.getByTestId('litho-boundary-menu')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-boundary-insert')).toBeInTheDocument()
+  })
+
+  // R5: clicking "Insert layer here…" opens the composition picker; on
+  // Save, onInsertLayer fires with afterIdx + the chosen composition.
+  it('R5 — Insert action opens picker; Save fires onInsertLayer with afterIdx', () => {
+    const onInsertLayer = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit: vi.fn(), onInsertLayer },
+    )
+    const strip = container.querySelector('[data-testid="litho-boundary-strip-0"]')
+    fireEvent.contextMenu(strip!, { clientX: 300, clientY: 200 })
+    fireEvent.click(screen.getByTestId('litho-boundary-insert'))
+    // Picker opens — find the Save button (composition editor uses
+    // a "Save" button via the shared Modal/Button primitive).
+    const save = screen.getByRole('button', { name: /save/i })
+    fireEvent.click(save)
+    // onInsertLayer fires with afterIdx=0 + the picker's defaults
+    // (ZAND main soil, empty admixtures per the picker's normalisation).
+    expect(onInsertLayer).toHaveBeenCalledTimes(1)
+    const [afterIdx, composition] = onInsertLayer.mock.calls[0]
+    expect(afterIdx).toBe(0)
+    expect(composition.suggested_lithology).toBe('ZAND')
   })
 })

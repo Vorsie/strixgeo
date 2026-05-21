@@ -519,6 +519,23 @@ export interface LithoSuggestionGhostColumnsProps {
       suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
     },
   ) => void
+  /**
+   * Debt #85: insert a new pending litho layer at the shared boundary
+   * between ``afterIdx`` and ``afterIdx+1``.  Fired when the user
+   * right-clicks a shared boundary between two adjacent pending
+   * layers and picks "Insert layer here…" from the boundary context
+   * menu, then chooses a composition in the picker.
+   *
+   * Optional — when absent, the boundary hit-strip + context menu are
+   * not rendered (zero regression for callers that haven't opted in).
+   */
+  onInsertLayer?: (
+    afterIdx: number,
+    composition: {
+      suggested_lithology: string
+      suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+    },
+  ) => void
 }
 
 /**
@@ -578,6 +595,7 @@ export default function LithoSuggestionGhostColumns({
   edits,
   onEdit,
   onCrossColumnPaste,
+  onInsertLayer,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
   // updated on document mousemove; cleared on mouseup which fires
@@ -702,6 +720,18 @@ export default function LithoSuggestionGhostColumns({
     targetLabel: string
   } | null>(null)
 
+  // Debt #85: right-click context menu on a shared boundary between
+  // two adjacent pending layers. ``afterIdx`` is the UPPER layer's
+  // index — the inserted layer arrives at ``afterIdx + 1``. Cleared
+  // on Esc / outside click (same effect as the per-layer context menu).
+  const [boundaryContextMenu, setBoundaryContextMenu] = useState<
+    { afterIdx: number; x: number; y: number } | null
+  >(null)
+  // Tracks an in-flight "insert layer here" gesture: when set, the
+  // composition picker opens with empty initial values; on Save, the
+  // parent's onInsertLayer fires with this afterIdx. null = closed.
+  const [insertingAfterIdx, setInsertingAfterIdx] = useState<number | null>(null)
+
   // Per-layer context menu (dogfeed 2026-05-20). Right-click on a
   // pending layer opens a small floating menu with [Edit composition,
   // Reject layer]. Replaces the prior direct-right-click-rejects
@@ -711,14 +741,19 @@ export default function LithoSuggestionGhostColumns({
   >(null)
 
   // Dismiss the context menu on Esc / outside click. document-level
-  // listeners attached only while the menu is open.
+  // listeners attached only while the menu is open. Covers BOTH the
+  // per-layer menu (debt #72) and the boundary menu (debt #85).
   useEffect(() => {
-    if (!contextMenu) return
+    if (!contextMenu && !boundaryContextMenu) return
     function handleClickAway(): void {
       setContextMenu(null)
+      setBoundaryContextMenu(null)
     }
     function handleKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') setContextMenu(null)
+      if (e.key === 'Escape') {
+        setContextMenu(null)
+        setBoundaryContextMenu(null)
+      }
     }
     // mousedown not click — closes the menu BEFORE the click that
     // opened the next thing (e.g. another right-click reopens
@@ -729,7 +764,7 @@ export default function LithoSuggestionGhostColumns({
       document.removeEventListener('mousedown', handleClickAway)
       document.removeEventListener('keydown', handleKey)
     }
-  }, [contextMenu])
+  }, [contextMenu, boundaryContextMenu])
 
   // pxPerM derived from levelToScreen (a linear transform — sample
   // two points). Guards against zero when the section is too narrow
@@ -1123,6 +1158,18 @@ export default function LithoSuggestionGhostColumns({
         // Drag handles only when onEdit is wired AND the layer is
         // still pending. Accepted/rejected layers are frozen.
         const dragHandlesEnabled = onEdit !== undefined && !accepted && !rejected
+        // Debt #85: render the boundary hit-strip at this layer's BASE
+        // only when both this layer AND the next layer are pending,
+        // and onInsertLayer is wired. (No strip below the last layer;
+        // none above an accepted/rejected next neighbour.)
+        const nextIdx = idx + 1
+        const boundaryStripEnabled =
+          onInsertLayer !== undefined &&
+          !accepted &&
+          !rejected &&
+          nextIdx < suggestions.length &&
+          !acceptedIndices.has(nextIdx) &&
+          !rejectedIndices.has(nextIdx)
         return (
           <g key={`${idx}-${rawLayer.suggested_lithology}-${rawLayer.depth_top_m}`}>
             <LithoSuggestionLayer
@@ -1232,6 +1279,33 @@ export default function LithoSuggestionGhostColumns({
                   }}
                 />
               </>
+            )}
+            {/* Debt #85 boundary hit-strip — 6 px tall transparent rect
+                centred on the shared boundary between this layer and
+                the next pending one. Right-click opens the boundary
+                context menu with "Insert layer here…". Mousedown does
+                NOT arm any other gesture (the edge-resize handle owns
+                the resize gesture at the same Y region; the strip is
+                explicitly right-click-only so no collision). */}
+            {boundaryStripEnabled && (
+              <rect
+                x={left}
+                y={baseY - 3}
+                width={ghostWidth}
+                height={6}
+                fill="transparent"
+                style={{ cursor: 'context-menu' }}
+                data-testid={`litho-boundary-strip-${idx}`}
+                onContextMenu={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setBoundaryContextMenu({
+                    afterIdx: idx,
+                    x: e.clientX,
+                    y: e.clientY,
+                  })
+                }}
+              />
             )}
           </g>
         )
@@ -1357,6 +1431,59 @@ export default function LithoSuggestionGhostColumns({
         </div>,
         document.body,
       )}
+    {/* Debt #85: boundary context menu — right-click on a shared
+        boundary between two pending layers opens this with the single
+        "Insert layer here…" item.  Clicking opens the composition
+        picker in insert mode (insertingAfterIdx set). */}
+    {boundaryContextMenu !== null &&
+      createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: boundaryContextMenu.x,
+            top: boundaryContextMenu.y,
+            zIndex: 10000,
+          }}
+          onMouseDown={e => e.stopPropagation()}
+          className="bg-surface-overlay border border-border-default rounded shadow-lg py-1 min-w-[10rem] text-xs"
+          role="menu"
+          aria-label="Boundary actions"
+          data-testid="litho-boundary-menu"
+        >
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 hover:bg-surface-page text-text-primary"
+            data-testid="litho-boundary-insert"
+            onClick={() => {
+              setInsertingAfterIdx(boundaryContextMenu.afterIdx)
+              setBoundaryContextMenu(null)
+            }}
+          >
+            Insert layer here…
+          </button>
+        </div>,
+        document.body,
+      )}
+    {/* Debt #85: composition picker reused in INSERT mode. Opens with
+        blank initial values (owner directive: blank prefill); on Save
+        the parent's onInsertLayer fires with the captured afterIdx. */}
+    {insertingAfterIdx !== null && (
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode={''}
+        initialAdmixtures={[]}
+        onSave={(mainCode, admix) => {
+          if (onInsertLayer && insertingAfterIdx !== null) {
+            onInsertLayer(insertingAfterIdx, {
+              suggested_lithology: mainCode,
+              suggested_admixtures: admix,
+            })
+          }
+          setInsertingAfterIdx(null)
+        }}
+        onCancel={() => setInsertingAfterIdx(null)}
+      />
+    )}
     {/* Debt #86: Alt-drag preview chip (floating, follows the cursor).
         Rendered via createPortal at fixed clientX/Y so it doesn't have
         to live inside the SVG coordinate space. Cleared on mouseup. */}
