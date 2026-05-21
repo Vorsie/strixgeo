@@ -53,20 +53,16 @@ from groundmodel.infrastructure.parsers.borehole.dov.sample_wfs_row import Sampl
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
+from groundmodel.infrastructure.parsers.dov.dov_wfs_client_base import DovWfsClientBase
 from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
     optional_date,
     optional_float,
     optional_int,
 )
-from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
-    wfs_count,
-    wfs_features_json,
-)
-from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
-class DovSampleClient(GroundModelLogger):
+class DovSampleClient(DovWfsClientBase[SampleWfsRow]):
     """Fetch DOV sample (``boringen:grondmonsters``) headers for a bbox.
 
     Parameters
@@ -77,10 +73,11 @@ class DovSampleClient(GroundModelLogger):
         redirects (WFS responds with the JSON directly).
     """
 
-    def __init__(self, http: httpx.AsyncClient) -> None:
-        """Initialise with the shared HTTP client."""
-        super().__init__(__name__)
-        self._http = http
+    # Debt #15: layer + label declared as class constants so the base
+    # class's inherited _wfs_count / _wfs_features pick them up
+    # without per-client override.
+    WFS_LAYER = DOV_WFS_GRONDMONSTERS_LAYER
+    LAYER_LABEL = "sample"
 
     async def fetch_bbox(
         self,
@@ -137,62 +134,34 @@ class DovSampleClient(GroundModelLogger):
         return rows
 
     # ------------------------------------------------------------------
-    # WFS request layer (count + features). Recursive split is delegated
-    # to ``dov_wfs_bbox.collect_wfs_features_recursive`` from ``fetch_bbox``.
+    # DovWfsClientBase hooks — typed-row construction + per-client
+    # skip diagnostics. _wfs_count + _wfs_features are inherited.
     # ------------------------------------------------------------------
 
-    async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
-        """Return the number of samples in the Lambert72 bbox."""
-        return await wfs_count(
-            self._http,
-            self,
-            layer=DOV_WFS_GRONDMONSTERS_LAYER,
-            x1=x1,
-            y1=y1,
-            x2=x2,
-            y2=y2,
-            label="sample",
+    def _build_row(self, props: dict[str, Any]) -> SampleWfsRow | None:
+        return _build_row(props)
+
+    def _init_skip_state(self) -> dict[str, int]:
+        """Two skip reasons: missing own permkey vs missing parent link."""
+        return {"no_permkey": 0, "no_parent": 0}
+
+    def _on_skipped_feature(self, props: dict[str, Any], state: dict[str, int]) -> dict[str, int]:
+        # Decide which counter to bump for the diagnostic warning.
+        if not props.get(DOV_GRONDMONSTER_WFS_PERMKEY_PROP):
+            state["no_permkey"] += 1
+        else:
+            state["no_parent"] += 1
+        return state
+
+    def _emit_skip_warning(self, features: list[dict[str, Any]], state: dict[str, int]) -> None:
+        if not state["no_permkey"] and not state["no_parent"]:
+            return
+        available = list(features[0].get("properties", {}).keys()) if features else "(none)"
+        self.warning(
+            f"DOV sample WFS: skipped {state['no_permkey']} rows without permkey and "
+            f"{state['no_parent']} rows without parent borehole link. "
+            f"Available properties: {available}"
         )
-
-    async def _wfs_features(self, x1: float, y1: float, x2: float, y2: float) -> list[SampleWfsRow]:
-        """Fetch up to DOV_WFS_FEATURE_LIMIT samples for this bbox."""
-        features = await wfs_features_json(
-            self._http,
-            self,
-            layer=DOV_WFS_GRONDMONSTERS_LAYER,
-            x1=x1,
-            y1=y1,
-            x2=x2,
-            y2=y2,
-            label="sample",
-        )
-        if features:
-            first_props = list(features[0].get("properties", {}).keys())
-            self.trace(f"DOV sample WFS feature properties: {first_props}")
-
-        rows: list[SampleWfsRow] = []
-        skipped_no_permkey = 0
-        skipped_no_parent = 0
-        for feat in features:
-            props: dict[str, Any] = feat.get("properties", {})
-            row = _build_row(props)
-            if row is None:
-                # Decide which counter to bump for the diagnostic warning.
-                if not props.get(DOV_GRONDMONSTER_WFS_PERMKEY_PROP):
-                    skipped_no_permkey += 1
-                else:
-                    skipped_no_parent += 1
-                continue
-            rows.append(row)
-
-        if skipped_no_permkey or skipped_no_parent:
-            available = list(features[0].get("properties", {}).keys()) if features else "(none)"
-            self.warning(
-                f"DOV sample WFS: skipped {skipped_no_permkey} rows without permkey and "
-                f"{skipped_no_parent} rows without parent borehole link. "
-                f"Available properties: {available}"
-            )
-        return rows
 
 
 # ---------------------------------------------------------------------------

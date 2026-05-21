@@ -51,6 +51,7 @@ from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
 from groundmodel.infrastructure.parsers.dov.dov_wfs_bbox import (
     collect_wfs_features_recursive,
 )
+from groundmodel.infrastructure.parsers.dov.dov_wfs_client_base import DovWfsClientBase
 from groundmodel.infrastructure.parsers.dov.dov_wfs_download import (
     parallel_download_and_process,
 )
@@ -58,18 +59,13 @@ from groundmodel.infrastructure.parsers.dov.dov_wfs_helpers import (
     last_path_segment,
     optional_float,
 )
-from groundmodel.infrastructure.parsers.dov.dov_wfs_request import (
-    wfs_count,
-    wfs_features_json,
-)
-from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 from groundmodel.shared.progress import ProgressCallback, fire_progress
 
 _T = TypeVar("_T")
 ProcessFn = Callable[[bytes, str], _T]
 
 
-class DovBoreholeClient(GroundModelLogger):
+class DovBoreholeClient(DovWfsClientBase[BoreholeWfsRow]):
     """Fetch DOV borehole metadata via WFS and download boring XMLs in parallel.
 
     Parameters
@@ -86,9 +82,13 @@ class DovBoreholeClient(GroundModelLogger):
         format YYYY-NNNNNN is shared across resource types).
     """
 
+    # Debt #15: layer + label declared as class constants so the base
+    # class's inherited _wfs_count / _wfs_features pick them up.
+    WFS_LAYER = DOV_WFS_BORINGEN_LAYER
+    LAYER_LABEL = "borehole"
+
     def __init__(self, http: httpx.AsyncClient, cache: DovXmlCache | None = None) -> None:
-        super().__init__(__name__)
-        self._http = http
+        super().__init__(http)
         self._cache = cache
 
     async def fetch_bbox_processed(
@@ -172,64 +172,27 @@ class DovBoreholeClient(GroundModelLogger):
         )
 
     # ------------------------------------------------------------------
-    # WFS request layer (count + features). The recursive bbox-split lives
-    # in ``dov_wfs_bbox.collect_wfs_features_recursive`` and reaches these
-    # via direct method references from ``fetch_bbox_processed``.
+    # DovWfsClientBase hooks — typed-row construction + per-client
+    # diagnostic. _wfs_count + _wfs_features are inherited.
     # ------------------------------------------------------------------
 
-    async def _wfs_count(self, x1: float, y1: float, x2: float, y2: float) -> int:
-        """Return the number of boreholes in the Lambert72 bbox without fetching features."""
-        return await wfs_count(
-            self._http,
-            self,
-            layer=DOV_WFS_BORINGEN_LAYER,
-            x1=x1,
-            y1=y1,
-            x2=x2,
-            y2=y2,
-            label="borehole",
-        )
+    def _build_row(self, props: dict[str, Any]) -> BoreholeWfsRow | None:
+        return self._build_wfs_row(props)
 
-    async def _wfs_features(
-        self, x1: float, y1: float, x2: float, y2: float
-    ) -> list[BoreholeWfsRow]:
-        """Fetch up to DOV_WFS_FEATURE_LIMIT borehole features for this bbox."""
-        features = await wfs_features_json(
-            self._http,
-            self,
-            layer=DOV_WFS_BORINGEN_LAYER,
-            x1=x1,
-            y1=y1,
-            x2=x2,
-            y2=y2,
-            label="borehole",
-        )
-        if features:
-            first_props = list(features[0].get("properties", {}).keys())
-            self.trace(f"DOV WFS feature properties: {first_props}")
-
-        rows: list[BoreholeWfsRow] = []
-        missing_url = 0
-        for feat in features:
-            props: dict[str, Any] = feat.get("properties", {})
-            row = self._build_wfs_row(props)
-            if row is None:
-                missing_url += 1
-                continue
-            rows.append(row)
-
-        if missing_url:
-            available = list(features[0].get("properties", {}).keys()) if features else "(none)"
-            self.warning(
-                f"DOV WFS: {missing_url} features had no usable 'fiche' URL — "
-                f"skipped. Available properties: {available}"
-            )
-
-        # The vertical EPSG (Z_mTAW) is constant for DOV — log once at trace
-        # level so users can verify the assumption.
+    def _emit_skip_warning(self, features: list[dict[str, Any]], state: int) -> None:
+        # Override the default skip-warning wording (the borehole client
+        # historically said "no usable 'fiche' URL" specifically — kept
+        # so log-greps for the prior message keep matching). Also
+        # piggybacks the vertical-EPSG trace, which the previous bespoke
+        # _wfs_features emitted once per batch as a sanity check.
         self.trace(f"DOV WFS: vertical EPSG = {DOV_VERTICAL_EPSG} (mTAW)")
-
-        return rows
+        if state <= 0:
+            return
+        available = list(features[0].get("properties", {}).keys()) if features else "(none)"
+        self.warning(
+            f"DOV WFS: {state} features had no usable 'fiche' URL — "
+            f"skipped. Available properties: {available}"
+        )
 
     def _build_wfs_row(self, props: dict[str, Any]) -> BoreholeWfsRow | None:
         """Build a BoreholeWfsRow from the WFS feature's ``properties`` dict.
