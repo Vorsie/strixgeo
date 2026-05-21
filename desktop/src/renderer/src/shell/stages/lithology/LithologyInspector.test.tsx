@@ -148,6 +148,8 @@ function makeFormation(
     instance_ordinal_locked: false,
     // Slice 5 / debt #67: server-resolved parent name, null by default.
     parent_formation_name: null,
+    // Debt #87: parent-extrapolated flag; default false.
+    parent_extrapolated: false,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -834,5 +836,87 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
 
     // lastResolvedEdgeCount === currentEdgeCount (both 1) → badge absent.
     expect(screen.queryByTestId('stale-ordinal-badge-f-a')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Debt #87 — parent-review badge + ConfirmParentDialog flow
+// ---------------------------------------------------------------------------
+
+describe('LithologyInspector (debt #87 — parent review)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockListCorrelations.mockResolvedValue([])
+    mockResolveLithoInstances.mockResolvedValue({ updated: [] })
+    mockUpdateFormation.mockResolvedValue(makeFormation('any', 'any'))
+  })
+  afterEach(() => {
+    cleanup()
+  })
+
+  // P1: rows without parent_extrapolated AND with a parent are NOT badged.
+  it('P1 — clean rows do not render the parent-review dot', async () => {
+    const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
+    const litho = makeFormation('lit-a', 'Zand', {
+      parent_formation_id: 'geo-a',
+      parent_extrapolated: false,
+      litho_main_soil_code: 'ZAND',
+    })
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      formations: [parent, litho],
+      lithoFormations: [litho],
+    })
+    renderInspector(ctx)
+    await waitFor(() => {
+      expect(screen.getByTestId('litho-formation-row-lit-a')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('parent-review-lit-a')).not.toBeInTheDocument()
+  })
+
+  // P2: parent_extrapolated rows render the dot AND open the dialog.
+  it('P2 — extrapolated rows render the dot and open the confirm dialog', async () => {
+    const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
+    const litho = makeFormation('lit-a', 'Zand', {
+      parent_formation_id: 'geo-a',
+      parent_extrapolated: true,
+      litho_main_soil_code: 'ZAND',
+    })
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      formations: [parent, litho],
+      lithoFormations: [litho],
+    })
+    renderInspector(ctx)
+    await waitFor(() => {
+      expect(screen.getByTestId('parent-review-lit-a')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('parent-review-lit-a'))
+    expect(screen.getByTestId('confirm-parent-select')).toBeInTheDocument()
+  })
+
+  // P3: submitting the dialog PATCHes parent_extrapolated=false + parent_formation_id.
+  it('P3 — Confirm submits parent_extrapolated=false + the chosen parent id', async () => {
+    const parent = makeFormation('geo-a', 'Boom Klei', { lithology: null })
+    const litho = makeFormation('lit-a', 'Zand', {
+      parent_formation_id: 'geo-a',
+      parent_extrapolated: true,
+      litho_main_soil_code: 'ZAND',
+    })
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      formations: [parent, litho],
+      lithoFormations: [litho],
+    })
+    renderInspector(ctx)
+    fireEvent.click(await screen.findByTestId('parent-review-lit-a'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('confirm-parent-submit'))
+    })
+    expect(mockUpdateFormation).toHaveBeenCalledWith(
+      'proj-1',
+      'lit-a',
+      { parent_formation_id: 'geo-a', parent_extrapolated: false },
+    )
   })
 })

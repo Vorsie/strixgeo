@@ -34,7 +34,7 @@
 //           in LithoFormationRoster group labels below.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Lock, LockOpen, RefreshCw } from 'lucide-react'
+import { AlertCircle, Circle, Lock, LockOpen, RefreshCw } from 'lucide-react'
 import { Layers3 } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -43,9 +43,11 @@ import type {
   GeologicalFormationResponse,
   LithoCorrelationEdge,
 } from '../../../api/client'
+import { isGeologicalFormation } from '../../../utils/formationKind'
 import { log } from '../../../utils/log'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
+import ConfirmParentDialog from './ConfirmParentDialog'
 import ModelKindPicker from './ModelKindPicker'
 import { computeOrdinalStale } from './ordinalStaleness'
 
@@ -167,6 +169,42 @@ export default function LithologyInspector(): JSX.Element {
     [project, refetchFormations],
   )
 
+  // Debt #87: ConfirmParentDialog state — opened from the amber dot on
+  // extrapolated/orphan unit rows. ``confirmTarget`` carries the unit
+  // being reviewed; null = dialog closed.
+  const [confirmTarget, setConfirmTarget] = useState<GeologicalFormationResponse | null>(
+    null,
+  )
+  const [confirmBusy, setConfirmBusy] = useState(false)
+
+  // Project geological formations — used as the parent options in the
+  // dialog. Pure useMemo derived from formations (debt #89 shape: one
+  // source of truth, derive views).
+  const geoParents = useMemo(
+    () => formations.filter(isGeologicalFormation),
+    [formations],
+  )
+
+  const handleConfirmParent = useCallback(
+    async (nextParentId: string | null) => {
+      if (project === null || confirmTarget === null) return
+      setConfirmBusy(true)
+      try {
+        await api.geology.updateFormation(project.id, confirmTarget.id, {
+          parent_formation_id: nextParentId,
+          parent_extrapolated: false,
+        })
+        refetchFormations()
+        setConfirmTarget(null)
+      } catch (err) {
+        log.error('[LithologyInspector] confirm parent failed:', err)
+      } finally {
+        setConfirmBusy(false)
+      }
+    },
+    [project, confirmTarget, refetchFormations],
+  )
+
   // RO-3 stale-ordinal badge: locked formation + edge set changed since
   // the last explicit resolve. The predicate is the pure
   // ``computeOrdinalStale`` helper so its PRESENT branch is unit-tested
@@ -270,6 +308,7 @@ export default function LithologyInspector(): JSX.Element {
               lithoContacts={lithoContacts}
               ordinalIsStale={ordinalIsStale}
               onToggleLock={handleToggleLock}
+              onReviewParent={setConfirmTarget}
             />
           )}
 
@@ -279,6 +318,17 @@ export default function LithologyInspector(): JSX.Element {
           </p>
         </>
       )}
+
+      {/* Debt #87: confirm / reassign / detach dialog for extrapolated
+          or orphan parents. Driven by the amber dot on unit rows. */}
+      <ConfirmParentDialog
+        open={confirmTarget !== null}
+        formation={confirmTarget}
+        geoFormations={geoParents}
+        onSubmit={handleConfirmParent}
+        onCancel={() => setConfirmTarget(null)}
+        busy={confirmBusy}
+      />
     </div>
   )
 }
@@ -294,6 +344,9 @@ interface LithoUnitRowProps {
   lithoContacts: readonly FormationContactResponse[]
   ordinalIsStale: boolean
   onToggleLock: (formation: GeologicalFormationResponse) => Promise<void>
+  /** Debt #87: opens the confirm-parent dialog for an extrapolated or
+   *  orphan unit. Click target is the amber dot on the left of the row. */
+  onReviewParent: (formation: GeologicalFormationResponse) => void
 }
 
 function LithoUnitRow({
@@ -301,12 +354,21 @@ function LithoUnitRow({
   lithoContacts,
   ordinalIsStale,
   onToggleLock,
+  onReviewParent,
 }: LithoUnitRowProps): JSX.Element {
   const contactCount = lithoContacts.filter(c => c.formation_id === f.id).length
   // Ordinal badge: "body N" when resolved, "body ?" when still null.
   const ordinalLabel = f.instance_ordinal !== null ? `body ${f.instance_ordinal}` : 'body ?'
   // RO-3 amber badge: locked formation + edge set changed since last resolve.
   const showStaleBadge = f.instance_ordinal_locked && ordinalIsStale
+  // Debt #87: amber dot when the parent needs engineer review.
+  // Either the AcceptLitho path stamped parent_extrapolated=true, or the
+  // unit is orphan (no parent at all — usually grouped under "Unassigned"
+  // but the dot makes the per-row affordance discoverable from any group).
+  const needsParentReview = f.parent_extrapolated || f.parent_formation_id == null
+  const reviewTooltip = f.parent_extrapolated
+    ? 'Parent extrapolated from TIN — click to confirm or reassign'
+    : 'No parent assigned — click to assign or detach'
 
   return (
     <li
@@ -319,6 +381,21 @@ function LithoUnitRow({
         aria-hidden="true"
       />
       <span className="flex-1 truncate">{f.name}</span>
+
+      {/* Debt #87: parent-review affordance — amber filled circle on the
+          right edge of the name region (before the metadata column). */}
+      {needsParentReview && (
+        <button
+          type="button"
+          onClick={() => onReviewParent(f)}
+          className="flex-shrink-0 text-amber-500 hover:text-amber-600 transition-colors"
+          title={reviewTooltip}
+          aria-label={reviewTooltip}
+          data-testid={`parent-review-${f.id}`}
+        >
+          <Circle size={9} fill="currentColor" aria-hidden="true" />
+        </button>
+      )}
 
       {/* Ordinal badge — "body N" or "body ?" when unresolved */}
       <span
@@ -388,6 +465,8 @@ interface LithoFormationRosterProps {
   ordinalIsStale: boolean
   /** Called when the user clicks the lock/unlock icon on a unit row. */
   onToggleLock: (formation: GeologicalFormationResponse) => Promise<void>
+  /** Debt #87: called when the user clicks a unit's parent-review dot. */
+  onReviewParent: (formation: GeologicalFormationResponse) => void
 }
 
 /**
@@ -424,6 +503,7 @@ function LithoFormationRoster({
   lithoContacts,
   ordinalIsStale,
   onToggleLock,
+  onReviewParent,
 }: LithoFormationRosterProps): JSX.Element {
   // Group litho units by parent_formation_id.
   const byParent = new Map<string | null, GeologicalFormationResponse[]>()
@@ -478,6 +558,7 @@ function LithoFormationRoster({
                 lithoContacts={lithoContacts}
                 ordinalIsStale={ordinalIsStale}
                 onToggleLock={onToggleLock}
+                onReviewParent={onReviewParent}
               />
             ))}
           </ul>
@@ -499,6 +580,7 @@ function LithoFormationRoster({
                 lithoContacts={lithoContacts}
                 ordinalIsStale={ordinalIsStale}
                 onToggleLock={onToggleLock}
+                onReviewParent={onReviewParent}
               />
             ))}
           </ul>
