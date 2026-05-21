@@ -526,26 +526,6 @@ no nearby data".
 > ux-reviewer-as-general-purpose-proxy). They are in numeric order;
 > their true priority is the five-tier list at the top of this file.
 
-## 39. No batch borehole-detail endpoint — N parallel GETs on section open (Tier D — latent perf cliff)
-
-**What.** `useSectionData.ts` fetches every in-buffer borehole via
-`Promise.allSettled(ids.map(id => api.borehole.get(id)))`. Each
-`GET /borehole/{id}` returns the full child tree (6 lab-test
-families, ~12 `selectinload` queries) even though the section column
-only needs header + observations. The CPT path already has
-`POST /cpt/plot-batch`; the borehole path has no equivalent and no
-`include=` filter on the section call. A dense corridor (50+
-boreholes) is 50+ round-trips, each over-fetching lab data the
-section never renders. The hook's own comment flags this.
-
-**Why deferred.** Typical Phase-4 sections (10–30 boreholes) complete
-before the user notices.
-
-**When to revisit.** When a 50+-borehole corridor shows a >1 s load
-during dogfeed. Two-part fix: (a) pass `include=` to drop lab trees
-the section doesn't use; (b) add `POST /boreholes/detail-batch`
-mirroring `plot-batch` — one query replaces N.
-
 ## 41. `Geology3DViewer.tsx` component-level smoke still absent (Tier E — residual; pure helpers extracted + netted 2026-05-17)
 
 **What.** Part (a) is **done** (6c5389a): the pure coordinate math —
