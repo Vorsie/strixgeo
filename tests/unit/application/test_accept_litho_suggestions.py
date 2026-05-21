@@ -104,6 +104,7 @@ def _make_session(
     geo_model_id: object = GEO_MODEL_ID,
     borehole_x: float = 100.0,
     borehole_y: float = 200.0,
+    borehole_elevation_m: float | None = None,
     # Geology surface rows keyed by formation_id
     surface_rows: list | None = None,
     # Existing contacts at investigation (depth, fid) pairs
@@ -157,6 +158,7 @@ def _make_session(
         app_project_id=PROJECT_ID,
         location_x=borehole_x,
         location_y=borehole_y,
+        elevation_m=borehole_elevation_m,
     )
 
     # Track calls to session.get
@@ -874,3 +876,249 @@ async def test_v10_wrong_project_litho_model_raises_value_error() -> None:
     session.execute.assert_not_awaited()
     session.add.assert_not_called()
     session.commit.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# E1–E5 — TIN extrapolation paths (debt #87)
+#
+# Tests target ``_compute_straddle_splits`` directly: it is a pure method
+# (logger access only — no DB) so the cheapest test surface is constructing
+# the use case with an empty mocked session and calling the method.
+# ---------------------------------------------------------------------------
+
+
+def _make_surface_stub(
+    *,
+    formation_id: object,
+    vertices: list[tuple[float, float, float]],
+    triangles: list[tuple[int, int, int]],
+    is_stale: bool = False,
+) -> SimpleNamespace:
+    """Build a FormationSurfaceOrm-shaped stub for extrapolation tests."""
+    return SimpleNamespace(
+        formation_id=formation_id,
+        vertices=vertices,
+        triangles=triangles,
+        is_stale=is_stale,
+    )
+
+
+def _bare_use_case() -> AcceptLithoSuggestions:
+    """Minimal AcceptLithoSuggestions for pure-method tests (no DB calls)."""
+    return AcceptLithoSuggestions(AsyncMock())
+
+
+# A square TIN covering (0..200, 0..400) at constant elevation. Two triangles.
+def _square_tin(z: float) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+    """Square TIN at constant elevation ``z`` covering a generous footprint."""
+    vertices = [
+        (0.0, 0.0, z),
+        (200.0, 0.0, z),
+        (200.0, 400.0, z),
+        (0.0, 400.0, z),
+    ]
+    triangles = [(0, 1, 2), (0, 2, 3)]
+    return vertices, triangles
+
+
+def test_e1_no_geology_at_all_returns_orphan_not_extrapolated() -> None:
+    """No surfaces AND no contacts → orphan with extrapolated=False."""
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(0.0, 5.0, "KLEI")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces={},
+        geology_contacts_at_inv=[],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+    )
+    assert result.intervals == [(0.0, None)]
+    assert result.extrapolated is False
+    assert result.stale_tin_fallback_count == 0
+
+
+def test_e2_tin_extrapolates_parent_when_no_contacts_at_inv() -> None:
+    """Surfaces exist + no contacts here + suggestion within TIN → extrapolated parent.
+
+    Two formations: upper TIN at elev=5, lower TIN at elev=2. Investigation
+    elevation 10m, suggestion at depth_top=2m → target_z = 10 - 2 = 8m, which
+    is above both surfaces → orphan (above youngest). Move depth to 7m →
+    target_z = 3m, which lies between upper(5) and lower(2) → upper wins
+    (smallest surf_z that's still >= 3 is 5 → upper formation).
+    """
+    upper_fid = uuid4()
+    lower_fid = uuid4()
+    upper_vertices, upper_tri = _square_tin(5.0)
+    lower_vertices, lower_tri = _square_tin(2.0)
+    surfaces = {
+        upper_fid: _make_surface_stub(
+            formation_id=upper_fid, vertices=upper_vertices, triangles=upper_tri
+        ),
+        lower_fid: _make_surface_stub(
+            formation_id=lower_fid, vertices=lower_vertices, triangles=lower_tri
+        ),
+    }
+    uc = _bare_use_case()
+    # depth_top=7m, inv_elevation=10m → target_z=3m. Upper surface at 5m
+    # is the smallest surf_z >= 3 → upper wins.
+    suggestion = _make_suggestion(7.0, 9.0, "KLEI")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces=surfaces,
+        geology_contacts_at_inv=[],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+    )
+    assert result.intervals == [(7.0, upper_fid)]
+    assert result.extrapolated is True
+
+
+def test_e3_suggestion_above_all_surfaces_is_orphan() -> None:
+    """Suggestion sits above every TIN at this (x, y) → orphan.
+
+    Upper TIN at elev=5, suggestion at depth=2m with inv_elev=10m →
+    target_z=8m sits above both surfaces → no candidate → orphan.
+    """
+    upper_fid = uuid4()
+    upper_vertices, upper_tri = _square_tin(5.0)
+    surfaces = {
+        upper_fid: _make_surface_stub(
+            formation_id=upper_fid, vertices=upper_vertices, triangles=upper_tri
+        ),
+    }
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(2.0, 4.0, "KLEI")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces=surfaces,
+        geology_contacts_at_inv=[],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+    )
+    assert result.intervals == [(2.0, None)]
+    assert result.extrapolated is False
+
+
+def test_e4_inv_outside_tin_footprint_is_orphan() -> None:
+    """Investigation (x, y) outside every TIN footprint → orphan.
+
+    TIN covers (0..200, 0..400); investigation at (500, 500) sits outside →
+    no candidate → orphan. evaluate_tin_at returns None for out-of-footprint.
+    """
+    upper_fid = uuid4()
+    upper_vertices, upper_tri = _square_tin(5.0)
+    surfaces = {
+        upper_fid: _make_surface_stub(
+            formation_id=upper_fid, vertices=upper_vertices, triangles=upper_tri
+        ),
+    }
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(7.0, 9.0, "KLEI")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces=surfaces,
+        geology_contacts_at_inv=[],
+        inv_x=500.0,
+        inv_y=500.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+    )
+    assert result.intervals == [(7.0, None)]
+    assert result.extrapolated is False
+
+
+def test_e5_stale_tin_is_skipped_during_extrapolation() -> None:
+    """Stale TIN surfaces are skipped — extrapolation falls back to orphan.
+
+    Stale surfaces are NOT used (the migration-time backfill and runtime
+    accept both prefer "no parent" over a possibly-wrong extrapolation
+    from a TIN the engineer hasn't rebuilt). Only non-stale surface here
+    is stale → orphan.
+    """
+    upper_fid = uuid4()
+    upper_vertices, upper_tri = _square_tin(5.0)
+    surfaces = {
+        upper_fid: _make_surface_stub(
+            formation_id=upper_fid,
+            vertices=upper_vertices,
+            triangles=upper_tri,
+            is_stale=True,
+        ),
+    }
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(7.0, 9.0, "KLEI")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces=surfaces,
+        geology_contacts_at_inv=[],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+    )
+    assert result.intervals == [(7.0, None)]
+    assert result.extrapolated is False
+
+
+def test_e6_no_inv_elevation_disables_extrapolation() -> None:
+    """Investigation with NULL elevation_m → no extrapolation, orphan path.
+
+    Without surveyed elevation we cannot convert depth-below-ground to
+    absolute z. The code falls through to the orphan branch.
+    """
+    upper_fid = uuid4()
+    upper_vertices, upper_tri = _square_tin(5.0)
+    surfaces = {
+        upper_fid: _make_surface_stub(
+            formation_id=upper_fid, vertices=upper_vertices, triangles=upper_tri
+        ),
+    }
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(7.0, 9.0, "KLEI")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces=surfaces,
+        geology_contacts_at_inv=[],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=None,
+        suggestion_index=0,
+    )
+    assert result.intervals == [(7.0, None)]
+    assert result.extrapolated is False
+
+
+def test_e7_contact_based_parent_wins_over_extrapolation() -> None:
+    """When contacts cover the depth, extrapolation does not run.
+
+    Contact at depth=0 names UPPER_FORMATION as the parent for any
+    depth >= 0. Suggestion at depth=2m matches that contact's bucket →
+    extrapolated stays False even though TIN surfaces are present.
+    """
+    upper_fid = uuid4()
+    other_fid = uuid4()  # an unrelated surface that would extrapolate to itself
+    other_vertices, other_tri = _square_tin(99.0)  # surface above target_z
+    surfaces = {
+        other_fid: _make_surface_stub(
+            formation_id=other_fid, vertices=other_vertices, triangles=other_tri
+        ),
+    }
+    uc = _bare_use_case()
+    suggestion = _make_suggestion(2.0, 4.0, "KLEI")
+    result = uc._compute_straddle_splits(
+        suggestion=suggestion,
+        geology_surfaces=surfaces,
+        geology_contacts_at_inv=[(0.0, upper_fid)],
+        inv_x=100.0,
+        inv_y=200.0,
+        inv_elevation_m=10.0,
+        suggestion_index=0,
+    )
+    assert result.intervals == [(2.0, upper_fid)]
+    assert result.extrapolated is False
