@@ -39,6 +39,7 @@ function LithologyToolbar(): JSX.Element | null {
   const {
     geoModel: {
       activeLithoModel,
+      lithoContacts,
       lithoSurfacesByFormationId,
       lithoStaleSurfaceCount,
       handleRebuildLithoSurfaces,
@@ -52,6 +53,13 @@ function LithologyToolbar(): JSX.Element | null {
   )
 
   if (!activeLithoModel) return null
+
+  // Debt #94: gate Build litho on contact presence. With zero contacts
+  // in the active litho model the Delaunay pass has nothing to
+  // triangulate; clicking the button is a no-op that confuses dogfeed
+  // users. The tooltip directs to the cross-section view as the place
+  // to place contacts (Suggest litho / manual pick).
+  const hasLithoContacts = lithoContacts.length > 0
 
   const buildLabel =
     rebuilding
@@ -76,16 +84,18 @@ function LithologyToolbar(): JSX.Element | null {
         icon={<Cpu size={13} />}
         label={buildLabel}
         onClick={() => void handleBuild()}
-        disabled={rebuilding}
+        disabled={rebuilding || !hasLithoContacts}
         busy={rebuilding}
         // Amber tint mirrors GeologyToolbar stale-count convention (debt #55).
-        amber={lithoStaleSurfaceCount > 0}
+        amber={lithoStaleSurfaceCount > 0 && hasLithoContacts}
         title={
-          rebuilding
-            ? 'Running Delaunay triangulation on litho contacts…'
-            : lithoStaleSurfaceCount > 0
-              ? `${lithoStaleSurfaceCount} litho surface(s) need rebuilding — click to update`
-              : 'Rebuild 3D lithostratigraphic surfaces from all accepted contacts'
+          !hasLithoContacts
+            ? 'No litho contacts yet — open a cross-section on the litho axis, Suggest litho, accept the layers, then return here to Build'
+            : rebuilding
+              ? 'Running Delaunay triangulation on litho contacts…'
+              : lithoStaleSurfaceCount > 0
+                ? `${lithoStaleSurfaceCount} litho surface(s) need rebuilding — click to update`
+                : 'Rebuild 3D lithostratigraphic surfaces from all accepted contacts'
         }
       />
       {hasLithoSurfaces && (

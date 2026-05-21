@@ -44,7 +44,7 @@ export const CONFIDENCE_THRESHOLD = 0.7
  * by design — the engineer reads the cue as "less to trust here", not
  * a two-axis classification.
  */
-export const LOW_CONFIDENCE_ALPHA_MULTIPLIER = 0.45
+export const LOW_CONFIDENCE_ALPHA_MULTIPLIER = 0.25
 
 function _median(values: readonly number[]): number {
   if (values.length === 0) return 0

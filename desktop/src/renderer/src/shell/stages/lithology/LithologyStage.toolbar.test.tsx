@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import type {
+  FormationContactResponse,
   FormationSurfaceResponse,
   GeologicalModelResponse,
 } from '../../../api/client'
@@ -91,6 +92,7 @@ function makeSurface(
 
 function makeCtx(overrides: {
   activeLithoModel?: GeologicalModelResponse | null
+  lithoContacts?: FormationContactResponse[]
   lithoSurfacesByFormationId?: Map<string, FormationSurfaceResponse>
   lithoStaleSurfaceCount?: number
   handleRebuildLithoSurfaces?: () => Promise<void>
@@ -185,7 +187,7 @@ function makeCtx(overrides: {
       handleCreateLithoModel: async () => null,
       handleActivateLithoModel: noopAsync,
       handleDeleteLithoModel: noopAsync,
-      lithoContacts: [],
+      lithoContacts: overrides.lithoContacts ?? [],
       lithoFormations: [],
       lithoSurfacesByFormationId: overrides.lithoSurfacesByFormationId ?? new Map(),
       lithoStaleSurfaceCount: overrides.lithoStaleSurfaceCount ?? 0,
@@ -339,6 +341,7 @@ function makeCtx(overrides: {
       handleSelectBorehole: noopAsync,
       handleExportSectionDxf: noopAsync,
       handleExportSectionPlaxis2d: noopAsync,
+      handleExportSectionPdf: vi.fn(),
       outOfViewportCptIds: new Set(),
       outOfViewportBoreholeIds: new Set(),
       projectFilePath: null,
@@ -397,10 +400,32 @@ describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
   })
 
   // BL3: Clicking Build litho calls handleRebuildLithoSurfaces.
+  // Debt #94: Build is gated on contact presence, so the test fixture
+  // seeds one contact for the click to fire.
   it('BL3 — clicking Build litho calls handleRebuildLithoSurfaces', async () => {
     const rebuild = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
+      lithoContacts: [
+        {
+          id: 'c1',
+          model_id: 'litho-1',
+          formation_id: 'f1',
+          borehole_id: 'b1',
+          cpt_id: null,
+          synthetic_x: null,
+          synthetic_y: null,
+          synthetic_elevation_m: null,
+          depth_top_m: 1,
+          source: 'manual_pick',
+          confidence: 'high',
+          observation_id: null,
+          observation_layer_id: null,
+          notes: null,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        } as FormationContactResponse,
+      ],
       handleRebuildLithoSurfaces: rebuild,
     })
     renderToolbar(ctx)
@@ -410,6 +435,19 @@ describe('LithologyToolbar Build litho button (Phase 1 accept flow)', () => {
     await vi.waitFor(() => {
       expect(rebuild).toHaveBeenCalledOnce()
     })
+  })
+
+  // BL3b (Debt #94): Build litho is DISABLED when the active litho
+  // model has zero contacts; tooltip points to the cross-section view.
+  it('BL3b — Build litho is disabled with cross-section hint when no contacts', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoContacts: [],
+    })
+    renderToolbar(ctx)
+    const btn = screen.getByRole('button', { name: /build litho/i }) as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(btn.title).toMatch(/cross-section/i)
   })
 
   // BL4: When lithoStaleSurfaceCount > 0, the label shows the count.

@@ -332,21 +332,27 @@ export default function GeologyToolbar(): JSX.Element {
       {/* Separator */}
       <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
 
-      {/* Build 3D model — amber badge when surfaces are stale */}
+      {/* Build 3D model — amber badge when surfaces are stale.
+          Debt #94: gate on contact presence too. With zero contacts the
+          Delaunay pass has nothing to triangulate; clicking is a no-op
+          that confuses dogfeed users. Tooltip points to the cross-
+          section view as the place to place contacts. */}
       <ToolbarButton
         icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
         label={rebuilding ? 'Building…' : staleLabel}
         onClick={() => void handleBuild()}
-        disabled={rebuilding || !hasModel}
-        amber={staleSurfaceCount > 0 && !rebuilding}
+        disabled={rebuilding || !hasModel || contacts.length === 0}
+        amber={staleSurfaceCount > 0 && !rebuilding && contacts.length > 0}
         title={
           !hasModel
             ? 'No active stratigraphy — create formations and contacts first'
-            : rebuilding
-              ? 'Building 3D model…'
-              : staleSurfaceCount > 0
-                ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
-                : 'Rebuild TIN surfaces from current contacts'
+            : contacts.length === 0
+              ? 'No contacts yet — open a cross-section, then Seed from stratigraphy on the geology axis or pick contacts manually before Build'
+              : rebuilding
+                ? 'Building 3D model…'
+                : staleSurfaceCount > 0
+                  ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
+                  : 'Rebuild TIN surfaces from current contacts'
         }
       />
 
