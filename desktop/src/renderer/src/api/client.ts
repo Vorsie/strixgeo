@@ -187,6 +187,11 @@ export interface GeologicalFormationResponse {
   // time; never stored in the DB. null on geological rows and on orphaned
   // litho units whose parent id is not present in the project set.
   parent_formation_name: string | null
+  // Debt #87: true when parent_formation_id was inferred via TIN extrapolation
+  // (no geology contact at this investigation covered the suggestion's depth).
+  // The LithologyInspector renders an amber dot + tooltip + confirm dialog
+  // when set. Cleared via PATCH parent_extrapolated=false on Confirm.
+  parent_extrapolated: boolean
   created_at: string
   updated_at: string
 }
@@ -216,6 +221,12 @@ export interface GeologicalFormationUpdatePayload {
   // Phase-2 Slice 2: lock-toggle from LithologyInspector. When true the
   // ordinal resolver skips this row; when false it may renumber freely.
   instance_ordinal_locked?: boolean | null
+  // Debt #87: cleared to false when the engineer confirms the
+  // TIN-extrapolated parent. Detach action sends false + parent_formation_id
+  // null in one PATCH. Never sent true from the UI — only AcceptLitho stamps
+  // true server-side.
+  parent_extrapolated?: boolean | null
+  parent_formation_id?: string | null
 }
 
 // Phase-2 Slice 3: one edge in the litho correlation graph.
@@ -392,6 +403,15 @@ export interface AcceptLithoSuggestionsResponse {
   // Number of straddle splits that fell back to depth-ordering because
   // the geology TIN was stale or absent (debt #68).
   stale_tin_fallback_count: number
+  // Debt #87: litho formation rows created in this call whose
+  // parent_formation_id was inferred from TIN extrapolation (engineer
+  // must confirm). Pre-#87 clients tolerate the field absent — defaults
+  // to [] when missing.
+  extrapolated_formation_ids?: string[]
+  // Debt #87: litho formation rows created in this call with no parent
+  // (neither contact-based assignment nor TIN extrapolation succeeded).
+  // Same backward-compat shape as above.
+  orphan_formation_ids?: string[]
   updated_section: CrossSectionResponse | null
 }
 
