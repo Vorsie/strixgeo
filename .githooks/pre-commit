@@ -40,8 +40,14 @@ if [ -n "$ts_changed" ]; then
   # tsc --noEmit catches type errors before a green test suite can
   # mask them (vitest happily runs against ``any`` annotations and
   # missing generic args; tsc doesn't). Runs second — slower than
-  # the eslint-reason scan, faster than the test suite. Debt #6.
-  (cd desktop && npx tsc --noEmit)
+  # the eslint-reason scan, faster than the test suite. Debt #63:
+  # the explicit `-p tsconfig.web.json` is load-bearing — the root
+  # tsconfig.json has empty `files` + project `references`, so a
+  # bare `tsc --noEmit` silently checks nothing (which is what it
+  # had been doing for a long time; the gate is now real). Pin
+  # Node 22 LTS to run the hook — Node 24 segfaults vitest before
+  # any test loads (see memory/project_node_22_pin.md).
+  (cd desktop && npx tsc --noEmit -p tsconfig.web.json)
   (cd desktop && npm test --silent)
 fi
 
