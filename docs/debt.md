@@ -1277,6 +1277,59 @@ is the common case (the user just edited a composition and is
 pasting next door); cross-column overwrite without confirmation is
 a one-step undoable action via re-opening the editor.
 
+## 92. "New tests" workflow — RESOLVED 2026-05-21
+
+**What.** When an engineer imports new CPTs or boreholes into a project
+whose geology + lithology models are already built, incorporating the
+new tests is fiddly: "Suggest all" re-runs the segmenter on every
+visible investigation (idempotent server-side, but wastes time on
+already-accepted ones), and "Seed from stratigraphy" places contacts
+on every borehole (idempotent — skips duplicates — but the user has no
+explicit "won't touch my work" affordance). The dogfeed workflow asked
+for two new toolbar verbs scoped to "investigations not yet in the
+active model's contacts" plus a confirmation that new tests
+automatically appear on existing section profiles.
+
+**Resolution shipped 2026-05-21.** Three pieces:
+
+1. **Tests auto-draw on existing profiles — already true.** Verified
+   in ``useSectionData.ts:242``: ``projectedCpts = useMemo(() =>
+   investigationsOnSection(section, cpts, excludedCptIds), …)``. The
+   section's investigation set is recomputed live against the current
+   project investigation list, so newly-imported tests in the
+   corridor buffer appear automatically with their data column
+   (qc/fs curves, borehole log) — no contacts required. No code
+   change needed.
+2. **"Suggest for new tests" button** (SectionsToolbar litho axis,
+   next to "Suggest all"). Computes ``newTestAnchors`` — the existing
+   ``bulkAnchors`` filtered by the new helper
+   ``filterAnchorsWithNoLithoContacts`` — and passes the filtered
+   list to the existing ``handleSuggestAllLitho``. Tooltip names the
+   count; toast on the empty case.
+3. **"Seed for new tests" button** (SectionsToolbar geology axis,
+   next to "Seed"). Computes ``newTestBoreholeIds`` — visible
+   boreholes filtered by the new helper
+   ``filterBoreholesWithNoGeologyContacts`` — and passes the filtered
+   list to the existing ``handleAutoPopulateFromStratigraphy``.
+   Tooltip names the count; toast on the empty case.
+
+**Implementation.** New pure helpers in ``utils/newTestFilter.ts``
+(``filterAnchorsWithNoLithoContacts`` / ``filterBoreholesWithNoGeologyContacts``)
+both O(N+M), unit-tested in isolation. The two toolbar handlers
+``handleSuggestNewTests`` / ``handleSeedNewTests`` are thin wrappers
+that delegate to existing bulk handlers with a filtered list — zero
+backend change, zero new endpoints. Both safe to click twice (second
+click finds zero new tests + toasts). The synthetic-contact path
+(``cpt_id`` AND ``borehole_id`` both null — pinch-out wedges) is
+explicitly ignored: synthetic contacts can't make an investigation
+"non-new" because they aren't anchored to one.
+
+**Tests.** F1-F6 + G1-G4 vitest pins in
+``utils/newTestFilter.test.ts`` (10 cases — empty inputs, excluded
+investigations, synthetic-contact handling, input-order preservation,
+elevation_m propagation, CPT-vs-borehole separation). 1059/1059
+vitest + tsc clean.
+
 ## 91. Stale-TIN straddle-fallback diagnostic — RESOLVED 2026-05-21
 
 The original tracking was a one-liner in CLAUDE.md's Tier E that
