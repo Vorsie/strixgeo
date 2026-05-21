@@ -1001,46 +1001,60 @@ The real win is at the parse layer + eventual mirror.
 
 
 
-## 85. Uncouple shared boundary to insert a layer between two pending lithos (Tier D — gesture + insertion UI)
+## 85. Right-click insert layer — RESOLVED 2026-05-21
 
-**What.** Dogfeed 2026-05-20 (alongside the snap-to-collide ask):
-"of course we need to be able to uncouple 2 lithologies to add a
-third in between through a protected right click action."
+Owner directives chosen:
+* **Sentinel 10 cm thickness, then drag** — inserted layer arrives
+  thin; user immediately resizes via the standard drag handles. The
+  upper neighbour keeps its base; the lower neighbour's depth_top is
+  auto-edited to shared_boundary + sentinel so the three layers stay
+  geometrically consistent.
+* **Blank picker prefill** — composition picker opens with empty
+  initial values (the existing normalisation defaults the main soil
+  to ZAND; user picks from there).
 
-The shared-boundary invariant (`base_i == top_{i+1}` enforced by the
-drag commit + the snap clamp #83 v1) means the user cannot pull
-adjacent layers apart to make room for a NEW layer between them.
-The proposed gesture: right-click on a shared boundary line → context
-menu "Insert layer here…" → opens the composition picker for the new
-layer → on save, the boundary becomes TWO (the upper layer's base
-moves up, the lower layer's top moves down, the new layer M fills
-the gap).
+**Implementation.** New ``LithoSuggestionGhostColumns`` props
+``onInsertLayer(afterIdx, composition)`` (single-anchor) +
+``handleInsertLithoLayer(anchorId, afterIdx, composition)`` callback
+on ``useGeologicalModel``. The actual state mutation is the pure
+helper ``utils/lithoLayerInsert.ts``: splices the new
+``LithoLayerSuggestion`` at ``afterIdx + 1``, shifts every
+accepted/rejected index above ``afterIdx`` by +1, shifts every edits
+Map key above ``afterIdx`` by +1, and patches the (now-shifted) lower
+neighbour's ``depth_top_m`` edit to ``shared_boundary + sentinel``.
+Sentinel constant ``INSERT_LAYER_SENTINEL_THICKNESS_M = 0.1`` (10 cm).
+The new layer inherits ``parent_formation_id`` from the upper
+neighbour as a sensible default (backend re-resolves at accept time
+via the standard contact/TIN path — debt #87).
 
-"Protected right click" = don't make it the primary gesture; the
-left-click + drag stays clamped per #83 v1. Right-click is the
-explicit escape hatch for the rare "I need a sub-layer here"
-workflow.
+A new 6 px transparent ``<rect>`` overlays each shared boundary
+between two adjacent pending layers (skipped when either neighbour
+is accepted/rejected, when ``onInsertLayer`` is not wired, or at the
+last layer). ``onContextMenu`` opens the boundary menu (rendered via
+``createPortal`` at the click position) with a single "Insert layer
+here…" item. Clicking opens the existing
+``LithoGhostCompositionEditor`` in insert mode (empty initial
+values). The picker's Save fires the parent callback chain.
 
-**Why deferred.** Three design pieces unresolved:
+Wiring: ``SectionsCanvas`` puts ``onInsertLayer`` on both the
+single-anchor ``lithoGhostState`` (with the focused anchor's id
+captured at the call site) and the bulk ``bulkLithoGhostState``
+(anchorId resolved at each per-anchor mount in ``SectionPanel``).
+The bus interface accepts the optional prop on both bundle types —
+zero regression on callers that don't opt in.
 
-1. **Where does the new layer get its thickness?** Halve the
-   adjacent layer's space? Ask the user via the picker? Default to
-   a small sentinel and let them drag?
-2. **What composition does the picker prefill?** Inherit from one
-   of the neighbours, or blank? If blank, the picker's existing
-   no-default path applies.
-3. **Hit target for the right-click** — the shared-boundary line
-   currently has no hit zone of its own (the layer rects own
-   click/right-click). A new ~6 px tall transparent strip overlaid
-   on each boundary, similar to the existing drag handle but with
-   onContextMenu wired.
-
-**When to revisit.** When the dogfeed user hits the "I want to add
-a sub-layer between these two" workflow and the existing
-LithoCompositionPickerDialog manual-create path proves too indirect
-(today: pick "manual" anchor mode + drag in the new layer's depths
-via the composition picker, then drag-resize the neighbours to make
-room). The right-click gesture collapses that to one menu click.
+**Tests.** I1-I7 in ``lithoLayerInsert.test.ts`` (pure helper):
+sentinel depth applied / lower neighbour's depth_top edit at
+shared+sentinel / accepted+rejected indices shift / indices at-or-
+below afterIdx unchanged / edits Map keys shift correctly / upper
+neighbour's edited depth_base drives the boundary / new layer
+inherits parent_formation_id. R1-R5 in
+``LithoSuggestionGhostColumns.test.tsx``: boundary strip rendered
+between adjacent pendings when onInsertLayer wired; not rendered
+when opt-out; not rendered between pending and accepted; right-click
+opens the boundary menu; Insert action opens picker and Save fires
+onInsertLayer with afterIdx + composition. 1036/1036 vitest + tsc
+clean.
 
 ## 83 cascade + 84 merge prompt — RESOLVED 2026-05-21
 
