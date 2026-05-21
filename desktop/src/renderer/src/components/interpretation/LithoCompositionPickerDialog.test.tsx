@@ -6,7 +6,7 @@
 //   D3  "Unassigned" group renders for formations with null parent.
 //   D4  Clicking a row in the existing-units list fires onSelect.
 //   D5  Tab 2 "New unit": ZAND + KL:M admixture → live preview shows
-//       "matig kleiige Zand" (the key usability feature from the design).
+//       "moderately clayey Sand" (the key usability feature from the design).
 //   D6  Neutral "resolved automatically" note renders when
 //       parentFormationName is null (NOT an alarming warning — review S1).
 //   D7  Cancel clears and calls onCancel.
@@ -140,9 +140,9 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
     // Group heading — appears at least once (also appears in the "within:" subtitle,
     // so we use getAllByText and assert at least one match).
     expect(screen.getAllByText('Boom Klei').length).toBeGreaterThanOrEqual(1)
-    // Both units listed
-    expect(screen.getByText('Zand')).toBeInTheDocument()
-    expect(screen.getByText('Klei')).toBeInTheDocument()
+    // Both units listed (formatLithoDisplayName → English labels).
+    expect(screen.getByText('Sand')).toBeInTheDocument()
+    expect(screen.getByText('Clay')).toBeInTheDocument()
   })
 
   it('D3: null-parent formations appear under "Unassigned" group', () => {
@@ -158,7 +158,7 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
     )
 
     expect(screen.getByText(/Unassigned/i)).toBeInTheDocument()
-    expect(screen.getByText('Veen')).toBeInTheDocument()
+    expect(screen.getByText('Peat')).toBeInTheDocument()
   })
 
   it('D11: existing-unit row shows "under <parent>" suffix when parent_formation_name is set', () => {
@@ -213,7 +213,7 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
       />,
     )
 
-    fireEvent.click(screen.getByText('Zand'))
+    fireEvent.click(screen.getByText('Sand'))
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('lt-xyz'))
   })
 })
@@ -223,14 +223,14 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
 // ---------------------------------------------------------------------------
 
 describe('LithoCompositionPickerDialog — new unit tab preview', () => {
-  it('D5: ZAND + KL:M admixture shows "matig kleiige Zand" in the live preview', async () => {
+  it('D5: ZAND + KL:M admixture shows "moderately clayey Sand" in the live preview', async () => {
     render(<LithoCompositionPickerDialog {...makeDefaultProps()} />)
 
     // Switch to "New unit" tab.
     fireEvent.click(screen.getByRole('button', { name: /new unit/i }))
 
-    // Initial preview is just "Zand" (ZAND is the default, no admixtures).
-    expect(screen.getByTestId('litho-preview')).toHaveTextContent('Zand')
+    // Initial preview is just "Sand" (ZAND is the default, no admixtures).
+    expect(screen.getByTestId('litho-preview')).toHaveTextContent('Sand')
 
     // Add an admixture row.
     fireEvent.click(screen.getByRole('button', { name: /add admixture/i }))
@@ -244,9 +244,9 @@ describe('LithoCompositionPickerDialog — new unit tab preview', () => {
     const amountSelects = screen.getAllByRole('combobox', { name: /admixture amount/i })
     fireEvent.change(amountSelects[0], { target: { value: 'M' } })
 
-    // Live preview must update to "matig kleiige Zand".
+    // Live preview must update to "moderately clayey Sand".
     await waitFor(() =>
-      expect(screen.getByTestId('litho-preview')).toHaveTextContent('matig kleiige Zand'),
+      expect(screen.getByTestId('litho-preview')).toHaveTextContent('moderately clayey Sand'),
     )
   })
 })
@@ -309,9 +309,9 @@ describe('LithoCompositionPickerDialog — create unit confirm', () => {
     // Switch to "New unit" tab.
     fireEvent.click(screen.getByRole('button', { name: /new unit/i }))
 
-    // Pick KLEI as main soil.
+    // Pick KLEI as main soil — rendered label is "Clay" (LITHOLOGY_LABELS).
     const dialog = screen.getByRole('dialog')
-    const kleiButton = within(dialog).getByRole('button', { name: /^Klei$/i })
+    const kleiButton = within(dialog).getByRole('button', { name: /^Clay$/i })
     fireEvent.click(kleiButton)
 
     // Confirm.
