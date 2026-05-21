@@ -350,4 +350,116 @@ describe('SectionPanel — investigation columns', () => {
     expect(screen.getByText(/BH-OFF.*→12 m/)).toBeInTheDocument()
     restore()
   })
+
+  // Debt #75 regression net: ContactsLayer's per-contact drag strips
+  // (transparent rects spanning between investigations) used to render
+  // AFTER the litho ghost overlays — SVG paint order = z-order, so the
+  // strips captured mousedown events meant for the ghost drag handles
+  // in the bulk (zoomed-out) view. The fix swapped the order; this
+  // test pins it via document-order assertion so a future refactor
+  // can't silently revert.
+  it('litho ghost drag handles render AFTER contact drag strips in DOM order (debt #75)', async () => {
+    const restore = withFixedSize(800, 400)
+
+    const cpt = makeCpt({ location_x: 500, location_y: 0 })
+    // Contact at the CPT's projection — gives ContactsLayer a polyline
+    // segment + a drag-strip rect to render.
+    const formationA: import('../api/client').GeologicalFormationResponse = {
+      id: 'formation-A',
+      app_project_id: 'P',
+      name: 'F-A',
+      color: '#aabbcc',
+      code: null,
+      display_order: 0,
+      pinned_order: false,
+      regional_ref: null,
+      description: null,
+      lithology: null,
+      nad_class: null,
+      parent_formation_id: null,
+      litho_main_soil_code: null,
+      litho_admixtures: null,
+      instance_ordinal: null,
+      instance_ordinal_locked: false,
+      parent_formation_name: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    const contact: import('../api/client').FormationContactResponse = {
+      id: 'contact-1',
+      model_id: 'model-1',
+      formation_id: 'formation-A',
+      borehole_id: null,
+      cpt_id: 'cpt-1',
+      depth_top_m: 5,
+      source: 'manual',
+      confidence: 'high',
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      synthetic_x: null,
+      synthetic_y: null,
+      synthetic_elevation_m: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    // Litho ghost overlay on the same CPT — supplies a layer whose
+    // drag handles should sit on top of the contact strip.
+    const suggestion: import('../api/client').LithoLayerSuggestion = {
+      depth_top_m: 2,
+      depth_base_m: 8,
+      suggested_lithology: 'ZAND',
+      suggested_admixtures: [],
+      suggested_nad_class: null,
+      mean_qc_mpa: null,
+      dr_pct: null,
+      confidence: 'high',
+      parent_formation_id: null,
+      spans_boundary: false,
+    } as import('../api/client').LithoLayerSuggestion
+
+    render(
+      <SectionPanel
+        section={horizontal1km}
+        zEpsg={5710}
+        cpts={[cpt]}
+        contacts={[contact]}
+        formations={[formationA]}
+        onUpdateContactDepth={vi.fn()}
+        lithoGhostState={{
+          suggestions: [suggestion],
+          investigationId: 'cpt-1',
+          surfaceElevationM: 5,
+          acceptedIndices: new Set<number>(),
+          rejectedIndices: new Set<number>(),
+          onAccept: vi.fn(),
+          onReject: vi.fn(),
+          edits: new Map(),
+          onEdit: vi.fn(),
+        }}
+      />,
+    )
+    await new Promise(r => setTimeout(r, 0))
+
+    // Document-order query — querySelectorAll preserves DOM order.
+    const both = document.querySelectorAll(
+      '[data-testid="contact-drag-strip"], [data-testid^="litho-drag-"]',
+    )
+    // Find the first node of each kind. The contact strip must appear
+    // BEFORE any litho drag handle so SVG paint order puts the litho
+    // handles on top.
+    let firstContactIdx = -1
+    let firstLithoIdx = -1
+    both.forEach((el, i) => {
+      const tid = el.getAttribute('data-testid') ?? ''
+      if (firstContactIdx === -1 && tid === 'contact-drag-strip') firstContactIdx = i
+      if (firstLithoIdx === -1 && tid.startsWith('litho-drag-')) firstLithoIdx = i
+    })
+    // Setup precondition — both must actually render or the test is
+    // useless (would pass trivially).
+    expect(firstContactIdx).toBeGreaterThanOrEqual(0)
+    expect(firstLithoIdx).toBeGreaterThanOrEqual(0)
+    expect(firstLithoIdx).toBeGreaterThan(firstContactIdx)
+    restore()
+  })
 })
