@@ -18,6 +18,7 @@ import type { CrossSectionResponse } from '../../../api/client'
 import { useCrossingsValidation } from '../../../hooks/useCrossingsValidation'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import VirtueleBoringStrip from '../../../components/sections/VirtueleBoringStrip'
+import { isGeologicalFormation } from '../../../utils/formationKind'
 import { hashHexColor } from '../../../utils/hashColor'
 
 // Natural sort — matches the ordering used in Sidebar.tsx's SectionList.
@@ -93,13 +94,16 @@ export default function SectionsInspector(): JSX.Element {
   const canCreate = (project.default_horizontal_epsg ?? null) !== null
 
   // Sections inspector shows the GEOLOGICAL-MODEL vocabulary only —
-  // lithostratigraphic formations (parent_formation_id !== null) belong
-  // in the Litho stage's inspector. Without this filter the list leaks
-  // every litho unit (KLEI / SILT / ZAND / …) into the geology panel
-  // here. Mirrors the same filter applied in GeologyCanvas (commit
-  // 18b8f44e).
+  // lithostratigraphic + geotech units belong in their own stage
+  // inspectors. Without this filter the list leaks every litho unit
+  // (KLEI / SILT / ZAND / …) into the geology panel here. Uses the
+  // shared ``isGeologicalFormation`` discriminator (litho_main_soil_code
+  // + nad_class) so orphan litho units (parent_formation_id=null,
+  // litho_main_soil_code set) are correctly excluded — see
+  // utils/formationKind.ts for the dogfeed bug that motivated the
+  // discriminator change (2026-05-21).
   const geologicalFormations = useMemo(
-    () => formations.filter(f => f.parent_formation_id === null),
+    () => formations.filter(isGeologicalFormation),
     [formations],
   )
 
