@@ -602,6 +602,60 @@ export default function App() {
     [],
   )
 
+  // Section PDF report (debt #52 slice 1). Same fetch → save-dialog →
+  // file-write flow as handleExportSectionDxf, plus a user-editable
+  // metadata bundle (title, author, notes) forwarded as query params.
+  // The dialog that collects the metadata lives in the SectionsToolbar
+  // Export dropdown — this handler only owns the IO.
+  // note: also enters shellContextValue (coordinator slice) — keep its identity stable.
+  const handleExportSectionPdf = useCallback(
+    async (
+      projectId: string,
+      sectionId: string,
+      sectionName: string,
+      modelId: string,
+      metadata: { title?: string; author?: string; notes?: string },
+    ): Promise<void> => {
+      log.info('section', `exportPdf start section=${sectionId} model=${modelId}`)
+      try {
+        const safeName =
+          sectionName.replace(/[^A-Za-z0-9\- _]/g, '_').trim() || 'section'
+        const dialogPath = await window.electron.showExportSaveDialog(
+          `${safeName}.pdf`,
+          [
+            { name: 'PDF', extensions: ['pdf'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        )
+        if (dialogPath === null) {
+          log.debug('section', 'exportPdf cancelled at save dialog')
+          return
+        }
+        const bytes = await api.section.exportPdf(
+          projectId,
+          sectionId,
+          modelId,
+          metadata,
+        )
+        await window.electron.writeExportFile(dialogPath, bytes)
+        log.success(
+          'section',
+          `exportPdf ok section=${sectionId} bytes=${bytes.byteLength} path=${dialogPath}`,
+        )
+        toast('success', 'PDF exported.')
+      } catch (err) {
+        log.error('section', 'exportPdf failed', err)
+        toast(
+          'error',
+          err instanceof Error ? err.message : 'Could not export the PDF.',
+        )
+      }
+    },
+    // reason: same closure-safety argument as handleExportSectionDxf.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+
   // Plaxis 2D per-section export (debt #29) — section-scoped sibling
   // of the model-wide Plaxis 3D export. Same fetch → save-dialog →
   // file-write flow as handleExportSectionDxf so the Export hub +
@@ -786,7 +840,7 @@ export default function App() {
     mapState,
     // coordinator
     selectedId, selectedBoreholeId, setSelectedId, setSelectedBoreholeId, view, setView,
-    handleSelect, handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, outOfViewportCptIds, outOfViewportBoreholeIds,
+    handleSelect, handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, handleExportSectionPdf, outOfViewportCptIds, outOfViewportBoreholeIds,
     projectFilePath, manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds,
     marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
   })

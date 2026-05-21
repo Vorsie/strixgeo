@@ -2014,6 +2014,32 @@ export const api = {
       return res.arrayBuffer()
     },
 
+    // Debt #52 slice 1: section PDF report. Same byte-pipe contract
+    // as exportDxf — the caller writes the ArrayBuffer to a .pdf via
+    // the Electron save dialog. The user-editable metadata (title,
+    // author, notes) is forwarded as query params; the backend builds
+    // sensible defaults when omitted.
+    exportPdf: async (
+      projectId: string,
+      sectionId: string,
+      modelId: string,
+      metadata: { title?: string; author?: string; notes?: string },
+    ): Promise<ArrayBuffer> => {
+      const params = new URLSearchParams()
+      params.set('model_id', modelId)
+      if (metadata.title) params.set('title', metadata.title)
+      if (metadata.author) params.set('author', metadata.author)
+      if (metadata.notes) params.set('notes', metadata.notes)
+      const res = await fetch(
+        `${_base}/projects/${projectId}/sections/${sectionId}/export/pdf?${params.toString()}`,
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `Export failed (${res.status})`)
+      }
+      return res.arrayBuffer()
+    },
+
     // Download the section's Plaxis 2D plxscripting script as raw
     // bytes (debt #29). Same byte-pipe contract as exportDxf — the
     // caller writes the ArrayBuffer straight to a .py file via the

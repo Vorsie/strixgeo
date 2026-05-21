@@ -6,7 +6,8 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useMemo, useState } from 'react'
-import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge } from 'lucide-react'
+import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 
 import { useShell } from '../../ShellContext'
 import { ToolbarButton, ToolbarDropdown, PrimaryToolbarButton } from '../../ToolbarPrimitives'
@@ -78,6 +79,7 @@ export default function SectionsToolbar(): JSX.Element {
       selectedId,
       selectedBoreholeId,
       handleExportSectionDxf,
+      handleExportSectionPdf,
     },
   } = useShell()
 
@@ -162,6 +164,38 @@ export default function SectionsToolbar(): JSX.Element {
       await handleExportModelPlaxis3d()
     } finally {
       setExportingPlaxis(false)
+    }
+  }
+
+  // Debt #52 slice 1: PDF metadata dialog + handler. The Export
+  // dropdown's "Section PDF" item opens this dialog (title / author /
+  // notes); on Generate, the App-level handleExportSectionPdf owns
+  // the save-dialog + file-write flow.
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const pdfDefaultTitle = useMemo(
+    () => (selectedSection ? `Cross-section: ${selectedSection.name}` : 'Cross-section'),
+    [selectedSection],
+  )
+  async function handleExportPdf(metadata: {
+    title: string
+    author: string
+    notes: string
+  }): Promise<void> {
+    const axisModel = isLitho ? activeLithoModel : activeGeologicalModel
+    if (!selectedSection || !axisModel || exportingPdf) return
+    setExportingPdf(true)
+    try {
+      await handleExportSectionPdf(
+        project.id,
+        selectedSection.id,
+        selectedSection.name,
+        axisModel.id,
+        metadata,
+      )
+      setPdfDialogOpen(false)
+    } finally {
+      setExportingPdf(false)
     }
   }
 
@@ -746,7 +780,31 @@ export default function SectionsToolbar(): JSX.Element {
                   : 'Export the geological model as a Plaxis 3D plxscripting Python script'),
             testid: 'export-plaxis-3d',
           },
+          {
+            // Debt #52 slice 1: section PDF report.
+            label: exportingPdf ? 'Generating PDF…' : 'Section PDF report',
+            icon: <FileText size={12} />,
+            onClick: () => setPdfDialogOpen(true),
+            disabled: !hasSection || !hasModel || exportingPdf,
+            title:
+              !hasSection
+                ? 'Select a section to export'
+                : !hasModel
+                  ? 'No active model — define formations or a litho model first'
+                  : exportingPdf
+                    ? 'Generating PDF…'
+                    : 'Generate a PDF report of this section with title + author + notes',
+            testid: 'export-section-pdf',
+          },
         ]}
+      />
+      <ReportMetadataDialog
+        open={pdfDialogOpen}
+        defaultTitle={pdfDefaultTitle}
+        defaultAuthor=""
+        onSubmit={handleExportPdf}
+        onCancel={() => setPdfDialogOpen(false)}
+        busy={exportingPdf}
       />
 
       {/* Separator */}
