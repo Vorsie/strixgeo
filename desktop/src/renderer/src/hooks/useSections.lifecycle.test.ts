@@ -29,7 +29,7 @@
 //       the existing manifest-gating logic cannot silently regress.
 
 import { act, renderHook } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useSections } from './useSections'
 import type { CrossSectionResponse } from '../api/client'
@@ -99,12 +99,15 @@ function makeArgs(overrides: {
   ready?: boolean
 } = {}) {
   const toast = vi.fn() as (type: 'success' | 'error', message: string) => void
-  const pushUndo = vi.fn() as () => void
+  // pushUndo's real signature takes an UndoCommand; the test never
+  // inspects the arg so a thin no-op typed to the actual contract
+  // is enough.
+  const pushUndo = vi.fn() as unknown as (cmd: import('./useUndoStack').UndoCommand) => void
   const addToManifest = vi.fn() as (kind: 'section', ids: string[]) => void
   const removeFromManifest = vi.fn() as (kind: 'section', ids: Iterable<string>) => void
-  const setSessionImportSectionIds = vi.fn() as (
-    updater: (prev: Set<string>) => Set<string>,
-  ) => void
+  const setSessionImportSectionIds = vi.fn() as unknown as import('react').Dispatch<
+    import('react').SetStateAction<Set<string>>
+  >
   const setSelectedId = vi.fn() as (id: string | null) => void
   const setSelectedBoreholeId = vi.fn() as (id: string | null) => void
 

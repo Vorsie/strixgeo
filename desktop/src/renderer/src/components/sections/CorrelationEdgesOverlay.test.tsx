@@ -75,6 +75,7 @@ function makeFormation(
     litho_admixtures: null,
     instance_ordinal: ordinal,
     instance_ordinal_locked: false,
+    parent_formation_name: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }

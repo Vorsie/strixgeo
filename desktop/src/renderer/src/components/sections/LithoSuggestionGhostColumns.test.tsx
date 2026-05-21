@@ -48,7 +48,7 @@ function makeColumn(id: string): PlacedColumn {
     proj: {
       along: 200,
       distance: 0,
-      item: { id, kind: 'cpt', name: 'CPT-1' } as PlacedColumn['proj']['item'],
+      item: { id, kind: 'cpt', name: 'CPT-1' } as unknown as PlacedColumn['proj']['item'],
     },
   } as unknown as PlacedColumn
 }
@@ -71,6 +71,7 @@ function makeFormation(id: string, name: string): GeologicalFormationResponse {
     litho_admixtures: null,
     instance_ordinal: null,
     instance_ordinal_locked: false,
+    parent_formation_name: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }

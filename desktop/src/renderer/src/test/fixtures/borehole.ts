@@ -136,6 +136,7 @@ export function makeFixtureBorehole(): BoreholeDetailResponse {
     epsg: 31370,
     elevation_m: 12.5,
     z_epsg: 5710,
+    elevation_source: 'dov',
     start_date: '2024-01-15',
     drill_method: 'spoelboring',
     borehole_type: 'verkenning',

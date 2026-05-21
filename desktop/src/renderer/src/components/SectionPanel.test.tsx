@@ -211,10 +211,12 @@ describe('SectionPanel — investigation columns', () => {
       elevation_m: 5,
       epsg: 31370,
       z_epsg: 5710,
+      elevation_source: 'dov',
+      start_date: '2024-01-01',
       max_depth_m: 20,
       n_rows: 100,
       ...overrides,
-    } as import('../api/client').CptListItem
+    } as unknown as import('../api/client').CptListItem
   }
 
   function makeBorehole(
@@ -392,7 +394,7 @@ describe('SectionPanel — investigation columns', () => {
       borehole_id: null,
       cpt_id: 'cpt-1',
       depth_top_m: 5,
-      source: 'manual',
+      source: 'manual_pick',
       confidence: 'high',
       observation_id: null,
       observation_layer_id: null,
@@ -414,9 +416,10 @@ describe('SectionPanel — investigation columns', () => {
       mean_qc_mpa: null,
       dr_pct: null,
       confidence: 'high',
+      source: 'robertson2015',
       parent_formation_id: null,
       spans_boundary: false,
-    } as import('../api/client').LithoLayerSuggestion
+    } as unknown as import('../api/client').LithoLayerSuggestion
 
     render(
       <SectionPanel

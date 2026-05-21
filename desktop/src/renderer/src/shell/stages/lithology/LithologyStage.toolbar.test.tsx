@@ -76,6 +76,7 @@ function makeSurface(
   hasVertices: boolean,
 ): FormationSurfaceResponse {
   return {
+    id: `surf-${formationId}`,
     model_id: 'litho-1',
     formation_id: formationId,
     is_stale: false,

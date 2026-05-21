@@ -6,6 +6,7 @@
 
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import type * as React from 'react'
 
 import SectionHeader from './SectionHeader'
 
@@ -66,14 +67,14 @@ function _baseProps(): Record<string, unknown> {
 
 describe('SectionHeader Export DXF button', () => {
   it('is absent when onExportDxf is not provided', () => {
-    render(<SectionHeader {...(_baseProps() as never)} />)
+    render(<SectionHeader {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)} />)
     expect(screen.queryByLabelText('Export DXF')).not.toBeInTheDocument()
   })
 
   it('renders when onExportDxf is wired', () => {
     render(
       <SectionHeader
-        {...(_baseProps() as never)}
+        {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)}
         onExportDxf={vi.fn().mockResolvedValue(undefined)}
       />,
     )
@@ -85,7 +86,7 @@ describe('SectionHeader Export DXF button', () => {
     const onExportDxf = vi.fn().mockResolvedValue(undefined)
     render(
       <SectionHeader
-        {...(_baseProps() as never)}
+        {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)}
         onExportDxf={onExportDxf}
       />,
     )
@@ -105,7 +106,7 @@ describe('SectionHeader Export DXF button', () => {
     const onExportDxf = vi.fn().mockReturnValue(pending)
     render(
       <SectionHeader
-        {...(_baseProps() as never)}
+        {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)}
         onExportDxf={onExportDxf}
       />,
     )
@@ -134,7 +135,7 @@ describe('SectionHeader Export DXF button', () => {
     })
     render(
       <SectionHeader
-        {...(_baseProps() as never)}
+        {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)}
         onExportDxf={onExportDxf}
       />,
     )
@@ -154,7 +155,7 @@ describe('SectionHeader Seed from stratigraphy button', () => {
   // See CLAUDE.md "Geology stage owns model definition" contract.
 
   it('renders in disabled state when onAutoPopulateFromStratigraphy is not provided', () => {
-    render(<SectionHeader {...(_baseProps() as never)} />)
+    render(<SectionHeader {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)} />)
     const btn = screen.getByTestId(
       'auto-populate-stratigraphy-button',
     ) as HTMLButtonElement
@@ -163,7 +164,7 @@ describe('SectionHeader Seed from stratigraphy button', () => {
   })
 
   it('shows Geology-stage-first tooltip when disabled (prop absent)', () => {
-    render(<SectionHeader {...(_baseProps() as never)} />)
+    render(<SectionHeader {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)} />)
     const btn = screen.getByTestId('auto-populate-stratigraphy-button')
     expect(btn.title).toMatch(/Geology stage/i)
   })
@@ -171,7 +172,7 @@ describe('SectionHeader Seed from stratigraphy button', () => {
   it('renders enabled when onAutoPopulateFromStratigraphy is wired', () => {
     render(
       <SectionHeader
-        {...(_baseProps() as never)}
+        {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)}
         onAutoPopulateFromStratigraphy={vi.fn().mockResolvedValue(undefined)}
       />,
     )
@@ -186,7 +187,7 @@ describe('SectionHeader Seed from stratigraphy button', () => {
     const onAuto = vi.fn().mockResolvedValue(undefined)
     render(
       <SectionHeader
-        {...(_baseProps() as never)}
+        {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)}
         onAutoPopulateFromStratigraphy={onAuto}
       />,
     )
@@ -204,7 +205,7 @@ describe('SectionHeader Seed from stratigraphy button', () => {
     const onAuto = vi.fn().mockReturnValue(pending)
     render(
       <SectionHeader
-        {...(_baseProps() as never)}
+        {...(_baseProps() as unknown as React.ComponentProps<typeof SectionHeader>)}
         onAutoPopulateFromStratigraphy={onAuto}
       />,
     )

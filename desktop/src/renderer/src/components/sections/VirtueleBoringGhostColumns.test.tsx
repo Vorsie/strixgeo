@@ -39,7 +39,7 @@ function makeCpt(id: string): CptListItem {
     z_epsg: 5710,
     max_depth_m: 20,
     n_rows: 100,
-  } as CptListItem
+  } as unknown as CptListItem
 }
 
 function makeBorehole(id: string): BoreholeListItem {

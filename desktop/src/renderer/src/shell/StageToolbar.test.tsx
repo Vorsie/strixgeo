@@ -72,7 +72,7 @@ function makeShellCtx(): ShellContextValue {
     overlays: {} as ShellContextValue['overlays'],
     toasts: { toasts: [], toast: vi.fn() },
     undo: {} as ShellContextValue['undo'],
-    boot: { ready: true, apiError: null },
+    boot: { ready: true, apiError: false },
     mapState: {} as ShellContextValue['mapState'],
     coordinator: {
       ...({} as ShellContextValue['coordinator']),

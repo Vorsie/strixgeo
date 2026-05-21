@@ -146,9 +146,12 @@ describe('CptChart — legend / panel dispatch per cone kind', () => {
     expect(screen.getByText(/Pre-drill 1\.5 m/)).toBeInTheDocument()
   })
 
-  it('omits the pre-drill legend when pre_drill_m is null or zero', () => {
+  it('omits the pre-drill legend when pre_drill_m is zero', () => {
+    // The CPT response field is `number` (the backend normalises
+    // missing values to 0 via `?? 0` at the read site, so the wire
+    // type is non-null). The legend hides when the value is falsy.
     render(
-      <CptChart plot={makePlot()} detail={makeDetail({ pre_drill_m: null })} name="CPT-1" />,
+      <CptChart plot={makePlot()} detail={makeDetail({ pre_drill_m: 0 })} name="CPT-1" />,
     )
     expect(screen.queryByText(/Pre-drill/)).not.toBeInTheDocument()
   })

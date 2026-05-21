@@ -12,8 +12,10 @@ class NoopResizeObserver {
   disconnect() {}
 }
 if (typeof globalThis.ResizeObserver === 'undefined') {
-  // @ts-expect-error — assigning to a known-missing global is the point
-  globalThis.ResizeObserver = NoopResizeObserver
+  // Cast to a mutable shape via unknown — the TS lib types globalThis
+  // as the const-shaped global object, so a direct cast is rejected.
+  ;(globalThis as unknown as { ResizeObserver: typeof NoopResizeObserver }).ResizeObserver =
+    NoopResizeObserver
 }
 
 // jsdom doesn't implement ``Element.scrollTo``. ``BoreholeLog``'s
