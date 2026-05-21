@@ -732,48 +732,6 @@ it, at which point delete it cleanly.
 
 ---
 
-## 53. `shellContextValue` dep array will silently drift as the coordinator grows (Tier E — latent correctness)
-
-**What.** App.tsx's `shellContextValue` `useMemo` lists ~60 individual
-bindings in its dependency array (it depends on individual stable
-fields, NOT the hook-return objects, because most hooks return a fresh
-object literal each render — depending on those would defeat the memo
-and re-render every `useShell()` consumer every render). Every new
-field added to any slice must be hand-added to this array. Omitting
-one → the context serves a **stale value** for that field: a silent
-app-wide correctness bug. It is invisible to the App smoke test
-(catches mount crashes / TDZ), the filtered tsc gate (catches missing
-*names*, not missing *deps*), and the unit suite (mocks the context).
-The documented S7 infinite-render-loop incident lived in exactly this
-class of dep-array hazard. Flagged by system-architect (R-plan
-pushback #3).
-
-**Net now EXISTS (2026-05-17).** The #12 net-first step shipped: the
-memo is isolated in `hooks/useShellContextValue.ts` and
-`hooks/useShellContextValue.test.tsx` (renderHook) pins T1 assembly /
-T2 no-stale per-slice / T3 referential stability. The "invisible to
-every check" part of this hazard is **solved** — the failure mode now
-has a detector and a home. Severity drops accordingly.
-
-**Residual (why still open, Tier E).** The dep array is still
-hand-maintained. Adding a field to a slice now requires (1) adding
-its dep to the verbatim array in `useShellContextValue.ts` AND (2)
-extending the net's T2 with a case for it — the net only catches
-omission of fields it explicitly exercises. The deeper architect fix
-(restructure to depend on hook-return objects) stays deferred: only
-safe if EVERY contributing hook memoises its return (several don't;
-adding `useMemo` changes identity for every consumer) — a
-behaviour-change not worth the surface pre-revenue while the array is
-correct and now netted.
-
-**When to revisit.** First time a coordinator/slice field is added
-without a matching T2 case and a "stale after I changed X" bug slips
-(now far less likely), OR when the hook-return-identity audit becomes
-worthwhile (the restructure). Trigger to escalate out of Tier E:
-unchanged — any session adding >2 new fields to the coordinator slice
-should also extend the net + audit the dep array.
-
-
 ## 56. Manual-lump cross-project reuse + standalone group editor (Tier C — deferred)
 
 **What.** The manual stratigraphy lumping map (`stratigraphy_lumping.map` in
