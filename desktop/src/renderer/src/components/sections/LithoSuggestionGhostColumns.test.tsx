@@ -535,7 +535,10 @@ describe('LithoSuggestionGhostColumns', () => {
   // total bottom of the dragged + neighbour pair); the snap there
   // auto-collapses layer 1 — the standard "absorb the neighbour
   // by dragging through it" gesture.
-  it('G32 — pending-adjacent base-drag past neighbour clamps + collapses neighbour', () => {
+  it('G32 — pending-adjacent base-drag past neighbour opens merge dialog; Confirm commits', () => {
+    // Debt #83 cascade + #84 merge prompt: snap-to-neighbour now defers
+    // the edit + reject to a confirm dialog. The owner directive was
+    // "cascade with prompt" — even a single-neighbour collapse asks.
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -550,7 +553,12 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.mouseMove(document, { clientY: 700 })
     expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
-    // Reject fires on the NEIGHBOUR (idx=1), not self.
+    // Before Confirm: dialog opens, NO edit or reject fired yet.
+    expect(screen.getByTestId('merge-confirm-title')).toBeInTheDocument()
+    expect(onEdit).not.toHaveBeenCalled()
+    expect(onReject).not.toHaveBeenCalled()
+    // Click Confirm → reject + edit fire as before.
+    fireEvent.click(screen.getByTestId('merge-confirm-submit'))
     expect(onReject).toHaveBeenCalledTimes(1)
     expect(onReject).toHaveBeenCalledWith(1)
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
@@ -560,8 +568,8 @@ describe('LithoSuggestionGhostColumns', () => {
   })
 
   // G33: mirror — drag layer 1's TOP UP past pending layer 0 to
-  // layer 0's TOP (=0 m, ground). Auto-collapses layer 0.
-  it('G33 — pending-adjacent top-drag past neighbour clamps + collapses neighbour above', () => {
+  // layer 0's TOP (=0 m, ground). Auto-collapses layer 0 after Confirm.
+  it('G33 — pending-adjacent top-drag past neighbour opens dialog; Confirm collapses neighbour above', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -576,12 +584,35 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.mouseMove(document, { clientY: -300 })
     expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
+    expect(screen.getByTestId('merge-confirm-title')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('merge-confirm-submit'))
     expect(onReject).toHaveBeenCalledTimes(1)
     expect(onReject).toHaveBeenCalledWith(0)
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(0, 5)
     expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(0, 5)
+  })
+
+  // G37: Cancel in the merge dialog drops the whole gesture.
+  it('G37 — Cancel in merge dialog fires no edit, no reject', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onReject },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 700 })
+    fireEvent.mouseUp(document)
+    expect(screen.getByTestId('merge-confirm-title')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('merge-confirm-cancel'))
+    expect(onEdit).not.toHaveBeenCalled()
+    expect(onReject).not.toHaveBeenCalled()
   })
 
   // G34: the user's exact scenario from the 2026-05-20 dogfeed —
