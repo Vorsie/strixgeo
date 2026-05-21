@@ -34,44 +34,41 @@ import { useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 
 import type { AdmixtureItem, GeologicalFormationResponse } from '../../api/client'
-import { LITHOLOGY_COLORS, LITHOLOGY_FALLBACK_COLOR } from '../../utils/lithoConstants'
+import { LITHOLOGY_COLORS, LITHOLOGY_FALLBACK_COLOR, LITHOLOGY_LABELS } from '../../utils/lithoConstants'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import Button from '../ui/Button'
 import Modal from '../ui/Modal'
 
 // ---------------------------------------------------------------------------
-// Domain vocabulary — Dutch labels at the presentation boundary.
-// Keys match BASE_LITHOLOGIES in litho_constants.py.
+// Domain vocabulary — English labels at the presentation boundary, raw
+// DOV codes shown in parentheses so engineers can cross-check against
+// source data. The label table is imported from utils/lithoConstants so
+// every consumer (picker, composition editor, ghost overlay) reads from
+// one source of truth (LITHOLOGY_LABELS).
 // ---------------------------------------------------------------------------
 
 const MAIN_SOIL_CODES = ['GRIND', 'ZAND', 'SILT', 'KLEI', 'VEEN'] as const
 type MainSoilCode = (typeof MAIN_SOIL_CODES)[number]
 
-const MAIN_SOIL_LABELS: Record<MainSoilCode, string> = {
-  GRIND: 'Grind',
-  ZAND: 'Zand',
-  SILT: 'Silt',
-  KLEI: 'Klei',
-  VEEN: 'Veen',
-}
-
-// Admixture soil-code options — DOV vocabulary codes.
+// Admixture soil-code options — DOV vocabulary codes with English label
+// plus the raw code in parens (the code IS the lookup key for the
+// admixture row, so showing it keeps the user oriented).
 const ADMIXTURE_SOIL_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: 'GL', label: 'Grind (GL)' },
-  { code: 'ZN', label: 'Zand (ZN)' },
+  { code: 'GL', label: 'Gravel (GL)' },
+  { code: 'ZN', label: 'Sand (ZN)' },
   { code: 'SL', label: 'Silt (SL)' },
-  { code: 'KL', label: 'Klei (KL)' },
-  { code: 'VE', label: 'Veen (VE)' },
+  { code: 'KL', label: 'Clay (KL)' },
+  { code: 'VE', label: 'Peat (VE)' },
 ]
 
 // Admixture amount-code options.
 const ADMIXTURE_AMOUNT_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: '', label: '— (niet gespecificeerd)' },
-  { code: 'Z', label: 'Zwak (Z)' },
-  { code: 'W', label: 'Weinig (W)' },
-  { code: 'M', label: 'Matig (M)' },
-  { code: 'V', label: 'Veel (V)' },
-  { code: 'S', label: 'Sterk (S)' },
+  { code: '', label: '— (unspecified)' },
+  { code: 'Z', label: 'Weakly (Z)' },
+  { code: 'W', label: 'Slightly (W)' },
+  { code: 'M', label: 'Moderately (M)' },
+  { code: 'V', label: 'Very (V)' },
+  { code: 'S', label: 'Strongly (S)' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -449,7 +446,7 @@ export default function LithoCompositionPickerDialog({
                         className="inline-block w-3 h-3 rounded-sm shrink-0"
                         style={{ backgroundColor: color }}
                       />
-                      {MAIN_SOIL_LABELS[code]}
+                      {LITHOLOGY_LABELS[code] ?? code}
                     </button>
                   )
                 })}
