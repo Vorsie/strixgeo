@@ -23,33 +23,23 @@ import { Plus, X } from 'lucide-react'
 
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
-import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import {
+  ADMIXTURE_AMOUNT_OPTIONS,
+  ADMIXTURE_SOIL_OPTIONS,
+  admixtureSoilLabel,
+  formatLithoDisplayName,
+} from '../../utils/lithoLabels'
 import { LITHOLOGY_LABELS } from '../../utils/lithoConstants'
 
 // Vocabulary mirrors LithoCompositionPickerDialog. Base-lithology labels
 // share a single source of truth (utils/lithoConstants.LITHOLOGY_LABELS)
 // so the picker and the editor cannot drift on naming. Admixture
-// option arrays stay inline — they include the raw DOV code in parens
-// for engineer orientation, which is the dialog's UX contract.
+// dropdown options now come from ``utils/lithoLabels`` so the picker,
+// the editor, and the formatter share one curated vocabulary — fixes
+// the 2026-05-21 dogfeed bug where a stored ``soil_code='OM'`` rendered
+// as "Gravel (GL)" in the dropdown because OM wasn't in the option list.
 const MAIN_SOIL_CODES = ['GRIND', 'ZAND', 'SILT', 'KLEI', 'VEEN'] as const
 type MainSoilCode = (typeof MAIN_SOIL_CODES)[number]
-
-const ADMIXTURE_SOIL_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: 'GL', label: 'Gravel (GL)' },
-  { code: 'ZN', label: 'Sand (ZN)' },
-  { code: 'SL', label: 'Silt (SL)' },
-  { code: 'KL', label: 'Clay (KL)' },
-  { code: 'VE', label: 'Peat (VE)' },
-]
-
-const ADMIXTURE_AMOUNT_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: '', label: '— (unspecified)' },
-  { code: 'Z', label: 'Weakly (Z)' },
-  { code: 'W', label: 'Slightly (W)' },
-  { code: 'M', label: 'Moderately (M)' },
-  { code: 'V', label: 'Very (V)' },
-  { code: 'S', label: 'Strongly (S)' },
-]
 
 export interface GhostAdmixtureItem {
   soil_code: string
@@ -228,7 +218,34 @@ export default function LithoGhostCompositionEditor({
             <p className="text-[11px] text-text-muted italic mb-1">No admixtures.</p>
           )}
           <div className="flex flex-col gap-1.5">
-            {rows.map(row => (
+            {rows.map(row => {
+              // Safety net (dogfeed 2026-05-21): if the stored
+              // soil_code or amount isn't in the curated option list,
+              // append a one-off fallback option so the dropdown shows
+              // the user what's actually stored. Without this, the
+              // <select> silently snaps to the first option, making
+              // the dialog claim "Gravel (GL)" when the underlying
+              // value was e.g. "OM" (organic matter).
+              const soilOptions = ADMIXTURE_SOIL_OPTIONS.some(
+                o => o.code === row.soil_code,
+              )
+                ? ADMIXTURE_SOIL_OPTIONS
+                : [
+                    ...ADMIXTURE_SOIL_OPTIONS,
+                    {
+                      code: row.soil_code,
+                      label: `${admixtureSoilLabel(row.soil_code)} (${row.soil_code})`,
+                    },
+                  ]
+              const amountOptions = ADMIXTURE_AMOUNT_OPTIONS.some(
+                o => o.code === row.amount,
+              )
+                ? ADMIXTURE_AMOUNT_OPTIONS
+                : [
+                    ...ADMIXTURE_AMOUNT_OPTIONS,
+                    { code: row.amount, label: `${row.amount} (raw)` },
+                  ]
+              return (
               <div key={row.id} className="flex items-center gap-1.5">
                 <select
                   value={row.soil_code}
@@ -236,7 +253,7 @@ export default function LithoGhostCompositionEditor({
                   className="text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
                   aria-label="Admixture soil code"
                 >
-                  {ADMIXTURE_SOIL_OPTIONS.map(opt => (
+                  {soilOptions.map(opt => (
                     <option key={opt.code} value={opt.code}>
                       {opt.label}
                     </option>
@@ -248,7 +265,7 @@ export default function LithoGhostCompositionEditor({
                   className="text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
                   aria-label="Admixture amount"
                 >
-                  {ADMIXTURE_AMOUNT_OPTIONS.map(opt => (
+                  {amountOptions.map(opt => (
                     <option key={opt.code} value={opt.code}>
                       {opt.label}
                     </option>
@@ -272,7 +289,8 @@ export default function LithoGhostCompositionEditor({
                   <X size={12} />
                 </button>
               </div>
-            ))}
+              )
+            })}
           </div>
           <button
             onClick={addAdmixtureRow}

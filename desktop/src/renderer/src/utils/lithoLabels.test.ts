@@ -60,11 +60,14 @@ describe('formatLithoDisplayName', () => {
     expect(formatLithoDisplayName('UNKNOWN', [])).toBe('UNKNOWN')
   })
 
-  // L7: unknown soil_code falls back to lowercased raw
+  // L7: unknown soil_code falls back to lowercased raw.
+  // Dogfeed 2026-05-21: XX was promoted into the curated map as
+  // 'unknown' (DOV hoofdnaam = "onbekend"), so XX is no longer a true
+  // fallback case. Use a truly-unknown code ('QQ').
   it('L7 — unknown soil_code falls back to lowercased raw code', () => {
     expect(
-      formatLithoDisplayName('ZAND', [{ soil_code: 'XX', amount: '', locally: false }]),
-    ).toBe('xx Sand')
+      formatLithoDisplayName('ZAND', [{ soil_code: 'QQ', amount: '', locally: false }]),
+    ).toBe('qq Sand')
   })
 
   // L8: unknown amount falls back to raw amount string
