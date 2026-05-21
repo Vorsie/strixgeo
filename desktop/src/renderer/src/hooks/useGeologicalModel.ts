@@ -321,45 +321,39 @@ export interface UseGeologicalModelResult {
   // -------------------------------------------------------------------------
   // Litho suggestion ghost state (slice 3, #55).
   // Ephemeral — not persisted to .gmproj. Cleared on model switch.
+  //
+  // Phase 2 of debt #77 (2026-05-21): the bus interface is a single
+  // ``ghostsByAnchor`` Map + ``focusedSuggestAnchorId`` flag.
+  // Consumers compute the "focused single" entry and the "bulk
+  // subset" themselves — see SectionsCanvas's lithoGhostState +
+  // bulkLithoGhostState build sites for the canonical derivation.
   // -------------------------------------------------------------------------
-  /** Current layer suggestions from the segmenter. Empty = no active suggestion. */
-  lithoSuggestions: LithoLayerSuggestion[]
-  /** The investigation id (CPT or borehole) whose suggestions are loaded. */
-  lithoSuggestionInvestigationId: string | null
-  /** Whether the anchor is a CPT or borehole (null when no suggestion is active). */
-  lithoSuggestionAnchorKind: 'cpt' | 'borehole' | null
-  /** Layer indices the user has accepted (contact was created successfully). */
-  lithoSuggestionAccepted: ReadonlySet<number>
-  /** Layer indices the user has explicitly rejected (dismissed). */
-  lithoSuggestionRejected: ReadonlySet<number>
   /**
-   * User edits to a ghost layer's depth. Keyed by suggestion index;
-   * partial — only the touched edge is set. Applied at both render
-   * time (the ghost rect reflects the drag) and accept time (the
-   * committed contact lands at the edited depth).
+   * Every anchor with an active ghost — single-anchor focus + bulk
+   * fan-out share this Map. The entry at ``focusedSuggestAnchorId``
+   * is the "single focus" target; every other entry is part of the
+   * bulk set. Empty Map = no active suggestion of any kind.
    */
-  lithoSuggestionEdits: ReadonlyMap<
-    number,
-    LithoSuggestionEdit
-  >
+  ghostsByAnchor: ReadonlyMap<string, BulkAnchorGhost>
   /**
-   * Apply a depth edit to one suggestion. Partial: pass any subset
-   * of ``{ depth_top_m, depth_base_m }``. Composes with prior edits
-   * on the same idx — a second drag adds to the first.
+   * The anchor id currently in focus mode (single Suggest target), or
+   * null when no focus is set. ``handleSuggestLitho`` flips this;
+   * ``clearLithoSuggestions`` clears it; ``handleSuggestAllLitho``
+   * leaves it alone.
+   */
+  focusedSuggestAnchorId: string | null
+  /**
+   * Apply a depth edit to one suggestion under the focused anchor.
+   * Partial: pass any subset of ``{ depth_top_m, depth_base_m,
+   * suggested_lithology, suggested_admixtures }``. Composes with
+   * prior edits on the same idx.
    */
   handleEditLithoSuggestion: (
     idx: number,
     edit: LithoSuggestionEdit,
   ) => void
-  /** Whether a suggestion fetch is in flight. */
+  /** Whether a single-anchor suggestion fetch is in flight. */
   lithoSuggesting: boolean
-  /**
-   * Multi-anchor ghost-suggestion state (debt #73 / Phase 3).
-   * Map<anchorId, BulkAnchorGhost>. Populated by
-   * ``handleSuggestAllLitho``; renders simultaneously with the
-   * single-anchor state above. Both can coexist on a section.
-   */
-  bulkLithoGhosts: ReadonlyMap<string, BulkAnchorGhost>
   /** Whether a bulk-suggest fetch is in flight. */
   bulkLithoSuggesting: boolean
   /**
@@ -2713,48 +2707,31 @@ export function useGeologicalModel({
   const [lithoSuggesting, setLithoSuggesting] = useState(false)
   const [bulkLithoSuggesting, setBulkLithoSuggesting] = useState(false)
 
-  // Stable empty primitives — returned by the derived selectors when
-  // no focused anchor or its entry is missing. Module-level frozen
-  // refs would also work; locals are fine because the useMemos below
-  // depend on (ghostsByAnchor, focusedSuggestAnchorId) which gate
-  // the empty-vs-populated branch.
-  const EMPTY_SUGGESTIONS: readonly LithoLayerSuggestion[] = useMemo(() => [], [])
-  const EMPTY_SET: ReadonlySet<number> = useMemo(() => new Set<number>(), [])
-  const EMPTY_EDITS: ReadonlyMap<number, LithoSuggestionEdit> = useMemo(
+  // Phase 2 of debt #77: derived selectors retired from the BUS —
+  // consumers read ``ghostsByAnchor + focusedSuggestAnchorId``
+  // directly and compute the focused entry / bulk subset themselves
+  // (see SectionsCanvas). The locals below stay because internal
+  // handlers (effectiveLithoSuggestionAt, accept-all-pending, etc.)
+  // need a synchronous read of the focused entry's fields and the
+  // empty-value primitives need to be stable for those reads.
+  const EMPTY_SET = useMemo(() => new Set<number>(), [])
+  const EMPTY_EDITS = useMemo(
     () => new Map<number, LithoSuggestionEdit>(),
     [],
   )
-
-  // Derived: focused-anchor accessors — the single-anchor bus shape.
-  // Each is a useMemo over (ghostsByAnchor, focusedSuggestAnchorId)
-  // so reads remain stable when neither changed.
-  const lithoSuggestions = useMemo<LithoLayerSuggestion[]>(() => {
-    if (focusedSuggestAnchorId === null) return EMPTY_SUGGESTIONS as LithoLayerSuggestion[]
-    const entry = ghostsByAnchor.get(focusedSuggestAnchorId)
-    return entry ? entry.suggestions : (EMPTY_SUGGESTIONS as LithoLayerSuggestion[])
-  }, [ghostsByAnchor, focusedSuggestAnchorId, EMPTY_SUGGESTIONS])
-  const lithoSuggestionInvestigationId = focusedSuggestAnchorId
-  const lithoSuggestionAnchorKind = useMemo<'cpt' | 'borehole' | null>(() => {
+  const focusedGhostEntry = useMemo<BulkAnchorGhost | null>(() => {
     if (focusedSuggestAnchorId === null) return null
-    return ghostsByAnchor.get(focusedSuggestAnchorId)?.kind ?? null
+    return ghostsByAnchor.get(focusedSuggestAnchorId) ?? null
   }, [ghostsByAnchor, focusedSuggestAnchorId])
-  const lithoSuggestionAccepted = useMemo<ReadonlySet<number>>(() => {
-    if (focusedSuggestAnchorId === null) return EMPTY_SET
-    return ghostsByAnchor.get(focusedSuggestAnchorId)?.accepted ?? EMPTY_SET
-  }, [ghostsByAnchor, focusedSuggestAnchorId, EMPTY_SET])
-  const lithoSuggestionRejected = useMemo<ReadonlySet<number>>(() => {
-    if (focusedSuggestAnchorId === null) return EMPTY_SET
-    return ghostsByAnchor.get(focusedSuggestAnchorId)?.rejected ?? EMPTY_SET
-  }, [ghostsByAnchor, focusedSuggestAnchorId, EMPTY_SET])
-  const lithoSuggestionEdits = useMemo<ReadonlyMap<number, LithoSuggestionEdit>>(() => {
-    if (focusedSuggestAnchorId === null) return EMPTY_EDITS
-    return ghostsByAnchor.get(focusedSuggestAnchorId)?.edits ?? EMPTY_EDITS
-  }, [ghostsByAnchor, focusedSuggestAnchorId, EMPTY_EDITS])
-
-  // Bulk selector excludes the focused anchor so SectionPanel's two
-  // render paths (single + bulk) don't double-render the same column.
-  // When no focused id, this IS the full Map.
-  const bulkLithoGhosts = useMemo<ReadonlyMap<string, BulkAnchorGhost>>(() => {
+  const lithoSuggestions = focusedGhostEntry?.suggestions ?? []
+  const lithoSuggestionAnchorKind = focusedGhostEntry?.kind ?? null
+  const lithoSuggestionInvestigationId = focusedSuggestAnchorId
+  const lithoSuggestionRejected = focusedGhostEntry?.rejected ?? EMPTY_SET
+  const lithoSuggestionEdits = focusedGhostEntry?.edits ?? EMPTY_EDITS
+  // Bulk subset = Map minus focused entry. Used by handleAcceptAllBulkLitho
+  // to iterate "every non-focused anchor with a ghost". The focused
+  // anchor has its own Accept-all-pending verb (single).
+  const bulkGhostsByAnchor = useMemo<ReadonlyMap<string, BulkAnchorGhost>>(() => {
     if (focusedSuggestAnchorId === null) return ghostsByAnchor
     if (!ghostsByAnchor.has(focusedSuggestAnchorId)) return ghostsByAnchor
     const next = new Map(ghostsByAnchor)
@@ -3336,7 +3313,10 @@ export function useGeologicalModel({
     ): Promise<void> => {
       const model = activeLithoModelRef.current
       if (!project || !model) return
-      const ghost = bulkLithoGhosts.get(anchorId)
+      // Read from the unified Map — debt #77 Phase 2. anchorId
+      // discriminates whether this is a bulk entry or the focused
+      // single; the accept logic is identical either way.
+      const ghost = ghostsByAnchor.get(anchorId)
       if (!ghost || idx < 0 || idx >= ghost.suggestions.length) return
       const raw = ghost.suggestions[idx]
       const edit = ghost.edits.get(idx)
@@ -3389,11 +3369,11 @@ export function useGeologicalModel({
       }
     },
     // reason: activeLithoModelRef is a ref (stable identity); not listed.
-    // bulkLithoGhosts is in deps so the callback refreshes when the user
-    // suggests/accepts/edits — the read of bulkLithoGhosts.get(anchorId)
+    // ghostsByAnchor is in deps so the callback refreshes when the user
+    // suggests/accepts/edits — the read of ghostsByAnchor.get(anchorId)
     // must see the latest map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, bulkLithoGhosts, refetchLithoContacts, refetchFormations, toast],
+    [project, ghostsByAnchor, refetchLithoContacts, refetchFormations, toast],
   )
 
   /**
@@ -3409,13 +3389,16 @@ export function useGeologicalModel({
       onSectionUpdated?: (s: CrossSectionResponse) => void,
     ): Promise<void> => {
       const model = activeLithoModelRef.current
-      if (!project || !model || bulkLithoGhosts.size === 0) return
-      log.debug('geology', `acceptAllBulkLitho anchors=${bulkLithoGhosts.size}`)
+      // Bulk = unified Map minus the focused (single) entry. The focused
+      // anchor has its own Accept-all-pending verb; this verb only
+      // sweeps non-focused anchors.
+      if (!project || !model || bulkGhostsByAnchor.size === 0) return
+      log.debug('geology', `acceptAllBulkLitho anchors=${bulkGhostsByAnchor.size}`)
       const failures: string[] = []
       let totalCommitted = 0
       // Snapshot the Map entries so subsequent setState calls don't
       // mutate what we're iterating.
-      const entries = Array.from(bulkLithoGhosts.entries())
+      const entries = Array.from(bulkGhostsByAnchor.entries())
       for (const [anchorId, ghost] of entries) {
         const pendingIndices = ghost.suggestions
           .map((_, i) => i)
@@ -3482,11 +3465,11 @@ export function useGeologicalModel({
       refetchLithoContacts()
       refetchFormations()
     },
-    // reason: activeLithoModelRef is a ref. bulkLithoGhosts is in
+    // reason: activeLithoModelRef is a ref. bulkGhostsByAnchor is in
     // deps so the snapshot the loop iterates is always the latest
     // (a stale closure would iterate yesterday's anchors).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, bulkLithoGhosts, refetchLithoContacts, refetchFormations, toast],
+    [project, bulkGhostsByAnchor, refetchLithoContacts, refetchFormations, toast],
   )
 
   // R4 (debt #12): the visible-list filter now lives HERE, not as an
@@ -3782,12 +3765,11 @@ export function useGeologicalModel({
     applyBoreholeFormationSelection,
     handleDeleteModel,
     ensureActiveGeologicalModel,
-    lithoSuggestions,
-    lithoSuggestionInvestigationId,
-    lithoSuggestionAnchorKind,
-    lithoSuggestionAccepted,
-    lithoSuggestionRejected,
-    lithoSuggestionEdits,
+    // Phase 2 of debt #77 (2026-05-21): bus exposes the unified Map
+    // + the focused-anchor flag. Consumers compute "focused" and
+    // "bulk subset" themselves (see SectionsCanvas + SectionsToolbar).
+    ghostsByAnchor,
+    focusedSuggestAnchorId,
     handleEditLithoSuggestion,
     lithoSuggesting,
     handleSuggestLitho,
@@ -3797,7 +3779,6 @@ export function useGeologicalModel({
     handleUnrejectLithoSuggestion,
     clearLithoSuggestions,
     // Bulk-suggest (debt #73 / Phase 3)
-    bulkLithoGhosts,
     bulkLithoSuggesting,
     handleSuggestAllLitho,
     handleAcceptBulkLitho,
