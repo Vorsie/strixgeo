@@ -507,29 +507,40 @@ classes), then `Geology3DViewer.test.tsx` mounting with empty props
 (every builder early-returns on empty data) asserting no throw +
 split-line click reducer transitions.
 
-## 44. Cross-stage selection model is inconsistent with the spine metaphor (Tier D — product/interaction decision)
+## 44. Cross-stage selection — per-stage visualisation of the carried scope (Tier D — follow-on from 2026-05-21 ship)
 
-**What.** The Data → Geology → Sections → Geotechnical → Export spine
-trains the user that a selected investigation persists across stages.
-It doesn't: map-marquee + CPT/borehole selection live in the
-coordinator bus but only DataInspector/DataCanvas consume them, and
-`StageCanvas`'s `key={activeStageId}` unmounts the previous stage so
-any in-progress marquee is discarded with no indication. A
-gINT/LeapFrog user who marquee-selects "the holes I'm modelling" then
-steps to the next stage expects that scope to carry; here it
-evaporates.
+**What.** Owner decision 2026-05-21: selection carries across stages
+(the "scope" semantic). The state-level work is **done** — the
+`marqueeSelectedIds` set already persists structurally (owned by
+App.tsx, above the stage-canvas `key={activeStageId}` boundary), and
+the new `SelectionFooter` in `StageSpine` surfaces the carry to the
+user as a small "N sel." badge visible from every stage with a clear
+button.
 
-**Why deferred.** The Geology "boreholes in model" toggles and the
-section corridor are the actual v1 scoping mechanisms, so cross-stage
-carry isn't functionally required — it's an expectation mismatch the
-metaphor creates. Resolving it is a product-semantics call (does
-selection mean "inspect" or "scope"?), not a bug fix.
+The remaining work is each stage actually USING the carried set as
+its scope:
 
-**When to revisit.** When the Geotechnical (subdivision) stage is
-built — that stage forces a concrete "which formations/units am I
-working on" selection and therefore the cross-stage semantics
-decision. Settle it there and document the chosen model in
-docs/ux.md's selection section.
+* **Sections** — corridor source picks from the selection set; toolbar
+  verbs that act on "selected investigation" gain a "selected set"
+  mode.
+* **Geology** — the model's `excluded_borehole_ids` toggle should be
+  pre-seeded by the selection set (one-click "model only the selected
+  boreholes"); the 3D viewer highlights selected investigations.
+* **Lithology** — "Suggest all" / "Accept all" bulk verbs default to
+  the selected set, not every visible borehole.
+* **Parameters** — per-test table filters to the selected set when
+  the set is non-empty.
+
+**Why deferred.** The carry-feedback ship (footer + the bus already
+exists) makes the metaphor honest. Each per-stage hookup is its own
+small product call (e.g., does Geology's "in-model" toggle REPLACE
+the set or ADD to it?) and should be designed alongside the next
+substantive change to that stage.
+
+**When to revisit.** When dogfeed flags a specific stage where
+manual re-picking the same investigations after the carry-aware
+walk feels redundant. At that point, ship the per-stage consumer for
+THAT stage with the concrete workflow in front of you.
 
 ## 47. `project_bundle.py` column auto-enumeration → silent `.gmproj` format drift (Tier B — backwards-compat re-arm trigger)
 
