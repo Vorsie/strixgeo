@@ -226,3 +226,26 @@ html, body, #root {
  * "selected". Disable text selection on the entire control layer; nothing
  * inside is meant to be selectable text anyway. */
 .leaflet-control { user-select: none; -webkit-user-select: none; }
+
+/* Stage-toolbar overflow (debt #23, 2026-05-21). The toolbar's left zone
+ * has a flexible width; when a stage's verb row would exceed the
+ * available width (narrow Electron window, split-screen, future verb
+ * additions), this class lets it scroll horizontally instead of
+ * silently clipping the rightmost buttons. The scrollbar is rendered
+ * thin (4 px) and only when overflow exists, so the toolbar's h-10
+ * height isn't bloated when content fits. */
+.toolbar-scrollable {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.toolbar-scrollable::-webkit-scrollbar { height: 4px; }
+.toolbar-scrollable::-webkit-scrollbar-track { background: transparent; }
+.toolbar-scrollable::-webkit-scrollbar-thumb {
+  background: var(--border-default, #cbd5e1);
+  border-radius: 2px;
+}
+.toolbar-scrollable::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted, #94a3b8);
+}
