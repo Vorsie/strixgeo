@@ -75,6 +75,19 @@ export interface UseMapOverlaysResult {
   handleChangeVirtueleBoringPicker: (next: VirtueleBoringPickerPayload) => Promise<void>
   handleSetShowOverlay: (pane: 'section' | 'cpt' | 'borehole', next: boolean) => void
   handleSetOverlayOverride: (pane: 'cpt' | 'borehole', next: string) => void
+  /**
+   * Per-project "show confidence fade" toggle.  When true (default),
+   * low-confidence TIN triangles + section dLow segments render at the
+   * reduced ``LOW_CONFIDENCE_ALPHA_MULTIPLIER``.  When false, the
+   * effective multiplier is 1.0 — every triangle / segment renders at
+   * full alpha and the uncertainty cue disappears.
+   *
+   * Persisted in ``project.view_state.show_confidence_fade``; absent
+   * (legacy projects) is treated as true.
+   */
+  showConfidenceFade: boolean
+  /** Toggle setter that PATCHes view_state and surfaces a toast on failure. */
+  handleSetShowConfidenceFade: (next: boolean) => Promise<void>
 }
 
 /**
@@ -134,6 +147,30 @@ export function useMapOverlays({
     // ``toast`` is a hoisted ``function`` declaration in App.tsx body —
     // stable across renders, omitted from deps to match the convention
     // used by every other callback there.
+    [applyViewStatePatch],
+  )
+
+  // ---------------------------------------------------------------------------
+  // Confidence fade toggle (debt #94/#28 follow-up — completes the user's
+  // 2026-05-21 'do both' ask: stronger fade + the on/off toggle).
+  // ---------------------------------------------------------------------------
+
+  const showConfidenceFade = useMemo<boolean>(() => {
+    const raw = (project?.view_state as Record<string, unknown> | undefined)?.[
+      'show_confidence_fade'
+    ]
+    // Legacy projects without the key default to true (current shipped
+    // behaviour — the fade is the on state).
+    return raw === false ? false : true
+  }, [project?.view_state])
+
+  const handleSetShowConfidenceFade = useCallback(
+    async (next: boolean): Promise<void> => {
+      const ok = await applyViewStatePatch({ show_confidence_fade: next })
+      if (!ok) {
+        toast('error', 'Could not save the confidence-fade setting.')
+      }
+    },
     [applyViewStatePatch],
   )
 
@@ -388,5 +425,7 @@ export function useMapOverlays({
     handleChangeVirtueleBoringPicker,
     handleSetShowOverlay,
     handleSetOverlayOverride,
+    showConfidenceFade,
+    handleSetShowConfidenceFade,
   }
 }

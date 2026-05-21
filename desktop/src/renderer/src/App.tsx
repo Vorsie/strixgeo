@@ -772,6 +772,8 @@ export default function App() {
     handleChangeVirtueleBoringPicker,
     handleSetShowOverlay,
     handleSetOverlayOverride,
+    showConfidenceFade,
+    handleSetShowConfidenceFade,
   } = useMapOverlays({ project, applyViewStatePatch, toast })
 
   // Resolve the currently-selected section from id + list. Lives here
@@ -833,7 +835,7 @@ export default function App() {
     demSource, demOverlay, handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions,
     virtueleBoringLoading, virtueleBoringSkippedCount, virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection,
     showOverlayOnCpt, showOverlayOnBorehole, cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay,
-    handleSetOverlayOverride,
+    handleSetOverlayOverride, showConfidenceFade, handleSetShowConfidenceFade,
     // toast/undo/boot
     toasts, toast, undoStack, ready, apiError,
     // mapState

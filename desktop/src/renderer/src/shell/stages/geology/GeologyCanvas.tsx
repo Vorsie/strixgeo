@@ -86,6 +86,7 @@ export default function GeologyCanvas(): JSX.Element {
       activeGeologicalModel,
       handleInlineCreateFormation,
     },
+    overlays: { showConfidenceFade },
   } = useShell()
 
   // Debt #33: a CPT-only project has no boreholes, so "Fill from
@@ -220,6 +221,7 @@ export default function GeologyCanvas(): JSX.Element {
         splitLine={splitLine}
         resetCameraRef={resetCameraCallback}
         groundSurface={groundSurface}
+        showConfidenceFade={showConfidenceFade}
         onExitSplit={() => {
           setSplitMode('single')
           setSplitPlane(null)

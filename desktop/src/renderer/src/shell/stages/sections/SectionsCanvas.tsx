@@ -136,6 +136,7 @@ export default function SectionsCanvas(): JSX.Element {
       demSource,
       demOverlay,
       handleDemOverlayChange,
+      showConfidenceFade,
     },
     coordinator: {
       selectedId,
@@ -819,6 +820,7 @@ export default function SectionsCanvas(): JSX.Element {
         surfacesByFormationId={axisSurfacesByFormationId}
         focusedContactIds={focusedContactIds}
         excludedBoreholeIds={axisExcludedBoreholeIds}
+        showConfidenceFade={showConfidenceFade}
         onCreateContact={sectionAwareCreateContact}
         onUpdateContactDepth={handleUpdateContactDepth}
         onDeleteContact={handleDeleteContact}

@@ -88,6 +88,7 @@ export default function GeologyInspector(): JSX.Element {
     coordinator: { manifestFormationIds, sessionImportFormationIds },
     undo: { push: pushUndoCommand },
     visibleBoreholes,
+    overlays: { showConfidenceFade, handleSetShowConfidenceFade },
   } = useShell()
 
   const projectId = project.id
@@ -555,6 +556,36 @@ export default function GeologyInspector(): JSX.Element {
           <Plus size={12} className="mr-1" />
           Add formation
         </Button>
+      </div>
+
+      {/* Debt #94 follow-up — confidence-fade toggle (per-project).
+          Off → low-confidence triangles / segments render at full alpha
+          (uniform colour). On → faded so the engineer sees where the TIN
+          is extrapolating away from data. */}
+      <div
+        className="flex items-center justify-between gap-2 text-[11px] text-text-secondary border-t border-border-subtle pt-2"
+        title="Faded triangles in the 3D view + faded contact polylines on sections mark regions where the TIN extrapolates away from nearby data. Toggle off for a uniform colour."
+      >
+        <span>Show confidence fade</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showConfidenceFade}
+          onClick={() => void handleSetShowConfidenceFade(!showConfidenceFade)}
+          data-testid="confidence-fade-toggle"
+          className={[
+            'inline-flex h-4 w-7 items-center rounded-full transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            showConfidenceFade ? 'bg-accent' : 'bg-surface-page border border-border-default',
+          ].join(' ')}
+        >
+          <span
+            className={[
+              'inline-block h-3 w-3 transform rounded-full bg-white transition-transform',
+              showConfidenceFade ? 'translate-x-3.5' : 'translate-x-0.5',
+            ].join(' ')}
+          />
+        </button>
       </div>
 
       {/* Validation-pending state (debt #18): surfaces are stale, so

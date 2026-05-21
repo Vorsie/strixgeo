@@ -107,6 +107,8 @@ export interface UseShellContextValueArgs {
   handleChangeVirtueleBoringPicker: ShellContextValue['overlays']['handleChangeVirtueleBoringPicker']
   handleSetShowOverlay: ShellContextValue['overlays']['handleSetShowOverlay']
   handleSetOverlayOverride: ShellContextValue['overlays']['handleSetOverlayOverride']
+  showConfidenceFade: ShellContextValue['overlays']['showConfidenceFade']
+  handleSetShowConfidenceFade: ShellContextValue['overlays']['handleSetShowConfidenceFade']
   toasts: ShellContextValue['toasts']['toasts']
   toast: ShellContextValue['toasts']['toast']
   undoStack: ShellContextValue['undo']
@@ -179,7 +181,7 @@ export function useShellContextValue(
     correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource, demSource, demOverlay,
     handleDemOverlayChange, virtueleBoringOverlay, virtueleBoringSectionModels, virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
     virtueleBoringPredictionByInvestigationId, cptEffectiveModels, boreholeEffectiveModels, showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
-    cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, toasts,
+    cptVirtueleBoringOverride, boreholeVirtueleBoringOverride, handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride, showConfidenceFade, handleSetShowConfidenceFade, toasts,
     toast, undoStack, ready, apiError, mapState, selectedId,
     selectedBoreholeId, setSelectedId, setSelectedBoreholeId, view, setView, handleSelect,
     handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, handleExportSectionPdf, outOfViewportCptIds, outOfViewportBoreholeIds, projectFilePath,
@@ -314,6 +316,8 @@ export function useShellContextValue(
       handleChangeVirtueleBoringPicker,
       handleSetShowOverlay,
       handleSetOverlayOverride,
+      showConfidenceFade,
+      handleSetShowConfidenceFade,
     },
     toasts: { toasts, toast },
     undo: undoStack,

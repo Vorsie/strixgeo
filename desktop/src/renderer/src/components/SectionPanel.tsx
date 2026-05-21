@@ -287,6 +287,10 @@ interface Props {
     anchorId: string,
     depthM: number,
   ) => Promise<{ formationId: string } | null>
+  /** Per-project confidence-fade toggle (debt #94 follow-up).  When
+   *  false, the low-confidence stroke opacity multiplier becomes 1.0
+   *  so the uncertainty cue disappears.  Defaults to true. */
+  showConfidenceFade?: boolean
   /** Fire the "Seed from stratigraphy" header action. Receives the
    * borehole IDs projected onto the active section (computed here
    * from placedColumns); the handler scopes the auto-populate call
@@ -548,6 +552,7 @@ export default function SectionPanel({
   correlateGestureState,
   axisMode = 'geological',
   onManualLithoUnitCreate,
+  showConfidenceFade = true,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -1842,6 +1847,7 @@ export default function SectionPanel({
                   ? new Set(focusedContactIds)
                   : undefined
               }
+              showConfidenceFade={showConfidenceFade}
               sectionLine={{
                 startX: section.start_x,
                 startY: section.start_y,

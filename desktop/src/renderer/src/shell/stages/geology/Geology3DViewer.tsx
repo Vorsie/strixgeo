@@ -72,6 +72,13 @@ Cesium.Ion.defaultAccessToken = ''
 export type SplitMode = 'single' | 'split'
 
 export interface Geology3DViewerProps {
+  /**
+   * Per-project "show confidence fade" toggle (debt #94 follow-up).
+   * When true (default), low-confidence TIN triangles render at the
+   * reduced ``LOW_CONFIDENCE_ALPHA_MULTIPLIER``.  When false the
+   * effective multiplier is 1.0 — uniform alpha across high/low.
+   */
+  showConfidenceFade?: boolean
   /** Single-viewport or split-viewport mode. */
   splitMode: SplitMode
   /**
@@ -667,6 +674,7 @@ function rebuildSurfacePrimitives(
   clippingPlane?: Cesium.Plane | null,
   invertClip?: boolean,
   splitLine?: SplitLine | null,
+  showConfidenceFade: boolean = true,
 ): void {
   scene.primitives.removeAll()
 
@@ -842,7 +850,10 @@ function rebuildSurfacePrimitives(
     const highColor = baseColor.clone()
     highColor.alpha = alpha
     const lowColor = baseColor.clone()
-    lowColor.alpha = alpha * LOW_CONFIDENCE_ALPHA_MULTIPLIER
+    // Debt #94 follow-up: gate the fade behind the per-project toggle.
+    // When the toggle is off, low-confidence triangles render at the
+    // same alpha as high-confidence — visually disabling the cue.
+    lowColor.alpha = alpha * (showConfidenceFade ? LOW_CONFIDENCE_ALPHA_MULTIPLIER : 1.0)
 
     if (high.length > 0) {
       const highTris = high.map(i => surface.triangles[i])
@@ -971,6 +982,8 @@ interface CesiumViewportProps {
   hiddenFormationIds?: ReadonlySet<string>
   /** When false, no basemap imagery is added (the 3D "Basemap" toggle). */
   basemapEnabled?: boolean
+  /** Per-project confidence-fade toggle (debt #94 follow-up). */
+  showConfidenceFade?: boolean
 }
 
 /**
@@ -1025,6 +1038,7 @@ function CesiumViewport({
   groundSurface,
   hiddenFormationIds,
   basemapEnabled = true,
+  showConfidenceFade = true,
 }: CesiumViewportProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<Cesium.CesiumWidget | null>(null)
@@ -1138,6 +1152,7 @@ function CesiumViewport({
       clippingPlane,
       invertClip,
       splitLine,
+      showConfidenceFade,
     )
 
     const allSurfaces = Array.from(surfacesByFormationId.values())
@@ -1374,6 +1389,7 @@ export default function Geology3DViewer({
   resetCameraRef,
   groundSurface,
   onExitSplit,
+  showConfidenceFade = true,
 }: Geology3DViewerProps): JSX.Element {
   // ---------------------------------------------------------------------------
   // Basemap state — read from localStorage on mount (same key as MapView so
@@ -1502,6 +1518,7 @@ export default function Geology3DViewer({
           groundSurface={groundSurface}
           hiddenFormationIds={hiddenFormationIds}
           basemapEnabled={basemapEnabled}
+          showConfidenceFade={showConfidenceFade}
         />
 
         {/* Debt #26 offline banner — overlays the primary viewport when
@@ -1645,7 +1662,8 @@ export default function Geology3DViewer({
               splitLine={splitLine}
               groundSurface={groundSurface}
               hiddenFormationIds={hiddenFormationIds}
-          basemapEnabled={basemapEnabled}
+              basemapEnabled={basemapEnabled}
+              showConfidenceFade={showConfidenceFade}
             />
           </div>
         </>

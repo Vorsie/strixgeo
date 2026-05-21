@@ -69,6 +69,7 @@ export default function LithologyCanvas(): JSX.Element {
       lithoFormations,
       lithoSurfacesByFormationId,
     },
+    overlays: { showConfidenceFade },
   } = useShell()
 
   // Ground-surface TIN scoped to the active litho model.
@@ -122,6 +123,7 @@ export default function LithologyCanvas(): JSX.Element {
         splitLine={null}
         resetCameraRef={resetLithoCameraCallback}
         groundSurface={groundSurface}
+        showConfidenceFade={showConfidenceFade}
       />
     )
   }

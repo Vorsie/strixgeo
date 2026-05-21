@@ -250,6 +250,13 @@ interface Props {
    * empty → no highlight. Parent (App.tsx) clears the set after a
    * short timer so the visual is transient. */
   focusedContactIds?: ReadonlySet<string>
+  /**
+   * Per-project "show confidence fade" toggle (debt #94 follow-up).
+   * When true (default), low-confidence segments render at the reduced
+   * ``LOW_CONFIDENCE_ALPHA_MULTIPLIER``.  When false, the multiplier
+   * is 1.0 — high/low are visually identical, the fade is disabled.
+   */
+  showConfidenceFade?: boolean
   /** Section-line endpoints in the project's horizontal CRS. The
    * slice projects each TIN vertex against this line, so its
    * coordinate frame must match the surface vertices' frame. Both
@@ -583,6 +590,7 @@ export default function ContactsLayer({
   plotLeft,
   plotRight,
   focusedContactIds,
+  showConfidenceFade = true,
 }: Props): JSX.Element | null {
   // ---- Contact context-menu state --------------------------------
   // Small two-item menu triggered by right-click on a contact
@@ -2156,7 +2164,12 @@ export default function ContactsLayer({
                 d={line.dLow}
                 stroke={line.color}
                 strokeWidth={1.25}
-                strokeOpacity={baseOpacity * LOW_CONFIDENCE_ALPHA_MULTIPLIER}
+                strokeOpacity={
+                  // Debt #94 follow-up: gate fade behind toggle. Off
+                  // → multiplier 1.0, dLow segment matches dHigh.
+                  baseOpacity *
+                  (showConfidenceFade ? LOW_CONFIDENCE_ALPHA_MULTIPLIER : 1.0)
+                }
                 strokeDasharray={dash}
                 fill="none"
                 pointerEvents="none"
