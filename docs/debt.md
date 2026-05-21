@@ -1382,42 +1382,30 @@ they ARE visible, just under a generic heading.
 distribution (the orphan rows still serialise into `.gmproj`
 bundles, so cleanup before a paid release matters).
 
-## 88. `lithoFormations` filter uses `f.lithology != null` not the litho-builder discriminator (Tier E — latent inconsistency)
+## 89. Bus `lithoFormations` as derived view over global `formations` (Tier E — coupling cleanup)
 
-**What.** `useGeologicalModel.ts:876` filters litho formations with
-`forms.filter(f => f.lithology != null)`, but the litho-builder
-`_create_litho_formation` path sets `litho_main_soil_code` and NOT
-`lithology` (the 3-level-data-model column). The `lithology` column
-is only set when a formation is created via the explicit
-`POST /projects/{pid}/geology/formations` endpoint with `lithology=...`
-in the body — which the litho-builder Accept-suggestion path does
-not use.
+**What.** `lithoFormations` lives as a separate `useState` set inside
+the bootstrap useEffect — refetched independently via
+`refetchLithoFormations` after every litho accept. The same data
+already lives in the global `formations` state; `lithoFormations`
+is just `formations.filter(isLithoUnit)`. Two state atoms holding
+the same authority creates the kind of staleness that surfaced as
+debt #88 — a missed refetch on one side desynced the bus.
 
-So in principle, every litho-builder-created formation would be
-EXCLUDED from `lithoFormations` and therefore from the
-LithologyInspector, the LithoCompositionPickerDialog's existing-
-unit tab, and the composition reuse-match. The user has not reported
-this as a bug — possibly because the litho roster still works for
-some other reason (maybe an enrichment step sets `lithology`
-elsewhere, maybe the discriminator was intended to converge and
-hasn't yet). Worth a code audit before the next litho-roster
-investigation.
+A cleaner shape: drop the `useState`, derive via `useMemo` over
+`formations`. Every refetch path that updates `formations` then
+implicitly updates `lithoFormations` without an explicit second
+call. Saves one `listFormations` round-trip per accept too.
 
-**Why deferred.** Investigative work, not a clean fix. Three
-hypotheses to check:
+**Why deferred.** Touches three sites — bootstrap useEffect (delete
+the setLithoFormations branch), `handleInlineLithoCreateFormation`
+(call setFormations instead of setLithoFormations), and the dep
+arrays of every callback that lists `refetchLithoFormations`. Low-
+risk, behaviour-preserving, but >5 files of churn for a refactor
+that doesn't change product behaviour. The current explicit-refetch
+state is correct (per the #88 fix); switch to derived when next
+touching this part of `useGeologicalModel.ts`.
 
-1. Some path (post-accept enrichment? a server-side schema
-   compute-on-read?) populates `lithology` on litho-builder rows and
-   the comment-vs-code disagreement is a stale comment.
-2. The litho roster is silently empty for litho-builder units and
-   the dogfeed user just hasn't noticed because the units appear via
-   the Phase-1.5 manual picker path which DOES set `lithology` (via
-   the `createFormation` endpoint).
-3. The frontend filter is wrong and should also switch to
-   `isLithoUnit` from `utils/formationKind.ts` (the discriminator
-   that 2026-05-21's geology-leak fix introduced).
-
-**When to revisit.** Right after the next dogfeed report that names
-the litho roster or the picker dialog — at that moment the
-hypothesis cleaves cleanly and the right fix is either "delete the
-stale comment" or "switch the filter".
+**When to revisit.** When the litho bootstrap useEffect or the
+accept-handler dep arrays are touched for another reason — fold the
+derive-from-formations change into that PR.
