@@ -790,33 +790,6 @@ the same-area cleanup.
 user wants to override the inference (the auto-retry covers the
 opaque-422 case for now). Nothing left on (3).
 
-## 63. Desktop tsc gate absent — ~20 standing pre-existing errors, no pre-commit check (Tier E — code quality / safety net)
-
-**What.** `npx tsc --noEmit -p tsconfig.web.json` currently emits ~20 errors
-(Electron namespace, `PickAndOpenResult` return type, `SetStateAction` mismatch,
-scattered test-fixture type gaps). None are in hot-path renderer code today,
-but the project has no `tsc` step in `.githooks/pre-commit` — so new type
-errors introduced by refactors are invisible until a developer runs tsc manually
-or a runtime crash surfaces them. The memory file `feedback_desktop_tsc_gap.md`
-documents this gap; it was first noted during the #12 App.tsx split.
-
-**Why deferred.** Clearing the backlog requires touching several files that are
-on the boundary of ongoing litho-slice work (#55) and the pinch-out ghost-UX
-(#62). Fixing them now would create noise-commits mid-feature and add a hook
-step that fails until every pre-existing error is gone. The risk is low: the
-affected lines are type-widening mismatches in test fixtures, not production
-logic. The TDZ and missing-namespace errors are in App.tsx, which already has
-its own smoke test.
-
-**When to revisit.** Before the first external (coworker/paid) distribution
-(ties to debt #3 / backwards-compat re-arm trigger). At that moment:
-(1) drive `tsc --noEmit` to zero errors — start with the 5 App.tsx errors
-(Electron namespace + return-type widening), then the test-fixture synthetic_x
-gaps, then the CptChart comparison dead-code; (2) add `npx tsc --noEmit -p
-tsconfig.web.json` to `.githooks/pre-commit` alongside the existing vitest
-step; (3) document the node version requirement in the hook comment (Node 22
-LTS; Node 24 segfaults vitest — see memory `project_node_22_pin.md`).
-
 ## Historical note — 2026-05-13 security-reviewer audit pass
 
 The remaining audit findings — #35 CORS, #36 CSP+window-open+
