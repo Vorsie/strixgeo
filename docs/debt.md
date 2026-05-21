@@ -431,41 +431,71 @@ water-body mask that routes cells to a null sampler vs a bed sampler,
 ``BHVlaBathymetry`` data, or (c) accept the limitation and expose it
 in the UI as "DEM accuracy may be reduced near water bodies."
 
-## 28. Formation surfaces carry no interpolation-confidence signal (medium — Phase 5 model quality)
+## 28. Surface confidence signal — RESOLVED 2026-05-21
 
-**What.** The TIN surfaces are an unconstrained Delaunay interpolation
-over the contact points. Near the data-sparse boundary — the convex
-hull edge, or any region far from a borehole/CPT contact — the surface
-is pure extrapolation and frequently misbehaves: younger formations
-dip below older ones, surfaces fan out into spikes, and the model
-looks visibly "unsure" at the edges (observed while dogfeeding the
-3D split view, 2026-05-16). The crossings validator (#18) flags WHERE
-two surfaces cross, but nothing quantifies or *shows* that a vertex is
-low-confidence because there is no nearby data — the edge artifact and
-a genuine geological crossing look identical to the user.
+Owner directives chosen:
+* **Metric: hull-edge + edge-length gradient.** Hull-edge triangles
+  (any edge appearing in only one triangle) get a fixed
+  ``CONFIDENCE_FLOOR = 0.3``; interior triangles grade by
+  ``maxEdgeLength / medianEdgeLength`` (1× median → 1.0, 2× → 0.5,
+  clamped at floor). Edge length is horizontal-plane only — vertical
+  spread is the signal we render, not the sparsity metric.
+* **Render: opacity fade.** Low-confidence triangles render at
+  ``LOW_CONFIDENCE_ALPHA_MULTIPLIER = 0.45`` × the default alpha.
+  Threshold for the band split is ``CONFIDENCE_THRESHOLD = 0.7``.
+* **Surface: 3D viewer + section editor.** Both consumers split into
+  two render passes per formation — high band at full alpha, low band
+  faded. Same testid pattern on both surfaces.
 
-**Why deferred.** A confidence signal is a model-quality feature, not
-a v1.0 geometry/export gate deliverable. Doing it properly means: (a)
-a per-vertex confidence metric (e.g. distance to nearest contact, or
-local contact density / kriging variance once a non-TIN interpolator
-lands), (b) persisting it alongside the surface vertices, (c) a render
-treatment in the 3D viewer + section editor (fade / hatch / stipple
-low-confidence regions so extrapolation reads differently from
-data-backed surface), and (d) deciding whether to *clamp*
-extrapolation past the hull rather than just flag it. The cleaner
-metric (kriging variance) is naturally a Phase 5 deliverable since v1
-enforces ``method=tin``; building a TIN-only distance heuristic now
-risks being thrown away when the real interpolator arrives.
+**Implementation.** Pure helper ``utils/tinConfidence.ts``:
+``computeTriangleConfidence(vertices, triangles): number[]`` plus
+``partitionByConfidence(confidence): { high, low }`` for the band
+split. Cost is O(triangles) once per render.
 
-**When to revisit.** Phase 5, alongside the kriging / RBF interpolator
-(the ``method`` query param already scaffolds for it) — variance falls
-out of those methods for free. Pull earlier if a dogfeeding user
-mistakes an edge extrapolation artifact for a real geological crossing
-and acts on it, or if the v1.0 launch demo's model edges look
-unprofessional enough to hurt the Flanders pitch — in that case ship
-the cheap interim: a distance-to-nearest-contact heuristic driving a
-fade on hull-edge triangles, explicitly labelled "low confidence —
-no nearby data".
+**Degenerate-TIN escape hatch.** A triangulation with NO fully-
+interior triangle (every triangle has at least one hull-edge) has
+nothing to grade against — a 3-contact surface or a 4-corner square
+split would otherwise render perpetually faded. The helper detects
+this and returns uniform ``1.0`` for the whole surface. The signal
+activates only once 5+ vertices form a triangulation with an
+interior triangle, which matches the "model has enough data to
+distinguish dense from sparse" intuition.
+
+``Geology3DViewer.tsx``: each formation's TIN now builds TWO Cesium
+primitives — high-band triangles at the existing ``ALPHA_FRESH``
+/ ``ALPHA_STALE``; low-band triangles at the multiplied alpha. The
+helper called on the un-offset vertices; the per-formation z-offset
+applied to the position copy before primitive build. Ground-surface
+render unchanged (the terrain layer is not an interpretation).
+
+``sliceTin`` extended: each ``SlicePoint`` now carries
+``triangleIdx?: number`` — the index of the triangle the crossing
+came from. Two consecutive points in the sorted polyline are
+crossings of the same triangle, so the segment between them inherits
+that triangle's confidence band.
+
+``ContactsLayer.slicedPolylines`` builds two SVG paths per formation
+(``dHigh`` + ``dLow``) by walking consecutive point pairs and
+appending each segment to the band matching the triangle's
+confidence. Renders as two ``<path>`` elements inside a ``<g>``
+keyed by formation id; the high path keeps the original testid
+``formation-surface-{id}``, the low path adds ``-low`` for assertions.
+
+**Tests.** T1-T6 + P1-P3 in ``utils/tinConfidence.test.ts`` (9
+cases: empty input, degenerate single-triangle, degenerate 4-spoke
+fan, interior triangle in a 3×3 grid, median threshold, zero-edge
+degeneracy + partitionByConfidence boundary cases). S1 in
+``utils/sliceTin.test.ts`` pins the new ``triangleIdx`` field on
+every SlicePoint. ContactsLayer integration tests pass unchanged
+because the degenerate-TIN escape hatch keeps small fixtures at
+full confidence. 1045/1045 vitest + tsc clean.
+
+**Documented residual (out of scope for #28 itself).** The
+kriging / RBF interpolator (Phase 5) will provide a proper variance
+metric; this distance heuristic becomes throwaway code at that
+point. The ``method`` query param already scaffolds for it; the
+``computeTriangleConfidence`` helper goes away cleanly when the
+variance-based metric replaces it.
 
 ---
 
