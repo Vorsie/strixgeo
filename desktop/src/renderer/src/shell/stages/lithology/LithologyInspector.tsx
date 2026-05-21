@@ -74,6 +74,7 @@ export default function LithologyInspector(): JSX.Element {
       lithoFormations,
       lithoContacts,
       lithoStaleSurfaceCount,
+      lithoStaleTinSessionCount,
       refetchFormations,
     },
   } = useShell()
@@ -258,6 +259,24 @@ export default function LithologyInspector(): JSX.Element {
             >
               {lithoStaleSurfaceCount} litho surface
               {lithoStaleSurfaceCount === 1 ? '' : 's'} stale — Build on Sections.
+            </div>
+          )}
+
+          {/* Stale-TIN straddle-fallback pill. AcceptLithoSuggestions
+              falls back to depth-ordered geology contacts when the
+              parent geology TIN is stale or absent — geometrically
+              correct but less precise than a fresh TIN sample.  The
+              pill accumulates across the current dogfeed session and
+              clears on (a) successful geology rebuild + (b) Clear
+              suggestions. */}
+          {lithoStaleTinSessionCount > 0 && (
+            <div
+              className="text-[11px] leading-snug rounded px-2 py-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300"
+              data-testid="litho-stale-tin-pill"
+            >
+              {lithoStaleTinSessionCount} stale-TIN straddle fallback
+              {lithoStaleTinSessionCount === 1 ? '' : 's'} this session — rebuild
+              geology for precision.
             </div>
           )}
 
