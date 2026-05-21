@@ -17,7 +17,16 @@ import type { LucideIcon } from 'lucide-react'
  * Identifier for each workflow stage in the spine.
  *
  * Order here mirrors the engineering process order the spine communicates
- * (Data → Sections → Geology → Lithology → Geotechnical → Export).
+ * (Data → Sections → Geology → Lithology → Geotechnical → Parameters →
+ * Export).
+ *
+ * ``parameters`` is the sixth spine slot (2026-05-21 owner directive):
+ * derive design-ready values per (test × parameter) and per (unit ×
+ * parameter), with hard-separated correlation vs xlsx-lookup methods,
+ * statistics + raincloud plots, probabilistic-distribution wiring, and
+ * ML-suggestion hooks. See
+ * ``memory/project_parameters_stage_architecture.md`` for the full
+ * design.
  */
 export type StageId =
   | 'data'
@@ -25,6 +34,7 @@ export type StageId =
   | 'geology'
   | 'lithology'
   | 'geotechnical'
+  | 'parameters'
   | 'export'
 
 /**
