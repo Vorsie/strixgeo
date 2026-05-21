@@ -1,73 +1,68 @@
 /**
- * Dutch display-label helpers for lithostratigraphic units.
+ * English display-label helpers for lithostratigraphic units.
  *
  * Domain vocabulary: base lithology codes (ZAND, KLEI, SILT, GRIND, VEEN)
  * come from the backend ``BASE_LITHOLOGIES`` constant; admixture soil codes
  * (GL, KL, SL, ZN, VE) and amount codes (W, M, V, S, Z, empty) come from
- * the DOV vocabulary stored in borehole ObservationLayer admixtures.
+ * the DOV vocabulary stored in borehole ObservationLayer admixtures. The
+ * raw codes stay Dutch in the DB / API (translate at the presentation
+ * boundary, never at ingest — see CLAUDE.md §UX Conventions); this
+ * module is the boundary.
  *
- * The function produces labels like "matig kleiige Zand" or "siltige Klei"
- * that match the Belgian geotechnical reporting convention (Dutch mixed-case,
- * admixture adjective before the capitalised main lithology name).
+ * The function produces labels like "moderately clayey Sand" or "silty
+ * Clay" that mirror the Belgian/Dutch NEN 5104 reporting style adjective-
+ * before-noun, in English so the labels match the rest of the program's
+ * UI chrome. The raw DOV codes remain visible elsewhere (codelist
+ * dropdowns, tooltips) so engineers can cross-check.
  *
- * Reference: Belgian NAD geotechnical class names in ``litho_constants.py``
- * (e.g. ``"ZAND, silt-/kleihoudend, los gp"``).  The adjective form here
- * is slightly different (``"siltige"`` vs ``"silt-/kleihoudend"``) because
- * the inspector label is a short display string, not the full NAD designation.
+ * Base-lithology names are imported from ``utils/lithoConstants.ts``
+ * (``LITHOLOGY_LABELS``) — that file is the single source of truth so
+ * the picker dialog, the composition editor, and the ghost overlay all
+ * agree on "Sand" / "Clay" / etc.
  *
- * Translation at the presentation boundary — see CLAUDE.md §UX Conventions.
+ * Translation history: this module produced Dutch labels until
+ * 2026-05-21 when the owner asked for UI consistency with the rest of
+ * the (English) program. The raw Dutch tokens are unchanged in the DB.
  */
 
 import type { AdmixtureItem } from '../api/client'
+import { LITHOLOGY_LABELS } from './lithoConstants'
 
 // ---------------------------------------------------------------------------
-// Base lithology — Dutch names (capitalised, used as the main noun).
-// Keys match BASE_LITHOLOGIES in litho_constants.py.
-// ---------------------------------------------------------------------------
-
-const BASE_LITHOLOGY_NL: Record<string, string> = {
-  GRIND: 'Grind',
-  ZAND: 'Zand',
-  SILT: 'Silt',
-  KLEI: 'Klei',
-  VEEN: 'Veen',
-}
-
-// ---------------------------------------------------------------------------
-// Admixture soil codes → Dutch adjective form.
+// Admixture soil codes → English adjective form.
 // Values are DOV soil-vocabulary codes stored in borehole admixtures.
-// The adjective form (``kleiige``, ``siltige``, …) is used in short labels;
-// the longer ``-houdend`` form lives in the NAD class names.
+// The adjective form (``clayey``, ``silty``, ...) follows NEN 5104 /
+// Belgian field-description practice translated to English.
 // ---------------------------------------------------------------------------
 
-const ADMIXTURE_SOIL_NL: Record<string, string> = {
-  GL: 'grindige', // GL = gravel (Grind)
-  KL: 'kleiige',  // KL = clay (Klei)
-  SL: 'siltige',  // SL = silt (Silt)
-  ZN: 'zandige',  // ZN = sand (Zand)
-  VE: 'venige',   // VE = peat (Veen)
+const ADMIXTURE_SOIL_EN: Record<string, string> = {
+  GL: 'gravelly', // GL = gravel (Grind)
+  KL: 'clayey',   // KL = clay (Klei)
+  SL: 'silty',    // SL = silt (Silt)
+  ZN: 'sandy',    // ZN = sand (Zand)
+  VE: 'peaty',    // VE = peat (Veen)
   // Aliases / DOV variants encountered in real data:
-  Z: 'zandige',   // "Z" = Zand shortcode in some DOV exports
-  K: 'kleiige',   // "K" = Klei shortcode
-  S: 'siltige',   // "S" = Silt shortcode
-  G: 'grindige',  // "G" = Grind shortcode
-  V: 'venige',    // "V" = Veen shortcode (context: soil code, not amount)
+  Z: 'sandy',    // "Z" = Zand shortcode in some DOV exports
+  K: 'clayey',   // "K" = Klei shortcode
+  S: 'silty',    // "S" = Silt shortcode
+  G: 'gravelly', // "G" = Grind shortcode
+  V: 'peaty',    // "V" = Veen shortcode (context: soil code, not amount)
 }
 
 // ---------------------------------------------------------------------------
-// Admixture amount codes → Dutch amount adjective (placed BEFORE soil adj).
+// Admixture amount codes → English amount adverb (placed BEFORE soil adj).
 // Source: DOV ``<hoeveelheid>`` vocabulary.
 // ---------------------------------------------------------------------------
 
-const ADMIXTURE_AMOUNT_NL: Record<string, string> = {
-  W: 'weinig',  // W = weinig (little)
-  M: 'matig',   // M = matig (moderate)
-  V: 'veel',    // V = veel (much) — note: same letter as Veen soil code;
-                // context (amount field) determines the reading
-  S: 'sterk',   // S = sterk (strongly)
-  Z: 'zwak',    // Z = zwak (weakly / slightly)
-  WM: 'weinig tot matig',
-  MV: 'matig tot veel',
+const ADMIXTURE_AMOUNT_EN: Record<string, string> = {
+  W: 'slightly',    // W = weinig (little)
+  M: 'moderately',  // M = matig (moderate)
+  V: 'very',        // V = veel (much) — note: same letter as Veen soil code;
+                    // context (amount field) determines the reading
+  S: 'strongly',    // S = sterk (strongly)
+  Z: 'weakly',      // Z = zwak (weakly / slightly)
+  WM: 'slightly to moderately',
+  MV: 'moderately to very',
 }
 
 // ---------------------------------------------------------------------------
@@ -75,58 +70,59 @@ const ADMIXTURE_AMOUNT_NL: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Format a Dutch display name for a lithostratigraphic unit.
+ * Format an English display name for a lithostratigraphic unit.
  *
  * Combines the main lithology code and optional admixtures into a
- * short Dutch label following the Belgian geotechnical reporting style:
- * amount adjective (if any) + soil adjective + capitalised main lithology.
+ * short English label following NEN 5104 / Belgian-style reporting
+ * order: amount adverb (if any) + soil adjective + capitalised main
+ * lithology.
  *
  * Examples::
  *
  *   formatLithoDisplayName('ZAND', [])
- *   // → 'Zand'
+ *   // → 'Sand'
  *
  *   formatLithoDisplayName('ZAND', [{ soil_code: 'KL', amount: 'M', locally: false }])
- *   // → 'matig kleiige Zand'
+ *   // → 'moderately clayey Sand'
  *
  *   formatLithoDisplayName('KLEI', [
  *     { soil_code: 'SL', amount: 'W', locally: false },
  *     { soil_code: 'ZN', amount: '',  locally: true  },
  *   ])
- *   // → 'weinig siltige, lokaal zandige Klei'
+ *   // → 'slightly silty, locally sandy Clay'
  *
  * Parameters
  * ----------
  * mainCode
- *     Base lithology code (ZAND, KLEI, SILT, GRIND, VEEN).  Falls back
+ *     Base lithology code (ZAND, KLEI, SILT, GRIND, VEEN). Falls back
  *     to the raw code when not found in the label table.
  * admixtures
- *     Admixture items from the API (``AdmixtureItem[]``).  Empty or null
+ *     Admixture items from the API (``AdmixtureItem[]``). Empty or null
  *     returns just the main lithology name.
  *
  * Returns
  * -------
  * string
- *     Short Dutch display label.
+ *     Short English display label.
  */
 export function formatLithoDisplayName(
   mainCode: string,
   admixtures: readonly AdmixtureItem[] | null | undefined,
 ): string {
-  const baseName = BASE_LITHOLOGY_NL[mainCode] ?? mainCode
+  const baseName = LITHOLOGY_LABELS[mainCode] ?? mainCode
 
   if (!admixtures || admixtures.length === 0) return baseName
 
   // Build a qualifier fragment for each admixture in order.
   const parts: string[] = admixtures.map(adm => {
-    const soilAdj = ADMIXTURE_SOIL_NL[adm.soil_code] ?? adm.soil_code.toLowerCase()
-    const amountAdj = adm.amount ? (ADMIXTURE_AMOUNT_NL[adm.amount] ?? adm.amount) : null
+    const soilAdj = ADMIXTURE_SOIL_EN[adm.soil_code] ?? adm.soil_code.toLowerCase()
+    const amountAdv = adm.amount ? (ADMIXTURE_AMOUNT_EN[adm.amount] ?? adm.amount) : null
 
-    // "lokaal" prefix when the admixture occurs only locally in the layer.
-    const localPrefix = adm.locally ? 'lokaal ' : ''
+    // "locally" prefix when the admixture occurs only locally in the layer.
+    const localPrefix = adm.locally ? 'locally ' : ''
 
-    if (amountAdj) {
-      return `${localPrefix}${amountAdj} ${soilAdj}`
+    if (amountAdv) {
+      return `${localPrefix}${amountAdv} ${soilAdj}`
     }
     return `${localPrefix}${soilAdj}`
   })
