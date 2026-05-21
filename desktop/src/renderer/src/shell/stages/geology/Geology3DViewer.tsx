@@ -1210,6 +1210,11 @@ function CesiumViewport({
     clippingPlane,
     invertClip,
     splitLine,
+    // Debt #94 follow-up: include the confidence-fade toggle so
+    // primitives rebuild when the user flips it.  Without this,
+    // changing the toggle has no visual effect because the existing
+    // alpha-baked primitives stay in place.
+    showConfidenceFade,
   ])
 
   // (Basemap is no longer a Cesium ImageryLayer — it's a single
