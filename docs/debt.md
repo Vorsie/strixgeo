@@ -804,26 +804,38 @@ use of the split-viewport in a non-Geology stage.
 
 ---
 
-## 65. Litho borehole scope toggles absent — no litho crossings validator (Tier E)
+## 65. Excluded-boreholes UI for the Lithology inspector (Tier E)
 
 **What.** The Lithology stage inspector has no "excluded boreholes"
-UI (the litho model's `excluded_borehole_ids` is set only via
-the backend, never surfaced). There is also no litho-specific
-crossings validator (the geology crossings banner lives in
-`useCrossingsValidation`, keyed on the geological model — it is
-not wired for the litho model). As a result, litho surface
-crossings are silently undetected.
+UI — the litho model's `excluded_borehole_ids` is set only via
+the backend, never surfaced. Mirrors the geological inspector's
+toggle, which the engineer can flip when a borehole's stratigraphy
+disagrees with the rest of the corridor.
+
+**Litho crossings validator carved out (was the second half of #65,
+2026-05-21):** the original entry claimed "litho surface crossings
+are silently undetected" — incorrect. `ValidateModelCrossings`
+DELIBERATELY returns `[]` for any model whose `kind` is in
+`NON_STRATIGRAPHIC_KINDS` (lithostratigraphic + geotechnical),
+because interfingering sand-and-clay is real geology, not a
+superposition error. The frontend wiring would always show empty
+banners (or a falsely-promising "Build to validate" pending banner
+that resolves to no issues). Closed as wontfix — the deliberate
+no-op is the correct behaviour.
 
 **Why deferred.** The litho inspector is deliberately read-only
-at v1.0 (formations are project-scoped shared vocabulary;
-CRUD stays in GeologyInspector). The crossings validator can be
-extended later with a `modelId` parameter and the same hook
-reused — but there is no UI surface to trigger it on today's
-Lithology stage inspector.
+at v1.0 (formations are project-scoped shared vocabulary; CRUD
+stays in GeologyInspector). An exclusion toggle is the first
+mutation the litho inspector would carry, so it merits a small
+product call: does it follow the geo pattern (PATCH the model's
+`excluded_borehole_ids`, refresh, rebuild affected surfaces)? Or
+does it need extra UI for "this borehole is excluded from
+geo+litho" vs "litho-only" vs "geo-only" cases?
 
-**When to revisit.** When the litho inspector gains an
-exclusion-toggle or when the first dogfeed session surfaces
-a silent litho surface crossing as a confusing artefact.
+**When to revisit.** Next dogfeed session that flags a litho
+unit polluted by a single anomalous borehole — at that moment
+the exclusion-toggle UX is concretely informed by the case the
+user wants to handle.
 
 ## 68. CorrelationEdgesOverlay uncorrelate menu state lives inside a `pointerEvents:none` SVG `<g>` (Tier E — robustness)
 
