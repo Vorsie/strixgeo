@@ -24,36 +24,31 @@ import { Plus, X } from 'lucide-react'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { LITHOLOGY_LABELS } from '../../utils/lithoConstants'
 
-// Vocabulary mirrors LithoCompositionPickerDialog. Kept inline so the
-// two components don't form a tight import coupling — both can evolve
-// independently if one's UX needs diverge from the other's.
+// Vocabulary mirrors LithoCompositionPickerDialog. Base-lithology labels
+// share a single source of truth (utils/lithoConstants.LITHOLOGY_LABELS)
+// so the picker and the editor cannot drift on naming. Admixture
+// option arrays stay inline — they include the raw DOV code in parens
+// for engineer orientation, which is the dialog's UX contract.
 const MAIN_SOIL_CODES = ['GRIND', 'ZAND', 'SILT', 'KLEI', 'VEEN'] as const
 type MainSoilCode = (typeof MAIN_SOIL_CODES)[number]
 
-const MAIN_SOIL_LABELS: Record<MainSoilCode, string> = {
-  GRIND: 'Grind',
-  ZAND: 'Zand',
-  SILT: 'Silt',
-  KLEI: 'Klei',
-  VEEN: 'Veen',
-}
-
 const ADMIXTURE_SOIL_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: 'GL', label: 'Grind (GL)' },
-  { code: 'ZN', label: 'Zand (ZN)' },
+  { code: 'GL', label: 'Gravel (GL)' },
+  { code: 'ZN', label: 'Sand (ZN)' },
   { code: 'SL', label: 'Silt (SL)' },
-  { code: 'KL', label: 'Klei (KL)' },
-  { code: 'VE', label: 'Veen (VE)' },
+  { code: 'KL', label: 'Clay (KL)' },
+  { code: 'VE', label: 'Peat (VE)' },
 ]
 
 const ADMIXTURE_AMOUNT_OPTIONS: Array<{ code: string; label: string }> = [
-  { code: '', label: '— (niet gespecificeerd)' },
-  { code: 'Z', label: 'Zwak (Z)' },
-  { code: 'W', label: 'Weinig (W)' },
-  { code: 'M', label: 'Matig (M)' },
-  { code: 'V', label: 'Veel (V)' },
-  { code: 'S', label: 'Sterk (S)' },
+  { code: '', label: '— (unspecified)' },
+  { code: 'Z', label: 'Weakly (Z)' },
+  { code: 'W', label: 'Slightly (W)' },
+  { code: 'M', label: 'Moderately (M)' },
+  { code: 'V', label: 'Very (V)' },
+  { code: 'S', label: 'Strongly (S)' },
 ]
 
 export interface GhostAdmixtureItem {
@@ -220,7 +215,7 @@ export default function LithoGhostCompositionEditor({
           >
             {MAIN_SOIL_CODES.map(code => (
               <option key={code} value={code}>
-                {MAIN_SOIL_LABELS[code]} ({code})
+                {LITHOLOGY_LABELS[code] ?? code} ({code})
               </option>
             ))}
           </select>
