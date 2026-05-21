@@ -1331,3 +1331,93 @@ identical pickers.
 composition editor on a second layer with the same composition they
 just set — that's the moment the friction is felt. Until then the
 manual re-pick is one extra click, not a workflow blocker.
+
+## 87. Orphan litho units created when no parent geology contact covers the suggestion depth (Tier D — backend root cause)
+
+**What.** `AcceptLithoSuggestions._compute_straddle_splits` returns
+`parent_formation_id=None` in three cases:
+
+1. No geology surfaces AND no geology contacts at the investigation
+   (the `if not geology_surfaces and not geology_contacts_at_inv`
+   branch).
+2. Geology contacts exist but none falls within `[top, base]` of the
+   suggestion AND `_parent_fid_for_depth(top, contacts_sorted)`
+   returns `None` (the suggestion top sits above the shallowest
+   geology contact at this investigation).
+3. The investigation has no geology contacts at all in this model
+   (`geology_contacts_at_inv == []`).
+
+The litho-builder `_create_litho_formation` accepts the `None` and
+creates a `GeologicalFormation` with `parent_formation_id=NULL` and
+`litho_main_soil_code` set. These orphan rows then haunt the
+frontend: they leaked into the Geology stage Layers panel until
+2026-05-21 when the legend filter switched to
+`isGeologicalFormation` (utils/formationKind.ts). The
+LithologyInspector groups them under an "Unassigned" bucket — so
+they ARE visible, just under a generic heading.
+
+**Why deferred.** Three pieces of unresolved design:
+
+1. **Refuse vs extrapolate vs accept-with-orphan-parent.** When the
+   user accepts a litho ghost above the shallowest geology contact,
+   the geologically-honest answer is "extend the geology contact
+   upward via TIN" (the formation must extend to the surface here).
+   But that mutates the geology model from a litho action, which
+   crosses the kind boundary; the cleaner alternative is to refuse
+   the accept with "draw a geology contact first". The third option
+   (today's behaviour) leaks orphan rows into the unassigned bucket.
+2. **Backfill of existing orphans.** A migration that walks every
+   orphan litho unit and tries to infer the parent via TIN sampling
+   at the unit's contact locations is feasible but only worth it if
+   the count is high; for dogfeed scale it's a no-op.
+3. **Stronger DB constraint.** `parent_formation_id` is nullable
+   today specifically for geological rows (they are the parent, not
+   the child). A `CHECK` constraint
+   `litho_main_soil_code IS NULL OR parent_formation_id IS NOT NULL`
+   would prevent orphan creation at the schema level — but breaks
+   the "create litho without geology" workflow until (1) is decided.
+
+**When to revisit.** When the dogfeed user complains about the
+"Unassigned" group filling up, or before the first external
+distribution (the orphan rows still serialise into `.gmproj`
+bundles, so cleanup before a paid release matters).
+
+## 88. `lithoFormations` filter uses `f.lithology != null` not the litho-builder discriminator (Tier E — latent inconsistency)
+
+**What.** `useGeologicalModel.ts:876` filters litho formations with
+`forms.filter(f => f.lithology != null)`, but the litho-builder
+`_create_litho_formation` path sets `litho_main_soil_code` and NOT
+`lithology` (the 3-level-data-model column). The `lithology` column
+is only set when a formation is created via the explicit
+`POST /projects/{pid}/geology/formations` endpoint with `lithology=...`
+in the body — which the litho-builder Accept-suggestion path does
+not use.
+
+So in principle, every litho-builder-created formation would be
+EXCLUDED from `lithoFormations` and therefore from the
+LithologyInspector, the LithoCompositionPickerDialog's existing-
+unit tab, and the composition reuse-match. The user has not reported
+this as a bug — possibly because the litho roster still works for
+some other reason (maybe an enrichment step sets `lithology`
+elsewhere, maybe the discriminator was intended to converge and
+hasn't yet). Worth a code audit before the next litho-roster
+investigation.
+
+**Why deferred.** Investigative work, not a clean fix. Three
+hypotheses to check:
+
+1. Some path (post-accept enrichment? a server-side schema
+   compute-on-read?) populates `lithology` on litho-builder rows and
+   the comment-vs-code disagreement is a stale comment.
+2. The litho roster is silently empty for litho-builder units and
+   the dogfeed user just hasn't noticed because the units appear via
+   the Phase-1.5 manual picker path which DOES set `lithology` (via
+   the `createFormation` endpoint).
+3. The frontend filter is wrong and should also switch to
+   `isLithoUnit` from `utils/formationKind.ts` (the discriminator
+   that 2026-05-21's geology-leak fix introduced).
+
+**When to revisit.** Right after the next dogfeed report that names
+the litho roster or the picker dialog — at that moment the
+hypothesis cleaves cleanly and the right fix is either "delete the
+stale comment" or "switch the filter".
