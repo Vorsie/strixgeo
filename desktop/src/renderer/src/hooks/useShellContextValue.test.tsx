@@ -225,6 +225,8 @@ function makeCtx(): ShellContextValue {
       handleChangeVirtueleBoringPicker: noopAsync,
       handleSetShowOverlay: vi.fn(),
       handleSetOverlayOverride: vi.fn(),
+      showConfidenceFade: true,
+      handleSetShowConfidenceFade: vi.fn(),
     },
     toasts: { toasts: [], toast: vi.fn() },
     undo: {
