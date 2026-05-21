@@ -1089,34 +1089,32 @@ found=M straddle=K …` — if K > 0 it's straddle-split (expected); if
 K = 0 and N > the displayed-layer count it's #74 territory.
 
 
-## 77. Unify single-anchor + bulk litho-suggestion state into one Map (Tier E — post-MVP cleanup)
+## 90. Drop the derived single-anchor bus accessors in favour of a flatter ghostsByAnchor surface (Tier E — Phase 2 of debt #77)
 
-**What.** The 2026-05-20 ship of debt #73 (bulk-suggest "Suggest all")
-added an additive `bulkLithoGhosts: Map<anchorId, BulkAnchorGhost>`
-state slot in `useGeologicalModel` alongside the existing single-
-anchor state (`lithoSuggestions` / `lithoSuggestionInvestigationId` /
-`lithoSuggestionAnchorKind` / `lithoSuggestionAccepted` /
-`lithoSuggestionRejected` / `lithoSuggestionEdits`). Both modes
-coexist on a section — focus + Suggest stays in the single-anchor
-slot; "Suggest all" populates the Map. The duplication is the cost
-of shipping bulk without a deep refactor.
+**What.** Debt #77 Phase 1 shipped 2026-05-21: the internal storage
+collapsed to one `ghostsByAnchor` Map + `focusedSuggestAnchorId` ref.
+The bus interface still exposes the six single-anchor accessors
+(`lithoSuggestions` / `lithoSuggestionInvestigationId` / ...) as
+`useMemo`-derived views over the Map, plus `bulkLithoGhosts` as the
+Map minus the focused entry. Phase 2 would simplify the bus surface
+itself — drop the derived accessors, expose only the Map +
+`focusedSuggestAnchorId`. Consumers read from the Map directly via
+a selector helper.
 
-Cleanup: replace the single-anchor state with a Map<anchorId,
-BulkAnchorGhost> of one entry. Every handler becomes anchor-scoped;
-selectors derive the current focus from a separate
-`currentFocusedAnchorId` hint. SectionsCanvas / SectionPanel render
-the same `LithoSuggestionGhostColumns` instance set in both modes
-(N=1 for single, N>1 for bulk).
+Phase 1 preserved zero consumer churn at the cost of a 6-selector
+backwards-compat shim inside the hook. Phase 2 removes the shim
+and pushes the selector logic to each consumer — flatter shape,
+touches the ~15 files originally cited in the #77 entry.
 
-**Why deferred.** The dual-state shape is dogfeed-acceptable and the
-extra LOC is bounded. Unifying touches ~115 references across many
-files and is the kind of "fundamentally-the-same-but-rewire-everything"
-refactor that should land in a quiet pre-ship window, not mid-dogfeed.
+**Why deferred.** Phase 1 alone delivers the dual-state-collapse
+goal that originally motivated #77. The bus-shape simplification is
+pure ergonomics + grep-ability — no user-visible win, no bug-class
+reduction. Worth doing alongside the next significant
+SectionPanel/SectionsCanvas touch.
 
-**When to revisit.** Before the first external user receives the
-binary — clean state shape lowers the surface area of future
-features (#72 ghost composition edit, #76 accept-all diagnostics).
-
+**When to revisit.** Next time SectionsCanvas's `lithoGhostState`
+or `bulkLithoGhostState` build sites change for another reason —
+fold the bus-shape switch into that commit.
 
 ## 82. Drag-from-ghost-edge → correlation (Tier E — Phase 2.5 gesture follow-on)
 
