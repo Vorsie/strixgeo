@@ -82,14 +82,14 @@ export default function AppDialogs({
             key={t.id}
             className={[
               'flex items-center gap-2 px-3 py-2 rounded shadow-lg text-sm text-white',
-              t.type === 'success' ? 'bg-green-600' : 'bg-red-600',
+              t.type === 'success'
+                ? 'bg-green-600'
+                : t.type === 'warning'
+                  ? 'bg-amber-600'
+                  : 'bg-red-600',
             ].join(' ')}
           >
-            {t.type === 'success' ? (
-              <CheckCircle size={14} />
-            ) : (
-              <AlertTriangle size={14} />
-            )}
+            {t.type === 'success' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
             {t.message}
           </div>
         ))}

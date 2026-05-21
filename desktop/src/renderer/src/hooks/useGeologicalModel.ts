@@ -34,6 +34,7 @@ import type {
   PinchOutExtrapolationResponse,
   ProjectResponse,
 } from '../api/client'
+import { formatAcceptParentSummary } from '../utils/acceptLithoSummary'
 import type { UndoCommand } from './useUndoStack'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
@@ -583,7 +584,7 @@ export function useGeologicalModel({
   stageLumping,
 }: {
   project: ProjectResponse | null
-  toast: (type: 'success' | 'error', message: string) => void
+  toast: (type: 'success' | 'error' | 'warning', message: string) => void
   pushUndo: (cmd: UndoCommand) => void
   addToManifest: (kind: 'formation', ids: string[]) => void
   removeFromManifest: (kind: 'formation', ids: Iterable<string>) => void
@@ -3020,6 +3021,10 @@ export function useGeologicalModel({
           'geology',
           `acceptLithoSuggestion ok idx=${idx} created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count}`,
         )
+        // Debt #87: surface a warning toast when any created unit needs
+        // engineer review (TIN-extrapolated parent or fully unassigned).
+        const summary = formatAcceptParentSummary(result)
+        if (summary !== null) toast(summary.kind, summary.message)
         // Forward updated_section so the section's explicit-content filter
         // includes the newly seeded contacts — #57 class trap.
         if (result.updated_section != null && onSectionUpdated != null) {
@@ -3121,6 +3126,9 @@ export function useGeologicalModel({
           'geology',
           `acceptAllLithoSuggestions ok created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count} stale_tin_fallback=${result.stale_tin_fallback_count}`,
         )
+        // Debt #87: see acceptLithoSuggestion site above.
+        const summary = formatAcceptParentSummary(result)
+        if (summary !== null) toast(summary.kind, summary.message)
         // Forward updated_section — #57 invariant.
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
@@ -3353,6 +3361,10 @@ export function useGeologicalModel({
           'geology',
           `acceptBulkLitho ok anchor=${anchorId} idx=${idx} contacts=${result.created_contact_ids.length + result.found_contact_ids.length}`,
         )
+        // Debt #87: warn when this single bulk accept produced any unit
+        // needing review.
+        const summary = formatAcceptParentSummary(result)
+        if (summary !== null) toast(summary.kind, summary.message)
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
         }
@@ -3401,6 +3413,11 @@ export function useGeologicalModel({
       log.debug('geology', `acceptAllBulkLitho anchors=${bulkGhostsByAnchor.size}`)
       const failures: string[] = []
       let totalCommitted = 0
+      // Debt #87: aggregate across anchors so a single end-of-pass
+      // warning toast names the total count needing review (one toast,
+      // not N).
+      let totalExtrapolated = 0
+      let totalOrphan = 0
       // Snapshot the Map entries so subsequent setState calls don't
       // mutate what we're iterating.
       const entries = Array.from(bulkGhostsByAnchor.entries())
@@ -3440,6 +3457,8 @@ export function useGeologicalModel({
             body,
           )
           totalCommitted += result.created_contact_ids.length + result.found_contact_ids.length
+          totalExtrapolated += result.extrapolated_formation_ids?.length ?? 0
+          totalOrphan += result.orphan_formation_ids?.length ?? 0
           if (result.updated_section != null && onSectionUpdated != null) {
             onSectionUpdated(result.updated_section)
           }
@@ -3461,8 +3480,23 @@ export function useGeologicalModel({
       }
       log.success(
         'geology',
-        `acceptAllBulkLitho done anchors=${entries.length} contacts=${totalCommitted} failures=${failures.length}`,
+        `acceptAllBulkLitho done anchors=${entries.length} contacts=${totalCommitted} failures=${failures.length} extrapolated=${totalExtrapolated} orphan=${totalOrphan}`,
       )
+      // Debt #87: emit ONE aggregated warning when any anchor produced
+      // units needing review. Built via the same helper for wording parity.
+      const aggSummary = formatAcceptParentSummary({
+        // Only the two lists drive the helper — empty everything else.
+        created_formation_ids: [],
+        found_formation_ids: [],
+        created_contact_ids: [],
+        found_contact_ids: [],
+        straddle_split_count: 0,
+        stale_tin_fallback_count: 0,
+        extrapolated_formation_ids: new Array(totalExtrapolated).fill(''),
+        orphan_formation_ids: new Array(totalOrphan).fill(''),
+        updated_section: null,
+      })
+      if (aggSummary !== null) toast(aggSummary.kind, aggSummary.message)
       if (failures.length > 0) {
         toast('error', `Accepted ${entries.length - failures.length}/${entries.length} — ${failures.length} failed.`)
       }

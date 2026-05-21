@@ -215,7 +215,7 @@ export function useSections({
   project: { id: string; default_horizontal_epsg: number | null; name: string } | null
   /** From ``useAppBoot`` — data loading waits until the API is up. */
   ready: boolean
-  toast: (type: 'success' | 'error', message: string) => void
+  toast: (type: 'success' | 'error' | 'warning', message: string) => void
   pushUndo: (cmd: UndoCommand) => void
   manifestSectionIds: ReadonlySet<string>
   addToManifest: (kind: 'section', ids: string[]) => void

@@ -153,7 +153,7 @@ export function useInvestigationData({
 }: {
   project: { id: string; name: string } | null
   ready: boolean
-  toast: (type: 'success' | 'error', message: string) => void
+  toast: (type: 'success' | 'error' | 'warning', message: string) => void
   pushUndo: (cmd: UndoCommand) => void
   addToManifest: (kind: 'cpt' | 'borehole', ids: string[]) => void
   setSessionImportCptIds: Dispatch<SetStateAction<Set<string>>>

@@ -105,7 +105,7 @@ export function useMapOverlays({
 }: {
   project: ProjectResponse | null
   applyViewStatePatch: (patch: Record<string, unknown>) => Promise<boolean>
-  toast: (type: 'success' | 'error', message: string) => void
+  toast: (type: 'success' | 'error' | 'warning', message: string) => void
 }): UseMapOverlaysResult {
   // ---------------------------------------------------------------------------
   // DEM hillshade

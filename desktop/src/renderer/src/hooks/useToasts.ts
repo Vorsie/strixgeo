@@ -11,7 +11,7 @@ import { useRef, useState } from 'react'
 /** A single in-flight notification. */
 export interface Toast {
   id: number
-  type: 'success' | 'error'
+  type: 'success' | 'error' | 'warning'
   message: string
 }
 
@@ -19,7 +19,7 @@ export interface UseToastsResult {
   /** Current live toasts — render these as the stack. */
   toasts: Toast[]
   /** Append a toast and schedule its auto-dismissal after 4 s. */
-  toast: (type: 'success' | 'error', message: string) => void
+  toast: (type: 'success' | 'error' | 'warning', message: string) => void
 }
 
 /**
@@ -48,7 +48,7 @@ export function useToasts(): UseToastsResult {
   // never goes stale. Keeping it out of useCallback prevents it from
   // appearing in dep arrays of other hooks (which would cause false
   // re-subscription cycles).
-  function toast(type: 'success' | 'error', message: string): void {
+  function toast(type: 'success' | 'error' | 'warning', message: string): void {
     const id = ++toastId.current
     setToasts(prev => [...prev, { id, type, message }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)

@@ -98,7 +98,7 @@ function makeArgs(overrides: {
   manifestSectionIds?: ReadonlySet<string>
   ready?: boolean
 } = {}) {
-  const toast = vi.fn() as (type: 'success' | 'error', message: string) => void
+  const toast = vi.fn() as (type: 'success' | 'error' | 'warning', message: string) => void
   // pushUndo's real signature takes an UndoCommand; the test never
   // inspects the arg so a thin no-op typed to the actual contract
   // is enough.
