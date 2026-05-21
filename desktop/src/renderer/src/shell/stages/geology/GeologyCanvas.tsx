@@ -26,6 +26,7 @@ import { Mountain, Plus } from 'lucide-react'
 
 import { api } from '../../../api/client'
 import type { GroundSurfaceBuildResponse } from '../../../api/client'
+import { isGeologicalFormation } from '../../../utils/formationKind'
 import { useShell } from '../../ShellContext'
 import Geology3DViewer, {
   type SplitMode,
@@ -181,17 +182,25 @@ export default function GeologyCanvas(): JSX.Element {
 
   const projectEpsg = project.default_horizontal_epsg ?? 31370
 
-  // The geoModel bus exposes EVERY formation in the project — both
-  // geological (parent_formation_id === null) and lithostratigraphic
-  // (parent_formation_id !== null, also carries litho_main_soil_code).
-  // The Geology stage must only show the geological vocabulary; litho
-  // formations belong in the Litho stage. Filter here so the 3D
-  // viewer's Layers panel + body rendering both honour the boundary.
+  // The geoModel bus exposes EVERY formation in the project —
+  // geological, lithostratigraphic, and geotech. The Geology stage
+  // must only show the geological vocabulary; litho / geotech units
+  // belong in their own stages. Filter here so the 3D viewer's
+  // Layers panel + body rendering both honour the boundary.
+  //
+  // The earlier naive predicate (``parent_formation_id === null``)
+  // leaked orphan litho units (dogfeed bug 2026-05-21:
+  // SILT / KLEI / ZAND showing in the Geology Layers panel for
+  // investigations where the litho ghost was accepted above the
+  // shallowest geo contact, leaving ``parent_formation_id=null``).
+  // ``isGeologicalFormation`` discriminates on ``litho_main_soil_code``
+  // + ``nad_class`` — see utils/formationKind.ts for the rationale.
+  //
   // Surfaces map stays unfiltered — Geology3DViewer iterates
   // ``formations``, so any litho surfaces without a matching formation
   // are silently ignored.
   const geologicalFormations = useMemo(
-    () => formations.filter(f => f.parent_formation_id === null),
+    () => formations.filter(isGeologicalFormation),
     [formations],
   )
 
