@@ -17,13 +17,14 @@
  * collision with existing overlays.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
 import { useClickDebounce } from '../../hooks/useClickDebounce'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
+import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
 import MergeConfirmDialog from './MergeConfirmDialog'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
@@ -501,6 +502,23 @@ export interface LithoSuggestionGhostColumnsProps {
     suggested_lithology?: string
     suggested_admixtures?: readonly { soil_code: string; amount: string; locally: boolean }[]
   }) => void
+  /**
+   * Debt #86: copy composition to a different anchor (cross-column
+   * Alt-drag drop).  Same-column drops use ``onEdit`` directly; this
+   * callback is only fired when the drop target's anchor differs from
+   * this component's ``investigationId``.  The owner of the bulk-ghost
+   * Map (``useGeologicalModel.handleEditBulkLitho``) routes the edit
+   * to the right anchor.  Optional — when absent, cross-column drops
+   * are a no-op (zero regression for callers that haven't opted in).
+   */
+  onCrossColumnPaste?: (
+    targetAnchorId: string,
+    targetIdx: number,
+    edit: {
+      suggested_lithology: string
+      suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+    },
+  ) => void
 }
 
 /**
@@ -559,6 +577,7 @@ export default function LithoSuggestionGhostColumns({
   formations = [],
   edits,
   onEdit,
+  onCrossColumnPaste,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
   // updated on document mousemove; cleared on mouseup which fires
@@ -652,6 +671,36 @@ export default function LithoSuggestionGhostColumns({
   // the Save handler can call onEdit at the same level the click
   // handlers are wired.
   const [editIdx, setEditIdx] = useState<number | null>(null)
+
+  // Debt #86: Alt-drag copy-composition gesture. Carries the source
+  // layer's composition + the cursor's current screen position so a
+  // floating chip can be rendered as a drag preview. Cleared on
+  // mouseup (whether the drop succeeds or not). null = no copy-drag
+  // in progress.
+  const [copyDrag, setCopyDrag] = useState<{
+    sourceIdx: number
+    clientX: number
+    clientY: number
+    /** Resolved target on mousemove via document.elementsFromPoint —
+     *  drives the amber outline on the hovered drop target. */
+    hoverTarget: { anchorId: string; idx: number } | null
+  } | null>(null)
+  // Suppress the click event that fires after a copy-drag mouseup —
+  // the body rect's onClick would otherwise fire onAccept. Reset on
+  // the next mousedown.
+  const copyDragJustEndedRef = useRef(false)
+
+  // Pending overwrite confirmation when the copy-drag drop lands on a
+  // target that already has an edit (debt #86 owner directive: Confirm
+  // on overwrite). null = dialog closed.
+  const [pendingCopy, setPendingCopy] = useState<{
+    sourceLayer: LithoLayerSuggestion
+    targetAnchorId: string
+    targetIdx: number
+    /** Pre-resolved target label (so the dialog can name it without
+     *  re-routing through the cross-anchor formations list). */
+    targetLabel: string
+  } | null>(null)
 
   // Per-layer context menu (dogfeed 2026-05-20). Right-click on a
   // pending layer opens a small floating menu with [Edit composition,
@@ -838,6 +887,113 @@ export default function LithoSuggestionGhostColumns({
     }
   }, [drag, pxPerM, onEdit, onReject, suggestions.length, acceptedIndices, rejectedIndices])
 
+  // Debt #86: document-level mousemove + mouseup while a copy-drag is
+  // active. Uses ``document.elementsFromPoint`` to find a drop target
+  // by its ``data-litho-anchor-id`` + ``data-litho-idx`` attributes —
+  // works across sibling LithoSuggestionGhostColumns instances so the
+  // gesture supports cross-investigation drops.
+  useEffect(() => {
+    if (copyDrag === null) return
+    function resolveTarget(
+      clientX: number,
+      clientY: number,
+    ): { anchorId: string; idx: number } | null {
+      // JSDOM's elementsFromPoint may be unavailable; guard so tests
+      // can render without it (and so the gesture degrades gracefully
+      // if a future host lacks it).
+      if (typeof document.elementsFromPoint !== 'function') return null
+      const els = document.elementsFromPoint(clientX, clientY)
+      for (const el of els) {
+        const anchorId = el.getAttribute?.('data-litho-anchor-id')
+        const idxStr = el.getAttribute?.('data-litho-idx')
+        if (anchorId && idxStr !== null && idxStr !== undefined) {
+          const idx = Number(idxStr)
+          if (Number.isFinite(idx)) {
+            // Reject self (the source layer is its own valid target
+            // would be a no-op — drop on a different layer required).
+            if (anchorId === investigationId && idx === copyDrag?.sourceIdx) {
+              return null
+            }
+            return { anchorId, idx }
+          }
+        }
+      }
+      return null
+    }
+    function handleMove(e: MouseEvent): void {
+      const target = resolveTarget(e.clientX, e.clientY)
+      setCopyDrag(d =>
+        d !== null
+          ? { ...d, clientX: e.clientX, clientY: e.clientY, hoverTarget: target }
+          : null,
+      )
+    }
+    function handleUp(e: MouseEvent): void {
+      const target = resolveTarget(e.clientX, e.clientY)
+      // Mark the click event that may follow this mouseup as "from a
+      // copy-drag" so the body rect's onClick (onAccept) is a no-op.
+      copyDragJustEndedRef.current = true
+      // Schedule reset after the click event has had a chance to fire.
+      setTimeout(() => {
+        copyDragJustEndedRef.current = false
+      }, 0)
+      if (target === null || copyDrag === null) {
+        setCopyDrag(null)
+        return
+      }
+      const sourceLayer = suggestions[copyDrag.sourceIdx]
+      // Pre-resolve target's effective composition to decide whether
+      // an overwrite confirm is needed. Same-anchor targets read from
+      // the local edits Map + raw suggestions; cross-anchor targets
+      // are conservatively treated as "no existing edit" (the bulk
+      // edit map is not visible from this component instance; the
+      // parent's onCrossColumnPaste owns the conflict resolution if
+      // it wants to add one). Owner-pragmatic: cross-column overwrite
+      // confirm is deferred — same-column is the common case where
+      // the user just changed a composition and wants to paste it.
+      const targetIsSameAnchor = target.anchorId === investigationId
+      const targetExistingEdit = targetIsSameAnchor
+        ? edits?.get(target.idx)
+        : undefined
+      const hasExistingComposition =
+        targetExistingEdit?.suggested_lithology !== undefined ||
+        (targetExistingEdit?.suggested_admixtures?.length ?? 0) > 0
+      if (hasExistingComposition) {
+        // Defer to the confirm dialog.
+        const tgtRaw = targetIsSameAnchor ? suggestions[target.idx] : null
+        const tgtEffectiveLitho =
+          targetExistingEdit?.suggested_lithology ?? tgtRaw?.suggested_lithology ?? '?'
+        const tgtEffectiveAdmix =
+          targetExistingEdit?.suggested_admixtures ?? tgtRaw?.suggested_admixtures ?? []
+        setPendingCopy({
+          sourceLayer,
+          targetAnchorId: target.anchorId,
+          targetIdx: target.idx,
+          targetLabel: formatLithoDisplayName(tgtEffectiveLitho, tgtEffectiveAdmix),
+        })
+        setCopyDrag(null)
+        return
+      }
+      // Silent commit — no existing edit, no prompt.
+      const edit = {
+        suggested_lithology: sourceLayer.suggested_lithology,
+        suggested_admixtures: sourceLayer.suggested_admixtures,
+      }
+      if (targetIsSameAnchor) {
+        if (onEdit) onEdit(target.idx, edit)
+      } else {
+        if (onCrossColumnPaste) onCrossColumnPaste(target.anchorId, target.idx, edit)
+      }
+      setCopyDrag(null)
+    }
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+  }, [copyDrag, edits, investigationId, onCrossColumnPaste, onEdit, suggestions])
+
   if (suggestions.length === 0 || surfaceElevationM === null) return null
 
   const col = columns.find(c => c.proj.item.id === investigationId)
@@ -972,6 +1128,7 @@ export default function LithoSuggestionGhostColumns({
             <LithoSuggestionLayer
               layer={effective}
               idx={idx}
+              anchorId={investigationId}
               left={left}
               width={ghostWidth}
               surfaceElevationM={surfaceElevationM}
@@ -986,6 +1143,22 @@ export default function LithoSuggestionGhostColumns({
               onRequestEdit={onEdit ? setEditIdx : undefined}
               onRequestContextMenu={(layerIdx, x, y) =>
                 setContextMenu({ idx: layerIdx, x, y })
+              }
+              onCopyMouseDown={
+                onEdit !== undefined
+                  ? (layerIdx, x, y) => {
+                      setCopyDrag({
+                        sourceIdx: layerIdx,
+                        clientX: x,
+                        clientY: y,
+                        hoverTarget: null,
+                      })
+                    }
+                  : undefined
+              }
+              isCopyHoverTarget={
+                copyDrag?.hoverTarget?.anchorId === investigationId &&
+                copyDrag?.hoverTarget?.idx === idx
               }
               formationNameById={formationNameById}
             />
@@ -1184,6 +1357,52 @@ export default function LithoSuggestionGhostColumns({
         </div>,
         document.body,
       )}
+    {/* Debt #86: Alt-drag preview chip (floating, follows the cursor).
+        Rendered via createPortal at fixed clientX/Y so it doesn't have
+        to live inside the SVG coordinate space. Cleared on mouseup. */}
+    {copyDrag !== null &&
+      createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: copyDrag.clientX + 12,
+            top: copyDrag.clientY + 12,
+            zIndex: 10000,
+            pointerEvents: 'none',
+          }}
+          className="bg-amber-500 text-white text-xs font-medium px-2 py-1 rounded shadow"
+          data-testid="copy-composition-preview-chip"
+        >
+          Copy {formatLithoDisplayName(
+            suggestions[copyDrag.sourceIdx]?.suggested_lithology ?? '?',
+            suggestions[copyDrag.sourceIdx]?.suggested_admixtures ?? [],
+          )}
+        </div>,
+        document.body,
+      )}
+    {/* Debt #86 overwrite confirm — opens when the drop target already
+        has an edit. Confirm fires the deferred onEdit / onCrossColumnPaste;
+        Cancel drops the gesture. */}
+    <CopyCompositionConfirmDialog
+      open={pendingCopy !== null}
+      sourceLayer={pendingCopy?.sourceLayer ?? null}
+      targetLabel={pendingCopy?.targetLabel ?? ''}
+      onConfirm={() => {
+        if (pendingCopy === null) return
+        const { sourceLayer, targetAnchorId, targetIdx } = pendingCopy
+        const edit = {
+          suggested_lithology: sourceLayer.suggested_lithology,
+          suggested_admixtures: sourceLayer.suggested_admixtures,
+        }
+        if (targetAnchorId === investigationId) {
+          if (onEdit) onEdit(targetIdx, edit)
+        } else {
+          if (onCrossColumnPaste) onCrossColumnPaste(targetAnchorId, targetIdx, edit)
+        }
+        setPendingCopy(null)
+      }}
+      onCancel={() => setPendingCopy(null)}
+    />
     {/* Drag-cascade merge confirm dialog (debt #83 + #84). Opens when
         mouseup snaps with one or more NEIGHBOUR layers absorbed.
         Confirm commits both the depth edit AND the chain rejections;
@@ -1222,6 +1441,7 @@ export default function LithoSuggestionGhostColumns({
 function LithoSuggestionLayer({
   layer,
   idx,
+  anchorId,
   left,
   width,
   surfaceElevationM,
@@ -1235,10 +1455,17 @@ function LithoSuggestionLayer({
   onUnreject,
   onRequestEdit,
   onRequestContextMenu,
+  onCopyMouseDown,
+  isCopyHoverTarget,
   formationNameById,
 }: {
   layer: LithoLayerSuggestion
   idx: number
+  /** Investigation id (CPT or borehole) this column belongs to.
+   *  Stamped on the rect as ``data-litho-anchor-id`` so cross-column
+   *  Alt-drag hit-tests via document.elementsFromPoint can resolve
+   *  which anchor the target rect belongs to (debt #86). */
+  anchorId: string
   left: number
   width: number
   surfaceElevationM: number
@@ -1266,6 +1493,16 @@ function LithoSuggestionLayer({
    * expect right-click to open a menu, not destroy.
    */
   onRequestContextMenu?: (idx: number, clientX: number, clientY: number) => void
+  /**
+   * Debt #86: fired on mousedown when the Alt key is held — arms the
+   * copy-composition drag gesture in the parent component.  The
+   * default click/accept path is suppressed for this gesture via the
+   * parent's ``copyDragJustEndedRef``.
+   */
+  onCopyMouseDown?: (idx: number, clientX: number, clientY: number) => void
+  /** True when a copy-drag is hovering this rect — renders an amber
+   *  outline so the user sees a valid drop target. */
+  isCopyHoverTarget?: boolean
   formationNameById: ReadonlyMap<string, string>
 }): JSX.Element | null {
   // Click-debounce gate — without it, the first click of a dbl-click
@@ -1386,6 +1623,11 @@ function LithoSuggestionLayer({
   const strokeWidth = accepted || (layer.spans_boundary && !rejected) ? 1.5 : 0.5
   const strokeDasharray = layer.spans_boundary && !accepted && !rejected ? '4 2' : undefined
 
+  // Debt #86: drop-target highlight — amber outline over the existing
+  // stroke when a copy-drag is hovering this layer.
+  const effectiveStroke = isCopyHoverTarget ? '#f59e0b' : strokeColor
+  const effectiveStrokeWidth = isCopyHoverTarget ? 2 : strokeWidth
+
   return (
     <g>
       <rect
@@ -1395,9 +1637,9 @@ function LithoSuggestionLayer({
         height={height}
         fill={fill}
         fillOpacity={opacity}
-        stroke={strokeColor}
+        stroke={effectiveStroke}
         strokeOpacity={accepted ? 0.9 : 0.7}
-        strokeWidth={strokeWidth}
+        strokeWidth={effectiveStrokeWidth}
         strokeDasharray={strokeDasharray}
         // Accepted / rejected layers let clicks pass through to the
         // ContactPickBar underneath so the user can place a NEW
@@ -1409,6 +1651,23 @@ function LithoSuggestionLayer({
           accepted || rejected
             ? { cursor: 'default', pointerEvents: 'none' }
             : { cursor: 'pointer' }
+        }
+        // Debt #86: pending-layer rects stamp anchor+idx so cross-column
+        // Alt-drag hit-tests via document.elementsFromPoint can resolve
+        // the drop target. Stamped even when onCopyMouseDown is not
+        // wired so a hosting component instance still receives a drop
+        // FROM a sibling instance.
+        data-litho-anchor-id={accepted || rejected ? undefined : anchorId}
+        data-litho-idx={accepted || rejected ? undefined : idx}
+        onMouseDown={
+          onCopyMouseDown !== undefined && !accepted && !rejected
+            ? e => {
+                if (!e.altKey) return
+                e.preventDefault()
+                e.stopPropagation()
+                onCopyMouseDown(idx, e.clientX, e.clientY)
+              }
+            : undefined
         }
         onClick={accepted || rejected ? undefined : handleClick}
         onDoubleClick={accepted || rejected ? undefined : handleDoubleClick}
