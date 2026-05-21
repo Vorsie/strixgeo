@@ -393,13 +393,31 @@ CptChart then shows only measured curves.
 **Related (litho slice 3, 2026-05-17):** the litho segmenter
 classifies CPT lithology via a faithful port of Daniel Verastegui's
 Robertson **2015** Qtn/F/Ic + **2009** chart-zone method
-(``domain/services/robertson_2015.py``). The ``CptChart.tsx`` Ic
-panel still shows the older Robertson **1990** preview
-(``cpt_interpretation.py``, deliberately frozen). The two methods can
-disagree at zone boundaries — a known, accepted divergence. Reconcile
-when this item is actioned: repoint the chart panel at the 2015/2009
-path so the whole app is consistent on Daniel's method (owner
-decision 2026-05-17 — option "port 2015, switch chart later").
+(``domain/services/robertson_2015.py``).
+
+**Reconciliation shipped 2026-05-21.** The ``/cpt/{id}/plot`` endpoint
+(and ``/cpt/plot-batch``) now sources Ic from
+``robertson_2015.ic_series_2015`` — a thin wrapper around the same
+2015 stress + Qtn/F/Ic pipeline the litho segmenter uses — instead of
+the frozen Robertson **1990** preview in
+``cpt_interpretation.calculate_ic_series``. Response shape unchanged
+(still ``ic: list[float | None]``). Chart legend label + Parameters
+``PerTestTab`` Ic̄ column header updated from "Robertson 1990" to
+"Robertson 2015". 3 new unit pins on the wrapper (empty/length/None-
+propagation); existing pins on the iterative Qtn/F/Ic core are
+unchanged. 1046 vitest + 913 unit + tsc clean.
+
+The two-method-disagreement-at-zone-boundaries note is now retired —
+the whole app is consistent on Daniel's method. The frozen Robertson
+1990 ``cpt_interpretation`` module stays in place as a domain peer
+(other callers may exist for historical analysis); it just is no
+longer the chart's data source.
+
+**Still open under #22.** The FULL Ic/SBT-into-Parameters-stage split
+remains a Phase 5 deliverable — that's the bigger work the original
+entry calls out. The reconciliation above closes only the "two
+methods diverging" half of the debt. CLAUDE.md Tier E keeps #22 until
+the full split lands.
 
 ## 27. Bathymetry / water-surface DEM cells — no bed-elevation data (low — Tier E)
 
