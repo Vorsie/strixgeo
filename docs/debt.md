@@ -1293,3 +1293,41 @@ lithology + NAD agree (the boundary is the harder geological signal).
 shared (cross-multiple-layers detection). Bundle (1)+(2)+(3) into one
 focused design session; ship the snap-to-collapse path first as the
 strict subset that doesn't need NAD lookup.
+
+## 86. Horizontal drag-to-copy composition across layers (Tier D — new gesture)
+
+**What.** Dogfeed 2026-05-20 follow-on to the composition-render fix:
+"when i do sthing like this, i want to be able to horizontally drag
+the new layer composition to anothe rlayer to gitve it the same
+admixtues and main". The gesture: pick up an edited layer's
+composition (main lithology + admixture list) and drag horizontally
+onto another layer — in the same investigation column OR in an
+adjacent investigation — and the target layer adopts the same
+composition. Saves the user re-opening the editor and re-clicking
+identical pickers.
+
+**Why deferred.** Three pieces of unresolved design:
+
+1. **Source detection on drag-start.** A pending layer rect is already
+   clickable (dbl-click → composition editor) and right-clickable
+   (focus). A horizontal drag that originates inside a layer rect
+   must not collide with the existing drag-to-resize gesture, which
+   today is bound to the edge handles only — but the geometry is
+   tight. Probably: drag must START >4 px from any edge AND move
+   ≥10 px horizontally before the copy-composition mode arms (vs
+   vertical = edge-resize, vertical drag inside-rect = inert).
+2. **Target eligibility.** Same-column targets are obvious. Cross-
+   column targets need: (a) the target investigation has a pending
+   ghost in the drop range, (b) the source and target are both
+   ghosts (not committed contacts — those should be edited via
+   PATCH, not gesture-copied), (c) optional: highlight valid targets
+   on drag.
+3. **Overwrite semantics.** If the target already has an edit, does
+   the copy clobber it (silently? with confirm?) or merge? Owner-
+   decided. Probably: silent clobber on drop, undo via right-click
+   `↻` if the user regrets it (mirrors #80's reject-undo pattern).
+
+**When to revisit.** Next dogfeed report where the user re-opens the
+composition editor on a second layer with the same composition they
+just set — that's the moment the friction is felt. Until then the
+manual re-pick is one extra click, not a workflow blocker.
