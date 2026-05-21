@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import { Trash2, FileOutput, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge } from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
-import { ToolbarButton, PrimaryToolbarButton } from '../../ToolbarPrimitives'
+import { ToolbarButton, ToolbarDropdown, PrimaryToolbarButton } from '../../ToolbarPrimitives'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
@@ -700,39 +700,53 @@ export default function SectionsToolbar(): JSX.Element {
       {/* Separator */}
       <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
 
-      {/* Export DXF — requires a section + active model */}
-      <ToolbarButton
+      {/* Debt #93: Export DXF + Plaxis 3D collapsed under one "Export ▾"
+          dropdown to declutter the main toolbar.  Both verbs are still
+          one click away (trigger + item) but the toolbar no longer
+          dedicates two slots to them.  The trigger disables when
+          neither item would be reachable. */}
+      <ToolbarDropdown
         icon={<FileOutput size={13} />}
-        label={exportingDxf ? 'Exporting…' : 'Export DXF'}
-        onClick={handleExportDxf}
-        disabled={!hasSection || !hasModel || exportingDxf}
-        busy={exportingDxf}
-        title={
-          !hasSection
-            ? 'Select a section to export'
-            : !hasModel
-              ? 'No active geological model — contacts must exist first'
-              : exportingDxf
-                ? 'Exporting…'
-                : 'Export this section as DXF'
+        label="Export"
+        disabled={
+          (!hasSection || !hasModel || exportingDxf) &&
+          (geoVerbDisabled || exportingPlaxis)
         }
-      />
-
-      {/* Export Plaxis 3D — model-level, not section-scoped */}
-      <ToolbarButton
-        icon={<Cpu size={13} />}
-        label={exportingPlaxis ? 'Exporting…' : 'Plaxis 3D'}
-        onClick={handleExportPlaxis}
-        disabled={geoVerbDisabled || exportingPlaxis}
-        busy={exportingPlaxis}
         title={
-          geoVerbHint ??
-          (activeGeologicalModel === null
-            ? 'No active geological model'
-            : exportingPlaxis
-              ? 'Exporting…'
-              : 'Export the geological model as a Plaxis 3D plxscripting Python script')
+          exportingDxf || exportingPlaxis ? 'Exporting…' : 'Export the model or this section'
         }
+        testid="sections-toolbar-export-dropdown"
+        items={[
+          {
+            label: exportingDxf ? 'Exporting DXF…' : 'Section DXF',
+            icon: <FileOutput size={12} />,
+            onClick: () => void handleExportDxf(),
+            disabled: !hasSection || !hasModel || exportingDxf,
+            title:
+              !hasSection
+                ? 'Select a section to export'
+                : !hasModel
+                  ? 'No active geological model — contacts must exist first'
+                  : exportingDxf
+                    ? 'Exporting…'
+                    : 'Export this section as DXF',
+            testid: 'export-section-dxf',
+          },
+          {
+            label: exportingPlaxis ? 'Exporting Plaxis…' : 'Plaxis 3D script',
+            icon: <Cpu size={12} />,
+            onClick: () => void handleExportPlaxis(),
+            disabled: geoVerbDisabled || exportingPlaxis,
+            title:
+              geoVerbHint ??
+              (activeGeologicalModel === null
+                ? 'No active geological model'
+                : exportingPlaxis
+                  ? 'Exporting…'
+                  : 'Export the geological model as a Plaxis 3D plxscripting Python script'),
+            testid: 'export-plaxis-3d',
+          },
+        ]}
       />
 
       {/* Separator */}
