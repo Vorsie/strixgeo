@@ -1286,11 +1286,19 @@ describe('ContactsLayer', () => {
         alongMToScreenX: along => along + 10,
       },
     )
+    // Debt #28 follow-up: the slice is now a <g> wrapper around per-
+    // segment paths (per-vertex gradient renderer).  The wrapper carries
+    // the testid + data-stale; opacity + dasharray live on the child
+    // segment paths.  For this fixture the TIN is a single triangle
+    // (escape-hatch path → confidence 1.0 everywhere), so the per-
+    // segment opacity equals the base opacity.
     const slice = container.querySelector('[data-testid="formation-surface-f"]')
     expect(slice).not.toBeNull()
-    expect(slice!.getAttribute('stroke-opacity')).toBe('0.7')
-    expect(slice!.getAttribute('stroke-dasharray')).toBeNull()
     expect(slice!.getAttribute('data-stale')).toBeNull()
+    const seg = slice!.querySelector('path')
+    expect(seg).not.toBeNull()
+    expect(seg!.getAttribute('stroke-opacity')).toBe('0.7')
+    expect(seg!.getAttribute('stroke-dasharray')).toBeNull()
   })
 
   it('renders stale slice-of-TIN dashed + opacity 0.35', () => {
@@ -1337,9 +1345,11 @@ describe('ContactsLayer', () => {
     )
     const slice = container.querySelector('[data-testid="formation-surface-f"]')
     expect(slice).not.toBeNull()
-    expect(slice!.getAttribute('stroke-opacity')).toBe('0.35')
-    expect(slice!.getAttribute('stroke-dasharray')).toBe('6 3')
     expect(slice!.getAttribute('data-stale')).toBe('true')
+    const seg = slice!.querySelector('path')
+    expect(seg).not.toBeNull()
+    expect(seg!.getAttribute('stroke-opacity')).toBe('0.35')
+    expect(seg!.getAttribute('stroke-dasharray')).toBe('6 3')
   })
 
   it('renders the polyline to anchors beyond the TIN slice extent (draw-through)', () => {

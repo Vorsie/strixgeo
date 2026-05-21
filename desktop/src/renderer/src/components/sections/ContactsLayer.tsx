@@ -54,9 +54,8 @@ import type {
 } from '../../api/client'
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import {
-  CONFIDENCE_THRESHOLD,
   computeTriangleConfidence,
-  LOW_CONFIDENCE_ALPHA_MULTIPLIER,
+  confidenceToAlphaMultiplier,
 } from '../../utils/tinConfidence'
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
@@ -885,8 +884,14 @@ export default function ContactsLayer({
         formationId: string
         color: string
         name: string
-        dHigh: string
-        dLow: string
+        // Per-segment list: each entry is one M-L pair with its own
+        // opacity (continuous gradient via per-vertex confidence,
+        // debt #28 follow-up 2026-05-21).
+        segments: readonly { d: string; opacity: number }[]
+        // Concatenated single-path fallback for the toggle-off path
+        // (no fade → uniform opacity).  Same shape as the legacy
+        // dHigh string but for ALL segments at base opacity.
+        dUniform: string
         screenPoints: readonly { x: number; y: number }[]
         isStale: boolean
       }[]
@@ -895,8 +900,8 @@ export default function ContactsLayer({
       formationId: string
       color: string
       name: string
-      dHigh: string
-      dLow: string
+      segments: readonly { d: string; opacity: number }[]
+      dUniform: string
       screenPoints: readonly { x: number; y: number }[]
       isStale: boolean
     }[] = []
@@ -913,22 +918,21 @@ export default function ContactsLayer({
       if (points.length < 2) continue
       const meta = { color: line.color, name: line.name }
       const formationId = line.formationId
-      // Debt #28: per-triangle confidence drives a split into two
-      // SVG paths per formation — high-confidence band at full
-      // strokeOpacity, low-confidence at the reduced multiplier.
-      // Each segment between two consecutive slice points sits inside
-      // ONE triangle, so the segment's confidence is the triangle's.
+      // Debt #28 follow-up (2026-05-21): per-segment opacity for a
+      // true gradient on the section view.  Each segment between two
+      // consecutive slice points sits inside ONE triangle, so the
+      // segment's confidence is the triangle's; we map that confidence
+      // to a continuous alpha multiplier via ``confidenceToAlphaMultiplier``
+      // and emit one ``<path>`` per segment.  Across the polyline, the
+      // opacity varies smoothly — same continuous distance-to-data
+      // signal the 3D viewer uses.
       const confidence = computeTriangleConfidence(surface.vertices, surface.triangles)
       // Project each (alongM, elevationM) into screen space; clip
       // segments that leave the plot area in Y. Raw screen points are
       // retained for the formation-fill band builder downstream.
       const screenPoints: { x: number; y: number }[] = []
-      // For each consecutive pair of points, decide which band the
-      // segment belongs to via the triangleIdx, and append to dHigh
-      // or dLow accordingly. Out-of-range vertices break the current
-      // sub-path with a fresh M on the NEXT in-range vertex.
-      let dHigh = ''
-      let dLow = ''
+      const segments: { d: string; opacity: number }[] = []
+      let dUniform = ''
       let prevX: number | null = null
       let prevY: number | null = null
       let prevTriIdx: number | undefined = undefined
@@ -943,34 +947,28 @@ export default function ContactsLayer({
         }
         screenPoints.push({ x, y })
         if (prevX === null || prevY === null) {
-          // Pen-up; pen-down on this point happens via the segment-
-          // append on the NEXT iteration. Hold this point as the
-          // segment start.
           prevX = x
           prevY = y
           prevTriIdx = p.triangleIdx
           continue
         }
-        // Determine the segment's band. The two consecutive points
-        // come from the same triangle (sliceTin enumerates triangle-
-        // by-triangle); we read from the SECOND point's triangleIdx,
-        // falling back to the first when undefined (degenerate row).
         const tri = p.triangleIdx ?? prevTriIdx
-        const isHighBand = tri !== undefined && confidence[tri] >= CONFIDENCE_THRESHOLD
-        const seg = `M ${prevX.toFixed(2)} ${prevY.toFixed(2)} L ${x.toFixed(2)} ${y.toFixed(2)} `
-        if (isHighBand) dHigh += seg
-        else dLow += seg
+        const segConfidence = tri !== undefined ? confidence[tri] : 1.0
+        const opacity = confidenceToAlphaMultiplier(segConfidence)
+        const seg = `M ${prevX.toFixed(2)} ${prevY.toFixed(2)} L ${x.toFixed(2)} ${y.toFixed(2)}`
+        segments.push({ d: seg, opacity })
+        dUniform += seg + ' '
         prevX = x
         prevY = y
         prevTriIdx = p.triangleIdx
       }
-      if (dHigh === '' && dLow === '') continue
+      if (segments.length === 0) continue
       out.push({
         formationId,
         color: meta.color,
         name: meta.name,
-        dHigh,
-        dLow,
+        segments,
+        dUniform,
         screenPoints,
         isStale: surface.is_stale === true,
       })
@@ -2137,44 +2135,43 @@ export default function ContactsLayer({
         // the engineer can see "this is your last build, refresh to
         // update". Distinct from the connect-the-dots fallback (also
         // dashed but with a longer pattern + different opacity).
-        // Debt #28: per-confidence band split — high-confidence
-        // (data-backed) segments render at full opacity; low-
-        // confidence (hull-edge / sparse-data) segments render at the
-        // reduced multiplier so the user reads the fade as
-        // "extrapolation, no nearby data".
+        //
+        // Debt #28 follow-up (2026-05-21): true per-segment gradient.
+        // Each segment renders as its own ``<path>`` with continuous
+        // strokeOpacity derived from the underlying triangle confidence.
+        // When the confidence-fade toggle is OFF, fall back to a single
+        // concatenated path with uniform opacity (zero rendering cost
+        // overhead vs the gradient path, and visually disables the fade).
         const baseOpacity = line.isStale ? 0.35 : 0.7
         const dash = line.isStale ? '6 3' : undefined
         return (
-          <g key={`slice-${line.formationId}`}>
-            {line.dHigh !== '' && (
+          <g
+            key={`slice-${line.formationId}`}
+            data-testid={`formation-surface-${line.formationId}`}
+            data-stale={line.isStale ? 'true' : undefined}
+          >
+            {showConfidenceFade ? (
+              line.segments.map((seg, i) => (
+                <path
+                  key={i}
+                  d={seg.d}
+                  stroke={line.color}
+                  strokeWidth={1.25}
+                  strokeOpacity={baseOpacity * seg.opacity}
+                  strokeDasharray={dash}
+                  fill="none"
+                  pointerEvents="none"
+                />
+              ))
+            ) : (
               <path
-                d={line.dHigh}
+                d={line.dUniform}
                 stroke={line.color}
                 strokeWidth={1.25}
                 strokeOpacity={baseOpacity}
                 strokeDasharray={dash}
                 fill="none"
                 pointerEvents="none"
-                data-testid={`formation-surface-${line.formationId}`}
-                data-stale={line.isStale ? 'true' : undefined}
-              />
-            )}
-            {line.dLow !== '' && (
-              <path
-                d={line.dLow}
-                stroke={line.color}
-                strokeWidth={1.25}
-                strokeOpacity={
-                  // Debt #94 follow-up: gate fade behind toggle. Off
-                  // → multiplier 1.0, dLow segment matches dHigh.
-                  baseOpacity *
-                  (showConfidenceFade ? LOW_CONFIDENCE_ALPHA_MULTIPLIER : 1.0)
-                }
-                strokeDasharray={dash}
-                fill="none"
-                pointerEvents="none"
-                data-testid={`formation-surface-${line.formationId}-low`}
-                data-stale={line.isStale ? 'true' : undefined}
               />
             )}
           </g>
