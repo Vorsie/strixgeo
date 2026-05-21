@@ -291,6 +291,91 @@ async def export_section_dxf(
     )
 
 
+@router.get("/{section_id}/export/pdf")
+async def export_section_pdf(
+    project_id: UUID,
+    section_id: UUID,
+    model_id: UUID,
+    title: str | None = None,
+    author: str | None = None,
+    notes: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Export the section as a PDF project report (debt #52 slice 1).
+
+    First slice of the project-report subsystem. Produces a single-
+    section A4 portrait PDF with a title block + project metadata + the
+    section figure (packed-but-nudge-capped column layout, 35 m cap per
+    the owner directive) + a plan-view location-map inset with L/R
+    end-of-line markers.
+
+    Future slices ship the geometries report, the full geological +
+    lithological report, and the parameters report (each its own
+    endpoint, reusing this exporter's primitives — see debt #52).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    section_id : UUID
+        Section to export.  Must belong to ``project_id``.
+    model_id : UUID
+        Geological model whose contacts to render on the section.
+    title : str | None
+        Report title.  Defaults to ``"Cross-section: <section_name>"``.
+    author : str | None
+        Engineer name.  Defaults to empty.
+    notes : str | None
+        Free-text note rendered under the metadata table.  Defaults to
+        empty.
+
+    Returns
+    -------
+    Response
+        ``application/pdf`` body with a ``Content-Disposition`` header
+        proposing the filename ``"<section_name>.pdf"``.
+    """
+    from groundmodel.infrastructure.exporters.section_pdf_report_exporter import (
+        ReportMetadata,
+        SectionPdfReportExporter,
+    )
+
+    logger.info(f"GET /projects/{project_id}/sections/{section_id}/export/pdf (model={model_id})")
+    try:
+        snapshot = await BuildSectionSnapshot(session).execute(
+            app_project_id=project_id,
+            section_id=section_id,
+            model_id=model_id,
+        )
+    except ParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    _require_supported_section_crs(snapshot.crs_epsg, context="export this section")
+
+    effective_title = title or f"Cross-section: {snapshot.section_name}"
+    metadata = ReportMetadata(
+        title=effective_title,
+        author=author or "",
+        notes=notes or "",
+    )
+    payload = SectionPdfReportExporter().export(snapshot, metadata)
+    safe_name = (
+        "".join(
+            c if c.isalnum() or c in ("-", "_", " ") else "_" for c in snapshot.section_name
+        ).strip()
+        or "section"
+    )
+    filename = f"{safe_name}.pdf"
+    return Response(
+        content=payload,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{section_id}/export/plaxis2d")
 async def export_section_plaxis2d(
     project_id: UUID,

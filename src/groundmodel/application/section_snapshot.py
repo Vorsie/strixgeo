@@ -196,3 +196,15 @@ class SectionSnapshot:
     investigations: list[SectionInvestigationProjection] = field(default_factory=list)
     formations: list[SectionFormation] = field(default_factory=list)
     contacts: list[SectionFormationContact] = field(default_factory=list)
+    # Section line endpoints in the project's horizontal CRS. Populated
+    # by ``BuildSectionSnapshot`` from ``section.start_x/_y/_end_x/_end_y``.
+    # Carried here (rather than only in the build path) so exporters
+    # that need the line geometry — PDF report's location-map inset
+    # showing the section + its L/R end markers (debt #52) — don't have
+    # to re-fetch the section row. Default 0.0 so pre-#52 test fixtures
+    # that construct SectionSnapshot directly stay valid; the build
+    # path always populates real values.
+    start_x: float = 0.0
+    start_y: float = 0.0
+    end_x: float = 0.0
+    end_y: float = 0.0

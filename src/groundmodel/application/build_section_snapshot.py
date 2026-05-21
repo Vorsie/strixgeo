@@ -286,4 +286,9 @@ class BuildSectionSnapshot(GroundModelLogger):
             investigations=investigations,
             formations=formations,
             contacts=contacts,
+            # debt #52: line endpoints for the PDF location-map inset.
+            start_x=section.start_x,
+            start_y=section.start_y,
+            end_x=section.end_x,
+            end_y=section.end_y,
         )
