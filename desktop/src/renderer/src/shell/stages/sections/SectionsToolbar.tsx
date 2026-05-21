@@ -56,13 +56,14 @@ export default function SectionsToolbar(): JSX.Element {
       handleExportModelPlaxis3d,
       handleAutoPopulateFromStratigraphy,
       lithoSuggesting,
-      lithoSuggestions,
+      // Phase 2 of debt #77: bus exposes the unified Map + focus flag.
+      // Derived below: hasSuggestions, bulkAnchorCount.
+      ghostsByAnchor,
+      focusedSuggestAnchorId,
       handleSuggestLitho,
       handleAcceptAllLithoSuggestions,
       clearLithoSuggestions,
       handleLoadBackdropSurfaces,
-      // Bulk-suggest (debt #73 / Phase 3).
-      bulkLithoGhosts,
       bulkLithoSuggesting,
       handleSuggestAllLitho,
       handleAcceptAllBulkLitho,
@@ -260,7 +261,19 @@ export default function SectionsToolbar(): JSX.Element {
     ? (sectionFocusedColumn?.id ?? null)
     : (selectedId ?? selectedBoreholeId ?? null)
   const canSuggest = isLitho && activeLithoModel !== null && hasSection && focusedAnchorId !== null
-  const hasSuggestions = lithoSuggestions.length > 0
+  // Phase 2 of debt #77: derive "has focused suggestions" from the
+  // unified Map. True when a focused anchor is set AND its entry has
+  // at least one suggestion (segmenter returned ≥1 layer).
+  const hasSuggestions =
+    focusedSuggestAnchorId !== null &&
+    (ghostsByAnchor.get(focusedSuggestAnchorId)?.suggestions.length ?? 0) > 0
+  // Bulk anchor count = Map size minus the focused entry. Drives the
+  // "Accept all (N bulk)" button's enable state + label.
+  const bulkAnchorCount =
+    ghostsByAnchor.size -
+    (focusedSuggestAnchorId !== null && ghostsByAnchor.has(focusedSuggestAnchorId)
+      ? 1
+      : 0)
 
   async function handleSuggest(): Promise<void> {
     if (!canSuggest || lithoSuggesting || !focusedAnchorKind || !focusedAnchorId) return
@@ -321,7 +334,7 @@ export default function SectionsToolbar(): JSX.Element {
   }
 
   async function handleAcceptAllBulk(): Promise<void> {
-    if (bulkLithoGhosts.size === 0 || acceptingAllBulk) return
+    if (bulkAnchorCount === 0 || acceptingAllBulk) return
     setAcceptingAllBulk(true)
     try {
       await handleAcceptAllBulkLitho(
@@ -497,7 +510,7 @@ export default function SectionsToolbar(): JSX.Element {
               }
             />
           )}
-          {bulkLithoGhosts.size > 0 && (
+          {bulkAnchorCount > 0 && (
             <>
               <ToolbarButton
                 icon={<Sparkles size={13} />}
@@ -508,7 +521,7 @@ export default function SectionsToolbar(): JSX.Element {
                 title={
                   acceptingAllBulk
                     ? 'Committing all bulk suggestion layers…'
-                    : `Accept every non-rejected suggestion across all ${bulkLithoGhosts.size} bulk-ghost investigation${bulkLithoGhosts.size === 1 ? '' : 's'}`
+                    : `Accept every non-rejected suggestion across all ${bulkAnchorCount} bulk-ghost investigation${bulkAnchorCount === 1 ? '' : 's'}`
                 }
               />
               <ToolbarButton
