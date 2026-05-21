@@ -1759,88 +1759,21 @@ export default function SectionPanel({
               />
             )}
 
-            {/* Litho-suggestion ghost column (slice 3, #55) — interactive
-                overlay to the LEFT of the targeted investigation showing
-                the Robertson-2015/borehole segmenter output. Click a
-                layer to accept (creates contact + formation), right-click
-                to reject. Renders nothing when the prop is absent. */}
-            {lithoGhostState && lithoGhostState.suggestions.length > 0 && (
-              <LithoSuggestionGhostColumns
-                columns={visibleColumns}
-                investigationId={lithoGhostState.investigationId}
-                suggestions={lithoGhostState.suggestions}
-                levelToScreen={levelToScreen}
-                surfaceElevationM={lithoGhostState.surfaceElevationM}
-                plotTop={MARGIN.top}
-                plotBottom={MARGIN.top + plotHeight}
-                bandHalfWidth={bandHalfWidth}
-                acceptedIndices={lithoGhostState.acceptedIndices}
-                rejectedIndices={lithoGhostState.rejectedIndices}
-                onAccept={lithoGhostState.onAccept}
-                onReject={lithoGhostState.onReject}
-                onUnreject={lithoGhostState.onUnreject}
-                // Pass formations so the ghost tooltip can show the parent
-                // formation name from suggestion.parent_formation_id.
-                formations={formations}
-                // Phase 2 drag-resize state — the renderer applies edits
-                // on top of the raw suggestions and commits new edits
-                // via onEdit on mouseup.
-                edits={lithoGhostState.edits}
-                onEdit={lithoGhostState.onEdit}
-              />
-            )}
-
-            {/* Bulk-suggest ghost overlays (debt #73 / Phase 3) —
-                one LithoSuggestionGhostColumns instance per bulk
-                anchor. Each gets the same widget but bound to its
-                own (kind, id, accepted/rejected/edits) slice of
-                the bulk Map. Handlers are anchor-scoped — onAccept
-                / onReject / onEdit forward the anchorId so the
-                parent commits to the right column. Renders nothing
-                when the prop is absent. */}
-            {bulkLithoGhostState != null &&
-              Array.from(bulkLithoGhostState.anchorGhosts.entries()).map(
-                ([anchorId, ghost]) => (
-                  <LithoSuggestionGhostColumns
-                    key={`bulk-ghost-${anchorId}`}
-                    columns={visibleColumns}
-                    investigationId={anchorId}
-                    suggestions={ghost.suggestions}
-                    levelToScreen={levelToScreen}
-                    surfaceElevationM={ghost.surfaceElevationM}
-                    plotTop={MARGIN.top}
-                    plotBottom={MARGIN.top + plotHeight}
-                    bandHalfWidth={bandHalfWidth}
-                    acceptedIndices={ghost.accepted}
-                    rejectedIndices={ghost.rejected}
-                    onAccept={idx => {
-                      void bulkLithoGhostState.onAccept(anchorId, idx)
-                    }}
-                    onReject={idx => {
-                      bulkLithoGhostState.onReject(anchorId, idx)
-                    }}
-                    onUnreject={
-                      bulkLithoGhostState.onUnreject
-                        ? idx => {
-                            bulkLithoGhostState.onUnreject?.(anchorId, idx)
-                          }
-                        : undefined
-                    }
-                    formations={formations}
-                    edits={ghost.edits}
-                    onEdit={(idx, edit) => {
-                      bulkLithoGhostState.onEdit(anchorId, idx, edit)
-                    }}
-                  />
-                ),
-              )}
-
             {/* Geological-model formation contacts. Each formation
                 with ≥1 contact in this section renders as a
                 coloured polyline through its anchor columns; the
                 formation's name label sits to the right of the
                 rightmost vertex. Empty when the project has no
-                contacts yet (the Phase 4 editor's blank canvas). */}
+                contacts yet (the Phase 4 editor's blank canvas).
+
+                Render order note (debt #75, 2026-05-21): ContactsLayer
+                paints BEFORE the litho ghost overlays so the ghost
+                drag handles sit on top of the per-contact drag
+                strips. Without this order, the contact strips (which
+                span between investigation columns horizontally)
+                capture mousedown events meant for the ghost handles
+                in the multi-column bulk-suggest view — the drag
+                handles appeared to do nothing in zoomed-out mode. */}
             <ContactsLayer
               contacts={contacts}
               formations={formations}
@@ -1880,6 +1813,85 @@ export default function SectionPanel({
               }}
               alongMToScreenX={warpedXToScreen}
             />
+
+            {/* Litho-suggestion ghost column (slice 3, #55) — interactive
+                overlay to the LEFT of the targeted investigation showing
+                the Robertson-2015/borehole segmenter output. Click a
+                layer to accept (creates contact + formation), right-click
+                to reject. Renders nothing when the prop is absent.
+                Painted AFTER ContactsLayer so the ghost drag handles
+                are on top of contact strips (debt #75). */}
+            {lithoGhostState && lithoGhostState.suggestions.length > 0 && (
+              <LithoSuggestionGhostColumns
+                columns={visibleColumns}
+                investigationId={lithoGhostState.investigationId}
+                suggestions={lithoGhostState.suggestions}
+                levelToScreen={levelToScreen}
+                surfaceElevationM={lithoGhostState.surfaceElevationM}
+                plotTop={MARGIN.top}
+                plotBottom={MARGIN.top + plotHeight}
+                bandHalfWidth={bandHalfWidth}
+                acceptedIndices={lithoGhostState.acceptedIndices}
+                rejectedIndices={lithoGhostState.rejectedIndices}
+                onAccept={lithoGhostState.onAccept}
+                onReject={lithoGhostState.onReject}
+                onUnreject={lithoGhostState.onUnreject}
+                // Pass formations so the ghost tooltip can show the parent
+                // formation name from suggestion.parent_formation_id.
+                formations={formations}
+                // Phase 2 drag-resize state — the renderer applies edits
+                // on top of the raw suggestions and commits new edits
+                // via onEdit on mouseup.
+                edits={lithoGhostState.edits}
+                onEdit={lithoGhostState.onEdit}
+              />
+            )}
+
+            {/* Bulk-suggest ghost overlays (debt #73 / Phase 3) —
+                one LithoSuggestionGhostColumns instance per bulk
+                anchor. Each gets the same widget but bound to its
+                own (kind, id, accepted/rejected/edits) slice of
+                the bulk Map. Handlers are anchor-scoped — onAccept
+                / onReject / onEdit forward the anchorId so the
+                parent commits to the right column. Renders nothing
+                when the prop is absent. Same paint-after-contacts
+                ordering as the single-anchor ghost above. */}
+            {bulkLithoGhostState != null &&
+              Array.from(bulkLithoGhostState.anchorGhosts.entries()).map(
+                ([anchorId, ghost]) => (
+                  <LithoSuggestionGhostColumns
+                    key={`bulk-ghost-${anchorId}`}
+                    columns={visibleColumns}
+                    investigationId={anchorId}
+                    suggestions={ghost.suggestions}
+                    levelToScreen={levelToScreen}
+                    surfaceElevationM={ghost.surfaceElevationM}
+                    plotTop={MARGIN.top}
+                    plotBottom={MARGIN.top + plotHeight}
+                    bandHalfWidth={bandHalfWidth}
+                    acceptedIndices={ghost.accepted}
+                    rejectedIndices={ghost.rejected}
+                    onAccept={idx => {
+                      void bulkLithoGhostState.onAccept(anchorId, idx)
+                    }}
+                    onReject={idx => {
+                      bulkLithoGhostState.onReject(anchorId, idx)
+                    }}
+                    onUnreject={
+                      bulkLithoGhostState.onUnreject
+                        ? idx => {
+                            bulkLithoGhostState.onUnreject?.(anchorId, idx)
+                          }
+                        : undefined
+                    }
+                    formations={formations}
+                    edits={ghost.edits}
+                    onEdit={(idx, edit) => {
+                      bulkLithoGhostState.onEdit(anchorId, idx, edit)
+                    }}
+                  />
+                ),
+              )}
 
             {/* Pinch-out ghost-wedge overlay (ghost-UX slice).  Renders a
                 dashed semi-transparent triangle from the pinching
