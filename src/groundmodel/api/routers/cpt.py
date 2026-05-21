@@ -29,7 +29,7 @@ from groundmodel.application.import_cpt import ImportCpt
 from groundmodel.application.import_cpt_dov import ImportCptDov
 from groundmodel.application.job_registry import JobRegistry, get_job_registry
 from groundmodel.domain.services.cpt_corrections import calculate_qt_series
-from groundmodel.domain.services.cpt_interpretation import calculate_ic_series
+from groundmodel.domain.services.robertson_2015 import ic_series_2015
 from groundmodel.infrastructure.db.repositories.cpt_repository import CptRepository
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
@@ -684,8 +684,15 @@ def _plot_response_from_cpt(cpt: CptOrm) -> CptPlotResponse:
     if s is None:
         raise ValueError("Series data not found for this CPT")
 
+    # Debt #22 reconciliation (2026-05-21): Ic now comes from Robertson
+    # 2015/2009 via ``ic_series_2015`` instead of the frozen Robertson
+    # 1990 preview in ``cpt_interpretation.calculate_ic_series``.  The
+    # litho segmenter has used the 2015 method since slice 3; switching
+    # the chart's plot endpoint to the same path keeps the whole app
+    # consistent on Daniel Verastegui's method (no more two-method
+    # divergence at zone boundaries).  Response shape unchanged.
     ic = (
-        calculate_ic_series(
+        ic_series_2015(
             depths_m=s.depths_m,
             qc_mpa=s.qc_mpa,
             fs_mpa=s.fs_mpa,
