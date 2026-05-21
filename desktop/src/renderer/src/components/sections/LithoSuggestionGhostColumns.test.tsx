@@ -113,6 +113,14 @@ function renderGhost(
     onReject?: (idx: number) => void
     onAccept?: (idx: number) => void
     onUnreject?: (idx: number) => void
+    onCrossColumnPaste?: (
+      targetAnchorId: string,
+      idx: number,
+      edit: {
+        suggested_lithology: string
+        suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+      },
+    ) => void
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -137,6 +145,7 @@ function renderGhost(
         formations={opts.formations}
         edits={opts.edits}
         onEdit={opts.onEdit}
+        onCrossColumnPaste={opts.onCrossColumnPaste}
       />
     </svg>,
   )
@@ -829,5 +838,184 @@ describe('LithoSuggestionGhostColumns', () => {
     const title = container.querySelector('title')!.textContent ?? ''
     // "weakly silty Sand" — base "Sand" with admixture "weakly silty".
     expect(title.toLowerCase()).toMatch(/silty/)
+  })
+
+  // -----------------------------------------------------------------
+  // Debt #86 — Alt-drag copy-composition gesture
+  // -----------------------------------------------------------------
+
+  // Q1: Alt+mousedown on the body rect arms copy mode → preview chip
+  // renders, no onAccept fires.
+  it('Q1 — Alt+mousedown arms copy-composition + renders preview chip', () => {
+    const onAccept = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({
+          suggested_lithology: 'ZAND',
+          suggested_admixtures: [{ soil_code: 'KL', amount: 'M', locally: false }],
+        }),
+      ],
+      { onAccept, onEdit: vi.fn() },
+    )
+    const bodyRect = container.querySelector('[data-litho-anchor-id]')
+    expect(bodyRect).not.toBeNull()
+    fireEvent.mouseDown(bodyRect!, { clientX: 200, clientY: 200, altKey: true })
+    expect(screen.getByTestId('copy-composition-preview-chip')).toBeInTheDocument()
+    fireEvent.mouseUp(document)
+    expect(onAccept).not.toHaveBeenCalled()
+  })
+
+  // Q2: drop on a same-column pending sibling fires onEdit with the
+  // dragged layer's composition. No dialog because target has no edit.
+  it('Q2 — Alt-drag drop on same-column sibling fires onEdit with composition', () => {
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({
+          depth_top_m: 0,
+          depth_base_m: 2,
+          suggested_lithology: 'KLEI',
+          suggested_admixtures: [{ soil_code: 'Z', amount: 'M', locally: false }],
+        }),
+        makeSuggestion({
+          depth_top_m: 2,
+          depth_base_m: 4,
+          suggested_lithology: 'ZAND',
+        }),
+      ],
+      { onEdit },
+    )
+    // Source: layer 0 body. Find by data-litho-idx attribute.
+    const sourceRect = container.querySelector('[data-litho-idx="0"]')
+    const targetRect = container.querySelector('[data-litho-idx="1"]')
+    expect(sourceRect).not.toBeNull()
+    expect(targetRect).not.toBeNull()
+    fireEvent.mouseDown(sourceRect!, { clientX: 200, clientY: 100, altKey: true })
+    // Mock elementsFromPoint to return the target rect under the cursor.
+    const original = document.elementsFromPoint
+    document.elementsFromPoint = (() => [targetRect as Element]) as typeof document.elementsFromPoint
+    try {
+      fireEvent.mouseUp(document, { clientX: 200, clientY: 300 })
+    } finally {
+      document.elementsFromPoint = original
+    }
+    // onEdit was called with the source composition on target idx=1.
+    expect(onEdit).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        suggested_lithology: 'KLEI',
+        suggested_admixtures: expect.arrayContaining([
+          expect.objectContaining({ soil_code: 'Z', amount: 'M' }),
+        ]),
+      }),
+    )
+  })
+
+  // Q3: drop on a layer that already has a composition edit opens the
+  // confirm dialog; Confirm fires onEdit.
+  it('Q3 — drop on already-edited target opens overwrite dialog; Confirm commits', () => {
+    const onEdit = vi.fn()
+    const existingEdit = new Map([
+      [
+        1,
+        {
+          suggested_lithology: 'VEEN',
+          suggested_admixtures: [],
+        },
+      ],
+    ])
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ suggested_lithology: 'KLEI', depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ suggested_lithology: 'ZAND', depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, edits: existingEdit },
+    )
+    const sourceRect = container.querySelector('[data-litho-idx="0"]')
+    const targetRect = container.querySelector('[data-litho-idx="1"]')
+    fireEvent.mouseDown(sourceRect!, { clientX: 200, clientY: 100, altKey: true })
+    const original = document.elementsFromPoint
+    document.elementsFromPoint = (() => [targetRect as Element]) as typeof document.elementsFromPoint
+    try {
+      fireEvent.mouseUp(document, { clientX: 200, clientY: 300 })
+    } finally {
+      document.elementsFromPoint = original
+    }
+    // Dialog open, no edit yet.
+    expect(screen.getByTestId('copy-composition-title')).toBeInTheDocument()
+    expect(onEdit).not.toHaveBeenCalled()
+    // Confirm → edit fires.
+    fireEvent.click(screen.getByTestId('copy-composition-submit'))
+    expect(onEdit).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ suggested_lithology: 'KLEI' }),
+    )
+  })
+
+  // Q4: Cancel in the overwrite dialog drops the gesture.
+  it('Q4 — overwrite dialog Cancel = no-op', () => {
+    const onEdit = vi.fn()
+    const existingEdit = new Map([[1, { suggested_lithology: 'VEEN' }]])
+    const { container } = renderGhost(
+      [makeSuggestion({ suggested_lithology: 'KLEI' }), makeSuggestion({ suggested_lithology: 'ZAND' })],
+      { onEdit, edits: existingEdit },
+    )
+    const sourceRect = container.querySelector('[data-litho-idx="0"]')
+    const targetRect = container.querySelector('[data-litho-idx="1"]')
+    fireEvent.mouseDown(sourceRect!, { clientX: 200, clientY: 100, altKey: true })
+    const original = document.elementsFromPoint
+    document.elementsFromPoint = (() => [targetRect as Element]) as typeof document.elementsFromPoint
+    try {
+      fireEvent.mouseUp(document, { clientX: 200, clientY: 300 })
+    } finally {
+      document.elementsFromPoint = original
+    }
+    expect(screen.getByTestId('copy-composition-title')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('copy-composition-cancel'))
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  // Q5: Non-Alt mousedown does NOT arm copy mode (sanity — regular
+  // accept clicks still work, no preview chip).
+  it('Q5 — plain mousedown (no Alt) does not arm copy mode', () => {
+    const { container } = renderGhost(
+      [makeSuggestion({ suggested_lithology: 'ZAND' })],
+      { onEdit: vi.fn() },
+    )
+    const bodyRect = container.querySelector('[data-litho-anchor-id]')
+    fireEvent.mouseDown(bodyRect!, { clientX: 200, clientY: 200, altKey: false })
+    expect(screen.queryByTestId('copy-composition-preview-chip')).not.toBeInTheDocument()
+  })
+
+  // Q6: drop on a target whose anchor differs from the source's fires
+  // onCrossColumnPaste instead of onEdit. Tested via a single component
+  // instance with a fake target rect whose data-litho-anchor-id points
+  // to a different anchor — the hit-test path is what matters.
+  it('Q6 — drop on different-anchor target fires onCrossColumnPaste', () => {
+    const onEdit = vi.fn()
+    const onCrossColumnPaste = vi.fn()
+    const { container } = renderGhost(
+      [makeSuggestion({ suggested_lithology: 'KLEI' })],
+      { onEdit, onCrossColumnPaste, investigationId: 'cpt-source' },
+    )
+    const sourceRect = container.querySelector('[data-litho-anchor-id="cpt-source"]')
+    fireEvent.mouseDown(sourceRect!, { clientX: 200, clientY: 100, altKey: true })
+    // Build a fake foreign target element.
+    const foreignTarget = document.createElement('div')
+    foreignTarget.setAttribute('data-litho-anchor-id', 'cpt-target')
+    foreignTarget.setAttribute('data-litho-idx', '0')
+    const original = document.elementsFromPoint
+    document.elementsFromPoint = (() => [foreignTarget]) as typeof document.elementsFromPoint
+    try {
+      fireEvent.mouseUp(document, { clientX: 400, clientY: 300 })
+    } finally {
+      document.elementsFromPoint = original
+    }
+    expect(onEdit).not.toHaveBeenCalled()
+    expect(onCrossColumnPaste).toHaveBeenCalledWith(
+      'cpt-target',
+      0,
+      expect.objectContaining({ suggested_lithology: 'KLEI' }),
+    )
   })
 })
