@@ -368,4 +368,85 @@ describe('useShellContextValue (debt #12 net / #53)', () => {
     rerender(args)
     expect(result.current).toBe(first)
   })
+
+  // T4 — debt #53 structural fix (auto-derived dep array).
+  //
+  // For EVERY key on the args object (and EVERY key on the geo sub-
+  // object), changing that key's value MUST cause the memo to
+  // recompute. The original T2 only exercised one leaf per slice; if a
+  // dep was missing for a leaf T2 didn't pick, the bug would slip.
+  // After the dep array became `Object.values(args) + Object.values(geo)`
+  // this is structurally impossible, but the test proves the
+  // structural claim and would loudly fail if anyone refactors the
+  // dep array back to a hand-listed shape with a hole.
+  it('T4 — every args field is wired as a dep (no silent staleness)', () => {
+    const baseArgs = toArgs(makeCtx())
+    // Compose the full enumerable key set: flat args minus `geo`,
+    // plus every key on `geo`.
+    const { geo: baseGeo, ...flatBase } = baseArgs
+    const flatKeys = Object.keys(flatBase) as Array<keyof typeof flatBase>
+    const geoKeys = Object.keys(baseGeo) as Array<keyof typeof baseGeo>
+
+    // Sanity: the key sets are non-empty (a future test that ran on
+    // an empty object would trivially pass and the protection would
+    // be silently gone).
+    expect(flatKeys.length).toBeGreaterThan(30)
+    expect(geoKeys.length).toBeGreaterThan(10)
+
+    // For each flat key, swap its value to a fresh sentinel
+    // (preserving the rest), rerender, assert the memo recomputed.
+    for (const key of flatKeys) {
+      const { result, rerender } = renderHook(
+        (a: UseShellContextValueArgs) => useShellContextValue(a),
+        { initialProps: baseArgs },
+      )
+      const before = result.current
+      const sentinel = makeSentinelFor(flatBase[key])
+      const mutated: UseShellContextValueArgs = {
+        ...baseArgs,
+        [key]: sentinel,
+      }
+      rerender(mutated)
+      if (result.current === before) {
+        throw new Error(
+          `dep-array hole: changing flat key "${String(key)}" did not recompute the memo`,
+        )
+      }
+    }
+
+    // Same loop, this time mutating fields inside the geo sub-object.
+    // We pass a fresh geo object (the test's baseline freshens it
+    // anyway) with one field swapped.
+    for (const key of geoKeys) {
+      const { result, rerender } = renderHook(
+        (a: UseShellContextValueArgs) => useShellContextValue(a),
+        { initialProps: baseArgs },
+      )
+      const before = result.current
+      const sentinel = makeSentinelFor(baseGeo[key])
+      const mutatedGeo = { ...baseGeo, [key]: sentinel }
+      rerender({ ...baseArgs, geo: mutatedGeo })
+      if (result.current === before) {
+        throw new Error(
+          `dep-array hole: changing geo key "${String(key)}" did not recompute the memo`,
+        )
+      }
+    }
+  })
 })
+
+// Sentinel-builder: returns a value of the same broad "kind" as the
+// input that is guaranteed to be !== the input. Used by T4 to mutate
+// each field through a rerender without breaking type expectations.
+function makeSentinelFor(value: unknown): unknown {
+  if (typeof value === 'function') return () => undefined
+  if (typeof value === 'boolean') return !value
+  if (typeof value === 'number') return value + 1
+  if (typeof value === 'string') return value + '__sentinel'
+  if (Array.isArray(value)) return [...value, '__sentinel']
+  if (value instanceof Set) return new Set([...value, '__sentinel'])
+  if (value instanceof Map) return new Map([...value, ['__sentinel', '__sentinel']])
+  if (value === null) return '__sentinel'
+  if (typeof value === 'object') return { __sentinel: true }
+  return '__sentinel'
+}
