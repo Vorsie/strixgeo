@@ -1100,43 +1100,72 @@ deferred design pieces (where the new layer's thickness comes from,
 composition prefill, hit zone) don't share infrastructure with the
 cascade.  The cascade ship doesn't change #85's trigger condition.
 
-## 86. Horizontal drag-to-copy composition across layers (Tier D — new gesture)
+## 86. Horizontal drag-to-copy composition — RESOLVED 2026-05-21
 
-**What.** Dogfeed 2026-05-20 follow-on to the composition-render fix:
-"when i do sthing like this, i want to be able to horizontally drag
-the new layer composition to anothe rlayer to gitve it the same
-admixtues and main". The gesture: pick up an edited layer's
-composition (main lithology + admixture list) and drag horizontally
-onto another layer — in the same investigation column OR in an
-adjacent investigation — and the target layer adopts the same
-composition. Saves the user re-opening the editor and re-clicking
-identical pickers.
+Owner directives chosen:
+* Drag-start detection: **Alt/Shift modifier + drag** — Alt key
+  disambiguates the copy-composition gesture from the existing
+  edge-resize handles. No positional logic needed.
+* Cross-investigation: **Same-column + cross-investigation** — drop
+  on any pending ghost layer in any column. Valid targets highlight
+  amber on hover.
+* Overwrite semantics: **Confirm on overwrite** — if the target has
+  an existing edit, open a confirm dialog naming source + target
+  compositions; default-focus Cancel.
 
-**Why deferred.** Three pieces of unresolved design:
+**Implementation.** `LithoSuggestionLayer` accepts an
+``onCopyMouseDown`` callback fired only when ``e.altKey`` is held on
+mousedown over a pending layer's body rect. The existing accept /
+dbl-click / context-menu handlers stay on the same rect; the
+preventDefault + stopPropagation on the Alt path suppresses the
+click event that would otherwise fire onAccept.
 
-1. **Source detection on drag-start.** A pending layer rect is already
-   clickable (dbl-click → composition editor) and right-clickable
-   (focus). A horizontal drag that originates inside a layer rect
-   must not collide with the existing drag-to-resize gesture, which
-   today is bound to the edge handles only — but the geometry is
-   tight. Probably: drag must START >4 px from any edge AND move
-   ≥10 px horizontally before the copy-composition mode arms (vs
-   vertical = edge-resize, vertical drag inside-rect = inert).
-2. **Target eligibility.** Same-column targets are obvious. Cross-
-   column targets need: (a) the target investigation has a pending
-   ghost in the drop range, (b) the source and target are both
-   ghosts (not committed contacts — those should be edited via
-   PATCH, not gesture-copied), (c) optional: highlight valid targets
-   on drag.
-3. **Overwrite semantics.** If the target already has an edit, does
-   the copy clobber it (silently? with confirm?) or merge? Owner-
-   decided. Probably: silent clobber on drop, undo via right-click
-   `↻` if the user regrets it (mirrors #80's reject-undo pattern).
+Every pending layer rect stamps two data attributes —
+``data-litho-anchor-id`` (the investigation id) + ``data-litho-idx``
+(the suggestion index) — used by a document-level mousemove +
+mouseup effect on the parent component to resolve the drop target
+via ``document.elementsFromPoint``. Cross-investigation targets are
+found purely by attribute lookup, no React context or shared state
+needed. JSDOM-safe (the resolver guards on
+``typeof document.elementsFromPoint``).
 
-**When to revisit.** Next dogfeed report where the user re-opens the
-composition editor on a second layer with the same composition they
-just set — that's the moment the friction is felt. Until then the
-manual re-pick is one extra click, not a workflow blocker.
+Drop target receives the dragged layer's
+``(suggested_lithology, suggested_admixtures)``. Same-anchor drops
+fire the existing ``onEdit(idx, edit)``; cross-anchor drops fire the
+new ``onCrossColumnPaste(targetAnchorId, targetIdx, edit)`` callback,
+which `SectionsCanvas` wires to ``handleEditBulkLitho`` (the existing
+bulk edit handler that already routes to any anchor in the unified
+``ghostsByAnchor`` Map — debt #77).
+
+Overwrite detection: when the target's effective composition is
+already overridden by an existing edit, the gesture defers to
+``CopyCompositionConfirmDialog``. Confirm fires the deferred
+``onEdit`` / ``onCrossColumnPaste``; Cancel drops the gesture. The
+dialog names source + target compositions via the same
+``formatLithoDisplayName`` helper the ghost rects use for their
+in-place labels.
+
+Drag preview: floating amber chip via createPortal at fixed
+clientX/Y, follows the cursor. The hovered drop-target rect gets
+an amber 2 px stroke override.
+
+**Tests.** Q1-Q6 in ``LithoSuggestionGhostColumns.test.tsx``:
+Q1 Alt+mousedown arms copy + renders preview chip (no onAccept).
+Q2 same-column drop fires onEdit with composition.
+Q3 drop on already-edited target opens dialog; Confirm commits.
+Q4 dialog Cancel = no-op.
+Q5 plain (non-Alt) mousedown does not arm copy.
+Q6 cross-anchor drop fires onCrossColumnPaste (not onEdit).
+1024/1024 vitest + tsc clean.
+
+**Documented residuals.** Cross-column overwrite detection is
+intentionally conservative: only same-anchor edits trigger the
+confirm dialog. The bulk edits Map is not visible from inside the
+source component instance; checking it would require lifting the
+edits Map to a shared bus. Owner-pragmatic — same-column overwrite
+is the common case (the user just edited a composition and is
+pasting next door); cross-column overwrite without confirmation is
+a one-step undoable action via re-opening the editor.
 
 ## 87. Orphan litho units — RESOLVED 2026-05-21
 
