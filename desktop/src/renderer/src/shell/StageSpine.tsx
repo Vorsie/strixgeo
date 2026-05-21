@@ -15,6 +15,7 @@
 
 import type { StageId, StageDescriptor } from './StageDescriptor'
 import { STAGE_ORDER, STAGE_REGISTRY } from './StageRegistry'
+import { useShell } from './ShellContext'
 import { log } from '../utils/log'
 
 /** Props for each spine stage button — extracted so the per-stage hook call
@@ -148,6 +149,53 @@ export default function StageSpine({ activeStageId, onSelectStage }: StageSpineP
           )
         })}
       </div>
+      {/* Selection footer (debt #44) — surfaces the cross-stage
+          investigation selection so the user has feedback that their
+          marquee in Data persists when they walk to Sections /
+          Geology / etc. The set already lives in App-level state
+          (marqueeSelectedIds), so persistence is structural; this
+          footer makes the carry VISIBLE from every stage. */}
+      <SelectionFooter />
     </nav>
+  )
+}
+
+/**
+ * Footer of the StageSpine — shows "N selected" with a clear button
+ * whenever the cross-stage selection set is non-empty.
+ *
+ * Hidden when the selection is empty so the spine stays uncluttered
+ * for the common case. The badge is amber-tinted to match the rest
+ * of the app's "active marker" colour (same hue used for stale
+ * dirty markers, unsaved indicators, ghost-edit boundaries).
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The footer element (a clickable badge or empty when selection
+ *     is empty).
+ */
+function SelectionFooter(): JSX.Element {
+  const { coordinator } = useShell()
+  const { marqueeSelectedIds, setMarqueeSelectedIds } = coordinator
+  const count = marqueeSelectedIds.size
+  if (count === 0) {
+    return <div className="p-2" data-testid="selection-footer-empty" />
+  }
+  return (
+    <div className="p-2 border-t border-border-subtle" data-testid="selection-footer">
+      <button
+        type="button"
+        className="w-full flex flex-col items-center gap-0.5 rounded px-1 py-1.5 bg-amber-100/80 dark:bg-amber-950/40 border border-status-amber text-text-primary hover:bg-amber-200/80 dark:hover:bg-amber-950/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
+        title={`${count} investigation${count === 1 ? '' : 's'} selected across stages — click to clear`}
+        onClick={() => setMarqueeSelectedIds(new Set())}
+        data-testid="selection-footer-clear"
+      >
+        <span className="text-[11px] font-semibold tabular-nums leading-none">{count}</span>
+        <span className="text-[8px] uppercase tracking-wide text-text-secondary leading-none">
+          {count === 1 ? 'sel.' : 'sel.'}
+        </span>
+      </button>
+    </div>
   )
 }
