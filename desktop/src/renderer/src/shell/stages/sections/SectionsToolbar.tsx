@@ -79,7 +79,6 @@ export default function SectionsToolbar(): JSX.Element {
       selectedBoreholeId,
       handleExportSectionDxf,
     },
-    toasts: { toast },
   } = useShell()
 
   const [creating, setCreating] = useState(false)
@@ -354,13 +353,11 @@ export default function SectionsToolbar(): JSX.Element {
   }, [bulkAnchors, lithoContacts, activeLithoModel])
 
   async function handleSuggestNewTests(): Promise<void> {
-    if (newTestAnchors.length === 0) {
-      toast(
-        'success',
-        'No new tests — every investigation has litho contacts already.',
-      )
-      return
-    }
+    // Defensive guard — button is disabled at zero count (per ux-review
+    // recommendation 2026-05-21: disabled+tooltip beats stay-and-toast
+    // because the user sees the empty state at a glance, not after a
+    // wasted click).
+    if (newTestAnchors.length === 0) return
     await handleSuggestAllLitho(newTestAnchors)
   }
 
@@ -379,13 +376,8 @@ export default function SectionsToolbar(): JSX.Element {
 
   async function handleSeedNewTests(): Promise<void> {
     if (seeding) return
-    if (newTestBoreholeIds.length === 0) {
-      toast(
-        'success',
-        'No new tests — every borehole has geology contacts already.',
-      )
-      return
-    }
+    // Defensive guard — see handleSuggestNewTests note above.
+    if (newTestBoreholeIds.length === 0) return
     setSeeding(true)
     try {
       if (!activeGeologicalModel) return
@@ -580,18 +572,25 @@ export default function SectionsToolbar(): JSX.Element {
               all" but scoped to anchors with zero contacts in the
               active litho model.  Lets the engineer process newly-
               imported investigations without re-running the segmenter
-              on already-accepted ones. */}
+              on already-accepted ones.  Disabled when the filtered
+              count is zero (ux-review 2026-05-21: disabled+tooltip
+              beats stay-and-toast for empty state). */}
           {hasSection && (
             <ToolbarButton
               icon={<Sparkles size={13} />}
               label={
                 bulkLithoSuggesting
                   ? 'Suggesting…'
-                  : `Suggest for new tests${newTestAnchors.length > 0 ? ` (${newTestAnchors.length})` : ''}`
+                  : activeLithoModel
+                    ? `Suggest for new tests (${newTestAnchors.length})`
+                    : 'Suggest for new tests'
               }
               onClick={() => void handleSuggestNewTests()}
               disabled={
-                !activeLithoModel || bulkLithoSuggesting || lithoSuggesting
+                !activeLithoModel ||
+                bulkLithoSuggesting ||
+                lithoSuggesting ||
+                newTestAnchors.length === 0
               }
               busy={bulkLithoSuggesting}
               title={
@@ -600,7 +599,7 @@ export default function SectionsToolbar(): JSX.Element {
                   : bulkLithoSuggesting
                     ? 'Running segmenter…'
                     : newTestAnchors.length === 0
-                      ? 'No new tests — every investigation has litho contacts already'
+                      ? 'All visible investigations already have litho contacts — import new tests to use this button'
                       : `Suggest layers for the ${newTestAnchors.length} investigation${newTestAnchors.length === 1 ? '' : 's'} with no litho contacts yet`
               }
               data-testid="litho-suggest-new-tests"
@@ -796,18 +795,21 @@ export default function SectionsToolbar(): JSX.Element {
 
       {/* Debt #92: Seed for new tests (geology axis only).  Same as the
           Seed button above but scoped to boreholes that have ZERO
-          contacts in the active geology model.  Safe to click after the
-          section is already seeded; only affects newly-imported boreholes. */}
+          contacts in the active geology model.  Disabled when the
+          filtered count is zero (ux-review 2026-05-21: disabled+tooltip
+          beats stay-and-toast for empty state). */}
       {!isLitho && (
         <ToolbarButton
           icon={<Sparkles size={13} />}
           label={
             seeding
               ? 'Seeding…'
-              : `Seed for new tests${newTestBoreholeIds.length > 0 ? ` (${newTestBoreholeIds.length})` : ''}`
+              : activeGeologicalModel
+                ? `Seed for new tests (${newTestBoreholeIds.length})`
+                : 'Seed for new tests'
           }
           onClick={() => void handleSeedNewTests()}
-          disabled={seeding || geoVerbDisabled}
+          disabled={seeding || geoVerbDisabled || newTestBoreholeIds.length === 0}
           busy={seeding}
           title={
             geoVerbHint ??
@@ -816,7 +818,7 @@ export default function SectionsToolbar(): JSX.Element {
               : seeding
                 ? 'Seeding contacts from borehole stratigraphy…'
                 : newTestBoreholeIds.length === 0
-                  ? 'No new tests — every borehole has geology contacts already'
+                  ? 'All boreholes in scope already have geology contacts — import new tests to use this button'
                   : `Place contacts from stratigraphy for the ${newTestBoreholeIds.length} borehole${newTestBoreholeIds.length === 1 ? '' : 's'} with no geology contacts yet`)
           }
           data-testid="geology-seed-new-tests"

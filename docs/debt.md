@@ -1330,6 +1330,34 @@ investigations, synthetic-contact handling, input-order preservation,
 elevation_m propagation, CPT-vs-borehole separation). 1059/1059
 vitest + tsc clean.
 
+**ux-review pass 2026-05-21** (`ux-reviewer` subagent on the diff).
+Three should-fix items applied:
+
+1. *Empty-state shape*: was "stay-and-toast" on zero count — required a
+   click to learn there was nothing to do. Now: button disabled when the
+   filtered count is zero, with the tooltip carrying the explanation.
+   Matches ``docs/ux.md`` § "Loading + error feedback" pattern (the
+   trigger should signal its operational state visually before a click).
+2. *Toast kind*: zero-count toast was ``'success'`` which is wrong
+   semantic — "success" means "the action completed". A no-op is not
+   completion. Toast calls removed entirely once the button is disabled
+   (handler keeps a defensive ``if (length === 0) return`` guard).
+3. *Label shape*: ``(N)`` parenthetical now renders for ALL N when a
+   model is active (including ``(0)``), instead of being suppressed at
+   zero. Removes the ambiguity between "count is zero" and "count not
+   yet computed" and reinforces the disabled visual.
+
+Tooltip wording also revised to engineer-actionable: "All visible
+investigations already have litho contacts — import new tests to use
+this button" (vs the prior "No new tests — every investigation has
+litho contacts already" which left the engineer wondering what to do
+next).
+
+Deferred (consider): the reviewer flagged button-order — "for new
+tests" should lead because after the first dogfeed pass it becomes
+the more-common click. Left for the owner; the existing-first order is
+the safe default until the dogfeed user weighs in.
+
 ## 91. Stale-TIN straddle-fallback diagnostic — RESOLVED 2026-05-21
 
 The original tracking was a one-liner in CLAUDE.md's Tier E that
