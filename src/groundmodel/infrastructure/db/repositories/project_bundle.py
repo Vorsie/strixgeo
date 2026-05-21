@@ -73,7 +73,7 @@ from groundmodel.shared.constants.model_kind import (
     MODEL_KIND_GEOLOGICAL,
     MODEL_KINDS,
 )
-from groundmodel.shared.logging.logger_factory import LoggerFactory
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 # Columns dropped on serialise + restore. Timestamps are server-defaults;
 # geometry is rebuilt from x/y/epsg. ``archived_at`` is by-design active
@@ -91,7 +91,14 @@ _SKIP_COLUMNS = frozenset({"created_at", "updated_at", "archived_at", "location"
 _MAX_SURFACE_SOURCE_CONTACTS = 50_000
 _MAX_TIN_ARRAY_LEN = 200_000
 
-logger = LoggerFactory.get_logger(__name__)
+# Debt #48: the module-level `logger = LoggerFactory.get_logger(__name__)`
+# is gone. Logging now flows through `ProjectBundleService(GroundModelLogger)`
+# (defined below) so every entry-point inherits the typed logger surface
+# via `self.X(...)`, per CLAUDE.md's "logging via inheritance" rule. The
+# existing `_build_project_bundle_impl` / `_restore_project_bundle_impl`
+# functions take `logger: GroundModelLogger` as a parameter — Python's
+# LEGB resolution picks up the parameter wherever the body says
+# `logger.X(...)`, so the bodies are unchanged.
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +262,11 @@ def _sample_to_dict(sample: SampleOrm) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> dict[str, Any]:
+async def _build_project_bundle_impl(
+    session: AsyncSession,
+    project: ProjectOrm,
+    logger: GroundModelLogger,
+) -> dict[str, Any]:
     """Return a fully serialised snapshot of a project + every child.
 
     The project row is passed in (already loaded by the caller).
@@ -266,6 +277,11 @@ async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> di
     to JSON via the default encoder. Floats / ints / strings / lists /
     nested dicts all pass through; UUIDs and dates were already
     flattened to strings inside the per-table helpers.
+
+    Debt #48: ``logger`` is passed in (typically as the
+    ``ProjectBundleService`` instance) so every log line carries the
+    service's `self` surface — the module no longer holds a free-
+    standing module-level logger.
     """
     cpts_stmt = (
         select(CptOrm)
@@ -509,7 +525,7 @@ def _build_sample(
     return sample
 
 
-async def restore_project_bundle(
+async def _restore_project_bundle_impl(
     session: AsyncSession,
     project_id: UUID,
     project_payload: dict[str, Any],
@@ -521,6 +537,8 @@ async def restore_project_bundle(
     investigation_reviews_payload: list[dict[str, Any]] | None = None,
     geotechnical_units_payload: list[dict[str, Any]] | None = None,
     litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
+    *,
+    logger: GroundModelLogger,
 ) -> ProjectOrm:
     """Idempotently materialise a project + every child collection from a bundle.
 
@@ -1063,3 +1081,111 @@ async def restore_project_bundle(
         f"+{new_edges} litho edges ({skipped_edges} skipped, {dropped_edges} dropped)"
     )
     return project
+
+
+# ---------------------------------------------------------------------------
+# Class surface (debt #48 — logger-via-inheritance)
+# ---------------------------------------------------------------------------
+
+
+class ProjectBundleService(GroundModelLogger):
+    """Service wrapping the .gmproj round-trip (build / restore) so the
+    log surface inherits the typed ``GroundModelLogger`` levels per
+    CLAUDE.md's "logging via inheritance" rule.
+
+    The two methods delegate to the existing ``_*_impl`` module
+    functions, passing ``self`` as the ``logger`` parameter so every
+    log line is emitted under this service's logger name with the
+    standard ``self.X`` surface (info / warning / debug / etc.). The
+    impl bodies are unchanged — Python's LEGB resolution picks up the
+    parameter wherever the body says ``logger.X(...)``.
+
+    Construction takes the SQLAlchemy session. The service is cheap to
+    instantiate (one ``getLogger`` + a session ref); per-request
+    construction in the router handler is fine.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        super().__init__(__name__)
+        self._session = session
+
+    async def build(self, project: ProjectOrm) -> dict[str, Any]:
+        """Serialise the full project tree to a JSON-friendly dict.
+
+        See :func:`_build_project_bundle_impl` for the per-table
+        nesting layout the result carries.
+        """
+        return await _build_project_bundle_impl(self._session, project, logger=self)
+
+    async def restore(
+        self,
+        project_id: UUID,
+        project_payload: dict[str, Any],
+        cpts_payload: list[dict[str, Any]],
+        boreholes_payload: list[dict[str, Any]],
+        geological_formations_payload: list[dict[str, Any]] | None = None,
+        geological_models_payload: list[dict[str, Any]] | None = None,
+        cross_sections_payload: list[dict[str, Any]] | None = None,
+        investigation_reviews_payload: list[dict[str, Any]] | None = None,
+        geotechnical_units_payload: list[dict[str, Any]] | None = None,
+        litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
+    ) -> ProjectOrm:
+        """Idempotently materialise the project tree from a bundle.
+
+        See :func:`_restore_project_bundle_impl` for the per-section
+        dedup / orphan-skip semantics.
+        """
+        return await _restore_project_bundle_impl(
+            self._session,
+            project_id,
+            project_payload,
+            cpts_payload,
+            boreholes_payload,
+            geological_formations_payload,
+            geological_models_payload,
+            cross_sections_payload,
+            investigation_reviews_payload,
+            geotechnical_units_payload,
+            litho_correlation_edges_payload,
+            logger=self,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Public module-level wrappers — backwards-compat for existing callers
+# (the project router) so the class-ification is a pure addition. New
+# code should prefer the ``ProjectBundleService`` surface above.
+# ---------------------------------------------------------------------------
+
+
+async def build_project_bundle(session: AsyncSession, project: ProjectOrm) -> dict[str, Any]:
+    """Backwards-compat wrapper — see ``ProjectBundleService.build``."""
+    return await ProjectBundleService(session).build(project)
+
+
+async def restore_project_bundle(
+    session: AsyncSession,
+    project_id: UUID,
+    project_payload: dict[str, Any],
+    cpts_payload: list[dict[str, Any]],
+    boreholes_payload: list[dict[str, Any]],
+    geological_formations_payload: list[dict[str, Any]] | None = None,
+    geological_models_payload: list[dict[str, Any]] | None = None,
+    cross_sections_payload: list[dict[str, Any]] | None = None,
+    investigation_reviews_payload: list[dict[str, Any]] | None = None,
+    geotechnical_units_payload: list[dict[str, Any]] | None = None,
+    litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
+) -> ProjectOrm:
+    """Backwards-compat wrapper — see ``ProjectBundleService.restore``."""
+    return await ProjectBundleService(session).restore(
+        project_id,
+        project_payload,
+        cpts_payload,
+        boreholes_payload,
+        geological_formations_payload,
+        geological_models_payload,
+        cross_sections_payload,
+        investigation_reviews_payload,
+        geotechnical_units_payload,
+        litho_correlation_edges_payload,
+    )
