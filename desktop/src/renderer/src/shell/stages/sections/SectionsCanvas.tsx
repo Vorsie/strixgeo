@@ -88,6 +88,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleRejectBulkLitho,
       handleUnrejectBulkLitho,
       handleEditBulkLitho,
+      handleInsertLithoLayer,
       clearBulkLithoGhosts,
       pinchOutPreview,
       pinchOutLoading,
@@ -659,6 +660,19 @@ export default function SectionsCanvas(): JSX.Element {
       // target belongs to (the unified ghostsByAnchor Map covers every
       // anchor including the focused one).
       onCrossColumnPaste: handleEditBulkLitho,
+      // Debt #85: insert a new pending litho layer at a shared boundary.
+      // The focused anchor's id is captured at SectionsCanvas level so
+      // the ghost component doesn't need to know it.
+      onInsertLayer: (
+        afterIdx: number,
+        composition: {
+          suggested_lithology: string
+          suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+        },
+      ) => {
+        if (focusedSuggestAnchorId === null) return
+        handleInsertLithoLayer(focusedSuggestAnchorId, afterIdx, composition)
+      },
     }
   }, [
     isLitho,
@@ -670,6 +684,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleUnrejectLithoSuggestion,
     handleEditLithoSuggestion,
     handleEditBulkLitho,
+    handleInsertLithoLayer,
   ])
 
   // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
@@ -706,6 +721,9 @@ export default function SectionsCanvas(): JSX.Element {
       onEdit: handleEditBulkLitho,
       // Debt #86: same handler — works for any target anchor in the Map.
       onCrossColumnPaste: handleEditBulkLitho,
+      // Debt #85: bulk variant takes (anchorId, afterIdx, composition).
+      // SectionPanel forwards anchorId at the call site.
+      onInsertLayer: handleInsertLithoLayer,
     }
   }, [
     isLitho,
@@ -714,6 +732,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleRejectBulkLitho,
     handleUnrejectBulkLitho,
     handleEditBulkLitho,
+    handleInsertLithoLayer,
   ])
 
   // Pinch-out ghost state — wired on the geological axis only (same

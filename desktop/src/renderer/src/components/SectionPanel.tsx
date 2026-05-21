@@ -369,6 +369,16 @@ interface Props {
         suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
       },
     ) => void
+    /** Debt #85: insert a new pending litho layer at the shared
+     *  boundary between ``afterIdx`` and ``afterIdx+1`` for this
+     *  bundle's focused anchor. */
+    onInsertLayer?: (
+      afterIdx: number,
+      composition: {
+        suggested_lithology: string
+        suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+      },
+    ) => void
   }
   /**
    * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
@@ -405,6 +415,16 @@ interface Props {
       targetAnchorId: string,
       idx: number,
       edit: {
+        suggested_lithology: string
+        suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+      },
+    ) => void
+    /** Debt #85: bulk variant of the insert-layer handler — takes
+     *  the anchorId of the bulk ghost being targeted. */
+    onInsertLayer?: (
+      anchorId: string,
+      afterIdx: number,
+      composition: {
         suggested_lithology: string
         suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
       },
@@ -1879,6 +1899,7 @@ export default function SectionPanel({
                 edits={lithoGhostState.edits}
                 onEdit={lithoGhostState.onEdit}
                 onCrossColumnPaste={lithoGhostState.onCrossColumnPaste}
+                onInsertLayer={lithoGhostState.onInsertLayer}
               />
             )}
 
@@ -1925,6 +1946,17 @@ export default function SectionPanel({
                       bulkLithoGhostState.onEdit(anchorId, idx, edit)
                     }}
                     onCrossColumnPaste={bulkLithoGhostState.onCrossColumnPaste}
+                    onInsertLayer={
+                      bulkLithoGhostState.onInsertLayer !== undefined
+                        ? (afterIdx, composition) => {
+                            bulkLithoGhostState.onInsertLayer!(
+                              anchorId,
+                              afterIdx,
+                              composition,
+                            )
+                          }
+                        : undefined
+                    }
                   />
                 ),
               )}
