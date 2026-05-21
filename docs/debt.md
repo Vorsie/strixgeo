@@ -1062,24 +1062,6 @@ deterministic, reviewable outputs first.
 200 litho accepts across ≥ 3 real projects AND the owner has spot-
 audited a representative sample. Don't fit a model on toy data.
 
-## 75. Drag handles in cross-section global (zoomed-out) view (Tier E — gesture reach)
-
-**What.** Phase-2 drag-to-resize handles (6 px hit zones above /
-below each ghost layer) work in the per-investigation focus view but
-the owner reports they don't work in the multi-column zoomed-out
-section view (2026-05-20 dogfeed). Possible causes: handles too
-narrow at small column widths to hit reliably; z-ordering issue with
-another section overlay; focus view may have a different event-
-capture chain.
-
-**Why deferred.** Need to reproduce on dogfeed to diagnose — without
-the bug in hand the fix is speculation. Workaround: focus the
-investigation (right-click) before dragging.
-
-**When to revisit.** Owner shares a screenshot of the cross-section
-view with drag attempted; OR a third dogfeed session flags it
-independently.
-
 ## 76. Accept-all sometimes "splits" displayed layers post-accept (Tier E — diagnostic needed)
 
 **What.** Owner observed (2026-05-20 dogfeed) that clicking `Accept
