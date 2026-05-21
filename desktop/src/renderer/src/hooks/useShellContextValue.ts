@@ -155,6 +155,13 @@ export interface UseShellContextValueArgs {
 export function useShellContextValue(
   args: UseShellContextValueArgs,
 ): ShellContextValue {
+  // Split the geo entry out of args (debt #53 dep-array fix): the
+  // auto-derived dep array below depends on the FLAT args fields plus
+  // ``geo``'s INDIVIDUAL fields. If we left ``geo`` inside args for the
+  // dep array, the memo would recompute every render — useGeologicalModel
+  // returns a fresh object identity per render even when its values
+  // didn't change.
+  const { geo, ...argsWithoutGeo } = args
   const {
     project, projectDirty, newProjectOpen, setNewProjectOpen, metadataEditorOpen, setMetadataEditorOpen,
     closeConfirmOpen, setCloseConfirmOpen, unsavedDialogOpen, unsavedSaving, saveProject, discardSessionImports,
@@ -164,7 +171,7 @@ export function useShellContextValue(
     removedCptIds, removedBoreholeIds, refreshList, refreshBoreholeList, loadCptDetail, loadChart,
     loadBoreholeDetail, cancelBboxDraw, unhideCpts, unhideBoreholes, handleRemoveCpts, handleRemoveBoreholes,
     handleRestoreAllCpts, handleRestoreAllBoreholes, handlePatchCptElevation, handlePatchBoreholeElevation, handleImportCpt, handleImportDov,
-    handleImportBoreholeDov, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, geo, sections,
+    handleImportBoreholeDov, handleBboxDrawn, pendingCptPins, visibleCpts, visibleBoreholes, sections,
     selectedSectionId, drawingSection, focusedContactIds, visibleSections, effectiveHorizontalEpsg, refreshSectionList,
     clearSectionSelection, handleSectionCreated, handleSectionDeleted, handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
     handleDeleteSection, handlePatchSelectedSection, handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn, sectionModelAxis, setSectionModelAxis, backdropModelIdOverride, setBackdropModelIdOverride,
@@ -177,7 +184,7 @@ export function useShellContextValue(
     handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, outOfViewportCptIds, outOfViewportBoreholeIds, projectFilePath,
     manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds, marqueeSelectedIds,
     setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
-  } = args
+  } = argsWithoutGeo
 
   // Re-destructure geo so the dep array stays byte-identical to the
   // old App.tsx memo (these refs are geo.X — same identities).
@@ -335,74 +342,26 @@ export function useShellContextValue(
       hoveredTestId,
       setHoveredTestId,
     },
-  }), [
-    project,
-    // lifecycle fields
-    projectDirty, newProjectOpen, setNewProjectOpen,
-    metadataEditorOpen, setMetadataEditorOpen,
-    closeConfirmOpen, setCloseConfirmOpen,
-    unsavedDialogOpen, unsavedSaving,
-    saveProject, discardSessionImports, handleCloseProjectRequest,
-    handleUnsavedSave, handleUnsavedDiscard, handleUnsavedCancel, stageLumping, currentLumping,
-    // investigation fields
-    cpts, detailMap, plotMap, boreholes, boreholeDetailMap,
-    importing, bboxImportType, dovImporting, dovImportState, resetDovImport,
-    removedCptIds, removedBoreholeIds,
-    refreshList, refreshBoreholeList,
-    loadCptDetail, loadChart, loadBoreholeDetail,
-    cancelBboxDraw, unhideCpts, unhideBoreholes,
-    handleRemoveCpts, handleRemoveBoreholes,
-    handleRestoreAllCpts, handleRestoreAllBoreholes,
-    handlePatchCptElevation, handlePatchBoreholeElevation,
-    handleImportCpt, handleImportDov, handleImportBoreholeDov, handleBboxDrawn,
-    pendingCptPins,
-    visibleCpts, visibleBoreholes,
-    // geological model fields
-    activeGeologicalModel, formations, formationsRefreshCounter,
-    contacts, surfacesByFormationId, crossingsRefreshCounter, staleSurfaceCount,
-    handleFormationCreated, handleFormationUpdated, handleFormationDeleted,
-    handleInlineCreateFormation, refetchFormations,
-    handleCreateContact, handleUpdateContactDepth,
-    handleBatchCreateContacts, handleBatchUpdateContacts, handleDeleteContact,
-    handleAutoPopulateFromStratigraphy, handleDedupeContacts,
-    handleRebuildSurfaces, handleExportModelPlaxis3d,
-    handleToggleBoreholeInModel, discardContacts,
-    lithoStaleSurfaceCount, handleRebuildLithoSurfaces,
-    // sections fields
-    sections, selectedSectionId, drawingSection, focusedContactIds, visibleSections,
-    sectionModelAxis, setSectionModelAxis,
-    refreshSectionList, clearSectionSelection,
-    handleSectionCreated, handleSectionDeleted,
-    handleCreateSection, cancelSectionDraw, handleSectionLineDrawn,
-    handleDeleteSection, handlePatchSelectedSection,
-    handleSelectSection, handleFocusContacts, applyUpdatedSection, sectionFocusedColumn, setSectionFocusedColumn,
-    correlateMode, correlationSource, enterCorrelateMode, exitCorrelateMode, armCorrelationSource, clearCorrelationSource,
-    // overlay fields
-    demSource, demOverlay, handleDemOverlayChange,
-    virtueleBoringOverlay, virtueleBoringSectionModels,
-    virtueleBoringPredictions, virtueleBoringLoading, virtueleBoringSkippedCount,
-    virtueleBoringPredictionByInvestigationId,
-    cptEffectiveModels, boreholeEffectiveModels,
-    showOverlayOnSection, showOverlayOnCpt, showOverlayOnBorehole,
-    cptVirtueleBoringOverride, boreholeVirtueleBoringOverride,
-    handleChangeVirtueleBoringPicker, handleSetShowOverlay, handleSetOverlayOverride,
-    // toast + undo + boot
-    toasts, toast,
-    undoStack,
-    ready, apiError,
-    // mapState — object rebuilt each render when layer-visibility changes;
-    // include it so context updates when the user toggles a CPT type or moves the map.
-    mapState,
-    // coordinator slice — all are either useState values or stable useCallback refs.
-    selectedId, selectedBoreholeId, setSelectedId, setSelectedBoreholeId,
-    view, setView,
-    handleSelect, handleSelectBorehole, handleExportSectionDxf,
-    handleExportSectionPlaxis2d,
-    outOfViewportCptIds, outOfViewportBoreholeIds,
-    projectFilePath, manifestFormationIds,
-    sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds,
-    sessionImportFormationIds,
-    marqueeSelectedIds, setMarqueeSelectedIds,
-    hoveredTestId, setHoveredTestId,
-  ])
+  }),
+  // Auto-derived dep array (debt #53, 2026-05-21). The prior shape was
+  // ~120 hand-listed names — every new field on the bus required
+  // adding a matching entry, and a slip silently served stale context
+  // app-wide (the S7 render-loop class). Now we spread the args' own
+  // values directly: every field that exists on the args object
+  // automatically becomes a dep, by construction. ``args.geo`` is
+  // excluded so we drive on its INDIVIDUAL fields instead of the
+  // (re-identifying-per-render) hook return — otherwise the memo
+  // would recompute every render. Adding a field to
+  // ``UseShellContextValueArgs`` or to ``UseGeologicalModelResult``
+  // now means it is tracked automatically: the dep array cannot
+  // drift behind the body.
+  //
+  // ESLint react-hooks/exhaustive-deps would flag the spread (it only
+  // analyses static array literals); the spread is the load-bearing
+  // safety mechanism here, so the disable is correct.
+  // reason: dep array is intentionally auto-derived to prevent silent
+  // drift between body and deps (debt #53 structural fix); the rule
+  // expects a static literal which is exactly what we've replaced.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [...Object.values(argsWithoutGeo), ...Object.values(geo)])
 }
