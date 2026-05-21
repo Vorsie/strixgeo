@@ -183,6 +183,102 @@ class BoreholeRepository(GroundModelLogger):
                     set_committed_value(sample, rel_name, [])
         return borehole
 
+    async def get_many(
+        self,
+        borehole_ids: list[UUID],
+        *,
+        include_lab_tests: Iterable[str] | None = None,
+        app_project_id: UUID | None = None,
+    ) -> list[BoreholeOrm]:
+        """Fetch many borehole detail trees in one query (debt #39).
+
+        Used by ``POST /borehole/detail-batch`` to fold N per-borehole
+        round-trips on section open into one DB query. Same eager-load
+        + ``include_lab_tests`` discipline as :meth:`get_by_id`; the
+        only structural difference is the ``IN (...)`` predicate
+        instead of ``id == :id``. SQLAlchemy's ``selectinload`` then
+        issues ONE batched child query per relationship for ALL N
+        parent borehole ids — count is constant in N, not 12 * N.
+
+        Order of the returned list is not guaranteed to match
+        ``borehole_ids``; the caller (cross-section panel) indexes
+        results by borehole id (same convention as
+        ``CptRepository.get_many_with_series``).
+
+        Parameters
+        ----------
+        borehole_ids
+            Borehole row ids the caller wants detail for.
+        include_lab_tests
+            Same semantics as :meth:`get_by_id` — ``None`` loads every
+            lab-test family; an iterable of family names loads only
+            those (the rest stamped as ``[]`` via
+            ``set_committed_value`` so Pydantic's attribute walk does
+            not lazy-load under async).
+        app_project_id
+            Project scope guard (debt #4 / VULN-6): when supplied, the
+            IN predicate is fused with the project predicate so a
+            crafted batch can't pull a foreign-project borehole by
+            guessing its UUID. ``None`` is for tests / admin tools.
+
+        Returns
+        -------
+        list[BoreholeOrm]
+            Boreholes whose id is in ``borehole_ids`` AND (when
+            ``app_project_id`` is given) belong to that project.
+            Unknown ids drop silently.
+
+        Raises
+        ------
+        ValueError
+            When ``include_lab_tests`` contains a name that isn't in
+            ``LAB_TEST_RELATIONSHIPS``.
+        """
+        if not borehole_ids:
+            return []
+
+        include_set: set[str] | None
+        if include_lab_tests is None:
+            include_set = None
+        else:
+            include_set = set(include_lab_tests)
+            unknown = include_set - set(LAB_TEST_RELATIONSHIPS)
+            if unknown:
+                raise ValueError(
+                    f"Unknown lab-test relationship(s): {sorted(unknown)!r}. "
+                    f"Valid: {LAB_TEST_RELATIONSHIPS!r}",
+                )
+
+        options = [
+            selectinload(BoreholeOrm.drill_segments),
+            selectinload(BoreholeOrm.field_log_intervals),
+            selectinload(BoreholeOrm.observations)
+            .selectinload(ObservationOrm.layers)
+            .selectinload(ObservationLayerOrm.admixtures),
+            selectinload(BoreholeOrm.samples),
+        ]
+        for rel_name in LAB_TEST_RELATIONSHIPS:
+            if include_set is None or rel_name in include_set:
+                options.append(
+                    selectinload(BoreholeOrm.samples).selectinload(getattr(SampleOrm, rel_name))
+                )
+
+        stmt = select(BoreholeOrm).where(BoreholeOrm.id.in_(borehole_ids))
+        if app_project_id is not None:
+            stmt = stmt.where(BoreholeOrm.app_project_id == app_project_id)
+        stmt = stmt.options(*options)
+        result = await self._session.execute(stmt)
+        boreholes = list(result.scalars().all())
+
+        # Stamp excluded families empty on every sample (mirror get_by_id).
+        if include_set is not None:
+            excluded = [r for r in LAB_TEST_RELATIONSHIPS if r not in include_set]
+            for borehole in boreholes:
+                for sample in borehole.samples:
+                    for rel_name in excluded:
+                        set_committed_value(sample, rel_name, [])
+        return boreholes
+
     async def list_all(self, app_project_id: UUID | None = None) -> list[BoreholeOrm]:
         """Return all boreholes without loading children.
 
