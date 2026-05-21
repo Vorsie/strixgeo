@@ -87,6 +87,15 @@ function makeCtx(overrides: {
   selectedSectionId?: string | null
   lithoStaleSurfaceCount?: number
   handleRebuildLithoSurfaces?: () => Promise<void>
+  // Phase 2 of debt #77: bus exposes the unified Map + focus flag.
+  // ``ghostsByAnchor`` is what consumers (SectionsToolbar) read for
+  // "has suggestions" + bulk-anchor count. Tests that want a populated
+  // ghost set can populate via ``ghostsByAnchor`` directly OR pass a
+  // ``lithoSuggestions`` array — the helper wraps the array into a
+  // synthetic single-anchor entry under a hard-coded id so existing
+  // call sites that pre-date Phase 2 keep working.
+  ghostsByAnchor?: ReadonlyMap<string, import('../../../hooks/useGeologicalModel').BulkAnchorGhost>
+  focusedSuggestAnchorId?: string | null
   lithoSuggestions?: import('../../../api/client').LithoLayerSuggestion[]
   handleAcceptAllLithoSuggestions?: () => Promise<void>
 } = {}): ShellContextValue {
@@ -214,14 +223,33 @@ function makeCtx(overrides: {
       applyBoreholeFormationSelection: noopAsync,
       handleDeleteModel: noopAsync,
       ensureActiveGeologicalModel: () => Promise.resolve(null),
-      lithoSuggestions: overrides.lithoSuggestions ?? [],
-      lithoSuggestionInvestigationId: null,
-      lithoSuggestionAnchorKind: null,
-      lithoSuggestionAccepted: new Set<number>(),
-      lithoSuggestionRejected: new Set<number>(),
-      lithoSuggestionEdits: new Map<number, { depth_top_m?: number; depth_base_m?: number }>(),
+      // Phase 2 of debt #77 compat shim: ``lithoSuggestions`` override
+      // wraps the array into a synthetic ghost entry so BL1-BL3 tests
+      // can populate "the focused anchor has N suggestions" without
+      // restating the full Map shape per test.
+      ghostsByAnchor:
+        overrides.ghostsByAnchor ??
+        (overrides.lithoSuggestions && overrides.lithoSuggestions.length > 0
+          ? new Map([
+              [
+                'test-focused-anchor',
+                {
+                  kind: 'cpt' as const,
+                  suggestions: overrides.lithoSuggestions,
+                  surfaceElevationM: null,
+                  accepted: new Set<number>(),
+                  rejected: new Set<number>(),
+                  edits: new Map(),
+                },
+              ],
+            ])
+          : new Map()),
+      focusedSuggestAnchorId:
+        overrides.focusedSuggestAnchorId ??
+        (overrides.lithoSuggestions && overrides.lithoSuggestions.length > 0
+          ? 'test-focused-anchor'
+          : null),
       handleEditLithoSuggestion: () => {},
-      bulkLithoGhosts: new Map(),
       bulkLithoSuggesting: false,
       handleSuggestAllLitho: async () => {},
       handleAcceptBulkLitho: async () => {},
