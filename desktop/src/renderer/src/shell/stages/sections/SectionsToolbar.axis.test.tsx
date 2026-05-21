@@ -276,6 +276,7 @@ function makeCtx(overrides: {
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
       lithoStaleSurfaceCount: overrides.lithoStaleSurfaceCount ?? 0,
+      lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: overrides.handleRebuildLithoSurfaces ?? noopAsync,
     },
     sections: {

@@ -198,6 +198,7 @@ function makeCtx(overrides: {
   lithoFormations?: GeologicalFormationResponse[]
   lithoContacts?: FormationContactResponse[]
   lithoStaleSurfaceCount?: number
+  lithoStaleTinSessionCount?: number
   refetchFormations?: () => void
 } = {}): ShellContextValue {
   return {
@@ -285,6 +286,7 @@ function makeCtx(overrides: {
       lithoFormations: overrides.lithoFormations ?? [],
       lithoSurfacesByFormationId: new Map(),
       lithoStaleSurfaceCount: overrides.lithoStaleSurfaceCount ?? 0,
+      lithoStaleTinSessionCount: overrides.lithoStaleTinSessionCount ?? 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleCreateLithoContact: noopAsync,
       handleInlineLithoCreateFormation: () => Promise.resolve(null),
@@ -919,5 +921,41 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
       'lit-a',
       { parent_formation_id: 'geo-a', parent_extrapolated: false },
     )
+  })
+
+  // Stale-TIN diagnostic — debt: AcceptLithoSuggestions' straddle-split
+  // path can fall back to depth-ordered contacts when the geology TIN is
+  // stale/absent. The session counter accumulates that across accepts;
+  // the inspector pill surfaces it so the engineer sees "rebuild geology
+  // for precision" without digging into logs.
+  it('T1 — stale-TIN pill renders when lithoStaleTinSessionCount > 0 with the right count', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoStaleTinSessionCount: 3,
+    })
+    renderInspector(ctx)
+    const pill = screen.getByTestId('litho-stale-tin-pill')
+    expect(pill).toBeInTheDocument()
+    expect(pill).toHaveTextContent(/3 stale-TIN straddle fallbacks this session/i)
+    expect(pill).toHaveTextContent(/rebuild geology for precision/i)
+  })
+
+  it('T2 — stale-TIN pill is absent when count is 0', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoStaleTinSessionCount: 0,
+    })
+    renderInspector(ctx)
+    expect(screen.queryByTestId('litho-stale-tin-pill')).not.toBeInTheDocument()
+  })
+
+  it('T3 — singular wording when count is exactly 1', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoStaleTinSessionCount: 1,
+    })
+    renderInspector(ctx)
+    const pill = screen.getByTestId('litho-stale-tin-pill')
+    expect(pill).toHaveTextContent(/1 stale-TIN straddle fallback this session/i)
   })
 })

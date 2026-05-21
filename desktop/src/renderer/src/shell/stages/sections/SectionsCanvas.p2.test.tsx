@@ -343,6 +343,7 @@ function makeStubContext(overrides?: {
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
       lithoStaleSurfaceCount: 0,
+    lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
     },
     sections: {

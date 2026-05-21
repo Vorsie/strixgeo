@@ -190,6 +190,7 @@ function makeCtx(overrides: {
       lithoFormations: overrides.lithoFormations ?? [],
       lithoSurfacesByFormationId: overrides.lithoSurfacesByFormationId ?? new Map(),
       lithoStaleSurfaceCount: 0,
+    lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleCreateLithoContact: noopAsync,
       handleInlineLithoCreateFormation: () => Promise.resolve(null),
