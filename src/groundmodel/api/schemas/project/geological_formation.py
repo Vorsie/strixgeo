@@ -58,6 +58,14 @@ class GeologicalFormationUpdateRequest(BaseModel):
     # leaves it untouched.  When True the resolver skips this row unless
     # it is a lock-conflict loser.  When False the resolver may renumber.
     instance_ordinal_locked: bool | None = None
+    # Debt #87: cleared to False when the engineer confirms the
+    # TIN-extrapolated parent (or reassigns it). The PATCH is also used
+    # by the Detach action (parent_formation_id=null + parent_extrapolated=false
+    # in one call). Never sent True from the UI — only Accept stamps True.
+    parent_extrapolated: bool | None = None
+    # Allow Detach to explicitly clear parent_formation_id alongside the
+    # extrapolated flag. Sent as null to clear; omitted to leave unchanged.
+    parent_formation_id: UUID | None = None
 
 
 class GeologicalFormationResponse(BaseModel):
@@ -91,6 +99,12 @@ class GeologicalFormationResponse(BaseModel):
     nad_class: int | None
     # Litho-builder Phase 1 fields — NULL on geological-model rows.
     parent_formation_id: UUID | None = None
+    # Debt #87: True when ``parent_formation_id`` was inferred from TIN
+    # extrapolation rather than from a geology contact at the investigation
+    # the litho unit was created on. The LithologyInspector renders an
+    # amber dot + "extrapolated" tooltip on flagged units and offers a
+    # confirm/reassign/detach dialog that PATCHes this flag to false.
+    parent_extrapolated: bool = False
     litho_main_soil_code: str | None = None
     # JSONB list of {"soil_code": str, "amount": str, "locally": bool} dicts.
     # NULL on geological rows; [] on a litho unit with no admixtures.

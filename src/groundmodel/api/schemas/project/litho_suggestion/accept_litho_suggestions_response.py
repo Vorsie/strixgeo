@@ -30,6 +30,16 @@ class AcceptLithoSuggestionsResponse(BaseModel):
         Number of straddle splits that fell back to depth-ordering because the
         geology TIN was stale or absent (debt #68). Non-zero means the
         geological model should be rebuilt for better precision.
+    extrapolated_formation_ids : list[UUID]
+        Litho formation rows created in this call whose ``parent_formation_id``
+        was inferred via TIN extrapolation (debt #87). The frontend uses this
+        list to drive the post-accept toast and to seed the LithologyInspector
+        confirm/reassign/detach dialog. Default ``[]`` for additive
+        backwards-compat with pre-#87 clients.
+    orphan_formation_ids : list[UUID]
+        Litho formation rows created in this call with
+        ``parent_formation_id=NULL`` (neither contact-based assignment nor
+        TIN extrapolation could resolve a parent — debt #87). Default ``[]``.
     updated_section : CrossSectionResponse | None
         The refreshed section row after its ``seeded_formation_contact_ids``
         was extended, or ``None`` when no ``section_id`` was provided.
@@ -41,4 +51,6 @@ class AcceptLithoSuggestionsResponse(BaseModel):
     found_contact_ids: list[UUID]
     straddle_split_count: int
     stale_tin_fallback_count: int
+    extrapolated_formation_ids: list[UUID] = []
+    orphan_formation_ids: list[UUID] = []
     updated_section: CrossSectionResponse | None = None

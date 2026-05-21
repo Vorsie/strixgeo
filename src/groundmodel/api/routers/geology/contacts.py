@@ -932,6 +932,8 @@ async def accept_litho_suggestions(
         found_contact_ids=result.found_contact_ids,
         straddle_split_count=result.straddle_split_count,
         stale_tin_fallback_count=result.stale_tin_fallback_count,
+        extrapolated_formation_ids=result.extrapolated_formation_ids,
+        orphan_formation_ids=result.orphan_formation_ids,
         updated_section=updated_section_response,
     )
 
