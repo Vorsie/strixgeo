@@ -182,13 +182,18 @@ export function computeTriangleConfidence(
 }
 
 /**
- * Partition a triangle list into two index buckets by confidence band:
- * indices with confidence >= ``CONFIDENCE_THRESHOLD`` go to ``high``,
- * the rest to ``low``.  Empty bucket means no triangles in that band
- * (and the caller should skip the corresponding primitive build).
+ * Partition a triangle list into two index buckets by confidence band.
  *
- * Pure helper — the renderer (3D viewer or section slice) calls this to
- * decide which triangles get full alpha and which fade.
+ * **Deprecated as the primary renderer path 2026-05-21** — the
+ * per-vertex gradient renderers (Geology3DViewer + ContactsLayer) now
+ * consume continuous confidence directly via
+ * ``confidenceToAlphaMultiplier`` instead of binarising into two bins.
+ * The binary partition produced a visible cliff at the threshold that
+ * the engineer read as "two distinct regions" when the underlying math
+ * is a smooth distance signal.
+ *
+ * Kept exported for back-compat (still referenced by some pin tests +
+ * the binary fallback when a renderer can't carry per-vertex alpha).
  */
 export function partitionByConfidence(
   confidence: readonly number[],
@@ -200,4 +205,93 @@ export function partitionByConfidence(
     else low.push(i)
   }
   return { high, low }
+}
+
+/**
+ * Map a triangle's continuous confidence to its render alpha multiplier.
+ *
+ * Linear lerp from ``LOW_CONFIDENCE_ALPHA_MULTIPLIER`` at
+ * ``CONFIDENCE_FLOOR`` to ``1.0`` at confidence ``1.0``.  Used by the
+ * per-vertex gradient renderers to compute a smooth alpha that varies
+ * with the underlying distance-to-data signal.
+ *
+ * Out-of-range inputs are clamped — anything below the floor maps to
+ * the low multiplier, anything above 1.0 maps to 1.0.
+ *
+ * Parameters
+ * ----------
+ * confidence
+ *     A value typically in ``[CONFIDENCE_FLOOR, 1.0]`` produced by
+ *     ``computeTriangleConfidence`` or ``computeVertexConfidence``.
+ *
+ * Returns
+ * -------
+ * number
+ *     Alpha multiplier in ``[LOW_CONFIDENCE_ALPHA_MULTIPLIER, 1.0]``.
+ *     The caller multiplies its base alpha (formation surface fresh /
+ *     stale alpha) by this to get the final render alpha.
+ */
+export function confidenceToAlphaMultiplier(confidence: number): number {
+  const c = Math.max(CONFIDENCE_FLOOR, Math.min(1.0, confidence))
+  const span = 1.0 - CONFIDENCE_FLOOR
+  const t = span <= 0 ? 0 : (c - CONFIDENCE_FLOOR) / span
+  return LOW_CONFIDENCE_ALPHA_MULTIPLIER + (1.0 - LOW_CONFIDENCE_ALPHA_MULTIPLIER) * t
+}
+
+/**
+ * Compute per-vertex confidence by averaging incident triangles.
+ *
+ * For each vertex, looks at every triangle that references it and
+ * averages those triangles' confidence values.  Vertices on the convex
+ * hull share more low-confidence triangles → average down.  Vertices
+ * deep in the data region share more high-confidence triangles →
+ * average up.  Smooth across the surface — the GPU then interpolates
+ * the resulting per-vertex alpha across each triangle.
+ *
+ * Parameters
+ * ----------
+ * vertices
+ *     ``[[x, y, z], ...]`` — vertex positions.  Used only for length;
+ *     the math runs on indices.
+ * triangles
+ *     ``[[i_a, i_b, i_c], ...]`` — vertex indices per triangle.
+ * triangleConfidence
+ *     Optional pre-computed per-triangle confidence (output of
+ *     ``computeTriangleConfidence``).  Passed when the caller has
+ *     already computed it; absent → computed here.
+ *
+ * Returns
+ * -------
+ * number[]
+ *     Per-vertex confidence aligned with ``vertices``.  A vertex with
+ *     no incident triangles (orphan) gets ``1.0`` — orphans don't
+ *     render anyway; the value is a safe default.
+ */
+export function computeVertexConfidence(
+  vertices: readonly (readonly [number, number, number])[],
+  triangles: readonly (readonly [number, number, number])[],
+  triangleConfidence?: readonly number[],
+): number[] {
+  if (vertices.length === 0) return []
+  const triConf = triangleConfidence ?? computeTriangleConfidence(vertices, triangles)
+
+  const sum = new Float64Array(vertices.length)
+  const count = new Uint32Array(vertices.length)
+
+  for (let t = 0; t < triangles.length; t += 1) {
+    const [a, b, c] = triangles[t]
+    const conf = triConf[t]
+    sum[a] += conf
+    sum[b] += conf
+    sum[c] += conf
+    count[a] += 1
+    count[b] += 1
+    count[c] += 1
+  }
+
+  const out: number[] = new Array(vertices.length)
+  for (let i = 0; i < vertices.length; i += 1) {
+    out[i] = count[i] === 0 ? 1.0 : sum[i] / count[i]
+  }
+  return out
 }

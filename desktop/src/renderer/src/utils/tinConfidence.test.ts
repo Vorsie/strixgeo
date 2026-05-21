@@ -6,6 +6,9 @@ import {
   CONFIDENCE_FLOOR,
   CONFIDENCE_THRESHOLD,
   computeTriangleConfidence,
+  computeVertexConfidence,
+  confidenceToAlphaMultiplier,
+  LOW_CONFIDENCE_ALPHA_MULTIPLIER,
   partitionByConfidence,
 } from './tinConfidence'
 
@@ -201,5 +204,102 @@ describe('partitionByConfidence (debt #28)', () => {
     const out = partitionByConfidence([1.0, 0.3, 0.9, 0.5, 0.7])
     expect(out.high).toEqual([0, 2, 4])
     expect(out.low).toEqual([1, 3])
+  })
+})
+
+// --- True per-vertex gradient helpers (debt #28 follow-up 2026-05-21) ---
+
+describe('confidenceToAlphaMultiplier (debt #28 follow-up)', () => {
+  it('A1 — confidence at floor maps to LOW_CONFIDENCE_ALPHA_MULTIPLIER', () => {
+    expect(confidenceToAlphaMultiplier(CONFIDENCE_FLOOR)).toBeCloseTo(
+      LOW_CONFIDENCE_ALPHA_MULTIPLIER,
+      6,
+    )
+  })
+
+  it('A2 — confidence 1.0 maps to 1.0 (no fade)', () => {
+    expect(confidenceToAlphaMultiplier(1.0)).toBeCloseTo(1.0, 6)
+  })
+
+  it('A3 — midpoint of [floor, 1] maps to midpoint of [LOW_MULT, 1]', () => {
+    const midConf = (CONFIDENCE_FLOOR + 1.0) / 2
+    const midMult = (LOW_CONFIDENCE_ALPHA_MULTIPLIER + 1.0) / 2
+    expect(confidenceToAlphaMultiplier(midConf)).toBeCloseTo(midMult, 6)
+  })
+
+  it('A4 — values below floor clamp to LOW_MULT', () => {
+    expect(confidenceToAlphaMultiplier(CONFIDENCE_FLOOR - 0.5)).toBeCloseTo(
+      LOW_CONFIDENCE_ALPHA_MULTIPLIER,
+      6,
+    )
+  })
+
+  it('A5 — values above 1 clamp to 1.0', () => {
+    expect(confidenceToAlphaMultiplier(2.0)).toBeCloseTo(1.0, 6)
+  })
+
+  it('A6 — monotonically increasing across the valid range', () => {
+    let prev = -Infinity
+    for (const c of [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]) {
+      const m = confidenceToAlphaMultiplier(c)
+      expect(m).toBeGreaterThanOrEqual(prev)
+      prev = m
+    }
+  })
+})
+
+describe('computeVertexConfidence (debt #28 follow-up)', () => {
+  it('V1 — empty input → empty output', () => {
+    expect(computeVertexConfidence([], [])).toEqual([])
+  })
+
+  it('V2 — single triangle: every vertex shares the same single confidence', () => {
+    // 1-triangle TIN → degenerate-escape path returns 1.0 per triangle,
+    // so all vertices should land at 1.0.
+    const vertices: V[] = [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 1, 0],
+    ]
+    const triangles: T[] = [[0, 1, 2]]
+    const out = computeVertexConfidence(vertices, triangles)
+    expect(out).toHaveLength(3)
+    expect(out.every(c => Math.abs(c - 1.0) < 1e-9)).toBe(true)
+  })
+
+  it('V3 — averages incident triangle confidences', () => {
+    // Two adjacent triangles sharing edge (0,1). Vertex 0 + 1 each
+    // belong to both triangles → average. Vertex 2 belongs only to
+    // triangle 0; vertex 3 only to triangle 1.
+    const vertices: V[] = [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0.5, 0.866, 0],
+      [0.5, -0.866, 0],
+    ]
+    const triangles: T[] = [
+      [0, 1, 2],
+      [1, 0, 3],
+    ]
+    // Inject a synthetic triangleConfidence so the test is independent
+    // of the (otherwise-degenerate) compute path.
+    const triangleConfidence = [1.0, 0.4]
+    const out = computeVertexConfidence(vertices, triangles, triangleConfidence)
+    expect(out[0]).toBeCloseTo(0.7, 6) // (1.0 + 0.4) / 2
+    expect(out[1]).toBeCloseTo(0.7, 6)
+    expect(out[2]).toBeCloseTo(1.0, 6)
+    expect(out[3]).toBeCloseTo(0.4, 6)
+  })
+
+  it('V4 — orphan vertex (no incident triangle) defaults to 1.0', () => {
+    const vertices: V[] = [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 1, 0],
+      [5, 5, 5], // orphan
+    ]
+    const triangles: T[] = [[0, 1, 2]]
+    const out = computeVertexConfidence(vertices, triangles, [0.5])
+    expect(out[3]).toBe(1.0)
   })
 })
