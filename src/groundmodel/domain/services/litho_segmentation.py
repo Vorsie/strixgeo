@@ -455,6 +455,19 @@ def segment_cpt(
     return suggestions
 
 
+# Debt #66 (resolved 2026-05-21): two-threshold admixture aggregation.
+# Hoisted to module constants so the owner can tune them at dogfeed
+# without re-reading the function body. The primary threshold catches
+# dominant admixtures (>50% of run thickness, e.g. "Strong Sandy Clay").
+# The secondary threshold + presence-floor catches PERVASIVE secondary
+# signals in thin interbedded sequences (e.g. "silty" present at modest
+# thickness across many alternating layers — the primary threshold
+# misses these because no single layer dominates).
+ADMIXTURE_MAJORITY_THRESHOLD = 0.5
+ADMIXTURE_SECONDARY_THRESHOLD = 0.25
+ADMIXTURE_PRESENCE_FLOOR = 3
+
+
 def _aggregate_admixtures(
     admixtures_per_layer: Sequence[list[Admixture]],
     thicknesses: Sequence[float],
@@ -463,14 +476,29 @@ def _aggregate_admixtures(
 ) -> tuple[Admixture, ...]:
     """Aggregate admixtures from contributing observation layers by thickness weight.
 
-    An admixture canonical key (``soil_code:amount``, ignoring ``locally``)
-    that is present in layers covering >50% of the merged run's total thickness
-    is included in the output.  For matching keys, the ``locally`` flag is set
-    to False unless ALL contributing layers have it set to True.
+    An admixture is keyed by its ``soil_code`` (NOT soil_code:amount —
+    different amounts of the same soil are aggregated together so the
+    output picks the dominant amount per soil rather than competing
+    variants thinned across the run).  Inclusion is two-threshold:
 
-    Debt #66: this heuristic is owner-tunable at dogfeed — the >50% majority
-    threshold is a reasonable default for Belgian borehole descriptions but may
-    need adjustment for thin interbedded sequences.
+    1. **Primary** — total thickness > ``ADMIXTURE_MAJORITY_THRESHOLD``
+       (50%) of the merged run's total thickness.  Dominant-signal case
+       (e.g. "Strong Sandy Clay" where the sandy admixture spans most
+       of the run).
+    2. **Secondary** — total thickness > ``ADMIXTURE_SECONDARY_THRESHOLD``
+       (25%) AND present in >= ``ADMIXTURE_PRESENCE_FLOOR`` (3) source
+       layers.  Pervasive-secondary-signal case (thin interbedded
+       sequences where the secondary admixture IS the geological
+       character even though no single layer dominates).
+
+    For each included ``soil_code``, the output's ``amount`` is the
+    amount variant with the highest summed thickness across contributing
+    layers — geotechnically honest: the merged label reflects the
+    dominant strength when layers report different amounts.
+
+    The ``locally`` flag follows the same rule as before — False when
+    ANY contributing layer reports it globally; True only when EVERY
+    contributing layer reports it as local.
 
     Parameters
     ----------
@@ -486,43 +514,64 @@ def _aggregate_admixtures(
     Returns
     -------
     tuple[Admixture, ...]
-        Admixtures present in >50% of the run's total thickness, ordered by
-        ``canonical_key()`` for determinism.
+        Admixtures passing the two-threshold rule, ordered by ``soil_code``
+        for determinism.
     """
     total_thickness = sum(thicknesses[i] for i in range(start_idx, end_idx_exclusive))
     if total_thickness <= 0:
         return ()
 
-    # Accumulate thickness per canonical key + track locally flag presence.
-    key_thickness: dict[str, float] = {}
-    key_not_local: dict[str, bool] = {}  # True when any contributing layer has locally=False
-    key_soil: dict[str, str] = {}
-    key_amount: dict[str, str] = {}
+    # Per-soil_code accumulators. A soil_code appearing twice in one
+    # layer is counted once for thickness + presence (defensive against
+    # malformed input) but each amount variant still contributes to the
+    # amount-thickness map.
+    soil_thickness: dict[str, float] = {}
+    soil_layer_count: dict[str, int] = {}
+    soil_amount_thickness: dict[str, dict[str, float]] = {}
+    soil_any_global: dict[str, bool] = {}  # True when any contributing layer has locally=False
 
     for i in range(start_idx, end_idx_exclusive):
         th = thicknesses[i]
+        seen_this_layer: set[str] = set()
         for adm in admixtures_per_layer[i]:
-            k = adm.canonical_key()
-            key_thickness[k] = key_thickness.get(k, 0.0) + th
+            s = adm.soil_code
+            if s not in seen_this_layer:
+                seen_this_layer.add(s)
+                soil_thickness[s] = soil_thickness.get(s, 0.0) + th
+                soil_layer_count[s] = soil_layer_count.get(s, 0) + 1
+            amount_map = soil_amount_thickness.setdefault(s, {})
+            amount_map[adm.amount] = amount_map.get(adm.amount, 0.0) + th
             if not adm.locally:
-                key_not_local[k] = True
-            elif k not in key_not_local:
-                key_not_local[k] = False
-            key_soil[k] = adm.soil_code
-            key_amount[k] = adm.amount
+                soil_any_global[s] = True
+            elif s not in soil_any_global:
+                soil_any_global[s] = False
 
-    threshold = 0.5 * total_thickness
+    primary_cutoff = ADMIXTURE_MAJORITY_THRESHOLD * total_thickness
+    secondary_cutoff = ADMIXTURE_SECONDARY_THRESHOLD * total_thickness
+
     result: list[Admixture] = []
-    for k in sorted(key_thickness):
-        if key_thickness[k] > threshold:
-            result.append(
-                Admixture(
-                    soil_code=key_soil[k],
-                    amount=key_amount[k],
-                    # locally=False when ANY contributing layer has it globally
-                    locally=not key_not_local.get(k, False),
-                )
+    for s in sorted(soil_thickness):
+        total_for_s = soil_thickness[s]
+        layer_count = soil_layer_count[s]
+        passes_primary = total_for_s > primary_cutoff
+        passes_secondary = (
+            total_for_s > secondary_cutoff and layer_count >= ADMIXTURE_PRESENCE_FLOOR
+        )
+        if not (passes_primary or passes_secondary):
+            continue
+        # Dominant amount: the variant with the largest summed thickness.
+        # Tie-break by lexicographic order on the amount string so two
+        # equally-weighted variants produce a deterministic output.
+        amount_map = soil_amount_thickness[s]
+        dominant_amount = max(amount_map.items(), key=lambda kv: (kv[1], kv[0]))[0]
+        result.append(
+            Admixture(
+                soil_code=s,
+                amount=dominant_amount,
+                # locally=False when ANY contributing layer has it globally
+                locally=not soil_any_global.get(s, False),
             )
+        )
     return tuple(result)
 
 
