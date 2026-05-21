@@ -159,6 +159,14 @@ export interface UseGeologicalModelResult {
    */
   lithoStaleSurfaceCount: number
   /**
+   * Cumulative count of stale-TIN straddle fallbacks across every
+   * accept-litho-suggestions response in the current session.  Drives
+   * the amber pill in ``LithologyInspector`` that asks the engineer
+   * to rebuild the geology model for precision.  Cleared on (a) a
+   * successful geology rebuild + (b) ``clearLithoSuggestions``.
+   */
+  lithoStaleTinSessionCount: number
+  /**
    * Rebuild TIN surfaces for the active lithostratigraphic model.
    *
    * Calls ``POST .../models/{mid}/surfaces/rebuild`` with the litho
@@ -2069,6 +2077,10 @@ export function useGeologicalModel({
       // Refetch the cache so the section view's slice render uses
       // the freshly-computed TINs even when the checksum matched.
       refetchSurfaces()
+      // Stale-TIN diagnostic: a fresh geology build invalidates the
+      // session counter — every subsequent accept-litho-suggestions
+      // call uses non-stale TINs, so the inspector pill should clear.
+      setLithoStaleTinSessionCount(0)
       // Build also auto-reorders display_order to match the data —
       // refetch formations so the InterpretationPane list reflects
       // the new age order without a window reload.
@@ -2233,6 +2245,16 @@ export function useGeologicalModel({
       Array.from(lithoSurfacesByFormationId.values()).filter(s => s.is_stale === true).length,
     [lithoSurfacesByFormationId],
   )
+
+  // Debt: stale-TIN straddle fallback diagnostic. AcceptLithoSuggestions'
+  // straddle-split path falls back to depth-ordered contacts when the
+  // geology TIN is stale or absent; the response carries
+  // ``stale_tin_fallback_count``. This session counter accumulates that
+  // across every accept in the current dogfeed session so the
+  // LithologyInspector can render an amber pill telling the engineer
+  // to rebuild the geology model for precision. Cleared on (a) a
+  // successful geology rebuild + (b) ``clearLithoSuggestions``.
+  const [lithoStaleTinSessionCount, setLithoStaleTinSessionCount] = useState(0)
 
   // Rebuild TIN surfaces for the active lithostratigraphic model.
   // Closes over activeLithoModelRef; the dep array is
@@ -2839,6 +2861,9 @@ export function useGeologicalModel({
     // is hit while a suggest fetch is in flight, the spinner would
     // otherwise stay stuck until the orphaned fetch settles.
     setLithoSuggesting(false)
+    // Stale-TIN diagnostic: clearing the suggestions ends the session,
+    // so reset the cumulative counter for the inspector pill.
+    setLithoStaleTinSessionCount(0)
     // The old burst-safe refs (acceptedFormationByLithoRef,
     // lithoFormationInFlightRef) were removed in Phase 1 — the bulk
     // endpoint is idempotent server-side (find-or-create), so the
@@ -3068,6 +3093,11 @@ export function useGeologicalModel({
         // engineer review (TIN-extrapolated parent or fully unassigned).
         const summary = formatAcceptParentSummary(result)
         if (summary !== null) toast(summary.kind, summary.message)
+        // Stale-TIN diagnostic: aggregate the response's count into
+        // the session counter so the inspector pill picks it up.
+        if (result.stale_tin_fallback_count > 0) {
+          setLithoStaleTinSessionCount(c => c + result.stale_tin_fallback_count)
+        }
         // Forward updated_section so the section's explicit-content filter
         // includes the newly seeded contacts — #57 class trap.
         if (result.updated_section != null && onSectionUpdated != null) {
@@ -3172,6 +3202,11 @@ export function useGeologicalModel({
         // Debt #87: see acceptLithoSuggestion site above.
         const summary = formatAcceptParentSummary(result)
         if (summary !== null) toast(summary.kind, summary.message)
+        // Stale-TIN diagnostic: aggregate the response's count into
+        // the session counter so the inspector pill picks it up.
+        if (result.stale_tin_fallback_count > 0) {
+          setLithoStaleTinSessionCount(c => c + result.stale_tin_fallback_count)
+        }
         // Forward updated_section — #57 invariant.
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
@@ -3408,6 +3443,11 @@ export function useGeologicalModel({
         // needing review.
         const summary = formatAcceptParentSummary(result)
         if (summary !== null) toast(summary.kind, summary.message)
+        // Stale-TIN diagnostic: aggregate the response's count into
+        // the session counter so the inspector pill picks it up.
+        if (result.stale_tin_fallback_count > 0) {
+          setLithoStaleTinSessionCount(c => c + result.stale_tin_fallback_count)
+        }
         if (result.updated_section != null && onSectionUpdated != null) {
           onSectionUpdated(result.updated_section)
         }
@@ -3502,6 +3542,11 @@ export function useGeologicalModel({
           totalCommitted += result.created_contact_ids.length + result.found_contact_ids.length
           totalExtrapolated += result.extrapolated_formation_ids?.length ?? 0
           totalOrphan += result.orphan_formation_ids?.length ?? 0
+          // Stale-TIN diagnostic: aggregate the response's count into
+          // the session counter so the inspector pill picks it up.
+          if (result.stale_tin_fallback_count > 0) {
+            setLithoStaleTinSessionCount(c => c + result.stale_tin_fallback_count)
+          }
           if (result.updated_section != null && onSectionUpdated != null) {
             onSectionUpdated(result.updated_section)
           }
@@ -3815,6 +3860,7 @@ export function useGeologicalModel({
     lithoFormations,
     lithoSurfacesByFormationId,
     lithoStaleSurfaceCount,
+    lithoStaleTinSessionCount,
     handleRebuildLithoSurfaces,
     refetchLithoContacts,
     handleCreateLithoContact,
