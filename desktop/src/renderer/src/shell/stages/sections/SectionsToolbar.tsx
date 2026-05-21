@@ -68,6 +68,10 @@ export default function SectionsToolbar(): JSX.Element {
       handleSuggestAllLitho,
       handleAcceptAllBulkLitho,
       clearBulkLithoGhosts,
+      // Debt #92 "new tests" filter: scope the new toolbar verbs to
+      // investigations not yet in the active model's contact set.
+      contacts,
+      lithoContacts,
     },
     visibleCpts,
     coordinator: {
@@ -75,6 +79,7 @@ export default function SectionsToolbar(): JSX.Element {
       selectedBoreholeId,
       handleExportSectionDxf,
     },
+    toasts: { toast },
   } = useShell()
 
   const [creating, setCreating] = useState(false)
@@ -333,6 +338,67 @@ export default function SectionsToolbar(): JSX.Element {
     await handleSuggestAllLitho(bulkAnchors)
   }
 
+  // Debt #92: "Suggest for new tests" — same fan-out as "Suggest all"
+  // but scoped to anchors that have ZERO contacts in the active litho
+  // model. Lets the engineer add new investigations to an already-
+  // accepted project without re-running the segmenter on every
+  // already-handled CPT/borehole.
+  const newTestAnchors = useMemo(() => {
+    if (!activeLithoModel) return [] as typeof bulkAnchors
+    const lithoSeenAnchorIds = new Set<string>()
+    for (const c of lithoContacts) {
+      if (c.cpt_id !== null) lithoSeenAnchorIds.add(c.cpt_id)
+      if (c.borehole_id !== null) lithoSeenAnchorIds.add(c.borehole_id)
+    }
+    return bulkAnchors.filter(a => !lithoSeenAnchorIds.has(a.id))
+  }, [bulkAnchors, lithoContacts, activeLithoModel])
+
+  async function handleSuggestNewTests(): Promise<void> {
+    if (newTestAnchors.length === 0) {
+      toast(
+        'success',
+        'No new tests — every investigation has litho contacts already.',
+      )
+      return
+    }
+    await handleSuggestAllLitho(newTestAnchors)
+  }
+
+  // Debt #92: "Seed for new tests" — Same as the geology-axis Seed
+  // button but scoped to boreholes that have ZERO contacts in the
+  // active geology model. Safe to click after the section is already
+  // seeded; only affects newly-imported boreholes.
+  const newTestBoreholeIds = useMemo(() => {
+    if (!activeGeologicalModel) return [] as string[]
+    const seen = new Set<string>()
+    for (const c of contacts) {
+      if (c.borehole_id !== null) seen.add(c.borehole_id)
+    }
+    return visibleBoreholes.filter(b => !seen.has(b.id)).map(b => b.id)
+  }, [contacts, visibleBoreholes, activeGeologicalModel])
+
+  async function handleSeedNewTests(): Promise<void> {
+    if (seeding) return
+    if (newTestBoreholeIds.length === 0) {
+      toast(
+        'success',
+        'No new tests — every borehole has geology contacts already.',
+      )
+      return
+    }
+    setSeeding(true)
+    try {
+      if (!activeGeologicalModel) return
+      await handleAutoPopulateFromStratigraphy(
+        newTestBoreholeIds,
+        selectedSectionId ?? null,
+        applyUpdatedSection,
+      )
+    } finally {
+      setSeeding(false)
+    }
+  }
+
   async function handleAcceptAllBulk(): Promise<void> {
     if (bulkAnchorCount === 0 || acceptingAllBulk) return
     setAcceptingAllBulk(true)
@@ -508,6 +574,36 @@ export default function SectionsToolbar(): JSX.Element {
                     ? 'Running segmenter on every investigation in this section…'
                     : 'Suggest lithostratigraphic layers for every investigation in this section at once'
               }
+            />
+          )}
+          {/* Debt #92: Suggest for new tests — same fan-out as "Suggest
+              all" but scoped to anchors with zero contacts in the
+              active litho model.  Lets the engineer process newly-
+              imported investigations without re-running the segmenter
+              on already-accepted ones. */}
+          {hasSection && (
+            <ToolbarButton
+              icon={<Sparkles size={13} />}
+              label={
+                bulkLithoSuggesting
+                  ? 'Suggesting…'
+                  : `Suggest for new tests${newTestAnchors.length > 0 ? ` (${newTestAnchors.length})` : ''}`
+              }
+              onClick={() => void handleSuggestNewTests()}
+              disabled={
+                !activeLithoModel || bulkLithoSuggesting || lithoSuggesting
+              }
+              busy={bulkLithoSuggesting}
+              title={
+                !activeLithoModel
+                  ? 'Create a lithostratigraphic model first'
+                  : bulkLithoSuggesting
+                    ? 'Running segmenter…'
+                    : newTestAnchors.length === 0
+                      ? 'No new tests — every investigation has litho contacts already'
+                      : `Suggest layers for the ${newTestAnchors.length} investigation${newTestAnchors.length === 1 ? '' : 's'} with no litho contacts yet`
+              }
+              data-testid="litho-suggest-new-tests"
             />
           )}
           {bulkAnchorCount > 0 && (
@@ -697,6 +793,35 @@ export default function SectionsToolbar(): JSX.Element {
                   : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear'))
         }
       />
+
+      {/* Debt #92: Seed for new tests (geology axis only).  Same as the
+          Seed button above but scoped to boreholes that have ZERO
+          contacts in the active geology model.  Safe to click after the
+          section is already seeded; only affects newly-imported boreholes. */}
+      {!isLitho && (
+        <ToolbarButton
+          icon={<Sparkles size={13} />}
+          label={
+            seeding
+              ? 'Seeding…'
+              : `Seed for new tests${newTestBoreholeIds.length > 0 ? ` (${newTestBoreholeIds.length})` : ''}`
+          }
+          onClick={() => void handleSeedNewTests()}
+          disabled={seeding || geoVerbDisabled}
+          busy={seeding}
+          title={
+            geoVerbHint ??
+            (activeGeologicalModel === null
+              ? 'Define formations in the Geology stage first'
+              : seeding
+                ? 'Seeding contacts from borehole stratigraphy…'
+                : newTestBoreholeIds.length === 0
+                  ? 'No new tests — every borehole has geology contacts already'
+                  : `Place contacts from stratigraphy for the ${newTestBoreholeIds.length} borehole${newTestBoreholeIds.length === 1 ? '' : 's'} with no geology contacts yet`)
+          }
+          data-testid="geology-seed-new-tests"
+        />
+      )}
 
       {/* Dedupe contacts */}
       <ToolbarButton
