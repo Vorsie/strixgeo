@@ -95,6 +95,28 @@ vi.mock('../utils/log', () => ({
 }))
 
 // ---------------------------------------------------------------------------
+// Phase 2 of debt #77: the bus exposes `ghostsByAnchor` + `focusedSuggestAnchorId`
+// instead of six derived single-anchor accessors. These helpers translate
+// the assertions below into the new shape without rewriting each test.
+// ---------------------------------------------------------------------------
+
+type HookResult = { current: ReturnType<typeof useGeologicalModel> }
+
+function focused(r: HookResult): ReturnType<typeof useGeologicalModel>['ghostsByAnchor'] extends ReadonlyMap<string, infer V> ? V | undefined : never {
+  const id = r.current.focusedSuggestAnchorId
+  return (id !== null ? r.current.ghostsByAnchor.get(id) : undefined) as never
+}
+
+function bulkSubset(r: HookResult): ReadonlyMap<string, NonNullable<ReturnType<typeof focused>>> {
+  const id = r.current.focusedSuggestAnchorId
+  const map = r.current.ghostsByAnchor as ReadonlyMap<string, NonNullable<ReturnType<typeof focused>>>
+  if (id === null || !map.has(id)) return map
+  const next = new Map(map)
+  next.delete(id)
+  return next
+}
+
+// ---------------------------------------------------------------------------
 // Sentinel factories
 // ---------------------------------------------------------------------------
 
@@ -295,19 +317,19 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     })
 
     // Initially empty
-    expect(result.current.lithoSuggestions).toHaveLength(0)
-    expect(result.current.lithoSuggestionInvestigationId).toBeNull()
-    expect(result.current.lithoSuggestionAnchorKind).toBeNull()
+    expect((focused(result)?.suggestions ?? [])).toHaveLength(0)
+    expect(result.current.focusedSuggestAnchorId).toBeNull()
+    expect((focused(result)?.kind ?? null)).toBeNull()
 
     await act(async () => {
       await result.current.handleSuggestLitho('borehole', 'bh-1')
     })
 
-    expect(result.current.lithoSuggestions).toHaveLength(2)
-    expect(result.current.lithoSuggestions[0].suggested_lithology).toBe('ZAND')
-    expect(result.current.lithoSuggestions[1].suggested_lithology).toBe('KLEI')
-    expect(result.current.lithoSuggestionInvestigationId).toBe('bh-1')
-    expect(result.current.lithoSuggestionAnchorKind).toBe('borehole')
+    expect((focused(result)?.suggestions ?? [])).toHaveLength(2)
+    expect((focused(result)?.suggestions ?? [])[0].suggested_lithology).toBe('ZAND')
+    expect((focused(result)?.suggestions ?? [])[1].suggested_lithology).toBe('KLEI')
+    expect(result.current.focusedSuggestAnchorId).toBe('bh-1')
+    expect((focused(result)?.kind ?? null)).toBe('borehole')
     expect(result.current.lithoSuggesting).toBe(false) // cleared after resolve
   })
 
@@ -333,9 +355,9 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       result.current.handleRejectLithoSuggestion(0)
     })
 
-    expect(result.current.lithoSuggestionRejected.has(0)).toBe(true)
-    expect(result.current.lithoSuggestionRejected.has(1)).toBe(false)
-    expect(result.current.lithoSuggestionAccepted.has(0)).toBe(false)
+    expect((focused(result)?.rejected ?? new Set<number>()).has(0)).toBe(true)
+    expect((focused(result)?.rejected ?? new Set<number>()).has(1)).toBe(false)
+    expect((focused(result)?.accepted ?? new Set<number>()).has(0)).toBe(false)
 
     // No formation or contact creation
     expect(geoApi.createFormation).not.toHaveBeenCalled()
@@ -394,9 +416,9 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     )
 
     // Both accepted, none rejected.
-    expect(result.current.lithoSuggestionAccepted.has(0)).toBe(true)
-    expect(result.current.lithoSuggestionAccepted.has(1)).toBe(true)
-    expect(result.current.lithoSuggestionRejected.size).toBe(0)
+    expect((focused(result)?.accepted ?? new Set<number>()).has(0)).toBe(true)
+    expect((focused(result)?.accepted ?? new Set<number>()).has(1)).toBe(true)
+    expect((focused(result)?.rejected ?? new Set<number>()).size).toBe(0)
 
     // The old client-side formation/contact creation is gone.
     expect(geoApi.createFormation).not.toHaveBeenCalled()
@@ -448,7 +470,7 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(onSectionUpdated).toHaveBeenCalledWith(updatedSection)
 
     // Layer is marked accepted.
-    expect(result.current.lithoSuggestionAccepted.has(0)).toBe(true)
+    expect((focused(result)?.accepted ?? new Set<number>()).has(0)).toBe(true)
   })
 
   it('S5 — clearLithoSuggestions resets all suggestion state to empty', async () => {
@@ -467,18 +489,18 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     })
 
     // Populated
-    expect(result.current.lithoSuggestions).toHaveLength(1)
-    expect(result.current.lithoSuggestionInvestigationId).toBe('cpt-42')
+    expect((focused(result)?.suggestions ?? [])).toHaveLength(1)
+    expect(result.current.focusedSuggestAnchorId).toBe('cpt-42')
 
     act(() => {
       result.current.clearLithoSuggestions()
     })
 
-    expect(result.current.lithoSuggestions).toHaveLength(0)
-    expect(result.current.lithoSuggestionInvestigationId).toBeNull()
-    expect(result.current.lithoSuggestionAnchorKind).toBeNull()
-    expect(result.current.lithoSuggestionAccepted.size).toBe(0)
-    expect(result.current.lithoSuggestionRejected.size).toBe(0)
+    expect((focused(result)?.suggestions ?? [])).toHaveLength(0)
+    expect(result.current.focusedSuggestAnchorId).toBeNull()
+    expect((focused(result)?.kind ?? null)).toBeNull()
+    expect((focused(result)?.accepted ?? new Set<number>()).size).toBe(0)
+    expect((focused(result)?.rejected ?? new Set<number>()).size).toBe(0)
   })
 
   it('S6 — handleAcceptAllLithoSuggestions issues ONE bulk call, skips rejected, marks all accepted', async () => {
@@ -526,10 +548,10 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(body.section_id).toBe('sec-1')
 
     // Indices 0 and 1 are accepted; 2 is rejected (not accepted).
-    expect(result.current.lithoSuggestionAccepted.has(0)).toBe(true)
-    expect(result.current.lithoSuggestionAccepted.has(1)).toBe(true)
-    expect(result.current.lithoSuggestionAccepted.has(2)).toBe(false)
-    expect(result.current.lithoSuggestionRejected.has(2)).toBe(true)
+    expect((focused(result)?.accepted ?? new Set<number>()).has(0)).toBe(true)
+    expect((focused(result)?.accepted ?? new Set<number>()).has(1)).toBe(true)
+    expect((focused(result)?.accepted ?? new Set<number>()).has(2)).toBe(false)
+    expect((focused(result)?.rejected ?? new Set<number>()).has(2)).toBe(true)
 
     // updated_section is null in the stub → onSectionUpdated not called.
     expect(onSectionUpdated).not.toHaveBeenCalled()
@@ -556,8 +578,8 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     await act(async () => {
       await result.current.handleSuggestLitho('borehole', 'bh-1')
     })
-    expect(result.current.lithoSuggestions).toHaveLength(1)
-    expect(result.current.lithoSuggestionInvestigationId).toBe('bh-1')
+    expect((focused(result)?.suggestions ?? [])).toHaveLength(1)
+    expect(result.current.focusedSuggestAnchorId).toBe('bh-1')
 
     // Switch the active litho model: refreshModels now resolves a
     // DIFFERENT active litho id → activeLithoModelId changes → the
@@ -573,9 +595,9 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       await result.current.handleActivateLithoModel('litho-model-2')
     })
 
-    expect(result.current.lithoSuggestions).toHaveLength(0)
-    expect(result.current.lithoSuggestionInvestigationId).toBeNull()
-    expect(result.current.lithoSuggestionAnchorKind).toBeNull()
+    expect((focused(result)?.suggestions ?? [])).toHaveLength(0)
+    expect(result.current.focusedSuggestAnchorId).toBeNull()
+    expect((focused(result)?.kind ?? null)).toBeNull()
   })
 
   // -- Phase 3 / debt #73 bulk-suggest tests ----------------------------
@@ -596,11 +618,11 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       ])
     })
     expect(geoApi.suggestLitho).toHaveBeenCalledTimes(2)
-    expect(result.current.bulkLithoGhosts.size).toBe(2)
-    expect(result.current.bulkLithoGhosts.get('cpt-1')?.kind).toBe('cpt')
-    expect(result.current.bulkLithoGhosts.get('cpt-1')?.surfaceElevationM).toBe(10)
-    expect(result.current.bulkLithoGhosts.get('bh-1')?.kind).toBe('borehole')
-    expect(result.current.bulkLithoGhosts.get('cpt-1')?.suggestions).toHaveLength(1)
+    expect(bulkSubset(result).size).toBe(2)
+    expect(bulkSubset(result).get('cpt-1')?.kind).toBe('cpt')
+    expect(bulkSubset(result).get('cpt-1')?.surfaceElevationM).toBe(10)
+    expect(bulkSubset(result).get('bh-1')?.kind).toBe('borehole')
+    expect(bulkSubset(result).get('cpt-1')?.suggestions).toHaveLength(1)
   })
 
   it('B2 — handleAcceptBulkLitho commits one layer + marks the idx accepted on the anchor', async () => {
@@ -634,8 +656,8 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(callBody.cpt_id).toBe('cpt-1')
     expect(callBody.suggestions).toHaveLength(1)
     // Only the requested idx is marked accepted; idx 0 stays pending.
-    expect(result.current.bulkLithoGhosts.get('cpt-1')?.accepted.has(1)).toBe(true)
-    expect(result.current.bulkLithoGhosts.get('cpt-1')?.accepted.has(0)).toBe(false)
+    expect(bulkSubset(result).get('cpt-1')?.accepted.has(1)).toBe(true)
+    expect(bulkSubset(result).get('cpt-1')?.accepted.has(0)).toBe(false)
   })
 
   it('B3 — handleAcceptAllBulkLitho issues one call per anchor and skips rejected indices', async () => {
@@ -740,10 +762,10 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
         { kind: 'cpt', id: 'cpt-1', surfaceElevationM: 10 },
       ])
     })
-    expect(result.current.bulkLithoGhosts.size).toBe(1)
+    expect(bulkSubset(result).size).toBe(1)
     await act(async () => {
       result.current.clearBulkLithoGhosts()
     })
-    expect(result.current.bulkLithoGhosts.size).toBe(0)
+    expect(bulkSubset(result).size).toBe(0)
   })
 })
