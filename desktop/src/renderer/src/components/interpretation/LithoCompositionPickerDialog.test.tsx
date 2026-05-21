@@ -48,6 +48,7 @@ function makeGeoFormation(
     instance_ordinal: null,
     instance_ordinal_locked: false,
     parent_formation_name: null,
+    parent_extrapolated: false,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
@@ -77,6 +78,7 @@ function makeLithoFormation(
     instance_ordinal: null,
     instance_ordinal_locked: false,
     parent_formation_name: null,
+    parent_extrapolated: false,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   }
@@ -165,6 +167,7 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
     const lithoWithParent: GeologicalFormationResponse = {
       ...makeLithoFormation('lt-1', 'geo-a', 'KLEI'),
       parent_formation_name: 'Boom Klei',
+    parent_extrapolated: false,
     }
     render(
       <LithoCompositionPickerDialog
