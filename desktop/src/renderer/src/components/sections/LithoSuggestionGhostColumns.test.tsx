@@ -90,8 +90,24 @@ function renderGhost(
     investigationId?: string
     acceptedIndices?: ReadonlySet<number>
     rejectedIndices?: ReadonlySet<number>
-    edits?: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
-    onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
+    edits?: ReadonlyMap<
+      number,
+      {
+        depth_top_m?: number
+        depth_base_m?: number
+        suggested_lithology?: string
+        suggested_admixtures?: readonly { soil_code: string; amount: string; locally: boolean }[]
+      }
+    >
+    onEdit?: (
+      idx: number,
+      edit: {
+        depth_top_m?: number
+        depth_base_m?: number
+        suggested_lithology?: string
+        suggested_admixtures?: readonly { soil_code: string; amount: string; locally: boolean }[]
+      },
+    ) => void
     onReject?: (idx: number) => void
     onAccept?: (idx: number) => void
     onUnreject?: (idx: number) => void
@@ -719,5 +735,66 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onReject).toHaveBeenCalledTimes(1)
     expect(onReject).toHaveBeenCalledWith(0)
     expect(onEdit).toHaveBeenCalledWith(0, { depth_base_m: 0 })
+  })
+
+  // -----------------------------------------------------------------
+  // Composition edits flow into the rendered layer (dogfeed bug
+  // 2026-05-20: user changed composition to "silty sand" via the
+  // LithoGhostCompositionEditor but the plot kept rendering plain
+  // "Sand". The dialog's onSave stashed the edit in the edits Map
+  // but the render only read depth fields from `committed`.)
+  // -----------------------------------------------------------------
+
+  // G35: an edits-Map entry with suggested_lithology overrides the
+  // raw segmenter value — fill colour + label update accordingly.
+  it('G35 — committed suggested_lithology overrides raw in the rendered fill', () => {
+    const edits = new Map([
+      [0, { suggested_lithology: 'KLEI' }],
+    ])
+    const { container } = renderGhost(
+      [makeSuggestion({ suggested_lithology: 'ZAND', depth_top_m: 0, depth_base_m: 2 })],
+      { edits },
+    )
+    const rect = container.querySelector('rect')!
+    // Klei in LITHOLOGY_COLORS is the project's clay grey (not the
+    // sand yellow). Asserts the fill changed because of the edit,
+    // not the raw value.
+    const fill = rect.getAttribute('fill') ?? ''
+    expect(fill.toLowerCase()).not.toBe('#deb887')  // not the sand fill
+    // The tooltip text starts with the rich Dutch label of the
+    // edited composition — base is "Klei" not "Zand".
+    const title = container.querySelector('title')!.textContent ?? ''
+    expect(title).toMatch(/^Klei/i)
+  })
+
+  // G36: an edits-Map entry with suggested_admixtures changes the
+  // rendered LABEL to the rich Dutch form (e.g. "Zwak siltig zand"
+  // instead of plain "Zand"). The label appears in the tooltip
+  // <title> the layer rect carries.
+  it('G36 — committed suggested_admixtures change the rendered label', () => {
+    const edits = new Map([
+      [
+        0,
+        {
+          suggested_admixtures: [
+            { soil_code: 'SL', amount: 'Z', locally: false },
+          ],
+        },
+      ],
+    ])
+    const { container } = renderGhost(
+      [
+        makeSuggestion({
+          suggested_lithology: 'ZAND',
+          suggested_admixtures: [],
+          depth_top_m: 0,
+          depth_base_m: 2,
+        }),
+      ],
+      { edits },
+    )
+    const title = container.querySelector('title')!.textContent ?? ''
+    // "Zwak siltig zand" — base "Zand" with admixture "Zwak siltig".
+    expect(title.toLowerCase()).toMatch(/siltig/)
   })
 })
