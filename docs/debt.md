@@ -1121,53 +1121,84 @@ composition editor on a second layer with the same composition they
 just set — that's the moment the friction is felt. Until then the
 manual re-pick is one extra click, not a workflow blocker.
 
-## 87. Orphan litho units created when no parent geology contact covers the suggestion depth (Tier D — backend root cause)
+## 87. Orphan litho units — RESOLVED 2026-05-21
 
-**What.** `AcceptLithoSuggestions._compute_straddle_splits` returns
-`parent_formation_id=None` in three cases:
+Owner directive: **extrapolate from TIN with engineer notification + a
+final action to decide; backfill existing orphans on migration.**
+Shipped end-to-end this session.
 
-1. No geology surfaces AND no geology contacts at the investigation
-   (the `if not geology_surfaces and not geology_contacts_at_inv`
-   branch).
-2. Geology contacts exist but none falls within `[top, base]` of the
-   suggestion AND `_parent_fid_for_depth(top, contacts_sorted)`
-   returns `None` (the suggestion top sits above the shallowest
-   geology contact at this investigation).
-3. The investigation has no geology contacts at all in this model
-   (`geology_contacts_at_inv == []`).
+**Backend.** `_compute_straddle_splits` now falls through to TIN
+extrapolation when `_parent_fid_for_depth` returns None AND geology
+surfaces exist AND the investigation carries an `elevation_m`. New
+`_extrapolate_parent_from_tins(target_z, surfaces, inv_x, inv_y)`
+samples every non-stale TIN at the investigation, converts the
+suggestion's depth-below-ground to absolute z via
+`inv.elevation_m - depth_top_m`, and picks the youngest formation
+(smallest surface elevation still `>= target_z`) — that's the
+formation "active" at the target elevation. The result rides on
+`_StraddleResult.extrapolated`. Stale TINs are skipped (the safer
+"no parent" over a possibly-wrong extrapolation; engineer rebuilds
+to retry). When extrapolation can't resolve (above all surfaces,
+outside every footprint, no elevation), the row falls back to the
+orphan path with `parent_formation_id=NULL`.
 
-The litho-builder `_create_litho_formation` accepts the `None` and
-creates a `GeologicalFormation` with `parent_formation_id=NULL` and
-`litho_main_soil_code` set. These orphan rows then haunt the
-frontend: they leaked into the Geology stage Layers panel until
-2026-05-21 when the legend filter switched to
-`isGeologicalFormation` (utils/formationKind.ts). The
-LithologyInspector groups them under an "Unassigned" bucket — so
-they ARE visible, just under a generic heading.
+**Schema.** New `geological_formation.parent_extrapolated` boolean
+column (NOT NULL DEFAULT false). Stamped at creation by
+`_create_litho_formation`; never toggled on find. Cleared by the
+inspector's confirm/reassign/detach PATCH. Alembic migration
+`d4e5f6a7b8c9` adds the column AND backfills existing orphan litho
+units: for each, picks one of its contacts, loads the investigation
++ parent geology model surfaces, runs the same youngest-above-target
+extrapolation as the runtime path, and on success sets
+`parent_formation_id` + `parent_extrapolated=True`. The migration
+inlines its own `evaluate_tin_at` (Alembic must stay independent of
+evolving app code) and prints a backfill diagnostic with fixed /
+unfixable counts.
 
-**Why deferred.** Three pieces of unresolved design:
+**API.** `AcceptLithoSuggestionsResponse` carries
+`extrapolated_formation_ids` + `orphan_formation_ids` (additive,
+default `[]` for backward compat). `GeologicalFormationResponse`
+carries `parent_extrapolated`.
+`GeologicalFormationUpdateRequest` accepts `parent_extrapolated` +
+`parent_formation_id` so the inspector dialog can Confirm
+(clear the flag), Reassign (set new parent + clear flag), or Detach
+(parent_formation_id=null + clear flag) in one PATCH.
 
-1. **Refuse vs extrapolate vs accept-with-orphan-parent.** When the
-   user accepts a litho ghost above the shallowest geology contact,
-   the geologically-honest answer is "extend the geology contact
-   upward via TIN" (the formation must extend to the surface here).
-   But that mutates the geology model from a litho action, which
-   crosses the kind boundary; the cleaner alternative is to refuse
-   the accept with "draw a geology contact first". The third option
-   (today's behaviour) leaks orphan rows into the unassigned bucket.
-2. **Backfill of existing orphans.** A migration that walks every
-   orphan litho unit and tries to infer the parent via TIN sampling
-   at the unit's contact locations is feasible but only worth it if
-   the count is high; for dogfeed scale it's a no-op.
-3. **Stronger DB constraint.** `parent_formation_id` is nullable
-   today specifically for geological rows (they are the parent, not
-   the child). A `CHECK` constraint
-   `litho_main_soil_code IS NULL OR parent_formation_id IS NOT NULL`
-   would prevent orphan creation at the schema level — but breaks
-   the "create litho without geology" workflow until (1) is decided.
+**Frontend.** New `formatAcceptParentSummary` helper drives one
+warning toast per accept ("N parents extrapolated, M unassigned —
+review in Lithology inspector"). `useToasts` widened to a third
+`warning` kind (amber background). The four accept handlers
+(single, all-focus, single-bulk, all-bulk) emit the summary; the
+bulk-all variant aggregates across anchors so the user sees ONE
+toast at end-of-pass. `LithologyInspector` renders an amber dot
+(`Circle` filled) on extrapolated OR orphan unit rows; clicking
+opens a new `ConfirmParentDialog` (parent select default-focused,
+button label morphs Confirm/Reassign/Detach based on the
+selection). Submitting PATCHes both fields in one call and
+refetches formations.
 
-**When to revisit.** When the dogfeed user complains about the
-"Unassigned" group filling up, or before the first external
-distribution (the orphan rows still serialise into `.gmproj`
-bundles, so cleanup before a paid release matters).
+**Tests.** 7 new unit tests on `_compute_straddle_splits` (E1 no
+geology → orphan; E2 TIN finds parent; E3 above all surfaces →
+orphan; E4 outside footprint → orphan; E5 stale TIN skipped; E6 no
+elevation disables; E7 contact-based wins over extrapolation). 3
+integration tests on the accept endpoint (X1 extrapolated path +
+flag + response list; X2 orphan path; X3 PATCH clears the flag).
+6 unit tests on `formatAcceptParentSummary` (A1-A6: empty / single /
+plural / orphan-only / combined wording). 3 vitest pins on
+LithologyInspector (P1 clean rows skip the dot; P2 extrapolated
+rows render the dot + open the dialog; P3 Confirm PATCHes both
+fields). Existing fixtures got `parent_extrapolated: false`
+auto-inserted after `parent_formation_name`.
+
+**Documented residuals (out of scope for #87 itself).**
+* The dogfeed user's existing 1 reparented + 2 unfixable orphans
+  are now classified — the unfixable ones need engineer review via
+  the Detach UX before they enter a `.gmproj` bundle handoff.
+* A `CHECK` constraint
+  `litho_main_soil_code IS NULL OR parent_formation_id IS NOT NULL`
+  is still NOT added — the migration backfilled what it could, but
+  the orphan path is intentionally kept open (TIN unavailable, no
+  elevation, suggestion above youngest formation). Adding the
+  constraint would force engineer-side resolution before commit,
+  which the owner has not asked for.
 
