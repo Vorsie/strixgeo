@@ -431,29 +431,6 @@ water-body mask that routes cells to a null sampler vs a bed sampler,
 ``BHVlaBathymetry`` data, or (c) accept the limitation and expose it
 in the UI as "DEM accuracy may be reduced near water bodies."
 
-## 26. 3D viewer — blank basemap in offline mode (low — Tier E)
-
-**What.** When no network is available, the Cesium tile layers in
-``Geology3DViewer`` return 404 errors and the 3D canvas shows formation
-surfaces against a blank black globe. The surfaces are still rendered
-correctly (geometry and colours are local); only the geographic context
-(road network, orthophoto, topo labels) is missing.
-
-**Why deferred.** Implementing an auto-fallback to the 2D ``MapView``
-on tile failure requires detecting all tile-provider failures and toggling
-the canvas, adding state to ``GeologyCanvas`` that complicates the 3D/2D
-decision path. For v1.0 the offline blank-globe case is documented as
-known degradation — the engineer still sees the model geometry, which is
-the primary use of the 3D view during offline fieldwork.
-
-**When to revisit.** When a user reports confusion ("the 3D viewer is
-broken, I see nothing") during on-site use without network. The fix shape:
-detect the first tile-fetch failure via Cesium's imagery tile-error event
-→ set a ``tileLoadFailed`` flag → ``GeologyCanvas`` renders ``<MapView>``
-instead of ``<Geology3DViewer>`` → show a "No network — 3D view requires
-internet access" toast. A simpler first step is a persistent help tooltip
-on the viewer explaining the offline case.
-
 ## 28. Formation surfaces carry no interpolation-confidence signal (medium — Phase 5 model quality)
 
 **What.** The TIN surfaces are an unconstrained Delaunay interpolation
