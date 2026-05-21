@@ -9,7 +9,7 @@
 //                    /cpt/{id}/plot endpoint has been fetched into the
 //                    plotMap; "—" otherwise).
 //       SBT_dom    — dominant SBT zone over the series (heuristic:
-//                    Robertson 1990 from cpt_interpretation.py via the
+//                    Ic via Robertson 2015 from robertson_2015.py via the
 //                    plot endpoint; mode of zone-from-Ic per row).
 //
 // Phase 5 fills in (placeholder columns shown muted with "Phase 5"):
@@ -184,7 +184,7 @@ export default function PerTestTab(): JSX.Element {
             />
             <th className="px-2 py-1.5 text-left font-medium">x / y</th>
             <SortableHeader
-              label="Ic̄ (Robertson 1990)"
+              label="Ic̄ (Robertson 2015)"
               active={sortKey === 'ic_avg'}
               asc={sortAsc}
               onClick={() => toggleSort('ic_avg')}

@@ -584,7 +584,7 @@ export default function CptChart({
           {hasFs  && <LegendItem color={FS_CLR} label="fs (MPa)" />}
           {hasRf  && <LegendItem color={RF_CLR} label="Rf (%)" />}
           {showU2 && <LegendItem color={U2_CLR} label="u (kPa)" />}
-          {hasIc  && <LegendItem color={IC_CLR} label="Ic (interpretation, Robertson 1990)" />}
+          {hasIc  && <LegendItem color={IC_CLR} label="Ic (interpretation, Robertson 2015)" />}
           {preDrillM > 0 && <LegendItem color={PD_CLR} label={`Pre-drill ${preDrillM.toFixed(1)} m`} dashed />}
         </div>
         <div className="flex items-center gap-1 shrink-0 text-gray-400 dark:text-slate-400 text-[10px] select-none">

@@ -165,8 +165,10 @@ describe('CptChart — legend / panel dispatch per cone kind', () => {
       />,
     )
     // Debt #22 interim cue: legend label promotes the "interpretation"
-    // word right next to the colour swatch.
-    expect(screen.getByText('Ic (interpretation, Robertson 1990)')).toBeInTheDocument()
+    // word right next to the colour swatch. Reconciliation 2026-05-21:
+    // the plot endpoint now sources Ic from Robertson 2015 (same path
+    // as the litho segmenter), so the label tracks the new method.
+    expect(screen.getByText('Ic (interpretation, Robertson 2015)')).toBeInTheDocument()
     // The SBT key strip surfaces each Robertson zone label (also
     // rendered in the Ic panel overlay — getAllByText is forgiving).
     expect(screen.getAllByText('Sand').length).toBeGreaterThan(0)
