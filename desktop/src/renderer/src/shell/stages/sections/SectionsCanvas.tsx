@@ -654,6 +654,11 @@ export default function SectionsCanvas(): JSX.Element {
       // render time so the ghost rect tracks the live drag commit.
       edits: entry.edits,
       onEdit: handleEditLithoSuggestion,
+      // Debt #86: cross-investigation copy-composition paste — routes
+      // through the bulk edit handler regardless of which anchor the
+      // target belongs to (the unified ghostsByAnchor Map covers every
+      // anchor including the focused one).
+      onCrossColumnPaste: handleEditBulkLitho,
     }
   }, [
     isLitho,
@@ -664,6 +669,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleRejectLithoSuggestion,
     handleUnrejectLithoSuggestion,
     handleEditLithoSuggestion,
+    handleEditBulkLitho,
   ])
 
   // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
@@ -698,6 +704,8 @@ export default function SectionsCanvas(): JSX.Element {
       onReject: handleRejectBulkLitho,
       onUnreject: handleUnrejectBulkLitho,
       onEdit: handleEditBulkLitho,
+      // Debt #86: same handler — works for any target anchor in the Map.
+      onCrossColumnPaste: handleEditBulkLitho,
     }
   }, [
     isLitho,

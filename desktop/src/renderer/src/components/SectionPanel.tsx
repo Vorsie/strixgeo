@@ -356,6 +356,19 @@ interface Props {
      * dragging the same edge twice composes.
      */
     onEdit?: (idx: number, edit: { depth_top_m?: number; depth_base_m?: number }) => void
+    /**
+     * Debt #86: cross-investigation paste of an Alt-drag-copied
+     * composition.  Routes to ``handleEditBulkLitho`` with the target
+     * anchor id resolved from the document-level hit-test.
+     */
+    onCrossColumnPaste?: (
+      targetAnchorId: string,
+      idx: number,
+      edit: {
+        suggested_lithology: string
+        suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+      },
+    ) => void
   }
   /**
    * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
@@ -385,6 +398,16 @@ interface Props {
       anchorId: string,
       idx: number,
       edit: { depth_top_m?: number; depth_base_m?: number },
+    ) => void
+    /** Debt #86: cross-investigation paste, same shape as the
+     *  single-anchor variant above. */
+    onCrossColumnPaste?: (
+      targetAnchorId: string,
+      idx: number,
+      edit: {
+        suggested_lithology: string
+        suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
+      },
     ) => void
   }
   /**
@@ -1855,6 +1878,7 @@ export default function SectionPanel({
                 // via onEdit on mouseup.
                 edits={lithoGhostState.edits}
                 onEdit={lithoGhostState.onEdit}
+                onCrossColumnPaste={lithoGhostState.onCrossColumnPaste}
               />
             )}
 
@@ -1900,6 +1924,7 @@ export default function SectionPanel({
                     onEdit={(idx, edit) => {
                       bulkLithoGhostState.onEdit(anchorId, idx, edit)
                     }}
+                    onCrossColumnPaste={bulkLithoGhostState.onCrossColumnPaste}
                   />
                 ),
               )}
