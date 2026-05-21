@@ -13,6 +13,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.schemas.borehole.borehole_detail_batch_request import (
+    BoreholeDetailBatchRequest,
+)
 from groundmodel.api.schemas.borehole.borehole_detail_response import (
     BoreholeDetailResponse,
 )
@@ -482,6 +485,59 @@ async def get_borehole(
         "Router aliases drifted from repository relationships — update both lists together."
     )
     return BoreholeDetailResponse.model_validate(borehole)
+
+
+@router.post("/detail-batch", response_model=list[BoreholeDetailResponse])
+async def post_borehole_detail_batch(
+    request: BoreholeDetailBatchRequest,
+    session: AsyncSession = Depends(get_session),
+) -> list[BoreholeDetailResponse]:
+    """Batch the per-borehole detail endpoint into one round-trip (debt #39).
+
+    Section open used to fire N parallel ``GET /borehole/{id}`` calls
+    (one per in-buffer borehole), each loading 12+ selectinload chains.
+    A dense corridor (50+ boreholes) was 50+ round-trips of full
+    lab-test trees the section never renders. This endpoint folds them
+    into one query — the repository's ``IN (...)`` predicate +
+    selectinload chains issue ONE child query per relationship for ALL
+    N parents, so cost is constant in N, not 12 * N.
+
+    ``include`` mirrors the per-id endpoint's query parameter; the
+    section caller passes ``include=[]`` to skip every lab family
+    (further reducing the load). Unknown ids and unknown ``include``
+    aliases follow the same conventions as the single endpoint:
+    unknown ids drop silently from the response, unknown aliases
+    raise 400.
+
+    Body cap: 500 ids (matches CPT plot-batch). Project scope guard
+    fused into the repository query so a crafted batch can't pull
+    foreign-project boreholes.
+    """
+    include_relationships: list[str] | None = None
+    if request.include is not None:
+        aliases = [token.strip() for token in request.include if token.strip()]
+        unknown = [a for a in aliases if a not in LAB_TEST_INCLUDE_ALIASES]
+        if unknown:
+            valid = sorted(LAB_TEST_INCLUDE_ALIASES.keys())
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown include value(s): {unknown!r}. Valid: {valid!r}",
+            )
+        include_relationships = [LAB_TEST_INCLUDE_ALIASES[a] for a in aliases]
+
+    logger.info(
+        f"POST /borehole/detail-batch: {len(request.ids)} ids, "
+        f"scope={request.app_project_id}, include={request.include!r}"
+    )
+    repo = BoreholeRepository(session)
+    boreholes = await repo.get_many(
+        request.ids,
+        include_lab_tests=include_relationships,
+        app_project_id=request.app_project_id,
+    )
+    out = [BoreholeDetailResponse.model_validate(bh) for bh in boreholes]
+    logger.info(f"POST /borehole/detail-batch → {len(out)}/{len(request.ids)} returned")
+    return out
 
 
 @router.patch("/{borehole_id}/elevation", response_model=BoreholeListItem)
