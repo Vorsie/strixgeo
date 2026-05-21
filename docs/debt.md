@@ -300,34 +300,6 @@ contacts. At that point ``FormationContact`` needs either
 ``geotechnical_unit_id`` FK or a separate ``GeotechnicalContact``
 entity. Design the anchor before Phase 5 export work begins.
 
-## 15. WFS client base class — remaining wrapper duplication (low)
-
-**What.** The big-three shared blocks are now extracted:
-
-* ``collect_wfs_features_recursive`` — bbox-split + dedup recursion.
-* ``wfs_count`` / ``wfs_features_json`` — WFS HTTP + CQL-bbox folding.
-* ``parallel_download_and_process`` — cache + semaphore + per-row
-  error funnelling, used by the 3 download clients (boring,
-  interpretation, grain-size).
-
-What's left duplicated is small-grained per-client wrapper
-boilerplate: the WGS84→Lambert72 transform at entry, the bound
-``_wfs_count`` / ``_wfs_features`` method pair on each client, and
-the typed-row ``_build_row`` body (which CORRECTLY differs — each
-WFS layer ships different properties).
-
-**Why deferred.** The remaining duplication is mostly per-client
-convention (different field constants, different skip-counter
-warnings) rather than logic. A base class would have to model both
-download flavours (with cache + parse callback) and WFS-only
-flavours (sample / scalar), plus single-layer (boring, sample) and
-multi-layer (interpretation × 8) variants. Net win is small.
-
-**When.** When a 6th or 7th DOV WFS source lands (DMT / pressuremeter
-/ monitoring) and the same WGS→Lambert + partial-binding plumbing
-gets typed for a fourth time. At that point the abstraction shape is
-obvious from a wider sample.
-
 ## 16. Telemetry / crash reporting (low)
 
 **What.** No Sentry-equivalent. Frontend ``log.*`` calls go to the
