@@ -12,6 +12,7 @@
 // dep-injected so the hook stays independent of the data-loading hooks.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 
 import { api } from '../api/client'
 import type { CrossSectionResponse, FormationContactResponse } from '../api/client'
@@ -219,7 +220,10 @@ export function useSections({
   manifestSectionIds: ReadonlySet<string>
   addToManifest: (kind: 'section', ids: string[]) => void
   removeFromManifest: (kind: 'section', ids: Iterable<string>) => void
-  setSessionImportSectionIds: (updater: (prev: Set<string>) => Set<string>) => void
+  // React's full SetStateAction shape — accepts both direct values
+  // and updater functions. The narrower updater-only form rejected
+  // the wider helpers (utils/sets.addAllToSet) at the type boundary.
+  setSessionImportSectionIds: Dispatch<SetStateAction<Set<string>>>
   contacts: FormationContactResponse[]
   /**
    * Litho contact list (slice 2, #55) — dep-injected so the hook stays

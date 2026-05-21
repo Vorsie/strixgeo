@@ -31,13 +31,22 @@ interface RecentProject {
   lastOpened: string
 }
 
+// Local FileFilter shape — matches Electron's ``Electron.FileFilter`` but
+// declared inline so we don't pull in the full ``electron`` ambient
+// namespace just for one shape. The renderer doesn't import the
+// Electron module directly (main + preload do).
+interface FileFilter {
+  name: string
+  extensions: string[]
+}
+
 declare global {
   interface Window {
     electron: {
       getApiBaseUrl: () => Promise<string>
       waitForApi: () => Promise<boolean>
-      openFile: (filters: Electron.FileFilter[]) => Promise<string | null>
-      openFiles: (filters: Electron.FileFilter[]) => Promise<string[]>
+      openFile: (filters: FileFilter[]) => Promise<string | null>
+      openFiles: (filters: FileFilter[]) => Promise<string[]>
       readFile: (filePath: string) => Promise<Buffer>
       // Project file lifecycle (Phase 4 multi-project)
       showProjectOpenDialog: () => Promise<string | null>
@@ -47,7 +56,7 @@ declare global {
       // Generic export save-dialog + binary write (v1.0 MVP gate #5).
       showExportSaveDialog: (
         defaultName: string,
-        filters: Electron.FileFilter[],
+        filters: FileFilter[],
       ) => Promise<string | null>
       writeExportFile: (filePath: string, contents: ArrayBuffer) => Promise<void>
       addRecentProject: (filePath: string, name: string) => Promise<RecentProject[]>

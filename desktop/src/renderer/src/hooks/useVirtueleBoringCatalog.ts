@@ -62,7 +62,7 @@ export function useVirtueleBoringCatalog(
         if (!cancelled) setCatalog(result)
       },
       err => {
-        log.warning('useVirtueleBoringCatalog', `fetch failed: ${String(err)}`)
+        log.warn('useVirtueleBoringCatalog', `fetch failed: ${String(err)}`)
         // Leave ``catalog`` at ``null`` so the caller can render a
         // graceful "couldn't reach DOV" hint. A retry happens on the
         // next ``enabled`` flip if the cache is still empty.

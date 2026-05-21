@@ -475,13 +475,19 @@ function buildCapPrimitives(
       new Cesium.Primitive({
         geometryInstances: new Cesium.GeometryInstance({
           geometry: new Cesium.Geometry({
+            // Cesium's GeometryAttributes type marks normal / st /
+            // bitangent / tangent / color as required, but Cesium
+            // tolerates a position-only geometry at runtime (the
+            // appearance below provides shading). Cast so tsc accepts
+            // the partial shape — same pattern at the cut-face +
+            // basemap call sites.
             attributes: {
               position: new Cesium.GeometryAttribute({
                 componentDatatype: Cesium.ComponentDatatype.DOUBLE,
                 componentsPerAttribute: 3,
                 values: positions,
               }),
-            },
+            } as unknown as Cesium.GeometryAttributes,
             indices,
             primitiveType: Cesium.PrimitiveType.TRIANGLES,
             boundingSphere: Cesium.BoundingSphere.fromVertices(
@@ -583,13 +589,14 @@ function buildTinPrimitive(
   }
 
   const geometry = new Cesium.Geometry({
+    // See buildCutFaceBands for the partial-shape cast rationale.
     attributes: {
       position: new Cesium.GeometryAttribute({
         componentDatatype: Cesium.ComponentDatatype.DOUBLE,
         componentsPerAttribute: 3,
         values: positionValues,
       }),
-    },
+    } as unknown as Cesium.GeometryAttributes,
     indices,
     primitiveType: Cesium.PrimitiveType.TRIANGLES,
     boundingSphere: Cesium.BoundingSphere.fromVertices(Array.from(positionValues)),
@@ -743,6 +750,7 @@ function rebuildSurfacePrimitives(
         new Cesium.Primitive({
           geometryInstances: new Cesium.GeometryInstance({
             geometry: new Cesium.Geometry({
+              // See buildCutFaceBands for the partial-shape cast rationale.
               attributes: {
                 position: new Cesium.GeometryAttribute({
                   componentDatatype: Cesium.ComponentDatatype.DOUBLE,
@@ -754,7 +762,7 @@ function rebuildSurfacePrimitives(
                   componentsPerAttribute: 2,
                   values: sts,
                 }),
-              },
+              } as unknown as Cesium.GeometryAttributes,
               indices,
               primitiveType: Cesium.PrimitiveType.TRIANGLES,
               boundingSphere: Cesium.BoundingSphere.fromVertices(

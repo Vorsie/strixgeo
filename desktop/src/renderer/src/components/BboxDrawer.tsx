@@ -29,7 +29,12 @@ export default function BboxDrawer({ active, onBboxDrawn, onCancel }: Props) {
     const onMouseDown = (e: L.LeafletMouseEvent) => {
       startRef.current = e.latlng
       rectRef.current?.remove()
-      rectRef.current = L.rectangle([e.latlng, e.latlng], {
+      // ``L.rectangle`` accepts LatLngBounds, LatLngBoundsLiteral, or
+      // an array of LatLng[]. The 2-tuple `[LatLng, LatLng]` resolves
+      // to LatLngBounds via the bounds-from-corners overload — Leaflet's
+      // TS types resolve the tuple as `LatLngTuple` first, so we
+      // construct LatLngBounds explicitly to match the strict overload.
+      rectRef.current = L.rectangle(L.latLngBounds(e.latlng, e.latlng), {
         color: '#3b82f6',
         weight: 2,
         fillOpacity: 0.1,

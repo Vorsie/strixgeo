@@ -705,7 +705,11 @@ export default function CptChart({
         {showU2 && (
           <div style={{ flex: 1, position: 'relative' }} className="min-w-0 border-r border-gray-200 dark:border-slate-700">
             <ResponsiveContainer width="100%" height="100%">
-              {renderU2Panel(leftmost === 'u2', rightmost === 'u2')}
+              {/* u2 is the leftmost panel when present (line 548); it
+                  cannot be the rightmost (rightmost is among ic/rf/
+                  qcfs only). tsc flags the `rightmost === 'u2'` test
+                  as dead code — that's correct; pass literal false. */}
+              {renderU2Panel(leftmost === 'u2', false)}
             </ResponsiveContainer>
             <ChartLabel left={{ color: U2_CLR, text: 'u (kPa)' }} />
           </div>
@@ -724,7 +728,9 @@ export default function CptChart({
         {hasRf && (
           <div style={{ flex: 1, position: 'relative' }} className={`min-w-0${hasIc ? ' border-r border-gray-200 dark:border-slate-700' : ''}`}>
             <ResponsiveContainer width="100%" height="100%">
-              {renderRfPanel(leftmost === 'rf', rightmost === 'rf')}
+              {/* leftmost is among u2/qcfs only (line 548) — `rf` is
+                  never the leftmost. Pass literal false. */}
+              {renderRfPanel(false, rightmost === 'rf')}
             </ResponsiveContainer>
             <ChartLabel left={{ color: RF_CLR, text: 'Rf (%)' }} />
           </div>
@@ -733,7 +739,9 @@ export default function CptChart({
         {hasIc && (
           <div style={{ flex: 1, position: 'relative' }} className="min-w-0">
             <ResponsiveContainer width="100%" height="100%">
-              {renderIcPanel(leftmost === 'ic', rightmost === 'ic')}
+              {/* leftmost is among u2/qcfs only — `ic` is never the
+                  leftmost. Pass literal false. */}
+              {renderIcPanel(false, rightmost === 'ic')}
             </ResponsiveContainer>
             <IcZoneLabelsOverlay />
           </div>

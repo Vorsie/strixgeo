@@ -702,7 +702,12 @@ export function useGeologicalModel({
   // any second caller awaits the SAME promise instead of issuing a
   // concurrent createModel call. Cleared when the promise settles so
   // a later legitimate ensure (e.g. after handleDeleteModel) works.
-  const ensureModelPromiseRef = useRef<Promise<GeologicalModelResponse | null> | null>(null)
+  // resolveActiveModel throws on failure (never returns null), so the
+  // ref's promise type is non-null. The `... | null` on the OUTER ref
+  // is the "no fetch in flight" sentinel, NOT the promise's resolve
+  // type — that was the bug behind the two TS18047 'active' possibly
+  // null errors the gate flagged.
+  const ensureModelPromiseRef = useRef<Promise<GeologicalModelResponse> | null>(null)
 
   // Core list→adopt→create-Default logic shared by the bootstrap
   // effect and ensureActiveGeologicalModel. Extracted here so both

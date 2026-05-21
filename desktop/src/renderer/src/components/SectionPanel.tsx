@@ -996,21 +996,32 @@ export default function SectionPanel({
       const sortedIdx = sorted.indexOf(item)
       const packedX = packedXBySortedIndex[sortedIdx]
       const lerpedX = packedX + (item.trueX - packedX) * columnSpacing
-      return {
-        kind: item.kind,
-        proj: item.proj,
-        trueX: lerpedX,
-        width: item.visualWidth,
-      }
+      // Branch on kind so the (kind, proj) pair stays correlated —
+      // a single literal-object return widens to a non-discriminated
+      // union and tsc loses the narrowing.
+      return item.kind === 'cpt'
+        ? { kind: 'cpt', proj: item.proj, trueX: lerpedX, width: item.visualWidth }
+        : { kind: 'borehole', proj: item.proj, trueX: lerpedX, width: item.visualWidth }
     })
-    return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r => ({
-      kind: r.item.kind,
-      proj: r.item.proj,
-      trueX: r.trueX,
-      nudgedX: r.nudgedX,
-      width: r.item.width,
-      displaced: r.displaced,
-    }))
+    return nudgeColumns(items, COLUMN_EDGE_GAP_PX).map(r =>
+      r.item.kind === 'cpt'
+        ? {
+            kind: 'cpt' as const,
+            proj: r.item.proj,
+            trueX: r.trueX,
+            nudgedX: r.nudgedX,
+            width: r.item.width,
+            displaced: r.displaced,
+          }
+        : {
+            kind: 'borehole' as const,
+            proj: r.item.proj,
+            trueX: r.trueX,
+            nudgedX: r.nudgedX,
+            width: r.item.width,
+            displaced: r.displaced,
+          },
+    )
   }, [
     projectedCpts,
     projectedBoreholes,

@@ -606,17 +606,23 @@ export function useProject(): UseProject {
             if (c.formation_id) referencedFormationIds.add(c.formation_id)
           }
         }
+        // Bundle entries are typed `Record<string, unknown>` (the
+        // wire shape is dynamic; the file format owns its schema), so
+        // every id-read needs an explicit narrowing to satisfy
+        // `Set<string>.has(string)`. A small typed projection per
+        // array keeps the cast localised to one expression.
+        const idOf = (row: Record<string, unknown>): string =>
+          typeof row.id === 'string' ? row.id : ''
         const trimmedBundle = {
           ...bundle,
-          cpts: bundle.cpts.filter(c => manifestCptIds.has(c.id)),
-          boreholes: bundle.boreholes.filter(b => manifestBoreholeIds.has(b.id)),
-          geological_formations: bundle.geological_formations.filter(
-            f =>
-              manifestFormationIds.has(f.id) ||
-              referencedFormationIds.has(f.id),
-          ),
+          cpts: bundle.cpts.filter(c => manifestCptIds.has(idOf(c))),
+          boreholes: bundle.boreholes.filter(b => manifestBoreholeIds.has(idOf(b))),
+          geological_formations: bundle.geological_formations.filter(f => {
+            const id = idOf(f)
+            return manifestFormationIds.has(id) || referencedFormationIds.has(id)
+          }),
           cross_sections: bundle.cross_sections.filter(s =>
-            manifestSectionIds.has(s.id),
+            manifestSectionIds.has(idOf(s)),
           ),
         }
         await window.electron.writeProjectFile(
@@ -727,8 +733,15 @@ export function useProject(): UseProject {
     // Reseed manifest from the duplicate's bundle. The new project is
     // now the live one, so its manifest reflects the cloned content
     // across every bundle-tracked entity.
-    setManifestCptIds(new Set(dupBundle.cpts.map(c => c.id)))
-    setManifestBoreholeIds(new Set(dupBundle.boreholes.map(b => b.id)))
+    // Bundle entries are `Record<string, unknown>`, so the .map walks
+    // pass through the same `idOf` narrowing the trimming pass uses
+    // above. Inline equivalent: assert id is a string per row.
+    setManifestCptIds(
+      new Set(dupBundle.cpts.map(c => (typeof c.id === 'string' ? c.id : ''))),
+    )
+    setManifestBoreholeIds(
+      new Set(dupBundle.boreholes.map(b => (typeof b.id === 'string' ? b.id : ''))),
+    )
     setManifestFormationIds(new Set(idsFromBundle(dupBundle.geological_formations)))
     setManifestSectionIds(new Set(idsFromBundle(dupBundle.cross_sections)))
     // The file we just wrote carries currentLumping — align savedLumping

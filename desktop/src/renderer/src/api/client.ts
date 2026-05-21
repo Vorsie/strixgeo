@@ -1234,7 +1234,11 @@ export const api = {
       // Read via IPC — fetch('file://') is blocked in the renderer sandbox.
       const buffer: Buffer = await window.electron.readFile(filePath)
       const fileName = filePath.split(/[\\/]/).pop() ?? 'upload.gef'
-      const blob = new Blob([buffer])
+      // Node's Buffer is ``Uint8Array<ArrayBufferLike>``; the DOM Blob
+      // constructor wants ``ArrayBuffer`` specifically (not the
+      // SharedArrayBuffer union member). Pass the underlying view —
+      // identical wire bytes, narrower type.
+      const blob = new Blob([new Uint8Array(buffer)])
       const form = new FormData()
       form.append('file', blob, fileName)
       if (projectId) form.append('project_id', projectId)

@@ -23,6 +23,14 @@ declare global {
   interface Window {
     CESIUM_BASE_URL?: string
   }
+  // Vite injects ``import.meta.env`` at build time. The Vite-provided
+  // ambient types live in `vite/client`, but the renderer tsconfig
+  // doesn't pull them in (and adding the dependency for one access
+  // is overkill). Local augmentation is enough — tsc otherwise flags
+  // ``Property 'env' does not exist on type 'ImportMeta'``.
+  interface ImportMeta {
+    env: { PROD: boolean }
+  }
 }
 
 window.CESIUM_BASE_URL = import.meta.env.PROD ? './cesium/' : '/cesium/'

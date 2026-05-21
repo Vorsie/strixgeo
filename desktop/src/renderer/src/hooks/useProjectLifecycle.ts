@@ -9,7 +9,9 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api/client'
+import type { ProjectResponse } from '../api/client'
 import { log } from '../utils/log'
+import type { PickAndOpenResult } from './useProject'
 import type { StratigraphyLumping } from '../utils/projectFile'
 
 /** Shape of the active geological model (id only — enough for contact cleanup). */
@@ -178,9 +180,14 @@ export function useProjectLifecycle({
   setSessionImportContactIds: (v: Set<string>) => void
   removeFromManifest: (kind: 'cpt' | 'borehole' | 'formation' | 'section', ids: Iterable<string>) => void
   saveMetadata: () => Promise<boolean>
-  saveAsProject: () => Promise<void>
+  // Source type from useProject — saveAsProject returns the newly-
+  // saved project (or null on cancel/failure). The lifecycle hook
+  // doesn't read the result; aligned with the source for tsc parity.
+  saveAsProject: () => Promise<ProjectResponse | null>
   closeProject: () => void
-  pickAndOpenProject: () => Promise<{ outcome: 'opened' | 'cancelled' | 'error' }>
+  // Source type from useProject — `PickAndOpenResult` is the
+  // discriminated union the openProjectFile flow returns.
+  pickAndOpenProject: () => Promise<PickAndOpenResult>
   openProjectFile: (path: string) => Promise<unknown>
   discardContacts: (ids: ReadonlySet<string>) => void
   activeGeologicalModel: ActiveModel | null

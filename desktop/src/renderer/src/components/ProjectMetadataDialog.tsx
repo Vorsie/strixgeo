@@ -323,10 +323,11 @@ export default function ProjectMetadataDialog({
   }
 
   function removeTag(tag: string): void {
-    update(
-      'tags',
-      state.tags.filter(t => t !== tag),
-    )
+    // ``state`` is non-null here — the component returns null above
+    // when state is null — but TS doesn't carry the narrowing into a
+    // nested function scope. Use the setState-updater form to read
+    // the latest value without re-deriving the guard.
+    setState(prev => (prev === null ? prev : { ...prev, tags: prev.tags.filter(t => t !== tag) }))
   }
 
   return (
