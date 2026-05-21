@@ -855,6 +855,54 @@ unit polluted by a single anomalous borehole — at that moment
 the exclusion-toggle UX is concretely informed by the case the
 user wants to handle.
 
+## 66. Admixture aggregation heuristic — RESOLVED 2026-05-21
+
+The original entry only ever lived as a one-liner in CLAUDE.md's Tier E
+("``_aggregate_admixtures`` uses >50% thickness-weighted majority;
+owner-tunable at dogfeed; revisit if thin interbedded sequences produce
+wrong dominant admixtures"). Resolved before that revisit became a
+dogfeed report, so this is the canonical record.
+
+Owner directives chosen:
+* **Two-threshold + presence count.** Include an admixture when its
+  total thickness >50% of the run (primary, dominant signal) OR
+  thickness >25% AND present in >=3 source layers (secondary,
+  pervasive-interbedded signal). The presence floor is what
+  distinguishes "thin secondary signal that IS the geological
+  character" (kept) from "concentrated in a couple of fat layers"
+  (dropped — neither dominant nor pervasive).
+* **Thickness-weighted dominant amount.** When the same ``soil_code``
+  appears with different ``amount`` values (e.g. ``zwak`` siltig in
+  some layers, ``sterk`` siltig in others), the output's amount is
+  whichever variant has the larger summed thickness across
+  contributing layers. Geotechnically honest: the merged label
+  reflects the dominant strength.
+
+**Implementation.** ``litho_segmentation._aggregate_admixtures``
+refactored from canonical-key-by-(soil_code:amount) to grouping by
+``soil_code`` alone, then resolving the dominant amount per soil_code
+at the inclusion step. Thresholds hoisted to module constants
+``ADMIXTURE_MAJORITY_THRESHOLD`` (0.5), ``ADMIXTURE_SECONDARY_THRESHOLD``
+(0.25), ``ADMIXTURE_PRESENCE_FLOOR`` (3) so the owner can tune one
+line at the next dogfeed report. ``locally`` inversion logic
+unchanged (any global → result global; all local → result local).
+
+**Tests.** A1-A6 + A1b/A4 boundary cases in
+``tests/unit/domain/services/test_aggregate_admixtures.py``: primary
+threshold included (66%) / excluded at exactly 50% / secondary
+threshold included (30% across 3 layers) / excluded under presence
+floor (30% across 2 layers) / below both thresholds (20%) / dominant
+amount selection across mixed strengths / locally inversion both
+directions. 913/913 unit + tsc clean. The 28 pre-existing
+segmentation + accept tests still pass — the broader segmenter behaviour
+is invariant under the heuristic change because the previous tests
+used uniformly-attributed admixtures.
+
+**Documented residual.** Tuning is a one-line edit to the three
+module constants. The next dogfeed report of "wrong dominant
+admixture in this particular borehole" is the natural trigger to
+adjust — ship a real case alongside any further change.
+
 ## 68. CorrelationEdgesOverlay uncorrelate menu state lives inside a `pointerEvents:none` SVG `<g>` (Tier E — robustness)
 
 **What.** The Slice-4 `CorrelationEdgesOverlay` owns its uncorrelate
