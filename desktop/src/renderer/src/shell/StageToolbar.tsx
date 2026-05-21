@@ -77,8 +77,13 @@ export default function StageToolbar({
       aria-label="Stage toolbar"
       className="flex items-center h-10 bg-surface-card border-b border-border-subtle flex-shrink-0"
     >
-      {/* Left zone — stage-specific verb buttons */}
-      <div className="flex items-center flex-1 overflow-hidden px-2 gap-1">
+      {/* Left zone — stage-specific verb buttons.
+          ``toolbar-scrollable`` (debt #23) gives horizontal scroll when
+          the verb row exceeds the available width (narrow window,
+          split-screen, future verb additions), so the rightmost
+          buttons reach the user via a thin scrollbar instead of being
+          silently clipped. */}
+      <div className="flex items-center flex-1 toolbar-scrollable px-2 gap-1">
         {StageVerbs !== null && <StageVerbs />}
       </div>
 
