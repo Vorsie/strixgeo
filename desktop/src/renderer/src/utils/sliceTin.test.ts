@@ -128,4 +128,31 @@ describe('sliceTin', () => {
       expect(p.elevationM).toBeCloseTo(5, 5)
     }
   })
+
+  // Debt #28: each SlicePoint carries the index of the triangle the
+  // crossing came from, so downstream renderers can read per-triangle
+  // confidence and split the polyline into bands.
+  it('S1 — every SlicePoint carries triangleIdx of the triangle it crosses', () => {
+    // Two triangles sharing edge (1, 2). Section line passes through
+    // both; expected: 4 crossings (2 per triangle), tris 0 and 1.
+    const surface = _surface(
+      [
+        [0, 0, 0],
+        [10, 0, 0],
+        [5, 10, 0],
+        [15, 10, 0],
+      ],
+      [
+        [0, 1, 2],
+        [1, 3, 2],
+      ],
+    )
+    const poly = sliceTin(surface, _line(-5, 5, 20, 5))
+    expect(poly.length).toBeGreaterThan(0)
+    for (const p of poly) {
+      expect(p.triangleIdx).toBeDefined()
+      expect(p.triangleIdx).toBeGreaterThanOrEqual(0)
+      expect(p.triangleIdx).toBeLessThan(2)
+    }
+  })
 })

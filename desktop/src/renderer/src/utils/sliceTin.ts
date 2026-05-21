@@ -34,6 +34,16 @@ export interface SectionLine2D {
 export interface SlicePoint {
   alongM: number
   elevationM: number
+  /**
+   * Debt #28: index of the triangle this crossing came from.  Two
+   * consecutive ``SlicePoint``s in the sorted polyline are crossings of
+   * the SAME triangle (since the section line enters and exits each
+   * triangle through two edges), so a per-segment confidence value can
+   * be read by looking up ``triangleIdx`` on the SECOND point of each
+   * segment (or either — they will agree).  Optional for backwards
+   * compat with callers that don't need the band split.
+   */
+  triangleIdx?: number
 }
 
 /**
@@ -76,7 +86,8 @@ export function sliceTin(
   }
 
   const crossings: SlicePoint[] = []
-  for (const tri of surface.triangles) {
+  for (let tIdx = 0; tIdx < surface.triangles.length; tIdx += 1) {
+    const tri = surface.triangles[tIdx]
     const ia = tri[0]
     const ib = tri[1]
     const ic = tri[2]
@@ -97,11 +108,11 @@ export function sliceTin(
       // Same side — no crossing.
       if (oi * oj > 0) continue
       if (oi === 0) {
-        crossings.push({ alongM: along[i], elevationM: elev[i] })
+        crossings.push({ alongM: along[i], elevationM: elev[i], triangleIdx: tIdx })
         continue
       }
       if (oj === 0) {
-        crossings.push({ alongM: along[j], elevationM: elev[j] })
+        crossings.push({ alongM: along[j], elevationM: elev[j], triangleIdx: tIdx })
         continue
       }
       // Strict sign change: linearly interpolate to find the
@@ -109,7 +120,7 @@ export function sliceTin(
       const t = oi / (oi - oj) // in (0, 1)
       const crossingAlong = along[i] + t * (along[j] - along[i])
       const crossingElev = elev[i] + t * (elev[j] - elev[i])
-      crossings.push({ alongM: crossingAlong, elevationM: crossingElev })
+      crossings.push({ alongM: crossingAlong, elevationM: crossingElev, triangleIdx: tIdx })
     }
   }
 
