@@ -72,17 +72,15 @@ export default function SectionsCanvas(): JSX.Element {
       lithoSurfacesByFormationId,
       handleCreateLithoContact,
       handleInlineLithoCreateFormation,
-      lithoSuggestions,
-      lithoSuggestionInvestigationId,
-      lithoSuggestionAccepted,
-      lithoSuggestionRejected,
-      lithoSuggestionEdits,
+      // Phase 2 of debt #77: the bus exposes the unified Map +
+      // focused-anchor flag; "focused" entry and "bulk subset" are
+      // derived locally below.
+      ghostsByAnchor,
+      focusedSuggestAnchorId,
       handleEditLithoSuggestion,
       handleAcceptLithoSuggestion,
       handleRejectLithoSuggestion,
       handleUnrejectLithoSuggestion,
-      // Bulk-suggest (debt #73 / Phase 3) — multi-anchor ghost state.
-      bulkLithoGhosts,
       handleSuggestAllLitho,
       handleAcceptBulkLitho,
       refetchLithoContacts,
@@ -499,12 +497,12 @@ export default function SectionsCanvas(): JSX.Element {
   // the ghost overlay can convert depth-below-surface → absolute mTAW level.
   // Searches both visible lists; null when the investigation isn't loaded yet.
   const lithoGhostSurfaceElevationM = useMemo(() => {
-    if (!lithoSuggestionInvestigationId) return null
-    const cpt = visibleCpts.find(c => c.id === lithoSuggestionInvestigationId)
+    if (!focusedSuggestAnchorId) return null
+    const cpt = visibleCpts.find(c => c.id === focusedSuggestAnchorId)
     if (cpt) return cpt.elevation_m
-    const bh = visibleBoreholes.find(b => b.id === lithoSuggestionInvestigationId)
+    const bh = visibleBoreholes.find(b => b.id === focusedSuggestAnchorId)
     return bh?.elevation_m ?? null
-  }, [lithoSuggestionInvestigationId, visibleCpts, visibleBoreholes])
+  }, [focusedSuggestAnchorId, visibleCpts, visibleBoreholes])
 
   // Section-context-threaded accept handler (#57 invariant).
   //
@@ -636,35 +634,35 @@ export default function SectionsCanvas(): JSX.Element {
 
   // Build the lithoGhostState bundle passed to SectionPanel.
   // Only populated on the litho axis when suggestions are loaded for an
-  // investigation — zero regression on the geological axis.
+  // investigation — zero regression on the geological axis. Reads the
+  // focused entry from the unified Map (debt #77 Phase 2).
   const lithoGhostState = useMemo(() => {
-    if (!isLitho || lithoSuggestions.length === 0 || !lithoSuggestionInvestigationId) return undefined
+    if (!isLitho || focusedSuggestAnchorId === null) return undefined
+    const entry = ghostsByAnchor.get(focusedSuggestAnchorId)
+    if (!entry || entry.suggestions.length === 0) return undefined
     return {
-      suggestions: lithoSuggestions,
-      investigationId: lithoSuggestionInvestigationId,
+      suggestions: entry.suggestions,
+      investigationId: focusedSuggestAnchorId,
       surfaceElevationM: lithoGhostSurfaceElevationM,
-      acceptedIndices: lithoSuggestionAccepted,
-      rejectedIndices: lithoSuggestionRejected,
+      acceptedIndices: entry.accepted,
+      rejectedIndices: entry.rejected,
       onAccept: sectionAwareAcceptLithoSuggestion,
       onReject: handleRejectLithoSuggestion,
       onUnreject: handleUnrejectLithoSuggestion,
       // Drag-resize edits — the user's depth modifications per ghost
       // index (Phase 2). LithoSuggestionGhostColumns reads `edits` at
       // render time so the ghost rect tracks the live drag commit.
-      edits: lithoSuggestionEdits,
+      edits: entry.edits,
       onEdit: handleEditLithoSuggestion,
     }
   }, [
     isLitho,
-    lithoSuggestions,
-    lithoSuggestionInvestigationId,
+    ghostsByAnchor,
+    focusedSuggestAnchorId,
     lithoGhostSurfaceElevationM,
-    lithoSuggestionAccepted,
-    lithoSuggestionRejected,
     sectionAwareAcceptLithoSuggestion,
     handleRejectLithoSuggestion,
     handleUnrejectLithoSuggestion,
-    lithoSuggestionEdits,
     handleEditLithoSuggestion,
   ])
 
@@ -683,10 +681,19 @@ export default function SectionsCanvas(): JSX.Element {
     },
     [handleAcceptBulkLitho, selectedSection, applyUpdatedSection],
   )
+  // Bulk subset = Map minus focused entry (debt #77 Phase 2). When no
+  // focus, the whole Map IS the bulk set.
+  const bulkAnchorGhosts = useMemo(() => {
+    if (focusedSuggestAnchorId === null) return ghostsByAnchor
+    if (!ghostsByAnchor.has(focusedSuggestAnchorId)) return ghostsByAnchor
+    const next = new Map(ghostsByAnchor)
+    next.delete(focusedSuggestAnchorId)
+    return next
+  }, [ghostsByAnchor, focusedSuggestAnchorId])
   const bulkLithoGhostState = useMemo(() => {
-    if (!isLitho || bulkLithoGhosts.size === 0) return undefined
+    if (!isLitho || bulkAnchorGhosts.size === 0) return undefined
     return {
-      anchorGhosts: bulkLithoGhosts,
+      anchorGhosts: bulkAnchorGhosts,
       onAccept: sectionAwareAcceptBulkLitho,
       onReject: handleRejectBulkLitho,
       onUnreject: handleUnrejectBulkLitho,
@@ -694,7 +701,7 @@ export default function SectionsCanvas(): JSX.Element {
     }
   }, [
     isLitho,
-    bulkLithoGhosts,
+    bulkAnchorGhosts,
     sectionAwareAcceptBulkLitho,
     handleRejectBulkLitho,
     handleUnrejectBulkLitho,
