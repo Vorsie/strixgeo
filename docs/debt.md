@@ -1277,6 +1277,77 @@ is the common case (the user just edited a composition and is
 pasting next door); cross-column overwrite without confirmation is
 a one-step undoable action via re-opening the editor.
 
+## 93. First-use tutorial + per-stage "next step" hinting (Tier D — onboarding)
+
+**What.** No onboarding exists today. A new engineer opening Strix
+for the first time sees an empty welcome screen, then a stage with
+toolbar verbs whose preconditions are implicit ("Suggest litho" needs
+a CPT focused; "Seed" needs formations defined; "Build" needs
+contacts placed). The workflow IS discoverable by reading tooltips,
+but reading every tooltip on every disabled button is a slow path to
+the first useful action.
+
+Two related deliverables under one entry:
+
+1. **First-use tutorial** — a game-like guided walkthrough that fires
+   the first time a user opens Strix.  Coach marks (numbered amber
+   tooltips with arrows) point at the right control to click next.
+   Example flow: "Welcome → click New project → enter a name → click
+   Import DOV → draw a bbox → walk to Geology → define a formation →
+   walk to Sections → draw a section → click Seed for new tests →
+   Build → done."  Skippable with a top-right "skip tutorial" link;
+   re-launchable from the Help menu.
+2. **Per-stage "next step" hinting** — empty-state-driven guidance
+   that surfaces the most useful next action whenever the user lands
+   on a stage.  Examples:
+   * Geology stage with no formations → "Define your first formation
+     (the geological backbone of the project)" overlay on the empty
+     formation list.
+   * Sections stage with a section but no contacts → "Open this
+     section and pick depths, OR click Seed for new tests to
+     auto-populate from borehole stratigraphy."
+   * Lithology stage with no litho model → "Create a litho model that
+     refines your geological backbone."
+   * Parameters stage with no per-test data → "Run Lithology first to
+     get NAD packing class indicators."
+
+   Each hint disappears when the precondition is met.  Persistent —
+   not a one-time tutorial; the hint is always available when the
+   precondition is unmet.
+
+**Why deferred.** This is a v1.0-launch deliverable, not a v1.0-MVP
+gate.  Three reasons:
+
+* **Content authoring is the load-bearing piece**, not the code.  The
+  tutorial copy + per-stage hints need to be written by an engineer
+  who has dogfeed the workflow end-to-end and knows which steps the
+  user gets stuck on.  We're still finding those steps.
+* **Implementation is straightforward but boilerplate-heavy** — a
+  small coach-mark library (or react-joyride) + ~12 hint surfaces
+  across stages.  Maybe two days of code, three days of copywriting.
+* **Premature shipping risks calcifying the wrong workflow.**  The
+  litho gesture surface alone resolved 5 dogfeed-driven debts this
+  week (#83, #84, #85, #86, #87).  Pinning a tutorial against today's
+  shape before the workflow is stable creates churn.
+
+**When to revisit.**  Pre-coworker-binary or pre-paid-revenue,
+whichever lands first.  Trigger: the first dogfeed user other than
+the owner.  The first 5 things that user gets stuck on become the
+tutorial's first 5 coach marks; the next 5 stage-empty-states become
+the persistent hints.  Until then, every dogfeed observation that
+ends "the user didn't know they could click X" should be filed as a
+candidate hint here (not as a separate debt) so the eventual
+authoring pass has a ready list.
+
+**Related shipped surfaces that already do part of this job.** Empty-
+state cards exist (``EmptyState`` primitive in
+``desktop/src/renderer/src/components/EmptyState.tsx``) and are used
+in several places (LithologyInspector when no model, Geology3DViewer
+when no surfaces, etc).  The hint system is the next-step evolution
+of this primitive — same shape, but driven by stage-state instead of
+hard-coded text and always visible (not just when the surface is
+truly empty).
+
 ## 92. "New tests" workflow — RESOLVED 2026-05-21
 
 **What.** When an engineer imports new CPTs or boreholes into a project
