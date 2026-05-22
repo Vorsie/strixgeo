@@ -44,6 +44,7 @@ import type {
   LithoCorrelationEdge,
 } from '../../../api/client'
 import { isGeologicalFormation } from '../../../utils/formationKind'
+import { formatLithoDisplayName } from '../../../utils/lithoLabels'
 import { log } from '../../../utils/log'
 import { EmptyState } from '../../EmptyState'
 import { useShell } from '../../ShellContext'
@@ -399,7 +400,14 @@ function LithoUnitRow({
         style={{ backgroundColor: f.color }}
         aria-hidden="true"
       />
-      <span className="flex-1 truncate">{f.name}</span>
+      {/* Translate at the presentation boundary — a litho unit's stored
+          ``name`` is the raw token ("KLEI (KL:Z)"); the roster shows the
+          English pipe label (debt #96). */}
+      <span className="flex-1 truncate">
+        {f.litho_main_soil_code != null
+          ? formatLithoDisplayName(f.litho_main_soil_code, f.litho_admixtures)
+          : f.name}
+      </span>
 
       {/* Debt #87: parent-review affordance — amber filled circle on the
           right edge of the name region (before the metadata column). */}
