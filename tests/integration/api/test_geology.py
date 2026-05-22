@@ -2419,6 +2419,61 @@ async def test_clear_litho_model_removes_contacts_and_litho_formations(
     assert str(litho_b.id) not in formation_ids
 
 
+async def test_clear_litho_model_removes_orphan_formations_with_no_contacts(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+    db_session: AsyncSession,
+) -> None:
+    """Litho units left contactless by a prior wipe are still cleared.
+
+    The real dogfeed state: a litho model with 0 contacts but N orphan
+    litho formations from an earlier session.  The clear must find and
+    delete them project-wide — there is no contact left to reach them
+    through.
+    """
+    project, _ = project_with_borehole
+    # Two orphan litho units — raw-inserted, never given a contact.
+    orphan_a = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Orphan-A",
+        color="#aaaaaa",
+        display_order=0,
+        pinned_order=False,
+        litho_main_soil_code="ZAND",
+    )
+    orphan_b = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Orphan-B",
+        color="#bbbbbb",
+        display_order=1,
+        pinned_order=False,
+        litho_main_soil_code="KLEI",
+    )
+    db_session.add_all([orphan_a, orphan_b])
+    await db_session.commit()
+
+    model = await _create_model(async_client, project.id)
+
+    # Clear — the model has 0 contacts but the two orphan units linger.
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["contacts"] == 0
+    assert body["formations"] == 2  # both orphan litho units removed
+
+    formations_resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations",
+    )
+    assert formations_resp.status_code == 200
+    formation_ids = {f["id"] for f in formations_resp.json()}
+    assert str(orphan_a.id) not in formation_ids
+    assert str(orphan_b.id) not in formation_ids
+
+
 async def test_clear_litho_model_preserves_geological_formation(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],

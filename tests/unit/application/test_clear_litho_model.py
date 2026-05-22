@@ -17,6 +17,7 @@ import pytest
 
 from groundmodel.application.clear_litho_model import ClearLithoModel, ClearLithoModelResult
 
+PROJECT_ID: UUID = uuid4()
 MODEL_ID: UUID = uuid4()
 
 # Three litho formation ids that the model's contacts point at.
@@ -92,7 +93,7 @@ async def test_happy_path_all_orphans_deleted() -> None:
         )
     )
     uc = ClearLithoModel(session)
-    result = await uc.execute(MODEL_ID)
+    result = await uc.execute(PROJECT_ID, MODEL_ID)
 
     assert isinstance(result, ClearLithoModelResult)
     assert result.contacts == 4
@@ -116,7 +117,7 @@ async def test_shared_formation_preserved() -> None:
         )
     )
     uc = ClearLithoModel(session)
-    result = await uc.execute(MODEL_ID)
+    result = await uc.execute(PROJECT_ID, MODEL_ID)
 
     assert result.contacts == 6
     assert result.edges == 2
@@ -139,7 +140,7 @@ async def test_empty_model_is_idempotent_no_op() -> None:
         )
     )
     uc = ClearLithoModel(session)
-    result = await uc.execute(MODEL_ID)
+    result = await uc.execute(PROJECT_ID, MODEL_ID)
 
     assert result == ClearLithoModelResult(contacts=0, edges=0, surfaces=0, formations=0)
 
@@ -148,11 +149,11 @@ async def test_empty_model_is_idempotent_no_op() -> None:
 async def test_geological_formations_not_touched() -> None:
     """Geological formations (litho_main_soil_code IS NULL) are excluded from candidates.
 
-    The use case JOIN-filters on ``litho_main_soil_code IS NOT NULL`` at step 1
-    so geological rows never enter the candidate set and therefore never reach
-    the formation DELETE in step 6.  This test verifies only 4 execute calls
-    fire when the only model contacts belong to geological formations (i.e.
-    the candidate set comes back empty from the DB side).
+    The use case's step-1 SELECT filters on ``litho_main_soil_code IS NOT
+    NULL`` so geological rows never enter the candidate set and therefore
+    never reach the formation DELETE.  This test verifies only 4 execute
+    calls fire when the project has no litho formations (the candidate set
+    comes back empty from the DB side).
     """
     session = AsyncMock()
     # Simulate: the formation_id query (filtered to litho_main_soil_code IS NOT NULL)
@@ -168,7 +169,7 @@ async def test_geological_formations_not_touched() -> None:
         )
     )
     uc = ClearLithoModel(session)
-    result = await uc.execute(MODEL_ID)
+    result = await uc.execute(PROJECT_ID, MODEL_ID)
 
     assert result.contacts == 3
     assert result.formations == 0

@@ -637,7 +637,7 @@ async def clear_litho_model(
         project_id,
         detail="Model not found",
     )
-    result = await ClearLithoModel(session).execute(model_id)
+    result = await ClearLithoModel(session).execute(project_id, model_id)
     await session.commit()
     logger.info(
         f"clear_litho_model ok model_id={model_id} "

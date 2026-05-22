@@ -4,10 +4,13 @@ Deletes, in a single transaction, all of:
   1. ``FormationContact`` rows for the model.
   2. ``LithoCorrelationEdge`` rows for the model.
   3. ``FormationSurface`` rows for the model.
-  4. Litho ``GeologicalFormation`` rows that are exclusively owned by
-     this model (``litho_main_soil_code IS NOT NULL``) and have no
-     remaining contacts in any other model after the contact delete
-     (orphan-safe — a formation shared by a second litho model survives).
+  4. Litho ``GeologicalFormation`` rows (``litho_main_soil_code IS NOT
+     NULL``) anywhere in the project that have no remaining contacts in
+     any model after the contact delete (orphan-safe — a formation
+     shared by a second litho model survives).  Project-scoped, NOT
+     contact-scoped: a model whose contacts were already wiped still
+     has orphan litho units, and there is no contact link left to reach
+     them through.
 
 The lithostratigraphic model row itself and all geological-model formations
 remain untouched.  After a successful clear the model is ready for a fresh
@@ -87,26 +90,31 @@ class ClearLithoModel(GroundModelLogger):
         super().__init__(__name__)
         self._session = session
 
-    async def execute(self, model_id: UUID) -> ClearLithoModelResult:
+    async def execute(self, project_id: UUID, model_id: UUID) -> ClearLithoModelResult:
         """Delete all contacts, edges, surfaces, and orphan litho formations.
 
         The delete order is:
 
-        1. Collect the distinct ``formation_id``s of the model's contacts
-           whose formation has ``litho_main_soil_code IS NOT NULL`` (litho
-           units, not geological-model formations).  These are the candidates
-           for deletion in step 4.
+        1. Collect every litho ``GeologicalFormation`` in the PROJECT
+           (``litho_main_soil_code IS NOT NULL``).  These are the candidates
+           for the orphan delete in step 5.  Project-scoped, NOT contact-
+           scoped: a model whose contacts were already wiped still has
+           orphan litho units to remove, and there is no contact link left
+           to reach them through.
         2. Bulk-DELETE all ``FormationContact`` rows for ``model_id``.
         3. Bulk-DELETE all ``LithoCorrelationEdge`` rows for ``model_id``.
         4. Bulk-DELETE all ``FormationSurface`` rows for ``model_id``.
         5. For each candidate formation from step 1: delete if and only if
-           no contact in ANY model references it (orphan-safe).
+           no contact in ANY model references it (orphan-safe — a litho
+           unit shared with a second model survives).
 
         Geological formations (``litho_main_soil_code IS NULL``) and the
         lithostratigraphic model row itself are never touched.
 
         Parameters
         ----------
+        project_id : UUID
+            Project the model belongs to — scopes the litho-formation sweep.
         model_id : UUID
             Primary key of the lithostratigraphic model to clear.
 
@@ -115,21 +123,17 @@ class ClearLithoModel(GroundModelLogger):
         ClearLithoModelResult
             Row counts for contacts, edges, surfaces, and formations deleted.
         """
-        self.debug(f"clear_litho_model entry model_id={model_id}")
+        self.debug(f"clear_litho_model entry project_id={project_id} model_id={model_id}")
 
-        # Step 1 — collect litho formation ids referenced by this model's contacts
-        # BEFORE the contact delete so we know which formations to consider.
-        litho_fids_stmt = (
-            select(FormationContactOrm.formation_id)
-            .join(
-                GeologicalFormationOrm,
-                FormationContactOrm.formation_id == GeologicalFormationOrm.id,
-            )
-            .where(
-                FormationContactOrm.model_id == model_id,
-                GeologicalFormationOrm.litho_main_soil_code.is_not(None),
-            )
-            .distinct()
+        # Step 1 — collect every litho formation in the project. Litho units
+        # carry litho_main_soil_code. This is project-scoped (not via the
+        # model's contacts) so a model whose contacts were already wiped
+        # still has its orphan litho units found here. The orphan guard in
+        # step 5 keeps it safe — a formation still referenced by any model's
+        # contact survives.
+        litho_fids_stmt = select(GeologicalFormationOrm.id).where(
+            GeologicalFormationOrm.app_project_id == project_id,
+            GeologicalFormationOrm.litho_main_soil_code.is_not(None),
         )
         candidate_fids: set[UUID] = set(
             (await self._session.execute(litho_fids_stmt)).scalars().all()
