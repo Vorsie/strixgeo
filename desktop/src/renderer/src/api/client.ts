@@ -1904,6 +1904,23 @@ export const api = {
         throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
       }
     },
+
+    // Propagate litho_admixtures to every formation in the BFS-reachable
+    // connected component of the correlation graph.  The seed is any one
+    // formation in the body; the backend walks the full component and
+    // writes the new admixtures to every formation in the same transaction.
+    // Returns the updated formations + component_size so the caller can
+    // replace its local cache entries directly.
+    propagateCorrelatedLithoAdmixtures: (
+      projectId: string,
+      modelId: string,
+      formationId: string,
+      admixtures: Array<{ soil_code: string; amount: string; locally: boolean }>,
+    ): Promise<{ updated_formations: GeologicalFormationResponse[]; component_size: number }> =>
+      patch(
+        `/projects/${projectId}/geology/models/${modelId}/correlations/admixtures`,
+        { formation_id: formationId, admixtures },
+      ),
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}

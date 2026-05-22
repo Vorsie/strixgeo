@@ -59,6 +59,14 @@ export interface LithoGhostCompositionEditorProps {
   /** Initial admixture list; cloned at open time so external mutations don't bleed in. */
   initialAdmixtures: readonly GhostAdmixtureItem[]
   /**
+   * When true the main-soil ``<select>`` is disabled.  Used when the editor
+   * is opened for a whole correlated body — the body's lithology is fixed by
+   * the correlation group; only admixtures may change.  Absent / false = the
+   * normal ghost-suggestion editing flow where the engineer may also change
+   * the main soil code.
+   */
+  mainSoilLocked?: boolean
+  /**
    * Called when the user clicks Save. The caller stashes the result
    * on the suggestion's edits Map entry; the modal does NOT close
    * itself — the caller decides (matches the picker dialog's
@@ -76,6 +84,7 @@ export default function LithoGhostCompositionEditor({
   open,
   initialMainSoilCode,
   initialAdmixtures,
+  mainSoilLocked = false,
   onSave,
   onCancel,
 }: LithoGhostCompositionEditorProps): JSX.Element | null {
@@ -186,7 +195,7 @@ export default function LithoGhostCompositionEditor({
           id="ghost-composition-editor-title"
           className="text-sm font-semibold text-text-primary mb-3"
         >
-          Edit suggestion composition
+          {mainSoilLocked ? 'Edit admixtures for this body' : 'Edit suggestion composition'}
         </h2>
 
         {/* Main soil code dropdown */}
@@ -196,12 +205,20 @@ export default function LithoGhostCompositionEditor({
             className="block text-xs text-text-secondary mb-1"
           >
             Main soil
+            {mainSoilLocked && (
+              <span className="ml-1 text-text-muted">(fixed by correlation group)</span>
+            )}
           </label>
           <select
             id="ghost-edit-main-code"
             value={mainCode}
             onChange={e => setMainCode(e.target.value as MainSoilCode)}
-            className="w-full text-xs rounded border border-border-default bg-surface-page px-2 py-1 text-text-primary"
+            disabled={mainSoilLocked}
+            className={`w-full text-xs rounded border border-border-default px-2 py-1 text-text-primary ${
+              mainSoilLocked
+                ? 'bg-surface-subtle opacity-60 cursor-not-allowed'
+                : 'bg-surface-page'
+            }`}
           >
             {MAIN_SOIL_CODES.map(code => (
               <option key={code} value={code}>

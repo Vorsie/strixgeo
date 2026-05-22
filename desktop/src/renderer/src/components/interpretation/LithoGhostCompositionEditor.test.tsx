@@ -208,4 +208,61 @@ describe('LithoGhostCompositionEditor', () => {
     ) as HTMLSelectElement
     expect(soilSelectAfter.value).toBe('VE')
   })
+
+  // E8 — mainSoilLocked=true: the main-soil select is disabled and the
+  // title reflects the body-edit context ("Edit admixtures for this body").
+  it('E8 — mainSoilLocked disables the main-soil select and changes the title', () => {
+    render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="KLEI"
+        initialAdmixtures={[]}
+        mainSoilLocked
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
+    expect(main.disabled).toBe(true)
+    expect(screen.getByText(/edit admixtures for this body/i)).toBeTruthy()
+  })
+
+  // E9 — mainSoilLocked=true: Save still returns the main soil code even
+  // though the select is disabled (the component must not drop the value).
+  it('E9 — mainSoilLocked: Save returns the locked main soil code unchanged', () => {
+    const onSave = vi.fn()
+    render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="KLEI"
+        initialAdmixtures={[{ soil_code: 'ZN', amount: 'M', locally: false }]}
+        mainSoilLocked
+        onSave={onSave}
+        onCancel={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /save composition/i }))
+    expect(onSave).toHaveBeenCalledTimes(1)
+    const [mainSoilCode, admixtures] = onSave.mock.calls[0]
+    expect(mainSoilCode).toBe('KLEI')
+    expect(admixtures).toHaveLength(1)
+    expect(admixtures[0].soil_code).toBe('ZN')
+  })
+
+  // E10 — mainSoilLocked absent (default): the main-soil select is enabled
+  // and the title shows the ghost-suggestion wording.
+  it('E10 — mainSoilLocked omitted: select is enabled and title shows ghost wording', () => {
+    render(
+      <LithoGhostCompositionEditor
+        open
+        initialMainSoilCode="ZAND"
+        initialAdmixtures={[]}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const main = screen.getByLabelText(/Main soil/i) as HTMLSelectElement
+    expect(main.disabled).toBe(false)
+    expect(screen.getByText(/edit suggestion composition/i)).toBeTruthy()
+  })
 })

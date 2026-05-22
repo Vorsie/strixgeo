@@ -543,4 +543,94 @@ describe('CorrelationEdgesOverlay', () => {
     expect(onArm).not.toHaveBeenCalled()
     expect(container.querySelector('[data-testid="correlate-drag-preview"]')).toBeNull()
   })
+
+  // -------------------------------------------------------------------
+  // Context-menu admixture propagation (new items CE14–CE15)
+  // -------------------------------------------------------------------
+
+  it('CE14: right-click edge surfaces "Edit admixtures for this body" menu item', () => {
+    // Provides an edge between two columns; right-clicking the hit rect
+    // (the invisible wide line) should render the context menu with both
+    // action items.
+    const fA = {
+      ...makeFormation('f-a', 'Zand', 1),
+      litho_main_soil_code: 'ZAND',
+      litho_admixtures: [{ soil_code: 'KL', amount: 'M', locally: false }],
+    }
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const gestureState: CorrelateGestureState = {
+      correlateMode: false,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+      onPropagateAdmixtures: vi.fn(),
+    }
+    renderOverlay({
+      edges: [makeEdge('f-a', 'f-b')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    // Hit-rect lines fire contextmenu — query the transparent hit-rect line.
+    // jsdom renders SVG lines; we fire contextmenu on the first `<line>` that
+    // has stroke="transparent".
+    const hitLines = document.querySelectorAll('line[stroke="transparent"]')
+    expect(hitLines.length).toBeGreaterThan(0)
+    fireEvent.contextMenu(hitLines[0])
+    // Both menu items should appear.
+    expect(screen.getByText(/Edit admixtures for this body/i)).not.toBeNull()
+    expect(screen.getByText(/Remove correlation/i)).not.toBeNull()
+  })
+
+  it('CE15: clicking "Edit admixtures for this body" opens the admixture editor modal', async () => {
+    const onPropagateAdmixtures = vi.fn().mockResolvedValue(undefined)
+    const fA = {
+      ...makeFormation('f-a', 'Zand', 1),
+      litho_main_soil_code: 'ZAND',
+      litho_admixtures: [] as Array<{ soil_code: string; amount: string; locally: boolean }>,
+    }
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const gestureState: CorrelateGestureState = {
+      correlateMode: false,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+      onPropagateAdmixtures,
+    }
+    renderOverlay({
+      edges: [makeEdge('f-a', 'f-b')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    // Open context menu via right-click on the hit rect.
+    const hitLines = document.querySelectorAll('line[stroke="transparent"]')
+    fireEvent.contextMenu(hitLines[0])
+    // Click the "Edit admixtures for this body" item.
+    fireEvent.click(screen.getByText(/Edit admixtures for this body/i))
+    // The LithoGhostCompositionEditor should now be rendered with the title.
+    expect(screen.getByText(/Edit admixtures for this body/i, { selector: 'h2' })).not.toBeNull()
+  })
 })

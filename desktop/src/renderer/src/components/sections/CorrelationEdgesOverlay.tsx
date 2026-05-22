@@ -29,6 +29,8 @@ import type {
   GeologicalFormationResponse,
   LithoCorrelationEdge,
 } from '../../api/client'
+import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
+import type { GhostAdmixtureItem } from '../interpretation/LithoGhostCompositionEditor'
 import type { CorrelationSource } from './useCorrelate'
 import type { PlacedColumn } from './utils'
 
@@ -86,6 +88,17 @@ export interface CorrelateGestureState {
   onCorrelate: (formationAId: string, formationBId: string) => Promise<void>
   /** Fired when an edge is right-clicked → Remove correlation. */
   onUncorrelate: (formationAId: string, formationBId: string) => Promise<void>
+  /**
+   * Fired when the user saves from "Edit admixtures for this body".
+   * ``seedFormationId`` is the seed for BFS; ``admixtures`` are the new
+   * admixtures to write to every formation in the connected component.
+   * Optional so existing gesture-state consumers that don't provide the
+   * context-menu path (e.g. test helpers) don't need to supply a stub.
+   */
+  onPropagateAdmixtures?: (
+    seedFormationId: string,
+    admixtures: GhostAdmixtureItem[],
+  ) => Promise<void>
 }
 
 interface Props {
@@ -296,17 +309,34 @@ interface ContextMenuState {
 interface EdgeContextMenuProps {
   menu: ContextMenuState
   onRemove: () => void
+  onEditAdmixtures: () => void
   onClose: () => void
 }
 
-function EdgeContextMenu({ menu, onRemove, onClose }: EdgeContextMenuProps): JSX.Element {
+function EdgeContextMenu({
+  menu,
+  onRemove,
+  onEditAdmixtures,
+  onClose,
+}: EdgeContextMenuProps): JSX.Element {
+  const itemStyle: React.CSSProperties = {
+    display: 'block',
+    width: '100%',
+    padding: '6px 12px',
+    textAlign: 'left',
+    fontSize: 12,
+    color: 'var(--color-text-primary, #e2e8f0)',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+  }
   return (
     // Rendered as a foreignObject to get real HTML for the context menu
     <foreignObject
       x={menu.x}
       y={menu.y}
-      width={160}
-      height={36}
+      width={190}
+      height={64}
       style={{ overflow: 'visible' }}
     >
       <div
@@ -317,24 +347,13 @@ function EdgeContextMenu({ menu, onRemove, onClose }: EdgeContextMenuProps): JSX
           borderRadius: 6,
           boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
           zIndex: 9999,
-          minWidth: 160,
+          minWidth: 190,
         }}
       >
-        <button
-          type="button"
-          style={{
-            display: 'block',
-            width: '100%',
-            padding: '6px 12px',
-            textAlign: 'left',
-            fontSize: 12,
-            color: 'var(--color-text-primary, #e2e8f0)',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-          }}
-          onClick={onRemove}
-        >
+        <button type="button" style={itemStyle} onClick={onEditAdmixtures}>
+          Edit admixtures for this body
+        </button>
+        <button type="button" style={{ ...itemStyle, color: 'var(--color-text-danger, #f87171)' }} onClick={onRemove}>
           Remove correlation
         </button>
       </div>
@@ -397,6 +416,17 @@ export default function CorrelationEdgesOverlay({
   correlateGestureState,
 }: Props): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+
+  // State for the admixture editor modal opened from the context menu.
+  // Stores the seed formation (formation_a_id of the right-clicked edge)
+  // so the editor can be seeded with the current main code + admixtures
+  // and the propagate call has the right seed id.
+  const [admixEditorState, setAdmixEditorState] = useState<{
+    open: boolean
+    seedFormationId: string
+    initialMainSoilCode: string
+    initialAdmixtures: GhostAdmixtureItem[]
+  } | null>(null)
 
   // Drag-arm state (debt #78 — drag-inside-correlate-mode). A mousedown
   // on an un-armed band arms the source AND starts tracking the pointer
@@ -489,6 +519,22 @@ export default function CorrelationEdgesOverlay({
     }
     setContextMenu(null)
   }, [contextMenu, correlateGestureState])
+
+  // Opens the admixture editor for the correlated body whose seed is the
+  // right-clicked edge's formation_a_id.  Seeds the editor with formation_a's
+  // current main soil code + admixtures so the user starts from the existing
+  // state.
+  const handleContextMenuEditAdmixtures = useCallback(() => {
+    if (!contextMenu) return
+    const seedFormation = formationById.get(contextMenu.formationAId)
+    setContextMenu(null)
+    setAdmixEditorState({
+      open: true,
+      seedFormationId: contextMenu.formationAId,
+      initialMainSoilCode: seedFormation?.litho_main_soil_code ?? 'ZAND',
+      initialAdmixtures: (seedFormation?.litho_admixtures ?? []) as GhostAdmixtureItem[],
+    })
+  }, [contextMenu, formationById])
 
   // Build per-column half-width map (used for band rect clicks).
   const halfWidthByInvest = useMemo(() => {
@@ -638,16 +684,24 @@ export default function CorrelationEdgesOverlay({
     formationById,
   ])
 
-  const { correlateMode, correlationSource, onArm, onClearArmed, onExitMode, onCorrelate } =
-    correlateGestureState ?? {
-      correlateMode: false,
-      correlationSource: null,
-      onArm: () => {},
-      onClearArmed: () => {},
-      onExitMode: () => {},
-      onCorrelate: async () => {},
-      onUncorrelate: async () => {},
-    }
+  const {
+    correlateMode,
+    correlationSource,
+    onArm,
+    onClearArmed,
+    onExitMode,
+    onCorrelate,
+    onPropagateAdmixtures,
+  } = correlateGestureState ?? {
+    correlateMode: false,
+    correlationSource: null,
+    onArm: () => {},
+    onClearArmed: () => {},
+    onExitMode: () => {},
+    onCorrelate: async () => {},
+    onUncorrelate: async () => {},
+    onPropagateAdmixtures: async () => {},
+  }
 
   /**
    * Drag-arm mousedown handler (debt #78). Arms the source via the
@@ -962,13 +1016,35 @@ export default function CorrelationEdgesOverlay({
         />
       )}
 
-      {/* Uncorrelate context menu */}
+      {/* Uncorrelate / admixture context menu */}
       {contextMenu && (
         <EdgeContextMenu
           menu={contextMenu}
           onRemove={handleContextMenuRemove}
+          onEditAdmixtures={handleContextMenuEditAdmixtures}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* Admixture propagation editor — rendered outside the SVG <g> via a
+          foreignObject so it can escape the SVG stacking context. The modal
+          itself is Portal-ed; we only need to gate the mount here. */}
+      {admixEditorState && (
+        <foreignObject x={0} y={0} width={0} height={0} style={{ overflow: 'visible' }}>
+          <LithoGhostCompositionEditor
+            open={admixEditorState.open}
+            initialMainSoilCode={admixEditorState.initialMainSoilCode}
+            initialAdmixtures={admixEditorState.initialAdmixtures}
+            mainSoilLocked
+            onSave={async (_mainSoilCode, admixtures) => {
+              setAdmixEditorState(null)
+              if (onPropagateAdmixtures) {
+                await onPropagateAdmixtures(admixEditorState.seedFormationId, admixtures)
+              }
+            }}
+            onCancel={() => setAdmixEditorState(null)}
+          />
+        </foreignObject>
       )}
     </g>
   )

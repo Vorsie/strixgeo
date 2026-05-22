@@ -97,6 +97,7 @@ export default function SectionsCanvas(): JSX.Element {
       clearPinchOutPreview,
       backdropSurfacesByFormationId,
       handleLoadBackdropSurfaces,
+      refetchFormations,
     },
     sections: {
       // WHY visibleSections not sections: both the map overlay and the section
@@ -320,6 +321,44 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, refetchEdges],
   )
 
+  const handlePropagateAdmixtures = useCallback(
+    async (
+      seedFormationId: string,
+      admixtures: Array<{ soil_code: string; amount: string; locally: boolean }>,
+    ): Promise<void> => {
+      if (!activeLithoModel) return
+      log.info(
+        'section',
+        `propagate-admixtures: seed ${seedFormationId} on model ${activeLithoModel.id}`,
+      )
+      try {
+        const result = await api.geology.propagateCorrelatedLithoAdmixtures(
+          project.id,
+          activeLithoModel.id,
+          seedFormationId,
+          admixtures,
+        )
+        // Refresh the local formation cache so the inspector + section bands
+        // reflect the new admixture lists immediately.
+        refetchFormations()
+        log.success(
+          'section',
+          `propagate-admixtures: updated ${result.updated_formations.length} formations (component size ${result.component_size})`,
+        )
+        toast(
+          'success',
+          `Updated admixtures on ${result.component_size} correlated unit` +
+            `${result.component_size === 1 ? '' : 's'}.`,
+        )
+      } catch (err) {
+        // A save action must not fail silently — mirror handleCorrelate.
+        log.warn('section', 'handlePropagateAdmixtures: PATCH failed', err)
+        toast('error', 'Could not update the body’s admixtures — try again.')
+      }
+    },
+    [activeLithoModel, project.id, refetchFormations, toast],
+  )
+
   // Build the correlateGestureState passed to SectionPanel.
   // Only wired on the litho axis; absent on the geological axis.
   const correlateGestureState: CorrelateGestureState | undefined = useMemo(() => {
@@ -332,6 +371,7 @@ export default function SectionsCanvas(): JSX.Element {
       onExitMode: exitCorrelateMode,
       onCorrelate: handleCorrelate,
       onUncorrelate: handleUncorrelate,
+      onPropagateAdmixtures: handlePropagateAdmixtures,
     }
   }, [
     isLitho,
@@ -342,6 +382,7 @@ export default function SectionsCanvas(): JSX.Element {
     exitCorrelateMode,
     handleCorrelate,
     handleUncorrelate,
+    handlePropagateAdmixtures,
   ])
 
   // Slice 2 (#55): axis-aware contact/formation/surface routing.
