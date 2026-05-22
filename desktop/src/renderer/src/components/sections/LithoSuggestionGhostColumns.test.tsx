@@ -1073,6 +1073,49 @@ describe('LithoSuggestionGhostColumns', () => {
     )
   })
 
+  // Q7: the copy must carry the source layer's EFFECTIVE composition
+  // (raw merged with edits) — not raw. Regression: stripping admixtures
+  // is an edit; the copy was reading raw, so stripped admixtures came
+  // back through the paste (dogfeed 2026-05-22).
+  it('Q7 — copy carries the source layer edited (stripped) composition, not raw', () => {
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({
+          depth_top_m: 0,
+          depth_base_m: 2,
+          suggested_lithology: 'KLEI',
+          suggested_admixtures: [{ soil_code: 'Z', amount: 'M', locally: false }],
+        }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4, suggested_lithology: 'ZAND' }),
+      ],
+      {
+        onEdit,
+        // Source layer 0 has had its admixtures stripped (an edit).
+        edits: new Map([[0, { suggested_admixtures: [] }]]),
+      },
+    )
+    const sourceRect = container.querySelector('[data-litho-idx="0"]')
+    const targetRect = container.querySelector('[data-litho-idx="1"]')
+    fireEvent.mouseDown(sourceRect!, { clientX: 200, clientY: 100, altKey: true })
+    const original = document.elementsFromPoint
+    document.elementsFromPoint = (() =>
+      [targetRect as Element]) as typeof document.elementsFromPoint
+    try {
+      fireEvent.mouseUp(document, { clientX: 200, clientY: 300 })
+    } finally {
+      document.elementsFromPoint = original
+    }
+    // The copy carried the stripped (empty) admixtures, not raw [{Z,M}].
+    expect(onEdit).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        suggested_lithology: 'KLEI',
+        suggested_admixtures: [],
+      }),
+    )
+  })
+
   // -----------------------------------------------------------------
   // Debt #85 — right-click shared boundary to insert a layer
   // -----------------------------------------------------------------

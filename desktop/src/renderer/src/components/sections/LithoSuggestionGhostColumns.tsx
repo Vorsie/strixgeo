@@ -976,6 +976,18 @@ export default function LithoSuggestionGhostColumns({
         return
       }
       const sourceLayer = suggestions[copyDrag.sourceIdx]
+      // Copy the source's EFFECTIVE composition — raw merged with any
+      // edit (a Strip-admixtures edit, an Edit-composition change).
+      // Reading raw here pasted admixtures the user had already
+      // stripped (dogfeed 2026-05-22).
+      const sourceEdit = edits?.get(copyDrag.sourceIdx)
+      const sourceLitho =
+        sourceEdit?.suggested_lithology ?? sourceLayer.suggested_lithology
+      // Spread into a fresh mutable array — the edits Map types
+      // suggested_admixtures as readonly.
+      const sourceAdmix = [
+        ...(sourceEdit?.suggested_admixtures ?? sourceLayer.suggested_admixtures),
+      ]
       // Pre-resolve target's effective composition to decide whether
       // an overwrite confirm is needed. Same-anchor targets read from
       // the local edits Map + raw suggestions; cross-anchor targets
@@ -1000,7 +1012,11 @@ export default function LithoSuggestionGhostColumns({
         const tgtEffectiveAdmix =
           targetExistingEdit?.suggested_admixtures ?? tgtRaw?.suggested_admixtures ?? []
         setPendingCopy({
-          sourceLayer,
+          sourceLayer: {
+            ...sourceLayer,
+            suggested_lithology: sourceLitho,
+            suggested_admixtures: sourceAdmix,
+          },
           targetAnchorId: target.anchorId,
           targetIdx: target.idx,
           targetLabel: formatLithoDisplayName(tgtEffectiveLitho, tgtEffectiveAdmix),
@@ -1010,8 +1026,8 @@ export default function LithoSuggestionGhostColumns({
       }
       // Silent commit — no existing edit, no prompt.
       const edit = {
-        suggested_lithology: sourceLayer.suggested_lithology,
-        suggested_admixtures: sourceLayer.suggested_admixtures,
+        suggested_lithology: sourceLitho,
+        suggested_admixtures: sourceAdmix,
       }
       if (targetIsSameAnchor) {
         if (onEdit) onEdit(target.idx, edit)
@@ -1512,8 +1528,12 @@ export default function LithoSuggestionGhostColumns({
           data-testid="copy-composition-preview-chip"
         >
           Copy {formatLithoDisplayName(
-            suggestions[copyDrag.sourceIdx]?.suggested_lithology ?? '?',
-            suggestions[copyDrag.sourceIdx]?.suggested_admixtures ?? [],
+            edits?.get(copyDrag.sourceIdx)?.suggested_lithology ??
+              suggestions[copyDrag.sourceIdx]?.suggested_lithology ??
+              '?',
+            edits?.get(copyDrag.sourceIdx)?.suggested_admixtures ??
+              suggestions[copyDrag.sourceIdx]?.suggested_admixtures ??
+              [],
           )}
         </div>,
         document.body,
