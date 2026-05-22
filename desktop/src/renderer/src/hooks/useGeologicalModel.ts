@@ -2345,6 +2345,16 @@ export function useGeologicalModel({
       refetchLithoContacts()
       refetchFormations()
       refetchLithoSurfaces()
+      // Also dismiss any litho suggestion ghosts — they were proposals
+      // for the model we just emptied; leaving the coloured ghost bands
+      // on the section after a "Clear litho model" is confusing (dogfeed
+      // 2026-05-22). The ghost overlay is ephemeral frontend state,
+      // separate from the DB model, so the clear endpoint never touched
+      // it — reset it here. (Setters from useState are stable; the
+      // closure resolves them at call time, well after declaration.)
+      setGhostsByAnchor(new Map())
+      setFocusedSuggestAnchorId(null)
+      setLithoStaleTinSessionCount(0)
       const total = result.contacts + result.formations
       log.success(
         'geology',

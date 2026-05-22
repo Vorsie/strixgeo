@@ -16,6 +16,7 @@
 //   S9  Accepting an already-committed (found-only) layer pushes no undo.
 //   S10 handleStripLithoAdmixtures clears admixtures on matching ghosts.
 //   S11 handleReseedLithoAdmixtures drops the admixture override.
+//   S12 handleClearLithoModel dismisses the litho suggestion ghosts.
 //
 // Strategy: mock the whole api.geology module so every call resolves to a
 // stable sentinel.  Drive handleSuggestLitho first (via mocked suggestLitho)
@@ -54,6 +55,7 @@ vi.mock('../api/client', () => ({
       createContact: vi.fn(),
       suggestLitho: vi.fn(),
       acceptLithoSuggestions: vi.fn(),
+      clearLithoModel: vi.fn(),
       // rarely-called methods — resolve empty so hooks don't throw
       updateFormation: vi.fn(),
       deleteFormation: vi.fn(),
@@ -905,5 +907,39 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       result.current.handleReseedLithoAdmixtures()
     })
     expect(focused(result)?.edits.get(0)?.suggested_admixtures).toBeUndefined()
+  })
+
+  it('S12 — handleClearLithoModel dismisses the litho suggestion ghosts', async () => {
+    // Clearing the litho model is a DB-only delete; the ghost overlay is
+    // ephemeral session state. The user expects "Clear litho model" to
+    // also dismiss the coloured suggestion bands on the section.
+    const suggestions: LithoLayerSuggestion[] = [makeSuggestion('ZAND', 0.0)]
+    geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
+    geoApi.clearLithoModel.mockResolvedValueOnce({
+      contacts: 0,
+      edges: 0,
+      surfaces: 0,
+      formations: 0,
+    })
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+
+    // Ghost overlay is populated after Suggest.
+    expect(focused(result)?.suggestions ?? []).toHaveLength(1)
+
+    await act(async () => {
+      await result.current.handleClearLithoModel()
+    })
+
+    // Clearing the model also wiped the ghost overlay.
+    expect(result.current.focusedSuggestAnchorId).toBeNull()
+    expect(result.current.ghostsByAnchor.size).toBe(0)
   })
 })
