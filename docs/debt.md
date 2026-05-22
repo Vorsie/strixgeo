@@ -12,8 +12,8 @@ sections that follow):
 
 * **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #41 (Geology3DViewer untested — residual after pure-helper extract) *(#55 litho peer-stage scaffolding RESOLVED 2026-05-18: LithologyStage StageDescriptor + LithologyCanvas [single-viewport Geology3DViewer when hasLithoSurfaces, guided EmptyState otherwise, module-level resetLithoCameraCallback, ground-surface useEffect keyed on lithoModelId] + LithologyInspector [ModelKindPicker + stale-surface info banner + read-only formation roster with contact counts + workflow guidance footer] + LithologyToolbar [Reset Camera visible when hasLithoSurfaces] + `lithoStaleSurfaceCount` useMemo + `handleRebuildLithoSurfaces` useCallback in useGeologicalModel; SectionsToolbar litho-axis Build button with stale-count amber badge. L1–L5 hook + BL1–BL4 toolbar + I1–I3 inspector + C1–C2 canvas vitest green; 808 unit total. #58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
-* **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52, #60
+* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #98 (litho add-layer discoverability + right-click Split — owner green-lit), #99 (litho drag-clamp must pass through rejected layers — dogfeed bug), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#55 litho peer-stage scaffolding RESOLVED 2026-05-18: LithologyStage StageDescriptor + LithologyCanvas [single-viewport Geology3DViewer when hasLithoSurfaces, guided EmptyState otherwise, module-level resetLithoCameraCallback, ground-surface useEffect keyed on lithoModelId] + LithologyInspector [ModelKindPicker + stale-surface info banner + read-only formation roster with contact counts + workflow guidance footer] + LithologyToolbar [Reset Camera visible when hasLithoSurfaces] + `lithoStaleSurfaceCount` useMemo + `handleRebuildLithoSurfaces` useCallback in useGeologicalModel; SectionsToolbar litho-axis Build button with stale-count amber badge. L1–L5 hook + BL1–BL4 toolbar + I1–I3 inspector + C1–C2 canvas vitest green; 808 unit total. #58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
+* **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52, #60, #97, #100, #101, #102, #103
 * **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53, #64, #65, #66, #67
 
 When an item is resolved, **delete it from this list** — its
@@ -1701,4 +1701,199 @@ auto-inserted after `parent_formation_name`.
   elevation, suggestion above youngest formation). Adding the
   constraint would force engineer-side resolution before commit,
   which the owner has not asked for.
+
+---
+
+> The items below (#97–#103) were filed 2026-05-22 from a litho
+> ghost-review dogfeed session. They are a related cluster — the
+> "add / edit / merge a litho layer" surface — best done as one or
+> two focused passes, not scattered micro-patches.
+
+## 97. Sections-stage toolbar refactor — model verbs move to the inspector (Tier D)
+
+**What.** The Sections-stage toolbar carries ~13 controls on the litho
+axis, mixing four scopes flat: global-edit (Undo), section management
+(New / Delete / Export), the active editing gesture (axis toggle,
+Suggest ×3, Correlate, Admixtures), and model management (Build,
+Dedupe, Resolve, Sync). Past the ~7-item scan limit, and it grows with
+every new stage.
+
+Owner-approved strategy (2026-05-22):
+
+1. **Model-management verbs leave the toolbar for the inspector.**
+   Build, Dedupe, Resolve instances, Sync geology act on a *model* —
+   they belong in the right-hand inspector next to the model they
+   manage (precedent: `LithologyInspector` already hosts Resolve
+   instances + the Clear pill). The load-bearing move — every future
+   model verb then has an obvious home and the toolbar stops being the
+   dumping ground.
+2. **The Suggest trio collapses to one split-button** (primary Suggest
+   + caret for "all" / "for new tests").
+3. **Hide, not grey, inapplicable verbs** — geology-only verbs render
+   greyed on the litho axis today; hide them outright.
+
+End state, litho axis: `[Geology│Litho] · Suggest▾ · Correlate ·
+Admixtures▾ · | · New cross-section · Delete · Export▾` — ~7 coherent
+controls.
+
+**Why deferred.** A real refactor (~half a day) across the toolbar +
+both inspectors + the prop wiring; UX polish, not an MVP-gate blocker.
+Best as one focused pass — run it past `ux-reviewer` before building.
+
+**When to revisit.** The next Sections-stage UX pass, or when the
+Geotech-axis verbs land and push the toolbar further past the scan
+limit.
+
+## 98. Litho ghost-review: "add a layer" discoverability + right-click Split (Tier C)
+
+**What.** Adding a litho layer during ghost review has no discoverable
+home. The only path today is the #85 boundary insert-strip — a 6 px
+hover-only `<rect>` on the shared boundary *line* between two pending
+layers. The owner, dogfeeding, could not find it. Left-click on the
+column cannot be the answer — single-click on a ghost layer is
+deliberately inert (misclick safety, owner directive 2026-05-22) and
+the suggestion overlay covers the click-to-place-contact path beneath.
+
+Owner-approved fix (2026-05-22): add **"Split layer"** to the
+pending-layer right-click context menu (alongside Accept / Edit
+composition / Reject). It splits the layer in two at its midpoint;
+both halves inherit the original composition; the user drag-resizes the
+new boundary and edits whichever half differs. A `splitLithoLayer` pure
+helper mirrors `insertLithoLayer` (`utils/lithoLayerInsert.ts`);
+`onSplitLayer` wires through SectionPanel → SectionsCanvas →
+`useGeologicalModel`. The hover boundary-strip stays as the quick
+precise option.
+
+Splitting at the exact right-click depth (vs the midpoint) was
+considered — deferred as a refinement; it needs screen-coord→depth
+math, and midpoint+drag is robust and consistent with how the user
+resizes everything else.
+
+**Why deferred.** A real feature (helper + tests + the menu item + a
+four-component prop chain). Owner green-lit but surfaced at the tail of
+a long session; deserves its own focused implementation.
+
+**When to revisit.** Immediately — owner explicitly green-lit it. The
+first task of the next litho-workflow pass.
+
+## 99. Litho drag-resize clamp does not pass through rejected layers (Tier C — bug)
+
+**What.** Dogfeed 2026-05-22: the user rejected a litho ghost layer,
+then tried to drag the boundary of the sand layer below it *up* — and
+could not pull it past the rejected layer to reach the layer above. A
+rejected layer's span should be "free": the drag should fill the
+rejected gap and clamp at the base of the next *non-rejected* layer
+above (the intended behaviour — test G34, "drag fills the gap and
+clamps at the next visible near edge"). It clamped short instead,
+treating the rejected layer as a hard barrier.
+
+Likely cause: the clamp in `computeDragBounds` picks the bounding
+neighbour by raw index (`idx ± 1`) rather than the next *non-rejected*
+neighbour, so a rejected layer stops the drag.
+
+**Why deferred.** Diagnosed but not yet fixed — surfaced at the tail of
+a long session; the fix needs care because the cascade / gap-fill logic
+(#83 / #84) is intricate and a wrong change there regresses several
+gestures.
+
+**When to revisit.** Next litho-workflow pass, alongside #98.
+
+## 100. Correlate tool — UX pass (Tier D)
+
+**What.** Dogfeed 2026-05-22: "I still don't know how the Correlate
+tool works, it's looking so clunky, now I just see lines
+crisscrossing." The tool links the same litho unit *instance* across
+investigations so `ResolveLithoInstances` can number them consistently
+and build a surface per instance. The gesture: Correlate mode → click a
+unit on one column → click the matching unit on another → an edge. The
+problems:
+
+* The purpose is opaque — no inline explanation of *why* you correlate.
+* Every edge draws a connector line; correlate enough and the lines
+  tangle into spaghetti.
+* The mode affordance is weak.
+
+Candidate fixes for the pass: render edges only for the *selected* unit
+(or unit family) instead of all at once; a clearer Correlate-mode
+indicator; an inline one-line explainer; possibly a non-line
+representation (shared instance colour / ordinal badge) so the
+connection reads without crossing lines.
+
+**Why deferred.** A genuine UX redesign of one tool, not a one-line
+fix — correlation-line UIs spaghetti by nature. Needs design thought,
+ideally a `ux-reviewer` pass. This is the "UX pass" the owner asked to
+be captured (2026-05-22).
+
+**When to revisit.** The litho-workflow UX pass.
+
+## 101. Litho lens / pinch-out body representation — open design question (Tier D — Phase 5-adjacent)
+
+**What.** The litho (and geological) model currently assumes
+layers / surfaces are laterally continuous across the investigation
+set. Real geology has **lenses** — a body present at some
+investigations that pinches out laterally before reaching others.
+There is no model representation for "this sand unit is present here
+and here, absent there." The user-invoked pinch-out wedge tool (shipped
+2026-05-18) does deterministic dip-extrapolation-to-crossing for a
+*single terminal wedge edge* — it is NOT a general lens; true
+interfingering lens geometry between control points is the harder
+facies-geometry problem.
+
+Open question to resolve before building: how is a lens stored — a unit
+flagged absent at certain investigations? a unit whose surface may
+terminate inside the corridor? — and how do the TIN build, the section
+slice, and the exporters treat a body that is not everywhere.
+
+**Why deferred.** Phase 5. CLAUDE.md "Build Sequence" already places
+true interfingering lenses in Phase 5; the MVP gate's three-level model
+assumes continuous units.
+
+**When to revisit.** Phase 5, when facies geometry between control
+points is on the roadmap — or earlier if a dogfeed project has a
+lithology that genuinely cannot be modelled as continuous and the
+wedge tool is insufficient.
+
+## 102. Merge button for a same-lithology boundary (Tier D)
+
+**What.** Dogfeed 2026-05-22: after "Suggest litho", the segmenter
+sometimes produces adjacent layers with the *same* lithology stacked on
+each other (sand on sand). This is by design — the segmenter splits on
+Robertson zone integer changes, which correlate with packing-density
+(NAD-class) transitions, and the no-auto-merge directive (#74 history)
+keeps those splits because the geotechnical model needs them. But the
+user wants a way to merge them when a split is *not* wanted.
+
+Owner directive (2026-05-22): **not** automatic — a user-initiated
+**Merge** action. When a boundary (ghost or committed contact) has the
+same lithology on both sides, offer a "Merge" affordance; the user
+decides, layer by layer. This reconciles with the no-auto-merge
+directive: the splits are still produced (the geotech model needs
+them); merging is an explicit user choice.
+
+Shape: a small merge button / context-menu item that appears only on a
+same-lithology boundary; merging removes the boundary and unions the
+two layers. The resulting composition / NAD handling (dominant or
+re-aggregated) is a sub-decision for the implementing pass.
+
+**Why deferred.** A new gesture on the boundary surface; small but needs
+the merge-composition rule decided. Not a blocker — the user can already
+drag-resize one layer to absorb the other.
+
+**When to revisit.** The litho-workflow UX pass — natural companion to
+#98 (the boundary is the shared surface).
+
+## 103. CPT layer-drag depth readout box (Tier D)
+
+**What.** When the user drags a litho layer boundary on a CPT column
+there is no live depth readout. Request (dogfeed 2026-05-22): show a
+small box — mirroring the equivalent readout the borehole drag shows —
+carrying the **qc reference depth** (depth down the test) and the
+**relative mTAW elevation** (absolute datum) of the boundary being
+dragged, updating live during the drag.
+
+**Why deferred.** A small UX addition, not a correctness issue. Best
+done alongside the other litho drag-surface work (#98 / #99) so the
+drag-handle code is only touched once.
+
+**When to revisit.** The litho-workflow UX pass.
 
