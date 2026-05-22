@@ -10,18 +10,12 @@
 import type { LithoLayerSuggestion } from '../api/client'
 import type { BulkAnchorGhost, LithoSuggestionEdit } from '../hooks/useGeologicalModel'
 
-/** Default thickness for an inserted sentinel layer (10 cm).
- *  The owner directive (debt #85) is "small sentinel then drag" — the
- *  inserted layer arrives thin so the user can immediately drag-resize
- *  either edge. Adjacent neighbours don't shrink to make room; the
- *  lower neighbour's depth_top shifts down by this amount. */
-export const INSERT_LAYER_SENTINEL_THICKNESS_M = 0.1
-
 /**
  * Splice a new ``LithoLayerSuggestion`` between layers ``afterIdx``
  * and ``afterIdx+1`` and shift every index-keyed state by +1 above
- * the insertion point. The lower neighbour's depth_top is edited to
- * ``shared_boundary + sentinelThicknessM`` so the three layers stay
+ * the insertion point. The new layer carves a visible slice off the
+ * top of the lower neighbour; the lower neighbour's depth_top is
+ * edited down to the new layer's base so the three layers stay
  * geometrically consistent.
  *
  * Pure: returns a new ``BulkAnchorGhost`` — the caller passes it
@@ -37,8 +31,6 @@ export const INSERT_LAYER_SENTINEL_THICKNESS_M = 0.1
  *     successor is also pending (caller-enforced).
  * composition
  *     The composition for the new layer (from the composition picker).
- * sentinelThicknessM
- *     Optional override of the default sentinel thickness (10 cm).
  *
  * Returns
  * -------
@@ -52,14 +44,23 @@ export function insertLithoLayer(
     suggested_lithology: string
     suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
   },
-  sentinelThicknessM: number = INSERT_LAYER_SENTINEL_THICKNESS_M,
 ): BulkAnchorGhost {
   // Resolve the shared boundary from the upper neighbour's effective
   // depth_base (edits override raw segmenter output).
   const upperEdit = ghost.edits.get(afterIdx)
   const upper = ghost.suggestions[afterIdx]
   const sharedBoundaryM = upperEdit?.depth_base_m ?? upper.depth_base_m
-  const newBaseM = sharedBoundaryM + sentinelThicknessM
+
+  // The new layer takes the UPPER HALF of the lower neighbour — a
+  // visible, always-proportionate slice. (A fixed 10 cm sentinel was
+  // sub-pixel at typical section zoom: no colour band, no room for a
+  // label, no grabbable drag handles — dogfeed 2026-05-22.) The lower
+  // neighbour keeps its lower half; the user drag-resizes the shared
+  // boundary from there.
+  const lower = ghost.suggestions[afterIdx + 1]
+  const lowerEdit = ghost.edits.get(afterIdx + 1)
+  const lowerBaseM = lowerEdit?.depth_base_m ?? lower.depth_base_m
+  const newBaseM = (sharedBoundaryM + lowerBaseM) / 2
 
   // Build the new layer. The upper neighbour's parent_formation_id is
   // inherited as a sensible default — the user can still re-edit later,
