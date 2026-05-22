@@ -2105,7 +2105,7 @@ export default function SectionPanel({
             />
           </div>
         )}
-        <CanvasHints />
+        <CanvasHints axisMode={axisMode} />
       </div>
 
       <SectionScrubBar
@@ -2212,19 +2212,45 @@ export default function SectionPanel({
   )
 }
 
-function CanvasHints(): JSX.Element {
+/**
+ * Bottom-left gesture cheat pill for the section canvas.
+ *
+ * Always lists the canvas-wide pan / zoom / column gestures; on the
+ * lithostratigraphic axis it adds a second line for the litho-ghost
+ * layer gestures (accept / copy / context menu) — these are otherwise
+ * undiscoverable, esp. the Alt+drag copy-composition gesture (debt #95).
+ *
+ * Parameters
+ * ----------
+ * axisMode
+ *     Which model axis the section is editing. Drives whether the
+ *     litho-specific gesture line is shown.
+ */
+function CanvasHints({
+  axisMode,
+}: {
+  axisMode: 'geological' | 'lithostratigraphic'
+}): JSX.Element {
   return (
     // SVG can't use Tailwind dark: variants; the hint pill's background and
     // text colour are driven by --section-hint-* CSS-var tokens (index.css
     // :root/.dark) so they match the dark plot-area chrome.
     <div
-      className="absolute bottom-2 left-2 z-10 text-[10px] px-1.5 py-0.5 rounded pointer-events-none"
+      className="absolute bottom-2 left-2 z-10 text-[10px] px-1.5 py-0.5 rounded pointer-events-none leading-snug"
       style={{
         color: 'var(--section-hint-text)',
         background: 'var(--section-hint-bg)',
       }}
     >
-      Drag to pan · scroll to zoom · right-click a column to focus · double-click a column to open
+      <div>
+        Drag to pan · scroll to zoom · right-click a column to focus · double-click a column to open
+      </div>
+      {axisMode === 'lithostratigraphic' && (
+        <div data-testid="litho-gesture-hint">
+          Litho layer: double-click to accept · Alt+drag to copy composition ·
+          right-click for more
+        </div>
+      )}
     </div>
   )
 }

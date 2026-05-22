@@ -467,3 +467,22 @@ describe('SectionPanel — investigation columns', () => {
     restore()
   })
 })
+
+describe('SectionPanel — gesture hint pill', () => {
+  // The bottom-left cheat pill always lists the canvas pan/zoom/column
+  // gestures; on the litho axis it adds a second line for the otherwise
+  // undiscoverable litho-layer gestures (Alt+drag copy — debt #95).
+
+  it('shows the litho-layer gesture line on the lithostratigraphic axis', () => {
+    render(
+      <SectionPanel section={makeSection()} zEpsg={5710} axisMode="lithostratigraphic" />,
+    )
+    expect(screen.getByTestId('litho-gesture-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('litho-gesture-hint')).toHaveTextContent(/Alt\+drag/i)
+  })
+
+  it('omits the litho gesture line on the default geological axis', () => {
+    render(<SectionPanel section={makeSection()} zEpsg={5710} />)
+    expect(screen.queryByTestId('litho-gesture-hint')).toBeNull()
+  })
+})
