@@ -464,7 +464,7 @@ export default function LithoCompositionPickerDialog({
                       value={row.soil_code}
                       onChange={e => updateAdmixtureRow(row.id, { soil_code: e.target.value })}
                       disabled={busy}
-                      className="text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
+                      className="min-w-0 flex-1 text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
                       aria-label="Admixture soil code"
                     >
                       {ADMIXTURE_SOIL_OPTIONS.map(opt => (
@@ -478,7 +478,7 @@ export default function LithoCompositionPickerDialog({
                       value={row.amount}
                       onChange={e => updateAdmixtureRow(row.id, { amount: e.target.value })}
                       disabled={busy}
-                      className="text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
+                      className="min-w-0 flex-1 text-xs border border-border-default rounded px-1.5 py-1 bg-surface-overlay text-text-primary disabled:opacity-50"
                       aria-label="Admixture amount"
                     >
                       {ADMIXTURE_AMOUNT_OPTIONS.map(opt => (
@@ -488,7 +488,7 @@ export default function LithoCompositionPickerDialog({
                       ))}
                     </select>
                     {/* Locally checkbox */}
-                    <label className="flex items-center gap-1 text-xs text-text-secondary select-none cursor-pointer">
+                    <label className="flex shrink-0 items-center gap-1 text-xs text-text-secondary select-none cursor-pointer">
                       <input
                         type="checkbox"
                         checked={row.locally}
@@ -502,7 +502,7 @@ export default function LithoCompositionPickerDialog({
                     <button
                       onClick={() => removeAdmixtureRow(row.id)}
                       disabled={busy}
-                      className="ml-auto text-text-muted hover:text-red-600 disabled:opacity-40"
+                      className="shrink-0 text-text-muted hover:text-red-600 disabled:opacity-40"
                       title="Remove admixture"
                       aria-label="Remove admixture"
                     >

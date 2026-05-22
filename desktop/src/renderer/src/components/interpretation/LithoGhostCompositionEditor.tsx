@@ -250,7 +250,7 @@ export default function LithoGhostCompositionEditor({
                 <select
                   value={row.soil_code}
                   onChange={e => updateRow(row.id, { soil_code: e.target.value })}
-                  className="text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
+                  className="min-w-0 flex-1 text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
                   aria-label="Admixture soil code"
                 >
                   {soilOptions.map(opt => (
@@ -262,7 +262,7 @@ export default function LithoGhostCompositionEditor({
                 <select
                   value={row.amount}
                   onChange={e => updateRow(row.id, { amount: e.target.value })}
-                  className="text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
+                  className="min-w-0 flex-1 text-xs rounded border border-border-default bg-surface-page px-1.5 py-1 text-text-primary"
                   aria-label="Admixture amount"
                 >
                   {amountOptions.map(opt => (
@@ -271,7 +271,7 @@ export default function LithoGhostCompositionEditor({
                     </option>
                   ))}
                 </select>
-                <label className="flex items-center gap-1 text-xs text-text-secondary select-none cursor-pointer">
+                <label className="flex shrink-0 items-center gap-1 text-xs text-text-secondary select-none cursor-pointer">
                   <input
                     type="checkbox"
                     checked={row.locally}
@@ -282,7 +282,7 @@ export default function LithoGhostCompositionEditor({
                 </label>
                 <button
                   onClick={() => removeAdmixtureRow(row.id)}
-                  className="ml-auto text-text-muted hover:text-red-600"
+                  className="shrink-0 text-text-muted hover:text-red-600"
                   title="Remove admixture"
                   aria-label="Remove admixture"
                 >
