@@ -650,14 +650,23 @@ function buildTinPrimitive(
 // ``czm_modelViewProjectionRelativeToEye``).  ``ALPHA_BLEND`` with
 // depthMask off is the standard translucent setup the existing
 // PerInstanceColorAppearance(translucent:true, flat:true) uses too.
+//
+// GLSL VERSION (load-bearing): written in GLSL ES 3.00 style — ``in`` /
+// ``out`` not ``attribute`` / ``varying``, and ``out_FragColor`` not
+// ``gl_FragColor``.  Cesium runs on WebGL2 and auto-DOWNGRADES modern
+// shaders to GLSL 1.00 for a WebGL1 fallback, but does NOT auto-upgrade
+// legacy shaders — passing ``varying`` to a WebGL2 context throws
+// "Illegal use of reserved word".  ``out_FragColor`` is declared
+// automatically by Cesium's ShaderProgram when it sees the identifier.
+// This mirrors Cesium's own PerInstanceFlatColorAppearance shaders.
 // ---------------------------------------------------------------------------
 
 const _vertexColorAppearanceVS = [
-  'attribute vec3 position3DHigh;',
-  'attribute vec3 position3DLow;',
-  'attribute vec4 color;',
-  'attribute float batchId;',
-  'varying vec4 v_color;',
+  'in vec3 position3DHigh;',
+  'in vec3 position3DLow;',
+  'in vec4 color;',
+  'in float batchId;',
+  'out vec4 v_color;',
   'void main() {',
   '  vec4 p = czm_computePosition();',
   '  v_color = color;',
@@ -666,9 +675,9 @@ const _vertexColorAppearanceVS = [
 ].join('\n')
 
 const _vertexColorAppearanceFS = [
-  'varying vec4 v_color;',
+  'in vec4 v_color;',
   'void main() {',
-  '  gl_FragColor = v_color;',
+  '  out_FragColor = v_color;',
   '}',
 ].join('\n')
 
