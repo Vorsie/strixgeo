@@ -31,6 +31,7 @@ from groundmodel.api.schemas.project.formation_contact import (
     PinchOutExtrapolationResponse,
     SeedLithoFromParentRequest,
     SeedLithoFromParentResponse,
+    WipeLithoContactsResponse,
 )
 from groundmodel.api.schemas.project.litho_suggestion import (
     AcceptLithoSuggestionsRequest,
@@ -567,6 +568,61 @@ async def dedupe_existing_contacts(
         duplicates_removed=outcome.duplicates_removed,
         removed_contact_ids=outcome.removed_contact_ids,
     )
+
+
+@router.delete(
+    "/models/{model_id}/contacts",
+    response_model=WipeLithoContactsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def wipe_all_contacts(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> WipeLithoContactsResponse:
+    """Delete ALL formation contacts for a model in one call.
+
+    Introduced for debt #94 — makes committed litho contacts visible and
+    recoverable when the user encounters a "criss-cross of lines" from a
+    prior session.  The wipe is irreversible; the caller MUST present a
+    confirmation dialog before invoking this endpoint.
+
+    The model's TIN surfaces are NOT explicitly re-computed here.  They
+    will render as stale after the wipe because ``is_stale`` is still
+    ``True`` on the surface rows (which had been stale since the last
+    Build).  A fresh Build re-derives them from the now-empty contact set.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard — model must belong to this project.
+    model_id : UUID
+        Geological model whose contacts are all removed.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    WipeLithoContactsResponse
+        ``{ "deleted": N }`` — count of rows removed.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    """
+    logger.info(f"DELETE /projects/{project_id}/geology/models/{model_id}/contacts (wipe-all)")
+    # Model scope guard — same pattern as every sibling contact endpoint.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Model not found",
+    )
+    repo = GeologyRepository(session)
+    deleted = await repo.delete_all_contacts(model_id)
+    await session.commit()
+    logger.info(f"wipe_all_contacts ok model_id={model_id} deleted={deleted}")
+    return WipeLithoContactsResponse(deleted=deleted)
 
 
 @router.post(

@@ -2336,6 +2336,84 @@ async def test_validate_crossings_404_when_model_belongs_to_another_project(
 
 
 # ---------------------------------------------------------------------------
+# Wipe all contacts — DELETE /models/{model_id}/contacts (debt #94)
+# ---------------------------------------------------------------------------
+
+
+async def test_wipe_all_contacts_returns_deleted_count(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Happy path — wipe removes all contacts + returns the count."""
+    project, borehole = project_with_borehole
+    formation_a = await _create_formation(async_client, project.id, name="A")
+    formation_b = await _create_formation(async_client, project.id, name="B")
+    model = await _create_model(async_client, project.id)
+
+    await _create_contact(
+        async_client, project.id, model["id"], formation_a["id"], borehole.id, depth=1.0
+    )
+    await _create_contact(
+        async_client, project.id, model["id"], formation_b["id"], borehole.id, depth=3.0
+    )
+
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["deleted"] == 2
+
+    # Verify DB is empty after the wipe.
+    list_resp = await async_client.get(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+    )
+    assert list_resp.status_code == 200
+    assert list_resp.json() == []
+
+
+async def test_wipe_all_contacts_zero_when_model_is_empty(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Idempotent no-op when the model has no contacts."""
+    project, _ = project_with_borehole
+    model = await _create_model(async_client, project.id)
+
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == 0
+
+
+async def test_wipe_all_contacts_rejects_wrong_project(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Cross-project tampering returns 404 — model does not belong to project_a."""
+    project_a = ProjectOrm(id=uuid7(), name="P-A", status="active")
+    project_b = ProjectOrm(id=uuid7(), name="P-B", status="active")
+    db_session.add_all([project_a, project_b])
+    await db_session.commit()
+
+    model_b_resp = await async_client.post(
+        f"/projects/{project_b.id}/geology/models",
+        json={"name": "Model-B"},
+    )
+    assert model_b_resp.status_code == 201
+    model_b = model_b_resp.json()
+
+    resp = await async_client.delete(
+        f"/projects/{project_a.id}/geology/models/{model_b['id']}/contacts",
+    )
+
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Small helpers — wrap repetitive POSTs that every test needs.
 # ---------------------------------------------------------------------------
 

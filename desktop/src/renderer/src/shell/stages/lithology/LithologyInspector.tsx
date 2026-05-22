@@ -34,7 +34,7 @@
 //           in LithoFormationRoster group labels below.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Circle, Lock, LockOpen, RefreshCw } from 'lucide-react'
+import { AlertCircle, Circle, Lock, LockOpen, RefreshCw, Trash2 } from 'lucide-react'
 import { Layers3 } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -43,6 +43,8 @@ import type {
   GeologicalFormationResponse,
   LithoCorrelationEdge,
 } from '../../../api/client'
+import Button from '../../../components/ui/Button'
+import Modal from '../../../components/ui/Modal'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { formatLithoDisplayName } from '../../../utils/lithoLabels'
 import { log } from '../../../utils/log'
@@ -77,8 +79,24 @@ export default function LithologyInspector(): JSX.Element {
       lithoStaleSurfaceCount,
       lithoStaleTinSessionCount,
       refetchFormations,
+      handleWipeLithoContacts,
     },
   } = useShell()
+
+  // Debt #94: wipe-contacts confirm dialog state.
+  const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false)
+  const [wiping, setWiping] = useState(false)
+
+  // Debt #94: execute the wipe after the user confirms.
+  const confirmWipe = useCallback(async () => {
+    setWipeConfirmOpen(false)
+    setWiping(true)
+    try {
+      await handleWipeLithoContacts()
+    } finally {
+      setWiping(false)
+    }
+  }, [handleWipeLithoContacts])
 
   // Phase-2 Slice 2: correlation edge state for RO-3 stale-ordinal badge.
   // Fetched when the active litho model changes; refreshed after Resolve.
@@ -281,6 +299,35 @@ export default function LithologyInspector(): JSX.Element {
             </div>
           )}
 
+          {/* Debt #94: committed-contacts pill + wipe action.
+              Surfaces the persistent state so the user understands why
+              there are polylines on section before they have clicked
+              Suggest.  The wipe is irreversible and opens a confirm
+              dialog — not triggered directly here.  Hidden when empty
+              (no contacts yet or just after a successful wipe). */}
+          {lithoContacts.length > 0 && (
+            <div
+              className="flex items-center justify-between gap-2 rounded px-2 py-1.5 bg-surface-sunken border border-border-subtle"
+              data-testid="litho-committed-pill"
+            >
+              <span className="text-[11px] leading-snug text-text-secondary">
+                {lithoContacts.length} litho contact
+                {lithoContacts.length === 1 ? '' : 's'} committed
+              </span>
+              <button
+                type="button"
+                onClick={() => setWipeConfirmOpen(true)}
+                disabled={wiping}
+                className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-red-600 dark:hover:text-red-400 disabled:opacity-40 transition-colors flex-shrink-0"
+                title="Wipe all committed litho contacts for this model"
+                data-testid="wipe-litho-contacts-btn"
+              >
+                <Trash2 size={11} aria-hidden="true" />
+                {wiping ? 'Wiping…' : 'Wipe'}
+              </button>
+            </div>
+          )}
+
           {/* Phase-2 Slice 2: Resolve instances action.
               Appears when a litho model is active; always visible so the
               engineer can explicitly re-run the resolver after drawing edges
@@ -349,6 +396,59 @@ export default function LithologyInspector(): JSX.Element {
         onCancel={() => setConfirmTarget(null)}
         busy={confirmBusy}
       />
+
+      {/* Debt #94: wipe-contacts confirm dialog.
+          Irreversible action — default focus on Cancel per docs/ux.md. */}
+      <Modal
+        open={wipeConfirmOpen}
+        onCancel={() => setWipeConfirmOpen(false)}
+        labelledBy="wipe-litho-contacts-title"
+        busy={wiping}
+        cardClassName="w-80"
+      >
+        <div className="p-5">
+          <h2
+            id="wipe-litho-contacts-title"
+            className="text-sm font-semibold text-text-primary mb-1"
+          >
+            Wipe litho contacts?
+          </h2>
+          <p className="text-xs text-text-muted mb-4">
+            All{' '}
+            <span className="font-medium text-text-secondary">
+              {lithoContacts.length} committed litho contact
+              {lithoContacts.length === 1 ? '' : 's'}
+            </span>{' '}
+            in this model will be permanently deleted. This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            {/* Cancel has default focus — the safe default for an
+                irreversible confirm dialog per docs/ux.md. */}
+            <Button
+              variant="secondary"
+              size="md"
+              // reason: autoFocus on Cancel is the safe default for a
+              // destructive-confirm modal — the user must actively choose
+              // the destructive action, not accidentally confirm it.
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onClick={() => setWipeConfirmOpen(false)}
+              disabled={wiping}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              onClick={() => void confirmWipe()}
+              disabled={wiping}
+              data-testid="wipe-litho-contacts-confirm-btn"
+            >
+              {wiping ? 'Wiping…' : `Wipe ${lithoContacts.length} contact${lithoContacts.length === 1 ? '' : 's'}`}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -1548,6 +1548,26 @@ export const api = {
     ): Promise<void> =>
       del(`/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`),
 
+    // Bulk-delete ALL formation contacts for a model (debt #94).
+    // Irreversible — caller must present a confirm dialog before invoking.
+    // Returns the count of rows removed so the toast is meaningful.
+    wipeLithoContacts: async (
+      projectId: string,
+      modelId: string,
+    ): Promise<{ deleted: number }> => {
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/contacts`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(
+          detail.detail?.message ?? detail.detail ?? `Wipe contacts failed: ${res.status}`,
+        )
+      }
+      return res.json()
+    },
+
     // All-or-nothing batch update for the multi-drag flow. The
     // backend validates every entry's scope before mutating; a single
     // miss returns 404 without committing any of the changes. Response

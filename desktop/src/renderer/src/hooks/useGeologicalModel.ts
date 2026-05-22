@@ -567,6 +567,25 @@ export interface UseGeologicalModelResult {
    *     UUID of the geological model whose surfaces to load as the backdrop.
    */
   handleLoadBackdropSurfaces: (geoModelId: string) => Promise<void>
+  /**
+   * Bulk-delete ALL formation contacts for the active lithostratigraphic
+   * model (debt #94).
+   *
+   * Makes persisted litho state visible and recoverable — the user
+   * encounters a "criss-cross of lines" from a prior session and can
+   * wipe the slate clean.  Irreversible; the caller must present a
+   * confirm dialog before invoking this handler.
+   *
+   * On success: refetches litho contacts (which becomes empty) and
+   * refetches litho formations so the inspector roster updates.
+   * Toasts the count on success, toasts error on failure.
+   * No-op when no litho model is active.
+   *
+   * Returns
+   * -------
+   * Promise<void>
+   */
+  handleWipeLithoContacts: () => Promise<void>
 }
 
 /**
@@ -2308,6 +2327,34 @@ export function useGeologicalModel({
       toast('error', 'Could not rebuild litho surfaces — see console.')
     }
   }, [project, refetchLithoSurfaces, toast])
+
+  // Debt #94: bulk-delete all litho contacts for the active litho model.
+  // Makes committed litho state recoverable when the user encounters a
+  // "criss-cross of lines" from a prior session. Irreversible — the
+  // caller (LithologyInspector) must present a confirm dialog first.
+  const handleWipeLithoContacts = useCallback(async (): Promise<void> => {
+    const model = activeLithoModelRef.current
+    if (!project || !model) return
+    log.info('geology', `wipeLithoContacts entry model=${model.id}`)
+    try {
+      const result = await api.geology.wipeLithoContacts(project.id, model.id)
+      // Refetch contacts (now empty) + formations so the inspector
+      // roster clears; surfaces stay as stale TINs — they'll rebuild on
+      // the next explicit Build.
+      refetchLithoContacts()
+      refetchFormations()
+      log.success('geology', `wipeLithoContacts ok deleted=${result.deleted}`)
+      toast(
+        'success',
+        result.deleted === 0
+          ? 'No litho contacts to remove.'
+          : `Wiped ${result.deleted} litho contact${result.deleted === 1 ? '' : 's'}.`,
+      )
+    } catch (err) {
+      log.error('geology', 'wipeLithoContacts failed', err)
+      toast('error', 'Could not wipe litho contacts — see console.')
+    }
+  }, [project, refetchLithoContacts, refetchFormations, toast])
 
   // Removes a set of contact ids from local state only (no DB call).
   // The caller (discardSessionImports) owns the DB deletes; this
@@ -4237,5 +4284,6 @@ export function useGeologicalModel({
     clearPinchOutPreview,
     backdropSurfacesByFormationId,
     handleLoadBackdropSurfaces,
+    handleWipeLithoContacts,
   }
 }

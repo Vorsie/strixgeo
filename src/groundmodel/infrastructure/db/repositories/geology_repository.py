@@ -18,7 +18,7 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid6 import uuid7
@@ -568,6 +568,37 @@ class GeologyRepository(GroundModelLogger):
             return []
         stmt = select(FormationContactOrm).where(FormationContactOrm.id.in_(contact_ids))
         return list((await self._session.execute(stmt)).scalars().all())
+
+    async def delete_all_contacts(self, model_id: UUID) -> int:
+        """Delete every formation contact that belongs to ``model_id``.
+
+        Used by the "Wipe litho contacts" affordance (debt #94): makes the
+        persisted litho state visible and recoverable without changing the
+        broader two-stage save model.
+
+        The bulk DELETE bypasses individual ORM loads — the contacts are
+        simply gone; the caller is responsible for marking the model's TIN
+        surfaces stale if it wants the stale-surface banner to appear after
+        the wipe.
+
+        Parameters
+        ----------
+        model_id : UUID
+            Model whose contacts should all be removed.
+
+        Returns
+        -------
+        int
+            Number of rows deleted.  Zero when the model had no contacts
+            (idempotent no-op — not an error).
+        """
+        self.debug(f"delete_all_contacts entry model_id={model_id}")
+        result = await self._session.execute(
+            delete(FormationContactOrm).where(FormationContactOrm.model_id == model_id)
+        )
+        count: int = result.rowcount or 0
+        self.success(f"delete_all_contacts ok model_id={model_id} deleted={count}")
+        return count
 
     async def list_surfaces(self, model_id: UUID) -> list[FormationSurfaceOrm]:
         """List every cached TIN surface for the model.

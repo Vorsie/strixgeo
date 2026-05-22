@@ -30,6 +30,7 @@ from .pinch_out_extrapolation_response import PinchOutExtrapolationResponse
 from .rebuild_surfaces_response import RebuildSurfacesResponse
 from .seed_litho_from_parent_request import SeedLithoFromParentRequest
 from .seed_litho_from_parent_response import SeedLithoFromParentResponse
+from .wipe_litho_contacts_response import WipeLithoContactsResponse
 
 __all__ = [
     "ContactConfidence",
@@ -56,4 +57,5 @@ __all__ = [
     "SeedLithoFromParentResponse",
     "PinchOutExtrapolationRequest",
     "PinchOutExtrapolationResponse",
+    "WipeLithoContactsResponse",
 ]
