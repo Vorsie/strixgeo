@@ -332,7 +332,7 @@ function makeCtx(overrides: {
       clearBulkLithoGhosts: () => {},
       handleStripLithoAdmixtures: () => {},
       handleReseedLithoAdmixtures: () => {},
-      handleWipeLithoContacts: noopAsync,
+      handleClearLithoModel: noopAsync,
       refetchLithoContacts: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,
@@ -981,37 +981,55 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
     cleanup()
   })
 
-  // W1: pill is absent when there are no committed contacts.
-  it('W1 — committed-contacts pill is absent when lithoContacts is empty', () => {
+  // W1: pill is absent when BOTH contacts AND formations are empty.
+  it('W1 — clear-model pill is absent when lithoContacts and lithoFormations are both empty', () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [],
+      lithoFormations: [],
     })
     renderInspector(ctx)
     expect(screen.queryByTestId('litho-committed-pill')).not.toBeInTheDocument()
   })
 
-  // W2: pill renders and shows the correct count when contacts exist.
-  it('W2 — committed-contacts pill renders with correct count when lithoContacts.length > 0', async () => {
+  // W1b: pill IS visible when contacts are empty but litho formations remain
+  // (the "orphan units" broken state the old contact-only wipe left behind).
+  it('W1b — clear-model pill is visible when lithoFormations.length > 0 even if contacts are empty', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
-      lithoContacts: [makeContact('c1', 'f-a'), makeContact('c2', 'f-a'), makeContact('c3', 'f-b')],
+      lithoContacts: [],
+      lithoFormations: [makeFormation('f-a', 'ZAND')],
     })
     renderInspector(ctx)
     const pill = await screen.findByTestId('litho-committed-pill')
     expect(pill).toBeInTheDocument()
-    expect(pill).toHaveTextContent(/3 litho contacts committed/i)
   })
 
-  // W3: singular wording when exactly one contact.
-  it('W3 — pill uses singular wording when lithoContacts.length is 1', async () => {
+  // W2: pill renders and shows contact + unit counts when contacts exist.
+  it('W2 — clear-model pill renders with correct counts when lithoContacts.length > 0', async () => {
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
-      lithoContacts: [makeContact('c1', 'f-a')],
+      lithoContacts: [makeContact('c1', 'f-a'), makeContact('c2', 'f-a'), makeContact('c3', 'f-b')],
+      lithoFormations: [makeFormation('f-a', 'ZAND'), makeFormation('f-b', 'KLEI')],
     })
     renderInspector(ctx)
     const pill = await screen.findByTestId('litho-committed-pill')
-    expect(pill).toHaveTextContent(/1 litho contact committed/i)
+    expect(pill).toBeInTheDocument()
+    expect(pill).toHaveTextContent(/3 contact/i)
+    expect(pill).toHaveTextContent(/2 unit/i)
+  })
+
+  // W3: singular wording for both when exactly one contact + one formation.
+  it('W3 — pill uses singular wording when lithoContacts.length is 1 and lithoFormations.length is 1', async () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoContacts: [makeContact('c1', 'f-a')],
+      lithoFormations: [makeFormation('f-a', 'ZAND')],
+    })
+    renderInspector(ctx)
+    const pill = await screen.findByTestId('litho-committed-pill')
+    expect(pill).toHaveTextContent(/1 contact/i)
+    expect(pill).toHaveTextContent(/1 unit/i)
   })
 
   // W4: clicking the Wipe button opens the confirm dialog.
@@ -1031,14 +1049,14 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   })
 
   // W5: clicking Cancel in the confirm dialog closes it without calling the handler.
-  it('W5 — Cancel closes the dialog without invoking handleWipeLithoContacts', async () => {
+  it('W5 — Cancel closes the dialog without invoking handleClearLithoModel', async () => {
     const wipeSpy = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [makeContact('c1', 'f-a')],
     })
     // Override the handler directly in the geoModel mock.
-    ctx.geoModel.handleWipeLithoContacts = wipeSpy
+    ctx.geoModel.handleClearLithoModel = wipeSpy
 
     renderInspector(ctx)
 
@@ -1057,14 +1075,14 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
     expect(screen.queryByTestId('wipe-litho-contacts-confirm-btn')).not.toBeInTheDocument()
   })
 
-  // W6: confirming the dialog calls handleWipeLithoContacts.
-  it('W6 — confirming the dialog calls handleWipeLithoContacts', async () => {
+  // W6: confirming the dialog calls handleClearLithoModel.
+  it('W6 — confirming the dialog calls handleClearLithoModel', async () => {
     const wipeSpy = vi.fn().mockResolvedValue(undefined)
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoContacts: [makeContact('c1', 'f-a'), makeContact('c2', 'f-b')],
     })
-    ctx.geoModel.handleWipeLithoContacts = wipeSpy
+    ctx.geoModel.handleClearLithoModel = wipeSpy
 
     renderInspector(ctx)
 

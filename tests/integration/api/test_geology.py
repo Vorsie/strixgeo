@@ -20,6 +20,9 @@ from uuid6 import uuid7
 
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 
@@ -2336,25 +2339,53 @@ async def test_validate_crossings_404_when_model_belongs_to_another_project(
 
 
 # ---------------------------------------------------------------------------
-# Wipe all contacts — DELETE /models/{model_id}/contacts (debt #94)
+# Clear litho model — DELETE /models/{model_id}/contacts (debt #94 fix)
 # ---------------------------------------------------------------------------
 
 
-async def test_wipe_all_contacts_returns_deleted_count(
+async def test_clear_litho_model_removes_contacts_and_litho_formations(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+    db_session: AsyncSession,
 ) -> None:
-    """Happy path — wipe removes all contacts + returns the count."""
+    """Happy path — clear removes contacts AND litho formations; returns per-table counts.
+
+    Creates two litho formations (``litho_main_soil_code`` set) and two
+    contacts, then calls the clear endpoint.  Asserts the per-table counts,
+    that the contacts list is empty, and that the litho formations are gone.
+    """
     project, borehole = project_with_borehole
-    formation_a = await _create_formation(async_client, project.id, name="A")
-    formation_b = await _create_formation(async_client, project.id, name="B")
+    # Litho formations carry ``litho_main_soil_code`` — the public
+    # formation-create endpoint does not accept that field, so insert them
+    # directly via the ORM (same pattern as the litho-rebuild test above).
+    litho_a = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Litho-A",
+        color="#aaaaaa",
+        display_order=0,
+        pinned_order=False,
+        litho_main_soil_code="ZAND",
+    )
+    litho_b = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Litho-B",
+        color="#bbbbbb",
+        display_order=1,
+        pinned_order=False,
+        litho_main_soil_code="KLEI",
+    )
+    db_session.add_all([litho_a, litho_b])
+    await db_session.commit()
+
     model = await _create_model(async_client, project.id)
 
     await _create_contact(
-        async_client, project.id, model["id"], formation_a["id"], borehole.id, depth=1.0
+        async_client, project.id, model["id"], str(litho_a.id), borehole.id, depth=1.0
     )
     await _create_contact(
-        async_client, project.id, model["id"], formation_b["id"], borehole.id, depth=3.0
+        async_client, project.id, model["id"], str(litho_b.id), borehole.id, depth=3.0
     )
 
     resp = await async_client.delete(
@@ -2363,21 +2394,71 @@ async def test_wipe_all_contacts_returns_deleted_count(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["deleted"] == 2
+    # New response shape: per-table counts.
+    assert "contacts" in body
+    assert "edges" in body
+    assert "surfaces" in body
+    assert "formations" in body
+    assert body["contacts"] == 2
+    assert body["formations"] == 2  # both litho formations were orphaned + deleted
 
-    # Verify DB is empty after the wipe.
+    # Contacts list must be empty.
     list_resp = await async_client.get(
         f"/projects/{project.id}/geology/models/{model['id']}/contacts",
     )
     assert list_resp.status_code == 200
     assert list_resp.json() == []
 
+    # Litho formations must be gone from the project formation list.
+    formations_resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations",
+    )
+    assert formations_resp.status_code == 200
+    formation_ids = {f["id"] for f in formations_resp.json()}
+    assert str(litho_a.id) not in formation_ids
+    assert str(litho_b.id) not in formation_ids
 
-async def test_wipe_all_contacts_zero_when_model_is_empty(
+
+async def test_clear_litho_model_preserves_geological_formation(
     async_client: AsyncClient,
     project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
 ) -> None:
-    """Idempotent no-op when the model has no contacts."""
+    """Geological formations (litho_main_soil_code IS NULL) must survive the clear.
+
+    Creates one geological formation (no litho_main_soil_code) and a contact
+    in the model, then clears the model.  The geological formation must remain
+    in the project's formation list — only litho formations get the orphan-
+    deletion treatment.
+    """
+    project, borehole = project_with_borehole
+    geo_formation = await _create_formation(async_client, project.id, name="Geo-F")
+    model = await _create_model(async_client, project.id)
+    await _create_contact(
+        async_client, project.id, model["id"], geo_formation["id"], borehole.id, depth=2.0
+    )
+
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model['id']}/contacts",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["contacts"] == 1
+    assert body["formations"] == 0  # geological formation must NOT be deleted
+
+    # Geological formation still in the project list.
+    formations_resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations",
+    )
+    assert formations_resp.status_code == 200
+    formation_ids = {f["id"] for f in formations_resp.json()}
+    assert geo_formation["id"] in formation_ids
+
+
+async def test_clear_litho_model_zero_when_model_is_empty(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+) -> None:
+    """Idempotent no-op when the model has no content — all counts are 0."""
     project, _ = project_with_borehole
     model = await _create_model(async_client, project.id)
 
@@ -2386,10 +2467,14 @@ async def test_wipe_all_contacts_zero_when_model_is_empty(
     )
 
     assert resp.status_code == 200, resp.text
-    assert resp.json()["deleted"] == 0
+    body = resp.json()
+    assert body["contacts"] == 0
+    assert body["edges"] == 0
+    assert body["surfaces"] == 0
+    assert body["formations"] == 0
 
 
-async def test_wipe_all_contacts_rejects_wrong_project(
+async def test_clear_litho_model_rejects_wrong_project(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
@@ -2411,6 +2496,83 @@ async def test_wipe_all_contacts_rejects_wrong_project(
     )
 
     assert resp.status_code == 404
+
+
+async def test_clear_litho_model_shared_formation_survives(
+    async_client: AsyncClient,
+    project_with_borehole: tuple[ProjectOrm, BoreholeOrm],
+    db_session: AsyncSession,
+) -> None:
+    """A litho formation shared by a second model must NOT be deleted.
+
+    Model A and Model B both have a contact pointing at the same litho
+    formation (F-shared).  Clearing Model A must delete only Model A's
+    contacts, not the shared formation (Model B still references it).
+    """
+    project, borehole = project_with_borehole
+
+    # Shared litho formation + a second borehole — both raw-inserted via the
+    # ORM (the create endpoint takes no litho_main_soil_code; boreholes are
+    # not created over the API in these tests).
+    shared_f = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=project.id,
+        name="Shared-Litho",
+        color="#cccccc",
+        display_order=0,
+        pinned_order=False,
+        litho_main_soil_code="ZAND",
+    )
+    # Second borehole so Model B's contact does not collide with Model A's
+    # on the (model, anchor, formation) uniqueness guard.
+    borehole_b = BoreholeOrm(
+        id=uuid7(),
+        name="BH-B",
+        app_project_id=project.id,
+        project_id="DOV",
+        test_id="BH-B-001",
+        location_x=160000.0,
+        location_y=210000.0,
+        epsg=31370,
+        total_depth_m=10.0,
+    )
+    db_session.add_all([shared_f, borehole_b])
+    await db_session.commit()
+
+    model_a = await _create_model(async_client, project.id)
+    model_b_resp = await async_client.post(
+        f"/projects/{project.id}/geology/models",
+        json={"name": "Model-B"},
+    )
+    assert model_b_resp.status_code == 201, model_b_resp.text
+    model_b = model_b_resp.json()
+
+    # Contact in Model A.
+    await _create_contact(
+        async_client, project.id, model_a["id"], str(shared_f.id), borehole.id, depth=1.0
+    )
+    # Contact in Model B (different borehole, same formation).
+    await _create_contact(
+        async_client, project.id, model_b["id"], str(shared_f.id), borehole_b.id, depth=1.0
+    )
+
+    # Clear Model A.
+    resp = await async_client.delete(
+        f"/projects/{project.id}/geology/models/{model_a['id']}/contacts",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["contacts"] == 1
+    # formation NOT deleted — Model B still references it.
+    assert body["formations"] == 0
+
+    # Shared formation still in the project list.
+    formations_resp = await async_client.get(
+        f"/projects/{project.id}/geology/formations",
+    )
+    assert formations_resp.status_code == 200
+    formation_ids = {f["id"] for f in formations_resp.json()}
+    assert str(shared_f.id) in formation_ids
 
 
 # ---------------------------------------------------------------------------

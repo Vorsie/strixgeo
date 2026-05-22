@@ -1548,13 +1548,14 @@ export const api = {
     ): Promise<void> =>
       del(`/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`),
 
-    // Bulk-delete ALL formation contacts for a model (debt #94).
+    // Clear ALL content from a lithostratigraphic model (debt #94 fix).
+    // Removes contacts, correlation edges, TIN surfaces, and orphan litho
+    // formations in one atomic backend call.
     // Irreversible — caller must present a confirm dialog before invoking.
-    // Returns the count of rows removed so the toast is meaningful.
-    wipeLithoContacts: async (
+    clearLithoModel: async (
       projectId: string,
       modelId: string,
-    ): Promise<{ deleted: number }> => {
+    ): Promise<{ contacts: number; edges: number; surfaces: number; formations: number }> => {
       const res = await fetch(
         `${_base}/projects/${projectId}/geology/models/${modelId}/contacts`,
         { method: 'DELETE' },
@@ -1562,7 +1563,7 @@ export const api = {
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}))
         throw new Error(
-          detail.detail?.message ?? detail.detail ?? `Wipe contacts failed: ${res.status}`,
+          detail.detail?.message ?? detail.detail ?? `Clear litho model failed: ${res.status}`,
         )
       }
       return res.json()

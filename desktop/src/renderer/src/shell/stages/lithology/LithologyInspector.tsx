@@ -79,24 +79,24 @@ export default function LithologyInspector(): JSX.Element {
       lithoStaleSurfaceCount,
       lithoStaleTinSessionCount,
       refetchFormations,
-      handleWipeLithoContacts,
+      handleClearLithoModel,
     },
   } = useShell()
 
-  // Debt #94: wipe-contacts confirm dialog state.
+  // Debt #94 fix: clear-model confirm dialog state.
   const [wipeConfirmOpen, setWipeConfirmOpen] = useState(false)
   const [wiping, setWiping] = useState(false)
 
-  // Debt #94: execute the wipe after the user confirms.
+  // Debt #94 fix: execute the clear after the user confirms.
   const confirmWipe = useCallback(async () => {
     setWipeConfirmOpen(false)
     setWiping(true)
     try {
-      await handleWipeLithoContacts()
+      await handleClearLithoModel()
     } finally {
       setWiping(false)
     }
-  }, [handleWipeLithoContacts])
+  }, [handleClearLithoModel])
 
   // Phase-2 Slice 2: correlation edge state for RO-3 stale-ordinal badge.
   // Fetched when the active litho model changes; refreshed after Resolve.
@@ -299,31 +299,37 @@ export default function LithologyInspector(): JSX.Element {
             </div>
           )}
 
-          {/* Debt #94: committed-contacts pill + wipe action.
+          {/* Debt #94 fix: clear-model pill + action.
               Surfaces the persistent state so the user understands why
               there are polylines on section before they have clicked
-              Suggest.  The wipe is irreversible and opens a confirm
-              dialog — not triggered directly here.  Hidden when empty
-              (no contacts yet or just after a successful wipe). */}
-          {lithoContacts.length > 0 && (
+              Suggest.  Also visible when litho formations exist but
+              contacts are empty (the "orphan units" broken state that
+              the old contact-only wipe left behind — the user needs an
+              affordance to recover even when contacts = 0).
+              The clear is irreversible and opens a confirm dialog — not
+              triggered directly here.  Hidden when the model is truly
+              empty (no contacts AND no formations). */}
+          {(lithoContacts.length > 0 || lithoFormations.length > 0) && (
             <div
               className="flex items-center justify-between gap-2 rounded px-2 py-1.5 bg-surface-sunken border border-border-subtle"
               data-testid="litho-committed-pill"
             >
               <span className="text-[11px] leading-snug text-text-secondary">
-                {lithoContacts.length} litho contact
-                {lithoContacts.length === 1 ? '' : 's'} committed
+                {lithoContacts.length} contact
+                {lithoContacts.length === 1 ? '' : 's'},{' '}
+                {lithoFormations.length} unit
+                {lithoFormations.length === 1 ? '' : 's'}
               </span>
               <button
                 type="button"
                 onClick={() => setWipeConfirmOpen(true)}
                 disabled={wiping}
                 className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-red-600 dark:hover:text-red-400 disabled:opacity-40 transition-colors flex-shrink-0"
-                title="Wipe all committed litho contacts for this model"
+                title="Clear all litho content for this model"
                 data-testid="wipe-litho-contacts-btn"
               >
                 <Trash2 size={11} aria-hidden="true" />
-                {wiping ? 'Wiping…' : 'Wipe'}
+                {wiping ? 'Clearing…' : 'Clear'}
               </button>
             </div>
           )}
@@ -397,7 +403,7 @@ export default function LithologyInspector(): JSX.Element {
         busy={confirmBusy}
       />
 
-      {/* Debt #94: wipe-contacts confirm dialog.
+      {/* Debt #94 fix: clear litho model confirm dialog.
           Irreversible action — default focus on Cancel per docs/ux.md. */}
       <Modal
         open={wipeConfirmOpen}
@@ -411,15 +417,11 @@ export default function LithologyInspector(): JSX.Element {
             id="wipe-litho-contacts-title"
             className="text-sm font-semibold text-text-primary mb-1"
           >
-            Wipe litho contacts?
+            Clear litho model?
           </h2>
           <p className="text-xs text-text-muted mb-4">
-            All{' '}
-            <span className="font-medium text-text-secondary">
-              {lithoContacts.length} committed litho contact
-              {lithoContacts.length === 1 ? '' : 's'}
-            </span>{' '}
-            in this model will be permanently deleted. This cannot be undone.
+            All litho units, contacts, correlations and surfaces in this model
+            will be permanently deleted. This cannot be undone.
           </p>
           <div className="flex justify-end gap-2">
             {/* Cancel has default focus — the safe default for an
@@ -444,7 +446,7 @@ export default function LithologyInspector(): JSX.Element {
               disabled={wiping}
               data-testid="wipe-litho-contacts-confirm-btn"
             >
-              {wiping ? 'Wiping…' : `Wipe ${lithoContacts.length} contact${lithoContacts.length === 1 ? '' : 's'}`}
+              {wiping ? 'Clearing…' : 'Clear litho model'}
             </Button>
           </div>
         </div>

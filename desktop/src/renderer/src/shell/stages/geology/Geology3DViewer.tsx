@@ -60,6 +60,7 @@ import {
   clipTexTrisToHalfSpace,
   type TexVert,
 } from './cesiumGeometry'
+import { formatLithoDisplayName } from '../../../utils/lithoLabels'
 
 // Disable Cesium ion. All basemaps and terrain come from our own providers.
 Cesium.Ion.defaultAccessToken = ''
@@ -1809,7 +1810,16 @@ export default function Geology3DViewer({
                       <span
                         className={`truncate ${hidden ? 'line-through text-text-muted' : 'text-text-primary'}`}
                       >
-                        {f.name}
+                        {/* Litho formations carry litho_main_soil_code — translate
+                            at the presentation boundary (debt #96 class fix). Geological
+                            formations have null litho_main_soil_code and fall back to
+                            their plain name. */}
+                        {f.litho_main_soil_code != null
+                          ? formatLithoDisplayName(
+                              f.litho_main_soil_code,
+                              f.litho_admixtures ?? [],
+                            )
+                          : f.name}
                       </span>
                     </button>
                   </li>

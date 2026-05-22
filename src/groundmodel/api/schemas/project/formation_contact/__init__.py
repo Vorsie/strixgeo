@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .auto_populate_from_stratigraphy_request import AutoPopulateFromStratigraphyRequest
 from .auto_populate_from_stratigraphy_response import AutoPopulateFromStratigraphyResponse
+from .clear_litho_model_response import ClearLithoModelResponse
 from .contact_enums import ContactConfidence, ContactSource
 from .crossing_validation_response import CrossingValidationResponse
 from .deduplicate_contacts_response import DeduplicateContactsResponse
@@ -30,7 +31,6 @@ from .pinch_out_extrapolation_response import PinchOutExtrapolationResponse
 from .rebuild_surfaces_response import RebuildSurfacesResponse
 from .seed_litho_from_parent_request import SeedLithoFromParentRequest
 from .seed_litho_from_parent_response import SeedLithoFromParentResponse
-from .wipe_litho_contacts_response import WipeLithoContactsResponse
 
 __all__ = [
     "ContactConfidence",
@@ -57,5 +57,5 @@ __all__ = [
     "SeedLithoFromParentResponse",
     "PinchOutExtrapolationRequest",
     "PinchOutExtrapolationResponse",
-    "WipeLithoContactsResponse",
+    "ClearLithoModelResponse",
 ]

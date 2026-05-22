@@ -183,7 +183,7 @@ function makeStubContext(): ShellContextValue {
       clearBulkLithoGhosts: () => {},
       handleStripLithoAdmixtures: () => {},
       handleReseedLithoAdmixtures: () => {},
-      handleWipeLithoContacts: noopAsync,
+      handleClearLithoModel: noopAsync,
       refetchLithoContacts: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,
