@@ -1865,8 +1865,11 @@ function LithoSuggestionLayer({
         </text>
       )}
 
-      {/* Inline label when the rect is tall enough. */}
-      {lines.length > 0 && (
+      {/* Inline label when the rect is tall enough. Suppressed once the
+          layer is accepted: the committed contact band underneath now
+          carries the real label, and two overlapping labels read as a
+          faint "ghost label behind" the real one (dogfeed 2026-05-22). */}
+      {lines.length > 0 && !accepted && (
         <MultiLineLabel
           lines={lines}
           centerX={left + width / 2}

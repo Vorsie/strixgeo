@@ -867,6 +867,33 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(title.toLowerCase()).toMatch(/silty/)
   })
 
+  // G38: an accepted layer suppresses its inline label — the committed
+  // contact band underneath carries the real label, so a leftover ghost
+  // label reads as a faint "double" behind it (dogfeed 2026-05-22).
+  it('G38 — accepted layer suppresses its inline label; pending keeps it', () => {
+    const { container } = renderGhost(
+      [
+        makeSuggestion({
+          suggested_lithology: 'ZAND',
+          depth_top_m: 0,
+          depth_base_m: 3,
+        }),
+        makeSuggestion({
+          suggested_lithology: 'KLEI',
+          depth_top_m: 3,
+          depth_base_m: 6,
+        }),
+      ],
+      { acceptedIndices: new Set([0]) },
+    )
+    const tspans = Array.from(container.querySelectorAll('tspan')).map(
+      t => t.textContent,
+    )
+    // idx 1 (pending KLEI) keeps its label; idx 0 (accepted ZAND) does not.
+    expect(tspans).toContain('CLAY')
+    expect(tspans).not.toContain('SAND')
+  })
+
   // -----------------------------------------------------------------
   // Debt #86 — Alt-drag copy-composition gesture
   // -----------------------------------------------------------------
