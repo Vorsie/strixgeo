@@ -6,7 +6,7 @@
 //   D3  "Unassigned" group renders for formations with null parent.
 //   D4  Clicking a row in the existing-units list fires onSelect.
 //   D5  Tab 2 "New unit": ZAND + KL:M admixture → live preview shows
-//       "moderately clayey Sand" (the key usability feature from the design).
+//       "SAND | moderately clayey" (the key usability feature from the design).
 //   D6  Neutral "resolved automatically" note renders when
 //       parentFormationName is null (NOT an alarming warning — review S1).
 //   D7  Cancel clears and calls onCancel.
@@ -142,9 +142,9 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
     // Group heading — appears at least once (also appears in the "within:" subtitle,
     // so we use getAllByText and assert at least one match).
     expect(screen.getAllByText('Boom Klei').length).toBeGreaterThanOrEqual(1)
-    // Both units listed (formatLithoDisplayName → English labels).
-    expect(screen.getByText('Sand')).toBeInTheDocument()
-    expect(screen.getByText('Clay')).toBeInTheDocument()
+    // Both units listed (formatLithoDisplayName → pipe-format labels).
+    expect(screen.getByText('SAND')).toBeInTheDocument()
+    expect(screen.getByText('CLAY')).toBeInTheDocument()
   })
 
   it('D3: null-parent formations appear under "Unassigned" group', () => {
@@ -160,7 +160,7 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
     )
 
     expect(screen.getByText(/Unassigned/i)).toBeInTheDocument()
-    expect(screen.getByText('Peat')).toBeInTheDocument()
+    expect(screen.getByText('PEAT')).toBeInTheDocument()
   })
 
   it('D11: existing-unit row shows "under <parent>" suffix when parent_formation_name is set', () => {
@@ -216,7 +216,7 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
       />,
     )
 
-    fireEvent.click(screen.getByText('Sand'))
+    fireEvent.click(screen.getByText('SAND'))
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('lt-xyz'))
   })
 })
@@ -226,14 +226,14 @@ describe('LithoCompositionPickerDialog — existing units tab', () => {
 // ---------------------------------------------------------------------------
 
 describe('LithoCompositionPickerDialog — new unit tab preview', () => {
-  it('D5: ZAND + KL:M admixture shows "moderately clayey Sand" in the live preview', async () => {
+  it('D5: ZAND + KL:M admixture shows "SAND | moderately clayey" in the live preview', async () => {
     render(<LithoCompositionPickerDialog {...makeDefaultProps()} />)
 
     // Switch to "New unit" tab.
     fireEvent.click(screen.getByRole('button', { name: /new unit/i }))
 
-    // Initial preview is just "Sand" (ZAND is the default, no admixtures).
-    expect(screen.getByTestId('litho-preview')).toHaveTextContent('Sand')
+    // Initial preview is just "SAND" (ZAND is the default, no admixtures).
+    expect(screen.getByTestId('litho-preview')).toHaveTextContent('SAND')
 
     // Add an admixture row.
     fireEvent.click(screen.getByRole('button', { name: /add admixture/i }))
@@ -247,9 +247,9 @@ describe('LithoCompositionPickerDialog — new unit tab preview', () => {
     const amountSelects = screen.getAllByRole('combobox', { name: /admixture amount/i })
     fireEvent.change(amountSelects[0], { target: { value: 'M' } })
 
-    // Live preview must update to "moderately clayey Sand".
+    // Live preview must update to "SAND | moderately clayey".
     await waitFor(() =>
-      expect(screen.getByTestId('litho-preview')).toHaveTextContent('moderately clayey Sand'),
+      expect(screen.getByTestId('litho-preview')).toHaveTextContent('SAND | moderately clayey'),
     )
   })
 })

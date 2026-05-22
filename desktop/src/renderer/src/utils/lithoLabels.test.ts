@@ -1,85 +1,105 @@
 // Unit tests for lithoLabels.ts — formatLithoDisplayName.
 //
-// Claims pinned here (English output, 2026-05-21):
-//   L1  No admixtures → just the English base name.
-//   L2  Single admixture with amount → "amount adv soilAdj MainName".
-//   L3  Single admixture without amount → "soilAdj MainName".
-//   L4  locally=true admixture → "locally" prefix on the qualifier.
-//   L5  Multiple admixtures → comma-separated qualifiers before the base.
-//   L6  Unknown main code falls back to the raw code (passthrough).
+// Claims pinned here (pipe format, 2026-05-22):
+//   L1  No admixtures → just the upper-cased base name.
+//   L2  Single adjective admixture with amount → "BASE | adv adj".
+//   L3  Single adjective admixture without amount → "BASE | adj".
+//   L4  locally=true admixture → "locally" prefix on the field.
+//   L5  Multiple admixtures → one pipe-separated field each.
+//   L6  Unknown main code falls back to the raw code (upper-cased).
 //   L7  Unknown soil_code falls back to lowercased raw code.
 //   L8  Unknown amount falls back to the raw amount string.
 //   L9  Null / undefined admixtures → just the base name.
+//   L10 Noun-phrase admixture ("with X") with amount → quantity word,
+//       no "with", no adverb (the 2026-05-22 dogfeed grammar bug).
+//   L11 Noun-phrase admixture without amount → bare noun, no "with".
 
 import { describe, expect, it } from 'vitest'
 import { formatLithoDisplayName } from './lithoLabels'
 
 describe('formatLithoDisplayName', () => {
   // L1: no admixtures
-  it('L1 — no admixtures returns the English base name', () => {
-    expect(formatLithoDisplayName('ZAND', [])).toBe('Sand')
-    expect(formatLithoDisplayName('KLEI', [])).toBe('Clay')
-    expect(formatLithoDisplayName('SILT', [])).toBe('Silt')
-    expect(formatLithoDisplayName('GRIND', [])).toBe('Gravel')
-    expect(formatLithoDisplayName('VEEN', [])).toBe('Peat')
+  it('L1 — no admixtures returns the upper-cased base name', () => {
+    expect(formatLithoDisplayName('ZAND', [])).toBe('SAND')
+    expect(formatLithoDisplayName('KLEI', [])).toBe('CLAY')
+    expect(formatLithoDisplayName('SILT', [])).toBe('SILT')
+    expect(formatLithoDisplayName('GRIND', [])).toBe('GRAVEL')
+    expect(formatLithoDisplayName('VEEN', [])).toBe('PEAT')
   })
 
-  // L2: single admixture with amount code
-  it('L2 — single admixture with amount → "amount soilAdj MainName"', () => {
+  // L2: single adjective admixture with amount code
+  it('L2 — single adjective admixture with amount → "BASE | adv adj"', () => {
     expect(
       formatLithoDisplayName('ZAND', [{ soil_code: 'KL', amount: 'M', locally: false }]),
-    ).toBe('moderately clayey Sand')
+    ).toBe('SAND | moderately clayey')
   })
 
-  // L3: single admixture without amount
-  it('L3 — single admixture without amount → "soilAdj MainName"', () => {
+  // L3: single adjective admixture without amount
+  it('L3 — single adjective admixture without amount → "BASE | adj"', () => {
     expect(
       formatLithoDisplayName('ZAND', [{ soil_code: 'SL', amount: '', locally: false }]),
-    ).toBe('silty Sand')
+    ).toBe('SAND | silty')
   })
 
   // L4: locally=true adds "locally " prefix
   it('L4 — locally=true admixture has "locally" prefix', () => {
     expect(
       formatLithoDisplayName('KLEI', [{ soil_code: 'ZN', amount: '', locally: true }]),
-    ).toBe('locally sandy Clay')
+    ).toBe('CLAY | locally sandy')
   })
 
-  // L5: multiple admixtures → comma-separated
-  it('L5 — multiple admixtures are comma-separated before the base name', () => {
+  // L5: multiple admixtures → one pipe-separated field each
+  it('L5 — multiple admixtures are pipe-separated fields', () => {
     expect(
       formatLithoDisplayName('KLEI', [
         { soil_code: 'SL', amount: 'W', locally: false },
         { soil_code: 'ZN', amount: '', locally: true },
       ]),
-    ).toBe('slightly silty, locally sandy Clay')
+    ).toBe('CLAY | slightly silty | locally sandy')
   })
 
-  // L6: unknown main code falls back to raw
+  // L6: unknown main code falls back to raw (upper-cased)
   it('L6 — unknown main code falls back to the raw code', () => {
-    expect(formatLithoDisplayName('UNKNOWN', [])).toBe('UNKNOWN')
+    expect(formatLithoDisplayName('unknown', [])).toBe('UNKNOWN')
   })
 
   // L7: unknown soil_code falls back to lowercased raw.
-  // Dogfeed 2026-05-21: XX was promoted into the curated map as
-  // 'unknown' (DOV hoofdnaam = "onbekend"), so XX is no longer a true
-  // fallback case. Use a truly-unknown code ('QQ').
+  // 'QQ' is a truly-unknown code (XX is curated as 'unknown').
   it('L7 — unknown soil_code falls back to lowercased raw code', () => {
     expect(
       formatLithoDisplayName('ZAND', [{ soil_code: 'QQ', amount: '', locally: false }]),
-    ).toBe('qq Sand')
+    ).toBe('SAND | qq')
   })
 
   // L8: unknown amount falls back to raw amount string
   it('L8 — unknown amount falls back to the raw amount string', () => {
     expect(
       formatLithoDisplayName('ZAND', [{ soil_code: 'KL', amount: 'Q', locally: false }]),
-    ).toBe('Q clayey Sand')
+    ).toBe('SAND | Q clayey')
   })
 
   // L9: null/undefined admixtures returns just the base name
   it('L9 — null admixtures returns just the base name', () => {
-    expect(formatLithoDisplayName('ZAND', null)).toBe('Sand')
-    expect(formatLithoDisplayName('ZAND', undefined)).toBe('Sand')
+    expect(formatLithoDisplayName('ZAND', null)).toBe('SAND')
+    expect(formatLithoDisplayName('ZAND', undefined)).toBe('SAND')
+  })
+
+  // L10: noun-phrase admixture with amount — quantity word, no "with",
+  // no adverb. The pre-2026-05-22 prose form produced the broken
+  // "slightly with shell debris" here.
+  it('L10 — noun-phrase admixture with amount uses a quantity word', () => {
+    expect(
+      formatLithoDisplayName('ZAND', [{ soil_code: 'SG', amount: 'W', locally: false }]),
+    ).toBe('SAND | little shell debris')
+    expect(
+      formatLithoDisplayName('ZAND', [{ soil_code: 'SG', amount: 'V', locally: false }]),
+    ).toBe('SAND | much shell debris')
+  })
+
+  // L11: noun-phrase admixture without amount — bare noun, no "with"
+  it('L11 — noun-phrase admixture without amount drops the "with"', () => {
+    expect(
+      formatLithoDisplayName('ZAND', [{ soil_code: 'SG', amount: '', locally: false }]),
+    ).toBe('SAND | shell debris')
   })
 })

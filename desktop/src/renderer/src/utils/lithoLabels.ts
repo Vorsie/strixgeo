@@ -9,10 +9,10 @@
  * boundary, never at ingest — see CLAUDE.md §UX Conventions); this
  * module is the boundary.
  *
- * The function produces labels like "moderately clayey Sand" or "silty
- * Clay" that mirror the Belgian/Dutch NEN 5104 reporting style adjective-
- * before-noun, in English so the labels match the rest of the program's
- * UI chrome. The raw DOV codes remain visible elsewhere (codelist
+ * The function produces pipe-delimited labels — the main soil in upper
+ * case, then one admixture per ``|``-separated field, e.g.
+ * "SAND | clayey | little shell debris" or "CLAY | slightly silty |
+ * locally sandy". The raw DOV codes remain visible elsewhere (codelist
  * dropdowns, tooltips) so engineers can cross-check.
  *
  * Base-lithology names are imported from ``utils/lithoConstants.ts``
@@ -20,9 +20,11 @@
  * the picker dialog, the composition editor, and the ghost overlay all
  * agree on "Sand" / "Clay" / etc.
  *
- * Translation history: this module produced Dutch labels until
- * 2026-05-21 when the owner asked for UI consistency with the rest of
- * the (English) program. The raw Dutch tokens are unchanged in the DB.
+ * Format history: produced Dutch prose until 2026-05-21 (English prose
+ * for UI consistency), then the pipe format on 2026-05-22 — the prose
+ * form produced broken English ("slightly with shell debris Sand")
+ * when an amount adverb collided with a "with X" admixture phrase. The
+ * raw Dutch tokens are unchanged in the DB.
  */
 
 import type { AdmixtureItem } from '../api/client'
@@ -175,6 +177,27 @@ const ADMIXTURE_AMOUNT_EN: Record<string, string> = {
   MV: 'moderately to very',
 }
 
+// ---------------------------------------------------------------------------
+// Admixture amount codes → English quantity word for NOUN-PHRASE
+// admixtures (the "with X" group: shell debris, fossils, wood debris,
+// charcoal, ...). These read as a quantity in front of the noun
+// ("little shell debris") — an amount ADVERB ("slightly") only works
+// in front of an adjective ("slightly clayey"), so the two groups need
+// separate vocabulary. ADMIXTURE_AMOUNT_EN above handles the adjective
+// group.
+// ---------------------------------------------------------------------------
+
+const ADMIXTURE_AMOUNT_QUANTITY_EN: Record<string, string> = {
+  Z: 'trace',    // Z = zwak (weakly) → trace amount
+  W: 'little',   // W = weinig (little)
+  M: 'some',     // M = matig (moderate)
+  V: 'much',     // V = veel (much)
+  S: 'abundant', // S = sterk (strongly)
+  N: '',         // N = intensity-unspecified marker — just the noun
+  WM: 'little to some',
+  MV: 'some to much',
+}
+
 /**
  * Public list of curated admixture soil options for dropdowns.
  *
@@ -275,32 +298,35 @@ export function admixtureSoilLabel(code: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Format an English display name for a lithostratigraphic unit.
+ * Format a pipe-delimited display name for a lithostratigraphic unit.
  *
- * Combines the main lithology code and optional admixtures into a
- * short English label following NEN 5104 / Belgian-style reporting
- * order: amount adverb (if any) + soil adjective + capitalised main
- * lithology.
+ * Main soil in upper case, then one admixture per ``|``-separated
+ * field. Adjective admixtures ("clayey", "silty") take an amount
+ * adverb; noun-phrase admixtures (the "with X" group — shell debris,
+ * fossils, ...) drop the "with" and take a quantity word instead.
  *
  * Examples::
  *
  *   formatLithoDisplayName('ZAND', [])
- *   // → 'Sand'
+ *   // → 'SAND'
  *
  *   formatLithoDisplayName('ZAND', [{ soil_code: 'KL', amount: 'M', locally: false }])
- *   // → 'moderately clayey Sand'
+ *   // → 'SAND | moderately clayey'
  *
  *   formatLithoDisplayName('KLEI', [
  *     { soil_code: 'SL', amount: 'W', locally: false },
  *     { soil_code: 'ZN', amount: '',  locally: true  },
  *   ])
- *   // → 'slightly silty, locally sandy Clay'
+ *   // → 'CLAY | slightly silty | locally sandy'
+ *
+ *   formatLithoDisplayName('ZAND', [{ soil_code: 'SG', amount: 'W', locally: false }])
+ *   // → 'SAND | little shell debris'
  *
  * Parameters
  * ----------
  * mainCode
  *     Base lithology code (ZAND, KLEI, SILT, GRIND, VEEN). Falls back
- *     to the raw code when not found in the label table.
+ *     to the raw code (upper-cased) when not found in the label table.
  * admixtures
  *     Admixture items from the API (``AdmixtureItem[]``). Empty or null
  *     returns just the main lithology name.
@@ -308,29 +334,41 @@ export function admixtureSoilLabel(code: string): string {
  * Returns
  * -------
  * string
- *     Short English display label.
+ *     Pipe-delimited display label.
  */
 export function formatLithoDisplayName(
   mainCode: string,
   admixtures: readonly AdmixtureItem[] | null | undefined,
 ): string {
-  const baseName = LITHOLOGY_LABELS[mainCode] ?? mainCode
+  // Pipe format (owner directive 2026-05-22): "SAND | clayey | little
+  // shell debris". Replaces the prior NEN-style prose, which produced
+  // broken English ("slightly with shell debris Sand") when an amount
+  // adverb landed in front of a "with X" admixture phrase.
+  const baseName = (LITHOLOGY_LABELS[mainCode] ?? mainCode).toUpperCase()
 
   if (!admixtures || admixtures.length === 0) return baseName
 
-  // Build a qualifier fragment for each admixture in order.
-  const parts: string[] = admixtures.map(adm => {
-    const soilAdj = admixtureSoilLabel(adm.soil_code)
-    const amountAdv = adm.amount ? (ADMIXTURE_AMOUNT_EN[adm.amount] ?? adm.amount) : null
+  // One pipe-separated field per admixture, in source order.
+  const fields: string[] = admixtures.map(adm => {
+    const soilLabel = admixtureSoilLabel(adm.soil_code)
+    // "with X" admixtures (shell debris, fossils, wood debris, ...) are
+    // noun phrases — strip the leading "with " and qualify them with a
+    // quantity word. Everything else is an adjective and takes an
+    // amount adverb.
+    const isNounPhrase = soilLabel.startsWith('with ')
+    const core = isNounPhrase ? soilLabel.slice('with '.length) : soilLabel
+
+    const amountWord = adm.amount
+      ? isNounPhrase
+        ? (ADMIXTURE_AMOUNT_QUANTITY_EN[adm.amount] ?? adm.amount)
+        : (ADMIXTURE_AMOUNT_EN[adm.amount] ?? adm.amount)
+      : ''
 
     // "locally" prefix when the admixture occurs only locally in the layer.
     const localPrefix = adm.locally ? 'locally ' : ''
-
-    if (amountAdv) {
-      return `${localPrefix}${amountAdv} ${soilAdj}`
-    }
-    return `${localPrefix}${soilAdj}`
+    // amountWord is '' for the N code and for amount-less admixtures.
+    return `${localPrefix}${amountWord ? `${amountWord} ` : ''}${core}`
   })
 
-  return `${parts.join(', ')} ${baseName}`
+  return `${baseName} | ${fields.join(' | ')}`
 }
