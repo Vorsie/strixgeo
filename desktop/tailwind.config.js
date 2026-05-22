@@ -47,6 +47,7 @@ module.exports = {
         'surface-page': 'var(--color-surface-page)',
         'surface-card': 'var(--color-surface-card)',
         'surface-overlay': 'var(--color-surface-overlay)',
+        'surface-sunken': 'var(--color-surface-sunken)',
 
         // Borders.
         'border-subtle': 'var(--color-border-subtle)',

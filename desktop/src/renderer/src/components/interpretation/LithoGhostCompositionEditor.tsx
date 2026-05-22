@@ -216,7 +216,7 @@ export default function LithoGhostCompositionEditor({
             disabled={mainSoilLocked}
             className={`w-full text-xs rounded border border-border-default px-2 py-1 text-text-primary ${
               mainSoilLocked
-                ? 'bg-surface-subtle opacity-60 cursor-not-allowed'
+                ? 'bg-surface-sunken opacity-60 cursor-not-allowed'
                 : 'bg-surface-page'
             }`}
           >

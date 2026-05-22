@@ -25,6 +25,7 @@
   --color-surface-page: #ffffff;      /* white      */
   --color-surface-card: #f8fafc;      /* slate-50   */
   --color-surface-overlay: #ffffff;   /* white      */
+  --color-surface-sunken: #f1f5f9;    /* slate-100  — recessed (table headers, inset pills) */
   --color-border-subtle: #e2e8f0;     /* slate-200  */
   --color-border-default: #cbd5e1;    /* slate-300  */
   --color-text-primary: #0f172a;      /* slate-900  */
@@ -111,6 +112,7 @@
   --color-surface-page: #0f172a;      /* slate-900  */
   --color-surface-card: #1e293b;      /* slate-800  */
   --color-surface-overlay: #172033;   /* slate-850 (custom step between 800/900) */
+  --color-surface-sunken: #0f172a;    /* slate-900  — recessed (table headers, inset pills) */
   --color-border-subtle: #334155;     /* slate-700  */
   --color-border-default: #475569;    /* slate-600  */
   --color-text-primary: #f8fafc;      /* slate-50   */
