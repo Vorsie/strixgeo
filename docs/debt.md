@@ -1844,6 +1844,26 @@ flagged absent at certain investigations? a unit whose surface may
 terminate inside the corridor? — and how do the TIN build, the section
 slice, and the exporters treat a body that is not everywhere.
 
+**Idea — perpendicular section auto-create (owner, 2026-05-22).** A lens
+is a 3D body; a single cross-section only constrains it in one
+direction. When the user draws a lens on a section, pop up an offer to
+**auto-create a perpendicular cross-section** through it — perpendicular
+to the original section, centred on the lens. The perpendicular section
+auto-extends its length until it reaches an investigation — ideally one
+on *each* side of the lens, so a real test brackets the lens extent in
+the orthogonal direction (fall back to one side, or a default reach, if
+the other side has no test in range). Two perpendicular sections then
+give orthogonal control points and make the lens body genuinely
+3D-modellable.
+
+Guard: **at most one perpendicular section per lens.** Before offering
+the popup, check whether the lens already has a perpendicular section
+and suppress / disable the offer so the user cannot create two. This
+implies the lens is a first-class entity that *owns* its sections — a
+concrete pull on the "how is a lens stored" question above: the store
+needs a lens id that a cross-section can point back at, plus a flag
+marking a section as the lens's perpendicular companion.
+
 **Why deferred.** Phase 5. CLAUDE.md "Build Sequence" already places
 true interfingering lenses in Phase 5; the MVP gate's three-level model
 assumes continuous units.
