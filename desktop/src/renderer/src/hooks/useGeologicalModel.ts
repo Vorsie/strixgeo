@@ -1194,7 +1194,7 @@ export function useGeologicalModel({
       newDepthM: number,
       snapped: boolean,
     ): Promise<void> => {
-      if (!project || !activeGeologicalModel) return
+      if (!project) return
       log.debug(
         'geology',
         `updateContactDepth entry id=${contactId} newDepth=${newDepthM.toFixed(3)}m snapped=${snapped}`,
@@ -1203,11 +1203,21 @@ export function useGeologicalModel({
         // Snapshot the pre-update contact so undo can restore depth
         // + source + confidence in one PATCH (debt #22 / #23 rule:
         // source/confidence ride along with depth changes).
-        const previous = contacts.find(c => c.id === contactId)
+        // The contact carries its own model_id — derive the model +
+        // the target contact-set from the contact so this works on the
+        // litho axis too (the contact-edit handlers were hard-wired to
+        // the geological model — dogfeed 2026-05-22).
+        const previous =
+          contacts.find(c => c.id === contactId) ??
+          lithoContacts.find(c => c.id === contactId)
         if (!previous) return
+        const modelId = previous.model_id
+        const applyPatch = lithoContacts.some(c => c.id === contactId)
+          ? setLithoContacts
+          : setContacts
         const updated = await api.geology.updateContact(
           project.id,
-          activeGeologicalModel.id,
+          modelId,
           contactId,
           {
             depth_top_m: newDepthM,
@@ -1215,14 +1225,13 @@ export function useGeologicalModel({
             confidence: snapped ? 'high' : 'medium',
           },
         )
-        setContacts(prev => prev.map(c => (c.id === contactId ? updated : c)))
+        applyPatch(prev => prev.map(c => (c.id === contactId ? updated : c)))
         log.success(
           'geology',
           `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m source=${updated.source}`,
         )
         // Undo: PATCH the contact back to its pre-drag state.
         const projectId = project.id
-        const modelId = activeGeologicalModel.id
         const beforePayload = {
           depth_top_m: previous.depth_top_m,
           source: previous.source as
@@ -1248,7 +1257,7 @@ export function useGeologicalModel({
               contactId,
               beforePayload,
             )
-            setContacts(prev =>
+            applyPatch(prev =>
               prev.map(c => (c.id === contactId ? reverted : c)),
             )
           },
@@ -1259,7 +1268,7 @@ export function useGeologicalModel({
               contactId,
               afterPayload,
             )
-            setContacts(prev =>
+            applyPatch(prev =>
               prev.map(c => (c.id === contactId ? reapplied : c)),
             )
           },
@@ -1269,7 +1278,7 @@ export function useGeologicalModel({
         toast('error', 'Could not update the contact depth.')
       }
     },
-    [project, activeGeologicalModel, contacts, pushUndo],
+    [project, contacts, lithoContacts, pushUndo],
   )
 
   // Create a formation contact at a specific depth on a specific
@@ -1635,7 +1644,7 @@ export function useGeologicalModel({
     async (
       updates: readonly FormationContactBatchUpdateEntry[],
     ): Promise<void> => {
-      if (!project || !activeGeologicalModel) return
+      if (!project) return
       if (updates.length === 0) return
       log.debug(
         'geology',
@@ -1646,17 +1655,37 @@ export function useGeologicalModel({
         // batch so undo can PUT them back in one call.
         const updateIds = updates.map(u => u.contact_id)
         const idSet = new Set(updateIds)
+        // A batch is always within one model; derive it (+ the target
+        // contact-set) from the contacts themselves so this works on
+        // the litho axis too — dogfeed 2026-05-22: was hard-wired to
+        // the geological model, so a litho-contact batch 404'd.
+        const firstContact =
+          contacts.find(c => c.id === updateIds[0]) ??
+          lithoContacts.find(c => c.id === updateIds[0])
+        if (!firstContact) {
+          log.error(
+            'geology',
+            `batchUpdateContacts: contact ${updateIds[0]} not in local state`,
+          )
+          return
+        }
+        const modelId = firstContact.model_id
+        const applyPatch = lithoContacts.some(c => c.id === updateIds[0])
+          ? setLithoContacts
+          : setContacts
         const beforeById = new Map(
-          contacts.filter(c => idSet.has(c.id)).map(c => [c.id, c]),
+          [...contacts, ...lithoContacts]
+            .filter(c => idSet.has(c.id))
+            .map(c => [c.id, c]),
         )
         const res = await api.geology.updateContactsBatch(
           project.id,
-          activeGeologicalModel.id,
+          modelId,
           updates,
         )
         // Index by id so the local state patch is O(N+M).
         const byId = new Map(res.contacts.map(c => [c.id, c]))
-        setContacts(prev => prev.map(c => byId.get(c.id) ?? c))
+        applyPatch(prev => prev.map(c => byId.get(c.id) ?? c))
         log.success(
           'geology',
           `batchUpdateContacts ok count=${res.contacts.length}`,
@@ -1664,7 +1693,6 @@ export function useGeologicalModel({
         // Undo: PUT the snapshot back. Redo: PUT the original
         // update payload again.
         const projectId = project.id
-        const modelId = activeGeologicalModel.id
         const beforeUpdates: FormationContactBatchUpdateEntry[] = updateIds
           .map(id => beforeById.get(id))
           .filter((c): c is FormationContactResponse => Boolean(c))
@@ -1689,7 +1717,7 @@ export function useGeologicalModel({
               beforeUpdates,
             )
             const map = new Map(back.contacts.map(c => [c.id, c]))
-            setContacts(prev => prev.map(c => map.get(c.id) ?? c))
+            applyPatch(prev => prev.map(c => map.get(c.id) ?? c))
           },
           reapply: async () => {
             const fwd = await api.geology.updateContactsBatch(
@@ -1698,7 +1726,7 @@ export function useGeologicalModel({
               afterUpdates,
             )
             const map = new Map(fwd.contacts.map(c => [c.id, c]))
-            setContacts(prev => prev.map(c => map.get(c.id) ?? c))
+            applyPatch(prev => prev.map(c => map.get(c.id) ?? c))
           },
         })
       } catch (err) {
@@ -1706,7 +1734,7 @@ export function useGeologicalModel({
         toast('error', 'Could not update the selected contacts.')
       }
     },
-    [project, activeGeologicalModel, contacts, pushUndo],
+    [project, contacts, lithoContacts, pushUndo],
   )
 
   // Right-click → confirm → delete an existing contact. ContactsLayer
@@ -1717,20 +1745,26 @@ export function useGeologicalModel({
   // try to re-delete an already-deleted row.
   const handleDeleteContact = useCallback(
     async (contactId: string): Promise<void> => {
-      if (!project || !activeGeologicalModel) return
+      if (!project) return
       log.debug('geology', `deleteContact entry id=${contactId}`)
       try {
         // Snapshot the contact before deletion so undo can re-POST
         // an equivalent row (server assigns a new id on the re-create
         // — captured in the closure for redo).
-        const snapshot = contacts.find(c => c.id === contactId)
+        // The contact carries its own model_id — derive the model +
+        // the target contact-set from it so this works on the litho
+        // axis too (dogfeed 2026-05-22 — was hard-wired to the
+        // geological model, so a litho contact could not be deleted).
+        const snapshot =
+          contacts.find(c => c.id === contactId) ??
+          lithoContacts.find(c => c.id === contactId)
         if (!snapshot) return
-        await api.geology.deleteContact(
-          project.id,
-          activeGeologicalModel.id,
-          contactId,
-        )
-        setContacts(prev => prev.filter(c => c.id !== contactId))
+        const modelId = snapshot.model_id
+        const applyPatch = lithoContacts.some(c => c.id === contactId)
+          ? setLithoContacts
+          : setContacts
+        await api.geology.deleteContact(project.id, modelId, contactId)
+        applyPatch(prev => prev.filter(c => c.id !== contactId))
         // No setSessionImportContactIds here — the session-imports set
         // is owned by useProjectLifecycle. The deleteContact callback
         // reaches the session set via the addToSessionImports injected
@@ -1738,7 +1772,6 @@ export function useGeologicalModel({
         // discardSessionImports path handles the full flush.
         log.success('geology', `deleteContact ok id=${contactId}`)
         const projectId = project.id
-        const modelId = activeGeologicalModel.id
         const recreatePayload = {
           formation_id: snapshot.formation_id,
           depth_top_m: snapshot.depth_top_m,
@@ -1764,14 +1797,14 @@ export function useGeologicalModel({
               recreatePayload,
             )
             currentId = recreated.id
-            setContacts(prev => [...prev, recreated])
+            applyPatch(prev => [...prev, recreated])
             addToSessionImports('contact', [recreated.id])
           },
           reapply: async () => {
             if (!currentId) return
             await api.geology.deleteContact(projectId, modelId, currentId)
             const deletedId = currentId
-            setContacts(prev => prev.filter(c => c.id !== deletedId))
+            applyPatch(prev => prev.filter(c => c.id !== deletedId))
             currentId = null
           },
         })
@@ -1782,9 +1815,9 @@ export function useGeologicalModel({
     },
     [
       project,
-      activeGeologicalModel,
       addToSessionImports,
       contacts,
+      lithoContacts,
       pushUndo,
     ],
   )

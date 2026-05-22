@@ -17,6 +17,7 @@
 //   S10 handleStripLithoAdmixtures clears admixtures on matching ghosts.
 //   S11 handleReseedLithoAdmixtures drops the admixture override.
 //   S12 handleClearLithoModel dismisses the litho suggestion ghosts.
+//   S13 contact-edit handlers route to the contact's own model (axis-safe).
 //
 // Strategy: mock the whole api.geology module so every call resolves to a
 // stable sentinel.  Drive handleSuggestLitho first (via mocked suggestLitho)
@@ -941,5 +942,32 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     // Clearing the model also wiped the ghost overlay.
     expect(result.current.focusedSuggestAnchorId).toBeNull()
     expect(result.current.ghostsByAnchor.size).toBe(0)
+  })
+
+  it("S13 — handleDeleteContact routes the DELETE to the contact's own model", async () => {
+    // Regression: the contact-edit handlers (delete / depth / batch)
+    // were hard-wired to the geological model, so deleting a litho
+    // contact 404'd. The model must be derived from the contact's own
+    // model_id — makeContact() stamps 'litho-model-1'.
+    geoApi.listContacts.mockResolvedValue([makeContact('c-litho', 'f1')])
+    geoApi.deleteContact.mockResolvedValue(undefined)
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    await act(async () => {
+      await result.current.handleDeleteContact('c-litho')
+    })
+
+    // The DELETE used the contact's model (litho-model-1), NOT the
+    // geological model (geo-model-1).
+    expect(geoApi.deleteContact).toHaveBeenCalledWith(
+      'proj-1',
+      'litho-model-1',
+      'c-litho',
+    )
   })
 })
