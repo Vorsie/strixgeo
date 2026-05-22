@@ -30,15 +30,16 @@ subdivision is built on top of it. Priority order:
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
-* **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **D. Post-launch / Phase 5:** #11, #13, #44, #52, #56, #60, #70, #71, #79, #93, #95, #101
-* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82
+* **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #115, #116, #44, #52, #56, #60, #11, #101, #70, #71, #79, #93, #95
+* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #117
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
-explicit Geotech-stage gate above. #28 / #39 and most of the old
-Tier-E list resolved across the May 2026 campaign — see git log on
-``develop`` for history.)*
+explicit Geotech-stage gate above plus #104 the export-step gap. #28 /
+#39 and most of the old Tier-E list resolved across the May 2026
+campaign. #104–#117 filed 2026-05-22 from a six-agent full-codebase
+audit. See git log on ``develop`` for history.)*
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -804,6 +805,14 @@ was rewired (2026-05-18, owner override #1) to call
 `SeedLithoFromGeologicalModel` and its endpoint remain in the codebase
 (backwards-compat suspended, future re-use), but nothing currently invokes
 them from the frontend.
+
+**Audit update 2026-05-22:** the orphan is a full 4-layer chain, not just
+the use case — `useGeologicalModel.ts handleSeedLithoFromParent` (returned
+but unconsumed), `api/client.ts seedLithoFromParent` + the
+`SeedLithoFromParentResponse` type, and the
+`POST .../contacts/seed-from-parent` endpoint. Whichever way this is
+resolved (delete the chain vs keep-for-future), all four layers move
+together.
 
 **Why deferred.** The seed-contacts approach was superseded by the
 geological surface backdrop — a read-only reference layer is lower-friction
@@ -1940,4 +1949,346 @@ done alongside the other litho drag-surface work (#98 / #99) so the
 drag-handle code is only touched once.
 
 **When to revisit.** The litho-workflow UX pass.
+
+---
+
+> The items below (#104–#117) were filed 2026-05-22 from a six-agent
+> full-codebase audit (code-quality+logging+tests / architecture+future-
+> proofness / security / cleanliness / UX / documentation). ~67 raw
+> findings consolidated into 14 items. None overlap the existing
+> backlog. All sit BELOW the Geotech-stage gate — they are tech debt,
+> hardening and polish, not litho-stage-finishing work.
+
+## 104. Three-level export gap — snapshots carry geological-level data only (Tier D — Phase-4 MVP export step)
+
+**What.** `GroundModelSnapshot` and `SectionSnapshot` carry only
+`formation_id` / `formation_name` from the geological model. Neither
+carries `litho_main_soil_code`, `nad_class`, `instance_ordinal`, or the
+three-level hierarchy. So `PlaxisExporter`, `DxfSectionExporter`,
+`PlaxisSectionExporter` export the geological level only — the
+lithostratigraphic level (a finished stage) is not in any exporter
+output, and the geotechnical level will not be either once it lands.
+
+**Why deferred.** The v1.0 MVP gate's step 5 is "export the three-level
+model geometry with unit identifiers". The build paths for litho /
+geotech contacts exist; the snapshot-assembly step does not project
+them into the export contract. Not yet built because the geotech stage
+itself is not built — but the litho-level gap is real today.
+
+**When to revisit.** Phase-4 MVP export step, after the geotech stage.
+Extend `SectionSnapshot` + `BuildSectionSnapshot` to include litho-level
+contacts keyed by `model_id`; `SectionFormation` gains optional
+`litho_main_soil_code` / `nad_class`; exporters pick the level from the
+`model_id` argument they already take. No schema change.
+
+## 105. UX contract violations — confirm dialog, dark mode, focus contrast (Tier D — pre-coworker-binary)
+
+**What.** The UX audit found three standing contract violations:
+- `SectionsInspector.tsx:470` (`SectionRow.handleDelete`) uses native
+  `window.confirm` for an irreversible cross-section delete — default
+  focus on OS "OK", no action-named button. The contact-delete and
+  toolbar-delete paths were already fixed (#62); the inspector row was
+  missed. `SectionsToolbar.tsx` has the modal pattern to copy.
+- `WelcomeScreen.tsx`, `UnsavedChangesDialog.tsx`, `NewProjectDialog.tsx`
+  use raw Tailwind palette tokens (`bg-white`, `text-gray-800`, …) with
+  no `dark:` variants — the three primary entry-point surfaces render
+  white-on-white in dark mode (WCAG AA contrast fail). `docs/ux.md`
+  mandates semantic tokens / `dark:` pairs.
+- `Button.tsx:12` hardcodes `focus-visible:ring-blue-500` — ~2.8:1 on
+  dark surfaces, fails the WCAG 2.2 AA 3:1 UI-component requirement;
+  should be the theme-aware `ring-accent`. `DeleteContactConfirmDialog`'s
+  cancel `<button>` has no focus ring at all.
+
+**Why deferred.** Real accessibility / contract bugs but not a blocker
+on a current commit; grouped so the modal-pattern + token-migration are
+done once. The dark-mode-on-WelcomeScreen one is the most user-visible
+("white on white" on a dark-OS machine).
+
+**When to revisit.** Before the coworker binary — first impression +
+accessibility floor.
+
+## 106. Application layer is welded to the ORM (Tier D — clean-architecture leak)
+
+**What.** ~20+ geology use cases (`accept_litho_suggestions.py`,
+`create_formation_contact.py`, `rebuild_model_surfaces.py`,
+`recompute_formation_surface.py`, `validate_model_crossings.py`, …)
+import ORM classes, run `select(...Orm)` queries inline, and in several
+cases RETURN `*Orm` objects as their public type (`create_formation_
+contact -> FormationContactOrm`, `update_formation_contact`,
+`extrapolate_pinch_out -> list[FormationContactOrm]`). The router then
+hands the ORM object straight to FastAPI serialisation. The domain
+layer is clean (zero infra imports — verified); the application layer
+is the leak. Returning ORM types also means a new ORM column silently
+appears on the API wire (the live-API analogue of #47).
+
+**Why deferred.** The geology use cases grew alongside the ORM;
+`GeologyRepository` exists but covers ~30% of the query surface. Not a
+runtime bug — a structural deviation from the stated layer rule.
+
+**When to revisit.** Before Phase-5 statistics work (which adds bulk
+queries that must be testable in isolation). Cheapest first step: add
+`FormationContactResult` dataclasses for the three ORM-returning use
+cases so the API boundary stops leaking.
+
+## 107. Schema integrity hardening — constraints, FKs, indexes (Tier D)
+
+**What.** The architecture audit found the schema relies on
+application-layer convention where a DB constraint should hold:
+- `geological_model.kind` has no `CHECK (kind IN (...))` — an unknown
+  kind from a future build restores silently as `'geological'`.
+- `geological_formation` has no constraint co-nullating its litho-only
+  columns; the documented `litho_main_soil_code IS NULL OR
+  parent_formation_id IS NOT NULL` CHECK (#87 residual) is still unbuilt.
+  A geological row that ever acquired a `litho_main_soil_code` would be
+  silently matched as a litho unit by the accept find-or-create scan.
+- `cpt.app_project_id` / `borehole.app_project_id` are `nullable=True`
+  (Phase-1 leftover) and no table has a real FK to `project` — orphan
+  rows are possible.
+- `geological_model.is_active` has no `UNIQUE(app_project_id, kind)
+  WHERE is_active` partial index — two actives render non-deterministically.
+- Missing read indexes: `formation_contact(model_id, cpt_id)`,
+  `litho_correlation_edge(model_id, formation_a_id)` + `(…_b_id)`.
+
+**Why deferred.** No current correctness failure under single-user use;
+each fix is one Alembic migration. Several must be coordinated with the
+backwards-compat re-arm (#47) and a one-time orphan/NULL backfill.
+
+**When to revisit.** Bundle a single "schema hardening" migration
+alongside the next geology migration; the FK + NOT NULL work folds into
+the backwards-compat re-arm (#3 / #47).
+
+## 108. Documentation refresh — docs/ + CLAUDE.md drifted from the shell + Phase-4 (Tier D)
+
+**What.** Python docstring coverage is good (DoD §2 broadly honoured);
+the debt is the prose layer:
+- `docs/desktop.md` documents a pre-shell app — `Sidebar.tsx` (deleted),
+  a flat `components/` layout; says `projectFile.ts` is "format v1" (v3).
+- `docs/api.md` covers ~61 of ~93 routes — misses the whole litho
+  correlation/segmenter workflow, SSE streaming import, PDF export, DEM
+  sample; says the bundle is ".gmproj v2" (v3).
+- `docs/parsers-dov.md` claims HTTP/2 multiplexing (proven false — DOV
+  is HTTP/1.1-only; `dov_http.py:17` docstring repeats it), omits the
+  `parsers/dov/` package + borehole/lab/Virtuele-Boring import paths,
+  and quotes a retired "500 CPTs in 4-10 s" (real: ~54 s / 316 deep).
+- CLAUDE.md's Project Structure tree + Domain Model show a Phase-2-era
+  layout and imply `Pressuremeter`/`SPT`/`VST` classes that don't exist.
+- `docs/geology-stage-architecture.md` + `docs/ui-shell-architecture.md`
+  still say "pre-implementation" for shipped code.
+- `InterpretationPane` (deleted) is cited as live in `api.md`, `ux.md`
+  and ~5 source comments; `project_bundle.py:3` docstring says "v2".
+
+**Why deferred.** A real refresh pass; the source-code docstrings are
+fine, so this is not a DoD campaign — it is the orientation docs.
+
+**When to revisit.** Before the coworker binary — docs are the second
+contributor's map. Trivial standalone fixes (do anytime): the
+`.gmproj v2`→v3 errors and the false HTTP/2 claim.
+
+## 109. BaseExporter ABC split — ProjectExporter vs SectionExporter (Tier D)
+
+**What.** `BaseExporter.export(snapshot: GroundModelSnapshot) -> bytes`
+is the declared contract, but `DxfSectionExporter`,
+`PlaxisSectionExporter` and `SectionPdfReportExporter` all override
+`export()` with a `SectionSnapshot` parameter — three of five concrete
+exporters break the ABC at the type level (suppressed with an
+unexplained `# type: ignore[override]`).
+
+**Why deferred.** Callers instantiate concrete types directly, never via
+the ABC, so no runtime bug today. But Phase-5 adds D-Stability /
+D-Sheet / GeoStudio exporters and every author has to infer the
+convention from context.
+
+**When to revisit.** Phase-5 exporter work — the third section exporter
+already exists, so this is the "split on the second concrete use"
+moment. Split into `ProjectExporter(GroundModelSnapshot)` and
+`SectionExporter(SectionSnapshot)` ABCs.
+
+## 110. Export-path duplication — Plaxis exporters + section-export boilerplate (Tier D)
+
+**What.** The cleanliness audit found heavy duplication on the export path:
+- `plaxis_exporter.py` (322 lines) and `plaxis_section_exporter.py`
+  (361 lines) are ~85% identical — `_emit_imports_and_connect`,
+  `_emit_materials`, `_material_variable_name`, `_py_str` byte-identical;
+  the borehole bottom-up cascade-fill differs only in the column key.
+- Three `cross_section.py` export endpoints (`export_section_dxf` / `_pdf`
+  / `_plaxis2d`) + `geology/exports.py` repeat the same build→ParseError-
+  404→CRS-guard→`safe_name` slug→`Response` tail; the slug logic exists
+  in 4 places.
+- `App.tsx`'s three `handleExportSection*` handlers (~45 lines each)
+  repeat the slug + save-dialog + fetch + write + toast flow; the
+  filename-slug regex is duplicated 4× in the frontend too.
+
+**Why deferred.** Works correctly; but #52's report slices B/C/D each
+add another export target and currently copy ~25-45 lines per target —
+this compounds.
+
+**When to revisit.** Before #52 slice B. Extract a `PlaxisScriptEmitter`
+shared module, a `_section_export_response(...)` router helper, a
+`runSectionExport(...)` frontend helper, and a `safeFilenameStem` util.
+
+## 111. useGeologicalModel duplication — litho-accept block + bypassed helper (Tier D)
+
+**What.** In `useGeologicalModel.ts`:
+- The four litho-accept handlers (`handleAcceptLithoSuggestion`,
+  `…AllLithoSuggestions`, `…BulkLitho`, `…AllBulkLitho`) each repeat the
+  same ~40-line post-success block (parent-summary toast, stale-TIN
+  count, `onSectionUpdated`, ghost accept-marking, two refetches,
+  `pushAcceptLithoUndo`). #87 and #91 each had to be hand-wired into all
+  four sites — the next response-field addition repeats that 4×.
+- The `setGhostsByAnchor` accept-marking immutable-update is spelled out
+  inline at 5 sites despite a purpose-built `_updateGhostEntry` helper
+  that the reject/unreject/edit handlers also bypass.
+
+**Why deferred.** No bug; but it is exactly the "extract on the second
+copy" target, and the 4× hand-wiring is a proven drift risk.
+
+**When to revisit.** Next time a litho-accept response field is added —
+extract `applyAcceptResult(...)` and route the ghost mutations through
+`_updateGhostEntry` first.
+
+## 112. Bundle / restore + API input bounds (Tier B — pre-distribution hardening)
+
+**What.** The security audit found the bundle-bounds story (started
+2026-05-13) has gaps:
+- CPT/borehole depth-series arrays are typed `dict[str, Any]` in
+  `ProjectBundleRequest` — uncapped element counts. A single CPT with a
+  5 M-element `depths_m` array fits the 256 MiB body cap (~35 MB as
+  JSON) but allocates ~280 MB of Python heap on restore. The
+  `_MAX_TIN_ARRAY_LEN = 200_000` cap on TIN blobs is the pattern; series
+  arrays are the gap.
+- `FormationSurface.vertices` / `.triangles` JSONB has no structural
+  validation on restore — a hand-edited `.gmproj` with malformed tuples
+  passes the size cap and crashes the TIN code at an unpredictable point.
+- `export_section_pdf`'s `title` / `author` / `notes` query params have
+  no length cap — query strings bypass `BodySizeLimitMiddleware`.
+
+**Why deferred.** All DoS-class with self-impact only (localhost,
+single-user) — but the `.gmproj` file is the user-owned, shareable,
+tamper-accessible surface, and bounds exist everywhere else.
+
+**When to revisit.** Before the coworker binary. Add `_MAX_SERIES_ROWS
+= 100_000`, a `_validate_tin_payload` structural check in the restore
+path, and `Query(max_length=…)` on the PDF params.
+
+## 113. Security pattern-risk cleanup (Tier B — pre-coworker-binary)
+
+**What.** Five not-currently-exploitable pattern risks that become
+load-bearing when auth (#3/#4) or any server-sourced UI data lands:
+- `Settings.secret_key` defaults to `"change-me"` — silent weak-key
+  footgun the moment the auth layer reaches for it. Add a startup
+  assertion or drop the default.
+- `dov_scalar_observation_client.py` `_build_cql_filter` interpolates
+  parameter strings with single-quote delimiters on a comment-only "no
+  quotes in values" assumption — add a module-load assertion against
+  `DOV_OTHER_SCALAR_LAB_TEST_PARAMETERS`.
+- `DOV_VALID_PERMKEY_RE` uses `^`/`$` (line anchors) not `\A`/`\Z` —
+  inconsistent with `virtuele_boring.py` which already uses `\A`/`\Z`.
+- `MapView.tsx` passes Leaflet `attribution` as raw HTML — fine for
+  today's hardcoded constants; an XSS path if attribution ever becomes
+  dynamic. Add a comment at the binding site.
+- IPC `window:set-title` has no string length cap — the one unbounded
+  renderer→main string left after the 2026-05-13 IPC hardening.
+
+**Why deferred.** None exploitable under today's single-user, hardcoded-
+data deployment. Cheap, mechanical fixes.
+
+**When to revisit.** Fold into the #3 license/auth work, or knock out as
+a batch before the coworker binary.
+
+## 114. Large-file readability — bundle restore fn + ContactsLayer (Tier E)
+
+**What.** Two maintenance hotspots flagged by the cleanliness audit:
+- `_restore_project_bundle_impl` (`project_bundle.py`) is a ~560-line
+  function with 9 near-identical idempotent-insert blocks (CPTs,
+  boreholes, formations, units, models+contacts, surfaces, sections,
+  reviews, edges). Each block builds a different ORM with genuinely
+  different validation — a full generic extractor would be over-
+  abstraction — but it should be decomposed into 9 named `_restore_*`
+  helpers for reviewability.
+- `ContactsLayer.tsx` is a 2756-line component with 7 overlapping
+  polyline/geometry `useMemo`s and is the locus of recurring section
+  bugs (#28, #62, #99). The memos likely share a "project contacts →
+  sorted SVG path" core extractable to a unit-testable `utils/` helper.
+
+**Why deferred.** Both work correctly — pure readability / reviewability
+cost, no behaviour change.
+
+**When to revisit.** Decompose the restore function opportunistically
+the next time it is touched; the ContactsLayer extraction deserves its
+own focused pass (it is a recurring bug site).
+
+## 115. UX polish batch (Tier D)
+
+**What.** The UX audit's should-fix / consider tier:
+- `SectionsInspector` `InspectorSection` blocks are not collapsible —
+  the 420 px inspector overflows on a project with many sections +
+  formations + the Virtuele Boring strip. gINT/LeapFrog use collapsible
+  accordions; persist collapse state to localStorage.
+- `DataInspector.tsx:488` "Remove" uses `bg-status-danger` (red) for a
+  *reversible* project-local hide — red should be reserved for
+  irreversible intent.
+- `BoreholeLog.tsx:564` track header shows the translated label with no
+  raw-token `title` tooltip — violates the translate-at-boundary rule
+  ("show the source token so experts can verify the mapping").
+- `WelcomeScreen` dismiss + recent-project buttons have no focus ring.
+- `PerUnitTab` Phase-5 placeholder columns have no `aria-disabled` /
+  descriptive label — a screen-reader user tabs into a dead column.
+- `StageSpine` `SelectionFooter` has a dead `count===1 ? 'sel.' : 'sel.'`
+  ternary and an opaque "sel." label with no `aria-label`.
+- Tab bars are inconsistent — `ParametersCanvas` has proper
+  `role="tablist"` ARIA, `DataInspector` uses plain buttons; extract a
+  shared `TabBar` primitive with arrow-key nav.
+
+**Why deferred.** Polish — none blocking; batched so the inspector /
+token / ARIA work is done coherently.
+
+**When to revisit.** A Sections/Data-stage UX pass, or when the next tab
+surface is added (do the `TabBar` primitive then).
+
+## 116. Test coverage gaps — RebuildModelSurfaces + SectionPdfReportExporter (Tier D)
+
+**What.** Two non-trivial modules have no unit tests (DoD §4):
+- `application/rebuild_model_surfaces.py` — the user's manual TIN-repair
+  escape hatch; the contact→formation grouping logic has no CI gate.
+- `infrastructure/exporters/section_pdf_report_exporter.py` — #52 slice
+  1; a substantial ReportLab/matplotlib layout engine. `test_pdf_layout.py`
+  covers the `packed_column_positions` pure helper but not the exporter,
+  and slices B/C/D will land on top of untested code.
+
+**Why deferred.** Both work; the gap is a regression net, not a bug.
+
+**When to revisit.** Add `test_rebuild_model_surfaces.py` (no-contacts,
+two-formation, one-formation-raises) opportunistically; add the exporter
+test before #52 slice B.
+
+## 117. Audit cleanup batch — logging gaps, conventions, quick fixes (Tier E)
+
+**What.** Small, mechanical fixes from the audit, grouped:
+- **Logging:** `import_samples_dov.py` `_persist_caco3` / `_persist_organic`
+  / `_persist_water_content` / `_persist_atterberg` loops have no
+  `[i/total]` progress prefix (DoD §1) — those import phases are
+  invisible in the log. `_persist_scalar_lab_tests` is the correct model.
+- **Conventions:** module-level constants live in class files —
+  `section_pdf_report_exporter.py` (6 layout constants) and
+  `litho_segmentation.py` (the `ROBERTSON_ST_TO_LITHOLOGY` /
+  `DOV_HOOFDNAAM_TO_LITHOLOGY` dicts, Phase-5 tuning targets) — move to
+  `*_constants.py` siblings.
+- Stub exporters `geostudio_exporter.py` / `dsheet_exporter.py` raise
+  `NotImplementedError` → reaches the client as a 500; the router should
+  translate to 501.
+- `import_samples_dov.py:330` — dead `result.grain_sizes_skipped_no_sample
+  += 0` no-op; delete it (the real `_failed` increment is the next line).
+- Two `eslint-disable` reason comments cross-reference another handler
+  instead of standing alone (`App.tsx:654`, `useGeologicalModel.ts:3604`)
+  — `check_eslint_reason.py` only checks for the token, so they pass CI.
+- Mid-module import block in `import_interpretations_dov.py` (wedged
+  below `_FLAG_TO_TYPE`) — move above the constant.
+- `plaxis_section_exporter.py` `# type: ignore[override]` has no inline
+  reason.
+
+**Why deferred.** All trivial; batched so they are one tidy commit pass,
+not 8 micro-commits.
+
+**When to revisit.** Any low-focus session — knock the batch out in one
+sitting.
 
