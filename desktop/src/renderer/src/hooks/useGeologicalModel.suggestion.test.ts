@@ -14,6 +14,8 @@
 //   S7  Switching the active litho model clears a showing overlay (B-1).
 //   S8  Accept pushes an undo command that deletes the created rows.
 //   S9  Accepting an already-committed (found-only) layer pushes no undo.
+//   S10 handleStripLithoAdmixtures clears admixtures on matching ghosts.
+//   S11 handleReseedLithoAdmixtures drops the admixture override.
 //
 // Strategy: mock the whole api.geology module so every call resolves to a
 // stable sentinel.  Drive handleSuggestLitho first (via mocked suggestLitho)
@@ -848,5 +850,60 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     })
 
     expect(args.pushUndo).not.toHaveBeenCalled()
+  })
+
+  it('S10 — handleStripLithoAdmixtures clears admixtures on matching ghosts', async () => {
+    const suggestions: LithoLayerSuggestion[] = [
+      makeSuggestion('ZAND', 0.0, {
+        suggested_admixtures: [{ soil_code: 'KL', amount: 'M', locally: false }],
+      }),
+    ]
+    geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+
+    act(() => {
+      result.current.handleStripLithoAdmixtures('borehole')
+    })
+
+    // The ghost layer carries an edit with empty admixtures.
+    expect(focused(result)?.edits.get(0)?.suggested_admixtures).toEqual([])
+  })
+
+  it('S11 — handleReseedLithoAdmixtures drops the admixture override on borehole ghosts', async () => {
+    const suggestions: LithoLayerSuggestion[] = [
+      makeSuggestion('ZAND', 0.0, {
+        suggested_admixtures: [{ soil_code: 'KL', amount: 'M', locally: false }],
+      }),
+    ]
+    geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+
+    // Strip, then reseed — the override is removed and the layer falls
+    // back to the raw segmenter admixtures.
+    act(() => {
+      result.current.handleStripLithoAdmixtures('borehole')
+    })
+    expect(focused(result)?.edits.get(0)?.suggested_admixtures).toEqual([])
+
+    act(() => {
+      result.current.handleReseedLithoAdmixtures()
+    })
+    expect(focused(result)?.edits.get(0)?.suggested_admixtures).toBeUndefined()
   })
 })

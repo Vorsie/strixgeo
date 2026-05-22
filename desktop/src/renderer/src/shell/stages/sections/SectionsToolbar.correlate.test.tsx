@@ -225,6 +225,8 @@ function makeCtx(overrides: {
       handleUnrejectBulkLitho: () => {},
       handleEditBulkLitho: () => {},
       clearBulkLithoGhosts: () => {},
+      handleStripLithoAdmixtures: () => {},
+      handleReseedLithoAdmixtures: () => {},
       refetchLithoContacts: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,

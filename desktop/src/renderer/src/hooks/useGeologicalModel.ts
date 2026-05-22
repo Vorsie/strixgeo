@@ -433,6 +433,18 @@ export interface UseGeologicalModelResult {
   /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
   clearBulkLithoGhosts: () => void
   /**
+   * Strip admixtures from ghost suggestions, scoped by anchor kind
+   * ('cpt' / 'borehole' / 'all'). Edits the ephemeral ghost map only —
+   * accept commits whatever the ghost is showing.
+   */
+  handleStripLithoAdmixtures: (scope: 'cpt' | 'borehole' | 'all') => void
+  /**
+   * Reseed admixtures on borehole ghost suggestions — drops the
+   * admixture override so the layers revert to the segmenter's raw
+   * (ObservationLayer-derived) admixtures.
+   */
+  handleReseedLithoAdmixtures: () => void
+  /**
    * Fetch lithostratigraphic suggestions for one investigation.
    * Stores results in ``lithoSuggestions`` for the ghost overlay.
    * Clears any prior accepted/rejected state.
@@ -2888,6 +2900,123 @@ export function useGeologicalModel({
     setBulkLithoSuggesting(false)
   }, [])
 
+  /**
+   * Strip admixtures from ghost suggestions (dogfeed 2026-05-22).
+   *
+   * Sets ``suggested_admixtures: []`` as an edit on every ghost layer
+   * whose anchor matches ``scope`` ('cpt' / 'borehole' / 'all'). The
+   * CPT segmenter's Robertson-derived admixtures are noisier than the
+   * borehole observation-log admixtures, so the common workflow is
+   * "strip all, then reseed boreholes" — see ``handleReseedLithoAdmixtures``.
+   * Operates on the ephemeral ghost edit map only; accept commits
+   * whatever the ghost is currently showing.
+   */
+  const handleStripLithoAdmixtures = useCallback(
+    (scope: 'cpt' | 'borehole' | 'all'): void => {
+      const targets = Array.from(ghostsByAnchor.entries()).filter(
+        ([, g]) =>
+          (scope === 'all' || g.kind === scope) && g.suggestions.length > 0,
+      )
+      if (targets.length === 0) {
+        toast(
+          'error',
+          `No ${scope === 'all' ? '' : `${scope} `}ghost suggestions to strip.`,
+        )
+        return
+      }
+      const layerCount = targets.reduce((n, [, g]) => n + g.suggestions.length, 0)
+      const targetIds = new Set(targets.map(([id]) => id))
+      setGhostsByAnchor(prev => {
+        const next = new Map(prev)
+        for (const anchorId of targetIds) {
+          const ghost = next.get(anchorId)
+          if (!ghost) continue
+          const nextEdits = new Map(ghost.edits)
+          for (let i = 0; i < ghost.suggestions.length; i++) {
+            nextEdits.set(i, {
+              ...(nextEdits.get(i) ?? {}),
+              suggested_admixtures: [],
+            })
+          }
+          next.set(anchorId, { ...ghost, edits: nextEdits })
+        }
+        return next
+      })
+      log.info(
+        'geology',
+        `stripLithoAdmixtures scope=${scope} layers=${layerCount} anchors=${targets.length}`,
+      )
+      toast(
+        'success',
+        `Stripped admixtures from ${layerCount} layer${layerCount === 1 ? '' : 's'}.`,
+      )
+    },
+    [ghostsByAnchor, toast],
+  )
+
+  /**
+   * Reseed admixtures on borehole ghost suggestions (dogfeed 2026-05-22).
+   *
+   * Drops the ``suggested_admixtures`` override from every borehole
+   * ghost's edit map so the layers fall back to the segmenter's raw
+   * admixtures (which, for boreholes, come from the ObservationLayer
+   * descriptions and are trustworthy). The inverse of a prior
+   * ``handleStripLithoAdmixtures('borehole')`` / strip-all. Depth and
+   * lithology edits on the same layer are preserved.
+   */
+  const handleReseedLithoAdmixtures = useCallback((): void => {
+    const targets = Array.from(ghostsByAnchor.entries()).filter(
+      ([, g]) =>
+        g.kind === 'borehole' &&
+        Array.from(g.edits.values()).some(
+          e => e.suggested_admixtures !== undefined,
+        ),
+    )
+    if (targets.length === 0) {
+      toast('error', 'No overridden borehole admixtures to restore.')
+      return
+    }
+    const layerCount = targets.reduce(
+      (n, [, g]) =>
+        n +
+        Array.from(g.edits.values()).filter(
+          e => e.suggested_admixtures !== undefined,
+        ).length,
+      0,
+    )
+    const targetIds = new Set(targets.map(([id]) => id))
+    setGhostsByAnchor(prev => {
+      const next = new Map(prev)
+      for (const anchorId of targetIds) {
+        const ghost = next.get(anchorId)
+        if (!ghost) continue
+        const nextEdits = new Map<number, LithoSuggestionEdit>()
+        for (const [idx, edit] of ghost.edits) {
+          if (edit.suggested_admixtures === undefined) {
+            nextEdits.set(idx, edit)
+            continue
+          }
+          // Drop only the admixture override; keep depth/lithology edits.
+          const rest: LithoSuggestionEdit = { ...edit }
+          delete rest.suggested_admixtures
+          if (Object.keys(rest).length > 0) nextEdits.set(idx, rest)
+        }
+        next.set(anchorId, { ...ghost, edits: nextEdits })
+      }
+      return next
+    })
+    log.info(
+      'geology',
+      `reseedLithoAdmixtures boreholes layers=${layerCount} anchors=${targets.length}`,
+    )
+    toast(
+      'success',
+      `Restored segmenter admixtures on ${layerCount} borehole layer${
+        layerCount === 1 ? '' : 's'
+      }.`,
+    )
+  }, [ghostsByAnchor, toast])
+
   // Shared helper — apply a partial update to one entry in the
   // unified Map. Used by every per-anchor update site (single accept,
   // single reject, bulk accept, bulk reject, edit, ...). The closure
@@ -4099,6 +4228,8 @@ export function useGeologicalModel({
     handleEditBulkLitho,
     handleInsertLithoLayer,
     clearBulkLithoGhosts,
+    handleStripLithoAdmixtures,
+    handleReseedLithoAdmixtures,
     pinchOutPreview,
     pinchOutLoading,
     handlePreviewPinchOut,

@@ -259,6 +259,8 @@ function makeCtx(overrides: {
       handleEditBulkLitho: () => {},
     handleInsertLithoLayer: vi.fn(),
       clearBulkLithoGhosts: () => {},
+      handleStripLithoAdmixtures: () => {},
+      handleReseedLithoAdmixtures: () => {},
       refetchLithoContacts: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,
@@ -798,5 +800,62 @@ describe('SectionsToolbar undo button (dogfeed 2026-05-22)', () => {
     expect(btn).not.toBeDisabled()
     fireEvent.click(btn)
     expect(undo).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('SectionsToolbar Admixtures dropdown (dogfeed 2026-05-22)', () => {
+  const sampleSuggestion = {
+    depth_top_m: 0,
+    depth_base_m: 2,
+    suggested_lithology: 'ZAND',
+    suggested_nad_class: null,
+    mean_qc_mpa: null,
+    dr_pct: null,
+    confidence: 'medium' as const,
+    source: 'robertson2015',
+    suggested_admixtures: [],
+    parent_formation_id: null,
+    spans_boundary: false,
+  }
+
+  it('A1 — Admixtures dropdown is disabled with no ghost suggestions', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+    })
+    renderToolbar(ctx)
+    expect(screen.getByRole('button', { name: /admixtures/i })).toBeDisabled()
+  })
+
+  it('A2 — Admixtures dropdown is enabled when ghost suggestions exist', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+      lithoSuggestions: [sampleSuggestion],
+    })
+    renderToolbar(ctx)
+    expect(screen.getByRole('button', { name: /admixtures/i })).not.toBeDisabled()
+  })
+
+  it('A3 — "Strip all admixtures" calls handleStripLithoAdmixtures', () => {
+    const strip = vi.fn()
+    const ctx: ShellContextValue = {
+      ...makeCtx({
+        activeLithoModel: makeLithoModel(),
+        sectionModelAxis: 'lithostratigraphic',
+        lithoSuggestions: [sampleSuggestion],
+      }),
+      geoModel: {
+        ...makeCtx({
+          activeLithoModel: makeLithoModel(),
+          lithoSuggestions: [sampleSuggestion],
+        }).geoModel,
+        handleStripLithoAdmixtures: strip,
+      },
+    }
+    renderToolbar(ctx)
+    fireEvent.click(screen.getByRole('button', { name: /admixtures/i }))
+    fireEvent.click(screen.getByTestId('litho-strip-all'))
+    expect(strip).toHaveBeenCalledWith('all')
   })
 })

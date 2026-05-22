@@ -234,6 +234,8 @@ function makeCtx(overrides: {
       handleEditBulkLitho: () => {},
     handleInsertLithoLayer: vi.fn(),
       clearBulkLithoGhosts: () => {},
+      handleStripLithoAdmixtures: () => {},
+      handleReseedLithoAdmixtures: () => {},
       refetchLithoContacts: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,

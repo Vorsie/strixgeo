@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge, Undo2 } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 
 import { useShell } from '../../ShellContext'
@@ -70,6 +70,8 @@ export default function SectionsToolbar(): JSX.Element {
       handleSuggestAllLitho,
       handleAcceptAllBulkLitho,
       clearBulkLithoGhosts,
+      handleStripLithoAdmixtures,
+      handleReseedLithoAdmixtures,
       // Debt #92 "new tests" filter: scope the new toolbar verbs to
       // investigations not yet in the active model's contact set.
       contacts,
@@ -313,6 +315,23 @@ export default function SectionsToolbar(): JSX.Element {
     (focusedSuggestAnchorId !== null && ghostsByAnchor.has(focusedSuggestAnchorId)
       ? 1
       : 0)
+
+  // Ghost-suggestion counts by anchor kind — drive the Admixtures
+  // dropdown's per-scope enable state (dogfeed 2026-05-22).
+  const cptGhostCount = useMemo(
+    () =>
+      Array.from(ghostsByAnchor.values()).filter(
+        g => g.kind === 'cpt' && g.suggestions.length > 0,
+      ).length,
+    [ghostsByAnchor],
+  )
+  const boreholeGhostCount = useMemo(
+    () =>
+      Array.from(ghostsByAnchor.values()).filter(
+        g => g.kind === 'borehole' && g.suggestions.length > 0,
+      ).length,
+    [ghostsByAnchor],
+  )
 
   async function handleSuggest(): Promise<void> {
     if (!canSuggest || lithoSuggesting || !focusedAnchorKind || !focusedAnchorId) return
@@ -703,6 +722,65 @@ export default function SectionsToolbar(): JSX.Element {
             // here, not "unsaved") because it makes the active mode obvious
             // without adding a new token. Amber = ongoing action in progress.
             amber={correlateMode}
+          />
+          {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
+              admixtures on the ghost suggestions before accepting. The
+              CPT segmenter's admixtures are noisier than the borehole
+              observation-log ones, so "strip all → reseed boreholes" is
+              a common cleanup. Operates on ghost state only. */}
+          <ToolbarDropdown
+            icon={<FlaskConical size={13} />}
+            label="Admixtures"
+            disabled={cptGhostCount === 0 && boreholeGhostCount === 0}
+            title={
+              cptGhostCount === 0 && boreholeGhostCount === 0
+                ? 'Suggest litho layers first — admixture edits act on ghost suggestions'
+                : 'Strip or reseed admixtures on the current ghost suggestions'
+            }
+            testid="litho-admixtures-dropdown"
+            items={[
+              {
+                label: `Strip CPT admixtures${cptGhostCount > 0 ? ` (${cptGhostCount})` : ''}`,
+                icon: <Eraser size={12} />,
+                onClick: () => handleStripLithoAdmixtures('cpt'),
+                disabled: cptGhostCount === 0,
+                title:
+                  cptGhostCount === 0
+                    ? 'No CPT ghost suggestions'
+                    : 'Clear admixtures from every CPT ghost suggestion',
+                testid: 'litho-strip-cpt',
+              },
+              {
+                label: `Strip borehole admixtures${boreholeGhostCount > 0 ? ` (${boreholeGhostCount})` : ''}`,
+                icon: <Eraser size={12} />,
+                onClick: () => handleStripLithoAdmixtures('borehole'),
+                disabled: boreholeGhostCount === 0,
+                title:
+                  boreholeGhostCount === 0
+                    ? 'No borehole ghost suggestions'
+                    : 'Clear admixtures from every borehole ghost suggestion',
+                testid: 'litho-strip-borehole',
+              },
+              {
+                label: 'Strip all admixtures',
+                icon: <Eraser size={12} />,
+                onClick: () => handleStripLithoAdmixtures('all'),
+                disabled: cptGhostCount === 0 && boreholeGhostCount === 0,
+                title: 'Clear admixtures from every ghost suggestion',
+                testid: 'litho-strip-all',
+              },
+              {
+                label: 'Reseed borehole admixtures',
+                icon: <Sparkles size={12} />,
+                onClick: () => handleReseedLithoAdmixtures(),
+                disabled: boreholeGhostCount === 0,
+                title:
+                  boreholeGhostCount === 0
+                    ? 'No borehole ghost suggestions'
+                    : 'Restore the segmenter’s admixtures on borehole ghosts (undo a strip)',
+                testid: 'litho-reseed-borehole',
+              },
+            ]}
           />
           {/* Separator after litho-specific actions */}
           <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
