@@ -1399,24 +1399,6 @@ is the common case (the user just edited a composition and is
 pasting next door); cross-column overwrite without confirmation is
 a one-step undoable action via re-opening the editor.
 
-## 96. Faded "Klei" raw-Dutch leak in the section editor (Tier E — translation leak)
-
-**What.**  Dogfeed 2026-05-21 (image 5): a faint "Klei" label visible
-behind a Clay layer on the right CPT column.  "Klei" is the raw DOV
-hoofdnaam code, which should be translated to "Clay" before the user
-sees it.  The leak indicates that one rendering path is reading the
-raw token instead of going through the ``LITHOLOGY_LABELS`` lookup.
-
-**Why deferred.**  Cosmetic — the layer is clearly identified by the
-parallel "Clay" label that DOES come through the translator.  Hunt
-needs the affected image inspected against the React DevTools to
-locate the offending render path; not an immediate blocker.
-
-**When to revisit.**  Before the first external/coworker binary
-(debt #93 trigger).  Translation leaks are obvious to a Dutch-speaking
-engineer in the field; cleaning them is a low-cost polish that
-improves perceived quality.
-
 ## 95. Lithology gesture cheatsheet + drag-and-drop discoverability (Tier D)
 
 **What.**  Dogfeed 2026-05-21: "How do I drag-and-drop lithology?
@@ -1446,52 +1428,6 @@ list per stage) is the load-bearing piece, not the code.
 **When to revisit.**  Same trigger as #93 — pre-coworker-binary.  The
 first dogfeed user's "how do I X" questions become the cheatsheet's
 top entries.
-
-## 94. Litho contacts persist across reboots without save (Tier D — persistence-model friction)
-
-**What.**  Dogfeed 2026-05-21: "I'm seeing a lot of suggestions before
-I clicked Suggest, criss-cross of lines… I think I might have clicked
-Build litho model but should have been gone when I rebooted, because
-I didn't save."
-
-The criss-cross polylines are committed litho contacts in the DB
-from a prior session.  Per the architecture (DB = live source of
-truth; .gmproj = portable artifact), Accept-litho commits contacts
-immediately — like an import — and they survive a reboot without an
-explicit File → Save.  This is *correct* per the existing
-``project_two_stage_save_model`` invariant ("imports stay out of the
-two-stage model") but breaks the user's expectation that the section
-view should be empty on a clean reopen.
-
-The user's intuition matches the Word/Plaxis behaviour they reach
-for: changes are tentative until Save commits them.  Accept-litho
-doesn't fit that — it's currently more like an import.
-
-**Possible fixes** (decision needed):
-
-1. **Promote accept-litho into the two-stage save model.**  Accepted
-   contacts go into a "staged" set; File → Save commits to the DB.
-   Significant architectural change — accept-litho's current flow
-   PATCHes the DB immediately, and the bundle/restore path assumes
-   contacts are durable.  Highest fidelity to the user's mental
-   model.
-2. **Surface the persistence explicitly.**  On litho section open,
-   render an inspector pill: "N committed litho contacts from prior
-   work" with a one-click "Wipe litho contacts" verb.  Doesn't
-   change the persistence model; makes the state visible and
-   recoverable.  Smallest scope.
-3. **Status-quo + docs.**  Document in the tutorial (#93) that
-   Accept-litho is a save.  Cheapest but leaves the friction.
-
-**Why deferred.**  Option 1 is the user-correct answer but it touches
-the bundle/restore contract + every consumer that reads contacts
-directly from the DB.  Worth a focused design pass, not a quick fix.
-Option 2 is a 1-day deliverable that lands well alongside #93/#95.
-
-**When to revisit.**  Owner decision before the next dogfeed week or
-the first external binary, whichever comes first.  Pick option 2 if
-the goal is to ship soon; pick option 1 if the goal is mental-model
-parity with Word/Plaxis.
 
 ## 93. First-use tutorial + per-stage "next step" hinting (Tier D — onboarding)
 
