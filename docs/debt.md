@@ -6,15 +6,39 @@ context without rediscovering it from grep. **Order is strict
 priority — top is highest, bottom is lowest. Tiers are grouped, but
 within each tier the order also matters.**
 
-Five tiers (priority order WITHIN each tier matters too — the list
-below is the canonical ordering, not the numeric order of the
-sections that follow):
+Priority is **milestone-gated**. The next build milestone is the
+**Geotechnical-subdivision stage** (Phase 4 MVP step 4 —
+lithostratigraphic unit → NAD packing class + CPT-derived indicators).
+It cannot start until the **lithostratigraphic stage is finished** — so
+the items that finish the litho stage are the top group, **above an
+explicit gate**. Within every group the order is also strict priority.
+This list is the canonical ordering, not the numeric order of the
+sections that follow.
 
-* **A. Phase 4 engineering blockers** *(none open — #1 resolved 2026-05-14; the MVP gate's "DXF and/or Plaxis" is satisfied by the DXF + Plaxis-3D exporters that shipped)*
+### ═══ G. Before the Geotech stage — finish the litho stage ═══
+
+The litho ghost-review workflow must be solid before geotech
+subdivision is built on top of it. Priority order:
+
+* **#99** — litho drag-clamp must pass through rejected layers (bug)
+* **#98** — litho "add a layer" discoverability + right-click Split (owner green-lit)
+* **#102** — same-lithology boundary merge button
+* **#100** — Correlate tool UX pass (clunky / crisscrossing edges)
+* **#76** — accept-all "splits" displayed layers — diagnostic
+* **#103** — CPT layer-drag depth readout box
+* **#97** — Sections-stage toolbar refactor (do before Geotech adds verbs)
+
+### ═══ GEOTECH-STAGE GATE — everything below waits ═══
+
 * **B. Commercial launch gates — pre-paid-revenue:** #2, #3, #4, #5, #6, #7, #47
-* **C. Current work — dogfeed correctness / velocity / friction (pre-external-users, 2026-05-16 re-tier):** #98 (litho add-layer discoverability + right-click Split — owner green-lit), #99 (litho drag-clamp must pass through rejected layers — dogfeed bug), #41 (Geology3DViewer untested — residual after pure-helper extract) *(#55 litho peer-stage scaffolding RESOLVED 2026-05-18: LithologyStage StageDescriptor + LithologyCanvas [single-viewport Geology3DViewer when hasLithoSurfaces, guided EmptyState otherwise, module-level resetLithoCameraCallback, ground-surface useEffect keyed on lithoModelId] + LithologyInspector [ModelKindPicker + stale-surface info banner + read-only formation roster with contact counts + workflow guidance footer] + LithologyToolbar [Reset Camera visible when hasLithoSurfaces] + `lithoStaleSurfaceCount` useMemo + `handleRebuildLithoSurfaces` useCallback in useGeologicalModel; SectionsToolbar litho-axis Build button with stale-count amber badge. L1–L5 hook + BL1–BL4 toolbar + I1–I3 inspector + C1–C2 canvas vitest green; 808 unit total. #58 formal/informal bridge resolved 2026-05-18: `build_formal_informal_bridge` + `_resolve_bridge_key` threaded into the shared scan/execute pipeline; 12 new unit tests B1–B6/R1–R4/I1–I3 + 49 integration green; Gavere dogfeed has 22 dual-stream boreholes — bridge actively helps. One-time stale-lump gap: pre-bridge formal-keyed `stratigraphy_lumping` entries silently skip on first run; user re-lumps once. No #59 "also known as" hint in dialog — post-confirmation scope. #57 dedupe survivor-swap now seeds the survivor id into the section on the 409 path — shared `_seed_section_contacts` helper across the 201/409/Seed sites, unit + integration green, resolved 2026-05-18; #12, #36, #37, #38, #40, #43, #51 resolved 2026-05-16/17 — #12 resolved on substantive completion + revised DoD: App.tsx 3,200→833, the dangerous shellContextValue memo isolated + netted, Sidebar gone; strict `<400` de-scoped as low-value coordinator-pattern churn — see #53 for the residual dep-array tracking)* *(launch-demo blockers #29–#35 all cleared 2026-05-16; bundling/commercial Tier B deferred — owner directive: app not feature-ready for packaging. This tier front-loads a data-loss landmine + the velocity-multiplier test/refactor work that gates the UI-rework / geotech-model / parametrisation roadmap, then the cheap dogfeed-friction fixes.)*
-* **D. Post-launch / Phase 5:** #11, #13, #28, #39, #44, #52, #60, #97, #100, #101, #102, #103
-* **E. Lower technical debt:** #15, #16, #17, #18, #22, #23, #26, #27, #42, #45, #46, #48, #49, #50, #53, #64, #65, #66, #67
+* **D. Post-launch / Phase 5:** #11, #13, #44, #52, #56, #60, #70, #71, #79, #93, #95, #101
+* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82
+
+*(Tiers A "Phase 4 engineering blockers" and C "current work" are
+retired into this structure — the remaining Phase-4 work is the
+explicit Geotech-stage gate above. #28 / #39 and most of the old
+Tier-E list resolved across the May 2026 campaign — see git log on
+``develop`` for history.)*
 
 When an item is resolved, **delete it from this list** — its
 implementation history lives in the relevant commit on ``develop``,
@@ -795,7 +819,7 @@ it, at which point delete it cleanly.
 
 ---
 
-## 56. Manual-lump cross-project reuse + standalone group editor (Tier C — deferred)
+## 56. Manual-lump cross-project reuse + standalone group editor (Tier D — deferred)
 
 **What.** The manual stratigraphy lumping map (`stratigraphy_lumping.map` in
 the `.gmproj` bundle, scope step 7) is per-project and entirely in the user's
@@ -1116,7 +1140,7 @@ deterministic, reviewable outputs first.
 200 litho accepts across ≥ 3 real projects AND the owner has spot-
 audited a representative sample. Don't fit a model on toy data.
 
-## 76. Accept-all sometimes "splits" displayed layers post-accept (Tier E — diagnostic needed)
+## 76. Accept-all sometimes "splits" displayed layers post-accept (Tier G — before the Geotech stage; diagnostic)
 
 **What.** Owner observed (2026-05-20 dogfeed) that clicking `Accept
 all` on a ghost overlay results in layers being visually "split"
@@ -1709,7 +1733,7 @@ auto-inserted after `parent_formation_name`.
 > "add / edit / merge a litho layer" surface — best done as one or
 > two focused passes, not scattered micro-patches.
 
-## 97. Sections-stage toolbar refactor — model verbs move to the inspector (Tier D)
+## 97. Sections-stage toolbar refactor — model verbs move to the inspector (Tier G — before the Geotech stage)
 
 **What.** The Sections-stage toolbar carries ~13 controls on the litho
 axis, mixing four scopes flat: global-edit (Undo), section management
@@ -1744,7 +1768,7 @@ Best as one focused pass — run it past `ux-reviewer` before building.
 Geotech-axis verbs land and push the toolbar further past the scan
 limit.
 
-## 98. Litho ghost-review: "add a layer" discoverability + right-click Split (Tier C)
+## 98. Litho ghost-review: "add a layer" discoverability + right-click Split (Tier G — before the Geotech stage)
 
 **What.** Adding a litho layer during ghost review has no discoverable
 home. The only path today is the #85 boundary insert-strip — a 6 px
@@ -1776,7 +1800,7 @@ a long session; deserves its own focused implementation.
 **When to revisit.** Immediately — owner explicitly green-lit it. The
 first task of the next litho-workflow pass.
 
-## 99. Litho drag-resize clamp does not pass through rejected layers (Tier C — bug)
+## 99. Litho drag-resize clamp does not pass through rejected layers (Tier G — before the Geotech stage; bug)
 
 **What.** Dogfeed 2026-05-22: the user rejected a litho ghost layer,
 then tried to drag the boundary of the sand layer below it *up* — and
@@ -1798,7 +1822,7 @@ gestures.
 
 **When to revisit.** Next litho-workflow pass, alongside #98.
 
-## 100. Correlate tool — UX pass (Tier D)
+## 100. Correlate tool — UX pass (Tier G — before the Geotech stage)
 
 **What.** Dogfeed 2026-05-22: "I still don't know how the Correlate
 tool works, it's looking so clunky, now I just see lines
@@ -1873,7 +1897,7 @@ points is on the roadmap — or earlier if a dogfeed project has a
 lithology that genuinely cannot be modelled as continuous and the
 wedge tool is insufficient.
 
-## 102. Merge button for a same-lithology boundary (Tier D)
+## 102. Merge button for a same-lithology boundary (Tier G — before the Geotech stage)
 
 **What.** Dogfeed 2026-05-22: after "Suggest litho", the segmenter
 sometimes produces adjacent layers with the *same* lithology stacked on
@@ -1902,7 +1926,7 @@ drag-resize one layer to absorb the other.
 **When to revisit.** The litho-workflow UX pass — natural companion to
 #98 (the boundary is the shared surface).
 
-## 103. CPT layer-drag depth readout box (Tier D)
+## 103. CPT layer-drag depth readout box (Tier G — before the Geotech stage)
 
 **What.** When the user drags a litho layer boundary on a CPT column
 there is no live depth readout. Request (dogfeed 2026-05-22): show a
