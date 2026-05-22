@@ -336,7 +336,15 @@ function makeCtx(overrides: {
     },
     toasts: [],
     toast: vi.fn(),
-    undoStack: [],
+    undo: {
+      push: vi.fn(),
+      undo: noopAsync,
+      redo: noopAsync,
+      clear: vi.fn(),
+      canUndo: false,
+      canRedo: false,
+      busy: false,
+    },
     ready: true,
     apiError: null,
   } as unknown as ShellContextValue

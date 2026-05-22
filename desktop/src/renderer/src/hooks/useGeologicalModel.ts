@@ -3050,6 +3050,106 @@ export function useGeologicalModel({
     [project, clearLithoSuggestions, toast],
   )
 
+  // ---- Undo support for the accept-litho-suggestions paths ----------
+  // Accept commits contacts (and possibly formations) immediately, like
+  // an import. Until 2026-05-22 it was the one mutation NOT on the undo
+  // stack, so Ctrl+Z silently skipped past a mis-accepted layer. This
+  // helper builds + pushes the UndoCommand; all four accept handlers
+  // call it on success.
+  //
+  // One "op" = one acceptLithoSuggestions call: the request body
+  // (replayed verbatim on redo), the created contact/formation ids the
+  // revert deletes, and the (anchorId, idx) ghost entries to flip back
+  // to pending. The accept-all-across-anchors sweep passes N ops so one
+  // Ctrl+Z reverses the whole sweep.
+  type AcceptLithoUndoOp = {
+    body: Parameters<typeof api.geology.acceptLithoSuggestions>[2]
+    createdContactIds: string[]
+    createdFormationIds: string[]
+    acceptedEntries: ReadonlyArray<{ anchorId: string; idx: number }>
+  }
+  const pushAcceptLithoUndo = useCallback(
+    (
+      description: string,
+      lithoModelId: string,
+      ops: AcceptLithoUndoOp[],
+      onSectionUpdated?: ((s: CrossSectionResponse) => void) | null,
+    ): void => {
+      if (!project) return
+      // Accepting an already-accepted layer returns only found_* ids —
+      // nothing was created, so there is nothing to undo.
+      const hasWork = ops.some(
+        o => o.createdContactIds.length > 0 || o.createdFormationIds.length > 0,
+      )
+      if (!hasWork) return
+      const projectId = project.id
+      // Flip the ghost overlay's accepted set for every captured entry:
+      // accepted=false on revert (back to pending), true on redo.
+      const setAccepted = (accepted: boolean): void => {
+        setGhostsByAnchor(prev => {
+          const next = new Map(prev)
+          let changed = false
+          for (const op of ops) {
+            for (const { anchorId, idx } of op.acceptedEntries) {
+              const existing = next.get(anchorId)
+              if (!existing) continue
+              if (existing.accepted.has(idx) === accepted) continue
+              const nextAccepted = new Set(existing.accepted)
+              if (accepted) nextAccepted.add(idx)
+              else nextAccepted.delete(idx)
+              next.set(anchorId, { ...existing, accepted: nextAccepted })
+              changed = true
+            }
+          }
+          return changed ? next : prev
+        })
+      }
+      pushUndo({
+        description,
+        revert: async () => {
+          // Contacts first — contact.formation_id FK references formation.
+          for (const op of ops) {
+            await Promise.all(
+              op.createdContactIds.map(id =>
+                api.geology.deleteContact(projectId, lithoModelId, id),
+              ),
+            )
+            await Promise.all(
+              op.createdFormationIds.map(id =>
+                api.geology.deleteFormation(projectId, id),
+              ),
+            )
+          }
+          setAccepted(false)
+          refetchLithoContacts()
+          refetchFormations()
+        },
+        reapply: async () => {
+          // Re-POST each body; the server mints fresh ids, so capture
+          // them back onto the op for the next revert.
+          for (const op of ops) {
+            const res = await api.geology.acceptLithoSuggestions(
+              projectId,
+              lithoModelId,
+              op.body,
+            )
+            op.createdContactIds = res.created_contact_ids.slice()
+            op.createdFormationIds = res.created_formation_ids.slice()
+            // Re-seed the section so the re-created contacts pass the
+            // explicit-content filter (#57 invariant).
+            if (res.updated_section != null && onSectionUpdated != null) {
+              onSectionUpdated(res.updated_section)
+            }
+          }
+          setAccepted(true)
+          refetchLithoContacts()
+          refetchFormations()
+        },
+      })
+    },
+    [project, pushUndo, refetchLithoContacts, refetchFormations],
+  )
+
   // Accept one suggestion layer via the bulk endpoint (one-item payload).
   // The server handles formation find-or-create, straddle splits, and
   // section seeding atomically. The caller MUST forward onSectionUpdated
@@ -3129,6 +3229,23 @@ export function useGeologicalModel({
         // is a useMemo derived from formations (debt #89) so this single
         // call updates both.
         refetchFormations()
+        // Record the accept on the undo stack (dogfeed 2026-05-22 —
+        // accept was the one mutation Ctrl+Z couldn't reach).
+        const focusedId = focusedSuggestAnchorIdRef.current
+        pushAcceptLithoUndo(
+          `Accept litho layer (${layer.suggested_lithology})`,
+          model.id,
+          [
+            {
+              body,
+              createdContactIds: result.created_contact_ids.slice(),
+              createdFormationIds: result.created_formation_ids.slice(),
+              acceptedEntries:
+                focusedId !== null ? [{ anchorId: focusedId, idx }] : [],
+            },
+          ],
+          onSectionUpdated ?? null,
+        )
       } catch (err) {
         log.error('geology', `acceptLithoSuggestion failed idx=${idx}`, err)
         toast('error', 'Could not accept the litho suggestion.')
@@ -3148,6 +3265,7 @@ export function useGeologicalModel({
       refetchLithoContacts,
       refetchFormations,
       toast,
+      pushAcceptLithoUndo,
     ],
   )
 
@@ -3233,6 +3351,24 @@ export function useGeologicalModel({
         // from it (debt #89), so the inspector roster + picker dialog
         // update automatically.
         refetchFormations()
+        // One undo entry for the whole accept-all (dogfeed 2026-05-22).
+        const focusedId = focusedSuggestAnchorIdRef.current
+        pushAcceptLithoUndo(
+          `Accept all litho layers (${pendingLayers.length})`,
+          model.id,
+          [
+            {
+              body,
+              createdContactIds: result.created_contact_ids.slice(),
+              createdFormationIds: result.created_formation_ids.slice(),
+              acceptedEntries:
+                focusedId !== null
+                  ? pendingIndices.map(i => ({ anchorId: focusedId, idx: i }))
+                  : [],
+            },
+          ],
+          onSectionUpdated ?? null,
+        )
       } catch (err) {
         log.error('geology', 'acceptAllLithoSuggestions failed', err)
         toast('error', 'Could not accept all litho suggestions.')
@@ -3252,6 +3388,7 @@ export function useGeologicalModel({
       refetchLithoContacts,
       refetchFormations,
       toast,
+      pushAcceptLithoUndo,
     ],
   )
 
@@ -3463,6 +3600,20 @@ export function useGeologicalModel({
         })
         refetchLithoContacts()
         refetchFormations()
+        // Record the accept on the undo stack (dogfeed 2026-05-22).
+        pushAcceptLithoUndo(
+          `Accept litho layer (${layer.suggested_lithology})`,
+          model.id,
+          [
+            {
+              body,
+              createdContactIds: result.created_contact_ids.slice(),
+              createdFormationIds: result.created_formation_ids.slice(),
+              acceptedEntries: [{ anchorId, idx }],
+            },
+          ],
+          onSectionUpdated ?? null,
+        )
       } catch (err) {
         log.error('geology', `acceptBulkLitho failed anchor=${anchorId} idx=${idx}`, err)
         toast('error', 'Could not accept the litho suggestion.')
@@ -3473,7 +3624,14 @@ export function useGeologicalModel({
     // suggests/accepts/edits — the read of ghostsByAnchor.get(anchorId)
     // must see the latest map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, ghostsByAnchor, refetchLithoContacts, refetchFormations, toast],
+    [
+      project,
+      ghostsByAnchor,
+      refetchLithoContacts,
+      refetchFormations,
+      toast,
+      pushAcceptLithoUndo,
+    ],
   )
 
   /**
@@ -3504,6 +3662,9 @@ export function useGeologicalModel({
       // Snapshot the Map entries so subsequent setState calls don't
       // mutate what we're iterating.
       const entries = Array.from(bulkGhostsByAnchor.entries())
+      // Accumulate one undo op per successfully-committed anchor so a
+      // single Ctrl+Z reverses the whole sweep (dogfeed 2026-05-22).
+      const collectedOps: AcceptLithoUndoOp[] = []
       for (const [anchorId, ghost] of entries) {
         const pendingIndices = ghost.suggestions
           .map((_, i) => i)
@@ -3561,6 +3722,12 @@ export function useGeologicalModel({
             next.set(anchorId, { ...existing, accepted: nextAccepted })
             return next
           })
+          collectedOps.push({
+            body,
+            createdContactIds: result.created_contact_ids.slice(),
+            createdFormationIds: result.created_formation_ids.slice(),
+            acceptedEntries: pendingIndices.map(i => ({ anchorId, idx: i })),
+          })
         } catch (err) {
           log.warn('geology', `acceptAllBulkLitho anchor=${anchorId} failed`, err)
           failures.push(anchorId)
@@ -3591,12 +3758,28 @@ export function useGeologicalModel({
       // Refetch once at the end — cheaper than once per anchor.
       refetchLithoContacts()
       refetchFormations()
+      // One undo entry for the whole multi-anchor sweep.
+      pushAcceptLithoUndo(
+        `Accept all litho layers (${collectedOps.length} investigation${
+          collectedOps.length === 1 ? '' : 's'
+        })`,
+        model.id,
+        collectedOps,
+        onSectionUpdated ?? null,
+      )
     },
     // reason: activeLithoModelRef is a ref. bulkGhostsByAnchor is in
     // deps so the snapshot the loop iterates is always the latest
     // (a stale closure would iterate yesterday's anchors).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, bulkGhostsByAnchor, refetchLithoContacts, refetchFormations, toast],
+    [
+      project,
+      bulkGhostsByAnchor,
+      refetchLithoContacts,
+      refetchFormations,
+      toast,
+      pushAcceptLithoUndo,
+    ],
   )
 
   // R4 (debt #12): the visible-list filter now lives HERE, not as an

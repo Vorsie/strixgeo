@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge, Undo2 } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 
 import { useShell } from '../../ShellContext'
@@ -32,6 +32,7 @@ export default function SectionsToolbar(): JSX.Element {
   const {
     project,
     visibleBoreholes,
+    undo: undoStack,
     sections: {
       selectedSectionId,
       sections,
@@ -447,6 +448,23 @@ export default function SectionsToolbar(): JSX.Element {
 
   return (
     <div className="flex items-center gap-1">
+      {/* Undo — the model-edit undo stack is keyboard-wired (Ctrl+Z)
+          but otherwise invisible. This button surfaces it. Covers every
+          undoable mutation, incl. accept-litho (dogfeed 2026-05-22). */}
+      <ToolbarButton
+        icon={<Undo2 size={13} />}
+        label="Undo"
+        onClick={() => void undoStack.undo()}
+        disabled={!undoStack.canUndo || undoStack.busy}
+        title={
+          undoStack.canUndo
+            ? 'Undo the last model edit (Ctrl+Z)'
+            : 'Nothing to undo'
+        }
+        data-testid="sections-undo"
+      />
+      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
+
       {/* Geology ↔ Lithology segmented toggle (slice 2, #55).
           Disabled on the litho segment when no litho model exists yet.
           Reads/writes sectionModelAxis from the sections slice. Uses

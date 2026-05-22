@@ -771,3 +771,32 @@ describe('SectionsToolbar Accept all button (Phase 1 litho accept flow)', () => 
     expect(screen.queryByRole('button', { name: /build litho/i })).not.toBeInTheDocument()
   })
 })
+
+describe('SectionsToolbar undo button (dogfeed 2026-05-22)', () => {
+  it('U1 — Undo button is disabled when the undo stack is empty', () => {
+    // makeCtx() defaults the undo stack to canUndo:false.
+    renderToolbar(makeCtx())
+    expect(screen.getByRole('button', { name: /^undo$/i })).toBeDisabled()
+  })
+
+  it('U2 — Undo button calls undo() when the stack has an entry', () => {
+    const undo = vi.fn().mockResolvedValue(undefined)
+    const ctx: ShellContextValue = {
+      ...makeCtx(),
+      undo: {
+        push: vi.fn(),
+        undo,
+        redo: vi.fn(),
+        clear: vi.fn(),
+        canUndo: true,
+        canRedo: false,
+        busy: false,
+      },
+    }
+    renderToolbar(ctx)
+    const btn = screen.getByRole('button', { name: /^undo$/i })
+    expect(btn).not.toBeDisabled()
+    fireEvent.click(btn)
+    expect(undo).toHaveBeenCalledTimes(1)
+  })
+})

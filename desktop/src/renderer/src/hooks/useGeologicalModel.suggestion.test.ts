@@ -12,6 +12,8 @@
 //   S5  clearLithoSuggestions resets all suggestion state atoms to empty.
 //   S6  handleAcceptAllLithoSuggestions issues ONE bulk call (not N).
 //   S7  Switching the active litho model clears a showing overlay (B-1).
+//   S8  Accept pushes an undo command that deletes the created rows.
+//   S9  Accepting an already-committed (found-only) layer pushes no undo.
 //
 // Strategy: mock the whole api.geology module so every call resolves to a
 // stable sentinel.  Drive handleSuggestLitho first (via mocked suggestLitho)
@@ -778,5 +780,73 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
       result.current.clearBulkLithoGhosts()
     })
     expect(bulkSubset(result).size).toBe(0)
+  })
+
+  it('S8 — accept pushes an undo command that deletes the created contact + formation', async () => {
+    const suggestions: LithoLayerSuggestion[] = [makeSuggestion('ZAND', 0.0)]
+    geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
+    geoApi.acceptLithoSuggestions.mockResolvedValueOnce(
+      makeAcceptResponse({
+        created_formation_ids: ['form-zand'],
+        created_contact_ids: ['c-zand'],
+      }),
+    )
+    geoApi.deleteContact.mockResolvedValue(undefined)
+    geoApi.deleteFormation.mockResolvedValue(undefined)
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+    await act(async () => {
+      await result.current.handleAcceptLithoSuggestion(0)
+    })
+
+    // The accept registered exactly one undo command.
+    expect(args.pushUndo).toHaveBeenCalledTimes(1)
+    expect((focused(result)?.accepted ?? new Set<number>()).has(0)).toBe(true)
+
+    // Revert deletes the created contact + formation (contacts first —
+    // FK order) and returns the ghost layer to pending.
+    const cmd = args.pushUndo.mock.calls[0][0] as { revert: () => Promise<void> }
+    await act(async () => {
+      await cmd.revert()
+    })
+    expect(geoApi.deleteContact).toHaveBeenCalledWith('proj-1', 'litho-model-1', 'c-zand')
+    expect(geoApi.deleteFormation).toHaveBeenCalledWith('proj-1', 'form-zand')
+    expect((focused(result)?.accepted ?? new Set<number>()).has(0)).toBe(false)
+  })
+
+  it('S9 — accepting an already-committed (found-only) layer pushes no undo', async () => {
+    // The server returns only found_* ids when nothing was created;
+    // there is nothing to delete, so no undo entry is pushed.
+    const suggestions: LithoLayerSuggestion[] = [makeSuggestion('ZAND', 0.0)]
+    geoApi.suggestLitho.mockResolvedValueOnce({ layers: suggestions })
+    geoApi.acceptLithoSuggestions.mockResolvedValueOnce(
+      makeAcceptResponse({
+        created_formation_ids: [],
+        created_contact_ids: [],
+        found_formation_ids: ['form-existing'],
+        found_contact_ids: ['c-existing'],
+      }),
+    )
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+    await act(async () => {
+      await result.current.handleSuggestLitho('borehole', 'bh-1')
+    })
+    await act(async () => {
+      await result.current.handleAcceptLithoSuggestion(0)
+    })
+
+    expect(args.pushUndo).not.toHaveBeenCalled()
   })
 })
