@@ -373,21 +373,25 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onEdit.mock.calls[0][0]).toBe(0)
   })
 
-  it('G19 — dbl-click on a pending layer opens the composition editor (debt #72)', () => {
-    const onEdit = vi.fn()
-    const { container, getByRole } = renderGhost([makeSuggestion()], { onEdit })
+  it('G19 — dbl-click on a pending layer accepts the suggestion', () => {
+    // Owner directive 2026-05-22: accept is the dbl-click gesture (off
+    // the single click, which used to accept and was a misclick risk).
+    const onAccept = vi.fn()
+    const { container } = renderGhost([makeSuggestion()], { onAccept })
     const rect = container.querySelector('rect') as SVGRectElement
     fireEvent.doubleClick(rect)
-    // Editor renders via a portal; query by its title.
-    expect(getByRole('heading', { name: /edit suggestion composition/i })).toBeInTheDocument()
+    expect(onAccept).toHaveBeenCalledTimes(1)
+    expect(onAccept.mock.calls[0][0]).toBe(0)
   })
 
-  it('G20 — dbl-click is inert when onEdit is not wired (read-only ghosts)', () => {
-    const { container } = renderGhost([makeSuggestion()]) // onEdit undefined
+  it('G20 — single-click on a pending layer does not accept', () => {
+    // The single click is intentionally inert now — only dbl-click
+    // (or the context-menu item) commits a contact.
+    const onAccept = vi.fn()
+    const { container } = renderGhost([makeSuggestion()], { onAccept })
     const rect = container.querySelector('rect') as SVGRectElement
-    fireEvent.doubleClick(rect)
-    // The modal heading should NOT be in the document.
-    expect(document.querySelector('h2#ghost-composition-editor-title')).toBeNull()
+    fireEvent.click(rect)
+    expect(onAccept).not.toHaveBeenCalled()
   })
 
   it('G21 — right-click on pending layer opens context menu, not direct reject', () => {
@@ -425,7 +429,22 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(screen.queryByRole('menu', { name: /ghost layer actions/i })).toBeNull()
   })
 
-  it('G15 — pending layer rect keeps pointer cursor (drives click-to-accept)', () => {
+  it('G23 — context menu "Accept layer" item fires onAccept and closes the menu', () => {
+    const onAccept = vi.fn()
+    const { container } = renderGhost([makeSuggestion()], {
+      onAccept,
+      onEdit: vi.fn(),
+    })
+    const rect = container.querySelector('rect') as SVGRectElement
+    fireEvent.contextMenu(rect, { clientX: 100, clientY: 50 })
+    fireEvent.click(screen.getByRole('button', { name: /accept layer/i }))
+    expect(onAccept).toHaveBeenCalledTimes(1)
+    expect(onAccept.mock.calls[0][0]).toBe(0)
+    // Menu must have closed after the click.
+    expect(screen.queryByRole('menu', { name: /ghost layer actions/i })).toBeNull()
+  })
+
+  it('G15 — pending layer rect keeps pointer cursor', () => {
     const { container } = renderGhost([makeSuggestion()])
     const rect = container.querySelector('rect')
     expect((rect as SVGRectElement).style.cursor).toBe('pointer')

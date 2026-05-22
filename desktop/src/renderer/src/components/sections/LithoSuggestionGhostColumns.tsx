@@ -21,7 +21,6 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
-import { useClickDebounce } from '../../hooks/useClickDebounce'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
@@ -1187,7 +1186,6 @@ export default function LithoSuggestionGhostColumns({
               onAccept={onAccept}
               onReject={onReject}
               onUnreject={onUnreject}
-              onRequestEdit={onEdit ? setEditIdx : undefined}
               onRequestContextMenu={(layerIdx, x, y) =>
                 setContextMenu({ idx: layerIdx, x, y })
               }
@@ -1406,6 +1404,19 @@ export default function LithoSuggestionGhostColumns({
           role="menu"
           aria-label="Ghost layer actions"
         >
+          {/* Accept stays reachable from the menu — the primary accept
+              gesture is dbl-click (owner directive 2026-05-22), and a
+              menu item is the discoverable, deliberate alternative. */}
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-1.5 hover:bg-surface-page text-text-primary"
+            onClick={() => {
+              onAccept(contextMenu.idx)
+              setContextMenu(null)
+            }}
+          >
+            Accept layer
+          </button>
           {onEdit && (
             <button
               type="button"
@@ -1580,7 +1591,6 @@ function LithoSuggestionLayer({
   onAccept,
   onReject,
   onUnreject,
-  onRequestEdit,
   onRequestContextMenu,
   onCopyMouseDown,
   isCopyHoverTarget,
@@ -1606,13 +1616,6 @@ function LithoSuggestionLayer({
   /** Restore a rejected layer to pending (debt #80). */
   onUnreject?: (idx: number) => void
   /**
-   * Fired on dbl-click. Opens the parent's composition editor seeded
-   * with this layer's current composition (debt #72). Omitted by
-   * read-only mounts; when missing dbl-click is inert + accept fires
-   * twice as the default browser behaviour.
-   */
-  onRequestEdit?: (idx: number) => void
-  /**
    * Fired on right-click of a pending layer. Replaces the direct
    * right-click-rejects gesture from earlier iterations — the parent
    * now opens a context menu at (clientX, clientY) with multiple
@@ -1632,14 +1635,6 @@ function LithoSuggestionLayer({
   isCopyHoverTarget?: boolean
   formationNameById: ReadonlyMap<string, string>
 }): JSX.Element | null {
-  // Click-debounce gate — without it, the first click of a dbl-click
-  // sequence fires onAccept before the dbl-click handler runs, which
-  // would commit a contact at the OLD composition and only THEN open
-  // the editor. Hook lives ABOVE the early-return so the hook count
-  // is invariant (Rules of Hooks; CLAUDE.md "Temporal Dead Zone
-  // after reordering React component bodies").
-  const clickDebounce = useClickDebounce()
-
   // Convert depth-below-surface to mTAW using the investigation's elevation.
   const topMTaw = surfaceElevationM - layer.depth_top_m
   const baseMTaw = surfaceElevationM - layer.depth_base_m
@@ -1699,26 +1694,26 @@ function LithoSuggestionLayer({
     ? wrapLabelToLines(labelText, maxCharsForWidth(width, LABEL_FONT_SIZE), maxLines)
     : []
 
-  // Interaction:
-  //   left-click  → accept (debounced 250 ms so a dbl-click can cancel)
-  //   dbl-click   → open the composition editor (cancels the queued accept)
-  //   right-click → reject (also Shift+click for keyboard parity)
+  // Interaction (owner directive 2026-05-22 — accept moved off the
+  // single click so a misclick while aiming at a drag handle or a
+  // boundary strip can no longer commit a contact):
+  //   dbl-click    → accept the suggestion (commit a contact)
+  //   shift-click  → reject
+  //   right-click  → context menu (Accept / Edit composition / Reject)
+  //   single-click → inert
   //   accepted / rejected layers ignore all of the above (already-decided)
   function handleClick(e: React.MouseEvent): void {
     e.stopPropagation()
     if (accepted || rejected) return
-    if (e.shiftKey) {
-      onReject(idx)
-      return
-    }
-    clickDebounce.schedule(() => onAccept(idx))
+    // Shift+click stays a quick reject — a deliberate modifier gesture,
+    // not a misclick risk. A plain single click is intentionally inert.
+    if (e.shiftKey) onReject(idx)
   }
 
   function handleDoubleClick(e: React.MouseEvent): void {
     e.stopPropagation()
     if (accepted || rejected) return
-    clickDebounce.cancel()
-    if (onRequestEdit) onRequestEdit(idx)
+    onAccept(idx)
   }
 
   function handleContextMenu(e: React.MouseEvent): void {
