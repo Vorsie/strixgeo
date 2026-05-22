@@ -194,6 +194,55 @@ def _find_components(
 
 
 # ---------------------------------------------------------------------------
+# Public BFS helper — single connected component for a seed node
+# ---------------------------------------------------------------------------
+
+
+def connected_formation_ids(
+    seed: UUID,
+    edges: list[CorrelationEdge],
+) -> set[UUID]:
+    """Return the BFS-reachable formation-id set for ``seed`` in the edge graph.
+
+    Includes ``seed`` itself (a singleton with no edges returns ``{seed}``).
+    Dangling edges (those whose endpoints are not reachable from ``seed``)
+    are silently traversed — the function builds its own adjacency list from
+    the supplied edge list and BFS from the seed.
+
+    This function is PURE — no I/O, no side effects, callable from any layer.
+
+    Parameters
+    ----------
+    seed : UUID
+        Formation id to start BFS from.
+    edges : list[CorrelationEdge]
+        All edges in the model (or a pre-filtered subset — the function only
+        traverses edges reachable from ``seed``).
+
+    Returns
+    -------
+    set[UUID]
+        All formation ids in the same connected component as ``seed``,
+        including ``seed`` itself.
+    """
+    adjacency: dict[UUID, set[UUID]] = {}
+    for edge in edges:
+        adjacency.setdefault(edge.formation_a_id, set()).add(edge.formation_b_id)
+        adjacency.setdefault(edge.formation_b_id, set()).add(edge.formation_a_id)
+
+    visited: set[UUID] = set()
+    queue: deque[UUID] = deque([seed])
+    visited.add(seed)
+    while queue:
+        current = queue.popleft()
+        for neighbour in adjacency.get(current, ()):
+            if neighbour not in visited:
+                visited.add(neighbour)
+                queue.append(neighbour)
+    return visited
+
+
+# ---------------------------------------------------------------------------
 # Depth sort key — None (no contacts yet) sorts after any real depth.
 # ---------------------------------------------------------------------------
 
