@@ -670,6 +670,22 @@ ipcMain.handle('api:ready', async () => {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
+// Opt-out for hardware acceleration. Must be called BEFORE app.whenReady().
+//
+// Dogfeed 2026-05-23: Robin hit a boot-time renderer crash with exit code
+// 0xC0000005 (Windows access violation) — a NATIVE crash before any of
+// our React code runs. The most common cause on Windows Electron is the
+// GPU process / driver going down (Cesium + WebGL on an older or
+// recently-updated driver is a known offender). Setting
+// ``STRIX_DISABLE_GPU=1`` in the env disables hardware acceleration
+// entirely; the app still renders fine via software (slower 3D, but
+// boots). Off by default so production isn't slowed for everyone.
+if (process.env.STRIX_DISABLE_GPU === '1') {
+  app.disableHardwareAcceleration()
+  // eslint-disable-next-line no-console
+  console.warn('[main] STRIX_DISABLE_GPU=1 — hardware acceleration disabled')
+}
+
 app.whenReady().then(() => {
   // Pre-authorise every path in the recent-projects list — without
   // this the first "Open Recent" click after launch would hit the
