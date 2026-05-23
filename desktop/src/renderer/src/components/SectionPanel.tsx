@@ -532,6 +532,22 @@ interface Props {
       reapply: () => Promise<void>
     }) => void
   }
+  /**
+   * Count of investigations on this section that still have UNACCEPTED
+   * litho ghost suggestions (dogfeed 2026-05-23). When > 0 in correlate
+   * mode, the panel surfaces a reminder banner — the correlate gesture
+   * operates on COMMITTED bands only, and clicking a ghost band in
+   * correlate mode silently does nothing, which confused the user.
+   * Optional so the test-render path can mount without the count.
+   */
+  pendingGhostInvestigationCount?: number
+  /**
+   * Formation ids whose committed bands should pulse amber briefly —
+   * the "your correlation succeeded" cue. Set transiently after a
+   * successful correlate; cleared by the caller after PULSE_MS.
+   * Passed through to CorrelationEdgesOverlay. Optional.
+   */
+  pulsingFormationIds?: ReadonlySet<string>
 }
 
 export default function SectionPanel({
@@ -574,6 +590,8 @@ export default function SectionPanel({
   correlationEdges,
   correlateGestureState,
   undoStack,
+  pendingGhostInvestigationCount = 0,
+  pulsingFormationIds,
   axisMode = 'geological',
   onManualLithoUnitCreate,
   showConfidenceFade = true,
@@ -2037,6 +2055,7 @@ export default function SectionPanel({
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
                 correlateGestureState={correlateGestureState}
+                pulsingFormationIds={pulsingFormationIds}
               />
             )}
 
@@ -2158,6 +2177,28 @@ export default function SectionPanel({
             </button>
           </div>
         )}
+        {/* Accept-first reminder (dogfeed 2026-05-23). The correlate
+            gesture operates on COMMITTED bands only — ghosts are pre-
+            commit and the click silently does nothing, which caused
+            the "correlate is not working" confusion. When the user
+            enters correlate mode with pending ghosts on this section,
+            surface a second amber pill below the correlate hint. */}
+        {correlateGestureState?.correlateMode &&
+          pendingGhostInvestigationCount > 0 && (
+            <div
+              data-testid="correlate-accept-first-hint"
+              className={`absolute ${focusedColumn !== null ? 'top-24' : 'top-12'} left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-amber-500 text-white text-xs px-3 py-1.5 rounded-full shadow max-w-md`}
+              role="status"
+            >
+              <span>
+                {pendingGhostInvestigationCount} investigation
+                {pendingGhostInvestigationCount === 1 ? '' : 's'} still ha
+                {pendingGhostInvestigationCount === 1 ? 's' : 've'} pending
+                suggestions — accept those first to correlate them. The
+                correlate gesture only works on committed bands.
+              </span>
+            </div>
+          )}
         {/* Seed hint — never-seeded section is the common case after
             the P2 explicit-content gate: nothing appears on a section
             without the user clicking a button on that section. Show a

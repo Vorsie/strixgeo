@@ -21,7 +21,7 @@
 // wired from the bus.  The component never gains a direct prop; it reads from
 // useShell() and delegates.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Route } from 'lucide-react'
 
 import { api } from '../../../api/client'
@@ -260,6 +260,57 @@ export default function SectionsCanvas(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLitho, activeLithoModel?.id, selectedSectionId])
 
+  // Transient pulse state — set on a successful correlate, cleared
+  // after PULSE_MS so the two correlated bands flash amber briefly.
+  // The pulse is the "your correlation succeeded" signal that #100
+  // shipped without (the chip + line only appear after Resolve runs
+  // server-side AND formations refetch; the pulse is the immediate
+  // acknowledgement on the bands themselves). Dogfeed 2026-05-23:
+  // "we need like a visual signal that a correlation succeeded".
+  const PULSE_MS = 900
+  const [pulsingFormationIds, setPulsingFormationIds] = useState<
+    ReadonlySet<string>
+  >(new Set())
+  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Count of investigations on this section that have UNACCEPTED
+  // ghost suggestions (dogfeed 2026-05-23 "we need to add a reminder
+  // to accept lithologies before correlating"). The correlate gesture
+  // operates on COMMITTED bands only — ghosts are pre-commit segmenter
+  // output and the click silently does nothing. When > 0 in correlate
+  // mode, SectionPanel renders a reminder banner.
+  const pendingGhostInvestigationCount = useMemo(() => {
+    let n = 0
+    for (const ghost of ghostsByAnchor.values()) {
+      if (ghost.suggestions.length === 0) continue
+      // "Unaccepted" = the accepted set doesn't cover every suggestion.
+      // A user who has accepted every layer for an anchor effectively
+      // has no pending ghosts to nag about.
+      if (ghost.accepted.size < ghost.suggestions.length) n += 1
+    }
+    return n
+  }, [ghostsByAnchor])
+
+  const triggerCorrelationPulse = useCallback(
+    (formationAId: string, formationBId: string): void => {
+      if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current)
+      setPulsingFormationIds(new Set([formationAId, formationBId]))
+      pulseTimerRef.current = setTimeout(() => {
+        setPulsingFormationIds(new Set())
+        pulseTimerRef.current = null
+      }, PULSE_MS)
+    },
+    [],
+  )
+
+  // Clear the pending pulse timer on unmount so it doesn't fire after
+  // the canvas closes.
+  useEffect(() => {
+    return () => {
+      if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current)
+    }
+  }, [])
+
   const handleCorrelate = useCallback(
     async (formationAId: string, formationBId: string): Promise<void> => {
       if (!activeLithoModel) return
@@ -271,13 +322,22 @@ export default function SectionsCanvas(): JSX.Element {
         await api.geology.correlate(project.id, activeLithoModel.id, formationAId, formationBId)
         // The correlate endpoint resolves ordinals + commits internally
         // (CorrelateLithoUnits.run_resolver, folded in at the Slice-0+1
-        // review) — a separate resolveLithoInstances call here is a
-        // redundant idempotent no-op round-trip (Phase-2 span audit
-        // should-fix). Just refetch the edges for the overlay; no toast
-        // on success (owner-decided: the edge line + badge ARE the cue).
+        // review). Refetch BOTH edges (for the overlay's edge lines)
+        // AND formations (so the new instance_ordinal flows into the
+        // formation cache and the body chip appears on the bands).
+        // Pre-fix: only edges were refetched, so the chip stayed
+        // invisible until something else triggered a formations refetch
+        // — dogfeed 2026-05-23 "no visual signal" complaint.
         await refetchEdges()
+        refetchFormations()
         // Clear armed state so the user can arm the next source.
         clearCorrelationSource()
+        // Two-track success signal (dogfeed 2026-05-23):
+        // 1. Toast — immediate acknowledgement.
+        // 2. Amber pulse on both bands — visual on the surface the
+        //    user just operated on.
+        toast('success', 'Correlation added.')
+        triggerCorrelationPulse(formationAId, formationBId)
         log.success('section', `correlate: edge ${formationAId} ↔ ${formationBId} created`)
       } catch (err) {
         log.warn('section', 'handleCorrelate: POST failed', err)
@@ -289,7 +349,15 @@ export default function SectionsCanvas(): JSX.Element {
         toast('error', 'Could not create the correlation — try again.')
       }
     },
-    [activeLithoModel, project.id, refetchEdges, clearCorrelationSource, toast],
+    [
+      activeLithoModel,
+      project.id,
+      refetchEdges,
+      refetchFormations,
+      clearCorrelationSource,
+      toast,
+      triggerCorrelationPulse,
+    ],
   )
 
   const handleUncorrelate = useCallback(
@@ -963,6 +1031,10 @@ export default function SectionsCanvas(): JSX.Element {
         // is not mounted (no regression, no stale edge data).
         correlationEdges={isLitho ? correlationEdges : undefined}
         correlateGestureState={correlateGestureState}
+        pendingGhostInvestigationCount={
+          isLitho ? pendingGhostInvestigationCount : 0
+        }
+        pulsingFormationIds={pulsingFormationIds}
       />
     )
   }

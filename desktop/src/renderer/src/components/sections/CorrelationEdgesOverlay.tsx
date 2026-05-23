@@ -133,6 +133,15 @@ interface Props {
   plotBottom: number
   /** Optional gesture state; absent = read-only mode (no click capture). */
   correlateGestureState?: CorrelateGestureState
+  /**
+   * Formation ids whose committed bands should pulse amber briefly —
+   * the "your correlation succeeded" cue (dogfeed 2026-05-23 "we
+   * need like a visual signal that a correlation succeeded").
+   * Set transiently after a successful correlate by the caller;
+   * cleared after PULSE_MS. Bands in this set render with an amber
+   * stroke + slightly boosted fill opacity during the window.
+   */
+  pulsingFormationIds?: ReadonlySet<string>
 }
 
 // ---------------------------------------------------------------------------
@@ -556,6 +565,7 @@ export default function CorrelationEdgesOverlay({
   plotTop,
   plotBottom,
   correlateGestureState,
+  pulsingFormationIds,
 }: Props): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   /** Body-level context menu (debt #100) — opened by right-clicking a
@@ -1131,6 +1141,55 @@ export default function CorrelationEdgesOverlay({
           }}
         />
       ))}
+
+      {/* Correlation success pulse (dogfeed 2026-05-23). Amber stroke
+          around every committed band whose formation_id is in the
+          transient ``pulsingFormationIds`` set. Set by the caller
+          immediately after a successful correlate; cleared after
+          ~PULSE_MS. The chip + edge line already appear once Resolve
+          refetches, but those updates are async and not anchored to
+          the bands the user just clicked — the pulse IS anchored,
+          giving the immediate "your gesture worked" cue. */}
+      {pulsingFormationIds && pulsingFormationIds.size > 0 && (
+        <g data-testid="correlation-pulse" pointerEvents="none">
+          {placedColumns.flatMap(col => {
+            const invId = col.proj.item.id
+            const bands = bandMap.get(invId)
+            if (!bands) return []
+            const halfW = col.width / 2
+            const result: JSX.Element[] = []
+            for (const [fId] of bands) {
+              if (!pulsingFormationIds.has(fId)) continue
+              const rect = bandRect(
+                invId,
+                fId,
+                bandMap,
+                levelToScreen,
+                plotTop,
+                plotBottom,
+                halfW,
+              )
+              if (!rect) continue
+              result.push(
+                <rect
+                  key={`pulse-${invId}-${fId}`}
+                  data-testid={`correlation-pulse-${invId}-${fId}`}
+                  x={col.nudgedX - halfW - 1}
+                  y={rect.topY - 1}
+                  width={halfW * 2 + 2}
+                  height={rect.botY - rect.topY + 2}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth={2.5}
+                  rx={2}
+                  className="animate-pulse"
+                />,
+              )
+            }
+            return result
+          })}
+        </g>
+      )}
 
       {/* Correlate-mode gesture overlays — click-capture rects + source/target UI */}
       {correlateMode && gestureRects.map(gr => {

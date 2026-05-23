@@ -541,6 +541,65 @@ describe('SectionPanel — correlate-mode hint pill (debt #100)', () => {
     fireEvent.click(screen.getByLabelText('Exit correlate mode'))
     expect(onExitMode).toHaveBeenCalledTimes(1)
   })
+
+  // -------------------------------------------------------------------
+  // Accept-first reminder (dogfeed 2026-05-23). When the user enters
+  // correlate mode WITH pending ghosts on the section, surface a
+  // second amber pill so they know correlate doesn't operate on
+  // pre-commit ghosts.
+  // -------------------------------------------------------------------
+
+  it('CR1 — accept-first banner renders when correlate mode + pendingGhostCount > 0', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        correlateGestureState={{ ...baseGestureState, correlateMode: true }}
+        pendingGhostInvestigationCount={3}
+      />,
+    )
+    const banner = screen.getByTestId('correlate-accept-first-hint')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveTextContent(/3 investigation/i)
+    expect(banner).toHaveTextContent(/accept those first/i)
+  })
+
+  it('CR2 — singular wording when exactly one investigation has pending ghosts', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        correlateGestureState={{ ...baseGestureState, correlateMode: true }}
+        pendingGhostInvestigationCount={1}
+      />,
+    )
+    const banner = screen.getByTestId('correlate-accept-first-hint')
+    expect(banner).toHaveTextContent(/^1 investigation still has/i)
+  })
+
+  it('CR3 — banner is absent when not in correlate mode', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        correlateGestureState={{ ...baseGestureState, correlateMode: false }}
+        pendingGhostInvestigationCount={3}
+      />,
+    )
+    expect(screen.queryByTestId('correlate-accept-first-hint')).toBeNull()
+  })
+
+  it('CR4 — banner is absent when pendingGhostCount is 0 (everything accepted)', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        correlateGestureState={{ ...baseGestureState, correlateMode: true }}
+        pendingGhostInvestigationCount={0}
+      />,
+    )
+    expect(screen.queryByTestId('correlate-accept-first-hint')).toBeNull()
+  })
 })
 
 // Note: the SectionPanel-level integration for "Remove from section"

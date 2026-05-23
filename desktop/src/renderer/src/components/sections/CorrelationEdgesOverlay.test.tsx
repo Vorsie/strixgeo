@@ -701,6 +701,54 @@ describe('CorrelationEdgesOverlay', () => {
     expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).toBeNull()
   })
 
+  // CE20 — debt #100-followup 2026-05-23: when ``pulsingFormationIds``
+  // contains a formation id, every committed band of that formation
+  // renders an amber pulse stroke. Set transiently by the caller after
+  // a successful correlate; the overlay is a pure projection of the
+  // set so the test only needs to verify the rect renders when the
+  // prop is populated.
+  it('CE20: bands of pulsing formations render an amber pulse stroke', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const { container } = renderOverlay({
+      edges: [makeEdge('f-a', 'f-b')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      pulsingFormationIds: new Set(['f-a', 'f-b']),
+    })
+    // One pulse rect per (column × pulsing formation) band — here:
+    // inv-1/f-a and inv-2/f-b.
+    expect(container.querySelector('[data-testid="correlation-pulse-inv-1-f-a"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="correlation-pulse-inv-2-f-b"]')).not.toBeNull()
+  })
+
+  it('CE21: no pulse rects when pulsingFormationIds is empty / absent', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const { container } = renderOverlay({
+      edges: [makeEdge('f-a', 'f-b')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+    })
+    expect(container.querySelector('[data-testid="correlation-pulse"]')).toBeNull()
+  })
+
   // CE19: "Remove all correlations for this body" fires onUncorrelate
   // for every edge whose endpoints both carry the body's ordinal — not
   // just the edge under the right-clicked chip. Other bodies untouched.
