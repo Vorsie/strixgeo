@@ -92,7 +92,7 @@ class SuggestLithoContacts(GroundModelLogger):
         *,
         model_id: UUID,
         cpt_id: UUID,
-        minimum_layer_thickness_m: float = 0.5,
+        minimum_layer_thickness_m: float = 0.15,
         gunsat_kNm3: float = 16.0,
         gwater_kNm3: float = 9.81,
         dr_compression_factor: float = 0.675,
@@ -107,7 +107,9 @@ class SuggestLithoContacts(GroundModelLogger):
         cpt_id : UUID
             CPT whose depth series to segment.
         minimum_layer_thickness_m : float
-            Minimum output layer thickness (default 0.5 m).
+            Minimum output layer thickness (default 0.15 m — matches
+            typical CPT sampling resolution; finer = noise, coarser
+            misses thin clay drapes per dogfeed 2026-05-23).
         gunsat_kNm3 : float
             Unit weight of soil above the water table (default 16 kN/m³).
         gwater_kNm3 : float
@@ -183,7 +185,7 @@ class SuggestLithoContacts(GroundModelLogger):
         *,
         model_id: UUID,
         borehole_id: UUID,
-        minimum_layer_thickness_m: float = 0.5,
+        minimum_layer_thickness_m: float = 0.15,
     ) -> list[LithoLayerSuggestion]:
         """Suggest litho contacts for a borehole investigation.
 
@@ -199,7 +201,9 @@ class SuggestLithoContacts(GroundModelLogger):
         borehole_id : UUID
             Borehole to segment.
         minimum_layer_thickness_m : float
-            Minimum output layer thickness (default 0.5 m).
+            Minimum output layer thickness (default 0.15 m — matches
+            typical CPT sampling resolution; finer = noise, coarser
+            misses thin clay drapes per dogfeed 2026-05-23).
 
         Returns
         -------

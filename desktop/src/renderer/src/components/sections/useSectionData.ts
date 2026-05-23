@@ -186,6 +186,20 @@ export function useSectionData(
   useEffect(() => {
     let cancelled = false
     setDemSamples(null)
+    // Skip degenerate section endpoints. Without this guard, a section
+    // whose coords transiently go to (0,0)→(0,0) (HMR reload, stale
+    // state) fired a storm of /dem/sample requests that 404'd against
+    // the Belgian DEM (the (0,0) WGS isn't in Lambert-72 territory) —
+    // see dogfeed 2026-05-23 "app crashed after vite page reload"
+    // where the renderer hammered the endpoint until it OOM'd. The
+    // 1 m threshold is well below any real section length and above
+    // float noise around true zero.
+    const dx = section.end_x - section.start_x
+    const dy = section.end_y - section.start_y
+    if (dx * dx + dy * dy < 1) {
+      log.debug('dem', `skipping fetch — degenerate section (length<1m) ${section.id}`)
+      return
+    }
     api.dem
       .sampleLine({
         startX: section.start_x,

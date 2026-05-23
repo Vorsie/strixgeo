@@ -222,7 +222,12 @@ export default function LithoGhostCompositionEditor({
           >
             {MAIN_SOIL_CODES.map(code => (
               <option key={code} value={code}>
-                {LITHOLOGY_LABELS[code] ?? code} ({code})
+                {/* English label only — the raw Dutch token in parens
+                    ("Sand (ZAND)") leaked the Dutch into an otherwise-
+                    English UI per dogfeed 2026-05-23. The picker dialog
+                    uses the same "English-only for main soil" rule;
+                    matched here so the two surfaces stay consistent. */}
+                {LITHOLOGY_LABELS[code] ?? code}
               </option>
             ))}
           </select>
