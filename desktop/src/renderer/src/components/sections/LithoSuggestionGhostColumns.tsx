@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom'
 
 import type { GeologicalFormationResponse, LithoLayerSuggestion } from '../../api/client'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { canMergeAt } from '../../utils/lithoLayerMerge'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
 import MergeConfirmDialog from './MergeConfirmDialog'
@@ -543,6 +544,15 @@ export interface LithoSuggestionGhostColumnsProps {
    * differs. Optional — when absent the menu item is not rendered.
    */
   onSplitLayer?: (idx: number) => void
+  /**
+   * Debt #102: merge two adjacent same-lithology pending layers into
+   * one. Wired to the "Merge layers" item on the boundary right-click
+   * menu — the item appears ONLY when ``canMergeAt`` returns true for
+   * the boundary (both pending, same effective lithology). User-
+   * initiated by design: the segmenter's same-lithology splits carry
+   * NAD-class signal we don't want to auto-erase.
+   */
+  onMergeLayers?: (upperIdx: number) => void
 }
 
 /**
@@ -604,6 +614,7 @@ export default function LithoSuggestionGhostColumns({
   onCrossColumnPaste,
   onInsertLayer,
   onSplitLayer,
+  onMergeLayers,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
   // updated on document mousemove; cleared on mouseup which fires
@@ -1514,6 +1525,32 @@ export default function LithoSuggestionGhostColumns({
           >
             Insert layer here…
           </button>
+          {/* Debt #102: merge two adjacent same-lithology pending layers
+              into one. Item appears ONLY when both neighbours are
+              pending AND share the same effective lithology — the
+              segmenter's same-lithology splits carry NAD-class signal,
+              so this is a user-initiated, layer-by-layer choice (owner
+              directive 2026-05-22). */}
+          {onMergeLayers !== undefined &&
+            canMergeAt(
+              suggestions,
+              edits,
+              acceptedIndices,
+              rejectedIndices,
+              boundaryContextMenu.afterIdx,
+            ) && (
+              <button
+                type="button"
+                className="block w-full text-left px-3 py-1.5 hover:bg-surface-page text-text-primary"
+                data-testid="litho-boundary-merge"
+                onClick={() => {
+                  onMergeLayers(boundaryContextMenu.afterIdx)
+                  setBoundaryContextMenu(null)
+                }}
+              >
+                Merge layers
+              </button>
+            )}
         </div>,
         document.body,
       )}

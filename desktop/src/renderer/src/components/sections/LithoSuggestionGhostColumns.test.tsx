@@ -129,6 +129,7 @@ function renderGhost(
       },
     ) => void
     onSplitLayer?: (idx: number) => void
+    onMergeLayers?: (upperIdx: number) => void
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -156,6 +157,7 @@ function renderGhost(
         onCrossColumnPaste={opts.onCrossColumnPaste}
         onInsertLayer={opts.onInsertLayer}
         onSplitLayer={opts.onSplitLayer}
+        onMergeLayers={opts.onMergeLayers}
       />
     </svg>,
   )
@@ -1270,5 +1272,46 @@ describe('LithoSuggestionGhostColumns', () => {
     const [afterIdx, composition] = onInsertLayer.mock.calls[0]
     expect(afterIdx).toBe(0)
     expect(composition.suggested_lithology).toBe('ZAND')
+  })
+
+  // -----------------------------------------------------------------
+  // Debt #102 — user-initiated merge on a same-lithology boundary
+  // -----------------------------------------------------------------
+
+  // U1: right-click on a boundary whose two layers share lithology →
+  // menu shows "Merge layers"; clicking it fires onMergeLayers(upperIdx).
+  it('U1 — same-lithology boundary shows Merge layers; clicking it fires onMergeLayers', () => {
+    const onMergeLayers = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2, suggested_lithology: 'ZAND' }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4, suggested_lithology: 'ZAND' }),
+      ],
+      { onEdit: vi.fn(), onInsertLayer: vi.fn(), onMergeLayers },
+    )
+    const strip = container.querySelector('[data-testid="litho-boundary-strip-0"]')
+    fireEvent.contextMenu(strip!, { clientX: 300, clientY: 200 })
+    const mergeBtn = screen.getByTestId('litho-boundary-merge')
+    expect(mergeBtn).toBeInTheDocument()
+    fireEvent.click(mergeBtn)
+    expect(onMergeLayers).toHaveBeenCalledTimes(1)
+    expect(onMergeLayers.mock.calls[0][0]).toBe(0)
+  })
+
+  // U2: a boundary whose two layers DIFFER in lithology must not offer
+  // Merge — the same-lithology gate is the whole point.
+  it('U2 — different-lithology boundary does NOT show the Merge layers item', () => {
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2, suggested_lithology: 'ZAND' }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4, suggested_lithology: 'KLEI' }),
+      ],
+      { onEdit: vi.fn(), onInsertLayer: vi.fn(), onMergeLayers: vi.fn() },
+    )
+    const strip = container.querySelector('[data-testid="litho-boundary-strip-0"]')
+    fireEvent.contextMenu(strip!, { clientX: 300, clientY: 200 })
+    // Insert is offered (the strip is there); Merge is not.
+    expect(screen.getByTestId('litho-boundary-insert')).toBeInTheDocument()
+    expect(screen.queryByTestId('litho-boundary-merge')).toBeNull()
   })
 })

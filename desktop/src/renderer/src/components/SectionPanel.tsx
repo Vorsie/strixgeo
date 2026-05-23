@@ -385,6 +385,8 @@ interface Props {
     ) => void
     /** Debt #98: split a pending litho layer in two at its midpoint. */
     onSplitLayer?: (idx: number) => void
+    /** Debt #102: merge two adjacent same-lithology pending layers. */
+    onMergeLayers?: (upperIdx: number) => void
   }
   /**
    * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
@@ -437,6 +439,8 @@ interface Props {
     ) => void
     /** Debt #98: bulk variant of split — takes the anchorId. */
     onSplitLayer?: (anchorId: string, idx: number) => void
+    /** Debt #102: bulk variant of merge — takes the anchorId. */
+    onMergeLayers?: (anchorId: string, upperIdx: number) => void
   }
   /**
    * Pinch-out ghost-preview state (ghost-UX slice).  When present, a
@@ -1894,6 +1898,7 @@ export default function SectionPanel({
                 onCrossColumnPaste={lithoGhostState.onCrossColumnPaste}
                 onInsertLayer={lithoGhostState.onInsertLayer}
                 onSplitLayer={lithoGhostState.onSplitLayer}
+                onMergeLayers={lithoGhostState.onMergeLayers}
               />
             )}
 
@@ -1955,6 +1960,13 @@ export default function SectionPanel({
                       bulkLithoGhostState.onSplitLayer !== undefined
                         ? idx => {
                             bulkLithoGhostState.onSplitLayer!(anchorId, idx)
+                          }
+                        : undefined
+                    }
+                    onMergeLayers={
+                      bulkLithoGhostState.onMergeLayers !== undefined
+                        ? upperIdx => {
+                            bulkLithoGhostState.onMergeLayers!(anchorId, upperIdx)
                           }
                         : undefined
                     }

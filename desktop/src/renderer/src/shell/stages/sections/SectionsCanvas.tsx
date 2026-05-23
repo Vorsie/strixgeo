@@ -90,6 +90,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleEditBulkLitho,
       handleInsertLithoLayer,
       handleSplitLithoLayer,
+      handleMergeLithoLayers,
       clearBulkLithoGhosts,
       pinchOutPreview,
       pinchOutLoading,
@@ -721,6 +722,11 @@ export default function SectionsCanvas(): JSX.Element {
         if (focusedSuggestAnchorId === null) return
         handleSplitLithoLayer(focusedSuggestAnchorId, idx)
       },
+      // Debt #102: merge two adjacent same-lithology pending layers.
+      onMergeLayers: (upperIdx: number) => {
+        if (focusedSuggestAnchorId === null) return
+        handleMergeLithoLayers(focusedSuggestAnchorId, upperIdx)
+      },
     }
   }, [
     isLitho,
@@ -734,6 +740,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleEditBulkLitho,
     handleInsertLithoLayer,
     handleSplitLithoLayer,
+    handleMergeLithoLayers,
   ])
 
   // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
@@ -775,6 +782,8 @@ export default function SectionsCanvas(): JSX.Element {
       onInsertLayer: handleInsertLithoLayer,
       // Debt #98: bulk variant takes (anchorId, idx).
       onSplitLayer: handleSplitLithoLayer,
+      // Debt #102: bulk variant takes (anchorId, upperIdx).
+      onMergeLayers: handleMergeLithoLayers,
     }
   }, [
     isLitho,
@@ -785,6 +794,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleEditBulkLitho,
     handleInsertLithoLayer,
     handleSplitLithoLayer,
+    handleMergeLithoLayers,
   ])
 
   // Pinch-out ghost state — wired on the geological axis only (same

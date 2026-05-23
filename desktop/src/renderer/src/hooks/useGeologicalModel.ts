@@ -37,6 +37,7 @@ import type {
 import { formatAcceptParentSummary } from '../utils/acceptLithoSummary'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
+import { mergeLithoLayers } from '../utils/lithoLayerMerge'
 import type { UndoCommand } from './useUndoStack'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
@@ -439,6 +440,14 @@ export interface UseGeologicalModelResult {
    * Accepted / rejected / edits indices above the split shift by +1.
    */
   handleSplitLithoLayer: (anchorId: string, idx: number) => void
+  /**
+   * Debt #102: merge two adjacent same-lithology pending litho ghost
+   * layers into one. Wired to the boundary right-click "Merge layers"
+   * menu item — only offered when both neighbours are pending AND
+   * share the same effective lithology. User-initiated by design;
+   * reconciles with the no-auto-merge directive (#74 history).
+   */
+  handleMergeLithoLayers: (anchorId: string, upperIdx: number) => void
   /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
   clearBulkLithoGhosts: () => void
   /**
@@ -3237,6 +3246,24 @@ export function useGeologicalModel({
     [],
   )
 
+  // Debt #102: merge two adjacent same-lithology pending layers into
+  // one. Mirrors handleSplitLithoLayer — pure helper mergeLithoLayers
+  // does the index-shift math; the component-level menu only offers
+  // the action when canMergeAt returns true.
+  const handleMergeLithoLayers = useCallback(
+    (anchorId: string, upperIdx: number): void => {
+      setGhostsByAnchor(prev => {
+        const existing = prev.get(anchorId)
+        if (!existing) return prev
+        const updated = mergeLithoLayers(existing, upperIdx)
+        const next = new Map(prev)
+        next.set(anchorId, updated)
+        return next
+      })
+    },
+    [],
+  )
+
   // B-1 (senior-review, data-integrity): a ghost overlay left showing
   // when the active litho model SWITCHES would accept onto the new
   // model (activeLithoModelRef points at the new one) while the
@@ -4352,6 +4379,7 @@ export function useGeologicalModel({
     handleEditBulkLitho,
     handleInsertLithoLayer,
     handleSplitLithoLayer,
+    handleMergeLithoLayers,
     clearBulkLithoGhosts,
     handleStripLithoAdmixtures,
     handleReseedLithoAdmixtures,
