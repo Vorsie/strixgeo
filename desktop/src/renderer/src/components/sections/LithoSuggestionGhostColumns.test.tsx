@@ -609,14 +609,19 @@ describe('LithoSuggestionGhostColumns', () => {
   // at layer 1's base; the snap fires; on release, the shared-
   // boundary commit collapses layer 1 to zero thickness and onReject
   // fires with idx=1 (the NEIGHBOUR, not self).
-  // G32 / G33 reshaped 2026-05-23 — kill-multi-cascade refactor. The
-  // merge-confirm dialog is gone; cascade is now capped at ONE
-  // neighbour per gesture. Drag-past clamps at the immediate
-  // neighbour's FAR edge, fires shared-boundary edits, and leaves the
-  // neighbour zero-thickness (user manages it via the × reject icon).
-  // No auto-reject — silent absorption confused users.
+  // G32 / G33 — single-step cascade with auto-reject (dogfeed
+  // 2026-05-23 second pass). Drag-to-far-edge of the immediate
+  // pending neighbour + release AT the snap → shared-boundary commit
+  // PLUS auto-reject the neighbour. Restores the "drag a bottom
+  // layer up to merge into the upper one" gesture that the initial
+  // kill-multi-cascade pass left as a zero-thickness zombie. The
+  // merge-confirm dialog stays gone — the auto-reject is silent but
+  // the snap indicator's "release to merge" amber text + the ↻
+  // unreject icon on the freshly-rejected layer give the user the
+  // affordance + an undo path. Multi-layer cascade (3+ same-parent)
+  // is still gone — exactly one neighbour absorbed per gesture.
 
-  it('G32 — base-drag past pending neighbour clamps at neighbour FAR edge; commits zero-thickness shared boundary', () => {
+  it('G32 — base-drag past pending neighbour absorbs the neighbour on snap (auto-reject)', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -629,11 +634,13 @@ describe('LithoSuggestionGhostColumns', () => {
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: 700 })
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
-    // No merge dialog.
+    // No dialog (merge-confirm is gone).
     expect(screen.queryByTestId('merge-confirm-title')).toBeNull()
-    // No auto-reject — silent collapse killed.
-    expect(onReject).not.toHaveBeenCalled()
+    // Auto-reject the absorbed neighbour (layer 1).
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(1)
     // Shared-boundary commit at layer 1's FAR edge (depth 4).
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
@@ -641,7 +648,7 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(4, 5)
   })
 
-  it('G33 — top-drag past pending neighbour clamps at neighbour FAR edge; commits zero-thickness shared boundary', () => {
+  it('G33 — top-drag past pending neighbour absorbs the neighbour on snap (auto-reject)', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -654,9 +661,11 @@ describe('LithoSuggestionGhostColumns', () => {
     const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
     fireEvent.mouseDown(topHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: -300 })
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
     expect(screen.queryByTestId('merge-confirm-title')).toBeNull()
-    expect(onReject).not.toHaveBeenCalled()
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(0)
     // Shared-boundary commit at layer 0's FAR edge (depth 0 = ground).
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)

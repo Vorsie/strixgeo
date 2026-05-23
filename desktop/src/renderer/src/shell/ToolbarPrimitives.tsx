@@ -411,19 +411,29 @@ export function SplitToolbarButton({
     setOpen(o => !o)
   }
 
+  // When the primary acts as a caret fallback, show a clickable
+  // muted-but-not-disabled style: faded text (signals "not the
+  // primary verb right now") + pointer cursor + hover so the user
+  // sees the button responds to hover. Cursor-not-allowed only when
+  // truly disabled (no fallback to offer).
+  const primaryActsAsCaretClassname = !!disabled && items.length > 0
   const primaryClasses = primary
     ? [
         'flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-l text-xs font-medium transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         disabled
-          ? 'bg-accent/40 text-text-on-accent/60 cursor-not-allowed'
+          ? primaryActsAsCaretClassname
+            ? 'bg-accent/60 text-text-on-accent/80 hover:bg-accent cursor-pointer'
+            : 'bg-accent/40 text-text-on-accent/60 cursor-not-allowed'
           : 'bg-accent text-text-on-accent hover:bg-accent-hover',
       ].join(' ')
     : [
         'flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-l text-xs font-medium transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         disabled
-          ? 'text-text-muted cursor-not-allowed'
+          ? primaryActsAsCaretClassname
+            ? 'text-text-muted hover:bg-surface-app hover:text-text-secondary cursor-pointer'
+            : 'text-text-muted cursor-not-allowed'
           : 'text-text-secondary hover:bg-surface-app hover:text-text-primary',
       ].join(' ')
 
@@ -439,17 +449,34 @@ export function SplitToolbarButton({
         'text-text-secondary hover:bg-surface-app hover:text-text-primary',
       ].join(' ')
 
+  // Primary-as-caret fallback (dogfeed 2026-05-23): when the primary
+  // verb is disabled (e.g. Suggest needs a focused column) but the
+  // caret has items the user can still reach, repurpose the primary
+  // button as a second click target for the caret dropdown. Pre-fix
+  // the user read the whole control as inert and gave up before
+  // hunting for the small ▾. When ``items`` is empty there is no
+  // fallback to offer; the button is truly disabled.
+  const primaryActsAsCaret = !!disabled && items.length > 0
+  const primaryButtonDisabled = !!disabled && !primaryActsAsCaret
   return (
     <>
       <div className="flex items-center" data-testid={testid ? `${testid}-group` : undefined}>
         <button
           type="button"
           onClick={() => {
+            if (primaryActsAsCaret) {
+              handleCaretClick()
+              return
+            }
             if (disabled) return
             onClick()
           }}
-          disabled={disabled}
-          title={title}
+          disabled={primaryButtonDisabled}
+          title={
+            primaryActsAsCaret
+              ? `${title ?? label} — click for options`
+              : title
+          }
           data-testid={testid}
           className={primaryClasses}
         >

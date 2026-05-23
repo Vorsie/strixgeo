@@ -273,20 +273,29 @@ export default function SectionsCanvas(): JSX.Element {
   >(new Set())
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Count of investigations on this section that have UNACCEPTED
-  // ghost suggestions (dogfeed 2026-05-23 "we need to add a reminder
-  // to accept lithologies before correlating"). The correlate gesture
-  // operates on COMMITTED bands only — ghosts are pre-commit segmenter
-  // output and the click silently does nothing. When > 0 in correlate
-  // mode, SectionPanel renders a reminder banner.
+  // Count of investigations on this section with at least one TRULY-
+  // PENDING ghost suggestion (dogfeed 2026-05-23 "we need to add a
+  // reminder to accept lithologies before correlating"; counter fix
+  // 2026-05-23 same-day: the original predicate `accepted.size <
+  // suggestions.length` counted REJECTED layers as pending, so the
+  // banner kept showing "N still pending" after Accept all (bulk) for
+  // every anchor where the user had rejected one or more layers).
+  //
+  // "Truly pending" = at least one suggestion that is neither accepted
+  // NOR rejected. Anchors where every layer has been decided on (some
+  // accepted, some rejected, mixed) no longer trigger the nag.
   const pendingGhostInvestigationCount = useMemo(() => {
     let n = 0
     for (const ghost of ghostsByAnchor.values()) {
       if (ghost.suggestions.length === 0) continue
-      // "Unaccepted" = the accepted set doesn't cover every suggestion.
-      // A user who has accepted every layer for an anchor effectively
-      // has no pending ghosts to nag about.
-      if (ghost.accepted.size < ghost.suggestions.length) n += 1
+      let hasUndecided = false
+      for (let i = 0; i < ghost.suggestions.length; i++) {
+        if (!ghost.accepted.has(i) && !ghost.rejected.has(i)) {
+          hasUndecided = true
+          break
+        }
+      }
+      if (hasUndecided) n += 1
     }
     return n
   }, [ghostsByAnchor])

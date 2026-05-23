@@ -275,7 +275,15 @@ export default function LithoCompositionPickerDialog({
         amount: r.amount,
         locally: r.locally,
       }))
+      // Diagnostic log (dogfeed 2026-05-23 "create new layer does
+      // nothing"): trace each leg of the flow so the user can pin
+      // the silent-failure point from the console next time. The
+      // log calls are cheap and gated on the parent's logger.
+      // eslint-disable-next-line no-console
+      console.debug('[litho-picker] create confirm', { mainCode, admixtures })
       const result = await onCreateLithoUnit(mainCode, admixtures)
+      // eslint-disable-next-line no-console
+      console.debug('[litho-picker] create result', { result })
       if (result !== null) {
         // onCreateLithoUnit already created the formation AND the contact
         // AND seeded the section server-side (accept-litho-suggestions +
@@ -284,6 +292,18 @@ export default function LithoCompositionPickerDialog({
         // false error toast on every successful placement (review B1).
         // The work is done; just reset Tab 2 state and close.
         handleCancel()
+      } else {
+        // Silent-failure surface (dogfeed 2026-05-23). The dialog
+        // stays open if result is null — without this log the user
+        // sees "save did nothing" with no signal why. Most common
+        // cause: SectionsCanvas guard `!activeLithoModel ||
+        // !selectedSection` fires (also logged backend-side).
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[litho-picker] onCreateLithoUnit returned null — no contact created. ' +
+            'Likely cause: no active litho model OR no selected section ' +
+            'at the moment the dialog confirmed. Check the section is open.',
+        )
       }
     } finally {
       setCreating(false)

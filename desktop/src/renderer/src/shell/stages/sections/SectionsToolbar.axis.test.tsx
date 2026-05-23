@@ -565,8 +565,15 @@ describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', ()
       },
     }
     renderToolbar(ctx)
+    // After the 2026-05-23 SplitToolbarButton fall-through fix, the
+    // "disabled" primary acts as a click target that opens the caret
+    // dropdown — the user can still reach the bulk variants without
+    // aiming for the small ▾. So the button is NOT truly disabled,
+    // but its title carries the "click for options" hint and it
+    // visually reads as muted-but-clickable.
     const suggestBtn = screen.getByTestId('litho-suggest')
-    expect(suggestBtn).toBeDisabled()
+    expect(suggestBtn).not.toBeDisabled()
+    expect(suggestBtn).toHaveAttribute('title', expect.stringMatching(/click for options/i))
   })
 
   // S2: "Suggest litho" is ENABLED when a column is focused in the section on

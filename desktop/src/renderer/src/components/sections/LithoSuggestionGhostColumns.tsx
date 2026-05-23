@@ -281,10 +281,22 @@ export interface DragBoundsResult {
   collapseChainBelow: number[]
 }
 
-/** Compute the bound toward a single visible neighbour after the
- *  kill-multi-cascade refactor. Returns the depth the dragged edge
- *  is allowed to reach in that direction; the caller passes the
- *  appropriate `farEdgeKey` for above vs below walks. */
+/** Result of the single-step neighbour walk: the bound the dragged
+ *  edge is allowed to reach + (when applicable) the neighbour idx to
+ *  auto-reject on snap-at-bound. The auto-reject restores the "drag
+ *  a bottom layer up to merge it into the layer above" gesture that
+ *  the kill-multi-cascade refactor accidentally killed (dogfeed
+ *  2026-05-23: "I merged a bottom clay layer into an upper one and
+ *  it disappeared"). Without auto-reject the upper layer collapsed
+ *  to zero-thickness and stayed pending — invisible zombie. */
+interface NeighbourBound {
+  boundM: number
+  /** Neighbour idx to auto-reject when drag releases AT boundM, or
+   *  null when no auto-reject applies (outer edge, accepted barrier,
+   *  rejected-gap-fill, or self-collapse direction). */
+  autoRejectIdx: number | null
+}
+
 function boundFromNeighbour(
   neighbour: VisibleNeighbour | null,
   outerEdgeFallback: number,
@@ -292,22 +304,37 @@ function boundFromNeighbour(
   edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }> | undefined,
   nearEdgeKey: 'topM' | 'baseM',
   farEdgeKey: 'topM' | 'baseM',
-): number {
-  if (!neighbour) return outerEdgeFallback
-  // Accepted = committed contact = hard barrier at NEAR edge.
-  if (neighbour.kind === 'accepted') {
-    return effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey]
+): NeighbourBound {
+  if (!neighbour) {
+    return { boundM: outerEdgeFallback, autoRejectIdx: null }
   }
-  // Rejected gap-fill = pending neighbour reached past rejected layers.
+  // Accepted = committed contact = hard barrier at NEAR edge. No
+  // auto-reject — the committed contact is the source of truth.
+  if (neighbour.kind === 'accepted') {
+    return {
+      boundM: effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey],
+      autoRejectIdx: null,
+    }
+  }
+  // Rejected gap-fill: pending neighbour reached past rejected layers.
   // Clamp at the next pending's NEAR edge (G29 semantics preserved).
+  // No auto-reject — the user has already rejected what they wanted
+  // gone; collapsing the next pending too would be over-eager.
   if (neighbour.crossedRejected) {
-    return effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey]
+    return {
+      boundM: effectiveDepths(suggestions, edits, neighbour.idx)[nearEdgeKey],
+      autoRejectIdx: null,
+    }
   }
   // Immediate pending neighbour — single-step cascade. Clamp at the
   // neighbour's FAR edge so the shared boundary can move across its
-  // territory (G17-class resize). Multi-step cascade is killed —
-  // there is exactly one neighbour crossed per gesture.
-  return effectiveDepths(suggestions, edits, neighbour.idx)[farEdgeKey]
+  // territory (G17-class resize). Snap-at-bound on release auto-
+  // rejects the neighbour — the "merge into next layer" gesture.
+  // Multi-step cascade is gone; exactly one neighbour absorbed.
+  return {
+    boundM: effectiveDepths(suggestions, edits, neighbour.idx)[farEdgeKey],
+    autoRejectIdx: neighbour.idx,
+  }
 }
 
 export function computeDragBounds(
@@ -324,7 +351,7 @@ export function computeDragBounds(
     // Above-walk: nearEdge is the neighbour's BASE (facing the dragged
     // layer); farEdge is its TOP (further from the dragged layer).
     // Outer fallback: 0 = ground.
-    const boundsAboveM = boundFromNeighbour(
+    const aboveBound = boundFromNeighbour(
       above,
       0,
       suggestions,
@@ -333,9 +360,10 @@ export function computeDragBounds(
       'topM',
     )
     return {
-      boundsAboveM,
+      boundsAboveM: aboveBound.boundM,
       boundsBelowM: own.baseM,
-      collapseChainAbove: [],
+      collapseChainAbove:
+        aboveBound.autoRejectIdx !== null ? [aboveBound.autoRejectIdx] : [],
       collapseChainBelow: [idx],
     }
   }
@@ -352,7 +380,7 @@ export function computeDragBounds(
   // → no extension downward (matches "can't drag past the test bottom").
   const lastIdx = suggestions.length - 1
   const outerBelow = effectiveDepths(suggestions, edits, lastIdx).baseM
-  const boundsBelowM = boundFromNeighbour(
+  const belowBound = boundFromNeighbour(
     below,
     outerBelow,
     suggestions,
@@ -362,9 +390,10 @@ export function computeDragBounds(
   )
   return {
     boundsAboveM: own.topM,
-    boundsBelowM,
+    boundsBelowM: belowBound.boundM,
     collapseChainAbove: [idx],
-    collapseChainBelow: [],
+    collapseChainBelow:
+      belowBound.autoRejectIdx !== null ? [belowBound.autoRejectIdx] : [],
   }
 }
 
@@ -795,13 +824,16 @@ export default function LithoSuggestionGhostColumns({
     function handleUp(): void {
       if (!drag) return
       const final = drag.currentDepthM
-      // After kill-cascade, the only collapse chain that fires is the
-      // #81 self-collapse (``[idx]`` on the own-opposite-edge side).
-      // Neighbour-side chains are always ``[]`` now — the MergeConfirm
-      // dialog is gone; multi-layer merge is the #102 merge button
-      // and per-layer reject is the #103 × icon.
+      // Collapse chain on release. After the kill-multi-cascade
+      // refactor, the chain has at most ONE entry per direction:
+      //   - ``[idx]`` on the own-opposite-edge side → #81 self-collapse.
+      //   - ``[neighbour.idx]`` on the neighbour-direction side →
+      //     single-step "merge into next layer" auto-reject (dogfeed
+      //     2026-05-23 fix: drag bottom layer up to absorb the upper
+      //     layer cleanly, without leaving a zero-thickness zombie).
+      //   - ``[]`` when no auto-reject applies (outer edge, accepted
+      //     barrier, rejected-gap-fill).
       const chain = drag.snapped ? drag.collapseChainOnRelease : []
-      const isSelfCollapseOnly = chain.length === 1 && chain[0] === drag.idx
       //
       // Shared-boundary commit (owner directive 2026-05-20). A boundary
       // BETWEEN two adjacent layers is one boundary, not two — moving
@@ -827,8 +859,10 @@ export default function LithoSuggestionGhostColumns({
           onEdit(visible, { depth_top_m: final })
         }
       }
-      // #81 self-collapse auto-reject.
-      if (isSelfCollapseOnly) onReject(drag.idx)
+      // Auto-reject every idx in the chain — covers both the #81
+      // self-collapse (chain == [drag.idx]) and the single-step
+      // neighbour-merge gesture (chain == [neighbour.idx]).
+      for (const i of chain) onReject(i)
       setDrag(null)
     }
     document.addEventListener('mousemove', handleMove)
