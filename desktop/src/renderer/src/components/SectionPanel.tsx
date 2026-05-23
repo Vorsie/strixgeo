@@ -52,6 +52,7 @@ import FormationPickerDialog from './interpretation/FormationPickerDialog'
 import LithoCompositionPickerDialog from './interpretation/LithoCompositionPickerDialog'
 import BoreholeColumn from './sections/BoreholeColumn'
 import ColumnContextMenu from './sections/ColumnContextMenu'
+import { buildRemoveFromSectionCommand } from './sections/removeFromSectionCommand'
 import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer, {
   type ContactCopyPayload,
@@ -517,6 +518,20 @@ interface Props {
    * Absent / undefined = read-only (edges visible, no click interaction).
    */
   correlateGestureState?: CorrelateGestureState
+  /**
+   * Undo stack push hook (dogfeed 2026-05-23). When present, the
+   * "Remove from section" gesture (right-click a column → "Remove
+   * from section") pushes an undo command so Ctrl+Z restores the
+   * previous excluded_*_ids list. Optional so the test-render path
+   * + read-only callers can mount without an undo seam.
+   */
+  undoStack?: {
+    push: (cmd: {
+      description: string
+      revert: () => Promise<void>
+      reapply: () => Promise<void>
+    }) => void
+  }
 }
 
 export default function SectionPanel({
@@ -558,6 +573,7 @@ export default function SectionPanel({
   pinchOutGhostState,
   correlationEdges,
   correlateGestureState,
+  undoStack,
   axisMode = 'geological',
   onManualLithoUnitCreate,
   showConfidenceFade = true,
@@ -1239,19 +1255,27 @@ export default function SectionPanel({
   // avoid a refetch round-trip — App's PATCH handler replaces the
   // section state with the server's response anyway.
   const handleRemoveFromSection = useCallback(
-    (kind: 'cpt' | 'borehole', id: string) => {
+    async (kind: 'cpt' | 'borehole', id: string): Promise<void> => {
       if (!onPatch) return
-      if (kind === 'cpt') {
-        const next = Array.from(new Set([...section.excluded_cpt_ids, id]))
-        void onPatch({ excluded_cpt_ids: next })
-      } else {
-        const next = Array.from(
-          new Set([...section.excluded_borehole_ids, id]),
-        )
-        void onPatch({ excluded_borehole_ids: next })
-      }
+      // Closure-captured pre-remove list — see the helper's docstring.
+      const { firstApply, undoCmd } = buildRemoveFromSectionCommand(
+        kind,
+        id,
+        {
+          excluded_cpt_ids: section.excluded_cpt_ids,
+          excluded_borehole_ids: section.excluded_borehole_ids,
+        },
+        onPatch,
+      )
+      await firstApply()
+      undoStack?.push(undoCmd)
     },
-    [onPatch, section.excluded_cpt_ids, section.excluded_borehole_ids],
+    [
+      onPatch,
+      section.excluded_cpt_ids,
+      section.excluded_borehole_ids,
+      undoStack,
+    ],
   )
 
   // Esc exits focus + dismisses any open context menu. Skip when the
@@ -2066,8 +2090,9 @@ export default function SectionPanel({
             }
             onRemoveFromSection={
               onPatch
-                ? () =>
-                    handleRemoveFromSection(contextMenu.kind, contextMenu.id)
+                ? () => {
+                    void handleRemoveFromSection(contextMenu.kind, contextMenu.id)
+                  }
                 : undefined
             }
             onClose={dismissContextMenu}

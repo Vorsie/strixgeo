@@ -165,6 +165,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleBboxDrawn,
     },
     toasts: { toast },
+    undo: undoStack,
   } = useShell()
 
   // CTA card dismiss state — the overlay disappears once the user has
@@ -874,6 +875,7 @@ export default function SectionsCanvas(): JSX.Element {
         boreholes={visibleBoreholes}
         onPatch={handlePatchSelectedSection}
         onClose={clearSectionSelection}
+        undoStack={undoStack}
         onSelectCpt={handleSelect}
         onSelectBorehole={handleSelectBorehole}
         contacts={sectionContacts}

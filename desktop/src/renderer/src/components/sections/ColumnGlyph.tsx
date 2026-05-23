@@ -147,6 +147,7 @@ export default function ColumnGlyph({
           the timing — no manual debounce needed. */}
       {(onClick || onDoubleClick || onContextMenu) && (
         <rect
+          data-testid={`column-hit-${name}`}
           x={sx - 7}
           y={plotTop}
           width={14}

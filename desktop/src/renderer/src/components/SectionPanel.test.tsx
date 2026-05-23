@@ -542,3 +542,11 @@ describe('SectionPanel — correlate-mode hint pill (debt #100)', () => {
     expect(onExitMode).toHaveBeenCalledTimes(1)
   })
 })
+
+// Note: the SectionPanel-level integration for "Remove from section"
+// (right-click column → menu → push undo command) is covered by unit
+// tests on the pure helper in ``sections/removeFromSectionCommand.test.ts``.
+// The full render-path integration is too brittle in jsdom (the column
+// context menu's portal + the ResizeObserver-gated SVG mount + the
+// handleColumnContextMenu's getBoundingClientRect call all need a real
+// layout pass jsdom doesn't provide).
