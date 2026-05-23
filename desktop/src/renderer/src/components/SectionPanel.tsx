@@ -2106,6 +2106,33 @@ export default function SectionPanel({
             </button>
           </div>
         )}
+        {/* Correlate-mode hint pill (debt #100). Explains the gesture +
+            its purpose the moment the user enters mode — the previous
+            mode affordance was just a toolbar toggle with no inline
+            explanation ("I still don't know how the Correlate tool
+            works" — owner dogfeed 2026-05-22). Stacks below the focus
+            pill when both are visible (rare). Esc-to-exit is already
+            wired in SectionPanel's keydown handler (the L2 peel). */}
+        {correlateGestureState?.correlateMode && (
+          <div
+            data-testid="correlate-mode-hint"
+            className={`absolute ${focusedColumn !== null ? 'top-12' : 'top-2'} left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-blue-600 text-white text-xs px-3 py-1.5 rounded-full shadow max-w-md`}
+          >
+            <span>
+              <strong>Correlate:</strong> click a unit on one column, then the
+              same unit on another, to mark them as the same body.
+            </span>
+            <button
+              type="button"
+              className="hover:text-blue-200 flex-shrink-0"
+              onClick={() => correlateGestureState.onExitMode()}
+              title="Exit correlate mode (Esc)"
+              aria-label="Exit correlate mode"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {/* Seed hint — never-seeded section is the common case after
             the P2 explicit-content gate: nothing appears on a section
             without the user clicking a button on that section. Show a

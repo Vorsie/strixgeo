@@ -1,26 +1,35 @@
 /**
  * SVG overlay for litho correlation edges on a cross-section.
  *
- * Renders always-on dashed blue lines connecting the vertical midpoints
- * of correlated formation bands across investigation columns, plus
- * interactive elements for the two-step correlate gesture (Slice 4).
- *
  * Responsibilities
  * ----------------
- * - Edge rendering: dashed blue ``5 3`` lines between band midpoints
- *   when two correlated formations are both visible on this section.
- * - Body-N badge at each edge midpoint (``instance_ordinal``); amber
- *   "?" when ordinal is null.
+ * - Per-band body chip: every band whose formation has a non-null
+ *   ``instance_ordinal`` gets a small ``#N`` chip in its top-right
+ *   corner. The chip is the always-on "this is the same body" signal
+ *   AND the primary hover surface for revealing edge lines.
+ * - Edge lines (hidden by default, revealed on demand): dashed blue
+ *   ``5 3`` lines between band midpoints. Visible only when the user
+ *   hovers a chip whose ordinal matches one of the edge's endpoints —
+ *   eliminates the crisscrossing-spaghetti effect (debt #100).
+ * - Chip halo: on hover, every chip of the same body lights up with a
+ *   thin ring so the connection reads visually before the lines
+ *   themselves animate in.
+ * - Chip right-click: body-level context menu — "Edit admixtures for
+ *   this body" (propagates via ``onPropagateAdmixtures``) and "Remove
+ *   all correlations for this body" (sums ``onUncorrelate`` per edge
+ *   in the body's graph). Replaces the right-click-on-edge-line menu
+ *   as the primary surface; the line menu is kept as a fallback for
+ *   the moment the line is visible.
  * - True-spacing warning: amber header when ``correlateMode`` and any
  *   adjacent column spacing < 1 m.
  * - Correlate-mode overlays: armed source 2px accent outline + floating
- *   label; valid targets dim tint + dashed border; cross-group cursor not-
- *   allowed; invisible click-capture rects over every unit band.
- * - Uncorrelate: right-click hit rects (8 px padding) along each edge
- *   line that surface a one-item context menu "Remove correlation".
+ *   label; valid targets dim tint + dashed border; cross-group cursor
+ *   not-allowed; invisible click-capture rects over every unit band.
  *
- * All pointer interactions delegate to callbacks; the component holds
- * no state.
+ * Hover state is local to this component (no cross-component plumbing).
+ * Inspector-select sticky reveal is a follow-on debt item — landing it
+ * needs a shared ``selectedFormationId`` state across the inspector and
+ * the section overlay.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -54,17 +63,23 @@ const ARM_OUTLINE_COLOR = '#60a5fa'
 const VALID_TARGET_FILL = 'rgba(59, 130, 246, 0.12)'
 /** Valid target dashed border colour. */
 const VALID_TARGET_STROKE = '#3b82f6'
-/** Badge background. */
-const BADGE_BG = '#1e3a5f'
-/** Badge font colour. */
-const BADGE_FG = '#e2e8f0'
-/** Amber badge colour when ordinal is null. */
+/** Chip background (dark slate-blue, matches the prior edge badge). */
+const CHIP_BG = '#1e3a5f'
+/** Chip foreground (off-white). */
+const CHIP_FG = '#e2e8f0'
+/** Amber accent used for the true-spacing warning. */
 const BADGE_AMBER = '#d97706'
-/** Badge font size in px. */
-const BADGE_FONT_SIZE = 9
-/** Badge padding px. */
-const BADGE_PAD_X = 4
-const BADGE_PAD_Y = 2
+/** Chip font size in px. */
+const CHIP_FONT_SIZE = 9
+/** Per-band chip dimensions (fits "#NN" comfortably). */
+const CHIP_WIDTH = 24
+const CHIP_HEIGHT = 14
+/** Inset from the band's top-right corner. */
+const CHIP_INSET = 2
+/** Below this band height the chip would overflow — skip the chip. */
+const CHIP_MIN_BAND_HEIGHT = CHIP_HEIGHT + 2 * CHIP_INSET
+/** Halo stroke width (the "this body is hovered" ring). */
+const CHIP_HALO_WIDTH = 2
 /** True-spacing warning threshold in metres. */
 const TRUE_SPACING_WARN_M = 1.0
 
@@ -255,37 +270,79 @@ function bandRect(
 }
 
 // ---------------------------------------------------------------------------
-// Badge sub-component
+// BodyChip sub-component
 // ---------------------------------------------------------------------------
 
-interface BadgeProps {
+interface BodyChipProps {
+  /** Top-left X of the chip in container coords. */
   x: number
+  /** Top-left Y of the chip in container coords. */
   y: number
-  ordinal: number | null
+  /** Body ordinal (always non-null — caller filters before rendering). */
+  ordinal: number
+  /** True when the user is hovering any chip in this body's group; drives
+   *  the halo ring + a slightly stronger background. */
+  haloed: boolean
+  /** mouseenter on the chip → caller sets hoveredBodyOrdinal = ordinal. */
+  onMouseEnter: () => void
+  /** mouseleave → caller clears the hovered ordinal. */
+  onMouseLeave: () => void
+  /** Right-click → caller opens the body-level context menu (edit
+   *  admixtures + remove all correlations for this body). */
+  onContextMenu: (e: React.MouseEvent<SVGGElement>) => void
+  /** Test hook so the test can target a specific chip without DOM trickery. */
+  testId: string
 }
 
-function EdgeBadge({ x, y, ordinal }: BadgeProps): JSX.Element {
-  const text = ordinal !== null ? `body ${ordinal}` : '?'
-  const isNull = ordinal === null
-  const approxWidth = text.length * BADGE_FONT_SIZE * 0.55 + BADGE_PAD_X * 2
-  const approxHeight = BADGE_FONT_SIZE + BADGE_PAD_Y * 2
+function BodyChip({
+  x,
+  y,
+  ordinal,
+  haloed,
+  onMouseEnter,
+  onMouseLeave,
+  onContextMenu,
+  testId,
+}: BodyChipProps): JSX.Element {
+  const text = `#${ordinal}`
   return (
-    <g>
+    <g
+      data-testid={testId}
+      style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onContextMenu={onContextMenu}
+    >
+      {/* Halo ring — rendered FIRST so the chip body paints over it.
+          Slightly larger than the chip so the ring reads as an outline. */}
+      {haloed && (
+        <rect
+          x={x - CHIP_HALO_WIDTH / 2}
+          y={y - CHIP_HALO_WIDTH / 2}
+          width={CHIP_WIDTH + CHIP_HALO_WIDTH}
+          height={CHIP_HEIGHT + CHIP_HALO_WIDTH}
+          rx={4}
+          fill="none"
+          stroke={EDGE_COLOR}
+          strokeWidth={CHIP_HALO_WIDTH}
+          pointerEvents="none"
+        />
+      )}
       <rect
-        x={x - approxWidth / 2}
-        y={y - approxHeight / 2}
-        width={approxWidth}
-        height={approxHeight}
+        x={x}
+        y={y}
+        width={CHIP_WIDTH}
+        height={CHIP_HEIGHT}
         rx={3}
-        fill={isNull ? BADGE_AMBER : BADGE_BG}
-        opacity={0.92}
+        fill={CHIP_BG}
+        opacity={haloed ? 1 : 0.92}
       />
       <text
-        x={x}
-        y={y + BADGE_FONT_SIZE / 2 - 1}
+        x={x + CHIP_WIDTH / 2}
+        y={y + CHIP_HEIGHT / 2 + CHIP_FONT_SIZE / 2 - 1}
         textAnchor="middle"
-        fontSize={BADGE_FONT_SIZE}
-        fill={BADGE_FG}
+        fontSize={CHIP_FONT_SIZE}
+        fill={CHIP_FG}
         fontFamily="monospace"
         pointerEvents="none"
       >
@@ -375,6 +432,91 @@ function EdgeContextMenu({
 }
 
 // ---------------------------------------------------------------------------
+// BodyContextMenu — right-click on a body chip (debt #100)
+// ---------------------------------------------------------------------------
+
+interface BodyContextMenuState {
+  x: number
+  y: number
+  /** Body ordinal — used to find every edge in this body's graph for the
+   *  "remove all correlations" action and to seed the propagate call. */
+  ordinal: number
+  /** The chip's own formation id — passed as the seed for the admixture
+   *  editor (the editor's seed determines initial values + propagation
+   *  starting point; BFS already walks the body's graph from any seed). */
+  seedFormationId: string
+}
+
+interface BodyContextMenuProps {
+  menu: BodyContextMenuState
+  onEditAdmixtures: () => void
+  /** Removes every edge in the body's correlation graph. Caller fans the
+   *  per-edge ``onUncorrelate`` calls and refreshes once on completion. */
+  onRemoveAll: () => void
+  onClose: () => void
+}
+
+function BodyContextMenu({
+  menu,
+  onEditAdmixtures,
+  onRemoveAll,
+  onClose,
+}: BodyContextMenuProps): JSX.Element {
+  const itemStyle: React.CSSProperties = {
+    display: 'block',
+    width: '100%',
+    padding: '6px 12px',
+    textAlign: 'left',
+    fontSize: 12,
+    color: 'var(--color-text-primary, #e2e8f0)',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+  }
+  return (
+    <foreignObject
+      x={menu.x}
+      y={menu.y}
+      width={220}
+      height={70}
+      style={{ overflow: 'visible' }}
+    >
+      <div
+        data-testid="body-context-menu"
+        style={{
+          position: 'absolute',
+          background: 'var(--color-surface-overlay, #1e293b)',
+          border: '1px solid var(--color-border-default, #334155)',
+          borderRadius: 6,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          zIndex: 9999,
+          minWidth: 220,
+        }}
+      >
+        <button type="button" style={itemStyle} onClick={onEditAdmixtures}>
+          Edit admixtures for this body
+        </button>
+        <button
+          type="button"
+          style={{ ...itemStyle, color: 'var(--color-text-danger, #f87171)' }}
+          onClick={onRemoveAll}
+        >
+          Remove all correlations for this body
+        </button>
+      </div>
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+        onClick={onClose}
+        onContextMenu={e => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+    </foreignObject>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -416,6 +558,17 @@ export default function CorrelationEdgesOverlay({
   correlateGestureState,
 }: Props): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  /** Body-level context menu (debt #100) — opened by right-clicking a
+   *  body chip. Distinct from ``contextMenu`` (edge-level, kept as the
+   *  fallback for a hovered/visible edge line). Only one menu open at
+   *  a time. */
+  const [bodyContextMenu, setBodyContextMenu] = useState<BodyContextMenuState | null>(null)
+
+  /** Hovered body ordinal (debt #100). null = no hover; edges hidden.
+   *  When set, every edge whose endpoint formations both carry this
+   *  ordinal reveals, and every chip with this ordinal lights up with
+   *  the halo. Cleared on mouseleave. */
+  const [hoveredBodyOrdinal, setHoveredBodyOrdinal] = useState<number | null>(null)
 
   // State for the admixture editor modal opened from the context menu.
   // Stores the seed formation (formation_a_id of the right-clicked edge)
@@ -691,6 +844,7 @@ export default function CorrelationEdgesOverlay({
     onClearArmed,
     onExitMode,
     onCorrelate,
+    onUncorrelate,
     onPropagateAdmixtures,
   } = correlateGestureState ?? {
     correlateMode: false,
@@ -702,6 +856,87 @@ export default function CorrelationEdgesOverlay({
     onUncorrelate: async () => {},
     onPropagateAdmixtures: async () => {},
   }
+
+  // Per-band chip data (debt #100). One chip per (investigation × formation)
+  // band whose formation carries a non-null ``instance_ordinal``. Chips
+  // anchor at the band's top-right corner; skipped when the band is
+  // shorter than ``CHIP_MIN_BAND_HEIGHT`` so the chip never overflows
+  // a thin band into the one below.
+  interface ChipRect {
+    investigationId: string
+    formationId: string
+    ordinal: number
+    /** Top-left x of the chip in container coords. */
+    x: number
+    /** Top-left y of the chip in container coords. */
+    y: number
+  }
+
+  const chipRects = useMemo((): ChipRect[] => {
+    const rects: ChipRect[] = []
+    for (const col of placedColumns) {
+      const invId = col.proj.item.id
+      const bands = bandMap.get(invId)
+      if (!bands) continue
+      const hw = col.width / 2
+      const colX = col.nudgedX
+      for (const [fId] of bands) {
+        const formation = formationById.get(fId)
+        if (!formation) continue
+        if (formation.instance_ordinal === null) continue
+        const rect = bandRect(invId, fId, bandMap, levelToScreen, plotTop, plotBottom, hw)
+        if (!rect) continue
+        const bandHeight = rect.botY - rect.topY
+        if (bandHeight < CHIP_MIN_BAND_HEIGHT) continue
+        const rightEdge = colX + hw
+        rects.push({
+          investigationId: invId,
+          formationId: fId,
+          ordinal: formation.instance_ordinal,
+          x: rightEdge - CHIP_WIDTH - CHIP_INSET,
+          y: rect.topY + CHIP_INSET,
+        })
+      }
+    }
+    return rects
+  }, [placedColumns, bandMap, formationById, levelToScreen, plotTop, plotBottom])
+
+  /** Body-level right-click handlers. Edit-admixtures is the existing
+   *  propagate path seeded with the chip's own formation; remove-all
+   *  fans the per-edge ``onUncorrelate`` calls across every edge in
+   *  the body's graph (both endpoints carry the hovered ordinal). */
+  const handleBodyContextEditAdmixtures = useCallback(() => {
+    if (!bodyContextMenu) return
+    const seedFormation = formationById.get(bodyContextMenu.seedFormationId)
+    setBodyContextMenu(null)
+    setAdmixEditorState({
+      open: true,
+      seedFormationId: bodyContextMenu.seedFormationId,
+      initialMainSoilCode: seedFormation?.litho_main_soil_code ?? 'ZAND',
+      initialAdmixtures: (seedFormation?.litho_admixtures ?? []) as GhostAdmixtureItem[],
+    })
+  }, [bodyContextMenu, formationById])
+
+  const handleBodyContextRemoveAll = useCallback(async () => {
+    if (!bodyContextMenu) return
+    const targetOrdinal = bodyContextMenu.ordinal
+    setBodyContextMenu(null)
+    // Find every edge whose two endpoints both carry the body's ordinal —
+    // that's the body's connected component in the correlation graph after
+    // Resolve. Pre-Resolve (ordinal == null on either endpoint) edges are
+    // not reachable from a chip anyway (no chip without an ordinal).
+    const bodyEdges = edges.filter(e => {
+      const a = formationById.get(e.formation_a_id)
+      const b = formationById.get(e.formation_b_id)
+      return (
+        a?.instance_ordinal === targetOrdinal &&
+        b?.instance_ordinal === targetOrdinal
+      )
+    })
+    for (const edge of bodyEdges) {
+      await onUncorrelate(edge.formation_a_id, edge.formation_b_id)
+    }
+  }, [bodyContextMenu, edges, formationById, onUncorrelate])
 
   /**
    * Drag-arm mousedown handler (debt #78). Arms the source via the
@@ -812,13 +1047,31 @@ export default function CorrelationEdgesOverlay({
         </text>
       )}
 
-      {/* Always-on correlation edge lines + badges */}
+      {/* Correlation edge lines (debt #100 — hidden by default; revealed
+          only when the user hovers a body chip with the matching
+          ordinal). The edge-midpoint "body N" badge is gone — the chip
+          on each band carries the body number on a more permanent
+          surface, and a revealed line's two endpoint chips already show
+          "#3 ↔ #3"; a third midpoint badge would be redundant. */}
       {edgeRenders.map((er, idx) => {
         const fA = formationById.get(er.edge.formation_a_id)
-        const ordinal = fA?.instance_ordinal ?? null
+        const fB = formationById.get(er.edge.formation_b_id)
+        // Reveal the line iff a chip of the same body is being hovered.
+        // Pre-Resolve edges (either ordinal null) cannot be revealed
+        // since there is no chip to hover — the inspector's stale-
+        // ordinal RO-3 indicator nudges the user to run Resolve.
+        const isRevealed =
+          hoveredBodyOrdinal !== null &&
+          fA?.instance_ordinal === hoveredBodyOrdinal &&
+          fB?.instance_ordinal === hoveredBodyOrdinal
+        if (!isRevealed) return null
         return (
-          <g key={`edge-${er.edge.id}-${idx}`}>
-            {/* Invisible hit rect for right-click uncorrelate */}
+          <g key={`edge-${er.edge.id}-${idx}`} data-testid={`correlation-edge-${er.edge.id}`}>
+            {/* Invisible hit rect — kept as the fallback right-click
+                surface while the line is revealed. The primary surface
+                is now the chip (body-level menu), but the line right-
+                click remains a useful per-edge "remove this one
+                correlation" path. */}
             <line
               x1={er.x1}
               y1={er.y1}
@@ -848,11 +1101,36 @@ export default function CorrelationEdgesOverlay({
               strokeDasharray={EDGE_DASH}
               pointerEvents="none"
             />
-            {/* Badge at midpoint */}
-            <EdgeBadge x={er.midX} y={er.midY} ordinal={ordinal} />
           </g>
         )
       })}
+
+      {/* Per-band body chips (debt #100). One chip per (investigation ×
+          formation) band that carries an ``instance_ordinal``. Hover a
+          chip → reveal lines for that body + halo every chip in the
+          body. Right-click → body-level context menu. */}
+      {chipRects.map(cr => (
+        <BodyChip
+          key={`chip-${cr.investigationId}-${cr.formationId}`}
+          testId={`body-chip-${cr.investigationId}-${cr.formationId}`}
+          x={cr.x}
+          y={cr.y}
+          ordinal={cr.ordinal}
+          haloed={hoveredBodyOrdinal === cr.ordinal}
+          onMouseEnter={() => setHoveredBodyOrdinal(cr.ordinal)}
+          onMouseLeave={() => setHoveredBodyOrdinal(null)}
+          onContextMenu={e => {
+            e.preventDefault()
+            e.stopPropagation()
+            setBodyContextMenu({
+              x: cr.x + CHIP_WIDTH,
+              y: cr.y + CHIP_HEIGHT,
+              ordinal: cr.ordinal,
+              seedFormationId: cr.formationId,
+            })
+          }}
+        />
+      ))}
 
       {/* Correlate-mode gesture overlays — click-capture rects + source/target UI */}
       {correlateMode && gestureRects.map(gr => {
@@ -1016,13 +1294,25 @@ export default function CorrelationEdgesOverlay({
         />
       )}
 
-      {/* Uncorrelate / admixture context menu */}
+      {/* Edge-level context menu — right-click on a revealed edge line.
+          Kept as the per-edge "remove this one correlation" fallback;
+          the chip's body-level menu is the primary surface. */}
       {contextMenu && (
         <EdgeContextMenu
           menu={contextMenu}
           onRemove={handleContextMenuRemove}
           onEditAdmixtures={handleContextMenuEditAdmixtures}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* Body-level context menu — right-click on a body chip (debt #100). */}
+      {bodyContextMenu && (
+        <BodyContextMenu
+          menu={bodyContextMenu}
+          onEditAdmixtures={handleBodyContextEditAdmixtures}
+          onRemoveAll={() => void handleBodyContextRemoveAll()}
+          onClose={() => setBodyContextMenu(null)}
         />
       )}
 

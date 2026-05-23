@@ -486,3 +486,59 @@ describe('SectionPanel — gesture hint pill', () => {
     expect(screen.queryByTestId('litho-gesture-hint')).toBeNull()
   })
 })
+
+describe('SectionPanel — correlate-mode hint pill (debt #100)', () => {
+  // Inline explainer for the Correlate gesture. Appears only while
+  // correlate mode is active; auto-dismisses on exit-mode. Replaces the
+  // pre-#100 "the only mode affordance is a toolbar toggle" failure.
+
+  const baseGestureState = {
+    correlateMode: false,
+    correlationSource: null,
+    onArm: vi.fn(),
+    onClearArmed: vi.fn(),
+    onExitMode: vi.fn(),
+    onCorrelate: vi.fn(),
+    onUncorrelate: vi.fn(),
+    onPropagateAdmixtures: vi.fn(),
+  }
+
+  it('renders the hint pill when correlateMode is true', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        correlateGestureState={{ ...baseGestureState, correlateMode: true }}
+      />,
+    )
+    expect(screen.getByTestId('correlate-mode-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('correlate-mode-hint')).toHaveTextContent(/Correlate/i)
+    expect(screen.getByTestId('correlate-mode-hint')).toHaveTextContent(
+      /click a unit on one column/i,
+    )
+  })
+
+  it('omits the hint pill when correlateMode is false', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        correlateGestureState={{ ...baseGestureState, correlateMode: false }}
+      />,
+    )
+    expect(screen.queryByTestId('correlate-mode-hint')).toBeNull()
+  })
+
+  it('clicking the ✕ on the pill fires onExitMode', () => {
+    const onExitMode = vi.fn()
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        correlateGestureState={{ ...baseGestureState, correlateMode: true, onExitMode }}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('Exit correlate mode'))
+    expect(onExitMode).toHaveBeenCalledTimes(1)
+  })
+})

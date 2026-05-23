@@ -188,7 +188,10 @@ describe('CorrelationEdgesOverlay', () => {
     expect(overlay!.querySelectorAll('line')).toHaveLength(0)
   })
 
-  it('CE2: renders a line and badge for one edge between two columns', () => {
+  // CE2 — debt #100: edges are hidden by default and revealed only on
+  // chip hover. The chip surface is always-on; the connecting line is
+  // off-by-default to kill the crisscrossing-spaghetti effect.
+  it('CE2: edges are hidden by default; chip + edge-revealed surfaces are present per band', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Klei', 1)
     const contacts = [
@@ -208,13 +211,16 @@ describe('CorrelationEdgesOverlay', () => {
       plotTop: 20,
       plotBottom: 200,
     })
+    // Chips render on every band with a non-null ordinal.
+    expect(screen.getByTestId('body-chip-inv-1-f-a')).not.toBeNull()
+    expect(screen.getByTestId('body-chip-inv-2-f-b')).not.toBeNull()
+    // No edge lines visible at rest (other than the drag-preview, which
+    // is absent without a drag in flight).
     const overlay = container.querySelector('[data-testid="correlation-edges-overlay"]')!
-    // Expect at least 2 lines: 1 hit rect + 1 visible dashed line
-    const lines = overlay.querySelectorAll('line')
-    expect(lines.length).toBeGreaterThanOrEqual(2)
+    expect(overlay.querySelectorAll('line').length).toBe(0)
   })
 
-  it('CE3: badge shows "body 1" when instance_ordinal is 1', () => {
+  it('CE3: chip shows "#N" when instance_ordinal is set', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Klei', 1)
     const contacts = [
@@ -230,17 +236,19 @@ describe('CorrelationEdgesOverlay', () => {
       plotTop: 20,
       plotBottom: 200,
     })
-    expect(screen.getByText('body 1')).not.toBeNull()
+    // Two chips, both "#1" (same body).
+    const chips = screen.getAllByText('#1')
+    expect(chips.length).toBe(2)
   })
 
-  it('CE4: badge shows "?" when instance_ordinal is null', () => {
+  it('CE4: no chip when instance_ordinal is null (pre-Resolve state)', () => {
     const fA = makeFormation('f-a', 'Zand', null) // ordinal null
     const fB = makeFormation('f-b', 'Klei', null)
     const contacts = [
       makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
-    renderOverlay({
+    const { container } = renderOverlay({
       edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
@@ -249,7 +257,10 @@ describe('CorrelationEdgesOverlay', () => {
       plotTop: 20,
       plotBottom: 200,
     })
-    expect(screen.getByText('?')).not.toBeNull()
+    // No chip elements at all — the inspector's RO-3 stale-ordinal
+    // amber indicator covers the "go run Resolve" nudge; per-band
+    // amber "?" everywhere would be noisy.
+    expect(container.querySelector('[data-testid^="body-chip-"]')).toBeNull()
   })
 
   it('CE5: dangling edge suppressed when only one formation has a column', () => {
@@ -548,10 +559,10 @@ describe('CorrelationEdgesOverlay', () => {
   // Context-menu admixture propagation (new items CE14–CE15)
   // -------------------------------------------------------------------
 
-  it('CE14: right-click edge surfaces "Edit admixtures for this body" menu item', () => {
-    // Provides an edge between two columns; right-clicking the hit rect
-    // (the invisible wide line) should render the context menu with both
-    // action items.
+  // CE14 — debt #100: right-click on a body chip opens the body-level
+  // context menu (replaces the right-click-on-edge-line surface, which
+  // is now hidden by default + only the per-edge fallback).
+  it('CE14: right-click body chip opens body context menu (edit admixtures + remove all)', () => {
     const fA = {
       ...makeFormation('f-a', 'Zand', 1),
       litho_main_soil_code: 'ZAND',
@@ -582,18 +593,14 @@ describe('CorrelationEdgesOverlay', () => {
       plotBottom: 200,
       correlateGestureState: gestureState,
     })
-    // Hit-rect lines fire contextmenu — query the transparent hit-rect line.
-    // jsdom renders SVG lines; we fire contextmenu on the first `<line>` that
-    // has stroke="transparent".
-    const hitLines = document.querySelectorAll('line[stroke="transparent"]')
-    expect(hitLines.length).toBeGreaterThan(0)
-    fireEvent.contextMenu(hitLines[0])
-    // Both menu items should appear.
+    const chip = screen.getByTestId('body-chip-inv-1-f-a')
+    fireEvent.contextMenu(chip)
+    expect(screen.getByTestId('body-context-menu')).not.toBeNull()
     expect(screen.getByText(/Edit admixtures for this body/i)).not.toBeNull()
-    expect(screen.getByText(/Remove correlation/i)).not.toBeNull()
+    expect(screen.getByText(/Remove all correlations for this body/i)).not.toBeNull()
   })
 
-  it('CE15: clicking "Edit admixtures for this body" opens the admixture editor modal', async () => {
+  it('CE15: chip menu "Edit admixtures for this body" opens the admixture editor', () => {
     const onPropagateAdmixtures = vi.fn().mockResolvedValue(undefined)
     const fA = {
       ...makeFormation('f-a', 'Zand', 1),
@@ -625,12 +632,129 @@ describe('CorrelationEdgesOverlay', () => {
       plotBottom: 200,
       correlateGestureState: gestureState,
     })
-    // Open context menu via right-click on the hit rect.
-    const hitLines = document.querySelectorAll('line[stroke="transparent"]')
-    fireEvent.contextMenu(hitLines[0])
-    // Click the "Edit admixtures for this body" item.
-    fireEvent.click(screen.getByText(/Edit admixtures for this body/i))
-    // The LithoGhostCompositionEditor should now be rendered with the title.
+    const chip = screen.getByTestId('body-chip-inv-1-f-a')
+    fireEvent.contextMenu(chip)
+    // Pick the menu BUTTON (there will be a duplicate text on the h2
+    // after open — `selector: 'button'` disambiguates).
+    fireEvent.click(screen.getByText(/Edit admixtures for this body/i, { selector: 'button' }))
     expect(screen.getByText(/Edit admixtures for this body/i, { selector: 'h2' })).not.toBeNull()
+  })
+
+  // -------------------------------------------------------------------
+  // CE16–CE19 — debt #100: hover-to-reveal + body-level remove-all.
+  // -------------------------------------------------------------------
+
+  // CE16: hovering a chip whose ordinal is N reveals every edge whose
+  // two endpoint formations both carry ordinal N. Other-body edges
+  // stay hidden — that is the whole anti-spaghetti contract.
+  it('CE16: hovering a chip reveals edges for that body only', () => {
+    const fA1 = makeFormation('f-a1', 'Zand', 1)
+    const fA2 = makeFormation('f-a2', 'Zand', 1) // same body
+    const fB1 = makeFormation('f-b1', 'Klei', 2) // different body
+    const fB2 = makeFormation('f-b2', 'Klei', 2)
+    const contacts = [
+      makeContact('c1', 'f-a1', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-a2', 'inv-2', 'cpt', 2.0),
+      makeContact('c3', 'f-b1', 'inv-1', 'cpt', 5.0),
+      makeContact('c4', 'f-b2', 'inv-2', 'cpt', 5.0),
+    ]
+    const { container } = renderOverlay({
+      edges: [makeEdge('f-a1', 'f-a2', 'edge-A'), makeEdge('f-b1', 'f-b2', 'edge-B')],
+      contacts,
+      formations: [fA1, fA2, fB1, fB2],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+    })
+    // Idle: no edge lines.
+    expect(container.querySelectorAll('[data-testid^="correlation-edge-"]').length).toBe(0)
+    // Hover a body-1 chip → only the body-1 edge appears.
+    fireEvent.mouseEnter(screen.getByTestId('body-chip-inv-1-f-a1'))
+    expect(container.querySelector('[data-testid="correlation-edge-edge-A"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="correlation-edge-edge-B"]')).toBeNull()
+  })
+
+  // CE17: mouseleave from the chip clears the hover state and hides
+  // the previously-revealed edges. Idempotent — the next hover re-
+  // reveals from clean state.
+  it('CE17: mouseleave hides revealed edges', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Zand', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const { container } = renderOverlay({
+      edges: [makeEdge('f-a', 'f-b', 'edge-1')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+    })
+    const chip = screen.getByTestId('body-chip-inv-1-f-a')
+    fireEvent.mouseEnter(chip)
+    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).not.toBeNull()
+    fireEvent.mouseLeave(chip)
+    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).toBeNull()
+  })
+
+  // CE19: "Remove all correlations for this body" fires onUncorrelate
+  // for every edge whose endpoints both carry the body's ordinal — not
+  // just the edge under the right-clicked chip. Other bodies untouched.
+  it('CE19: chip menu Remove-all fires onUncorrelate per body edge', async () => {
+    // Note: the handler is async and serialises N onUncorrelate calls
+    // with await between iterations. The test awaits via waitFor so the
+    // microtask queue drains before the assertion.
+    const onUncorrelate = vi.fn().mockResolvedValue(undefined)
+    const fA1 = makeFormation('f-a1', 'Zand', 1)
+    const fA2 = makeFormation('f-a2', 'Zand', 1)
+    const fA3 = makeFormation('f-a3', 'Zand', 1) // 3-node body — 2 edges
+    const fB1 = makeFormation('f-b1', 'Klei', 2)
+    const fB2 = makeFormation('f-b2', 'Klei', 2)
+    const contacts = [
+      makeContact('c1', 'f-a1', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-a2', 'inv-2', 'cpt', 2.0),
+      makeContact('c3', 'f-a3', 'inv-3', 'cpt', 2.0),
+      makeContact('c4', 'f-b1', 'inv-1', 'cpt', 5.0),
+      makeContact('c5', 'f-b2', 'inv-2', 'cpt', 5.0),
+    ]
+    const gestureState: CorrelateGestureState = {
+      correlateMode: false,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate,
+      onPropagateAdmixtures: vi.fn(),
+    }
+    renderOverlay({
+      edges: [
+        makeEdge('f-a1', 'f-a2', 'edge-A12'),
+        makeEdge('f-a2', 'f-a3', 'edge-A23'),
+        makeEdge('f-b1', 'f-b2', 'edge-B'),
+      ],
+      contacts,
+      formations: [fA1, fA2, fA3, fB1, fB2],
+      placedColumns: [
+        makeColumn('inv-1', 100, 10, 5),
+        makeColumn('inv-2', 200, 10, 20),
+        makeColumn('inv-3', 300, 10, 40),
+      ],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a1'))
+    fireEvent.click(screen.getByText(/Remove all correlations for this body/i))
+    // The body's two edges are both removed; body-2's edge is not.
+    await vi.waitFor(() => expect(onUncorrelate).toHaveBeenCalledTimes(2))
+    const calls = onUncorrelate.mock.calls.map(c => [c[0], c[1]].sort())
+    expect(calls).toContainEqual(['f-a1', 'f-a2'].sort())
+    expect(calls).toContainEqual(['f-a2', 'f-a3'].sort())
   })
 })
