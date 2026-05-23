@@ -24,7 +24,6 @@ subdivision is built on top of it. Priority order:
 * **#98** — litho "add a layer" discoverability + right-click Split (owner green-lit)
 * **#102** — same-lithology boundary merge button
 * **#76** — accept-all "splits" displayed layers — diagnostic
-* **#97** — Sections-stage toolbar refactor (do before Geotech adds verbs)
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
@@ -1740,40 +1739,6 @@ auto-inserted after `parent_formation_name`.
 > "add / edit / merge a litho layer" surface — best done as one or
 > two focused passes, not scattered micro-patches.
 
-## 97. Sections-stage toolbar refactor — model verbs move to the inspector (Tier G — before the Geotech stage)
-
-**What.** The Sections-stage toolbar carries ~13 controls on the litho
-axis, mixing four scopes flat: global-edit (Undo), section management
-(New / Delete / Export), the active editing gesture (axis toggle,
-Suggest ×3, Correlate, Admixtures), and model management (Build,
-Dedupe, Resolve, Sync). Past the ~7-item scan limit, and it grows with
-every new stage.
-
-Owner-approved strategy (2026-05-22):
-
-1. **Model-management verbs leave the toolbar for the inspector.**
-   Build, Dedupe, Resolve instances, Sync geology act on a *model* —
-   they belong in the right-hand inspector next to the model they
-   manage (precedent: `LithologyInspector` already hosts Resolve
-   instances + the Clear pill). The load-bearing move — every future
-   model verb then has an obvious home and the toolbar stops being the
-   dumping ground.
-2. **The Suggest trio collapses to one split-button** (primary Suggest
-   + caret for "all" / "for new tests").
-3. **Hide, not grey, inapplicable verbs** — geology-only verbs render
-   greyed on the litho axis today; hide them outright.
-
-End state, litho axis: `[Geology│Litho] · Suggest▾ · Correlate ·
-Admixtures▾ · | · New cross-section · Delete · Export▾` — ~7 coherent
-controls.
-
-**Why deferred.** A real refactor (~half a day) across the toolbar +
-both inspectors + the prop wiring; UX polish, not an MVP-gate blocker.
-Best as one focused pass — run it past `ux-reviewer` before building.
-
-**When to revisit.** The next Sections-stage UX pass, or when the
-Geotech-axis verbs land and push the toolbar further past the scan
-limit.
 
 ## 98. Litho ghost-review: "add a layer" discoverability + right-click Split (Tier G — before the Geotech stage)
 
