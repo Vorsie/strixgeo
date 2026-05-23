@@ -25,6 +25,7 @@ import { formatLithoDisplayName } from '../../utils/lithoLabels'
 import { canMergeAt } from '../../utils/lithoLayerMerge'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import CopyCompositionConfirmDialog from './CopyCompositionConfirmDialog'
+import HoverReadoutCard from './HoverReadoutCard'
 import MergeConfirmDialog from './MergeConfirmDialog'
 import type { PlacedColumn } from './utils'
 import { maxCharsForWidth, maxLinesForHeight, wrapLabelToLines } from '../../utils/labelWrap'
@@ -1344,6 +1345,36 @@ export default function LithoSuggestionGhostColumns({
           </g>
         )
       })}
+      {/* Live drag depth readout (debt #103). Shows the boundary's
+          depth-down-the-test (``qc reference depth`` in dogfeed
+          parlance) + its absolute mTAW elevation, updating live on
+          every mousemove. Mirrors the committed-contact drag readout
+          in ContactsLayer + the borehole focus-mode hover readout in
+          BoreholeColumn so the litho-ghost drag surfaces the same
+          two values the user already gets on the other drag surfaces.
+          Anchored to the right of the ghost overlay; same y as the
+          dragged boundary (HoverReadoutCard clamps to plot bounds). */}
+      {drag !== null && surfaceElevationM !== null && (
+        (() => {
+          const elevation = surfaceElevationM - drag.currentDepthM
+          return (
+            <g pointerEvents="none" data-testid="litho-drag-readout">
+              <HoverReadoutCard
+                x={left + ghostWidth + 8}
+                y={levelToScreen(elevation)}
+                plotTop={plotTop}
+                plotBottom={plotBottom}
+                lines={[
+                  { text: `depth ${drag.currentDepthM.toFixed(2)} m` },
+                  {
+                    text: `${elevation >= 0 ? '+' : ''}${elevation.toFixed(2)} m TAW`,
+                  },
+                ]}
+              />
+            </g>
+          )
+        })()
+      )}
       {/* Snap-to-collapse indicator (debt #81). A short amber dashed
           line at the snap target depth, drawn across the ghost column,
           plus a "merge" hint label. Visible only while the drag is

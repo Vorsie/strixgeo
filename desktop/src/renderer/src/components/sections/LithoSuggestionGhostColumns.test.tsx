@@ -1314,4 +1314,76 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(screen.getByTestId('litho-boundary-insert')).toBeInTheDocument()
     expect(screen.queryByTestId('litho-boundary-merge')).toBeNull()
   })
+
+  // ---------------------------------------------------------------------------
+  // V — debt #103: live drag depth readout on the litho ghost boundary.
+  //
+  // The readout box mirrors the borehole-anchored contact drag readout
+  // (ContactsLayer) — two lines: depth-down-the-test + absolute mTAW
+  // elevation — so the litho drag surfaces the same depth values the
+  // engineer already sees on the other drag surfaces.
+  // ---------------------------------------------------------------------------
+
+  // V1: no drag in progress → readout box is not rendered. Initial-render
+  // gate so the card doesn't appear over a static ghost overlay.
+  it('V1 — readout is absent before any drag begins', () => {
+    const { container } = renderGhost([makeSuggestion()], { onEdit: vi.fn() })
+    expect(container.querySelector('[data-testid="litho-drag-readout"]')).toBeNull()
+  })
+
+  // V2: mousedown on the top handle → readout renders with depth + mTAW
+  // for the dragged boundary's CURRENT position (not the initial one).
+  // Test transform: levelToScreen(level) = 500 - level * 100 → pxPerM=100.
+  // Surface = 5 m TAW, layer top starts at depth 0. Drag 50 px down →
+  // currentDepth = 0.5 m → elevation = 5 - 0.5 = +4.50 m TAW.
+  it('V2 — readout shows live depth + mTAW during top-edge drag', () => {
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit: vi.fn() },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')
+    expect(topHandle).not.toBeNull()
+    fireEvent.mouseDown(topHandle!, { clientY: 100 })
+    fireEvent.mouseMove(document, { clientY: 150 })
+    const readout = container.querySelector('[data-testid="litho-drag-readout"]')
+    expect(readout).not.toBeNull()
+    const texts = Array.from(readout!.querySelectorAll('text')).map(t => t.textContent)
+    expect(texts).toContain('depth 0.50 m')
+    expect(texts).toContain('+4.50 m TAW')
+  })
+
+  // V3: mouseup ends the drag → readout disappears. Confirms the gate
+  // is on the live drag state, not a lingering ref.
+  it('V3 — readout disappears after mouseup', () => {
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit: vi.fn() },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')!
+    fireEvent.mouseDown(topHandle, { clientY: 100 })
+    fireEvent.mouseMove(document, { clientY: 150 })
+    expect(container.querySelector('[data-testid="litho-drag-readout"]')).not.toBeNull()
+    fireEvent.mouseUp(document)
+    expect(container.querySelector('[data-testid="litho-drag-readout"]')).toBeNull()
+  })
+
+  // V4: base-edge drag works too — and a depth that lands ABOVE the
+  // surface (negative depth is impossible, but a deep base produces a
+  // negative-or-zero elevation when surface is shallow). Use surface=1,
+  // base starts at depth 2, drag down 50 px → depth 2.5 → elevation -1.5.
+  // Verifies the sign formatting (no leading '+' when elevation < 0).
+  it('V4 — base drag readout reflects depth + signed mTAW (negative elevation case)', () => {
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit: vi.fn(), surfaceElevationM: 1 },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandle, { clientY: 100 })
+    fireEvent.mouseMove(document, { clientY: 150 })
+    const readout = container.querySelector('[data-testid="litho-drag-readout"]')
+    expect(readout).not.toBeNull()
+    const texts = Array.from(readout!.querySelectorAll('text')).map(t => t.textContent)
+    expect(texts).toContain('depth 2.50 m')
+    expect(texts).toContain('-1.50 m TAW')
+  })
 })
