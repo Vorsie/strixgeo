@@ -25,7 +25,6 @@ subdivision is built on top of it. Priority order:
 * **#102** — same-lithology boundary merge button
 * **#100** — Correlate tool UX pass (clunky / crisscrossing edges)
 * **#76** — accept-all "splits" displayed layers — diagnostic
-* **#103** — CPT layer-drag depth readout box
 * **#97** — Sections-stage toolbar refactor (do before Geotech adds verbs)
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
@@ -1947,21 +1946,6 @@ drag-resize one layer to absorb the other.
 
 **When to revisit.** The litho-workflow UX pass — natural companion to
 #98 (the boundary is the shared surface).
-
-## 103. CPT layer-drag depth readout box (Tier G — before the Geotech stage)
-
-**What.** When the user drags a litho layer boundary on a CPT column
-there is no live depth readout. Request (dogfeed 2026-05-22): show a
-small box — mirroring the equivalent readout the borehole drag shows —
-carrying the **qc reference depth** (depth down the test) and the
-**relative mTAW elevation** (absolute datum) of the boundary being
-dragged, updating live during the drag.
-
-**Why deferred.** A small UX addition, not a correctness issue. Best
-done alongside the other litho drag-surface work (#98 / #99) so the
-drag-handle code is only touched once.
-
-**When to revisit.** The litho-workflow UX pass.
 
 ---
 
