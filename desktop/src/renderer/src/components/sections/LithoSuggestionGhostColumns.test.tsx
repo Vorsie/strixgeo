@@ -630,6 +630,41 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(0, 5)
   })
 
+  // G34b — mirror of G34 for the OPPOSITE direction. Owner dogfeed
+  // 2026-05-22: "rejected a layer, tried to pull the sand boundary
+  // below it up, but couldn't pull onto the layer above the rejected
+  // layer." With layer 1 (silt) rejected, dragging layer 2's TOP UP
+  // must extend through the rejected region and clamp at layer 0's
+  // BASE (the next-visible-above's NEAR edge). Pins debt #99 — covers
+  // the direction G34 missed.
+  it('G34b — with rejected between, top-drag UP fills the gap and clamps at the layer-above base', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+        makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+      ],
+      { onEdit, onReject, rejectedIndices: new Set([1]) },
+    )
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-2"]')
+    fireEvent.mouseDown(topHandle!, { clientY: 400 })
+    // Drag way up past everything → clamps at layer 0's BASE (depth 2).
+    fireEvent.mouseMove(document, { clientY: -500 })
+    fireEvent.mouseUp(document)
+    expect(onReject).not.toHaveBeenCalled()
+    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    const layer2Edit = onEdit.mock.calls.find(([idx]) => idx === 2)
+    // Dragged layer 2's top extended to layer 0's base (= 2 m).
+    expect(layer2Edit?.[1].depth_top_m).toBeCloseTo(2, 5)
+    // Shared-boundary propagation: layer 0 gets the same edit (skipping
+    // rejected layer 1) — fires even though its base was already at 2.
+    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(2, 5)
+    // Layer 1 (rejected) is never touched.
+    expect(onEdit.mock.calls.find(([idx]) => idx === 1)).toBeUndefined()
+  })
+
   // G37: Cancel in the merge dialog drops the whole gesture.
   it('G37 — Cancel in merge dialog fires no edit, no reject', () => {
     const onEdit = vi.fn()

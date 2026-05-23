@@ -1809,27 +1809,40 @@ a long session; deserves its own focused implementation.
 **When to revisit.** Immediately — owner explicitly green-lit it. The
 first task of the next litho-workflow pass.
 
-## 99. Litho drag-resize clamp does not pass through rejected layers (Tier G — before the Geotech stage; bug)
+## 99. Litho drag-resize clamp does not pass through rejected layers — investigated, code correct in the obvious reading (Tier G — verify with owner; G34b pins the mirror)
 
 **What.** Dogfeed 2026-05-22: the user rejected a litho ghost layer,
-then tried to drag the boundary of the sand layer below it *up* — and
-could not pull it past the rejected layer to reach the layer above. A
-rejected layer's span should be "free": the drag should fill the
-rejected gap and clamp at the base of the next *non-rejected* layer
-above (the intended behaviour — test G34, "drag fills the gap and
-clamps at the next visible near edge"). It clamped short instead,
-treating the rejected layer as a hard barrier.
+then tried to drag the boundary of the sand layer below it *up* and
+reported they could not pull it past the rejected layer to reach the
+layer above.
 
-Likely cause: the clamp in `computeDragBounds` picks the bounding
-neighbour by raw index (`idx ± 1`) rather than the next *non-rejected*
-neighbour, so a rejected layer stops the drag.
+**Investigation 2026-05-23.** The hypothesis from the original entry —
+"clamp picks the bounding neighbour by raw index (`idx±1`) instead of
+the next *non-rejected*" — does NOT match the code.
+`findCascadeChainAbove` / `findCascadeChainBelow`
+(`LithoSuggestionGhostColumns.tsx:243` / `:278`) already skip rejected
+layers (`continue` on `rejectedIndices.has(i)`), return the next
+non-rejected as the barrier, and `computeDragBounds` clamps at its
+NEAR edge — i.e. the layer-above's BASE. A new test **G34b** mirrors
+the existing G34 (which only covered base-drag DOWN) for the exact
+owner scenario — top-drag UP through a rejected layer — and passes on
+first run. The code is correct for the obvious interpretation.
 
-**Why deferred.** Diagnosed but not yet fixed — surfaced at the tail of
-a long session; the fix needs care because the cascade / gap-fill logic
-(#83 / #84) is intricate and a wrong change there regresses several
-gestures.
+Two remaining possibilities for what the owner actually hit: (a) the
+clamp at A.BASE is correct but the visual ("touches A's bottom edge
+but does not enter A") read as "couldn't pull onto A"; (b) the actual
+topology was different (an accepted layer in the chain, more than one
+rejected, or a same-parent cascade case that fired the merge dialog
+and was cancelled).
 
-**When to revisit.** Next litho-workflow pass, alongside #98.
+**Why deferred.** Cannot fix what is not reproducing. G34b is the
+regression net for the obvious interpretation.
+
+**When to revisit.** Next time the owner hits the symptom — capture
+the exact layer set (lithologies, accepted/rejected/pending, parent
+formations) so the scenario can be re-modelled. If (a) is the real
+answer, the followup is a UX nudge (e.g. a visible boundary glyph at
+the clamp) rather than a logic change.
 
 ## 100. Correlate tool — UX pass (Tier G — before the Geotech stage)
 
