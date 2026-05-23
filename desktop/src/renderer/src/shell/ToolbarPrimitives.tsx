@@ -312,3 +312,207 @@ export function ToolbarDropdown({
     </>
   )
 }
+
+// ---------------------------------------------------------------------------
+// SplitToolbarButton — debt #97
+// ---------------------------------------------------------------------------
+
+interface SplitToolbarButtonProps {
+  /** Icon for the primary action half (lucide, 13 px). */
+  icon: React.ReactNode
+  /** Label for the primary action half. */
+  label: string
+  /** Fires when the user clicks the primary action half (left of the
+   *  caret). The caret half opens the secondary-items dropdown. */
+  onClick: () => void
+  /** Disable the primary action only (caret stays open if it has any
+   *  enabled items). Disabling the WHOLE control should be done by
+   *  combining ``disabled`` with empty/disabled items. */
+  disabled?: boolean
+  /** Tooltip on the primary half. */
+  title?: string
+  /** Spinning indicator on the primary half (async in-flight). */
+  busy?: boolean
+  /** Render the primary half in the accent-filled style (matches
+   *  ``PrimaryToolbarButton``) — for true primary verbs. Default
+   *  false = same plain style as ``ToolbarButton``. */
+  primary?: boolean
+  /** Secondary actions surfaced under the caret. Empty = caret hidden
+   *  (degenerates to a plain ToolbarButton). */
+  items: readonly ToolbarDropdownItem[]
+  /** Optional data-testid for the primary half. The caret half uses
+   *  ``${testid}-caret`` when supplied. */
+  testid?: string
+}
+
+/**
+ * Split-button toolbar control: a primary action attached to a caret
+ * that opens a small menu of secondary actions.
+ *
+ * Visual + behavioural contract
+ * -----------------------------
+ * - Two adjacent buttons sharing a rounded outline. Left button = the
+ *   primary verb (icon + label). Right button = the caret only.
+ * - The primary button calls ``onClick`` directly (no menu opens).
+ * - The caret button opens the same floating menu as
+ *   ``ToolbarDropdown`` (createPortal, Esc + outside-click dismiss).
+ * - ``disabled`` greys the primary half; the caret stays usable so
+ *   the user can still reach the secondary items (which carry their
+ *   own ``disabled`` per-item).
+ * - ``busy`` swaps the icon for a spinning ``RefreshCw`` on the
+ *   primary half (docs/ux.md async affordance, matches
+ *   ``ToolbarButton``).
+ *
+ * Why a new primitive (rather than reusing ``ToolbarDropdown``)
+ * -------------------------------------------------------------
+ * ToolbarDropdown opens its menu on the trigger CLICK; there is no
+ * distinct primary action. The split-button pattern collapses 3 verbs
+ * (Suggest litho / Suggest all / Suggest for new tests) into one slot
+ * by promoting the most common verb to a single-click action and
+ * burying the variants under the caret — exactly the toolbar-shrink
+ * the #97 refactor needs.
+ */
+export function SplitToolbarButton({
+  icon,
+  label,
+  onClick,
+  disabled,
+  title,
+  busy,
+  primary,
+  items,
+  testid,
+}: SplitToolbarButtonProps): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null)
+  const caretRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClickAway(e: MouseEvent): void {
+      const t = e.target as Node
+      if (caretRef.current && caretRef.current.contains(t)) return
+      setOpen(false)
+    }
+    function handleKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickAway)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClickAway)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [open])
+
+  function handleCaretClick(): void {
+    const rect = caretRef.current?.getBoundingClientRect() ?? null
+    setAnchorRect(rect)
+    setOpen(o => !o)
+  }
+
+  const primaryClasses = primary
+    ? [
+        'flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-l text-xs font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        disabled
+          ? 'bg-accent/40 text-text-on-accent/60 cursor-not-allowed'
+          : 'bg-accent text-text-on-accent hover:bg-accent-hover',
+      ].join(' ')
+    : [
+        'flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-l text-xs font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        disabled
+          ? 'text-text-muted cursor-not-allowed'
+          : 'text-text-secondary hover:bg-surface-app hover:text-text-primary',
+      ].join(' ')
+
+  const caretClasses = primary
+    ? [
+        'flex items-center px-1.5 py-1 rounded-r text-xs transition-colors border-l border-accent-hover/30',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'bg-accent text-text-on-accent hover:bg-accent-hover',
+      ].join(' ')
+    : [
+        'flex items-center px-1.5 py-1 rounded-r text-xs transition-colors border-l border-border-subtle',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'text-text-secondary hover:bg-surface-app hover:text-text-primary',
+      ].join(' ')
+
+  return (
+    <>
+      <div className="flex items-center" data-testid={testid ? `${testid}-group` : undefined}>
+        <button
+          type="button"
+          onClick={() => {
+            if (disabled) return
+            onClick()
+          }}
+          disabled={disabled}
+          title={title}
+          data-testid={testid}
+          className={primaryClasses}
+        >
+          {busy ? <RefreshCw size={13} className="animate-spin" /> : icon}
+          {label}
+        </button>
+        <button
+          ref={caretRef}
+          type="button"
+          onClick={handleCaretClick}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={`${label} options`}
+          data-testid={testid ? `${testid}-caret` : undefined}
+          className={caretClasses}
+        >
+          <ChevronDown size={11} aria-hidden="true" />
+        </button>
+      </div>
+      {open && anchorRect !== null &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: anchorRect.bottom + 4,
+              // Right-align the menu to the caret so wider items don't
+              // bleed off the toolbar's left edge on a narrow viewport.
+              left: anchorRect.right - 200,
+              minWidth: 200,
+              zIndex: 10000,
+            }}
+            onMouseDown={e => e.stopPropagation()}
+            className="bg-surface-overlay border border-border-default rounded shadow-lg py-1 text-xs"
+            role="menu"
+            aria-label={`${label} options`}
+          >
+            {items.map((item, i) => (
+              <button
+                key={i}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                title={item.title}
+                onClick={() => {
+                  if (item.disabled) return
+                  item.onClick()
+                  setOpen(false)
+                }}
+                data-testid={item.testid}
+                className={[
+                  'flex items-center gap-2 w-full text-left px-3 py-1.5 transition-colors',
+                  item.disabled
+                    ? 'text-text-muted cursor-not-allowed'
+                    : 'text-text-primary hover:bg-surface-page',
+                ].join(' ')}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
+  )
+}

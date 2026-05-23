@@ -6,11 +6,11 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, RefreshCw, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 
 import { useShell } from '../../ShellContext'
-import { ToolbarButton, ToolbarDropdown, PrimaryToolbarButton } from '../../ToolbarPrimitives'
+import { ToolbarButton, ToolbarDropdown, PrimaryToolbarButton, SplitToolbarButton } from '../../ToolbarPrimitives'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
@@ -43,7 +43,6 @@ export default function SectionsToolbar(): JSX.Element {
       handleCreateSection,
       handleDeleteSection,
       applyUpdatedSection,
-      backdropModelIdOverride,
       sectionFocusedColumn,
       correlateMode,
       enterCorrelateMode,
@@ -52,11 +51,7 @@ export default function SectionsToolbar(): JSX.Element {
     geoModel: {
       activeGeologicalModel,
       activeLithoModel,
-      staleSurfaceCount,
-      handleRebuildSurfaces,
-      handleDedupeContacts,
       handleExportModelPlaxis3d,
-      handleAutoPopulateFromStratigraphy,
       lithoSuggesting,
       // Phase 2 of debt #77: bus exposes the unified Map + focus flag.
       // Derived below: hasSuggestions, bulkAnchorCount.
@@ -65,16 +60,16 @@ export default function SectionsToolbar(): JSX.Element {
       handleSuggestLitho,
       handleAcceptAllLithoSuggestions,
       clearLithoSuggestions,
-      handleLoadBackdropSurfaces,
       bulkLithoSuggesting,
       handleSuggestAllLitho,
       handleAcceptAllBulkLitho,
       clearBulkLithoGhosts,
       handleStripLithoAdmixtures,
       handleReseedLithoAdmixtures,
-      // Debt #92 "new tests" filter: scope the new toolbar verbs to
-      // investigations not yet in the active model's contact set.
-      contacts,
+      // Debt #92 "new tests" filter: scope the Suggest split-button's
+      // "for new tests" item to anchors not yet in the active litho
+      // model's contact set. Build / Dedupe / Sync moved with their
+      // verbs to ``SectionsInspector`` (#97).
       lithoContacts,
     },
     visibleCpts,
@@ -88,13 +83,10 @@ export default function SectionsToolbar(): JSX.Element {
 
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [seeding, setSeeding] = useState(false)
   // Delete confirm modal state — replaces window.confirm() per UX rules:
   // irreversible actions require a Modal with default-focus on Cancel and a
   // button labelled with the action name (not "OK"). See docs/ux.md.
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [rebuilding, setRebuilding] = useState(false)
-  const [deduping, setDeduping] = useState(false)
   const [exportingPlaxis, setExportingPlaxis] = useState(false)
   const [exportingDxf, setExportingDxf] = useState(false)
   const [acceptingAll, setAcceptingAll] = useState(false)
@@ -202,65 +194,6 @@ export default function SectionsToolbar(): JSX.Element {
     }
   }
 
-  async function handleBuild(): Promise<void> {
-    // Guard on model presence too — the Build button is always rendered
-    // but is meaningless without an active geological model.
-    if (rebuilding || !activeGeologicalModel) return
-    setRebuilding(true)
-    try {
-      await handleRebuildSurfaces()
-    } finally {
-      setRebuilding(false)
-    }
-  }
-
-  // Seed — axis-aware.
-  // Geological axis: place contacts from borehole stratigraphy for
-  // formations already defined in the active geological model.
-  // Litho axis (REWIRED per owner override #1, #60): (re)fetch the parent
-  // geological model's TIN surfaces for the backdrop reference layer.
-  // The old handleSeedLithoFromParent (contact-copy verb) is ORPHANED:
-  // the backend endpoint still exists but no frontend verb calls it after
-  // this change (see docstring on SeedLithoFromGeologicalModel use case
-  // and debt #60 in CLAUDE.md).
-  async function handleSeed(): Promise<void> {
-    if (seeding) return
-    setSeeding(true)
-    try {
-      if (isLitho) {
-        // Derive the effective backdrop model id: the user's override takes
-        // precedence; the default is the active litho model's parent geological
-        // model (mirroring the useMemo derivation in SectionsCanvas).
-        const effectiveBackdropModelId =
-          backdropModelIdOverride ?? activeLithoModel?.parent_geological_model_id ?? null
-        if (!effectiveBackdropModelId) return
-        await handleLoadBackdropSurfaces(effectiveBackdropModelId)
-      } else {
-        if (!activeGeologicalModel) return
-        // Forward the section id so the seeded geological contacts are
-        // added to the section's seeded_formation_contact_ids and actually
-        // render here (explicit-content invariant).
-        await handleAutoPopulateFromStratigraphy(
-          visibleBoreholes.map(b => b.id),
-          selectedSectionId ?? null,
-          applyUpdatedSection,
-        )
-      }
-    } finally {
-      setSeeding(false)
-    }
-  }
-
-  async function handleDedupe(): Promise<void> {
-    if (!activeGeologicalModel || deduping) return
-    setDeduping(true)
-    try {
-      await handleDedupeContacts()
-    } finally {
-      setDeduping(false)
-    }
-  }
-
   const hasSection = selectedSection !== null
   // Axis-aware model presence: geological axis uses the geological model,
   // lithostratigraphic axis uses the litho model. Build/Seed/Dedupe/Export
@@ -280,11 +213,6 @@ export default function SectionsToolbar(): JSX.Element {
   const geoVerbHint = isLitho
     ? 'Switch to the Geology axis — Build / Seed / Dedupe / Plaxis-3D act on the geological model'
     : null
-  const staleLabel =
-    staleSurfaceCount > 0
-      ? `Build · ${staleSurfaceCount} stale`
-      : 'Build model'
-
   // Suggest litho — fetches Robertson-2015/borehole segmenter suggestions
   // for the focused column in the active section. On the litho axis the
   // source is the section-local focused column (right-click → Focus in the
@@ -415,36 +343,6 @@ export default function SectionsToolbar(): JSX.Element {
     await handleSuggestAllLitho(newTestAnchors)
   }
 
-  // Debt #92: "Seed for new tests" — Same as the geology-axis Seed
-  // button but scoped to boreholes that have ZERO contacts in the
-  // active geology model. Safe to click after the section is already
-  // seeded; only affects newly-imported boreholes.
-  const newTestBoreholeIds = useMemo(() => {
-    if (!activeGeologicalModel) return [] as string[]
-    const seen = new Set<string>()
-    for (const c of contacts) {
-      if (c.borehole_id !== null) seen.add(c.borehole_id)
-    }
-    return visibleBoreholes.filter(b => !seen.has(b.id)).map(b => b.id)
-  }, [contacts, visibleBoreholes, activeGeologicalModel])
-
-  async function handleSeedNewTests(): Promise<void> {
-    if (seeding) return
-    // Defensive guard — see handleSuggestNewTests note above.
-    if (newTestBoreholeIds.length === 0) return
-    setSeeding(true)
-    try {
-      if (!activeGeologicalModel) return
-      await handleAutoPopulateFromStratigraphy(
-        newTestBoreholeIds,
-        selectedSectionId ?? null,
-        applyUpdatedSection,
-      )
-    } finally {
-      setSeeding(false)
-    }
-  }
-
   async function handleAcceptAllBulk(): Promise<void> {
     if (bulkAnchorCount === 0 || acceptingAllBulk) return
     setAcceptingAllBulk(true)
@@ -570,29 +468,80 @@ export default function SectionsToolbar(): JSX.Element {
       {/* Separator */}
       <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
 
-      {/* Suggest litho (slice 3, #55) — only shown on the litho axis.
-          Calls the Robertson-2015/borehole segmenter for the selected CPT
-          or borehole; the resulting ghost overlay renders in SectionPanel.
-          "Clear" dismisses the overlay without any network call. */}
+      {/* Suggest split-button (debt #97). Primary action = single-anchor
+          Suggest litho on the focused column; caret menu items = the
+          bulk variants (all in section / for new tests). Collapses the
+          previous Suggest×3 widgets into one toolbar slot — the most
+          common verb stays one click away, the variants are one
+          additional click. Pending-state pills (Accept all / Clear)
+          stay as transient widgets that only render while ghosts
+          exist. */}
       {isLitho && (
         <>
-          <ToolbarButton
+          <SplitToolbarButton
             icon={<Sparkles size={13} />}
-            label={lithoSuggesting ? 'Suggesting…' : 'Suggest litho'}
+            label={
+              lithoSuggesting || bulkLithoSuggesting ? 'Suggesting…' : 'Suggest'
+            }
             onClick={() => void handleSuggest()}
-            disabled={!canSuggest || lithoSuggesting}
-            busy={lithoSuggesting}
+            disabled={!canSuggest || lithoSuggesting || bulkLithoSuggesting}
+            busy={lithoSuggesting || bulkLithoSuggesting}
             title={
               !activeLithoModel
                 ? 'Create a lithostratigraphic model first'
                 : !hasSection
-                  ? 'Open a cross-section to use Suggest litho'
+                  ? 'Open a cross-section to use Suggest'
                   : !focusedAnchorId
-                    ? 'Right-click a column in the section to focus a CPT or borehole, then Suggest litho'
+                    ? 'Right-click a column in the section to focus a CPT or borehole, then Suggest'
                     : lithoSuggesting
                       ? 'Fetching suggestions…'
                       : `Suggest lithostratigraphic layers for ${sectionFocusedColumn?.name ?? 'the focused investigation'}`
             }
+            testid="litho-suggest"
+            items={[
+              {
+                label: `Suggest all in this section${
+                  bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''
+                }`,
+                icon: <Sparkles size={12} />,
+                onClick: () => setBulkConfirmOpen(true),
+                disabled:
+                  !activeLithoModel ||
+                  !hasSection ||
+                  bulkLithoSuggesting ||
+                  lithoSuggesting,
+                title:
+                  !activeLithoModel
+                    ? 'Create a lithostratigraphic model first'
+                    : !hasSection
+                      ? 'Open a cross-section first'
+                      : bulkLithoSuggesting
+                        ? 'Running segmenter on every investigation in this section…'
+                        : 'Suggest lithostratigraphic layers for every investigation in this section at once',
+                testid: 'litho-suggest-all',
+              },
+              {
+                label: activeLithoModel
+                  ? `Suggest for new tests (${newTestAnchors.length})`
+                  : 'Suggest for new tests',
+                icon: <Sparkles size={12} />,
+                onClick: () => void handleSuggestNewTests(),
+                disabled:
+                  !activeLithoModel ||
+                  bulkLithoSuggesting ||
+                  lithoSuggesting ||
+                  newTestAnchors.length === 0,
+                title:
+                  !activeLithoModel
+                    ? 'Create a lithostratigraphic model first'
+                    : bulkLithoSuggesting
+                      ? 'Running segmenter…'
+                      : newTestAnchors.length === 0
+                        ? 'All visible investigations already have litho contacts — import new tests to use this'
+                        : `Suggest layers for the ${newTestAnchors.length} investigation${newTestAnchors.length === 1 ? '' : 's'} with no litho contacts yet`,
+                testid: 'litho-suggest-new-tests',
+              },
+            ]}
           />
           {hasSuggestions && (
             <>
@@ -616,65 +565,6 @@ export default function SectionsToolbar(): JSX.Element {
                 title="Dismiss the current litho suggestion overlay"
               />
             </>
-          )}
-          {/* Bulk-suggest (debt #73 / Phase 3) — fans out the segmenter
-              over every visible investigation in this section. Visible
-              only on the litho axis. The confirmation dialog warns that
-              prior bulk ghosts will be replaced. */}
-          {hasSection && (
-            <ToolbarButton
-              icon={<Sparkles size={13} />}
-              label={bulkLithoSuggesting ? 'Suggesting…' : 'Suggest all'}
-              onClick={() => setBulkConfirmOpen(true)}
-              disabled={
-                !activeLithoModel || bulkLithoSuggesting || lithoSuggesting
-              }
-              busy={bulkLithoSuggesting}
-              title={
-                !activeLithoModel
-                  ? 'Create a lithostratigraphic model first'
-                  : bulkLithoSuggesting
-                    ? 'Running segmenter on every investigation in this section…'
-                    : 'Suggest lithostratigraphic layers for every investigation in this section at once'
-              }
-            />
-          )}
-          {/* Debt #92: Suggest for new tests — same fan-out as "Suggest
-              all" but scoped to anchors with zero contacts in the
-              active litho model.  Lets the engineer process newly-
-              imported investigations without re-running the segmenter
-              on already-accepted ones.  Disabled when the filtered
-              count is zero (ux-review 2026-05-21: disabled+tooltip
-              beats stay-and-toast for empty state). */}
-          {hasSection && (
-            <ToolbarButton
-              icon={<Sparkles size={13} />}
-              label={
-                bulkLithoSuggesting
-                  ? 'Suggesting…'
-                  : activeLithoModel
-                    ? `Suggest for new tests (${newTestAnchors.length})`
-                    : 'Suggest for new tests'
-              }
-              onClick={() => void handleSuggestNewTests()}
-              disabled={
-                !activeLithoModel ||
-                bulkLithoSuggesting ||
-                lithoSuggesting ||
-                newTestAnchors.length === 0
-              }
-              busy={bulkLithoSuggesting}
-              title={
-                !activeLithoModel
-                  ? 'Create a lithostratigraphic model first'
-                  : bulkLithoSuggesting
-                    ? 'Running segmenter…'
-                    : newTestAnchors.length === 0
-                      ? 'All visible investigations already have litho contacts — import new tests to use this button'
-                      : `Suggest layers for the ${newTestAnchors.length} investigation${newTestAnchors.length === 1 ? '' : 's'} with no litho contacts yet`
-              }
-              data-testid="litho-suggest-new-tests"
-            />
           )}
           {bulkAnchorCount > 0 && (
             <>
@@ -903,112 +793,12 @@ export default function SectionsToolbar(): JSX.Element {
         busy={exportingPdf}
       />
 
-      {/* Separator */}
-      <div className="w-px h-4 bg-border-subtle mx-0.5" aria-hidden="true" />
-
-      {/* Build model — amber badge when surfaces are stale */}
-      <ToolbarButton
-        icon={<RefreshCw size={13} className={rebuilding ? 'animate-spin' : ''} />}
-        label={rebuilding ? 'Building…' : staleLabel}
-        onClick={handleBuild}
-        disabled={rebuilding || geoVerbDisabled}
-        amber={staleSurfaceCount > 0 && !rebuilding && !isLitho}
-        title={
-          geoVerbHint ??
-          (activeGeologicalModel === null
-            ? 'No active geological model — create formations and contacts first'
-            : rebuilding
-              ? 'Building surfaces…'
-              : staleSurfaceCount > 0
-                ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
-                : 'Rebuild TIN surfaces from current contacts')
-        }
-      />
-
-      {/* Seed / Sync geology — axis-aware.
-          Geological axis: places contacts from borehole stratigraphy for
-          formations that already exist in the active geological model.
-          Lithostratigraphic axis (owner override #1, #60): (re)loads the parent
-          geological model's TIN surfaces as a read-only backdrop reference layer
-          — renamed to "Sync geology" on the litho axis to reflect the new intent.
-          The geoVerbDisabled gate is intentionally NOT applied to the litho-axis
-          path: syncing the geological backdrop is a valid litho-axis operation. */}
-      <ToolbarButton
-        icon={<Sparkles size={13} />}
-        label={seeding ? 'Syncing…' : isLitho ? 'Sync geology' : 'Seed'}
-        onClick={() => void handleSeed()}
-        disabled={
-          seeding ||
-          (isLitho
-            ? activeLithoModel === null ||
-              (backdropModelIdOverride ?? activeLithoModel?.parent_geological_model_id) === null
-            : geoVerbDisabled)
-        }
-        busy={seeding}
-        title={
-          isLitho
-            ? activeLithoModel === null
-              ? 'Create a lithostratigraphic model in the Lithology stage first'
-              : seeding
-                ? 'Loading geological surfaces…'
-                : 'Load the parent geological model\'s surfaces as a read-only backdrop reference on this section'
-            : (geoVerbHint ??
-              (activeGeologicalModel === null
-                ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
-                : seeding
-                  ? 'Seeding contacts from borehole stratigraphy…'
-                  : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear'))
-        }
-      />
-
-      {/* Debt #92: Seed for new tests (geology axis only).  Same as the
-          Seed button above but scoped to boreholes that have ZERO
-          contacts in the active geology model.  Disabled when the
-          filtered count is zero (ux-review 2026-05-21: disabled+tooltip
-          beats stay-and-toast for empty state). */}
-      {!isLitho && (
-        <ToolbarButton
-          icon={<Sparkles size={13} />}
-          label={
-            seeding
-              ? 'Seeding…'
-              : activeGeologicalModel
-                ? `Seed for new tests (${newTestBoreholeIds.length})`
-                : 'Seed for new tests'
-          }
-          onClick={() => void handleSeedNewTests()}
-          disabled={seeding || geoVerbDisabled || newTestBoreholeIds.length === 0}
-          busy={seeding}
-          title={
-            geoVerbHint ??
-            (activeGeologicalModel === null
-              ? 'Define formations in the Geology stage first'
-              : seeding
-                ? 'Seeding contacts from borehole stratigraphy…'
-                : newTestBoreholeIds.length === 0
-                  ? 'All boreholes in scope already have geology contacts — import new tests to use this button'
-                  : `Place contacts from stratigraphy for the ${newTestBoreholeIds.length} borehole${newTestBoreholeIds.length === 1 ? '' : 's'} with no geology contacts yet`)
-          }
-          data-testid="geology-seed-new-tests"
-        />
-      )}
-
-      {/* Dedupe contacts */}
-      <ToolbarButton
-        icon={<Eraser size={13} />}
-        label={deduping ? 'Cleaning…' : 'Dedupe'}
-        onClick={handleDedupe}
-        disabled={geoVerbDisabled || deduping}
-        busy={deduping}
-        title={
-          geoVerbHint ??
-          (activeGeologicalModel === null
-            ? 'No active geological model'
-            : deduping
-              ? 'Cleaning…'
-              : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group')
-        }
-      />
+      {/* Model-management verbs (Build / Sync geology / Seed / Dedupe)
+          moved to ``SectionsInspector`` (debt #97) — they act on the
+          model, not on a section, and now live next to the model rows
+          in the right-hand inspector. The toolbar stops being the
+          dumping ground; the Geotech-stage verbs that will land next
+          have an obvious home from the start. */}
 
       {/* Delete-confirm modal — replaces window.confirm(). Per docs/ux.md
           irreversible-vs-reversible rule: destructive actions need a Modal

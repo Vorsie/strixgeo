@@ -11,10 +11,24 @@
 // All state is sourced from useShell() — no props accepted.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Info, Pencil, Slash, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  Eraser,
+  Info,
+  Pencil,
+  RefreshCw,
+  Slash,
+  Sparkles,
+  Trash2,
+} from 'lucide-react'
 
 import { useShell } from '../../ShellContext'
-import type { CrossSectionResponse } from '../../../api/client'
+import type {
+  BoreholeListItem,
+  CrossSectionResponse,
+  FormationContactResponse,
+  GeologicalModelResponse,
+} from '../../../api/client'
 import { useCrossingsValidation } from '../../../hooks/useCrossingsValidation'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
 import VirtueleBoringStrip from '../../../components/sections/VirtueleBoringStrip'
@@ -46,6 +60,7 @@ const NATURAL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base
 export default function SectionsInspector(): JSX.Element {
   const {
     project,
+    visibleBoreholes,
     sections: {
       sections,
       visibleSections,
@@ -55,6 +70,8 @@ export default function SectionsInspector(): JSX.Element {
       handleDeleteSection,
       handlePatchSelectedSection,
       handleFocusContacts,
+      applyUpdatedSection,
+      sectionModelAxis,
       backdropModelIdOverride,
       setBackdropModelIdOverride,
     },
@@ -63,8 +80,13 @@ export default function SectionsInspector(): JSX.Element {
       activeLithoModel,
       models,
       formations,
+      contacts,
       crossingsRefreshCounter,
       staleSurfaceCount,
+      handleRebuildSurfaces,
+      handleDedupeContacts,
+      handleAutoPopulateFromStratigraphy,
+      handleLoadBackdropSurfaces,
     },
     overlays: {
       virtueleBoringOverlay,
@@ -153,6 +175,33 @@ export default function SectionsInspector(): JSX.Element {
       )}
 
       {/* ------------------------------------------------------------------ */}
+      {/* Model actions — Build / Sync geology / Seed / Dedupe (debt #97).   */}
+      {/* These verbs act on the model and used to live in the Sections      */}
+      {/* toolbar; per owner directive 2026-05-22 they belong next to the   */}
+      {/* model they manage. Axis-aware: litho axis shows Build/Sync/Dedupe; */}
+      {/* geological axis shows Build/Seed/Seed-for-new-tests/Dedupe.       */}
+      {/* ------------------------------------------------------------------ */}
+      {(activeGeologicalModel !== null || activeLithoModel !== null) && (
+        <InspectorSection label="Model actions">
+          <ModelActions
+            axis={sectionModelAxis}
+            activeGeologicalModel={activeGeologicalModel}
+            activeLithoModel={activeLithoModel}
+            staleSurfaceCount={staleSurfaceCount}
+            backdropModelIdOverride={backdropModelIdOverride}
+            selectedSectionId={selectedSectionId}
+            visibleBoreholes={visibleBoreholes}
+            contacts={contacts}
+            onRebuildSurfaces={handleRebuildSurfaces}
+            onDedupeContacts={handleDedupeContacts}
+            onAutoPopulate={handleAutoPopulateFromStratigraphy}
+            onLoadBackdropSurfaces={handleLoadBackdropSurfaces}
+            applyUpdatedSection={applyUpdatedSection}
+          />
+        </InspectorSection>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
       {/* Formation list (read-only)                                          */}
       {/* ------------------------------------------------------------------ */}
       {geologicalFormations.length > 0 && (
@@ -198,7 +247,7 @@ export default function SectionsInspector(): JSX.Element {
             </select>
             <p className="text-xs text-text-muted mt-1">
               Shown as a faint reference layer when the litho axis is active.
-              Click&nbsp;<em>Sync geology</em> in the toolbar to load.
+              Click&nbsp;<em>Sync geology</em> in Model actions to load.
             </p>
           </div>
         </InspectorSection>
@@ -905,6 +954,288 @@ function CrossingsBanner({
           })}
         </ul>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ModelActions — Build / Sync geology / Seed / Dedupe (debt #97)
+// ---------------------------------------------------------------------------
+
+interface ModelActionsProps {
+  axis: 'geological' | 'lithostratigraphic'
+  activeGeologicalModel: GeologicalModelResponse | null
+  activeLithoModel: GeologicalModelResponse | null
+  staleSurfaceCount: number
+  backdropModelIdOverride: string | null
+  selectedSectionId: string | null
+  visibleBoreholes: readonly BoreholeListItem[]
+  contacts: readonly FormationContactResponse[]
+  // Return types intentionally ``unknown`` — these handlers return
+  // counts / status info the inspector does not consume. Avoids
+  // brittle prop-type bumps when the underlying bus signatures grow
+  // a return value (e.g. handleDedupeContacts returns ``Promise<number>``).
+  onRebuildSurfaces: () => Promise<unknown>
+  onDedupeContacts: () => Promise<unknown>
+  onAutoPopulate: (
+    boreholeIds: readonly string[],
+    sectionId?: string | null,
+    onSectionUpdated?: (updated: CrossSectionResponse) => void,
+  ) => Promise<unknown>
+  onLoadBackdropSurfaces: (modelId: string) => Promise<unknown>
+  applyUpdatedSection: (updated: CrossSectionResponse) => void
+}
+
+/**
+ * Model-action verbs that used to live in the Sections-stage toolbar
+ * (debt #97). Per the owner directive 2026-05-22, "model-management
+ * verbs leave the toolbar for the inspector" — they act on a model
+ * and now sit next to the model they manage.
+ *
+ * Axis-aware row:
+ *
+ *   - Geological axis: Build · Seed · Seed for new tests · Dedupe
+ *   - Lithostratigraphic axis: Build · Sync geology · Dedupe
+ *
+ * Each verb mirrors its prior toolbar behaviour exactly — same gates,
+ * same handlers, same async affordances. Build's amber "stale" badge
+ * follows ``staleSurfaceCount`` (geology axis only; on the litho axis
+ * the geology backdrop's TINs are read-only and stale-counting is
+ * meaningless from here). Visual style matches the inspector's
+ * existing pills (the Clear + Resolve in LithologyInspector); small
+ * text-button row with leading icon.
+ */
+function ModelActions({
+  axis,
+  activeGeologicalModel,
+  activeLithoModel,
+  staleSurfaceCount,
+  backdropModelIdOverride,
+  selectedSectionId,
+  visibleBoreholes,
+  contacts,
+  onRebuildSurfaces,
+  onDedupeContacts,
+  onAutoPopulate,
+  onLoadBackdropSurfaces,
+  applyUpdatedSection,
+}: ModelActionsProps): JSX.Element {
+  const isLitho = axis === 'lithostratigraphic'
+  const [rebuilding, setRebuilding] = useState(false)
+  const [seeding, setSeeding] = useState(false)
+  const [deduping, setDeduping] = useState(false)
+
+  // Build / Dedupe / Plaxis-3D act on the GEOLOGICAL model regardless
+  // of axis (litho TINs are derived). The litho axis exposes Build as
+  // a no-op-when-no-litho-model gate; in practice the user will Build
+  // from the geology axis. Match the prior toolbar guard.
+  const geoVerbDisabled = isLitho || activeGeologicalModel === null
+  const geoVerbHint = isLitho
+    ? 'Switch to the Geology axis — Build / Dedupe act on the geological model'
+    : null
+
+  // Litho-axis Sync geology — load the parent geological model's TIN
+  // surfaces as a read-only backdrop reference. Disabled when no
+  // backdrop is resolved (no litho parent + no override).
+  const effectiveBackdropModelId =
+    backdropModelIdOverride ?? activeLithoModel?.parent_geological_model_id ?? null
+
+  // Newly-imported boreholes — those without ANY contact in the active
+  // geological model. The Seed-for-new-tests verb scopes the seed to
+  // them so re-running after a fresh import doesn't touch already-
+  // accepted boreholes.
+  const newTestBoreholeIds = useMemo(() => {
+    if (!activeGeologicalModel) return [] as string[]
+    const seen = new Set<string>()
+    for (const c of contacts) {
+      if (c.borehole_id !== null) seen.add(c.borehole_id)
+    }
+    return visibleBoreholes.filter(b => !seen.has(b.id)).map(b => b.id)
+  }, [contacts, visibleBoreholes, activeGeologicalModel])
+
+  async function handleBuild(): Promise<void> {
+    if (rebuilding || !activeGeologicalModel) return
+    setRebuilding(true)
+    try {
+      await onRebuildSurfaces()
+    } finally {
+      setRebuilding(false)
+    }
+  }
+
+  async function handleSync(): Promise<void> {
+    if (seeding || !effectiveBackdropModelId) return
+    setSeeding(true)
+    try {
+      await onLoadBackdropSurfaces(effectiveBackdropModelId)
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  async function handleSeed(): Promise<void> {
+    if (seeding || !activeGeologicalModel) return
+    setSeeding(true)
+    try {
+      await onAutoPopulate(
+        visibleBoreholes.map(b => b.id),
+        selectedSectionId,
+        applyUpdatedSection,
+      )
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  async function handleSeedNewTests(): Promise<void> {
+    if (seeding || newTestBoreholeIds.length === 0) return
+    setSeeding(true)
+    try {
+      await onAutoPopulate(newTestBoreholeIds, selectedSectionId, applyUpdatedSection)
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  async function handleDedupe(): Promise<void> {
+    if (deduping || !activeGeologicalModel) return
+    setDeduping(true)
+    try {
+      await onDedupeContacts()
+    } finally {
+      setDeduping(false)
+    }
+  }
+
+  const btnClass =
+    'flex items-center gap-1 text-[11px] text-text-secondary hover:text-text-primary disabled:opacity-40 transition-colors'
+  const buildAmber = staleSurfaceCount > 0 && !isLitho && !rebuilding
+
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+      <button
+        type="button"
+        onClick={() => void handleBuild()}
+        disabled={rebuilding || geoVerbDisabled}
+        className={[
+          btnClass,
+          buildAmber ? 'text-status-amber hover:text-status-amber' : '',
+        ].join(' ')}
+        title={
+          geoVerbHint ??
+          (activeGeologicalModel === null
+            ? 'No active geological model — create formations and contacts first'
+            : rebuilding
+              ? 'Building surfaces…'
+              : staleSurfaceCount > 0
+                ? `${staleSurfaceCount} formation surface${staleSurfaceCount === 1 ? '' : 's'} need rebuilding — click to compute TINs`
+                : 'Rebuild TIN surfaces from current contacts')
+        }
+        data-testid="inspector-build"
+      >
+        <RefreshCw
+          size={11}
+          className={rebuilding ? 'animate-spin' : ''}
+          aria-hidden="true"
+        />
+        {rebuilding
+          ? 'Building…'
+          : staleSurfaceCount > 0 && !isLitho
+            ? `Build · ${staleSurfaceCount} stale`
+            : 'Build model'}
+      </button>
+
+      {isLitho ? (
+        <button
+          type="button"
+          onClick={() => void handleSync()}
+          disabled={
+            seeding ||
+            activeLithoModel === null ||
+            effectiveBackdropModelId === null
+          }
+          className={btnClass}
+          title={
+            activeLithoModel === null
+              ? 'Create a lithostratigraphic model in the Lithology stage first'
+              : effectiveBackdropModelId === null
+                ? 'No parent geological model linked'
+                : seeding
+                  ? 'Loading geological surfaces…'
+                  : 'Load the parent geological model\'s surfaces as a read-only backdrop reference on this section'
+          }
+          data-testid="inspector-sync-geology"
+        >
+          <Sparkles size={11} aria-hidden="true" />
+          {seeding ? 'Syncing…' : 'Sync geology'}
+        </button>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => void handleSeed()}
+            disabled={seeding || geoVerbDisabled}
+            className={btnClass}
+            title={
+              geoVerbHint ??
+              (activeGeologicalModel === null
+                ? 'Define formations in the Geology stage first — Seed places contacts for already-defined layers'
+                : seeding
+                  ? 'Seeding contacts from borehole stratigraphy…'
+                  : 'Place contacts from borehole observations for formations already defined in the model — run Dedupe if duplicates appear')
+            }
+            data-testid="inspector-seed"
+          >
+            <Sparkles size={11} aria-hidden="true" />
+            {seeding ? 'Seeding…' : 'Seed'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSeedNewTests()}
+            disabled={
+              seeding || geoVerbDisabled || newTestBoreholeIds.length === 0
+            }
+            className={btnClass}
+            title={
+              geoVerbHint ??
+              (activeGeologicalModel === null
+                ? 'Define formations in the Geology stage first'
+                : seeding
+                  ? 'Seeding contacts from borehole stratigraphy…'
+                  : newTestBoreholeIds.length === 0
+                    ? 'All boreholes in scope already have geology contacts — import new tests to use this'
+                    : `Place contacts from stratigraphy for the ${newTestBoreholeIds.length} borehole${newTestBoreholeIds.length === 1 ? '' : 's'} with no geology contacts yet`)
+            }
+            data-testid="inspector-seed-new-tests"
+          >
+            <Sparkles size={11} aria-hidden="true" />
+            {seeding
+              ? 'Seeding…'
+              : activeGeologicalModel
+                ? `Seed for new tests (${newTestBoreholeIds.length})`
+                : 'Seed for new tests'}
+          </button>
+        </>
+      )}
+
+      <button
+        type="button"
+        onClick={() => void handleDedupe()}
+        disabled={deduping || geoVerbDisabled}
+        className={btnClass}
+        title={
+          geoVerbHint ??
+          (activeGeologicalModel === null
+            ? 'No active geological model'
+            : deduping
+              ? 'Cleaning…'
+              : 'Remove duplicate (anchor, formation) contacts — keeps the most-recent pick in each group')
+        }
+        data-testid="inspector-dedupe"
+      >
+        <Eraser size={11} aria-hidden="true" />
+        {deduping ? 'Cleaning…' : 'Dedupe'}
+      </button>
     </div>
   )
 }

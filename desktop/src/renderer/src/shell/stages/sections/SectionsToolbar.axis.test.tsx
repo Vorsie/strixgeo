@@ -487,65 +487,11 @@ describe('SectionsToolbar axis toggle (slice 2, #55)', () => {
   })
 })
 
-describe('SectionsToolbar Seed axis-dispatch (#55 litho-Seed slice)', () => {
-  it('B6-geo — Seed on geological axis calls handleAutoPopulateFromStratigraphy', async () => {
-    const autoPopulate = vi.fn().mockResolvedValue(undefined)
-    const seedLitho = vi.fn().mockResolvedValue(undefined)
-    const ctx: ShellContextValue = {
-      ...makeCtx({ activeLithoModel: makeLithoModel(), sectionModelAxis: 'geological' }),
-      geoModel: {
-        ...makeCtx({ activeLithoModel: makeLithoModel() }).geoModel,
-        handleAutoPopulateFromStratigraphy: autoPopulate,
-        handleSeedLithoFromParent: seedLitho,
-      },
-    }
-    renderToolbar(ctx)
-
-    const seedBtn = screen.getByRole('button', { name: /^seed$/i })
-    fireEvent.click(seedBtn)
-
-    // Allow async handler to settle
-    await vi.waitFor(() => {
-      expect(autoPopulate).toHaveBeenCalledOnce()
-      expect(seedLitho).not.toHaveBeenCalled()
-    })
-    // Regression: the section-update callback MUST be forwarded, else
-    // the server-echoed seeded_formation_contact_ids is dropped and the
-    // explicit-content filter hides every seeded contact (#57 class).
-    expect(autoPopulate.mock.calls[0][2]).toBe(ctx.sections.applyUpdatedSection)
-  })
-
-  // B6 UPDATED (owner override #1, #60): litho-axis verb is now "Sync geology"
-  // and calls handleLoadBackdropSurfaces (not handleSeedLithoFromParent).
-  // The parent geological model id is derived from
-  // activeLithoModel.parent_geological_model_id when no override is set.
-  it('B6-litho — Sync geology on litho axis calls handleLoadBackdropSurfaces (not autoPopulate)', async () => {
-    const autoPopulate = vi.fn().mockResolvedValue(undefined)
-    const loadBackdrop = vi.fn().mockResolvedValue(undefined)
-    const ctx: ShellContextValue = {
-      ...makeCtx({
-        activeLithoModel: makeLithoModel(),
-        sectionModelAxis: 'lithostratigraphic',
-      }),
-      geoModel: {
-        ...makeCtx({ activeLithoModel: makeLithoModel() }).geoModel,
-        handleAutoPopulateFromStratigraphy: autoPopulate,
-        handleLoadBackdropSurfaces: loadBackdrop,
-      },
-    }
-    renderToolbar(ctx)
-
-    const syncBtn = screen.getByRole('button', { name: /sync geology/i })
-    fireEvent.click(syncBtn)
-
-    await vi.waitFor(() => {
-      // handleLoadBackdropSurfaces is called with the parent geological model id
-      expect(loadBackdrop).toHaveBeenCalledOnce()
-      expect(loadBackdrop).toHaveBeenCalledWith('model-geo-1')
-      expect(autoPopulate).not.toHaveBeenCalled()
-    })
-  })
-})
+// B6-geo / B6-litho — moved to SectionsInspector.test.tsx (debt #97):
+// Seed and Sync geology are now Model-actions row buttons in the
+// inspector, not toolbar widgets. The new tests assert the same
+// dispatch (autoPopulate on geology axis, loadBackdrop on litho axis)
+// against the inspector surface.
 
 describe('SectionsToolbar litho tooltip discoverability (P1-C, #55)', () => {
   it('B4 — inline hint renders when activeLithoModel is null; disappears when model exists', () => {
@@ -619,7 +565,7 @@ describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', ()
       },
     }
     renderToolbar(ctx)
-    const suggestBtn = screen.getByRole('button', { name: /suggest litho/i })
+    const suggestBtn = screen.getByTestId('litho-suggest')
     expect(suggestBtn).toBeDisabled()
   })
 
@@ -634,7 +580,7 @@ describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', ()
       selectedSectionId: 'sec-1',
     })
     renderToolbar(ctx)
-    const suggestBtn = screen.getByRole('button', { name: /suggest litho/i })
+    const suggestBtn = screen.getByTestId('litho-suggest')
     expect(suggestBtn).not.toBeDisabled()
   })
 
@@ -655,7 +601,7 @@ describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', ()
       },
     }
     renderToolbar(ctx)
-    const suggestBtn = screen.getByRole('button', { name: /suggest litho/i })
+    const suggestBtn = screen.getByTestId('litho-suggest')
     fireEvent.click(suggestBtn)
     await vi.waitFor(() => {
       expect(suggestLitho).toHaveBeenCalledWith('borehole', 'bh-42')
@@ -672,9 +618,9 @@ describe('SectionsToolbar litho Suggest — section-focused column (Part 1)', ()
       selectedSectionId: 'sec-1',
     })
     renderToolbar(ctx)
-    // On the geo axis the Suggest button block is not rendered at all
-    // (it is guarded by {isLitho && ...}).
-    expect(screen.queryByRole('button', { name: /suggest litho/i })).not.toBeInTheDocument()
+    // On the geo axis the Suggest split-button block is not rendered
+    // at all (it is guarded by {isLitho && ...}).
+    expect(screen.queryByTestId('litho-suggest')).not.toBeInTheDocument()
   })
 })
 
