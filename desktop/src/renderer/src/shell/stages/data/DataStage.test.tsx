@@ -151,6 +151,7 @@ function makeStubContext(): ShellContextValue {
       handleUnrejectBulkLitho: () => {},
       handleEditBulkLitho: () => {},
     handleInsertLithoLayer: vi.fn(),
+    handleSplitLithoLayer: vi.fn(),
       clearBulkLithoGhosts: () => {},
       handleStripLithoAdmixtures: () => {},
       handleReseedLithoAdmixtures: () => {},

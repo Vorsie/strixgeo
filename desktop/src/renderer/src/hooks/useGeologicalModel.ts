@@ -36,6 +36,7 @@ import type {
 } from '../api/client'
 import { formatAcceptParentSummary } from '../utils/acceptLithoSummary'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
+import { splitLithoLayer } from '../utils/lithoLayerSplit'
 import type { UndoCommand } from './useUndoStack'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
@@ -430,6 +431,14 @@ export interface UseGeologicalModelResult {
       suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
     },
   ) => void
+  /**
+   * Debt #98: split a pending litho ghost layer in two at its midpoint.
+   * Wired to the per-layer right-click "Split layer" menu item. Both
+   * halves inherit the original layer's effective composition; the user
+   * drag-resizes the new shared boundary and edits whichever half differs.
+   * Accepted / rejected / edits indices above the split shift by +1.
+   */
+  handleSplitLithoLayer: (anchorId: string, idx: number) => void
   /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
   clearBulkLithoGhosts: () => void
   /**
@@ -3211,6 +3220,23 @@ export function useGeologicalModel({
     [],
   )
 
+  // Debt #98: split a pending litho ghost layer in two at its midpoint.
+  // Mirrors handleInsertLithoLayer — the mutation is the pure helper
+  // splitLithoLayer; the hook only plugs it into setGhostsByAnchor.
+  const handleSplitLithoLayer = useCallback(
+    (anchorId: string, idx: number): void => {
+      setGhostsByAnchor(prev => {
+        const existing = prev.get(anchorId)
+        if (!existing) return prev
+        const updated = splitLithoLayer(existing, idx)
+        const next = new Map(prev)
+        next.set(anchorId, updated)
+        return next
+      })
+    },
+    [],
+  )
+
   // B-1 (senior-review, data-integrity): a ghost overlay left showing
   // when the active litho model SWITCHES would accept onto the new
   // model (activeLithoModelRef points at the new one) while the
@@ -4325,6 +4351,7 @@ export function useGeologicalModel({
     handleUnrejectBulkLitho,
     handleEditBulkLitho,
     handleInsertLithoLayer,
+    handleSplitLithoLayer,
     clearBulkLithoGhosts,
     handleStripLithoAdmixtures,
     handleReseedLithoAdmixtures,

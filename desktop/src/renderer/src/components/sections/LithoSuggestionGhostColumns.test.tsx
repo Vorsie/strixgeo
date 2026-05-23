@@ -128,6 +128,7 @@ function renderGhost(
         suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
       },
     ) => void
+    onSplitLayer?: (idx: number) => void
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -154,6 +155,7 @@ function renderGhost(
         onEdit={opts.onEdit}
         onCrossColumnPaste={opts.onCrossColumnPaste}
         onInsertLayer={opts.onInsertLayer}
+        onSplitLayer={opts.onSplitLayer}
       />
     </svg>,
   )
@@ -442,6 +444,36 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onAccept.mock.calls[0][0]).toBe(0)
     // Menu must have closed after the click.
     expect(screen.queryByRole('menu', { name: /ghost layer actions/i })).toBeNull()
+  })
+
+  // T1: right-click a pending layer → "Split layer" item present;
+  // clicking it fires onSplitLayer(idx) and closes the menu. Debt #98
+  // — owner directive 2026-05-22: "do the right click split option".
+  it('T1 — context menu "Split layer" item fires onSplitLayer and closes the menu', () => {
+    const onSplitLayer = vi.fn()
+    const { container } = renderGhost([makeSuggestion(), makeSuggestion()], {
+      onSplitLayer,
+      onEdit: vi.fn(),
+    })
+    // Right-click layer idx=1.
+    const rect = container.querySelector('[data-litho-idx="1"]') as SVGRectElement
+    fireEvent.contextMenu(rect, { clientX: 100, clientY: 50 })
+    expect(screen.getByRole('button', { name: /split layer/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /split layer/i }))
+    expect(onSplitLayer).toHaveBeenCalledTimes(1)
+    expect(onSplitLayer.mock.calls[0][0]).toBe(1)
+    expect(screen.queryByRole('menu', { name: /ghost layer actions/i })).toBeNull()
+  })
+
+  // T2: when the parent does not wire onSplitLayer, the menu item is
+  // not rendered — zero regression for callers that haven't opted in.
+  it('T2 — "Split layer" item is not rendered when onSplitLayer is absent', () => {
+    const { container } = renderGhost([makeSuggestion()], {
+      onEdit: vi.fn(),
+    })
+    const rect = container.querySelector('rect') as SVGRectElement
+    fireEvent.contextMenu(rect, { clientX: 100, clientY: 50 })
+    expect(screen.queryByRole('button', { name: /split layer/i })).toBeNull()
   })
 
   it('G15 — pending layer rect keeps pointer cursor', () => {

@@ -535,6 +535,14 @@ export interface LithoSuggestionGhostColumnsProps {
       suggested_admixtures: readonly { soil_code: string; amount: string; locally: boolean }[]
     },
   ) => void
+  /**
+   * Debt #98: split a pending layer in two at its midpoint. Wired to
+   * the "Split layer" item in the per-layer right-click context menu.
+   * Both halves inherit the original layer's effective composition; the
+   * user drag-resizes the new shared boundary and edits whichever half
+   * differs. Optional — when absent the menu item is not rendered.
+   */
+  onSplitLayer?: (idx: number) => void
 }
 
 /**
@@ -595,6 +603,7 @@ export default function LithoSuggestionGhostColumns({
   onEdit,
   onCrossColumnPaste,
   onInsertLayer,
+  onSplitLayer,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
   // updated on document mousemove; cleared on mouseup which fires
@@ -1443,6 +1452,23 @@ export default function LithoSuggestionGhostColumns({
               }}
             >
               Edit composition…
+            </button>
+          )}
+          {/* Debt #98: split the layer in two at its midpoint. Both
+              halves inherit the effective composition; the user drag-
+              resizes the new shared boundary. Owner directive 2026-05-22:
+              "do the right click split option". */}
+          {onSplitLayer && (
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-1.5 hover:bg-surface-page text-text-primary"
+              data-testid="litho-context-split"
+              onClick={() => {
+                onSplitLayer(contextMenu.idx)
+                setContextMenu(null)
+              }}
+            >
+              Split layer
             </button>
           )}
           <button

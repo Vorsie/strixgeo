@@ -89,6 +89,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleUnrejectBulkLitho,
       handleEditBulkLitho,
       handleInsertLithoLayer,
+      handleSplitLithoLayer,
       clearBulkLithoGhosts,
       pinchOutPreview,
       pinchOutLoading,
@@ -715,6 +716,11 @@ export default function SectionsCanvas(): JSX.Element {
         if (focusedSuggestAnchorId === null) return
         handleInsertLithoLayer(focusedSuggestAnchorId, afterIdx, composition)
       },
+      // Debt #98: split a pending layer at its midpoint.
+      onSplitLayer: (idx: number) => {
+        if (focusedSuggestAnchorId === null) return
+        handleSplitLithoLayer(focusedSuggestAnchorId, idx)
+      },
     }
   }, [
     isLitho,
@@ -727,6 +733,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleEditLithoSuggestion,
     handleEditBulkLitho,
     handleInsertLithoLayer,
+    handleSplitLithoLayer,
   ])
 
   // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
@@ -766,6 +773,8 @@ export default function SectionsCanvas(): JSX.Element {
       // Debt #85: bulk variant takes (anchorId, afterIdx, composition).
       // SectionPanel forwards anchorId at the call site.
       onInsertLayer: handleInsertLithoLayer,
+      // Debt #98: bulk variant takes (anchorId, idx).
+      onSplitLayer: handleSplitLithoLayer,
     }
   }, [
     isLitho,
@@ -775,6 +784,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleUnrejectBulkLitho,
     handleEditBulkLitho,
     handleInsertLithoLayer,
+    handleSplitLithoLayer,
   ])
 
   // Pinch-out ghost state — wired on the geological axis only (same
