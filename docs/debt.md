@@ -23,14 +23,13 @@ subdivision is built on top of it. Priority order:
 * **#99** — litho drag-clamp must pass through rejected layers (bug)
 * **#98** — litho "add a layer" discoverability + right-click Split (owner green-lit)
 * **#102** — same-lithology boundary merge button
-* **#100** — Correlate tool UX pass (clunky / crisscrossing edges)
 * **#76** — accept-all "splits" displayed layers — diagnostic
 * **#97** — Sections-stage toolbar refactor (do before Geotech adds verbs)
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #115, #116, #44, #52, #56, #60, #11, #101, #70, #71, #79, #93, #95
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #115, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
 * **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #117
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -1843,33 +1842,34 @@ formations) so the scenario can be re-modelled. If (a) is the real
 answer, the followup is a UX nudge (e.g. a visible boundary glyph at
 the clamp) rather than a logic change.
 
-## 100. Correlate tool — UX pass (Tier G — before the Geotech stage)
+## 100b. Inspector-select sticky reveal of correlation edges (Tier D — follow-on to #100)
 
-**What.** Dogfeed 2026-05-22: "I still don't know how the Correlate
-tool works, it's looking so clunky, now I just see lines
-crisscrossing." The tool links the same litho unit *instance* across
-investigations so `ResolveLithoInstances` can number them consistently
-and build a surface per instance. The gesture: Correlate mode → click a
-unit on one column → click the matching unit on another → an edge. The
-problems:
+**What.** #100 shipped the hover-to-reveal half of the design (chip
+hover → that body's edges + same-body chip halo appear). The other
+half — clicking a formation in the `LithologyInspector` to STICKY-
+reveal that body's edges across the section — was scoped out because
+it needs new cross-component state: `selectedFormationId` shared
+between the inspector and the `CorrelationEdgesOverlay`. Hover is the
+exploratory gesture; sticky-select is for STUDYING a body without
+keeping the cursor parked on a chip.
 
-* The purpose is opaque — no inline explanation of *why* you correlate.
-* Every edge draws a connector line; correlate enough and the lines
-  tangle into spaghetti.
-* The mode affordance is weak.
+Shape when picked up: extend `useShellContextValue` (or equivalent
+shell context) with `selectedFormationId: string | null` and a setter;
+add an `onClick` handler on each `LithologyInspector` formation row
+that flips it (toggle if already-selected); add `selectedBodyOrdinal:
+number | null` prop on `CorrelationEdgesOverlay` that ORs with the
+local hover state when deciding which body's edges to render. Visual
+treatment is identical to the hover path (halo + lines); only the gate
+shape changes.
 
-Candidate fixes for the pass: render edges only for the *selected* unit
-(or unit family) instead of all at once; a clearer Correlate-mode
-indicator; an inline one-line explainer; possibly a non-line
-representation (shared instance colour / ordinal badge) so the
-connection reads without crossing lines.
+**Why deferred.** v1 shipped hover-only to keep the change focused.
+Adding a shared selection state is small (~30 lines) but spreads
+across three files (inspector, shell context, overlay) and deserves
+its own commit.
 
-**Why deferred.** A genuine UX redesign of one tool, not a one-line
-fix — correlation-line UIs spaghetti by nature. Needs design thought,
-ideally a `ux-reviewer` pass. This is the "UX pass" the owner asked to
-be captured (2026-05-22).
-
-**When to revisit.** The litho-workflow UX pass.
+**When to revisit.** Next litho-workflow UX pass, or when a dogfeed
+session has the user wanting to "pin" a body's edges to study them
+without holding the cursor.
 
 ## 101. Litho lens / pinch-out body representation — open design question (Tier D — Phase 5-adjacent)
 
