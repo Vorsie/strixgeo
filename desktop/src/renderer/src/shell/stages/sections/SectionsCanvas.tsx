@@ -669,101 +669,29 @@ export default function SectionsCanvas(): JSX.Element {
         return null
       }
 
-      // Synthetic suggestion payload. The CLICK at ``depthM`` becomes the TOP
-      // of a 25 cm-thick band; we ALSO emit a band-terminator suggestion at
-      // ``depthM + 0.25`` for the formation that was active there before the
-      // click (looked up from the existing lithoContacts on this anchor).
-      // Without the terminator, a single contact at ``depthM`` produces a band
-      // that spans from depthM all the way to the investigation bottom — way
-      // too thick for a "I want a thin clay drape here" gesture (dogfeed
-      // 2026-05-23: "create new layer creates a unit but no coloring" — the
-      // unbounded-below band wasn't rendering as a visible fill).
-      //
-      // depth_base = depth_top + 0.01 stays the per-suggestion straddle
-      // sentinel (each individual suggestion never crosses a parent geology
-      // boundary). The 0.25 m thickness is the SEPARATION between two
-      // suggestions, not a per-suggestion span.
-      const TERMINATOR_OFFSET_M = 0.25
-      const terminatorDepthM = depthM + TERMINATOR_OFFSET_M
-
-      // Find the formation that is "currently at depthM" on this anchor —
-      // i.e. the deepest existing contact whose depth_top_m <= depthM. That's
-      // the formation we want to restore at the band's base so the click
-      // carves a 25 cm pocket out of the surrounding stratigraphy. When no
-      // such contact exists (top of investigation, no contacts yet), we
-      // simply omit the terminator — the single top contact then extends
-      // down to the next contact below it OR to the investigation bottom,
-      // which is the right behaviour for an empty-column first-click.
-      const anchorContacts = lithoContacts
-        .filter(c => (anchorKind === 'cpt' ? c.cpt_id : c.borehole_id) === anchorId)
-        .sort((a, b) => a.depth_top_m - b.depth_top_m)
-      let restoreFormationId: string | null = null
-      for (const c of anchorContacts) {
-        if (c.depth_top_m <= depthM) restoreFormationId = c.formation_id
-        else break
-      }
-      const restoreFormation =
-        restoreFormationId !== null
-          ? lithoFormations.find(f => f.id === restoreFormationId) ?? null
-          : null
-
-      type ManualSuggestion = {
-        depth_top_m: number
-        depth_base_m: number
-        suggested_lithology: string
-        suggested_nad_class: null
-        mean_qc_mpa: null
-        dr_pct: null
-        confidence: 'medium'
-        source: 'manual_pick'
-        suggested_admixtures: AdmixtureItem[]
-        parent_formation_id: null
-        spans_boundary: false
-      }
-      const suggestionsOut: ManualSuggestion[] = [
-        {
-          depth_top_m: depthM,
-          depth_base_m: depthM + 0.01,
-          suggested_lithology: mainCode,
-          suggested_nad_class: null,
-          mean_qc_mpa: null,
-          dr_pct: null,
-          confidence: 'medium',
-          source: 'manual_pick',
-          suggested_admixtures: admixtures,
-          parent_formation_id: null,
-          spans_boundary: false,
-        },
-      ]
-      if (
-        restoreFormation !== null &&
-        restoreFormation.litho_main_soil_code !== null
-      ) {
-        // The backend's find-or-create resolves this back to the existing
-        // formation by (main_soil_code, canonical_admixture_signature,
-        // parent_geological_formation) — no duplicate formation is created.
-        suggestionsOut.push({
-          depth_top_m: terminatorDepthM,
-          depth_base_m: terminatorDepthM + 0.01,
-          suggested_lithology: restoreFormation.litho_main_soil_code,
-          suggested_nad_class: null,
-          mean_qc_mpa: null,
-          dr_pct: null,
-          confidence: 'medium',
-          source: 'manual_pick',
-          suggested_admixtures: (restoreFormation.litho_admixtures ?? []).map(a => ({
-            soil_code: a.soil_code,
-            amount: a.amount,
-            locally: a.locally,
-          })),
-          parent_formation_id: null,
-          spans_boundary: false,
-        })
-      }
+      // Synthetic one-item payload. depth_base = depth_top + 0.01 is the sentinel
+      // that guarantees the suggestion never straddles (the use case splits on
+      // boundaries within [top, base] — a 1 cm window cannot span a formation
+      // boundary in practice). The server still resolves parent_formation_id from
+      // the geology TIN at the investigation's (x, y, depth_top).
       const payload = {
         [anchorKind === 'cpt' ? 'cpt_id' : 'borehole_id']: anchorId,
         section_id: selectedSection.id,
-        suggestions: suggestionsOut,
+        suggestions: [
+          {
+            depth_top_m: depthM,
+            depth_base_m: depthM + 0.01,
+            suggested_lithology: mainCode,
+            suggested_nad_class: null,
+            mean_qc_mpa: null,
+            dr_pct: null,
+            confidence: 'medium' as const,
+            source: 'manual_pick',
+            suggested_admixtures: admixtures,
+            parent_formation_id: null,
+            spans_boundary: false,
+          },
+        ],
       }
 
       log.debug(
@@ -835,19 +763,7 @@ export default function SectionsCanvas(): JSX.Element {
     // the picker simply stays open on failure (no error toast — intended
     // UX). If a future edit adds toast() into the catch, add it here too
     // or it becomes a stale-closure bug (review C3).
-    // lithoContacts + lithoFormations are now read for the 25 cm band-
-    // terminator lookup (dogfeed 2026-05-23) — add to deps so stale
-    // closures don't see an out-of-date contact list after an accept.
-    [
-      activeLithoModel,
-      selectedSection,
-      project.id,
-      applyUpdatedSection,
-      refetchLithoContacts,
-      refetchFormations,
-      lithoContacts,
-      lithoFormations,
-    ],
+    [activeLithoModel, selectedSection, project.id, applyUpdatedSection, refetchLithoContacts],
   )
 
   // Build the lithoGhostState bundle passed to SectionPanel.

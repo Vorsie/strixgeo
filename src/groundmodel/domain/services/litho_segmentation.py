@@ -314,7 +314,7 @@ def segment_cpt(
     fs_mpa: Sequence[float | None],
     niveau_m: float,
     yw_m: float,
-    minimum_layer_thickness_m: float = 0.15,
+    minimum_layer_thickness_m: float = 0.5,
     gunsat_kNm3: float = 16.0,
     gwater_kNm3: float = 9.81,
     dr_compression_factor: float = 0.675,
@@ -579,7 +579,7 @@ def segment_borehole(
     layer_tops_m: Sequence[float],
     layer_bases_m: Sequence[float],
     main_soil_codes: Sequence[list[str]],
-    minimum_layer_thickness_m: float = 0.15,
+    minimum_layer_thickness_m: float = 0.5,
     admixtures_per_layer: Sequence[list[Admixture]] | None = None,
 ) -> list[LithoLayerSuggestion]:
     """Segment borehole observation layers into lithostratigraphic layer suggestions.

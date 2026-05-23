@@ -1941,12 +1941,6 @@ export default function SectionPanel({
                 onInsertLayer={lithoGhostState.onInsertLayer}
                 onSplitLayer={lithoGhostState.onSplitLayer}
                 onMergeLayers={lithoGhostState.onMergeLayers}
-                // Per-CPT depth series for the drag readout (qc + Rf).
-                // ``cptPlots`` is already loaded by useSectionData for the
-                // CPT data columns; reuse here so the readout doesn't
-                // require a fresh round-trip. ?? undefined keeps the prop
-                // genuinely absent while loading.
-                cptPlotByAnchorId={cptPlots ?? undefined}
               />
             )}
 
@@ -2018,7 +2012,6 @@ export default function SectionPanel({
                           }
                         : undefined
                     }
-                    cptPlotByAnchorId={cptPlots ?? undefined}
                   />
                 ),
               )}

@@ -21,10 +21,8 @@ class LithoSuggestionRequest(BaseModel):
     borehole_id : UUID | None
         Target borehole to segment.  Mutually exclusive with ``cpt_id``.
     minimum_layer_thickness_m : float
-        Minimum layer thickness the segmenter will output (default 0.15 m;
-        range 0.05–10.0 m). 0.15 m matches typical CPT measurement
-        sampling resolution — finer would be measurement noise; coarser
-        was missing thin clay drapes in the dogfeed (2026-05-23).
+        Minimum layer thickness the segmenter will output (default 0.5 m;
+        range 0.05–10.0 m).
     gunsat_kNm3 : float
         Unit weight above the water table (CPT path only; default 16 kN/m³).
     gwater_kNm3 : float
@@ -36,7 +34,7 @@ class LithoSuggestionRequest(BaseModel):
 
     cpt_id: UUID | None = None
     borehole_id: UUID | None = None
-    minimum_layer_thickness_m: float = Field(default=0.15, ge=0.05, le=10.0)
+    minimum_layer_thickness_m: float = Field(default=0.5, ge=0.05, le=10.0)
     gunsat_kNm3: float = Field(default=16.0, ge=8.0, le=25.0)
     gwater_kNm3: float = Field(default=9.81, ge=9.0, le=10.5)
     dr_compression_factor: float = Field(default=0.675, ge=0.1, le=2.0)

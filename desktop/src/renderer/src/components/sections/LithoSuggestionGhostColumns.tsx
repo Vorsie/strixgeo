@@ -516,23 +516,6 @@ export interface LithoSuggestionGhostColumnsProps {
    * NAD-class signal we don't want to auto-erase.
    */
   onMergeLayers?: (upperIdx: number) => void
-  /**
-   * Optional CPT depth-series for the dragged investigation. When the
-   * investigation is a CPT and this map carries an entry for its id,
-   * the live drag readout shows ``qc`` (MPa) and ``Rf`` (%) at the
-   * current drag depth alongside ``depth`` + ``mTAW`` (dogfeed
-   * 2026-05-23: "the suggestion box on cpt boundary drag has depth
-   * and mTAW but not qc and Rf"). Boreholes ignore this. Absent or
-   * empty map = readout shows depth + mTAW only (backwards-compatible).
-   */
-  cptPlotByAnchorId?: ReadonlyMap<
-    string,
-    {
-      depths_m: readonly number[]
-      qc_mpa: readonly number[]
-      rf_pct: readonly (number | null)[] | null
-    }
-  >
 }
 
 /**
@@ -595,7 +578,6 @@ export default function LithoSuggestionGhostColumns({
   onInsertLayer,
   onSplitLayer,
   onMergeLayers,
-  cptPlotByAnchorId,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
   // updated on document mousemove; cleared on mouseup which fires
@@ -790,28 +772,20 @@ export default function LithoSuggestionGhostColumns({
         drag.boundsAboveM,
         Math.min(drag.boundsBelowM, raw),
       )
-      // Snap visual — fires ONLY when the user has explicitly OVERSHOT
-      // the bound (cursor past the bound by more than the snap threshold).
-      // Dogfeed 2026-05-23: the prior "snap when within threshold of
-      // the bound" fired the moment the dragged edge touched the
-      // neighbour bound, surprising users who just wanted to resize
-      // tight against the bound. Requiring deliberate overshoot makes
-      // the merge gesture explicit ("push past the wall = absorb") and
-      // lets users freely drag right up to / coincident with the bound
-      // without triggering the absorb. ``raw`` (cursor depth pre-clamp)
-      // is the right signal here, not ``clamped``: clamped is already
-      // pinned at the bound, so its distance to the bound is always 0.
-      // Use the UN-clamped cursor depth — ``raw`` above was floored to
-      // 0 by ``Math.max(0, ...)``, which would falsely report "no
-      // overshoot" when the user drags above the ground line (raw < 0).
-      // Recompute without the floor so an "I overshot the ground"
-      // gesture (e.g. top-drag UP past surface) still registers as a
-      // deliberate merge intent on the above-bound.
-      const rawUnclamped = drag.initialDepthM + depthDelta
+      // Snap visual — when the clamped depth lands within the pixel
+      // threshold of either bound, the edge "sticks" to the bound.
+      // After the kill-cascade refactor (2026-05-23), neighbour-side
+      // bounds carry an empty ``collapseChainAbove/Below`` so mouseup
+      // never auto-rejects them; only the OWN-OPPOSITE-EDGE side has
+      // ``[idx]`` and triggers the #81 self-collapse auto-reject.
+      // The snap visual still fires on either side so the user gets
+      // the "you've hit the wall" cue even on the neighbour side.
       const snappedAtAbove =
-        snapThresholdM > 0 && rawUnclamped < drag.boundsAboveM - snapThresholdM
+        snapThresholdM > 0 &&
+        Math.abs(clamped - drag.boundsAboveM) <= snapThresholdM
       const snappedAtBelow =
-        snapThresholdM > 0 && rawUnclamped > drag.boundsBelowM + snapThresholdM
+        snapThresholdM > 0 &&
+        Math.abs(clamped - drag.boundsBelowM) <= snapThresholdM
       // If both bounds are within threshold simultaneously (a layer
       // narrower than 2 * snapThresholdM), prefer the one closer to
       // the cursor — keeps the snap intuitive when the layer is thin.
@@ -1314,43 +1288,6 @@ export default function LithoSuggestionGhostColumns({
       {drag !== null && surfaceElevationM !== null && (
         (() => {
           const elevation = surfaceElevationM - drag.currentDepthM
-          // For a CPT anchor with a depth-series available, look up qc
-          // and Rf at the dragged depth. Binary search the depths array
-          // (already ascending). Show empty strings when the value is
-          // missing — boreholes hit this path with no cptPlot → only
-          // depth + mTAW lines render (backwards-compatible).
-          const plot =
-            col.kind === 'cpt' && cptPlotByAnchorId
-              ? cptPlotByAnchorId.get(investigationId) ?? null
-              : null
-          const readoutLines: { text: string }[] = [
-            { text: `depth ${drag.currentDepthM.toFixed(2)} m` },
-            { text: `${elevation >= 0 ? '+' : ''}${elevation.toFixed(2)} m TAW` },
-          ]
-          if (plot !== null && plot.depths_m.length > 0) {
-            // Binary search the largest depths_m index with depth <= drag depth.
-            let lo = 0
-            let hi = plot.depths_m.length - 1
-            while (lo < hi) {
-              const mid = (lo + hi + 1) >>> 1
-              if (plot.depths_m[mid] <= drag.currentDepthM) lo = mid
-              else hi = mid - 1
-            }
-            const idx = lo
-            if (
-              plot.depths_m[idx] !== undefined &&
-              plot.depths_m[idx] <= drag.currentDepthM + 1
-            ) {
-              const qc = plot.qc_mpa[idx]
-              if (qc !== undefined && qc !== null && Number.isFinite(qc)) {
-                readoutLines.push({ text: `qc ${qc.toFixed(2)} MPa` })
-              }
-              const rf = plot.rf_pct?.[idx]
-              if (rf !== undefined && rf !== null && Number.isFinite(rf)) {
-                readoutLines.push({ text: `Rf ${rf.toFixed(2)} %` })
-              }
-            }
-          }
           return (
             <g pointerEvents="none" data-testid="litho-drag-readout">
               <HoverReadoutCard
@@ -1358,7 +1295,12 @@ export default function LithoSuggestionGhostColumns({
                 y={levelToScreen(elevation)}
                 plotTop={plotTop}
                 plotBottom={plotBottom}
-                lines={readoutLines}
+                lines={[
+                  { text: `depth ${drag.currentDepthM.toFixed(2)} m` },
+                  {
+                    text: `${elevation >= 0 ? '+' : ''}${elevation.toFixed(2)} m TAW`,
+                  },
+                ]}
               />
             </g>
           )

@@ -43,12 +43,8 @@ function makeSuggestion(overrides: Partial<LithoLayerSuggestion> = {}): LithoLay
 
 /** A minimal PlacedColumn that puts the investigation at x=200. */
 function makeColumn(id: string): PlacedColumn {
-  // ``kind`` lives on the column, not on proj.item — needed for the
-  // drag readout's "is this a CPT?" gate (V5).
   return {
-    kind: 'cpt',
     nudgedX: 200,
-    width: 40,
     proj: {
       along: 200,
       distance: 0,
@@ -134,14 +130,6 @@ function renderGhost(
     ) => void
     onSplitLayer?: (idx: number) => void
     onMergeLayers?: (upperIdx: number) => void
-    cptPlotByAnchorId?: ReadonlyMap<
-      string,
-      {
-        depths_m: readonly number[]
-        qc_mpa: readonly number[]
-        rf_pct: readonly (number | null)[] | null
-      }
-    >
   } = {},
 ) {
   const id = opts.investigationId ?? 'cpt-1'
@@ -170,7 +158,6 @@ function renderGhost(
         onInsertLayer={opts.onInsertLayer}
         onSplitLayer={opts.onSplitLayer}
         onMergeLayers={opts.onMergeLayers}
-        cptPlotByAnchorId={opts.cptPlotByAnchorId}
       />
     </svg>,
   )
@@ -569,12 +556,9 @@ describe('LithoSuggestionGhostColumns', () => {
   // edge snaps and auto-rejects the layer on mouseup.
   // -----------------------------------------------------------------
 
-  // G26: drag layer top down past own base → snap → auto-reject(0).
-  // 2026-05-23 dogfeed: snap now requires deliberate overshoot (cursor
-  // PAST the bound by more than the snap threshold, not just AT it).
-  // Move 210 px (= 2.10 m): 0.10 m past the 2 m base → safely past
-  // the 4 px (~0.04 m) overshoot threshold.
-  it('G26 — drag top down past own base snaps and auto-rejects the layer', () => {
+  // G26: drag layer top down ~200 px (full layer height) → snap onto
+  // own base → indicator visible + mouseup fires onReject(0).
+  it('G26 — drag top down onto base snaps and auto-rejects the layer', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -583,7 +567,9 @@ describe('LithoSuggestionGhostColumns', () => {
     )
     const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')
     fireEvent.mouseDown(topHandle!, { clientY: 0 })
-    fireEvent.mouseMove(document, { clientY: 210 })
+    // Move 200 px = 2 m down → currentDepth lands on base (2 m).
+    fireEvent.mouseMove(document, { clientY: 200 })
+    // Snap indicator is visible during the drag.
     expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
     expect(onReject).toHaveBeenCalledTimes(1)
@@ -647,8 +633,6 @@ describe('LithoSuggestionGhostColumns', () => {
     )
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
-    // Cursor 700 px = +5 m from initial (200 px / 2 m base) → raw 7 m,
-    // 3 m past the layer-1 base (4 m) → safely overshoots threshold.
     fireEvent.mouseMove(document, { clientY: 700 })
     expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
@@ -687,36 +671,6 @@ describe('LithoSuggestionGhostColumns', () => {
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(0, 5)
     expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(0, 5)
-  })
-
-  // G33b — dogfeed 2026-05-23: dragging a boundary AT (not past) the
-  // neighbour bound does NOT trigger snap/merge. User reported the prior
-  // "snap when within threshold of bound" was too sticky — moving to a
-  // bound to size the layer tight against it accidentally absorbed the
-  // neighbour. Fix: snap requires the cursor to OVERSHOOT the bound by
-  // more than the snap threshold (the merge gesture is now explicit).
-  it('G33b — dragging top edge exactly to neighbour bound does NOT trigger merge', () => {
-    const onEdit = vi.fn()
-    const onReject = vi.fn()
-    const { container } = renderGhost(
-      [
-        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-      ],
-      { onEdit, onReject },
-    )
-    // Top of layer 1 sits at depth 2 (clientY = 200). Move UP by exactly
-    // 200 px → cursor depth = 0 m = layer 0's TOP (= boundsAboveM).
-    // Pre-fix this would snap and auto-reject layer 0; new behaviour
-    // requires deliberate overshoot past the bound.
-    const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
-    fireEvent.mouseDown(topHandle!, { clientY: 200 })
-    fireEvent.mouseMove(document, { clientY: 0 })
-    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
-    fireEvent.mouseUp(document)
-    expect(onReject).not.toHaveBeenCalled()
-    // Shared-boundary commit still fires: layer 1 top → 0, layer 0 base → 0.
-    expect(onEdit).toHaveBeenCalledWith(1, { depth_top_m: 0 })
   })
 
   // G34b — mirror of G34 for the OPPOSITE direction. Owner dogfeed
@@ -903,11 +857,8 @@ describe('LithoSuggestionGhostColumns', () => {
     )
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
     // base sits at depth 2 → clientY = 200 (per levelToScreen).
-    // Dogfeed 2026-05-23: snap now requires overshooting the bound by
-    // more than the 4 px threshold. -10 px = 0.10 m past the layer's
-    // top (depth 0) — clearly past the overshoot floor.
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
-    fireEvent.mouseMove(document, { clientY: -10 })
+    fireEvent.mouseMove(document, { clientY: 0 }) // 2 m up → lands on top
     expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
     expect(onReject).toHaveBeenCalledTimes(1)
@@ -1414,46 +1365,6 @@ describe('LithoSuggestionGhostColumns', () => {
   // elevation -1.5. Verifies sign formatting (no leading '+' when
   // elevation < 0). Two-layer fixture required (the kill-multi-cascade
   // refactor 2026-05-23 caps the LAST layer's base at its own depth).
-  // V5 — dogfeed 2026-05-23: the readout for a CPT-anchored drag also
-  // shows qc + Rf at the current drag depth when cptPlotByAnchorId
-  // carries an entry for the investigation. Without the entry, the
-  // readout falls back to depth + mTAW only (boreholes path).
-  it('V5 — readout includes qc + Rf when cpt plot is supplied', () => {
-    const cptPlotByAnchorId = new Map<
-      string,
-      {
-        depths_m: readonly number[]
-        qc_mpa: readonly number[]
-        rf_pct: readonly (number | null)[] | null
-      }
-    >([
-      [
-        'cpt-1',
-        {
-          depths_m: [0, 0.5, 1, 1.5, 2, 2.5, 3],
-          qc_mpa: [1.2, 1.5, 2.0, 2.5, 3.1, 4.0, 5.0],
-          rf_pct: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1],
-        },
-      ],
-    ])
-    const { container } = renderGhost(
-      [makeSuggestion({ depth_top_m: 0, depth_base_m: 3 })],
-      { onEdit: vi.fn(), surfaceElevationM: 5, cptPlotByAnchorId },
-    )
-    const topHandle = container.querySelector('[data-testid="litho-drag-top-0"]')!
-    fireEvent.mouseDown(topHandle, { clientY: 0 })
-    // 200 px = 2 m down → drag depth = 2.0 m → bin idx 4 → qc=3.1, Rf=0.9
-    fireEvent.mouseMove(document, { clientY: 200 })
-    const readout = container.querySelector('[data-testid="litho-drag-readout"]')!
-    const texts = Array.from(readout.querySelectorAll('text')).map(t => t.textContent)
-    expect(texts.some(t => t?.startsWith('depth'))).toBe(true)
-    expect(texts.some(t => t?.includes('TAW'))).toBe(true)
-    expect(texts.some(t => t?.startsWith('qc'))).toBe(true)
-    expect(texts.some(t => t?.startsWith('Rf'))).toBe(true)
-    // Value sanity — qc at depth 2.0 m (idx 4) is 3.10.
-    expect(texts).toContain('qc 3.10 MPa')
-  })
-
   it('V4 — base drag readout reflects depth + signed mTAW (negative elevation case)', () => {
     const { container } = renderGhost(
       [
