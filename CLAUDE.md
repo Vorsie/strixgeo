@@ -1140,7 +1140,7 @@ is finished. So the litho-finishing items are **Tier G, above an
 explicit gate**; everything else waits. Full entries in
 [docs/debt.md](docs/debt.md). Currently open, in priority order:
 
-**Tier G — Before the Geotech stage (finish the litho stage):** #99 (litho drag-clamp must pass through rejected layers — bug), #98 (litho "add a layer" discoverability + right-click Split — owner green-lit 2026-05-22), #102 (same-lithology boundary merge button — user-initiated), #100 (Correlate tool UX pass — clunky / crisscrossing edges), #76 (accept-all "splits" diagnostic), #103 (CPT layer-drag depth readout box), #97 (Sections-stage toolbar refactor — model verbs to the inspector).
+**Tier G — Before the Geotech stage (finish the litho stage):** #99 (litho drag-clamp must pass through rejected layers — bug), #98 (litho "add a layer" discoverability + right-click Split — owner green-lit 2026-05-22), #102 (same-lithology boundary merge button — user-initiated), #100 (Correlate tool UX pass — clunky / crisscrossing edges), #76 (accept-all "splits" diagnostic), #97 (Sections-stage toolbar refactor — model verbs to the inspector).
 
 **═══ GEOTECH-STAGE GATE — everything below waits ═══**
 
