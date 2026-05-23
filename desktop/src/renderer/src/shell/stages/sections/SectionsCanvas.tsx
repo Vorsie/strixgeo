@@ -742,6 +742,17 @@ export default function SectionsCanvas(): JSX.Element {
         // "nothing happened" (dogfeed bug 2026-05-20 — same class as
         // the earlier handleAcceptLithoSuggestion fix).
         refetchLithoContacts()
+        // Also refetch formations — when the picker's "create new
+        // unit" path produces a NEW litho formation (mainCode +
+        // admix combo the project hasn't seen), the new formation
+        // is in result.created_formation_ids but the local
+        // ``lithoFormations`` list doesn't include it yet. Without
+        // this refetch the new contact references a formation_id the
+        // renderer can't resolve to a colour or label → the band
+        // either renders blank or is skipped entirely (dogfeed
+        // 2026-05-23 "I click add new layer (clay) but no layer
+        // appears" bug).
+        refetchFormations()
         return { formationId }
       } catch (err) {
         log.warn('section', 'handleManualLithoUnitCreate: acceptLithoSuggestions failed', err)
