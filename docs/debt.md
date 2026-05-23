@@ -1966,8 +1966,11 @@ drag-handle code is only touched once.
 carries `litho_main_soil_code`, `nad_class`, `instance_ordinal`, or the
 three-level hierarchy. So `PlaxisExporter`, `DxfSectionExporter`,
 `PlaxisSectionExporter` export the geological level only — the
-lithostratigraphic level (a finished stage) is not in any exporter
-output, and the geotechnical level will not be either once it lands.
+lithostratigraphic level is not in any exporter output, and the
+geotechnical level will not be either once it lands. ("The litho
+stage isn't done until a user can build a litho without annoyances" —
+owner 2026-05-23. The build path works; the dogfeed papercuts in
+Tier G + this export gap are both part of finishing it.)
 
 **Why deferred.** The v1.0 MVP gate's step 5 is "export the three-level
 model geometry with unit identifiers". The build paths for litho /
