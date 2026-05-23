@@ -489,22 +489,31 @@ describe('LithoSuggestionGhostColumns', () => {
   })
 
   it('G13 — base handle fires onEdit with depth_base_m only', () => {
-    // Layer base starts at depth 2 → drag 50 px down → delta 0.5 m
-    // → new depth_base_m = 2.5.
+    // Layer 0 base starts at depth 2 → drag 50 px down → delta 0.5 m
+    // → new depth_base_m = 2.5. Two-layer fixture is required after
+    // the kill-multi-cascade refactor (2026-05-23): the LAST layer's
+    // base now clamps at the segmenter's deepest output (= itself)
+    // so a single-layer drag-down has nowhere to go. Layer 1 below
+    // gives the bound room — its FAR edge is at 4 m, drag to 2.5
+    // is within bound.
     const onEdit = vi.fn()
     const { container } = renderGhost(
-      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
       { onEdit },
     )
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: 250 })
     fireEvent.mouseUp(document)
-    expect(onEdit).toHaveBeenCalledTimes(1)
-    const [idx, edit] = onEdit.mock.calls[0]
-    expect(idx).toBe(0)
-    expect(edit.depth_top_m).toBeUndefined()
-    expect(edit.depth_base_m).toBeCloseTo(2.5, 5)
+    // Shared-boundary commit: layer 0 base + layer 1 top both move to 2.5.
+    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
+    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(2.5, 5)
+    expect(layer0Edit?.[1].depth_top_m).toBeUndefined()
+    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(2.5, 5)
   })
 
   // G23: ↻ undo icon renders on rejected layer when onUnreject wired (debt #80).
@@ -600,15 +609,14 @@ describe('LithoSuggestionGhostColumns', () => {
   // at layer 1's base; the snap fires; on release, the shared-
   // boundary commit collapses layer 1 to zero thickness and onReject
   // fires with idx=1 (the NEIGHBOUR, not self).
-  // G32: pending-adjacent base-drag DOWN past neighbour's BASE.
-  // The drag clamps at layer 1's FAR edge (its base = 4 m, the
-  // total bottom of the dragged + neighbour pair); the snap there
-  // auto-collapses layer 1 — the standard "absorb the neighbour
-  // by dragging through it" gesture.
-  it('G32 — pending-adjacent base-drag past neighbour opens merge dialog; Confirm commits', () => {
-    // Debt #83 cascade + #84 merge prompt: snap-to-neighbour now defers
-    // the edit + reject to a confirm dialog. The owner directive was
-    // "cascade with prompt" — even a single-neighbour collapse asks.
+  // G32 / G33 reshaped 2026-05-23 — kill-multi-cascade refactor. The
+  // merge-confirm dialog is gone; cascade is now capped at ONE
+  // neighbour per gesture. Drag-past clamps at the immediate
+  // neighbour's FAR edge, fires shared-boundary edits, and leaves the
+  // neighbour zero-thickness (user manages it via the × reject icon).
+  // No auto-reject — silent absorption confused users.
+
+  it('G32 — base-drag past pending neighbour clamps at neighbour FAR edge; commits zero-thickness shared boundary', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -621,25 +629,19 @@ describe('LithoSuggestionGhostColumns', () => {
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: 700 })
-    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
-    // Before Confirm: dialog opens, NO edit or reject fired yet.
-    expect(screen.getByTestId('merge-confirm-title')).toBeInTheDocument()
-    expect(onEdit).not.toHaveBeenCalled()
+    // No merge dialog.
+    expect(screen.queryByTestId('merge-confirm-title')).toBeNull()
+    // No auto-reject — silent collapse killed.
     expect(onReject).not.toHaveBeenCalled()
-    // Click Confirm → reject + edit fire as before.
-    fireEvent.click(screen.getByTestId('merge-confirm-submit'))
-    expect(onReject).toHaveBeenCalledTimes(1)
-    expect(onReject).toHaveBeenCalledWith(1)
+    // Shared-boundary commit at layer 1's FAR edge (depth 4).
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(4, 5)
   })
 
-  // G33: mirror — drag layer 1's TOP UP past pending layer 0 to
-  // layer 0's TOP (=0 m, ground). Auto-collapses layer 0 after Confirm.
-  it('G33 — pending-adjacent top-drag past neighbour opens dialog; Confirm collapses neighbour above', () => {
+  it('G33 — top-drag past pending neighbour clamps at neighbour FAR edge; commits zero-thickness shared boundary', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
     const { container } = renderGhost(
@@ -652,12 +654,10 @@ describe('LithoSuggestionGhostColumns', () => {
     const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
     fireEvent.mouseDown(topHandle!, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: -300 })
-    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
-    expect(screen.getByTestId('merge-confirm-title')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('merge-confirm-submit'))
-    expect(onReject).toHaveBeenCalledTimes(1)
-    expect(onReject).toHaveBeenCalledWith(0)
+    expect(screen.queryByTestId('merge-confirm-title')).toBeNull()
+    expect(onReject).not.toHaveBeenCalled()
+    // Shared-boundary commit at layer 0's FAR edge (depth 0 = ground).
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(0, 5)
@@ -699,26 +699,8 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onEdit.mock.calls.find(([idx]) => idx === 1)).toBeUndefined()
   })
 
-  // G37: Cancel in the merge dialog drops the whole gesture.
-  it('G37 — Cancel in merge dialog fires no edit, no reject', () => {
-    const onEdit = vi.fn()
-    const onReject = vi.fn()
-    const { container } = renderGhost(
-      [
-        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
-        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
-      ],
-      { onEdit, onReject },
-    )
-    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
-    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
-    fireEvent.mouseMove(document, { clientY: 700 })
-    fireEvent.mouseUp(document)
-    expect(screen.getByTestId('merge-confirm-title')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('merge-confirm-cancel'))
-    expect(onEdit).not.toHaveBeenCalled()
-    expect(onReject).not.toHaveBeenCalled()
-  })
+  // G37 deleted 2026-05-23 — the MergeConfirmDialog is gone (kill-
+  // multi-cascade refactor). No dialog ⇒ no cancel path to net.
 
   // G34: the user's exact scenario from the 2026-05-20 dogfeed —
   // "if i reject silt between two clay layers, drag down the bottom
@@ -1370,11 +1352,16 @@ describe('LithoSuggestionGhostColumns', () => {
   // V4: base-edge drag works too — and a depth that lands ABOVE the
   // surface (negative depth is impossible, but a deep base produces a
   // negative-or-zero elevation when surface is shallow). Use surface=1,
-  // base starts at depth 2, drag down 50 px → depth 2.5 → elevation -1.5.
-  // Verifies the sign formatting (no leading '+' when elevation < 0).
+  // base of layer 0 starts at depth 2, drag down 50 px → depth 2.5 →
+  // elevation -1.5. Verifies sign formatting (no leading '+' when
+  // elevation < 0). Two-layer fixture required (the kill-multi-cascade
+  // refactor 2026-05-23 caps the LAST layer's base at its own depth).
   it('V4 — base drag readout reflects depth + signed mTAW (negative elevation case)', () => {
     const { container } = renderGhost(
-      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
       { onEdit: vi.fn(), surfaceElevationM: 1 },
     )
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')!
@@ -1385,5 +1372,95 @@ describe('LithoSuggestionGhostColumns', () => {
     const texts = Array.from(readout!.querySelectorAll('text')).map(t => t.textContent)
     expect(texts).toContain('depth 2.50 m')
     expect(texts).toContain('-1.50 m TAW')
+  })
+
+  // -------------------------------------------------------------------
+  // W — debt #103-followup (2026-05-23): kill-multi-cascade + × click-
+  // delete + test-bottom clamp. Pin each contract with a dedicated test.
+  // -------------------------------------------------------------------
+
+  // W1: × icon renders on PENDING layers when onReject is wired.
+  it('W1 — × reject icon renders on pending layers', () => {
+    const { container } = renderGhost([makeSuggestion()])
+    expect(container.querySelector('[data-testid="litho-reject-0"]')).not.toBeNull()
+  })
+
+  // W2: clicking the × fires onReject(idx) with the layer index.
+  it('W2 — clicking × fires onReject with the layer index', () => {
+    const onReject = vi.fn()
+    const { container } = renderGhost([makeSuggestion()], { onReject })
+    const icon = container.querySelector('[data-testid="litho-reject-0"]')!
+    fireEvent.click(icon)
+    expect(onReject).toHaveBeenCalledTimes(1)
+    expect(onReject).toHaveBeenCalledWith(0)
+  })
+
+  // W3: × is absent on ACCEPTED layers (✓ takes the slot) and on
+  // REJECTED layers (↻ takes the slot when wired).
+  it('W3 — × is absent on accepted and rejected layers', () => {
+    const accepted = renderGhost([makeSuggestion()], {
+      acceptedIndices: new Set([0]),
+    })
+    expect(accepted.container.querySelector('[data-testid="litho-reject-0"]')).toBeNull()
+    cleanup()
+    const rejected = renderGhost([makeSuggestion()], {
+      rejectedIndices: new Set([0]),
+      onUnreject: vi.fn(),
+    })
+    expect(rejected.container.querySelector('[data-testid="litho-reject-0"]')).toBeNull()
+  })
+
+  // W4: drag of the LAST layer's BASE downward clamps at its own base
+  // (the segmenter's deepest output = test's effective bottom).
+  // Replaces the prior POSITIVE_INFINITY bound that let drags run off
+  // the bottom of the plot (dogfeed 2026-05-23).
+  it('W4 — base drag of the last layer clamps at the segmenter\'s deepest output', () => {
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit },
+    )
+    // Drag layer 1's BASE (the LAST layer) way down 1000 px.
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-1"]')!
+    fireEvent.mouseDown(baseHandle, { clientY: 400 })
+    fireEvent.mouseMove(document, { clientY: 1400 })
+    fireEvent.mouseUp(document)
+    // Bound = layer 1's own base = 4. Drag stuck at 4 (no movement).
+    const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
+    expect(layer1Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
+  })
+
+  // W5: multi-layer cascade is killed — drag past TWO same-parent
+  // neighbours stops at the FIRST neighbour's far edge, not the
+  // farthest chain entry's far edge. Pins the user's exact 2026-05-23
+  // complaint: "drag it over other boundaries" (plural).
+  it('W5 — drag through multiple same-parent neighbours stops at the FIRST neighbour\'s far edge', () => {
+    const onEdit = vi.fn()
+    // Three same-parent (parent_formation_id=null shared) pending layers.
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2, parent_formation_id: 'p1' }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4, parent_formation_id: 'p1' }),
+        makeSuggestion({ depth_top_m: 4, depth_base_m: 6, parent_formation_id: 'p1' }),
+      ],
+      { onEdit },
+    )
+    // Drag layer 0's BASE down 2000 px (way past layer 1 AND layer 2).
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandle, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 2200 })
+    fireEvent.mouseUp(document)
+    // Pre-fix: cascade chain absorbed layers 1+2, bound at layer 2's
+    // base = 6, both rejected on snap-and-merge. Now: drag stops at
+    // layer 1's FAR edge (= 4). Layer 2 untouched.
+    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
+    const layer2Edit = onEdit.mock.calls.find(([idx]) => idx === 2)
+    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
+    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(4, 5)
+    expect(layer2Edit).toBeUndefined()
   })
 })
