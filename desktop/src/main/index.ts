@@ -229,9 +229,34 @@ function createWindow(): void {
     win.webContents.send('app:before-quit')
   })
 
+  // Log renderer-process death to the main-process stdout (the same
+  // PowerShell window where ``npm run dev`` runs). Without this, a
+  // renderer that crashes before DevTools attaches dies silently —
+  // F12 / Ctrl+R just trigger another crash cycle. Reason codes:
+  // ``crashed`` / ``oom`` / ``killed`` / ``launch-failed`` etc.
+  // Dogfeed 2026-05-23: Robin hit a boot-time crash loop with no
+  // visible diagnostics; this surfaces the why in his terminal.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[main] renderer process gone — reason=${details.reason} ` +
+        `exitCode=${details.exitCode}`,
+    )
+  })
+  win.webContents.on('unresponsive', () => {
+    // eslint-disable-next-line no-console
+    console.error('[main] renderer unresponsive (likely infinite loop or stuck await)')
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
-    win.webContents.openDevTools()
+    // ``mode: 'detach'`` opens DevTools in its own window — it survives
+    // a renderer-process crash, so the post-mortem console stays
+    // available when the page itself goes white. Dogfeed 2026-05-23:
+    // F12 brought up DevTools in-frame, but the renderer died before
+    // it could render the panel and tore it down too. A detached
+    // window is owned by the main process and persists.
+    win.webContents.openDevTools({ mode: 'detach' })
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
