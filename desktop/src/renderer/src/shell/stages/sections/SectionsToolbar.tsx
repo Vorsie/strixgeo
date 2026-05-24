@@ -363,6 +363,24 @@ export default function SectionsToolbar(): JSX.Element {
     setSectionModelAxis(axis)
   }
 
+  // Suggest split-button — what should the primary half do?
+  //   'focused'  → run single-anchor Suggest on the focused column
+  //   'all'      → fall back to bulk "Suggest all in this section" so the
+  //                button isn't greyed out when nothing is focused yet
+  //                (else it looks broken — Robin dogfeed 2026-05-24).
+  //                Stays one click away from a useful action; the caret
+  //                still offers the "Suggest for new tests" variant.
+  //   'disabled' → no model / no section / no bulk anchors → genuinely
+  //                nothing to do, grey it out.
+  const suggestPrimaryMode: 'focused' | 'all' | 'disabled' = canSuggest
+    ? 'focused'
+    : isLitho &&
+        activeLithoModel !== null &&
+        hasSection &&
+        bulkAnchors.length > 0
+      ? 'all'
+      : 'disabled'
+
   return (
     <div className="flex items-center gap-1">
       {/* Undo — the model-edit undo stack is keyboard-wired (Ctrl+Z)
@@ -481,21 +499,35 @@ export default function SectionsToolbar(): JSX.Element {
           <SplitToolbarButton
             icon={<Sparkles size={13} />}
             label={
-              lithoSuggesting || bulkLithoSuggesting ? 'Suggesting…' : 'Suggest'
+              lithoSuggesting || bulkLithoSuggesting
+                ? 'Suggesting…'
+                : suggestPrimaryMode === 'all'
+                  ? `Suggest all${bulkAnchors.length > 0 ? ` (${bulkAnchors.length})` : ''}`
+                  : 'Suggest'
             }
-            onClick={() => void handleSuggest()}
-            disabled={!canSuggest || lithoSuggesting || bulkLithoSuggesting}
+            onClick={
+              suggestPrimaryMode === 'all'
+                ? () => setBulkConfirmOpen(true)
+                : () => void handleSuggest()
+            }
+            disabled={
+              suggestPrimaryMode === 'disabled' ||
+              lithoSuggesting ||
+              bulkLithoSuggesting
+            }
             busy={lithoSuggesting || bulkLithoSuggesting}
             title={
               !activeLithoModel
                 ? 'Create a lithostratigraphic model first'
                 : !hasSection
                   ? 'Open a cross-section to use Suggest'
-                  : !focusedAnchorId
-                    ? 'Right-click a column in the section to focus a CPT or borehole, then Suggest'
-                    : lithoSuggesting
-                      ? 'Fetching suggestions…'
-                      : `Suggest lithostratigraphic layers for ${sectionFocusedColumn?.name ?? 'the focused investigation'}`
+                  : lithoSuggesting
+                    ? 'Fetching suggestions…'
+                    : suggestPrimaryMode === 'all'
+                      ? `Right-click a column to focus one, or click to suggest layers for every investigation in this section (${bulkAnchors.length})`
+                      : suggestPrimaryMode === 'disabled'
+                        ? 'Right-click a column in the section to focus a CPT or borehole, then Suggest'
+                        : `Suggest lithostratigraphic layers for ${sectionFocusedColumn?.name ?? 'the focused investigation'}`
             }
             testid="litho-suggest"
             items={[
