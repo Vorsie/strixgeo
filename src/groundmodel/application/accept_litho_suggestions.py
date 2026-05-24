@@ -52,6 +52,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.recompute_formation_absences_for_formation import (
+    RecomputeFormationAbsencesForFormation,
+)
 from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
 from groundmodel.domain.services.tin_surface import TinSurface, evaluate_tin_at
 from groundmodel.domain.value_objects.admixture import Admixture
@@ -423,6 +426,29 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # (any new contact may change the min-depth ranking).
         if created_formation_ids:
             await self._recompute_litho_display_orders(litho_model_id=litho_model_id)
+
+        # Trigger inference engine for every formation that received a new
+        # contact.  New contacts change the corridor's observation-data
+        # snapshot so existing inferred absences may need updating.
+        # Re-accepts (found_contact_ids) are included: the user may be
+        # re-accepting after a re-segmentation, and the prior inference may
+        # be stale.  commit=False defers the commit so all accept mutations
+        # and absence deltas share one atomic transaction.
+        if created_contact_ids or found_contact_ids:
+            affected_formation_ids = set(created_formation_ids) | set(found_formation_ids)
+            inference_uc = RecomputeFormationAbsencesForFormation(self._session)
+            total_affected = len(affected_formation_ids)
+            for i, fid in enumerate(sorted(affected_formation_ids), start=1):
+                self.debug(
+                    f"[{i}/{total_affected}] AcceptLithoSuggestions: "
+                    f"triggering absence inference for formation {fid}"
+                )
+                await inference_uc.execute(
+                    project_id=project_id,
+                    model_id=litho_model_id,
+                    formation_id=fid,
+                    commit=False,
+                )
 
         await self._session.commit()
         self.success(
