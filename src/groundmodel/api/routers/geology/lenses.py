@@ -1,4 +1,4 @@
-"""Geology API — litho-lens CRUD + perpendicular companion endpoints (#101 Slices 3–4).
+"""Geology API — litho-lens CRUD + perpendicular companion endpoints (#101 Slices 3–6).
 
 Mounted under the shared ``/projects/{project_id}/geology`` prefix by
 this package's ``__init__``; paths follow the existing contact pattern.
@@ -9,6 +9,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
@@ -16,6 +17,7 @@ from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 from groundmodel.api.schemas.project.litho_lens import (
     CreateLithoLensRequest,
     CreateLithoLensResponse,
+    LithoLensListItem,
 )
 from groundmodel.application.create_litho_lens import CreateLithoLens
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
@@ -31,6 +33,61 @@ from groundmodel.shared.logging.logger_factory import LoggerFactory
 logger = LoggerFactory.get_logger(__name__)
 
 router = APIRouter()
+
+
+@router.get(
+    "/models/{model_id}/lenses",
+    response_model=list[LithoLensListItem],
+)
+async def list_litho_lenses(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> list[LithoLensOrm]:
+    """List all lenses for a lithostratigraphic model.
+
+    Returns a lightweight list item for every lens that belongs to this
+    project + model pair, ordered by creation timestamp (oldest first).
+    Used by the LithologyInspector to display per-formation lens counts
+    (#101 Slice 6).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Model scope guard.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    list[LithoLensListItem]
+        All lenses in this model, oldest-first.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+    )
+    stmt = (
+        select(LithoLensOrm)
+        .where(
+            LithoLensOrm.app_project_id == project_id,
+            LithoLensOrm.model_id == model_id,
+        )
+        .order_by(LithoLensOrm.created_at)
+    )
+    result = await session.execute(stmt)
+    lenses = list(result.scalars().all())
+    logger.debug(
+        f"list_litho_lenses: project={project_id} model={model_id} → {len(lenses)} lens(es)"
+    )
+    return lenses
 
 
 @router.post(
