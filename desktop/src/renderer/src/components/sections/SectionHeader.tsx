@@ -168,6 +168,23 @@ export default function SectionHeader({
         <span className="text-[10px] text-text-muted">
           {lengthM.toFixed(0)} m · buffer ±{section.projection_buffer_m.toFixed(0)} m
         </span>
+        {/* Lens companion badge — visible when this section was auto-created
+            as a perpendicular companion for a lens (#101 Slice 6). */}
+        {section.is_lens_companion && (
+          <span
+            className="text-[10px] text-violet-600 font-medium mt-0.5"
+            title={
+              section.companion_lens_id
+                ? 'This section was auto-created as a perpendicular companion for a litho lens'
+                : 'This section was a lens companion (the lens has since been deleted)'
+            }
+          >
+            ↻{' '}
+            {section.companion_lens_name
+              ? `Companion of: ${section.companion_lens_name}`
+              : 'Lens companion section'}
+          </span>
+        )}
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
