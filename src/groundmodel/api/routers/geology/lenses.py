@@ -258,4 +258,8 @@ async def create_perpendicular_companion(
             detail={"code": "companion_error", "message": str(exc)},
         ) from exc
 
-    return CrossSectionResponse.model_validate(result.companion_section)
+    # Enrich the response with the lens name so the section header
+    # can display "Companion of: <lens name>" without a second fetch.
+    response = CrossSectionResponse.model_validate(result.companion_section)
+    response.companion_lens_name = lens.name
+    return response
