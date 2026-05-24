@@ -603,17 +603,14 @@ describe('SectionPanel — correlate-mode hint pill (debt #100)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Lens gesture — activeLithoModelId + onLensCreated prop contract
-// (Blockers 1 + 4, reviewer fixup 2026-05-24)
+// Lens gesture — activeLithoModelId prop contract (Position 4)
 // ---------------------------------------------------------------------------
 
 describe('SectionPanel — lens gesture prop contract', () => {
-  it('renders without error when activeLithoModelId + onLensCreated are provided with empty contacts', () => {
-    // Blocker 4 regression: previously SectionPanel derived modelId from
-    // contacts.find(...)?.model_id ?? '' — when contacts is empty the fallback
-    // produced '' and the backend rejected the request.  The prop is now
-    // threaded directly; this test confirms no crash on empty contacts.
-    const onLensCreated = vi.fn()
+  it('renders without error when activeLithoModelId is provided with empty contacts', () => {
+    // Position 4: the lens gesture no longer uses onLensCreated (Approach-C).
+    // activeLithoModelId is still threaded so context-menu items can scope
+    // the nameLensBody call correctly even when contacts is empty.
     expect(() =>
       render(
         <SectionPanel
@@ -621,16 +618,13 @@ describe('SectionPanel — lens gesture prop contract', () => {
           zEpsg={5710}
           axisMode="lithostratigraphic"
           activeLithoModelId="01k-LITHO-MODEL"
-          onLensCreated={onLensCreated}
           contacts={[]}
         />,
       ),
     ).not.toThrow()
   })
 
-  it('renders without error when onLensCreated is omitted (no gesture surface)', () => {
-    // When onLensCreated is absent the "Mark as lens…" menu item is hidden.
-    // This test guards against a regression where omitting the prop crashes.
+  it('renders without error when activeLithoModelId is omitted', () => {
     expect(() =>
       render(
         <SectionPanel
