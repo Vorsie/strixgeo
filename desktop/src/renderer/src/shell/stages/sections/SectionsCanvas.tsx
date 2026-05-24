@@ -28,9 +28,12 @@ import { api } from '../../../api/client'
 import type {
   AdmixtureItem,
   LithoCorrelationEdge,
+  LithoLensListItem,
 } from '../../../api/client'
 import type { CorrelateGestureState } from '../../../components/sections/CorrelationEdgesOverlay'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
+import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
+import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
@@ -188,6 +191,13 @@ export default function SectionsCanvas(): JSX.Element {
     lensName: string | null
     modelId: string
   } | null>(null)
+
+  // Inspect-lens-body panel state (#101 Blocker 1) — opened by right-clicking
+  // a body chip in CorrelationEdgesOverlay → "Inspect lens body…".
+  // Carries the lens list fetched lazily on open so the panel can show the
+  // existing name (if any) and enable the perpendicular-companion path.
+  const [inspectTarget, setInspectTarget] = useState<InspectLensBodyTarget | null>(null)
+  const [inspectLenses, setInspectLenses] = useState<LithoLensListItem[]>([])
 
   // Sections need a projected METRIC horizontal CRS — same gate as the
   // toolbar (debt #31). Degrees (EPSG:4326) would silently produce
@@ -452,6 +462,39 @@ export default function SectionsCanvas(): JSX.Element {
       }
     },
     [activeLithoModel, project.id, refetchFormations, toast],
+  )
+
+  // Open the InspectLensBodyPanel for a given (formationId, bodyOrdinal) pair.
+  // Fetches the lens list lazily so the panel can show/pre-fill the lens name.
+  const handleOpenInspectLensBody = useCallback(
+    async (formationId: string, bodyOrdinal: number): Promise<void> => {
+      if (!activeLithoModel) return
+      log.info(
+        'section',
+        `inspectLensBody: formation=${formationId} ordinal=${bodyOrdinal} ` +
+          `model=${activeLithoModel.id}`,
+      )
+      const target: InspectLensBodyTarget = {
+        formationId,
+        bodyOrdinal,
+        projectId: project.id,
+        modelId: activeLithoModel.id,
+      }
+      setInspectTarget(target)
+      // Fetch lenses to find an existing name for this body.
+      try {
+        const lenses = await api.geology.listLenses(project.id, activeLithoModel.id)
+        setInspectLenses(lenses)
+        log.debug(
+          'section',
+          `inspectLensBody: ${lenses.length} lens(es) loaded for model ${activeLithoModel.id}`,
+        )
+      } catch (err) {
+        log.warn('section', 'inspectLensBody: listLenses failed — proceeding without names', err)
+        setInspectLenses([])
+      }
+    },
+    [activeLithoModel, project.id],
   )
 
   // Build the correlateGestureState passed to SectionPanel.
@@ -1065,109 +1108,216 @@ export default function SectionsCanvas(): JSX.Element {
     applyUpdatedSection,
   ])
 
-  if (selectedSection !== null) {
+  // -------------------------------------------------------------------------
+  // Inspect-lens-body panel derived values.
+  //
+  // presentInvestigationIds: investigation ids that have a committed contact
+  // for the inspected formation on THIS section.  Empty when the panel is
+  // closed.  Built from sectionContacts (already filtered to this section).
+  //
+  // investigationLabels: id → human label map built from visibleCpts +
+  // visibleBoreholes so the panel can show "CPT-123" instead of a UUID.
+  //
+  // existingLens: the LithoLensOrm row (if any) whose formation_id +
+  // body_ordinal match the panel's target — pre-fills the name field.
+  // -------------------------------------------------------------------------
+  const inspectPresentIds = useMemo((): readonly string[] => {
+    if (inspectTarget === null) return []
+    return sectionContacts
+      .filter(c => c.formation_id === inspectTarget.formationId)
+      .map(c => c.cpt_id ?? c.borehole_id ?? '')
+      .filter(Boolean)
+  }, [inspectTarget, sectionContacts])
+
+  const investigationLabels = useMemo((): ReadonlyMap<string, string> => {
+    const m = new Map<string, string>()
+    for (const cpt of visibleCpts) m.set(cpt.id, cpt.name ?? cpt.id)
+    for (const bh of visibleBoreholes) m.set(bh.id, bh.name ?? bh.id)
+    return m
+  }, [visibleCpts, visibleBoreholes])
+
+  const existingLens = useMemo((): LithoLensListItem | null => {
+    if (inspectTarget === null) return null
     return (
-      <SectionPanel
-        section={selectedSection}
-        zEpsg={project.default_vertical_epsg}
-        cpts={visibleCpts}
-        boreholes={visibleBoreholes}
-        onPatch={handlePatchSelectedSection}
-        onClose={clearSectionSelection}
-        undoStack={undoStack}
-        onSelectCpt={handleSelect}
-        onSelectBorehole={handleSelectBorehole}
-        contacts={sectionContacts}
-        formations={axisFormations}
-        surfacesByFormationId={axisSurfacesByFormationId}
-        focusedContactIds={focusedContactIds}
-        excludedBoreholeIds={axisExcludedBoreholeIds}
-        showConfidenceFade={showConfidenceFade}
-        onCreateContact={sectionAwareCreateContact}
-        onUpdateContactDepth={handleUpdateContactDepth}
-        onDeleteContact={handleDeleteContact}
-        onBatchUpdateContacts={handleBatchUpdateContacts}
-        onBatchCreateContacts={sectionAwareBatchCreateContacts}
-        // Seed from stratigraphy: only available on the geological axis
-        // (the litho axis has its own suggest-litho flow). On the litho
-        // axis the prop is undefined and the button stays disabled.
-        //
-        // P2-G: pass selectedSection.id as sectionId so the router seeds
-        // seeded_formation_contact_ids and returns updated_section.
-        // applyUpdatedSection patches local section state from the response
-        // without a refetch GET — the section's seeded set is immediately
-        // current so P2-F's filter picks up the new contacts on the next render.
-        onAutoPopulateFromStratigraphy={
-          !isLitho && formations.length > 0
-            ? (boreholeIds) =>
-                handleAutoPopulateFromStratigraphy(
-                  boreholeIds,
-                  selectedSection.id,
-                  applyUpdatedSection,
-                )
-            : undefined
-        }
-        onCreateFormation={axisCreateFormation}
-        onExportDxf={
-          activeAxisModel
-            ? () =>
-                handleExportSectionDxf(
-                  project.id,
-                  selectedSection.id,
-                  selectedSection.name,
-                  activeAxisModel.id,
-                )
-            : undefined
-        }
-        virtueleBoringActiveModels={virtueleBoringSectionModels}
-        virtueleBoringPredictions={virtueleBoringPredictions}
-        virtueleBoringModelA={virtueleBoringOverlay.modelA}
-        virtueleBoringModelB={virtueleBoringOverlay.modelB}
-        virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
-        virtueleBoringShowOnSection={showOverlayOnSection}
-        onChangeVirtueleBoringPicker={handleChangeVirtueleBoringPicker}
-        onChangeVirtueleBoringShowOnSection={next =>
-          handleSetShowOverlay('section', next)
-        }
-        lithoGhostState={lithoGhostState}
-        bulkLithoGhostState={bulkLithoGhostState}
-        pinchOutGhostState={pinchOutGhostState}
-        // Geological surface backdrop (#60): only on the litho axis and only
-        // when at least one geological formation exists. The geological
-        // ``formations`` list is already loaded by the model bootstrap; the
-        // surfaces come from the user-triggered ``handleLoadBackdropSurfaces``
-        // call (the rewired "Sync geology" verb in SectionsToolbar).
-        referenceFormations={isLitho && formations.length > 0 ? formations : undefined}
-        referenceSurfacesByFormationId={
-          isLitho && backdropSurfacesByFormationId.size > 0
-            ? backdropSurfacesByFormationId
-            : undefined
-        }
-        // Snap-to-contact backdrop: on the litho axis, the geological
-        // contacts are passed through so ContactsLayer can draw a
-        // polyline that goes EXACTLY through each pick (no 3D→2D
-        // projection error). The user picks each strato contact with
-        // intent; the rendered backdrop honours that.
-        referenceContacts={isLitho && contacts.length > 0 ? contacts : undefined}
-        // Lift the section-local focused column to the shell so
-        // SectionsToolbar can use it for the litho-axis Suggest button.
-        onFocusedColumnChange={setSectionFocusedColumn}
-        // Manual litho composition picker (Phase-1.5): the picker dialog
-        // is shown instead of the geological FormationPicker when the
-        // section is on the lithostratigraphic axis.
-        axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
-        onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
-        activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
-        // Slice 4 (#55): correlation edges + gesture state, litho axis only.
-        // On the geological axis both props are undefined → CorrelationEdgesOverlay
-        // is not mounted (no regression, no stale edge data).
-        correlationEdges={isLitho ? correlationEdges : undefined}
-        correlateGestureState={correlateGestureState}
-        pendingGhostInvestigationCount={
-          isLitho ? pendingGhostInvestigationCount : 0
-        }
-        pulsingFormationIds={pulsingFormationIds}
-      />
+      inspectLenses.find(
+        l =>
+          l.formation_id === inspectTarget.formationId &&
+          l.body_ordinal === inspectTarget.bodyOrdinal,
+      ) ?? null
+    )
+  }, [inspectTarget, inspectLenses])
+
+  if (selectedSection !== null) {
+    // WHY Fragment: InspectLensBodyPanel and CompanionOfferDialog are SectionsCanvas-
+    // level portals (they escape the SVG stacking context via createPortal in Modal).
+    // They must render alongside SectionPanel — not only in the no-section-selected
+    // branch. Wrapping in a Fragment keeps the early-return semantics while ensuring
+    // both dialogs are reachable from the section view (#101 fix-up 2).
+    return (
+      <>
+        <SectionPanel
+          section={selectedSection}
+          zEpsg={project.default_vertical_epsg}
+          cpts={visibleCpts}
+          boreholes={visibleBoreholes}
+          onPatch={handlePatchSelectedSection}
+          onClose={clearSectionSelection}
+          undoStack={undoStack}
+          onSelectCpt={handleSelect}
+          onSelectBorehole={handleSelectBorehole}
+          contacts={sectionContacts}
+          formations={axisFormations}
+          surfacesByFormationId={axisSurfacesByFormationId}
+          focusedContactIds={focusedContactIds}
+          excludedBoreholeIds={axisExcludedBoreholeIds}
+          showConfidenceFade={showConfidenceFade}
+          onCreateContact={sectionAwareCreateContact}
+          onUpdateContactDepth={handleUpdateContactDepth}
+          onDeleteContact={handleDeleteContact}
+          onBatchUpdateContacts={handleBatchUpdateContacts}
+          onBatchCreateContacts={sectionAwareBatchCreateContacts}
+          // Seed from stratigraphy: only available on the geological axis
+          // (the litho axis has its own suggest-litho flow). On the litho
+          // axis the prop is undefined and the button stays disabled.
+          //
+          // P2-G: pass selectedSection.id as sectionId so the router seeds
+          // seeded_formation_contact_ids and returns updated_section.
+          // applyUpdatedSection patches local section state from the response
+          // without a refetch GET — the section's seeded set is immediately
+          // current so P2-F's filter picks up the new contacts on the next render.
+          onAutoPopulateFromStratigraphy={
+            !isLitho && formations.length > 0
+              ? (boreholeIds) =>
+                  handleAutoPopulateFromStratigraphy(
+                    boreholeIds,
+                    selectedSection.id,
+                    applyUpdatedSection,
+                  )
+              : undefined
+          }
+          onCreateFormation={axisCreateFormation}
+          onExportDxf={
+            activeAxisModel
+              ? () =>
+                  handleExportSectionDxf(
+                    project.id,
+                    selectedSection.id,
+                    selectedSection.name,
+                    activeAxisModel.id,
+                  )
+              : undefined
+          }
+          virtueleBoringActiveModels={virtueleBoringSectionModels}
+          virtueleBoringPredictions={virtueleBoringPredictions}
+          virtueleBoringModelA={virtueleBoringOverlay.modelA}
+          virtueleBoringModelB={virtueleBoringOverlay.modelB}
+          virtueleBoringMaxDepthM={virtueleBoringOverlay.maxDepthM}
+          virtueleBoringShowOnSection={showOverlayOnSection}
+          onChangeVirtueleBoringPicker={handleChangeVirtueleBoringPicker}
+          onChangeVirtueleBoringShowOnSection={next =>
+            handleSetShowOverlay('section', next)
+          }
+          lithoGhostState={lithoGhostState}
+          bulkLithoGhostState={bulkLithoGhostState}
+          pinchOutGhostState={pinchOutGhostState}
+          // Geological surface backdrop (#60): only on the litho axis and only
+          // when at least one geological formation exists. The geological
+          // ``formations`` list is already loaded by the model bootstrap; the
+          // surfaces come from the user-triggered ``handleLoadBackdropSurfaces``
+          // call (the rewired "Sync geology" verb in SectionsToolbar).
+          referenceFormations={isLitho && formations.length > 0 ? formations : undefined}
+          referenceSurfacesByFormationId={
+            isLitho && backdropSurfacesByFormationId.size > 0
+              ? backdropSurfacesByFormationId
+              : undefined
+          }
+          // Snap-to-contact backdrop: on the litho axis, the geological
+          // contacts are passed through so ContactsLayer can draw a
+          // polyline that goes EXACTLY through each pick (no 3D→2D
+          // projection error). The user picks each strato contact with
+          // intent; the rendered backdrop honours that.
+          referenceContacts={isLitho && contacts.length > 0 ? contacts : undefined}
+          // Lift the section-local focused column to the shell so
+          // SectionsToolbar can use it for the litho-axis Suggest button.
+          onFocusedColumnChange={setSectionFocusedColumn}
+          // Manual litho composition picker (Phase-1.5): the picker dialog
+          // is shown instead of the geological FormationPicker when the
+          // section is on the lithostratigraphic axis.
+          axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
+          onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
+          activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
+          // Slice 4 (#55): correlation edges + gesture state, litho axis only.
+          // On the geological axis both props are undefined → CorrelationEdgesOverlay
+          // is not mounted (no regression, no stale edge data).
+          correlationEdges={isLitho ? correlationEdges : undefined}
+          correlateGestureState={correlateGestureState}
+          pendingGhostInvestigationCount={
+            isLitho ? pendingGhostInvestigationCount : 0
+          }
+          pulsingFormationIds={pulsingFormationIds}
+          // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
+          // geological axis (no correlation bodies exist there).
+          onInspectLensBody={
+            isLitho ? (fid, ord) => void handleOpenInspectLensBody(fid, ord) : undefined
+          }
+        />
+        {/* Inspect-lens-body panel (#101 Blocker 1) — shared between section-selected
+            and no-section branches; Portal via Modal escapes the SVG stacking context. */}
+        {inspectTarget !== null && (
+          <InspectLensBodyPanel
+            target={inspectTarget}
+            formations={isLitho ? lithoFormations : []}
+            presentInvestigationIds={inspectPresentIds}
+            investigationLabels={investigationLabels}
+            existingLensId={existingLens?.id ?? null}
+            existingLensName={existingLens?.name ?? null}
+            onLensNamed={(lensId, wasCreated) => {
+              if (activeLithoModel) {
+                api.geology
+                  .listLenses(project.id, activeLithoModel.id)
+                  .then(lenses => setInspectLenses(lenses))
+                  .catch(err =>
+                    log.warn('section', 'onLensNamed: listLenses refresh failed', err),
+                  )
+              }
+              log.success(
+                'section',
+                `InspectLensBodyPanel: lens ${lensId} ${wasCreated ? 'created' : 'updated'}`,
+              )
+            }}
+            onOfferCompanion={(lensId, lensName) => {
+              if (activeLithoModel) {
+                setCompanionOffer({
+                  lensId,
+                  lensName,
+                  modelId: activeLithoModel.id,
+                })
+              }
+            }}
+            onAbsenceUpdated={() => {
+              log.debug('section', 'InspectLensBodyPanel: absence updated')
+            }}
+            onClose={() => setInspectTarget(null)}
+          />
+        )}
+        {/* Companion-offer dialog — same: must be reachable from the section view. */}
+        {companionOffer !== null && project !== null && (
+          <CompanionOfferDialog
+            open={companionOffer !== null}
+            projectId={project.id}
+            modelId={companionOffer.modelId}
+            lensId={companionOffer.lensId}
+            lensName={companionOffer.lensName}
+            onSectionCreated={async (sectionId: string) => {
+              await refreshSectionList()
+              handleSectionCreated(sectionId)
+              handleSelectSection(sectionId)
+              toast('success', 'Perpendicular section created.')
+            }}
+            onClose={() => setCompanionOffer(null)}
+          />
+        )}
+      </>
     )
   }
 
@@ -1220,28 +1370,6 @@ export default function SectionsCanvas(): JSX.Element {
           lets the user click "New cross-section" without fighting the
           map's pan/zoom handlers. Hides automatically once a section
           exists or once the user draws / imports. */}
-      {/* Companion-offer dialog — opened after lens creation.  Mounted at
-          the SectionsCanvas level so it persists across SectionPanel re-renders
-          and can refresh the section list + navigate to the new section. */}
-      {companionOffer !== null && project !== null && (
-        <CompanionOfferDialog
-          open={companionOffer !== null}
-          projectId={project.id}
-          modelId={companionOffer.modelId}
-          lensId={companionOffer.lensId}
-          lensName={companionOffer.lensName}
-          onSectionCreated={async (sectionId: string) => {
-            // Refresh the section list so the new companion appears in the
-            // sidebar and is selectable.  Then navigate to it and toast.
-            await refreshSectionList()
-            handleSectionCreated(sectionId)
-            handleSelectSection(sectionId)
-            toast('success', 'Perpendicular section created.')
-          }}
-          onClose={() => setCompanionOffer(null)}
-        />
-      )}
-
       {showCta && (
         <div className="absolute inset-0 flex items-end justify-center pb-12 pointer-events-none z-[500]">
           <div
