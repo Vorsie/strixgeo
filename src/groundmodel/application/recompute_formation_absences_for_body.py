@@ -297,6 +297,11 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
                 .on_conflict_do_update(
                     constraint="uq_formation_absence_formation_investigation",
                     set_={"source": absence.source, "updated_at": func.now()},
+                    # Defense-in-depth: only overwrite when the existing row
+                    # is still inferred.  A 'manual' or 'observed' row that
+                    # somehow ends up in to_write (application-layer bug or
+                    # race) must NOT be silently demoted to 'inferred'.
+                    where=FormationAbsenceOrm.source == "inferred",
                 )
             )
             await self._session.execute(stmt)
