@@ -998,6 +998,23 @@ export interface CrossSectionResponse {
    * Populated by Seed-from-stratigraphy and manual-draw actions.
    */
   seeded_formation_contact_ids: string[]
+  /**
+   * Lens companion linkage (#101 Slice 4).
+   * Set when this section was auto-created as the perpendicular companion
+   * for the referenced lens; null for plain user sections. Cleared to null
+   * if the lens is deleted (FK ON DELETE SET NULL).
+   * Optional because pre-Slice-4 API responses and test fixtures omit it;
+   * consumers should treat absence as null.
+   */
+  companion_lens_id?: string | null
+  /**
+   * Stays true even after companion_lens_id is nulled by a lens deletion,
+   * so the UI can display a "was a lens companion" badge without a separate
+   * query. False for all pre-Slice-4 sections (server default).
+   * Optional because pre-Slice-4 API responses and test fixtures omit it;
+   * consumers should treat absence as false.
+   */
+  is_lens_companion?: boolean
   created_at: string
   updated_at: string
 }
@@ -1995,6 +2012,22 @@ export const api = {
         throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
       }
     },
+
+    // Auto-create a perpendicular companion section for a lens (#101 Slice 4).
+    // Idempotent: returns the existing companion section if one already exists.
+    // The companion section is centred on the lens centroid and extends to the
+    // nearest investigation on each side (fallback: max(2×buffer, 100 m)).
+    // The caller should add the returned section to the local section list and
+    // offer to navigate to it.
+    createPerpendicularCompanion: (
+      projectId: string,
+      modelId: string,
+      lensId: string,
+    ): Promise<CrossSectionResponse> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}/perpendicular-companion`,
+        {},
+      ),
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
