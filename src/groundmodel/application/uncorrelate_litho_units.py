@@ -18,6 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.correlate_litho_units import CorrelateLithoUnits
+from groundmodel.application.recompute_formation_absences_for_formation import (
+    RecomputeFormationAbsencesForFormation,
+)
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
     LithoCorrelationEdgeOrm,
@@ -128,7 +131,23 @@ class UncorrelateLithoUnits(GroundModelLogger):
         updated = await helper.run_resolver(model_id)
 
         # ------------------------------------------------------------------ #
-        # 4. Commit.                                                            #
+        # 4. Trigger inference engine for both uncorrelated formations.         #
+        #    After the split, each formation may have different absence sets.   #
+        #    commit=False defers the session.commit() to step 5 so the edge    #
+        #    delete + resolver + absence delta are atomic.                      #
+        # ------------------------------------------------------------------ #
+        inference_uc = RecomputeFormationAbsencesForFormation(self._session)
+        for fid in (formation_a_id, formation_b_id):
+            self.debug(f"UncorrelateLithoUnits: triggering absence inference for formation {fid}")
+            await inference_uc.execute(
+                project_id=project_id,
+                model_id=model_id,
+                formation_id=fid,
+                commit=False,
+            )
+
+        # ------------------------------------------------------------------ #
+        # 5. Commit (edge delete + resolver ordinals + absence delta).          #
         # ------------------------------------------------------------------ #
         await self._session.commit()
         self.success(
