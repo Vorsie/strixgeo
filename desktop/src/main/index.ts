@@ -334,6 +334,16 @@ function buildMenu(win: BrowserWindow): void {
           enabled: false  // Phase 3
         },
         { type: 'separator' },
+        {
+          label: 'Settings…',
+          // Apple-standard ``Cmd+,`` for Preferences; Ctrl+, on Windows /
+          // Linux matches VS Code + JetBrains for the same intent. Opens
+          // the renderer-side SettingsDialog via IPC; same pattern as
+          // every other menu signal (one-way main→renderer fire).
+          accelerator: 'CmdOrCtrl+,',
+          click: () => win.webContents.send('menu:open-settings'),
+        },
+        { type: 'separator' },
         { role: 'quit' }
       ]
     },
