@@ -970,8 +970,12 @@ export default function SectionsCanvas(): JSX.Element {
     handleMergeLithoLayers,
   ])
 
-  // Pinch-out ghost state — wired on the geological axis only (same
-  // axis that owns the formation contacts the user right-clicks on).
+  // Pinch-out ghost state — wired on whichever axis is active. Backend
+  // ``ExtrapolatePinchOut`` is formation-id-keyed and works for either
+  // model kind; only the frontend gate needs to flip (#118). The active
+  // model + its kind are threaded through ``handlePreviewPinchOut`` so
+  // the commit path refreshes the right contact list (litho vs geo).
+  //
   // The onPreviewPinchOut callback derives direction (defaults 'right'
   // — the UX default is toward the termination edge which is typically
   // the section's right end; useGeologicalModel.handlePreviewPinchOut
@@ -981,9 +985,13 @@ export default function SectionsCanvas(): JSX.Element {
   // future picker overrides both heuristics; until then the auto-retry
   // is the safety net for west-pinching formations / R→L sections.
   const pinchOutGhostState = useMemo(() => {
-    if (isLitho || !activeGeologicalModel) return undefined
+    const axisModel = isLitho ? activeLithoModel : activeGeologicalModel
+    if (!axisModel) return undefined
     const sectionId = selectedSection?.id ?? null
     if (sectionId === null) return undefined
+    const modelKind: 'geological' | 'lithostratigraphic' = isLitho
+      ? 'lithostratigraphic'
+      : 'geological'
     return {
       preview: pinchOutPreview,
       loading: pinchOutLoading,
@@ -998,6 +1006,8 @@ export default function SectionsCanvas(): JSX.Element {
         // display_order below the pinching one. The pinching formation
         // has the highest display_order among the ones visible on this
         // section; the target is the one with display_order one step lower.
+        // ``axisFormations`` is already axis-swapped (litho or geo) so
+        // the same sort logic works on either model kind.
         const sorted = [...axisFormations].sort((a, b) => b.display_order - a.display_order)
         const pinchingIdx = sorted.findIndex(f => f.id === formationId)
         const targetFormation =
@@ -1015,7 +1025,8 @@ export default function SectionsCanvas(): JSX.Element {
           formationId,
           targetFormationId: targetFormation.id,
           sectionId,
-          modelId: activeGeologicalModel.id,
+          modelId: axisModel.id,
+          modelKind,
           direction: 'right',
         })
       },
@@ -1028,6 +1039,7 @@ export default function SectionsCanvas(): JSX.Element {
   }, [
     isLitho,
     activeGeologicalModel,
+    activeLithoModel,
     selectedSection,
     pinchOutPreview,
     pinchOutLoading,
