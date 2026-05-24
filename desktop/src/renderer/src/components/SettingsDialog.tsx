@@ -1,206 +1,554 @@
 // Application Settings dialog. Reached from File → Settings… (Ctrl+,).
 //
-// Project-scoped: every setting here persists in ``project.view_state``
-// so it travels with the .gmproj bundle and the next collaborator
-// opens the file with the same tuning. There is no per-user / per-
-// machine pref store today — when one becomes necessary (UI theme,
-// recent-projects retention, etc.) it lands as a separate section
-// here and writes to electron-store / userData instead of view_state.
+// Scope mix: most settings ride in ``project.view_state`` (per-project,
+// travel with the .gmproj bundle); the Appearance section is per-user
+// and persists to localStorage via useTheme. Each section labels its
+// scope so a colleague opening the same .gmproj knows why their theme
+// didn't follow your file.
 //
-// Section scaffold: the dialog renders a left rail of section labels +
-// a right pane of controls. v1 has one section ("Litho segmenter") so
-// the rail is a placeholder; the structure is in place for additional
-// sections (Map / Sections / Export) without re-wiring.
+// Section rail: left nav of section names + right pane of controls.
+// Renders one section at a time so the form fits the card without
+// scrolling and the user can't accidentally edit two sections in one
+// Save (each section has its own Save button that commits ONLY that
+// section's diff).
 
-import { Settings as SettingsIcon } from 'lucide-react'
+import { Layers, Settings as SettingsIcon, SlidersHorizontal, Palette } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import Button from './ui/Button'
 import Modal from './ui/Modal'
+import type { ThemeChoice } from '../hooks/useTheme'
 import {
+  LITHO_SEGMENTER_BOUNDS,
   LITHO_SEGMENTER_DEFAULTS,
-  LITHO_SEGMENTER_MIN_THICKNESS_BOUNDS,
   type LithoSegmenterPrefs,
 } from '../utils/lithoSegmenterPrefs'
+import {
+  SECTION_DEFAULTS,
+  SECTION_DEFAULTS_BOUNDS,
+  type SectionDefaults,
+} from '../utils/sectionDefaults'
+
+type SectionKey = 'litho' | 'sections' | 'appearance'
 
 interface Props {
   open: boolean
-  /** Initial values seeded from ``project.view_state``. The dialog
-   *  re-seeds on every open so a Cancel from an in-flight edit doesn't
-   *  leak draft state into the next session. */
-  initialLithoSegmenter: LithoSegmenterPrefs
-  /** Whether a project is loaded. When false, the dialog still opens
-   *  but project-scoped sections are read-only — there's no view_state
-   *  to persist into. */
   hasProject: boolean
+  initialLithoSegmenter: LithoSegmenterPrefs
+  initialSectionDefaults: SectionDefaults
+  themeChoice: ThemeChoice
   onCancel: () => void
-  /** Fires when the user clicks Save. The caller threads the patch
-   *  through ``applyViewStatePatch`` so the .gmproj round-trip stays
-   *  in App.tsx. */
   onSubmitLithoSegmenter: (next: LithoSegmenterPrefs) => void
+  onSubmitSectionDefaults: (next: SectionDefaults) => void
+  /** Per-user theme override. Persisted to localStorage by useTheme —
+   *  applied immediately, no Save click needed (matches every other
+   *  appearance toggle in the app: theme is reversible UI chrome). */
+  onSetThemeChoice: (next: ThemeChoice) => void
 }
+
+const SECTIONS: ReadonlyArray<{
+  key: SectionKey
+  label: string
+  icon: React.ReactNode
+  scope: 'project' | 'device'
+}> = [
+  { key: 'litho', label: 'Litho segmenter', icon: <SlidersHorizontal size={13} />, scope: 'project' },
+  { key: 'sections', label: 'Cross-sections', icon: <Layers size={13} />, scope: 'project' },
+  { key: 'appearance', label: 'Appearance', icon: <Palette size={13} />, scope: 'device' },
+]
 
 export default function SettingsDialog({
   open,
-  initialLithoSegmenter,
   hasProject,
+  initialLithoSegmenter,
+  initialSectionDefaults,
+  themeChoice,
   onCancel,
   onSubmitLithoSegmenter,
+  onSubmitSectionDefaults,
+  onSetThemeChoice,
 }: Props): JSX.Element | null {
-  const [draft, setDraft] = useState<LithoSegmenterPrefs>(initialLithoSegmenter)
+  const [active, setActive] = useState<SectionKey>('litho')
+  const [lithoDraft, setLithoDraft] = useState<LithoSegmenterPrefs>(initialLithoSegmenter)
+  const [sectionsDraft, setSectionsDraft] = useState<SectionDefaults>(initialSectionDefaults)
 
-  // Re-seed the draft every time the dialog opens so a Cancel in one
-  // session doesn't leak into the next, and so the dialog reflects the
-  // latest saved value if the project was patched outside this dialog.
+  // Re-seed drafts on open so a Cancel in one session doesn't leak
+  // into the next, and to reflect any outside changes (e.g. a colleague
+  // patched the bundle in another window). ``active`` stays on the
+  // user's last-selected tab — that's a session-scoped UI choice, not
+  // tied to persisted prefs.
   useEffect(() => {
-    if (open) setDraft(initialLithoSegmenter)
-  }, [open, initialLithoSegmenter])
+    if (open) {
+      setLithoDraft(initialLithoSegmenter)
+      setSectionsDraft(initialSectionDefaults)
+    }
+  }, [open, initialLithoSegmenter, initialSectionDefaults])
 
   if (!open) return null
-
-  const { min, max } = LITHO_SEGMENTER_MIN_THICKNESS_BOUNDS
-  const thickness = draft.minimumLayerThicknessM
-  const thicknessOutOfRange =
-    !Number.isFinite(thickness) || thickness < min || thickness > max
-  const dirty =
-    draft.minimumLayerThicknessM !== initialLithoSegmenter.minimumLayerThicknessM
-
-  function handleSave(): void {
-    if (!dirty || thicknessOutOfRange) return
-    onSubmitLithoSegmenter(draft)
-  }
-
-  function handleReset(): void {
-    setDraft({ ...LITHO_SEGMENTER_DEFAULTS })
-  }
 
   return (
     <Modal
       open={open}
       onCancel={onCancel}
       labelledBy="settings-title"
-      cardClassName="w-[640px] max-h-[80vh] flex flex-col"
+      cardClassName="w-[720px] max-h-[80vh] flex flex-col"
     >
       <div className="flex flex-col flex-1 min-h-0">
         <div className="px-6 pt-5 pb-3 border-b border-border-subtle flex items-center gap-2">
           <SettingsIcon size={16} className="text-text-muted" />
-          <h2
-            id="settings-title"
-            className="text-base font-semibold text-text-primary"
-          >
+          <h2 id="settings-title" className="text-base font-semibold text-text-primary">
             Settings
           </h2>
         </div>
 
         <div className="flex flex-1 min-h-0">
-          {/* Section rail. Single section today; scaffolded for future
-              additions (Map / Sections / Export). Selected state is
-              hard-coded for v1 — when section #2 lands this becomes a
-              useState pick. */}
-          <div className="w-44 border-r border-border-subtle py-3 px-2 text-xs">
-            <div className="px-2 py-1.5 rounded bg-surface-card text-text-primary font-medium">
-              Litho segmenter
-            </div>
+          {/* Section rail. Each entry is a button so keyboard focus +
+              Enter activate it; the active section gets a card-coloured
+              background. */}
+          <div
+            className="w-48 border-r border-border-subtle py-3 px-2 space-y-0.5"
+            role="tablist"
+            aria-orientation="vertical"
+          >
+            {SECTIONS.map(s => {
+              const selected = s.key === active
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setActive(s.key)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs ${
+                    selected
+                      ? 'bg-surface-card text-text-primary font-medium'
+                      : 'text-text-secondary hover:bg-surface-card/60'
+                  }`}
+                >
+                  <span className="text-text-muted">{s.icon}</span>
+                  {s.label}
+                </button>
+              )
+            })}
           </div>
 
-          {/* Section body. */}
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold text-text-primary">
-                Litho segmenter
-              </h3>
-              <p className="text-xs text-text-muted mt-0.5">
-                Tuning for the "Suggest" verb on the Litho axis. Stored
-                per project — travels with the .gmproj file.
-              </p>
-            </div>
-
-            <div>
-              <label
-                htmlFor="settings-min-thickness"
-                className="block text-[11px] font-medium text-text-secondary mb-1"
-              >
-                Minimum layer thickness (m)
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  id="settings-min-thickness"
-                  type="range"
-                  min={min}
-                  max={3.0}
-                  step={0.05}
-                  value={Math.min(thickness, 3.0)}
-                  onChange={e =>
-                    setDraft({
-                      ...draft,
-                      minimumLayerThicknessM: Number(e.target.value),
-                    })
-                  }
-                  disabled={!hasProject}
-                  className="flex-1 accent-accent"
-                  aria-label="Minimum layer thickness slider"
-                />
-                <input
-                  type="number"
-                  min={min}
-                  max={max}
-                  step={0.05}
-                  value={thickness}
-                  onChange={e => {
-                    const v = Number(e.target.value)
-                    setDraft({
-                      ...draft,
-                      // Allow out-of-range values to land in the
-                      // controlled input so the user can clear + retype;
-                      // the validation gate below blocks the Save.
-                      minimumLayerThicknessM: Number.isFinite(v) ? v : thickness,
-                    })
-                  }}
-                  disabled={!hasProject}
-                  className={`w-20 border rounded px-2 py-1 text-sm bg-surface-overlay text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-accent ${
-                    thicknessOutOfRange
-                      ? 'border-status-danger'
-                      : 'border-border-default'
-                  }`}
-                  aria-label="Minimum layer thickness in metres"
-                  aria-invalid={thicknessOutOfRange}
-                />
-                <span className="text-xs text-text-muted">m</span>
-              </div>
-              <p className="text-[11px] text-text-muted mt-1.5 leading-snug">
-                Layers thinner than this are merged into their neighbour.
-                Lower values catch thin clay drapes (0.10–0.20 m);
-                higher values produce a coarser, more readable column.
-                Range {min}–{max} m. Default {LITHO_SEGMENTER_DEFAULTS.minimumLayerThicknessM} m.
-              </p>
-              {!hasProject && (
-                <p className="text-[11px] text-status-amber mt-1">
-                  Open or create a project to change this setting.
-                </p>
-              )}
-            </div>
+          {/* Active section body. Each branch owns its own header,
+              controls and Save button. */}
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {active === 'litho' && (
+              <LithoSection
+                draft={lithoDraft}
+                setDraft={setLithoDraft}
+                initial={initialLithoSegmenter}
+                hasProject={hasProject}
+                onSubmit={() => onSubmitLithoSegmenter(lithoDraft)}
+              />
+            )}
+            {active === 'sections' && (
+              <SectionsSection
+                draft={sectionsDraft}
+                setDraft={setSectionsDraft}
+                initial={initialSectionDefaults}
+                hasProject={hasProject}
+                onSubmit={() => onSubmitSectionDefaults(sectionsDraft)}
+              />
+            )}
+            {active === 'appearance' && (
+              <AppearanceSection
+                themeChoice={themeChoice}
+                onSetThemeChoice={onSetThemeChoice}
+              />
+            )}
           </div>
         </div>
 
-        <div className="px-6 py-3 border-t border-border-subtle flex items-center justify-between gap-2">
-          <Button variant="ghost" size="sm" onClick={handleReset} disabled={!hasProject}>
-            Reset to defaults
+        <div className="px-6 py-3 border-t border-border-subtle flex items-center justify-end">
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Close
           </Button>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={onCancel}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleSave}
-              disabled={!dirty || thicknessOutOfRange || !hasProject}
-            >
-              Save
-            </Button>
-          </div>
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Litho segmenter section
+// ---------------------------------------------------------------------------
+
+function LithoSection({
+  draft,
+  setDraft,
+  initial,
+  hasProject,
+  onSubmit,
+}: {
+  draft: LithoSegmenterPrefs
+  setDraft: (next: LithoSegmenterPrefs) => void
+  initial: LithoSegmenterPrefs
+  hasProject: boolean
+  onSubmit: () => void
+}): JSX.Element {
+  const thicknessBounds = LITHO_SEGMENTER_BOUNDS.minimumLayerThicknessM
+  const gunsatBounds = LITHO_SEGMENTER_BOUNDS.gunsatKNm3
+  const drBounds = LITHO_SEGMENTER_BOUNDS.drCompressionFactor
+
+  const thicknessValid =
+    Number.isFinite(draft.minimumLayerThicknessM) &&
+    draft.minimumLayerThicknessM >= thicknessBounds.min &&
+    draft.minimumLayerThicknessM <= thicknessBounds.max
+  const gunsatValid =
+    Number.isFinite(draft.gunsatKNm3) &&
+    draft.gunsatKNm3 >= gunsatBounds.min &&
+    draft.gunsatKNm3 <= gunsatBounds.max
+  const drValid =
+    Number.isFinite(draft.drCompressionFactor) &&
+    draft.drCompressionFactor >= drBounds.min &&
+    draft.drCompressionFactor <= drBounds.max
+  const allValid = thicknessValid && gunsatValid && drValid
+
+  const dirty =
+    draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
+    draft.gunsatKNm3 !== initial.gunsatKNm3 ||
+    draft.drCompressionFactor !== initial.drCompressionFactor
+
+  return (
+    <SectionShell
+      title="Litho segmenter"
+      blurb="Tuning for the Suggest verb on the Litho axis. Applies to the next Suggest call; already-accepted units are unchanged."
+      scope="project"
+    >
+      <NumberRow
+        id="settings-min-thickness"
+        label="Minimum layer thickness (m)"
+        hint={`Layers thinner than this are merged into their neighbour. Lower values catch thin clay drapes; higher values produce a coarser column. Default ${LITHO_SEGMENTER_DEFAULTS.minimumLayerThicknessM} m.`}
+        value={draft.minimumLayerThicknessM}
+        onChange={v => setDraft({ ...draft, minimumLayerThicknessM: v })}
+        bounds={thicknessBounds}
+        sliderMax={3.0}
+        step={0.05}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!thicknessValid}
+      />
+      <NumberRow
+        id="settings-gunsat"
+        label="Soil unit weight above water (kN/m³)"
+        hint={`Used to compute σ'v above the water table, which feeds the Robertson Ic and sand Dr. Site-wide for now: peat ~12, sand ~18, dense Quaternary ~19. Per-soil γ is a future enhancement. Default ${LITHO_SEGMENTER_DEFAULTS.gunsatKNm3}.`}
+        value={draft.gunsatKNm3}
+        onChange={v => setDraft({ ...draft, gunsatKNm3: v })}
+        bounds={gunsatBounds}
+        sliderMin={gunsatBounds.min}
+        sliderMax={gunsatBounds.max}
+        step={0.1}
+        unit="kN/m³"
+        disabled={!hasProject}
+        invalid={!gunsatValid}
+      />
+      <NumberRow
+        id="settings-dr-factor"
+        label="Sand Dr compression factor"
+        hint={`Jamiolkowski compression factor in the relative-density correlation. 0.675 = average quartz; lower for calcareous sands, higher for crushable feldspar. Most engineers leave this alone. Default ${LITHO_SEGMENTER_DEFAULTS.drCompressionFactor}.`}
+        value={draft.drCompressionFactor}
+        onChange={v => setDraft({ ...draft, drCompressionFactor: v })}
+        bounds={drBounds}
+        sliderMin={0.5}
+        sliderMax={0.8}
+        step={0.005}
+        disabled={!hasProject}
+        invalid={!drValid}
+      />
+
+      <SectionFooter
+        hasProject={hasProject}
+        dirty={dirty}
+        allValid={allValid}
+        onReset={() => setDraft({ ...LITHO_SEGMENTER_DEFAULTS })}
+        onSubmit={onSubmit}
+      />
+    </SectionShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Cross-sections section
+// ---------------------------------------------------------------------------
+
+function SectionsSection({
+  draft,
+  setDraft,
+  initial,
+  hasProject,
+  onSubmit,
+}: {
+  draft: SectionDefaults
+  setDraft: (next: SectionDefaults) => void
+  initial: SectionDefaults
+  hasProject: boolean
+  onSubmit: () => void
+}): JSX.Element {
+  const bufferBounds = SECTION_DEFAULTS_BOUNDS.bufferM
+  const vexBounds = SECTION_DEFAULTS_BOUNDS.verticalExaggeration
+
+  const bufferValid =
+    Number.isFinite(draft.bufferM) &&
+    draft.bufferM >= bufferBounds.min &&
+    draft.bufferM <= bufferBounds.max
+  const vexValid =
+    Number.isFinite(draft.verticalExaggeration) &&
+    draft.verticalExaggeration >= vexBounds.min &&
+    draft.verticalExaggeration <= vexBounds.max
+
+  const dirty =
+    draft.bufferM !== initial.bufferM ||
+    draft.verticalExaggeration !== initial.verticalExaggeration
+
+  return (
+    <SectionShell
+      title="Cross-sections"
+      blurb="Defaults applied when you draw a new cross-section. Existing sections keep whatever they were created with — change those on the section header."
+      scope="project"
+    >
+      <NumberRow
+        id="settings-section-buffer"
+        label="Default projection buffer (m)"
+        hint={`Half-width of the corridor around the section line; investigations within ±buffer get projected onto the section. Tight foundation footprints ~15 m, harbour studies 50-100 m. Default ${SECTION_DEFAULTS.bufferM} m.`}
+        value={draft.bufferM}
+        onChange={v => setDraft({ ...draft, bufferM: v })}
+        bounds={bufferBounds}
+        sliderMin={1}
+        sliderMax={200}
+        step={1}
+        unit="m"
+        disabled={!hasProject}
+        invalid={!bufferValid}
+      />
+      <NumberRow
+        id="settings-section-vex"
+        label="Default vertical exaggeration"
+        hint={`Vertical-to-horizontal scale ratio. 1× is geometrically honest; 2-5× makes thin layers legible at regional scale. Default ${SECTION_DEFAULTS.verticalExaggeration}×.`}
+        value={draft.verticalExaggeration}
+        onChange={v => setDraft({ ...draft, verticalExaggeration: v })}
+        bounds={vexBounds}
+        sliderMin={1}
+        sliderMax={10}
+        step={0.1}
+        unit="×"
+        disabled={!hasProject}
+        invalid={!vexValid}
+      />
+
+      <SectionFooter
+        hasProject={hasProject}
+        dirty={dirty}
+        allValid={bufferValid && vexValid}
+        onReset={() => setDraft({ ...SECTION_DEFAULTS })}
+        onSubmit={onSubmit}
+      />
+    </SectionShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Appearance section
+// ---------------------------------------------------------------------------
+
+function AppearanceSection({
+  themeChoice,
+  onSetThemeChoice,
+}: {
+  themeChoice: ThemeChoice
+  onSetThemeChoice: (next: ThemeChoice) => void
+}): JSX.Element {
+  return (
+    <SectionShell
+      title="Appearance"
+      blurb="Per-device preferences. These stay on this machine and do NOT travel with the .gmproj bundle."
+      scope="device"
+    >
+      <div>
+        <label
+          htmlFor="settings-theme"
+          className="block text-[11px] font-medium text-text-secondary mb-1"
+        >
+          Theme
+        </label>
+        <div className="flex items-center gap-3">
+          <select
+            id="settings-theme"
+            value={themeChoice}
+            onChange={e => onSetThemeChoice(e.target.value as ThemeChoice)}
+            className="w-44 border border-border-default rounded px-2 py-1 text-sm bg-surface-overlay text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+          >
+            <option value="system">System (follow OS)</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+        <p className="text-[11px] text-text-muted mt-1.5 leading-snug">
+          System follows the OS preference and updates live when you flip
+          Windows/macOS dark mode. Override here to pin the theme.
+        </p>
+      </div>
+    </SectionShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Shared section primitives
+// ---------------------------------------------------------------------------
+
+function SectionShell({
+  title,
+  blurb,
+  scope,
+  children,
+}: {
+  title: string
+  blurb: string
+  scope: 'project' | 'device'
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+          <ScopeBadge scope={scope} />
+        </div>
+        <p className="text-xs text-text-muted mt-0.5">{blurb}</p>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function ScopeBadge({ scope }: { scope: 'project' | 'device' }): JSX.Element {
+  // Subtle inline label so the user can see at a glance whether a
+  // section travels with the .gmproj or stays on this machine. Uses
+  // muted colours so it doesn't compete with the section title.
+  const label =
+    scope === 'project' ? 'Stored in this project' : 'Stored on this device'
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded border border-border-subtle text-text-muted">
+      {label}
+    </span>
+  )
+}
+
+function SectionFooter({
+  hasProject,
+  dirty,
+  allValid,
+  onReset,
+  onSubmit,
+}: {
+  hasProject: boolean
+  dirty: boolean
+  allValid: boolean
+  onReset: () => void
+  onSubmit: () => void
+}): JSX.Element {
+  return (
+    <>
+      {!hasProject && (
+        <p className="text-[11px] text-status-amber">
+          Open or create a project to change these settings.
+        </p>
+      )}
+      <div className="pt-2 flex items-center justify-between gap-2">
+        <Button variant="ghost" size="sm" onClick={onReset} disabled={!hasProject}>
+          Reset to defaults
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onSubmit}
+          disabled={!dirty || !allValid || !hasProject}
+        >
+          Save
+        </Button>
+      </div>
+    </>
+  )
+}
+
+function NumberRow({
+  id,
+  label,
+  hint,
+  value,
+  onChange,
+  bounds,
+  sliderMin,
+  sliderMax,
+  step,
+  unit,
+  disabled,
+  invalid,
+}: {
+  id: string
+  label: string
+  hint: string
+  value: number
+  onChange: (next: number) => void
+  bounds: { min: number; max: number }
+  /** Slider range — usually narrower than the input bounds so the
+   *  slider stays useful for the common range while the input allows
+   *  the full backend range. */
+  sliderMin?: number
+  sliderMax: number
+  step: number
+  unit?: string
+  disabled?: boolean
+  invalid?: boolean
+}): JSX.Element {
+  const sMin = sliderMin ?? bounds.min
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="block text-[11px] font-medium text-text-secondary mb-1"
+      >
+        {label}
+      </label>
+      <div className="flex items-center gap-3">
+        <input
+          id={`${id}-slider`}
+          type="range"
+          min={sMin}
+          max={sliderMax}
+          step={step}
+          value={Math.min(Math.max(value, sMin), sliderMax)}
+          onChange={e => onChange(Number(e.target.value))}
+          disabled={disabled}
+          className="flex-1 accent-accent"
+          aria-label={`${label} slider`}
+        />
+        <input
+          id={id}
+          type="number"
+          min={bounds.min}
+          max={bounds.max}
+          step={step}
+          value={value}
+          onChange={e => {
+            const v = Number(e.target.value)
+            // Allow out-of-range values to land in the controlled input
+            // so the user can clear + retype; validation gate in the
+            // section's Save button blocks the commit.
+            onChange(Number.isFinite(v) ? v : value)
+          }}
+          disabled={disabled}
+          className={`w-24 border rounded px-2 py-1 text-sm bg-surface-overlay text-text-primary focus:outline-none focus:ring-2 focus:ring-accent ${
+            invalid ? 'border-status-danger' : 'border-border-default'
+          }`}
+          aria-label={label}
+          aria-invalid={invalid}
+        />
+        {unit && <span className="text-xs text-text-muted w-10">{unit}</span>}
+      </div>
+      <p className="text-[11px] text-text-muted mt-1.5 leading-snug">{hint}</p>
+    </div>
   )
 }
