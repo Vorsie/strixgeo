@@ -537,6 +537,9 @@ export interface UseGeologicalModelResult {
     section_id: string
     /** Model the preview was computed against. */
     model_id: string
+    /** Kind of the model — drives the litho-vs-geological contact-
+     *  list setter at commit time (#118). */
+    model_kind: 'geological' | 'lithostratigraphic'
   } | null
   /** True while a dry_run or commit call is in flight. */
   pinchOutLoading: boolean
@@ -550,6 +553,10 @@ export interface UseGeologicalModelResult {
     targetFormationId: string
     sectionId: string
     modelId: string
+    /** Which contact list to refresh on commit. Caller passes
+     *  ``'lithostratigraphic'`` when the gesture runs on the Litho
+     *  axis, ``'geological'`` otherwise (#118). */
+    modelKind: 'geological' | 'lithostratigraphic'
     direction: 'left' | 'right'
     dipOverrideMMPerM?: number | null
   }) => Promise<boolean>
@@ -4120,6 +4127,13 @@ export function useGeologicalModel({
     direction: 'left' | 'right'
     section_id: string
     model_id: string
+    /** Which kind of model owns the contact list to refresh after a
+     *  successful commit — geological mutations refresh ``contacts``,
+     *  lithostratigraphic mutations refresh ``lithoContacts``. The
+     *  caller decides at preview time based on the active axis;
+     *  threading it through avoids a model-id-to-kind lookup at
+     *  commit (#118). */
+    model_kind: 'geological' | 'lithostratigraphic'
   }
 
   const [pinchOutPreview, setPinchOutPreview] = useState<PinchOutPreviewState | null>(null)
@@ -4137,6 +4151,7 @@ export function useGeologicalModel({
       targetFormationId: string
       sectionId: string
       modelId: string
+      modelKind: 'geological' | 'lithostratigraphic'
       direction: 'left' | 'right'
       dipOverrideMMPerM?: number | null
     }): Promise<boolean> => {
@@ -4218,6 +4233,7 @@ export function useGeologicalModel({
           direction: usedDirection,
           section_id: params.sectionId,
           model_id: params.modelId,
+          model_kind: params.modelKind,
         })
         return true
       } catch (err) {
@@ -4260,10 +4276,18 @@ export function useGeologicalModel({
             dry_run: false,
           },
         )
-        // Merge new synthetic contacts into local state.
+        // Merge new synthetic contacts into local state. Refresh the
+        // contact list that matches the model's kind — geological
+        // pinch-outs refresh ``contacts``; litho pinch-outs refresh
+        // ``lithoContacts``. Calling the wrong setter leaves the new
+        // contacts invisible until a manual reload (#118).
         if (resp.created_contact_ids.length > 0) {
           const newContacts = await api.geology.listContacts(project.id, preview.model_id)
-          setContacts(newContacts)
+          if (preview.model_kind === 'lithostratigraphic') {
+            setLithoContacts(newContacts)
+          } else {
+            setContacts(newContacts)
+          }
           addToSessionImports('contact', resp.created_contact_ids)
         }
         // Explicit-content invariant: patch local section state from the
@@ -4296,12 +4320,17 @@ export function useGeologicalModel({
           // The server STILL seeded the section + the contacts already
           // exist — refresh local state so they actually render here
           // instead of staying invisible until a reload (review B2).
+          // Same litho-vs-geological setter split as the happy path.
           try {
             const refreshed = await api.geology.listContacts(
               project.id,
               preview.model_id,
             )
-            setContacts(refreshed)
+            if (preview.model_kind === 'lithostratigraphic') {
+              setLithoContacts(refreshed)
+            } else {
+              setContacts(refreshed)
+            }
             const existingIds = (err as { existingContactIds?: string[] })
               .existingContactIds
             if (existingIds && existingIds.length > 0) {

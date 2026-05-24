@@ -137,6 +137,7 @@ const PARAMS = {
   targetFormationId: 'f-target',
   sectionId: 'sec-1',
   modelId: 'mod-1',
+  modelKind: 'geological' as const,
   direction: 'right' as const,
 }
 
@@ -227,6 +228,68 @@ describe('useGeologicalModel — handlePreviewPinchOut (#62 item 2)', () => {
     expect(result.current.pinchOutPreview).toBeNull()
     expect(result.current.pinchOutLoading).toBe(false)
     expect(toast).toHaveBeenCalledTimes(1)
+  })
+
+  it('PO5 — litho-axis preview stores model_kind; commit refreshes lithoContacts (not contacts)', async () => {
+    // Verifies the #118 wiring: a pinch-out invoked with
+    // modelKind='lithostratigraphic' carries the kind through to the
+    // commit path, which refreshes ``lithoContacts`` rather than the
+    // geological ``contacts`` list. Calling the wrong setter would
+    // leave the new synthetic contacts invisible on the Litho axis.
+    const newLithoContact = {
+      id: 'litho-contact-1',
+      model_id: 'mod-1',
+      formation_id: 'f-pinching',
+      borehole_id: null,
+      cpt_id: null,
+      synthetic_x: 100.0,
+      synthetic_y: 200.0,
+      synthetic_elevation_m: 5.67,
+      depth_top_m: 3.21,
+      source: 'pinch_out_extrapolation' as const,
+      confidence: 'low' as const,
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      created_at: '2026-05-24T00:00:00Z',
+      updated_at: '2026-05-24T00:00:00Z',
+    }
+    // Preview = dry_run success; Commit = wet run returning the new id.
+    geoApi.extrapolatePinchOut
+      .mockResolvedValueOnce(makeOkResp())
+      .mockResolvedValueOnce({
+        created_contact_ids: ['litho-contact-1'],
+        tip_along_m: 12.34,
+        tip_elevation_m: 5.67,
+        updated_section: null,
+      })
+    // The refetch after commit returns the newly inserted contact.
+    geoApi.listContacts.mockResolvedValueOnce([newLithoContact])
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await waitFor(() => {
+      expect(result.current).toBeDefined()
+    })
+
+    await act(async () => {
+      await result.current.handlePreviewPinchOut({
+        ...PARAMS,
+        modelKind: 'lithostratigraphic',
+      })
+    })
+    expect(result.current.pinchOutPreview?.model_kind).toBe('lithostratigraphic')
+
+    await act(async () => {
+      await result.current.handleCommitPinchOut()
+    })
+
+    // The new synthetic contact landed on the LITHO list, not the
+    // geological list — proves the model-kind branch in the commit
+    // path routes to setLithoContacts when the preview was started
+    // on the Litho axis.
+    expect(result.current.lithoContacts).toContainEqual(newLithoContact)
+    expect(result.current.contacts).not.toContainEqual(newLithoContact)
   })
 
   it('PO4 — non-geometry error (no `code: pinch_out_geometry_error`) does NOT retry', async () => {
