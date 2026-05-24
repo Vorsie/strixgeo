@@ -1913,47 +1913,90 @@ Lens entity, deferred TIN/export**:
 | Rendering | Polygon-ribbon correlation (#121) becomes lens-aware: edges tagged with ``lens_id`` get stronger fill (~35% opacity) + dashed top/base boundary (signals "closed body"). Ribbon endpoints respect pinch-out tip contacts so a ribbon reaching an absent column thins to zero at the wedge tip. |
 | Bundle | ``litho_lenses[]`` + ``litho_lens_absences[]`` arrays in ``.gmproj`` v3. ``companion_lens_id`` on every section; ``lens_id`` on every contact. Additive — opens cleanly in builds that ignore it (still in pre-ship amnesty window). |
 
-**Pre-build pinch-outs as ghost contacts (owner, 2026-05-24 dogfeed).**
-The `ExtrapolatePinchOut` use case today requires both formations'
-**built TIN surfaces** (`slice_tin` along the section line on both),
-so the pinch-out gesture is reachable only after the user has built
-a 3D model. The user's workflow is the opposite: accept litho per
-test → correlate → mark pinch-outs → THEN build. We bridge this by
-making the lens entity's absence semantics double as a **deferred-
-resolve pinch-out**:
+**Pre-build pinch-outs: section-local math at mark-time, no
+deferred resolve (owner, 2026-05-24 dogfeed, revised after the
+LeapFrog comparison).** The first design — ghost contacts with
+null synthetics resolved at Build time — was rejected: it forces
+the user to revisit after build to see the lens materialise, and
+the partial-geometry state pollutes the bundle round-trip and the
+section renderer. LeapFrog's UX promise is "enter data, see
+results, no revisit"; ghost-resolve violated it.
 
-* "Mark as lens" with an absent investigation = "this body
-  pinches out somewhere between the present columns and this
-  one" — an INTENT, not a precise geometry.
-* The lens row stores absences; no `synthetic_x/y/elevation` is
-  computed yet. A **ghost** `FormationContact` is committed with
-  all three synthetic-* fields `NULL`, tagged with `lens_id`,
-  source = `pinch_out_extrapolation`, confidence = `low`.
-* Section renderer shows the ghost as a faded wedge approximation
-  using section-local interpolation between the nearest present
-  contacts on the section line (so the user sees the intent
-  visually pre-build).
-* **Build 3D model** is the resolver: when `compute_tin` runs and
-  both formations now have surfaces, the build pass calls a new
-  `resolve_ghost_pinch_outs(lens_id)` that fills in
-  `synthetic_x/y/elevation` per the existing
-  `ExtrapolatePinchOut` math. Already-resolved ghosts (non-null
-  synthetics) are skipped; rebuilds re-resolve only stale ones.
+The revised design: **compute the wedge tip section-locally at
+mark-time, in 2D, using only the data already in front of the
+user.** The lens-marking gesture has far more context than the
+geology right-click "Extrapolate pinch-out…" gesture and does NOT
+need a TIN:
 
-This keeps the math single-source-of-truth (TIN-based, deterministic
-dip-extrapolation-to-crossing) while removing the build-first
-prerequisite from the user-facing gesture. The interim disabled-
-state on `Extrapolate pinch-out…` (per-formation gate landed
-post-#118) stays as the bandage for users who haven't marked the
-unit as a lens yet — clicking still requires a TIN. Marking a lens
-becomes the affordance for pre-build pinch-outs.
+* The section line geometry (start/end (x, y), EPSG) is on the
+  cross-section row.
+* The present-column contacts for the pinching lithology on this
+  section, projected onto the section line, give a 2D polyline
+  for the formation in (along_m, elevation_m) space.
+* The present-column contacts for the deeper *target* lithology
+  (parent formation's next-older neighbour by `display_order`)
+  give a parallel polyline.
+* The absent-column section position is a known scalar (the
+  column's along_m).
+* Linear regression / dip-along-section between the two adjacent
+  present contacts on the pinching side gives the local dip;
+  intersect with the target polyline → wedge tip in (along_m,
+  elevation_m). Project back to world (x, y) using the section
+  line direction vector → `synthetic_x`, `synthetic_y`.
+  Elevation comes straight from the intersection. **All three
+  synthetic-* fields populated at mark-time.**
+
+New use case `ComputeLensPinchOutTipsSectionLocal(lens_id,
+section_id)` — frontend or backend, doesn't matter for the math
+(the inputs are all in the cross-section's already-loaded state).
+Backend is cleaner for atomicity: one transaction commits the
+lens + absences + synthetic contacts in one POST. Result:
+**marking a lens commits a fully-resolved synthetic contact row
+with non-null synthetics; the section renderer shows the wedge
+immediately; no revisit.**
+
+When the user later clicks Build, `compute_tin` includes the
+lens synthetic contacts as ordinary FormationContact rows — no
+special resolver, no second compute path, no flag to track. The
+two computation methods (TIN-based for geology right-click,
+section-2D for lens-mark) produce comparable rows; the lens path
+just doesn't gate on TIN existence.
+
+**Why this is cleaner than ghost-resolve:**
+
+| Concern | Ghost-resolve (rejected) | Section-local at mark (chosen) |
+|---|---|---|
+| Revisit after Build | Required | None |
+| Synthetic-contact states | Two (ghost + resolved) | One |
+| Build step special path | `resolve_ghost_pinch_outs` | None — synthetics are ordinary rows |
+| Bundle carries partial geometry | Yes | No |
+| User mental model | "Marked → wait → resolved" | "Marked → done" |
+| Math source of truth | TIN (for resolve) | Section-2D at mark; TIN at slice (independent) |
+
+**Edge cases.** Lens at corridor edge (only one adjacent present
+column): dip-extrapolation toward the absent side using the same
+direction-heuristic the geology pinch-out uses today, just on
+the section polyline instead of the TIN slice. Target lithology
+missing on this section: explicit error at mark time, same as
+the TIN path produces today. New investigation added later:
+existing lens synthetics stay valid (they're real (x, y, elev)
+rows tied to the lens id); the user can edit the lens to
+recompute if the new column changes the inferred geometry.
+
+**The post-#118 bandage stays.** The disabled-state on the
+geology right-click `Extrapolate pinch-out…` gesture is correct
+for that gesture (it is genuinely TIN-dependent — single
+contact, no lens, no explicit target). After #101 ships, that
+gesture remains TIN-gated; the lens-marking path is the new
+primary affordance for pre-build pinch-outs.
 
 **What Approach C buys immediately.** Lens has identity; the
 perpendicular companion section is auto-created with the right
 geometry; pinch-outs are tagged with the lens; multiple distinct
-lenses of the same lithology don't collide; ghost pinch-outs
-during correlation defer their precise tip math to build time;
-the bundle round-trips.
+lenses of the same lithology don't collide; lens pinch-outs are
+computed at mark-time in section-2D so the user sees the wedge
+immediately with no revisit required after Build; the bundle
+round-trips.
 
 **What it does NOT yet do.** Lens-aware closed-body TIN (Phase 5),
 lens-aware DXF/Plaxis export (Phase 5), cross-section lens correlation
