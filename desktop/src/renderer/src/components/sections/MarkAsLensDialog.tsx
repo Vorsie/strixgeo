@@ -175,7 +175,7 @@ export default function MarkAsLensDialog({
           >
             Mark as lens
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-text-muted mt-0.5">
             Formation: <span className="font-medium">{parentFormationName}</span>
           </p>
         </div>
@@ -184,10 +184,10 @@ export default function MarkAsLensDialog({
         <div>
           <label
             htmlFor="lens-name"
-            className="block text-xs font-medium text-gray-700 mb-1"
+            className="block text-xs font-medium text-text-secondary mb-1"
           >
             Lens name{' '}
-            <span className="text-gray-400 font-normal">(optional)</span>
+            <span className="text-text-muted font-normal">(optional)</span>
           </label>
           <input
             id="lens-name"
@@ -197,23 +197,23 @@ export default function MarkAsLensDialog({
             value={lensName}
             onChange={e => setLensName(e.target.value)}
             placeholder="e.g. Clay drape A"
-            className="w-full rounded border border-gray-300 px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full rounded border border-border-default px-2.5 py-1.5 text-sm bg-surface-overlay text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
             disabled={busy}
           />
         </div>
 
         {/* Corridor investigation list */}
         <div>
-          <p className="text-xs font-medium text-gray-700 mb-2">
+          <p className="text-xs font-medium text-text-secondary mb-2">
             Corridor investigations
           </p>
-          <p className="text-xs text-gray-500 mb-2">
+          <p className="text-xs text-text-muted mb-2">
             Mark each investigation as <strong>Present</strong> (lens body
             confirmed), <strong>Absent</strong> (different lithology at this
             depth — triggers wedge-tip geometry), or{' '}
             <strong>Unknown</strong> (no data).
           </p>
-          <div className="max-h-52 overflow-y-auto rounded border border-gray-200 divide-y divide-gray-100">
+          <div className="max-h-52 overflow-y-auto rounded border border-border-subtle divide-y divide-border-subtle bg-surface-overlay">
             {rows.map(row => (
               <div
                 key={row.investigation.id}
@@ -222,13 +222,13 @@ export default function MarkAsLensDialog({
                 <span
                   className={
                     row.locked
-                      ? 'text-gray-700 font-medium'
-                      : 'text-gray-700'
+                      ? 'text-text-secondary font-medium'
+                      : 'text-text-secondary'
                   }
                 >
                   {row.investigation.name}
                   {row.locked && (
-                    <span className="ml-1.5 text-[10px] uppercase tracking-wide text-gray-400 font-normal">
+                    <span className="ml-1.5 text-[10px] uppercase tracking-wide text-text-muted font-normal">
                       anchor
                     </span>
                   )}
@@ -251,8 +251,8 @@ export default function MarkAsLensDialog({
                               ? 'bg-green-100 text-green-800 ring-1 ring-green-400'
                               : s === 'absent'
                                 ? 'bg-red-100 text-red-800 ring-1 ring-red-400'
-                                : 'bg-gray-100 text-gray-600 ring-1 ring-gray-400'
-                            : 'bg-white text-gray-400 border border-gray-200 hover:bg-gray-50',
+                                : 'bg-surface-overlay text-text-muted ring-1 ring-border-default'
+                            : 'bg-surface-page text-text-muted border border-border-subtle hover:bg-surface-overlay',
                       ]
                         .filter(Boolean)
                         .join(' ')}
@@ -264,7 +264,7 @@ export default function MarkAsLensDialog({
               </div>
             ))}
             {rows.length === 0 && (
-              <div className="px-3 py-4 text-xs text-gray-400 text-center">
+              <div className="px-3 py-4 text-xs text-text-muted text-center">
                 No investigations in corridor
               </div>
             )}
