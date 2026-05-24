@@ -74,9 +74,12 @@ async def test_happy_path_returns_true() -> None:
     edge_result = _scalar_result(edge)
     empty = _scalars_result([])
     # edge-lookup + run_resolver's (formations, depth GROUP BY, edges)
-    # + inference trigger: 2 × _load_project_sections (one per formation,
-    # returns [] → early return from RecomputeFormationAbsencesForFormation).
-    session.execute = AsyncMock(side_effect=[edge_result, empty, empty, empty, empty, empty])
+    # + per-formation loop (2 formations × 2 calls each):
+    #     [inference] _load_project_sections → [] → early return
+    #     [materialize] sections_stmt → [] → early return
+    session.execute = AsyncMock(
+        side_effect=[edge_result, empty, empty, empty, empty, empty, empty, empty]
+    )
     session.delete = AsyncMock()
     session.flush = AsyncMock()
     session.commit = AsyncMock()
@@ -137,9 +140,12 @@ async def test_canonical_ordering_on_lookup() -> None:
     edge_result = _scalar_result(edge)
     empty = _scalars_result([])
     # edge-lookup + run_resolver's (formations, depth GROUP BY, edges)
-    # + inference trigger: 2 × _load_project_sections (one per formation,
-    # returns [] → early return from RecomputeFormationAbsencesForFormation).
-    session.execute = AsyncMock(side_effect=[edge_result, empty, empty, empty, empty, empty])
+    # + per-formation loop (2 formations × 2 calls each):
+    #     [inference] _load_project_sections → [] → early return
+    #     [materialize] sections_stmt → [] → early return
+    session.execute = AsyncMock(
+        side_effect=[edge_result, empty, empty, empty, empty, empty, empty, empty]
+    )
     session.delete = AsyncMock()
     session.flush = AsyncMock()
     session.commit = AsyncMock()

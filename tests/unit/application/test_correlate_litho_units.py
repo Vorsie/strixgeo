@@ -230,9 +230,10 @@ async def test_canonical_ordering_enforced() -> None:
     empty = _scalars_result([])
 
     # existence-check + run_resolver's (formations, depth GROUP BY, edges)
-    # + inference trigger: 2 × _load_project_sections (one per formation,
-    # returns [] → early return from RecomputeFormationAbsencesForFormation).
-    execute_results = [no_edge, empty, empty, empty, empty, empty]
+    # + per-formation loop (2 formations × 2 calls each):
+    #     [inference] _load_project_sections → [] → early return
+    #     [materialize] sections_stmt → [] → early return
+    execute_results = [no_edge, empty, empty, empty, empty, empty, empty, empty]
     session.execute = AsyncMock(side_effect=execute_results)
     session.flush = AsyncMock()
     session.commit = AsyncMock()
@@ -285,11 +286,14 @@ async def test_idempotent_existing_edge_returns_false() -> None:
     existing_edge.id = UUID("00000000-0000-0000-0000-000000000055")
 
     # existence-check + run_resolver's (formations, depth GROUP BY, edges)
-    # + inference trigger: 2 × _load_project_sections (one per formation,
-    # returns [] → early return from RecomputeFormationAbsencesForFormation).
+    # + per-formation loop (2 formations × 2 calls each):
+    #     [inference] _load_project_sections → [] → early return
+    #     [materialize] sections_stmt → [] → early return
     edge_result = _scalar_result(existing_edge)
     empty = _scalars_result([])
-    session.execute = AsyncMock(side_effect=[edge_result, empty, empty, empty, empty, empty])
+    session.execute = AsyncMock(
+        side_effect=[edge_result, empty, empty, empty, empty, empty, empty, empty]
+    )
     session.flush = AsyncMock()
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
