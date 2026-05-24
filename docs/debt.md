@@ -29,7 +29,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #115, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
-* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #117
+* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #117, #124, #125, #126
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -2563,4 +2563,51 @@ zoom or column-name pair.
 **When to revisit.** Owner provides a reproduction. Otherwise pick
 up at the end of the session-2026-05-24 batch as a sweep —
 diagnostic SQL across the dogfeed project is cheap.
+
+## 124. CreateLithoLens — split into geometry service + DB-loading layer (Tier E)
+
+**What.** `create_litho_lens.py` is 780+ lines. The wedge-tip geometry
+(`_load_formation_contacts_on_section`, `_commit_wedge_tips_for_absent`,
+`_project_to_along`, `_load_target_contacts_on_section`) is pure
+section-geometry logic that mixes with ORM session calls. A thin
+`LithoLensGeometryService` (domain-layer, session-free) holding the
+pure math + a DB-loading layer above it would make the geometry unit-
+testable in isolation without needing an async session mock.
+
+**Why deferred.** The 780-line file is well-structured internally;
+the split is a refactoring exercise, not a correctness fix. Slicing it
+now would widen the PR without delivering user value.
+
+**When to revisit.** When a Phase 5 lens-geometry variant (e.g.
+interfingering shape, multi-section aggregation) forces the geometry
+logic to grow. At that point the split pays for itself immediately.
+Filed from #101 senior-code-reviewer pass, 2026-05-24.
+
+## 125. SectionHeader companion badge: replace ↻ (U+21BB) with text label (Tier E)
+
+**What.** `SectionHeader.tsx` uses `↻` (U+21BB) as the companion-
+section badge icon. This character does not render reliably on Windows 11
+with some CJK font fallbacks; it may display as a tofu square. Replace
+with a short text label ("perp") or a simple dot (•) inside the badge.
+
+**Why deferred.** Purely cosmetic; does not affect functionality.
+
+**When to revisit.** Any UX polish pass. Half-line change.
+Filed from #101 senior-code-reviewer pass, 2026-05-24.
+
+## 126. LithoLensOrm.name: change from VARCHAR(120) to TEXT (Tier E)
+
+**What.** `LithoLensOrm.name` is mapped as `String(120)` (PostgreSQL
+`VARCHAR(120)`). Per CLAUDE.md conventions, free-form label columns
+should be `TEXT` — `VARCHAR(N)` is for fixed-spec values (codes, enums,
+IDs). A lens name entered by the user is free-form; a 120-char cap
+invites surprise truncation.
+
+**Why deferred.** Backwards-compat rule is suspended (pre-ship). A
+small migration to `ALTER COLUMN name TYPE TEXT` is the fix; it is
+mechanical and non-breaking.
+
+**When to revisit.** Any migration-bearing session while the backwards-
+compat suspension is still in effect. One migration line.
+Filed from #101 senior-code-reviewer pass, 2026-05-24.
 
