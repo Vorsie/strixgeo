@@ -263,7 +263,7 @@ async def restore_project(
             geotechnical_units_payload=request.geotechnical_units,
             litho_correlation_edges_payload=request.litho_correlation_edges,
             litho_lenses_payload=request.litho_lenses,
-            litho_lens_absences_payload=request.litho_lens_absences,
+            formation_absences_payload=request.formation_absences,
         )
     except (ValueError, KeyError, TypeError) as err:
         # Surface bad bundle shape as 400 instead of letting it 500.
