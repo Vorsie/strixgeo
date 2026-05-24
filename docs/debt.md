@@ -2778,3 +2778,107 @@ mechanical and non-breaking.
 compat suspension is still in effect. One migration line.
 Filed from #101 senior-code-reviewer pass, 2026-05-24.
 
+## 127. Auto-correlate litho bodies on accept / import (Tier G — fold in after #101 Position 4 lands)
+
+**What.** When the user accepts litho suggestions per CPT / borehole
+or imports new tests, the system should **automatically propose
+``litho_correlation_edge`` rows** for same-lithology contacts on
+adjacent columns within a distance-aware depth threshold. The
+inference engine + wedge materialisation from #101 Position 4
+then runs over the auto-correlated graph, so the model emerges
+from imported data with minimal user gestures. Manual override
+remains: user can delete auto-edges, add edges the algorithm
+missed, and any manual edge is preserved across re-runs.
+
+**Owner directive 2026-05-24 (post-#101 Position 4 lock-in).**
+Identified mid-refactor as the missing trigger that makes the
+inference engine actually pay off in practice — without
+auto-correlate, the user still has to manually create every
+correlation edge before the engine sees anything to work with.
+
+**Algorithm (v1.0).**
+
+* **Candidates.** For each pair of contacts (C_a on column A, C_b
+  on column B) where:
+  - A ≠ B (different investigations)
+  - C_a.formation_id == C_b.formation_id (NOT cross-formation —
+    the resolver already groups by parent_formation_id +
+    litho_main_soil_code, and auto-correlate filters at
+    candidate-generation time)
+  - Euclidean distance between A and B < ``max_distance_m``
+    (default 500m, configurable per-project)
+  - ``|depth_top_m diff| < threshold_m``, where
+    ``threshold_m = base_threshold_m + distance_factor *
+    column_distance_m`` (defaults: 2.0 + 0.01 × d, so 5m apart
+    → ~2.05m window, 500m apart → ~7m window)
+* **Disambiguation — mutual nearest neighbour.** A column-pair
+  (A, B) may have multiple candidates within threshold. For each
+  C_a on A, find the closest C_b on B by depth; for each C_b on
+  B, find the closest C_a on A; correlate ONLY when they are each
+  other's mutual nearest. Drops the many-to-many fan-out cleanly.
+* **Idempotency.** Add ``source`` enum to ``litho_correlation_edge``
+  (``'manual' | 'auto'``). Re-running auto-correlate is additive
+  on non-existing pairs only — never overwrites manual edges.
+  Deleted auto-edges DO get recreated on re-run for v1.0 (no
+  per-edge suppress list yet); Phase 5 adds a "rejected by user"
+  flag so deletions stick.
+* **Provisional rendering.** ``source='auto'`` edges render
+  dashed/~40% opacity (same treatment as ``source='inferred'``
+  absences from #101 Position 4). User confirms → promote to
+  ``'manual'``, edges render solid/~70%.
+
+**Refinements deferred to Phase 5.**
+
+* **Dip-predicted threshold.** Estimate regional dip from
+  already-correlated pairs; replace linear distance threshold
+  with dip-prediction + ±deviation. More geologically sound but
+  needs a bootstrap pass.
+* **Stratigraphic ordering constraints.** Reject correlation
+  pairs whose connected component would imply layer inversion
+  (ZAND-on-CLAY at A vs CLAY-on-ZAND at B for the same bodies).
+* **Per-formation override of thresholds.** Some formations (peat
+  drapes, thin clay markers) need tighter windows than thick
+  sand units. v1.0 has one global threshold; Phase 5 allows
+  per-formation overrides.
+* **User-rejected edge suppress list.** When the user deletes an
+  auto edge, remember and don't re-propose it on the next run.
+
+**Where it fires.**
+
+* After ``acceptLithoSuggestions`` use case commits (the
+  natural moment — new contacts just landed)
+* After ``importCpt`` / ``importBorehole`` use case commits (when
+  raw data arrives — though contacts only exist after accept, so
+  this might be redundant)
+* Explicit toolbar trigger on the Litho axis: ``Auto-correlate
+  now`` button (or a Suggest dropdown item)
+* User toggle in Settings: ``Auto-correlate on accept`` default
+  ON (per-project, ``view_state.litho_auto_correlate.enabled``)
+
+**Composition with #101 Position 4.**
+
+Position 4's inference engine fires off correlation-edge
+mutations. Auto-correlate creates those mutations. Zero conflict
+with the running refactor; this slice is additive on top.
+
+**Estimated cost.** ~1.5 days post-#101 Position 4:
+* Pure domain service ``auto_correlate_litho_bodies(contacts,
+  investigations, params) → list[CorrelationEdge]`` with heavy
+  unit tests (~20 cases covering threshold scaling, mutual-NN
+  tie-breaking, same-formation filter, idempotency, edge cases)
+* Constants in sibling ``auto_correlate_constants.py``
+* Application use case + POST endpoint + frontend client method
+* Settings entry for the thresholds (fits the existing Settings
+  dialog from the locale-tolerant numeric input work)
+* Toolbar button + toast announcing "N auto-correlations created
+  — review or confirm" in the LithologyInspector
+* Hook into ``acceptLithoSuggestions`` for the on-accept fire
+
+**Why deferred.** #101 Position 4 must land first — the inference
+engine + correlation-edge source enum + provisional rendering
+treatment are prerequisites. After #101 lands and the reviewer
+confirms, this slice ships in one focused build.
+
+**When to revisit.** Immediately after #101 Position 4 refactor +
+reviewer pass + owner smoke-test. Single slice, ~1.5 days.
+
