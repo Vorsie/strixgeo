@@ -19,6 +19,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.materialize_wedge_tips_for_formation import (
+    MaterializeWedgeTipsForFormation,
+)
 from groundmodel.application.recompute_formation_absences_for_formation import (
     RecomputeFormationAbsencesForFormation,
 )
@@ -211,6 +214,7 @@ class CorrelateLithoUnits(GroundModelLogger):
         #    commit=False defers the session.commit() to step 9.              #
         # ------------------------------------------------------------------ #
         inference_uc = RecomputeFormationAbsencesForFormation(self._session)
+        materialize_uc = MaterializeWedgeTipsForFormation(self._session)
         for fid in (formation_a_id, formation_b_id):
             self.debug(f"CorrelateLithoUnits: triggering absence inference for formation {fid}")
             await inference_uc.execute(
@@ -219,9 +223,16 @@ class CorrelateLithoUnits(GroundModelLogger):
                 formation_id=fid,
                 commit=False,
             )
+            self.debug(f"CorrelateLithoUnits: materialising wedge tips for formation {fid}")
+            await materialize_uc.execute(
+                project_id=project_id,
+                model_id=model_id,
+                formation_id=fid,
+                commit=False,
+            )
 
         # ------------------------------------------------------------------ #
-        # 9. Commit (edge + resolver ordinals + absence delta).                #
+        # 9. Commit (edge + resolver ordinals + absence delta + wedge tips).   #
         # ------------------------------------------------------------------ #
         await self._session.commit()
         await self._session.refresh(edge)
