@@ -182,5 +182,12 @@ class CrossSectionResponse(BaseModel):
     # "Cross-sections are the editing surface".  Empty list = nothing
     # seeded; formation contacts appear only when their id is in this set.
     seeded_formation_contact_ids: list[UUID]
+    # Lens companion linkage — Slice 4 of debt #101.
+    # None if this section is a plain user section; set to the lens id
+    # when auto-created as the lens's perpendicular companion.
+    companion_lens_id: UUID | None = None
+    # True if this section was ever a lens companion — stays True even
+    # after the referenced lens is deleted (companion_lens_id → None).
+    is_lens_companion: bool = False
     created_at: datetime
     updated_at: datetime
