@@ -125,10 +125,10 @@ _MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE = 50_000
 # theoretically have hundreds of lenses.  10 000 is a safe ceiling well
 # above any plausible real project while still capping the DoS surface.
 _MAX_LITHO_LENSES_PER_BUNDLE = 10_000
-# Each lens can declare at most every investigation absent.  A project
-# with 500 investigations × 500 lenses is the extreme upper bound, so
-# 250 000 rows caps the space while remaining well above reality.
-_MAX_LITHO_LENS_ABSENCES_PER_BUNDLE = 250_000
+# Each formation can declare at most every investigation absent.  A project
+# with 500 investigations × 50 formations is the extreme upper bound, so
+# 25 000 rows caps the space while remaining well above reality.
+_MAX_FORMATION_ABSENCES_PER_BUNDLE = 25_000
 
 
 class ProjectBundleRequest(BaseModel):
@@ -201,21 +201,24 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
     )
-    # Litho lens entities (#101 Slice 7). Flat array — each row carries
-    # its own app_project_id + model_id + parent_formation_id so the
-    # restore order is "models first, then lenses" (FK-respecting).
+    # Litho lens metadata rows (Position 4).  Each row carries
+    # app_project_id + model_id + formation_id + body_ordinal.  Restore
+    # order: models first, then lenses (model_id FK-respecting).
     # Additive field: absence in an older bundle restores cleanly via
     # default_factory=list.
     litho_lenses: list[dict[str, Any]] = Field(
         default_factory=list,
         max_length=_MAX_LITHO_LENSES_PER_BUNDLE,
     )
-    # Absence records for litho lenses.  Each row carries lens_id so the
-    # restore order is "lenses first, then absences" (FK-respecting).
-    # Additive field: absence in an older bundle restores cleanly.
-    litho_lens_absences: list[dict[str, Any]] = Field(
+    # Absence records scoped to a formation (Position 4).  Each row carries
+    # formation_id so the restore order is "formations first, then absences"
+    # (FK-respecting).  Additive field: absence in an older bundle restores
+    # cleanly via default_factory=list.  Older bundles that carried
+    # ``litho_lens_absences`` are ignored (pre-ship amnesty — no upgrade path
+    # needed; the field simply won't be sent by new saves and won't be read).
+    formation_absences: list[dict[str, Any]] = Field(
         default_factory=list,
-        max_length=_MAX_LITHO_LENS_ABSENCES_PER_BUNDLE,
+        max_length=_MAX_FORMATION_ABSENCES_PER_BUNDLE,
     )
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — absent in bundles saved before this field existed.
@@ -243,11 +246,11 @@ class ProjectBundleResponse(BaseModel):
     # Litho correlation edges (Phase-2).  Absent in bundles saved before
     # Phase 2 shipped — default_factory=list so older files open cleanly.
     litho_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
-    # Litho lens entities (#101 Slice 7).  Additive — absent in bundles
+    # Litho lens metadata rows (Position 4).  Additive — absent in bundles
     # saved before this field existed.
     litho_lenses: list[dict[str, Any]] = Field(default_factory=list)
-    # Absence records for litho lenses (#101 Slice 7).  Additive.
-    litho_lens_absences: list[dict[str, Any]] = Field(default_factory=list)
+    # Absence records scoped to a formation (Position 4).  Additive.
+    formation_absences: list[dict[str, Any]] = Field(default_factory=list)
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — bundles saved before this field existed carry null.
     stratigraphy_lumping: StratigraphyLumping | None = None
