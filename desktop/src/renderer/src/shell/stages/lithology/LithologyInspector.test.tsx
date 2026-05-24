@@ -64,11 +64,14 @@ vi.mock('../../../utils/log', () => ({
   },
 }))
 
-// Mock api.geology so listCorrelations, resolveLithoInstances, and
-// updateFormation don't make real fetch calls in jsdom.
+// Mock api.geology so listCorrelations, resolveLithoInstances,
+// updateFormation, and listLenses don't make real fetch calls in jsdom.
 const mockListCorrelations = vi.fn<() => Promise<LithoCorrelationEdge[]>>()
 const mockResolveLithoInstances = vi.fn<() => Promise<{ updated: unknown[] }>>()
 const mockUpdateFormation = vi.fn<() => Promise<GeologicalFormationResponse>>()
+// listLenses: returns an empty lens list by default — keeps existing tests
+// isolated; individual tests can override via mockListLenses.mockResolvedValue.
+const mockListLenses = vi.fn<() => Promise<[]>>()
 
 vi.mock('../../../api/client', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../../api/client')>()
@@ -82,6 +85,7 @@ vi.mock('../../../api/client', async (importOriginal) => {
         resolveLithoInstances: (...args: unknown[]) =>
           mockResolveLithoInstances(...(args as [])),
         updateFormation: (...args: unknown[]) => mockUpdateFormation(...(args as [])),
+        listLenses: (...args: unknown[]) => mockListLenses(...(args as [])),
       },
     },
   }
@@ -480,6 +484,8 @@ beforeEach(() => {
   mockListCorrelations.mockResolvedValue([])
   mockResolveLithoInstances.mockResolvedValue({ updated: [] })
   mockUpdateFormation.mockResolvedValue(makeFormation('f-a', 'Zand'))
+  // Default: no lenses — keeps existing tests isolated.
+  mockListLenses.mockResolvedValue([])
 })
 
 afterEach(() => {
