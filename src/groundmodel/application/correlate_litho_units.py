@@ -19,6 +19,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.recompute_formation_absences_for_formation import (
+    RecomputeFormationAbsencesForFormation,
+)
 from groundmodel.domain.services.resolve_litho_instances import (
     CorrelationEdge,
     FormationNode,
@@ -200,7 +203,22 @@ class CorrelateLithoUnits(GroundModelLogger):
         updated = await self.run_resolver(model_id)
 
         # ------------------------------------------------------------------ #
-        # 8. Commit.                                                            #
+        # 8. Trigger inference engine for both correlated formations.           #
+        #    The edge insert + resolver + absence delta all commit atomically   #
+        #    in step 9.  commit=False defers the session.commit() to step 9.   #
+        # ------------------------------------------------------------------ #
+        inference_uc = RecomputeFormationAbsencesForFormation(self._session)
+        for fid in (formation_a_id, formation_b_id):
+            self.debug(f"CorrelateLithoUnits: triggering absence inference for formation {fid}")
+            await inference_uc.execute(
+                project_id=project_id,
+                model_id=model_id,
+                formation_id=fid,
+                commit=False,
+            )
+
+        # ------------------------------------------------------------------ #
+        # 9. Commit (edge + resolver ordinals + absence delta).                #
         # ------------------------------------------------------------------ #
         await self._session.commit()
         await self._session.refresh(edge)
