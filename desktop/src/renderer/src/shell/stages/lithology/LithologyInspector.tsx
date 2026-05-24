@@ -149,7 +149,12 @@ export default function LithologyInspector(): JSX.Element {
     const pid = project.id
     const mid = activeLithoModel.id
     log.debug('[LithologyInspector] fetching lenses for model', mid)
-    void api.geology.listLenses(pid, mid).then(setLenses)
+    void api.geology
+      .listLenses(pid, mid)
+      .then(setLenses)
+      .catch((err: unknown) =>
+        log.error('[LithologyInspector] listLenses failed', err),
+      )
   // reason: activeLithoModel?.id is the stable identity key.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, activeLithoModel?.id])
