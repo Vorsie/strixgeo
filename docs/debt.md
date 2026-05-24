@@ -1836,7 +1836,174 @@ its own commit.
 session has the user wanting to "pin" a body's edges to study them
 without holding the cursor.
 
-## 101. Litho lens / pinch-out body representation — Approach C scoped (Tier G — session 2026-05-24 blocker)
+## 101. Litho lens / pinch-out body representation — Position 4: correlation-implies-absence + inference (Tier G — session 2026-05-24 blocker)
+
+**⚠ ARCHITECTURAL PIVOT (owner directive 2026-05-24, late session).**
+The Slices 1-7 build that landed earlier today (46 commits on
+``develop``, reviewer-clean) implemented Approach C — explicit
+lens-as-entity with a "Mark as lens" gesture and per-lens absence
+rows. Mid-build the owner identified the design dissonance: **for
+Flanders without faulting/folding, lens-ness is implied by the
+correlation topology + corridor-scoped observation data — the user
+should not have to declare a lens, only correlate normally**. The
+"Mark as lens" gesture is redundant ceremony for the common case
+and only earns its keep for naming, perpendicular-companion
+attachment, and overriding inferred absences when complex geology
+(faulting / unconformity / erosion) makes the inference wrong.
+
+The decision: **Position 4 — auto-infer lenses from correlation
+topology + observation data; keep the explicit gesture as an
+override/naming layer.** The Approach C build gets refactored on
+top of the just-landed clean base. The section-local wedge
+geometry from Slice 2 carries forward unchanged; the use case +
+schema + dialog get rebuilt around the inference model.
+
+### Position 4 architecture
+
+**Inference engine.** A new pure-domain service in
+``src/groundmodel/domain/services/lens_inference.py``. Runs after
+every correlation-edge mutation and observation-data mutation.
+For each body (a connected component in the
+``litho_correlation_edge`` graph, identified by
+``(parent_formation_id, litho_main_soil_code, body_ordinal)`` from
+the existing resolver), for each in-corridor investigation that
+lacks a contact for the body, the engine checks
+``ObservationLayerOrm`` rows at that investigation against the
+body's depth range. If a different lithology is observed at the
+overlapping depth, the engine writes a
+``formation_absence(formation_id, investigation_kind,
+investigation_id, source='inferred')`` row. Idempotent:
+re-running produces the same set. Preserves rows with
+non-``'inferred'`` ``source`` (does not overwrite user intent).
+
+**Schema reshape.**
+
+| Before (Approach C) | After (Position 4) |
+|---|---|
+| ``litho_lens(id, app_project_id, model_id, parent_formation_id, name, primary_section_id, ...)`` — lens IS the body | ``litho_lens(id, model_id, formation_id, body_ordinal, name, primary_section_id, companion_section_id, ...)`` — lens is METADATA attached to a body identified by ``(formation_id, body_ordinal)`` |
+| ``litho_lens_absence(id, lens_id FK, investigation_kind, investigation_id)`` — absence scoped to a specific lens | ``formation_absence(id, formation_id, investigation_kind, investigation_id, source)`` — absence scoped to a formation; bodies derive their absences via corridor-membership of the body's contacts vs the formation's absence rows |
+| ``formation_contact.lens_id`` FK column | **DROPPED.** Body identity is computed by the resolver, not stored on the contact. |
+
+The ``source`` enum starts at v1.0 with ``'inferred' | 'manual' |
+'observed'``. Phase 5+ extensions: ``'fault' | 'unconformity' |
+'erosion'`` — when present, the absence is NOT a lens-edge
+absence and wedge geometry does NOT apply at that investigation.
+
+**Q1/Q2/Q3 owner directives (re-checked under Position 4):**
+
+* **Q1 (multi-lens-per-formation) — STILL HOLDS.** Two clay
+  drapes at different elevations within the same parent
+  formation become two distinct ``body_ordinal`` values via the
+  existing resolver. Each can have its own slim ``litho_lens``
+  metadata row attached (name, companion) or stay unnamed.
+* **Q2 (absent-investigation auto-prepopulation) — REPLACED BY
+  AUTO-INFERENCE.** Under Approach C, Q2 was "the dialog
+  pre-populates checkboxes from segmenter output". Under Position
+  4, the inference engine writes ``formation_absence`` rows
+  directly — no dialog needed for the common case. The original
+  positive-evidence guard from Q2 stays: the engine ONLY infers
+  an absence when there's a different lithology observed at the
+  body's depth range. No data → no inference (UNKNOWN, not
+  ABSENT).
+* **Q3 (perpendicular companion fallback length) — UNCHANGED.**
+  ``max(2 × buffer_m, 100m)`` when no investigation is found on
+  a side. The companion-creation gesture moves from the lens
+  creation flow to the "Inspect lens body" panel.
+
+**Gesture surface.**
+
+* **Default (Flanders, zero friction):** user correlates; the
+  inference engine writes ``source='inferred'`` rows; wedge
+  synthetic contacts materialize via the existing Slice 2
+  geometry; section renders inferred wedges with a PROVISIONAL
+  visual style (dashed outline, ~40% fill opacity, small "auto"
+  badge).
+* **Explicit gestures (override / naming / companion):**
+  right-click on a body in the section view → **"Inspect lens
+  body"** panel. Shows the body's present columns, inferred /
+  manual / other absences with their ``source``, wedge tip
+  locations. Actions:
+  - **Name this lens** → creates a ``litho_lens`` metadata row
+    attaching the name to ``(formation_id, body_ordinal)``.
+  - **Create perpendicular companion section** → existing Slice
+    4 endpoint, re-keyed by ``(formation_id, body_ordinal)``.
+  - **Confirm absences** → promotes ``source='inferred'`` rows
+    to ``source='manual'``; the wedges re-render with solid
+    style. Lock-in gesture.
+  - **Override absence at column X** → change ``source`` to
+    ``'fault'`` / ``'unconformity'`` / ``'erosion'`` (Phase 5
+    enum extension); wedge geometry no longer applies at that
+    column. v1.0 ships ``'inferred' | 'manual' | 'observed'``
+    only — extending the enum is a small follow-up migration.
+
+**Visual treatment in the section view.**
+
+* ``source='inferred'`` absences → dashed wedge outline, ~40%
+  opacity, "auto" badge near the body
+* ``source='manual'`` absences → solid wedge outline, ~70%
+  opacity, no badge (user-confirmed)
+* ``source='observed'`` absences → same as ``'manual'`` for
+  rendering (observed = positive evidence the user can review
+  but doesn't need to confirm)
+* Phase 5+ non-lens absence types render with their own iconography
+  (fault tick, unconformity squiggle) and no wedge tip
+
+**The "Mark as lens" dialog goes away.** Replaced by the right-
+click "Inspect lens body" panel. The companion-offer modal stays
+(triggered from the panel's "Create perpendicular companion"
+action).
+
+**Why this is better than Approach C.**
+
+1. **Matches LeapFrog UX feel** — model emerges from data; no
+   redundant gesture
+2. **Single source of truth** — body identity comes from the
+   resolver; lens metadata is decoration, not authority. Editing
+   correlation → lens topology updates automatically.
+3. **Future-proof for complex geology** — the ``source`` enum
+   extends to fault / unconformity / erosion as Phase 5
+   geology-aware features land
+4. **Flanders-first scoping** — the inference engine is
+   geologically sound for subhorizontal Cenozoic strata; complex
+   geology gets the override path
+
+### What from Approach C carries forward
+
+| Slice | Fate |
+|---|---|
+| Slice 1 — ``litho_lens`` table | **Slim.** Drop ``parent_formation_id``; keep id / model_id / formation_id / body_ordinal / name / primary_section_id / companion_section_id. Drop ``formation_contact.lens_id``. |
+| Slice 1 — ``litho_lens_absence`` table | **Rename + reshape** to ``formation_absence`` with ``source`` enum; drop ``lens_id`` FK, add ``formation_id`` + ``source``. |
+| Slice 2 — ``lens_pinch_out_geometry.py`` + 24 unit tests | **KEEP UNCHANGED.** Section-local wedge math is exactly what the inference engine triggers. |
+| Slice 3 — ``CreateLithoLens`` use case | **Replace** with ``RecomputeFormationAbsencesForBody`` (driven by the inference engine) + a thin ``NameLensBody`` for the explicit naming gesture. Wedge-tip materialization moves to a separate ``MaterializeWedgeTipsForFormation`` triggered by absence-mutation hooks. The atomicity + scope-leak + modelId fixes from the post-reviewer pass port to the new use cases. |
+| Slice 4 — perpendicular companion endpoint | **Re-key.** Lookup by ``(formation_id, body_ordinal)`` instead of ``lens_id``. Logic unchanged. |
+| Slice 5 — ``MarkAsLensDialog.tsx`` + menu wiring | **Throw out.** Replaced by ``InspectLensBodyPanel.tsx`` triggered from right-click on a body. The ``CompanionOfferDialog.tsx`` from the fix-up pass survives — same trigger, different upstream. |
+| Slice 6 — list endpoint | **Adapt.** Returns auto-detected (every body with absences in corridor) + named (with metadata row) lenses. |
+| Slice 7 — bundle persistence | **Refactor schema** to match new tables (``formation_absences[]``, slim ``litho_lenses[]``, no ``lens_id`` on contacts). |
+
+### Honest cost
+
+Estimated ~3 days of focused work. The Slice 2 geometry + Slice 4
+companion endpoint logic + Slice 7 bundle structure carry
+forward unchanged or near-so. The refactor target is the schema +
+the use cases + the dialog UX.
+
+### Why blocking now (unchanged)
+
+Without lens support the litho model is a half-truth for any real
+BE/NL dataset. Every other litho-stage UX fix is downstream of the
+lens architecture. Now is the right time to land Position 4 — pre-
+ship amnesty is in effect (no upgrade chain needed), the schema can
+be cleanly reshaped, no external users to break.
+
+### When to revisit
+
+Now. Sequence: refactor in place on top of the just-landed clean
+base. The 46 existing #101 commits stay on ``develop``; the
+refactor is additive + subtractive on top.
+
+---
+
+## 101 (historical — superseded by Position 4 above). Litho lens / pinch-out body representation — Approach C scoped (was Tier G blocker, now historical)
 
 **What.** The litho (and geological) model currently assumes
 layers / surfaces are laterally continuous across the investigation
