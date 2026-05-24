@@ -260,11 +260,11 @@ export default function LithologyInspector(): JSX.Element {
     [lithoFormations, currentEdgeCount, lastResolvedEdgeCount],
   )
 
-  // #101 Slice 6: per-formation lens count map for the roster badges.
+  // Position 4: per-formation lens count map for the roster badges.
   const lensCountByFormationId = useMemo(() => {
     const out = new Map<string, number>()
     for (const lens of lenses) {
-      out.set(lens.parent_formation_id, (out.get(lens.parent_formation_id) ?? 0) + 1)
+      out.set(lens.formation_id, (out.get(lens.formation_id) ?? 0) + 1)
     }
     return out
   }, [lenses])

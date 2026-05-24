@@ -2849,21 +2849,45 @@ correlation edge before the engine sees anything to work with.
 **Algorithm (v1.0) — bottom-up sweep with dip transfer.**
 
 Owner refinement 2026-05-24: process formations in stratigraphic
-order from deepest (lowest ``display_order`` = oldest = Tertiary
-in Flanders) to shallowest (Quaternary). Deep formations correlate
-cleanly because Tertiary marine deposits in the BE/NL window are
-laterally extensive, subhorizontal, and sharply-contrasting
-lithologies. Each formation's accepted edges feed a per-column-pair
-dip estimate that **predicts the centre of the next-shallower
-formation's candidate window** — so by the time the algorithm
-reaches the Quaternary (where lens-prone shallow geology produces
-wild variability), the search window is centred at the geologically-
-expected depth rather than naïvely "same depth at A as at B".
+order from deepest (lowest ``display_order`` = oldest) to
+shallowest. In Flanders deep = Tertiary marine deposits, which
+correlate cleanly because they're laterally extensive, subhorizontal,
+and sharply-contrasting lithologies. Each formation's accepted edges
+feed a per-column-pair dip estimate that **predicts the centre of
+the next-shallower formation's candidate window** — so by the time
+the algorithm reaches the Quaternary (where lens-prone shallow
+geology produces wild variability), the search window is centred at
+the geologically-expected depth rather than naïvely "same depth at
+A as at B".
+
+**Tertiary-base is NOT required (owner caveat 2026-05-24).** Many
+BE/NL sites have no Tertiary contact in the dataset: polders with
+thick Holocene over Pleistocene where CPTs refuse before Tertiary;
+Brabant Massif edges with Palaeozoic bedrock under thin Quaternary;
+urban / shallow investigations that never reach Tertiary even when
+it exists deeper. The algorithm degrades gracefully — "bottom-up"
+means **deepest-available first**, not Tertiary-specific. The sort
+is ``display_order ASC`` regardless of what's in the dataset; if
+the deepest formation here is Pleistocene fluvial sand, the
+algorithm processes that first.
+
+What changes without a Tertiary base is the **magnitude of the
+dip-transfer benefit**, not whether the algorithm runs. To stop a
+noisy dip estimate from sparse deep edges propagating false
+predictions upward, use **confidence-weighted dip transfer**: the
+dip predictor only kicks in for a column-pair once that pair has
+``min_edges_for_dip_transfer = 3`` accumulated correlated edges.
+Below that threshold, fall back to naïve "same depth" centre with
+the full distance-scaled window for the next formation. Tertiary-
+rich sites get the benefit immediately; Quaternary-only sites get
+it once enough Quaternary edges accumulate; sparse / heterogeneous
+sites gracefully degrade to mutual-nearest-on-wider-window without
+contamination from a poorly-estimated dip.
 
 The compounding effect: false positives drop sharply on the
-Quaternary because the dip baseline is already calibrated from the
-Tertiary above. Matches how a geotech engineer correlates by hand —
-deep markers first, then work up.
+Quaternary because the dip baseline (Tertiary OR sufficiently-rich
+deep Quaternary) is calibrated from below. Matches how a geotech
+engineer correlates by hand — deep markers first, then work up.
 
 Algorithm:
 
@@ -2973,10 +2997,17 @@ transfer accuracy and degenerate column-pairs):
   pair dip state accumulated across the loop
 * Pure domain helper ``robust_slope_fit`` — Theil-Sen / median-
   of-pairs (NOT OLS) so a single shallow outlier can't poison
-  the Tertiary-baseline dip
+  the deep-baseline dip
+* Confidence gate ``min_edges_for_dip_transfer = 3`` — dip
+  predictor only used after the column-pair has accumulated
+  enough deep correlations; falls back to naïve same-depth
+  centre below the threshold (handles Tertiary-less sites
+  gracefully)
 * Heavy unit tests (~25 cases): threshold scaling, mutual-NN
   tie-breaking, same-formation filter, idempotency, edge cases,
   **dip transfer between formations (Tertiary→Quaternary)**,
+  **Tertiary-less sites: degenerate Quaternary-only correlation**,
+  **dip-transfer confidence threshold (< 3 edges → fallback)**,
   degenerate column-pairs with no shared formations, outlier
   resistance in the dip estimator
 * Constants in sibling ``auto_correlate_constants.py``
