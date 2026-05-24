@@ -123,20 +123,6 @@ interface Props {
     anchorKind: 'cpt' | 'borehole',
     anchorId: string,
   ) => void
-  /**
-   * Right-click → "Mark as lens…" menu item (#101 Slice 5).
-   *
-   * Fires with the contact id, its formation id, anchor kind, and anchor id
-   * so the caller can open ``MarkAsLensDialog`` with the correct context.
-   * When absent (or when ``axisMode !== 'lithostratigraphic'``) the menu item
-   * is hidden.
-   */
-  onMarkAsLensContact?: (
-    contactId: string,
-    formationId: string,
-    anchorKind: 'cpt' | 'borehole',
-    anchorId: string,
-  ) => void
   /** All-or-nothing batch UPDATE commit. Used for:
    *
    * * Same-column multi-drag (every selected contact's depth shifts
@@ -588,7 +574,6 @@ export default function ContactsLayer({
   onUpdateContactDepth,
   onDeleteContact,
   onPinchOutContact,
-  onMarkAsLensContact,
   onBatchUpdateContacts,
   onBatchCreateContacts,
   marquee,
@@ -2525,7 +2510,7 @@ export default function ContactsLayer({
                 handler is wired so the lines participate in pointer
                 events; without all three they stay fully
                 non-interactive. */}
-            {(onUpdateContactDepth || onDeleteContact || onPinchOutContact || onMarkAsLensContact) &&
+            {(onUpdateContactDepth || onDeleteContact || onPinchOutContact) &&
               layer.segY >= plotTop - DRAG_HIT_HALF_HEIGHT_PX &&
               layer.segY <= plotBottom + DRAG_HIT_HALF_HEIGHT_PX && (
                 <rect
@@ -2541,7 +2526,7 @@ export default function ContactsLayer({
                       : undefined
                   }
                   onContextMenu={
-                    onDeleteContact || onPinchOutContact || onMarkAsLensContact
+                    onDeleteContact || onPinchOutContact
                       ? e => {
                           e.preventDefault()
                           // Portal-rendered menu uses position:fixed with
@@ -2703,16 +2688,6 @@ export default function ContactsLayer({
               ? "Build the 3D model first — pinch-out needs the formation’s TIN surface."
               : null
           }
-          onMarkAsLens={
-            onMarkAsLensContact
-              ? () => {
-                  const { contactId, formationId, anchorKind, anchorId } =
-                    contactMenu
-                  setContactMenu(null)
-                  onMarkAsLensContact(contactId, formationId, anchorKind, anchorId)
-                }
-              : undefined
-          }
           onClose={() => setContactMenu(null)}
         />,
         document.body,
@@ -2764,10 +2739,6 @@ interface ContactContextMenuProps {
    *  clicking would surface a confusing 422 instead of explaining
    *  the prerequisite (#118 follow-up). */
   pinchOutDisabledReason?: string | null
-  /** Fired when the user picks "Mark as lens…" (#101 Slice 5). When absent
-   * the item is hidden.  Only shown on the lithostratigraphic axis where the
-   * lens concept applies. */
-  onMarkAsLens?: () => void
   /** Fired on click-outside or Esc — closes the menu. */
   onClose: () => void
 }
@@ -2804,7 +2775,6 @@ function ContactContextMenu({
   onDelete,
   onPinchOut,
   pinchOutDisabledReason,
-  onMarkAsLens,
   onClose,
 }: ContactContextMenuProps): JSX.Element {
   const pinchOutDisabled = pinchOutDisabledReason != null
@@ -2865,20 +2835,6 @@ function ContactContextMenu({
               {pinchOutDisabledReason}
             </span>
           )}
-        </button>
-      )}
-      {onMarkAsLens && (
-        <button
-          type="button"
-          className="block w-full border-t border-gray-100 px-3 py-2 text-left hover:bg-gray-100 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700"
-          onClick={e => {
-            e.nativeEvent.stopImmediatePropagation()
-            onMarkAsLens()
-            onClose()
-          }}
-          role="menuitem"
-        >
-          Mark as lens&hellip;
         </button>
       )}
       {onDelete && (
