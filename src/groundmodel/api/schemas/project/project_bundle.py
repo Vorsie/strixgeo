@@ -121,6 +121,14 @@ _MAX_INVESTIGATION_REVIEWS_PER_BUNDLE = 50_000
 # most ~12.5M edges in a complete graph; the practical upper bound for a
 # v1.0 litho project is O(formations²) within each model, well under 50,000.
 _MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE = 50_000
+# A project with 500 investigations and 20 parent formations could
+# theoretically have hundreds of lenses.  10 000 is a safe ceiling well
+# above any plausible real project while still capping the DoS surface.
+_MAX_LITHO_LENSES_PER_BUNDLE = 10_000
+# Each lens can declare at most every investigation absent.  A project
+# with 500 investigations × 500 lenses is the extreme upper bound, so
+# 250 000 rows caps the space while remaining well above reality.
+_MAX_LITHO_LENS_ABSENCES_PER_BUNDLE = 250_000
 
 
 class ProjectBundleRequest(BaseModel):
@@ -193,6 +201,22 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
     )
+    # Litho lens entities (#101 Slice 7). Flat array — each row carries
+    # its own app_project_id + model_id + parent_formation_id so the
+    # restore order is "models first, then lenses" (FK-respecting).
+    # Additive field: absence in an older bundle restores cleanly via
+    # default_factory=list.
+    litho_lenses: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_LENSES_PER_BUNDLE,
+    )
+    # Absence records for litho lenses.  Each row carries lens_id so the
+    # restore order is "lenses first, then absences" (FK-respecting).
+    # Additive field: absence in an older bundle restores cleanly.
+    litho_lens_absences: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_LENS_ABSENCES_PER_BUNDLE,
+    )
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — absent in bundles saved before this field existed.
     # On restore: stored as bundle metadata only; NEVER re-applied
@@ -219,6 +243,11 @@ class ProjectBundleResponse(BaseModel):
     # Litho correlation edges (Phase-2).  Absent in bundles saved before
     # Phase 2 shipped — default_factory=list so older files open cleanly.
     litho_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
+    # Litho lens entities (#101 Slice 7).  Additive — absent in bundles
+    # saved before this field existed.
+    litho_lenses: list[dict[str, Any]] = Field(default_factory=list)
+    # Absence records for litho lenses (#101 Slice 7).  Additive.
+    litho_lens_absences: list[dict[str, Any]] = Field(default_factory=list)
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — bundles saved before this field existed carry null.
     stratigraphy_lumping: StratigraphyLumping | None = None
