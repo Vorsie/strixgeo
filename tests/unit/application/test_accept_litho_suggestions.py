@@ -123,6 +123,12 @@ def _make_session(
     recompute_formation_rows: list | None = None,
     # Rows returned by the parent-formations display_order query.
     recompute_parent_rows: list | None = None,
+    # Number of formations that will trigger RecomputeFormationAbsencesForFormation.
+    # Each one fires one _load_project_sections query (returns [] → early return).
+    # Set to the number of distinct affected formations when created_contact_ids
+    # or found_contact_ids is non-empty.  Defaults to 1 (the common case:
+    # one new or found formation per single-suggestion accept).
+    inference_formation_count: int = 1,
 ) -> AsyncMock:
     """Build a minimal mocked AsyncSession for AcceptLithoSuggestions tests.
 
@@ -145,6 +151,14 @@ def _make_session(
         empty list (no parents — parent_ids is empty → query not issued; the
         helper short-circuits when parent_ids is empty so this mock is still
         consumed when parent_ids is non-empty).
+    inference_formation_count : int
+        Number of distinct formations that fire the
+        ``RecomputeFormationAbsencesForFormation`` trigger.  Each fires one
+        ``_load_project_sections`` execute call (returns [] so the trigger
+        early-returns immediately).  Defaults to 1 (one formation per
+        single-suggestion accept).  Set to 0 when no contacts are created or
+        found (should not happen in practice but avoids over-specification
+        in edge-case tests).
     """
 
     # The litho model ORM stub
@@ -211,6 +225,12 @@ def _make_session(
         #     Only consumed when the helper finds non-empty parent_ids.
         #     Append it unconditionally — if not consumed it sits unused.
         execute_calls.append(_execute_all_result(recompute_parent_rows or []))
+
+    # R7 inference hook: RecomputeFormationAbsencesForFormation fires once per
+    # distinct affected formation.  Each call issues one _load_project_sections
+    # execute (returns [] → early-return, no per-section queries fired).
+    for _ in range(inference_formation_count):
+        execute_calls.append(_execute_all_result([]))
 
     session.execute = AsyncMock(side_effect=execute_calls)
     session.refresh = AsyncMock()
