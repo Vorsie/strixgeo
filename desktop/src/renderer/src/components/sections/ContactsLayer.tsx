@@ -790,6 +790,68 @@ export default function ContactsLayer({
       }
     }
 
+    // Synthetic lens-tip contacts (#101 Slice 6).
+    // These have no borehole/CPT anchor — skipped by the anchorId
+    // pre-index above.  Their world position (synthetic_x/y) is
+    // projected onto the section line to get an along-distance in
+    // metres, then mapped to a screen X via alongMToScreenX.
+    // Requires both sectionLine and alongMToScreenX to be wired;
+    // when absent the synthetics silently render nothing.
+    if (sectionLine && alongMToScreenX) {
+      const { startX, startY, endX, endY } = sectionLine
+      const dx = endX - startX
+      const dy = endY - startY
+      const len = Math.hypot(dx, dy)
+      if (len > 0) {
+        const ux = dx / len
+        const uy = dy / len
+        for (const c of contacts) {
+          // Only synthetic contacts (no anchor, world position set).
+          if (c.borehole_id || c.cpt_id) continue
+          if (
+            c.synthetic_x === null ||
+            c.synthetic_y === null ||
+            c.synthetic_elevation_m === null
+          )
+            continue
+          const formation = formationById.get(c.formation_id)
+          if (!formation) continue
+          const rx = c.synthetic_x - startX
+          const ry = c.synthetic_y - startY
+          const alongM = rx * ux + ry * uy
+          const screenX = alongMToScreenX(alongM)
+          // Set surfaceElevationM = synthetic_elevation_m, topDepthM = 0
+          // so the projection step computes:
+          //   screenY = levelToScreen(surfaceElevationM - topDepthM)
+          //           = levelToScreen(synthetic_elevation_m)
+          // which places the vertex at the correct absolute elevation.
+          const displayLabel =
+            formation.litho_main_soil_code != null
+              ? formatLithoDisplayName(
+                  formation.litho_main_soil_code,
+                  formation.litho_admixtures,
+                )
+              : (formation.name ?? formation.regional_ref)
+          const acc =
+            byFormation.get(c.formation_id) ??
+            ({
+              color: formation.color,
+              name: displayLabel,
+              vertices: [],
+            } as PolyAcc)
+          acc.vertices.push({
+            contactId: c.id,
+            formationId: c.formation_id,
+            topDepthM: 0,
+            surfaceElevationM: c.synthetic_elevation_m,
+            screenX,
+            sortKey: screenX,
+          })
+          byFormation.set(c.formation_id, acc)
+        }
+      }
+    }
+
     const polylinesOut: PolylineDataLine[] = []
     for (const [formationId, acc] of byFormation) {
       acc.vertices.sort((a, b) => a.sortKey - b.sortKey)
@@ -811,7 +873,7 @@ export default function ContactsLayer({
     )
 
     return { slabs: slabsOut, polylineData: polylinesOut }
-  }, [contacts, formations, placedColumns, excludedBoreholeIds])
+  }, [contacts, formations, placedColumns, excludedBoreholeIds, sectionLine, alongMToScreenX])
 
   // Stage B — cheap screen-space projection. O(N) per render with no
   // allocation beyond the output arrays; runs on every pan / zoom but
