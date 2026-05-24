@@ -43,6 +43,7 @@ import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
 import { addAllToSet } from '../utils/sets'
 import { log } from '../utils/log'
+import { readLithoSegmenterPrefs } from '../utils/lithoSegmenterPrefs'
 // LITHOLOGY_COLORS/LABELS/FALLBACK_COLOR removed — formation name/colour
 // is now determined server-side by AcceptLithoSuggestions (Phase 1).
 
@@ -3294,10 +3295,19 @@ export function useGeologicalModel({
       // never shows. Bulk entries on OTHER anchors survive.
       clearLithoSuggestions()
       try {
+        // Pull the per-project segmenter prefs out of view_state (set
+        // via File → Settings…). Falls back to defaults when unset.
+        const prefs = readLithoSegmenterPrefs(project.view_state)
         const body =
           anchorKind === 'cpt'
-            ? { cpt_id: anchorId }
-            : { borehole_id: anchorId }
+            ? {
+                cpt_id: anchorId,
+                minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
+              }
+            : {
+                borehole_id: anchorId,
+                minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
+              }
         const resp = await api.geology.suggestLitho(project.id, model.id, body)
         log.success(
           'geology',
@@ -3745,6 +3755,10 @@ export function useGeologicalModel({
         return new Map([[focusedId, entry]])
       })
       setBulkLithoSuggesting(true)
+      // Snapshot prefs once per fan-out so every anchor in the same bulk
+      // call uses the same min-thickness — avoids race where the user
+      // adjusts the slider mid-fan-out.
+      const prefs = readLithoSegmenterPrefs(project.view_state)
       const CONCURRENCY = 5
       let cursor = 0
       const failures: string[] = []
@@ -3755,7 +3769,15 @@ export function useGeologicalModel({
           const { kind, id, surfaceElevationM } = anchors[anchorIdx]
           try {
             const body =
-              kind === 'cpt' ? { cpt_id: id } : { borehole_id: id }
+              kind === 'cpt'
+                ? {
+                    cpt_id: id,
+                    minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
+                  }
+                : {
+                    borehole_id: id,
+                    minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
+                  }
             const resp = await api.geology.suggestLitho(project!.id, model!.id, body)
             setGhostsByAnchor(prev => {
               const next = new Map(prev)
