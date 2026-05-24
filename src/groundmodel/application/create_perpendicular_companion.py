@@ -194,7 +194,11 @@ class CreatePerpendicularCompanion(GroundModelLogger):
         # ------------------------------------------------------------------
         # 5. Compute the lens centroid.
         # ------------------------------------------------------------------
-        cx, cy = await self._compute_lens_centroid(lens_id=lens_id, primary_section=primary_section)
+        cx, cy = await self._compute_lens_centroid(
+            model_id=model_id,
+            formation_id=lens.formation_id,
+            primary_section=primary_section,
+        )
         self.debug(f"Lens centroid: ({cx:.1f}, {cy:.1f})")
 
         # ------------------------------------------------------------------
@@ -272,39 +276,48 @@ class CreatePerpendicularCompanion(GroundModelLogger):
     async def _compute_lens_centroid(
         self,
         *,
-        lens_id: UUID,
+        model_id: UUID,
+        formation_id: UUID,
         primary_section: CrossSectionOrm,
     ) -> tuple[float, float]:
-        """Compute the world-space centroid of all contacts tagged with ``lens_id``.
+        """Compute the world-space centroid of all contacts for the formation body.
 
-        Anchored contacts use the investigation's ``(location_x, location_y)``;
-        synthetics use ``(synthetic_x, synthetic_y)``.  Falls back to the
-        midpoint of the primary section when no contacts are found.
+        Position 4: body identity is ``(model_id, formation_id)``; there is no
+        ``lens_id`` column on contacts.  Anchored contacts use the
+        investigation's ``(location_x, location_y)``; synthetics use
+        ``(synthetic_x, synthetic_y)``.  Falls back to the midpoint of the
+        primary section when no contacts are found.
 
         Parameters
         ----------
-        lens_id : UUID
+        model_id : UUID
+            The lithostratigraphic model that owns the contacts.
+        formation_id : UUID
+            The formation whose contacts define the body extent.
         primary_section : CrossSectionOrm
-            Used as fallback when the lens has no tagged contacts.
+            Used as fallback when the body has no contacts.
 
         Returns
         -------
         tuple[float, float]
             ``(centroid_x, centroid_y)`` in the section's CRS.
         """
-        # Collect all contacts tagged with this lens.
+        # Collect all contacts for this (model, formation).
         stmt = select(
             FormationContactOrm.borehole_id,
             FormationContactOrm.cpt_id,
             FormationContactOrm.synthetic_x,
             FormationContactOrm.synthetic_y,
-        ).where(FormationContactOrm.lens_id == lens_id)
+        ).where(
+            FormationContactOrm.model_id == model_id,
+            FormationContactOrm.formation_id == formation_id,
+        )
         contact_rows = (await self._session.execute(stmt)).all()
 
         if not contact_rows:
-            # Zero-contact lens — fall back to primary section midpoint.
+            # Zero-contact body — fall back to primary section midpoint.
             self.warning(
-                f"Lens {lens_id} has no tagged contacts — "
+                f"Formation {formation_id} has no contacts in model {model_id} — "
                 "using primary section midpoint as centroid fallback"
             )
             return (
