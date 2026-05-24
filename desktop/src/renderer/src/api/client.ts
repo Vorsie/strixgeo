@@ -252,6 +252,18 @@ export interface CreateLithoLensResponse {
   updated_section: CrossSectionResponse
 }
 
+// #101 Slice 6: lightweight list item from GET .../lenses.
+export interface LithoLensListItem {
+  id: string
+  app_project_id: string
+  model_id: string
+  parent_formation_id: string
+  name: string | null
+  primary_section_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Phase-2 Slice 3: one edge in the litho correlation graph.
 // Consumed by the LithologyInspector stale-badge computation (to hash
 // the edge set) and by future Slice 4 section canvas rendering.
@@ -1990,8 +2002,16 @@ export const api = {
         { formation_id: formationId, admixtures },
       ),
 
-    // --- Litho lens (#101 Slice 3) -----------------------------------------
+    // --- Litho lens (#101 Slices 3–6) ----------------------------------------
     //
+    // List all lenses for a lithostratigraphic model (#101 Slice 6).
+    // Used by LithologyInspector to build per-formation lens-count badges.
+    listLenses: (
+      projectId: string,
+      modelId: string,
+    ): Promise<LithoLensListItem[]> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/lenses`),
+
     // Create a lens entity. Atomically: creates the lens row, records
     // absence rows, tags present contacts with lens_id, computes wedge-tip
     // synthetic contacts (section-local, no TIN required), and seeds them
