@@ -66,6 +66,21 @@ export interface ProjectFileV3 {
   cross_sections: Record<string, unknown>[]
   investigation_reviews: Record<string, unknown>[]
   /**
+   * Litho correlation edges (Phase 2).
+   * Absent in files saved before Phase 2 shipped — normalised to [] on parse.
+   */
+  litho_correlation_edges: Record<string, unknown>[]
+  /**
+   * Litho lens entities (#101 Slice 7).
+   * Absent in files saved before Slice 7 shipped — normalised to [] on parse.
+   */
+  litho_lenses: Record<string, unknown>[]
+  /**
+   * Absence records for litho lenses (#101 Slice 7).
+   * Absent in files saved before Slice 7 shipped — normalised to [] on parse.
+   */
+  litho_lens_absences: Record<string, unknown>[]
+  /**
    * Manual lumping map from the last successful Fill-from-boreholes confirm.
    * Null when no lumping has been applied to this project yet, or when the
    * file was saved by an older build that pre-dates this field.
@@ -94,6 +109,9 @@ export function buildProjectFile(
     geological_models: bundle.geological_models ?? [],
     cross_sections: bundle.cross_sections ?? [],
     investigation_reviews: bundle.investigation_reviews ?? [],
+    litho_correlation_edges: bundle.litho_correlation_edges ?? [],
+    litho_lenses: bundle.litho_lenses ?? [],
+    litho_lens_absences: bundle.litho_lens_absences ?? [],
     // WHY parameter-not-bundle: the bundle response comes from GET /bundle
     // which has no knowledge of the lumping map (it lives client-side after
     // the Fill-from-boreholes confirm).  The caller passes the map explicitly
@@ -129,6 +147,15 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.geotechnical_units === undefined) {
     candidate.geotechnical_units = []
   }
+  if (candidate.litho_correlation_edges === undefined) {
+    candidate.litho_correlation_edges = []
+  }
+  if (candidate.litho_lenses === undefined) {
+    candidate.litho_lenses = []
+  }
+  if (candidate.litho_lens_absences === undefined) {
+    candidate.litho_lens_absences = []
+  }
   // Normalise the optional lumping field: absent in older files → null.
   // WHY normalise-not-reject: this field is additive (backwards-compat
   // suspended pre-ship; additive always fine).  Absence means "no lumping
@@ -157,6 +184,11 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     Array.isArray(v.geological_models) &&
     Array.isArray(v.cross_sections) &&
     Array.isArray(v.investigation_reviews) &&
+    // Additive fields — tolerate absence in older files; normalised to []
+    // in parseProjectFile.
+    (v.litho_correlation_edges === undefined || Array.isArray(v.litho_correlation_edges)) &&
+    (v.litho_lenses === undefined || Array.isArray(v.litho_lenses)) &&
+    (v.litho_lens_absences === undefined || Array.isArray(v.litho_lens_absences)) &&
     // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
     // (pre-this-build files) or null (no lumping applied) or a
     // StratigraphyLumping object. Any other type → reject the file.
