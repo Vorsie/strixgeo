@@ -9,6 +9,7 @@ from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
 from groundmodel.infrastructure.db.models.drill_segment_orm import DrillSegmentOrm
 from groundmodel.infrastructure.db.models.field_log_interval_orm import FieldLogIntervalOrm
+from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import FormationSurfaceOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
@@ -21,7 +22,6 @@ from groundmodel.infrastructure.db.models.investigation_review_orm import Invest
 from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
     LithoCorrelationEdgeOrm,
 )
-from groundmodel.infrastructure.db.models.litho_lens_absence_orm import LithoLensAbsenceOrm
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
@@ -48,7 +48,7 @@ __all__ = [
     "GrainSizeOrm",
     "InvestigationReviewOrm",
     "LithoCorrelationEdgeOrm",
-    "LithoLensAbsenceOrm",
+    "FormationAbsenceOrm",
     "LithoLensOrm",
     "ObservationLayerOrm",
     "ObservationOrm",
