@@ -326,26 +326,32 @@ class CreateLithoLens(GroundModelLogger):
                     skipped_absent_count += 1
 
         # ------------------------------------------------------------------
-        # 10. Commit the full transaction.
-        # ------------------------------------------------------------------
-        await self._session.commit()
-        await self._session.refresh(section)
-
-        # ------------------------------------------------------------------
-        # 11. Seed the section (explicit-content invariant).
+        # 10. Patch seeded_formation_contact_ids BEFORE the single commit
+        #     (explicit-content invariant).
+        #
+        # Merging the section patch into the same transaction ensures atomicity:
+        # if the commit fails, neither the lens row nor the section's id set is
+        # persisted.  A second commit (the previous "step 11") created a window
+        # where the lens existed in the DB but the section renderer could not see
+        # its synthetic contacts — violation of the explicit-content invariant.
+        # See reviewer blocker 2, 2026-05-24.
         # ------------------------------------------------------------------
         all_seed_ids: set[UUID] = set(synthetic_contact_ids) | set(present_contact_ids)
         if all_seed_ids:
             existing_seeded = frozenset(section.seeded_formation_contact_ids or [])
             merged = list(existing_seeded | all_seed_ids)
             section.seeded_formation_contact_ids = merged
-            await self._session.flush()
-            await self._session.commit()
-            await self._session.refresh(section)
             self.info(
-                f"Section {section_id} seeded: {len(merged)} total ids "
+                f"Staging section {section_id} seed patch: {len(merged)} total ids "
                 f"({len(all_seed_ids)} added this call)"
             )
+
+        # ------------------------------------------------------------------
+        # 11. Single commit — lens + absences + tagged contacts + synthetics
+        #     + section seeded_formation_contact_ids all land atomically.
+        # ------------------------------------------------------------------
+        await self._session.commit()
+        await self._session.refresh(section)
 
         self.success(
             f"CreateLithoLens done: lens={lens_id} "
@@ -509,7 +515,17 @@ class CreateLithoLens(GroundModelLogger):
         result: list[tuple[float, float]] = []
         for row in rows:
             if row.synthetic_x is not None:
-                # Synthetic contact: use stored absolute coords directly.
+                # Synthetic contact: apply the same corridor perp-distance guard
+                # as anchored contacts.  Without this, synthetic tips created on
+                # a DIFFERENT section (with a different orientation) leak into
+                # this section's pinching polyline → wrong wedge-tip geometry.
+                # See reviewer should-fix SF4, 2026-05-24.
+                perp = abs(
+                    (row.synthetic_x - section.start_x) * (-dy / section_length)
+                    + (row.synthetic_y - section.start_y) * (dx / section_length)
+                )
+                if perp > section.projection_buffer_m:
+                    continue
                 along_m = self._project_to_along(
                     row.synthetic_x, row.synthetic_y, section, section_length
                 )
@@ -586,14 +602,30 @@ class CreateLithoLens(GroundModelLogger):
         list[tuple[float, float]]
             ``(along_m, elevation_m)`` sorted ascending by ``along_m``.
         """
-        # Load all formations for this project, ordered by display_order DESC.
-        # We want the one immediately older = display_order < formation.display_order,
-        # largest that is still smaller.
+        # Load the next-older formation by display_order, scoped to the lens's
+        # model_id via an EXISTS subquery on FormationContactOrm.
+        #
+        # WHY: a project with sibling models (geological + lithostratigraphic +
+        # geotechnical) has formations from ALL models in the same
+        # geological_formation table.  Filtering only by app_project_id would
+        # return a formation from the geological model as the "next-older
+        # neighbour" even though the lens use case operates on the litho model —
+        # the wedge-tip geometry would then compute against the wrong polyline.
+        # See reviewer blocker 3, 2026-05-24.
+        contact_in_model = (
+            select(FormationContactOrm.id)
+            .where(
+                FormationContactOrm.formation_id == GeologicalFormationOrm.id,
+                FormationContactOrm.model_id == model_id,
+            )
+            .exists()
+        )
         stmt = (
             select(GeologicalFormationOrm)
             .where(
                 GeologicalFormationOrm.app_project_id == project_id,
                 GeologicalFormationOrm.display_order < formation.display_order,
+                contact_in_model,
             )
             .order_by(GeologicalFormationOrm.display_order.desc())
             .limit(1)
