@@ -639,25 +639,31 @@ async def test_r7_uncorrelate_reruns_inference_without_error(
     db_session: AsyncSession,
     r7_project: ProjectOrm,
 ) -> None:
-    """Uncorrelating FA ↔ FB re-runs inference without error.
+    """Uncorrelating FA ↔ FB re-runs inference and retracts the inferred absence.
 
-    The test does not assert a specific absence count after uncorrelate
-    (the engine re-runs with updated topology and may keep or retract rows
-    depending on the new body membership).  The key contract: the DELETE
-    endpoint completes (204) and the inference hook fires atomically with
-    the edge deletion.
+    Should-fix 2 extension: pre-uncorrelate count is captured, then post-uncorrelate
+    count is asserted to have decreased — proving the retraction path actually ran,
+    not just that the DELETE endpoint returned 204 without error.
     """
     stack = await _r7_stack(async_client, db_session, r7_project)
     mid = stack["litho_model_id"]
     fa_id = stack["fa_id"]
     fb_id = stack["fb_id"]
 
-    # First: correlate to create the edge.
+    # First: correlate to create the edge + write inferred absences.
     cr = await async_client.post(
         f"/projects/{r7_project.id}/geology/models/{mid}/correlations",
         json={"formation_a_id": fa_id, "formation_b_id": fb_id},
     )
     assert cr.status_code == 201, cr.text
+
+    # Capture pre-uncorrelate count — must be ≥1 (correlate wrote at least one
+    # inferred absence for FA per test_r7_correlate_writes_inferred_absence).
+    count_before = await _count_inferred_absences(db_session, fa_id)
+    assert count_before >= 1, (
+        f"Precondition failed: expected ≥1 inferred absence for FA before uncorrelate, "
+        f"got {count_before}. Check the correlate step above."
+    )
 
     # Uncorrelate — inference hook fires; must complete without error.
     del_resp = await async_client.request(
@@ -667,10 +673,15 @@ async def test_r7_uncorrelate_reruns_inference_without_error(
     )
     assert del_resp.status_code == 204, del_resp.text
 
-    # Verify the absence table is still consistent (no PG constraint errors
-    # surfaced as a 500, and any existing absences are still valid rows).
-    from sqlalchemy import select
+    # Post-uncorrelate count must have decreased (inference retracted rows).
+    count_after = await _count_inferred_absences(db_session, fa_id)
+    assert count_after < count_before, (
+        f"Expected inferred absence count to decrease after uncorrelate; "
+        f"was {count_before}, now {count_after}. "
+        "Inference retraction path may not be running on uncorrelate."
+    )
 
+    # All remaining rows must have a valid source.
     all_rows = (
         (
             await db_session.execute(
@@ -682,7 +693,6 @@ async def test_r7_uncorrelate_reruns_inference_without_error(
         .scalars()
         .all()
     )
-    # All remaining rows must have a valid source.
     for row in all_rows:
         assert row.source in ("inferred", "manual", "observed")
 
