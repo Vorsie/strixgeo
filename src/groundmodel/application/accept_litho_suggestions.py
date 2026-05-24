@@ -52,6 +52,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.materialize_wedge_tips_for_formation import (
+    MaterializeWedgeTipsForFormation,
+)
 from groundmodel.application.recompute_formation_absences_for_formation import (
     RecomputeFormationAbsencesForFormation,
 )
@@ -437,6 +440,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         if created_contact_ids or found_contact_ids:
             affected_formation_ids = set(created_formation_ids) | set(found_formation_ids)
             inference_uc = RecomputeFormationAbsencesForFormation(self._session)
+            materialize_uc = MaterializeWedgeTipsForFormation(self._session)
             total_affected = len(affected_formation_ids)
             for i, fid in enumerate(sorted(affected_formation_ids), start=1):
                 self.debug(
@@ -444,6 +448,16 @@ class AcceptLithoSuggestions(GroundModelLogger):
                     f"triggering absence inference for formation {fid}"
                 )
                 await inference_uc.execute(
+                    project_id=project_id,
+                    model_id=litho_model_id,
+                    formation_id=fid,
+                    commit=False,
+                )
+                self.debug(
+                    f"[{i}/{total_affected}] AcceptLithoSuggestions: "
+                    f"materialising wedge tips for formation {fid}"
+                )
+                await materialize_uc.execute(
                     project_id=project_id,
                     model_id=litho_model_id,
                     formation_id=fid,
