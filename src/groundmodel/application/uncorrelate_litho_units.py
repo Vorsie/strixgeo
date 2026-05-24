@@ -18,6 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.application.correlate_litho_units import CorrelateLithoUnits
+from groundmodel.application.materialize_wedge_tips_for_formation import (
+    MaterializeWedgeTipsForFormation,
+)
 from groundmodel.application.recompute_formation_absences_for_formation import (
     RecomputeFormationAbsencesForFormation,
 )
@@ -137,6 +140,7 @@ class UncorrelateLithoUnits(GroundModelLogger):
         #    delete + resolver + absence delta are atomic.                      #
         # ------------------------------------------------------------------ #
         inference_uc = RecomputeFormationAbsencesForFormation(self._session)
+        materialize_uc = MaterializeWedgeTipsForFormation(self._session)
         for fid in (formation_a_id, formation_b_id):
             self.debug(f"UncorrelateLithoUnits: triggering absence inference for formation {fid}")
             await inference_uc.execute(
@@ -145,9 +149,16 @@ class UncorrelateLithoUnits(GroundModelLogger):
                 formation_id=fid,
                 commit=False,
             )
+            self.debug(f"UncorrelateLithoUnits: materialising wedge tips for formation {fid}")
+            await materialize_uc.execute(
+                project_id=project_id,
+                model_id=model_id,
+                formation_id=fid,
+                commit=False,
+            )
 
         # ------------------------------------------------------------------ #
-        # 5. Commit (edge delete + resolver ordinals + absence delta).          #
+        # 5. Commit (edge delete + resolver ordinals + absence delta + tips).   #
         # ------------------------------------------------------------------ #
         await self._session.commit()
         self.success(
