@@ -42,6 +42,7 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
   LithoCorrelationEdge,
+  LithoLensListItem,
 } from '../../../api/client'
 import Button from '../../../components/ui/Button'
 import Modal from '../../../components/ui/Modal'
@@ -107,6 +108,9 @@ export default function LithologyInspector(): JSX.Element {
   const lastResolvedEdgeCountRef = useRef<number | null>(null)
   const [lastResolvedEdgeCount, setLastResolvedEdgeCount] = useState<number | null>(null)
 
+  // #101 Slice 6: lens list for per-formation lens-count badges.
+  const [lenses, setLenses] = useState<LithoLensListItem[]>([])
+
   const [resolving, setResolving] = useState(false)
 
   // Fetch the current edge list whenever the active litho model changes.
@@ -132,6 +136,21 @@ export default function LithologyInspector(): JSX.Element {
   // reason: activeLithoModel?.id is the stable identity key; using the
   // full object would re-fire on every parent re-render that reconstructs
   // the model object reference even when the id is unchanged.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, activeLithoModel?.id])
+
+  // #101 Slice 6: fetch lenses whenever the active model changes so the
+  // per-formation lens-count badges stay current.
+  useEffect(() => {
+    if (project === null || activeLithoModel === null) {
+      setLenses([])
+      return
+    }
+    const pid = project.id
+    const mid = activeLithoModel.id
+    log.debug('[LithologyInspector] fetching lenses for model', mid)
+    void api.geology.listLenses(pid, mid).then(setLenses)
+  // reason: activeLithoModel?.id is the stable identity key.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, activeLithoModel?.id])
 
@@ -235,6 +254,15 @@ export default function LithologyInspector(): JSX.Element {
     () => computeOrdinalStale(lithoFormations, currentEdgeCount, lastResolvedEdgeCount),
     [lithoFormations, currentEdgeCount, lastResolvedEdgeCount],
   )
+
+  // #101 Slice 6: per-formation lens count map for the roster badges.
+  const lensCountByFormationId = useMemo(() => {
+    const out = new Map<string, number>()
+    for (const lens of lenses) {
+      out.set(lens.parent_formation_id, (out.get(lens.parent_formation_id) ?? 0) + 1)
+    }
+    return out
+  }, [lenses])
 
   // No geological backbone — the litho model requires one as a parent.
   if (activeGeologicalModel === null) {
@@ -380,6 +408,7 @@ export default function LithologyInspector(): JSX.Element {
               lithoFormations={lithoFormations}
               lithoContacts={lithoContacts}
               ordinalIsStale={ordinalIsStale}
+              lensCountByFormationId={lensCountByFormationId}
               onToggleLock={handleToggleLock}
               onReviewParent={setConfirmTarget}
             />
@@ -465,6 +494,8 @@ interface LithoUnitRowProps {
   f: GeologicalFormationResponse
   lithoContacts: readonly FormationContactResponse[]
   ordinalIsStale: boolean
+  /** #101 Slice 6: number of lenses whose parent_formation_id === f.id. */
+  lensCount: number
   onToggleLock: (formation: GeologicalFormationResponse) => Promise<void>
   /** Debt #87: opens the confirm-parent dialog for an extrapolated or
    *  orphan unit. Click target is the amber dot on the left of the row. */
@@ -475,6 +506,7 @@ function LithoUnitRow({
   f,
   lithoContacts,
   ordinalIsStale,
+  lensCount,
   onToggleLock,
   onReviewParent,
 }: LithoUnitRowProps): JSX.Element {
@@ -574,6 +606,17 @@ function LithoUnitRow({
       >
         {contactCount}
       </span>
+
+      {/* #101 Slice 6: lens count badge — only visible when ≥1 lens. */}
+      {lensCount > 0 && (
+        <span
+          className="text-[10px] tabular-nums rounded px-1 py-0 bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+          title={`${lensCount} lens${lensCount === 1 ? '' : 'es'} defined in this formation`}
+          data-testid={`lens-count-badge-${f.id}`}
+        >
+          {lensCount}L
+        </span>
+      )}
     </li>
   )
 }
@@ -592,6 +635,12 @@ interface LithoFormationRosterProps {
   /** True when the edge set changed since the last explicit resolve,
    *  causing locked formations to show the RO-3 amber stale badge. */
   ordinalIsStale: boolean
+  /**
+   * Per-formation lens count (#101 Slice 6).
+   * Key = formation id; value = number of lenses whose
+   * ``parent_formation_id`` equals that key.  Absent key → 0.
+   */
+  lensCountByFormationId: ReadonlyMap<string, number>
   /** Called when the user clicks the lock/unlock icon on a unit row. */
   onToggleLock: (formation: GeologicalFormationResponse) => Promise<void>
   /** Debt #87: called when the user clicks a unit's parent-review dot. */
@@ -631,6 +680,7 @@ function LithoFormationRoster({
   lithoFormations,
   lithoContacts,
   ordinalIsStale,
+  lensCountByFormationId,
   onToggleLock,
   onReviewParent,
 }: LithoFormationRosterProps): JSX.Element {
@@ -686,6 +736,7 @@ function LithoFormationRoster({
                 f={f}
                 lithoContacts={lithoContacts}
                 ordinalIsStale={ordinalIsStale}
+                lensCount={lensCountByFormationId.get(f.id) ?? 0}
                 onToggleLock={onToggleLock}
                 onReviewParent={onReviewParent}
               />
@@ -708,6 +759,7 @@ function LithoFormationRoster({
                 f={f}
                 lithoContacts={lithoContacts}
                 ordinalIsStale={ordinalIsStale}
+                lensCount={lensCountByFormationId.get(f.id) ?? 0}
                 onToggleLock={onToggleLock}
                 onReviewParent={onReviewParent}
               />
