@@ -20,6 +20,7 @@ import { addAllToSet } from '../utils/sets'
 import { projectPointOntoLine } from '../utils/sectionProjection'
 import { wgs84ToProjected } from './useWgs84'
 import { log } from '../utils/log'
+import { readSectionDefaults } from '../utils/sectionDefaults'
 import type { UndoCommand } from './useUndoStack'
 import type { FocusTarget } from '../components/sections/useFocusColumn'
 import { useCorrelate } from '../components/sections/useCorrelate'
@@ -212,7 +213,16 @@ export function useSections({
   setSelectedId,
   setSelectedBoreholeId,
 }: {
-  project: { id: string; default_horizontal_epsg: number | null; name: string } | null
+  project: {
+    id: string
+    default_horizontal_epsg: number | null
+    name: string
+    /** Bag of UI-chrome decisions persisted in the .gmproj — used here
+     *  for the per-project section create-time defaults (buffer / V-exag).
+     *  Optional so test fixtures don't all have to wire it; absent /
+     *  null falls through to the global defaults. */
+    view_state?: Record<string, unknown> | null
+  } | null
   /** From ``useAppBoot`` — data loading waits until the API is up. */
   ready: boolean
   toast: (type: 'success' | 'error' | 'warning', message: string) => void
@@ -485,6 +495,11 @@ export function useSections({
       // the 3rd draw would be the 1st visible one.  Ordinal must reflect what
       // the user SEES (manifest-gated), not what exists in the DB.
       const ordinal = visibleSections.length + 1
+      // Per-project create-time defaults (File → Settings → Cross-sections).
+      // Backend has its own defaults (50 m / 1.0×); we send the project's
+      // override only when present so unconfigured projects keep the
+      // backend default.
+      const sectionDefaults = readSectionDefaults(project.view_state ?? null)
       try {
         const createPayload = {
           name: `Cross-section ${ordinal}`,
@@ -493,6 +508,8 @@ export function useSections({
           start_y: sy,
           end_x: ex,
           end_y: ey,
+          projection_buffer_m: sectionDefaults.bufferM,
+          vertical_exaggeration: sectionDefaults.verticalExaggeration,
         }
         const created = await api.section.create(project.id, createPayload)
         setSections(prev => [...prev, created])
