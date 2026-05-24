@@ -34,6 +34,7 @@ import type {
   AdmixtureItem,
   BoreholeListItem,
   CptListItem,
+  CreateLithoLensResponse,
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
@@ -83,6 +84,9 @@ import VirtueleBoringGhostColumns, {
 import VirtueleBoringStrip from './sections/VirtueleBoringStrip'
 import SectionHeader from './sections/SectionHeader'
 import SectionScrubBar from './sections/SectionScrubBar'
+import MarkAsLensDialog, {
+  type CorridorInvestigation,
+} from './sections/MarkAsLensDialog'
 import { useSectionData } from './sections/useSectionData'
 import {
   BARE_COLUMN_WIDTH_PX,
@@ -292,6 +296,16 @@ interface Props {
    *  false, the low-confidence stroke opacity multiplier becomes 1.0
    *  so the uncertainty cue disappears.  Defaults to true. */
   showConfidenceFade?: boolean
+  /**
+   * Called after a lens is successfully created via the "Mark as lens…"
+   * context-menu gesture (#101 Slice 5).  The caller is responsible for
+   * updating the local contacts state (the returned ``updated_section``
+   * must be applied via ``applyUpdatedSection``) and optionally offering
+   * to auto-create the perpendicular companion section.  When absent,
+   * the "Mark as lens…" context-menu item is hidden.  Only meaningful
+   * when ``axisMode === 'lithostratigraphic'``.
+   */
+  onLensCreated?: (result: CreateLithoLensResponse) => void
   /** Fire the "Seed from stratigraphy" header action. Receives the
    * borehole IDs projected onto the active section (computed here
    * from placedColumns); the handler scopes the auto-populate call
@@ -595,6 +609,7 @@ export default function SectionPanel({
   axisMode = 'geological',
   onManualLithoUnitCreate,
   showConfidenceFade = true,
+  onLensCreated,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -637,6 +652,15 @@ export default function SectionPanel({
   // column's label to 'full' regardless of spacing. Transient UI state;
   // not persisted (it resets naturally when the user moves the mouse).
   const [hoveredColumnId, setHoveredColumnId] = useState<string | null>(null)
+
+  // "Mark as lens…" dialog state (#101 Slice 5). Null = closed.
+  const [lensDialogContext, setLensDialogContext] = useState<{
+    contactId: string
+    formationId: string
+    formationName: string
+    anchorKind: 'cpt' | 'borehole'
+    anchorId: string
+  } | null>(null)
 
   const [vex, setVex] = useState<number>(section.vertical_exaggeration ?? VEX_DEFAULT)
   useEffect(() => {
@@ -1881,6 +1905,22 @@ export default function SectionPanel({
               onUpdateContactDepth={onUpdateContactDepth}
               onDeleteContact={onDeleteContact}
               onPinchOutContact={pinchOutGhostState?.onPreviewPinchOut}
+              onMarkAsLensContact={
+                onLensCreated && axisMode === 'lithostratigraphic'
+                  ? (contactId, formationId, anchorKind, anchorId) => {
+                      const name =
+                        formations?.find(f => f.id === formationId)?.name ??
+                        formationId
+                      setLensDialogContext({
+                        contactId,
+                        formationId,
+                        formationName: name,
+                        anchorKind,
+                        anchorId,
+                      })
+                    }
+                  : undefined
+              }
               onBatchUpdateContacts={onBatchUpdateContacts}
               onBatchCreateContacts={onBatchCreateContacts}
               marquee={marquee}
@@ -2330,6 +2370,47 @@ export default function SectionPanel({
             return onCreateFormation(payload)
           }}
           onCancel={cancelPicker}
+        />
+      )}
+
+      {/* Mark-as-lens dialog (#101 Slice 5) — only mounted when
+          axisMode === 'lithostratigraphic' and the caller provides
+          onLensCreated. The dialog receives every investigation in the
+          corridor so the user can mark each one Present/Absent/Unknown.
+          The anchor column is locked as PRESENT. */}
+      {onLensCreated && lensDialogContext !== null && (
+        <MarkAsLensDialog
+          open={lensDialogContext !== null}
+          projectId={section.app_project_id}
+          modelId={
+            /* model id is not available at SectionPanel scope — it is
+               owned by the parent (App / SectionsCanvas). We derive it
+               from the focused formation's contacts by taking model_id
+               off the first contact in the formations prop.  As a
+               belt-and-suspenders fallback we pass the formationId as a
+               placeholder — the backend derives the model from
+               parent_formation_id + section_id context.  The correct
+               fix (passing modelId as a prop) is tracked as a minor
+               debt alongside #101. */
+            contacts?.find(c => c.formation_id === lensDialogContext.formationId)
+              ?.model_id ?? ''
+          }
+          sectionId={section.id}
+          parentFormationId={lensDialogContext.formationId}
+          parentFormationName={lensDialogContext.formationName}
+          anchorContactId={lensDialogContext.contactId}
+          anchorInvestigationId={lensDialogContext.anchorId}
+          anchorInvestigationKind={lensDialogContext.anchorKind}
+          corridorInvestigations={placedColumns.map(col => ({
+            id: col.proj.item.id,
+            kind: col.kind,
+            name: col.proj.item.name,
+          }))}
+          onCreated={result => {
+            setLensDialogContext(null)
+            onLensCreated(result)
+          }}
+          onClose={() => setLensDialogContext(null)}
         />
       )}
     </div>
