@@ -297,6 +297,14 @@ interface Props {
    *  so the uncertainty cue disappears.  Defaults to true. */
   showConfidenceFade?: boolean
   /**
+   * Active lithostratigraphic model id.  Required for the "Mark as lens…"
+   * gesture — passed directly to ``MarkAsLensDialog`` so the dialog always
+   * has a valid model UUID even when no contacts have been seeded yet.
+   * When absent (or when ``axisMode !== 'lithostratigraphic'``) the
+   * "Mark as lens…" menu item is hidden.
+   */
+  activeLithoModelId?: string | null
+  /**
    * Called after a lens is successfully created via the "Mark as lens…"
    * context-menu gesture (#101 Slice 5).  The caller is responsible for
    * updating the local contacts state (the returned ``updated_section``
@@ -609,6 +617,7 @@ export default function SectionPanel({
   axisMode = 'geological',
   onManualLithoUnitCreate,
   showConfidenceFade = true,
+  activeLithoModelId,
   onLensCreated,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -2382,19 +2391,7 @@ export default function SectionPanel({
         <MarkAsLensDialog
           open={lensDialogContext !== null}
           projectId={section.app_project_id}
-          modelId={
-            /* model id is not available at SectionPanel scope — it is
-               owned by the parent (App / SectionsCanvas). We derive it
-               from the focused formation's contacts by taking model_id
-               off the first contact in the formations prop.  As a
-               belt-and-suspenders fallback we pass the formationId as a
-               placeholder — the backend derives the model from
-               parent_formation_id + section_id context.  The correct
-               fix (passing modelId as a prop) is tracked as a minor
-               debt alongside #101. */
-            contacts?.find(c => c.formation_id === lensDialogContext.formationId)
-              ?.model_id ?? ''
-          }
+          modelId={activeLithoModelId ?? ''}
           sectionId={section.id}
           parentFormationId={lensDialogContext.formationId}
           parentFormationName={lensDialogContext.formationName}
