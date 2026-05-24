@@ -1836,7 +1836,7 @@ its own commit.
 session has the user wanting to "pin" a body's edges to study them
 without holding the cursor.
 
-## 101. Litho lens / pinch-out body representation — open design question (Tier D — Phase 5-adjacent)
+## 101. Litho lens / pinch-out body representation — Approach C scoped (Tier G — session 2026-05-24 blocker)
 
 **What.** The litho (and geological) model currently assumes
 layers / surfaces are laterally continuous across the investigation
@@ -1874,14 +1874,65 @@ concrete pull on the "how is a lens stored" question above: the store
 needs a lens id that a cross-section can point back at, plus a flag
 marking a section as the lens's perpendicular companion.
 
-**Why deferred.** Phase 5. CLAUDE.md "Build Sequence" already places
-true interfingering lenses in Phase 5; the MVP gate's three-level model
-assumes continuous units.
+**Resolved design questions (owner, 2026-05-24).** Dogfeed surfaced
+that real BE/NL fluvial-deltaic data cannot be modelled as continuous
+units — the user reports "before lens is wired, I can't make a litho
+model." Three open questions answered, picking **Approach C — skinny
+Lens entity, deferred TIN/export**:
 
-**When to revisit.** Phase 5, when facies geometry between control
-points is on the roadmap — or earlier if a dogfeed project has a
-lithology that genuinely cannot be modelled as continuous and the
-wedge tool is insufficient.
+* **Q1. Multi-lens-per-formation.** Two clay lenses at different
+  elevations in the same column → **two LithoLens entities sharing
+  the same parent formation**. Each lens has its own id, own bracket
+  of contacts, own perpendicular companion section. The formation's
+  ``litho_main_soil_code`` stays a property of the formation; the
+  lens carries identity and absence semantics.
+* **Q2. Absent-investigation pre-population.** When the user clicks
+  "Mark as lens" on a clay unit in column A, the dialog
+  **auto-pre-populates** the absent set from the segmenter result:
+  any in-corridor investigation with positive evidence of a
+  different lithology at the same depth range is flagged ABSENT by
+  default. Columns with no test in range or with the same lithology
+  default to PRESENT/UNKNOWN. The user overrides with per-
+  investigation checkboxes before submit. Auto-detection MUST require
+  positive evidence (different lithology at overlapping depth) — never
+  guess absence from no data.
+* **Q3. Perpendicular-section auto-extension fallback.**
+  ``max(2 × buffer_m, 100 m)`` when no investigation is found on a
+  side. Ensures the companion section is always meaningful at
+  section-view scale even when the lens sits at the corridor edge.
+
+**Approach C scope (the build):**
+
+| Layer | Change |
+|---|---|
+| Schema | New ``litho_lens(id, project_id, model_id, parent_formation_id, name)``. ``formation_contact`` gets nullable ``lens_id`` FK. ``cross_section`` gets nullable ``companion_lens_id`` FK + ``is_lens_companion bool``. New join ``litho_lens_absence(lens_id, investigation_id, investigation_kind)``. |
+| Backend | ``CreateLithoLens(contacts[], absent_investigation_ids[])`` use case — creates lens, tags contacts, records absences. ``CreatePerpendicularCompanion(lens_id)`` use case — computes perpendicular bearing through the lens centroid, auto-extends per Q3 fallback, creates the section, links via ``companion_lens_id``. ``ExtrapolatePinchOut`` extended to accept optional ``lens_id`` so wedge tips inherit lens identity. |
+| Frontend | Right-click menu item on a litho unit: **"Mark as lens"** → dialog with the corridor's investigations + pre-populated absence checkboxes (Q2) + lens name field. Submit → POST lens + offer to auto-create the perpendicular companion. Sections marked ``is_lens_companion=true`` get a small badge in the header so the user knows their origin. |
+| TIN | Untouched in this pass — lens contacts contribute to the parent formation's surface as today. Lens-aware TIN math (closed body geometry) stays Phase 5. |
+| Export | Untouched. DXF / Plaxis still emit lens as a continuous formation that pinches via wedges — engineering-defensible, not geologically airtight. Lens-aware export is Phase 5. |
+| Rendering | Polygon-ribbon correlation (#121) becomes lens-aware: edges tagged with ``lens_id`` get stronger fill (~35% opacity) + dashed top/base boundary (signals "closed body"). Ribbon endpoints respect pinch-out tip contacts so a ribbon reaching an absent column thins to zero at the wedge tip. |
+| Bundle | ``litho_lenses[]`` + ``litho_lens_absences[]`` arrays in ``.gmproj`` v3. ``companion_lens_id`` on every section; ``lens_id`` on every contact. Additive — opens cleanly in builds that ignore it (still in pre-ship amnesty window). |
+
+**What Approach C buys immediately.** Lens has identity; the
+perpendicular companion section is auto-created with the right
+geometry; pinch-outs are tagged with the lens; multiple distinct
+lenses of the same lithology don't collide; the bundle round-trips.
+
+**What it does NOT yet do.** Lens-aware closed-body TIN (Phase 5),
+lens-aware DXF/Plaxis export (Phase 5), cross-section lens correlation
+("lens A on section 1 = lens B on section 2 because they're the same
+3D body" — Phase 5 — until then the user manually correlates each
+lens body via the perpendicular companion).
+
+**Why blocking now.** Without lens support the litho model is a
+half-truth for any real BE/NL dataset. Every other litho-stage UX
+fix is downstream of the lens entity (the polygon-ribbon
+rendering, the body-hover, the section header chrome all want to
+know about lens identity).
+
+**When to revisit.** Now — this is the lead session-2026-05-24
+blocker. Sequence: #118 (pinch-out for Litho — half day) → this
+(~5–7 days) → #119 / #120 / #121 / #122 in any order.
 
 ## 102. Merge button for a same-lithology boundary (Tier G — before the Geotech stage)
 
@@ -2256,4 +2307,180 @@ not 8 micro-commits.
 
 **When to revisit.** Any low-focus session — knock the batch out in one
 sitting.
+
+## 118. Wire pinch-out gesture for the Litho axis (Tier G — session 2026-05-24 blocker)
+
+**What.** `SectionsCanvas.tsx:984` gates `pinchOutGhostState` behind
+`if (isLitho || !activeGeologicalModel) return undefined`, so the
+right-click → "Extrapolate pinch-out…" gesture is unreachable on the
+Litho axis. Backend (`POST .../contacts/pinch-out`,
+`ExtrapolatePinchOut`) is formation-id-keyed and works fine for litho
+formations — only the frontend gate needs to flip. The
+target-formation derivation (next-older by `display_order`) already
+runs against `axisFormations` which is axis-swapped, so it should
+drop in unchanged.
+
+**Tests to add.** Litho ghost-preview → confirm → contact rows
+appear with `source='pinch_out_extrapolation'` on the litho model.
+When #101 lands, extend the test: pinch-out with `lens_id` carries
+the lens tag onto the synthetic contacts.
+
+**Why deferred.** Phase-4 carve-out — pinch-out was scoped to the
+geological model when shipped 2026-05-18. Dogfeed 2026-05-24
+surfaced that litho models genuinely require it (clay wedges, sand
+pinch-outs in fluvial-deltaic sequences are everywhere in BE/NL
+data) and #101's lens entity assumes pinch-out wedges can ride on
+litho contacts.
+
+**When to revisit.** First step of the session-2026-05-24 sequence.
+Prerequisite for #101. Half-day with tests.
+
+## 119. Litho segmenter: same-lithology auto-merge (Tier G — session 2026-05-24 blocker)
+
+**What.** `segment_cpt` in `litho_segmentation.py` currently splits
+on every Robertson SBT zone integer change. Zones 5/6/7/8 all map to
+ZAND via `ROBERTSON_ST_TO_LITHOLOGY`, so a uniform sand column gets
+stacked Z6 ZAND → Z7 ZAND → Z8 ZAND layers (one per density step).
+Add a post-pass after the greedy-merge step that collapses adjacent
+runs of the same `suggested_lithology` into one suggestion. The
+merged layer's `mean_qc_mpa` and `dr_pct` become thickness-weighted
+aggregates; `suggested_nad_class` becomes the dominant class by
+thickness. Real lithology transitions (ZAND → KLEI) keep their
+boundary.
+
+**Reverses** the 2026-05-20 owner directive ("we accept the
+over-split shape in the litho stage… no auto-merge of adjacent
+same-lithology layers"). New directive (owner 2026-05-24): **no
+AUTO segmentation based on packing density**. The user's manual
+Split gesture (`utils/lithoLayerSplit.ts`) is unchanged and still
+creates same-lithology sub-units when the engineer wants them — the
+over-split shape is accepted **only if user-picked**.
+
+**Implications for the MVP gate.** CLAUDE.md's MVP gate step 4 lists
+per-unit Ic / Dr / NAD class / γ-estimate as litho-stage outputs.
+After this change those indicators MOVE from litho to geotech (the
+geotech stage runs its own segmentation pass with a density-aware
+merge rule). CLAUDE.md needs the corresponding edit when this lands:
+litho = lithology only; density goes with geotech. Litho inspector
+still shows AGGREGATE Dr/NAD on the unit for context.
+
+**Migration.** Already-accepted litho contacts in existing projects
+are unaffected — change is to the suggest path, not the persisted
+shape.
+
+**Why deferred.** Architectural reversal — needed sign-off + the
+user-pick-still-allowed nuance.
+
+**When to revisit.** Session 2026-05-24 declared this a litho-stage
+prerequisite. Half-day + bench update.
+
+## 120. Section band-rect extends past investigation depth (Tier G — bug)
+
+**What.** `CorrelationEdgesOverlay.tsx:217-220`'s `buildBandMap`
+falls back to `plotBottomLevel` for the deepest formation's
+`botLevel`:
+
+```typescript
+const botLevel =
+  i + 1 < sorted.length
+    ? surface - sorted[i + 1].depth_top_m
+    : plotBottomLevel   // ← runs to the section's bottom, not the test's
+```
+
+so the click-target rectangle (and any future fill / outline) extends
+to the bottom of the entire section view, not to the bottom of the
+actual CPT/borehole. Visible as the blue dashed selection rectangle
+in Correlate mode extending well below the data column (dogfeed
+2026-05-24, image 4 showed clay band's blue outline going ~5 m past
+the test bottom on every column).
+
+**Fix shape.** Thread per-investigation `maxDepthM` into
+`buildBandMap` (already available on the section's column projection
+shape) and use `surface - maxDepthM` for the deepest band's
+`botLevel`. ~30-line diff plus a regression test (pick an
+investigation with a deepest formation; assert the band closes at
+the data bottom, not at `plotBottomLevel`).
+
+**Why deferred.** Same-day fix; queued with the session batch so
+the lens/correlate UX renders correctly on first commit.
+
+**When to revisit.** Session 2026-05-24 batch. Trivial.
+
+## 121. Correlation rendering: polygon ribbon, lens-aware (Tier G — session 2026-05-24 blocker)
+
+**What.** `CorrelationEdgesOverlay.tsx:1104-1113` renders a
+committed correlation edge as a **single dashed line** at
+band-midpoint. Replace with a **filled quadrilateral** spanning
+`(xA, top_A) → (xB, top_B) → (xB, base_B) → (xA, base_A)` per edge,
+coloured with the lithology hue at ~25% opacity. When 3+ columns
+share a `body_ordinal`, render ONE continuous ribbon through them
+all (not three separate quads — overlapping fills at chained
+columns are ugly). Group edges by body ordinal and emit a
+polyline-style ribbon per body.
+
+**Lens-aware composition.** Edges/ribbons tagged with `lens_id`
+(from #101) get stronger fill (~35% opacity) + a dashed top/base
+boundary — visually signals "closed body, not continuous formation".
+The ribbon endpoints respect pinch-out tip contacts (from #118 +
+#101's lens-absent semantics): a ribbon reaching an absent column
+thins to zero at the wedge tip, not at the column itself.
+
+**Why deferred.** Real new UI work, ~1 day with tests. Depends on
+#101 for lens-awareness — non-lens version could ship first then
+upgrade, but cleaner to land the lens dependencies first.
+
+**When to revisit.** After #118 + #101.
+
+## 122. Correlation edge opacity fade + body-hover spike (Tier G — session 2026-05-24)
+
+**What.** Committed correlation edges render at full opacity today,
+producing visual noise when N×M layers × columns. Dogfeed
+2026-05-24 reported "too many suggestion lines" for what is
+actually a fully-committed correlation set (not suggestions). Drop
+default opacity to ~20%; spike to ~80% on body-hover (the chip-hover
+halo already does this for the body's chips — extend the gate to the
+body's edges/ribbons). Optionally hide edges entirely when zoomed
+out below a threshold (e.g. section length > 500 m per 100 px).
+
+**Why deferred.** Polish; smaller scope than the architectural
+items. Natural to land alongside #121 since both touch the
+rendering pass.
+
+**When to revisit.** After #121; same rendering pass absorbs the
+opacity logic.
+
+## 123. Correlation suggestion bug: clay → silt cross-lithology pair (Tier G — needs reproduction)
+
+**What.** Dogfeed 2026-05-24 user-reported: at least one committed
+correlation edge connects a KLEI unit on one column to a SILT unit
+on another, despite `correlate_litho_units.py:145` rejecting
+cross-lithology pairs at the server. Hypotheses:
+
+* (a) Frontend bypassed the validator on a specific gesture path
+  (e.g. drag-from-ghost-edge variant — see #82) and posted a
+  cross-lithology pair the server accepted because the frontend
+  signalled OK before the body validator ran.
+* (b) A formation's `litho_main_soil_code` was set wrong at
+  creation (e.g. via "Mark as lens" or a bulk-rename action),
+  making two formations that *display* as different lithologies
+  actually share the same `litho_main_soil_code` and pass the
+  server check.
+* (c) The chip/band rendering uses a different `formation_id` than
+  the edge data references (visual mismatch only — no real
+  cross-lithology edge in DB).
+
+**Diagnosis path.** Query the `litho_correlation_edge` table for
+the user's project and join through both endpoints'
+`geological_formation` to detect any pair with mismatched
+`litho_main_soil_code`. If a real cross-lithology edge exists,
+trace the create path; if not, the bug is in the renderer.
+
+**Why deferred.** Cannot diagnose blind — needs a specific
+reproduction point in the user's project. Owner asked to file it as
+debt with the others; expected to be re-opened with a screenshot
+zoom or column-name pair.
+
+**When to revisit.** Owner provides a reproduction. Otherwise pick
+up at the end of the session-2026-05-24 batch as a sweep —
+diagnostic SQL across the dogfeed project is cheap.
 
