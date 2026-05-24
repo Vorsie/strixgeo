@@ -2846,50 +2846,102 @@ inference engine actually pay off in practice — without
 auto-correlate, the user still has to manually create every
 correlation edge before the engine sees anything to work with.
 
-**Algorithm (v1.0).**
+**Algorithm (v1.0) — bottom-up sweep with dip transfer.**
 
-* **Candidates.** For each pair of contacts (C_a on column A, C_b
-  on column B) where:
-  - A ≠ B (different investigations)
-  - C_a.formation_id == C_b.formation_id (NOT cross-formation —
-    the resolver already groups by parent_formation_id +
-    litho_main_soil_code, and auto-correlate filters at
-    candidate-generation time)
-  - Euclidean distance between A and B < ``max_distance_m``
-    (default 500m, configurable per-project)
-  - ``|depth_top_m diff| < threshold_m``, where
-    ``threshold_m = base_threshold_m + distance_factor *
-    column_distance_m`` (defaults: 2.0 + 0.01 × d, so 5m apart
-    → ~2.05m window, 500m apart → ~7m window)
-* **Disambiguation — mutual nearest neighbour.** A column-pair
-  (A, B) may have multiple candidates within threshold. For each
-  C_a on A, find the closest C_b on B by depth; for each C_b on
-  B, find the closest C_a on A; correlate ONLY when they are each
-  other's mutual nearest. Drops the many-to-many fan-out cleanly.
-* **Idempotency.** Add ``source`` enum to ``litho_correlation_edge``
-  (``'manual' | 'auto'``). Re-running auto-correlate is additive
-  on non-existing pairs only — never overwrites manual edges.
-  Deleted auto-edges DO get recreated on re-run for v1.0 (no
-  per-edge suppress list yet); Phase 5 adds a "rejected by user"
-  flag so deletions stick.
-* **Provisional rendering.** ``source='auto'`` edges render
-  dashed/~40% opacity (same treatment as ``source='inferred'``
-  absences from #101 Position 4). User confirms → promote to
-  ``'manual'``, edges render solid/~70%.
+Owner refinement 2026-05-24: process formations in stratigraphic
+order from deepest (lowest ``display_order`` = oldest = Tertiary
+in Flanders) to shallowest (Quaternary). Deep formations correlate
+cleanly because Tertiary marine deposits in the BE/NL window are
+laterally extensive, subhorizontal, and sharply-contrasting
+lithologies. Each formation's accepted edges feed a per-column-pair
+dip estimate that **predicts the centre of the next-shallower
+formation's candidate window** — so by the time the algorithm
+reaches the Quaternary (where lens-prone shallow geology produces
+wild variability), the search window is centred at the geologically-
+expected depth rather than naïvely "same depth at A as at B".
+
+The compounding effect: false positives drop sharply on the
+Quaternary because the dip baseline is already calibrated from the
+Tertiary above. Matches how a geotech engineer correlates by hand —
+deep markers first, then work up.
+
+Algorithm:
+
+```
+sort formations by display_order ASC  (oldest/deepest first)
+estimated_dip = {}  per column-pair
+
+for F in formations:
+    for (A, B) in all column pairs within max_distance_m:
+        # Predict where F's contact at B should be given A's
+        if estimated_dip[(A, B)] is set:
+            predicted_b_depth = contact_a.depth + dip * dist(A, B)
+        else:
+            predicted_b_depth = contact_a.depth  (naïve fallback)
+
+        window = base_threshold + distance_factor * dist(A, B)
+        candidates = {
+            (C_a, C_b) on (A, B) :
+                C_a.formation_id == C_b.formation_id == F.id
+                AND |C_b.depth - predicted_b_depth| < window
+        }
+
+        edges += mutual_nearest_neighbour(candidates)
+
+        # Update dip from accumulated correlated pairs on (A, B).
+        # robust_slope_fit = Theil-Sen / median-of-pairs (NOT OLS) —
+        # one shallow outlier mustn't contaminate the Tertiary baseline.
+        estimated_dip[(A, B)] = robust_slope_fit(edges_between(A, B))
+```
+
+Defaults: ``base_threshold_m = 2.0``, ``distance_factor = 0.01`` (so
+5m apart → ~2.05m window, 500m → ~7m window), ``max_distance_m =
+500`` (configurable per-project).
+
+**Same-formation constraint.** Auto-correlate operates strictly
+within a single formation per loop iteration — the resolver already
+groups by ``(parent_formation_id, litho_main_soil_code)`` so cross-
+formation edges would be rejected by the use case anyway. Filtering
+at candidate generation avoids wasted candidate computation.
+
+**Disambiguation — mutual nearest neighbour.** A column-pair
+(A, B) may have multiple candidates within threshold within a
+single formation (e.g. two thin sand layers at A correlate-able
+with two at B). For each C_a, find the closest C_b by predicted-
+depth-residual; for each C_b, find the closest C_a; correlate ONLY
+when they are each other's mutual nearest. Drops the many-to-many
+fan-out cleanly.
+
+**Idempotency.** Add ``source`` enum to ``litho_correlation_edge``
+(``'manual' | 'auto'``). Re-running auto-correlate is additive on
+non-existing pairs only — never overwrites manual edges. Deleted
+auto-edges DO get recreated on re-run for v1.0 (no per-edge
+suppress list yet); Phase 5 adds a "rejected by user" flag so
+deletions stick.
+
+**Provisional rendering.** ``source='auto'`` edges render
+dashed/~40% opacity (same treatment as ``source='inferred'``
+absences from #101 Position 4). User confirms → promote to
+``'manual'``, edges render solid/~70%.
 
 **Refinements deferred to Phase 5.**
 
-* **Dip-predicted threshold.** Estimate regional dip from
-  already-correlated pairs; replace linear distance threshold
-  with dip-prediction + ±deviation. More geologically sound but
-  needs a bootstrap pass.
+* **Cross-formation dip-transfer guard.** v1.0's bottom-up sweep
+  assumes subparallel surfaces between adjacent formations (true
+  in Flanders Cenozoic — Boom Klei dips at roughly the same
+  angle as Diest Sand above it). Angular unconformities (BE-
+  Limburg Pre-Tertiary / Tertiary contact, some southern-Dutch
+  outcrops) violate this; the dip transferred forward from below
+  is wrong above the unconformity. Phase 5 detects the
+  discontinuity (large per-column-pair dip jump between adjacent
+  formations) and resets the dip estimator at the unconformity.
 * **Stratigraphic ordering constraints.** Reject correlation
   pairs whose connected component would imply layer inversion
   (ZAND-on-CLAY at A vs CLAY-on-ZAND at B for the same bodies).
 * **Per-formation override of thresholds.** Some formations (peat
   drapes, thin clay markers) need tighter windows than thick
-  sand units. v1.0 has one global threshold; Phase 5 allows
-  per-formation overrides.
+  sand units. v1.0 has one global threshold + dip-predicted
+  centre; Phase 5 allows per-formation window overrides.
 * **User-rejected edge suppress list.** When the user deletes an
   auto edge, remember and don't re-propose it on the next run.
 
@@ -2911,11 +2963,22 @@ Position 4's inference engine fires off correlation-edge
 mutations. Auto-correlate creates those mutations. Zero conflict
 with the running refactor; this slice is additive on top.
 
-**Estimated cost.** ~1.5 days post-#101 Position 4:
+**Estimated cost.** ~2 days post-#101 Position 4 (was 1.5 — the
+bottom-up sweep + dip estimator adds ~half a day for the loop
+refactor + the Theil-Sen / robust-slope fit + tests covering dip
+transfer accuracy and degenerate column-pairs):
 * Pure domain service ``auto_correlate_litho_bodies(contacts,
-  investigations, params) → list[CorrelationEdge]`` with heavy
-  unit tests (~20 cases covering threshold scaling, mutual-NN
-  tie-breaking, same-formation filter, idempotency, edge cases)
+  formations, investigations, params) → list[CorrelationEdge]``
+  iterating formations in ``display_order`` ASC with per-column-
+  pair dip state accumulated across the loop
+* Pure domain helper ``robust_slope_fit`` — Theil-Sen / median-
+  of-pairs (NOT OLS) so a single shallow outlier can't poison
+  the Tertiary-baseline dip
+* Heavy unit tests (~25 cases): threshold scaling, mutual-NN
+  tie-breaking, same-formation filter, idempotency, edge cases,
+  **dip transfer between formations (Tertiary→Quaternary)**,
+  degenerate column-pairs with no shared formations, outlier
+  resistance in the dip estimator
 * Constants in sibling ``auto_correlate_constants.py``
 * Application use case + POST endpoint + frontend client method
 * Settings entry for the thresholds (fits the existing Settings
