@@ -16,8 +16,7 @@ No DB or network I/O — session and repository are AsyncMock.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
@@ -127,9 +126,6 @@ async def test_formation_not_in_project_raises() -> None:
     other_project = UUID("00000000-0000-0000-0000-000000000099")
 
     def _get(cls, pk):  # noqa: ANN001
-        if cls == type(None):
-            return None
-        # Return model in correct project, but fa in wrong project.
         from groundmodel.infrastructure.db.models.geological_formation_orm import (
             GeologicalFormationOrm,
         )
@@ -219,7 +215,6 @@ async def test_canonical_ordering_enforced() -> None:
 
     session = AsyncMock()
 
-    from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
     from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 
     def _get(cls, pk):  # noqa: ANN001
@@ -234,8 +229,10 @@ async def test_canonical_ordering_enforced() -> None:
     # Resolver: no formations loaded (simplify — we test canonical ordering, not resolver).
     empty = _scalars_result([])
 
-    # existence-check + run_resolver's (formations, depth GROUP BY, edges).
-    execute_results = [no_edge, empty, empty, empty]
+    # existence-check + run_resolver's (formations, depth GROUP BY, edges)
+    # + inference trigger: 2 × _load_project_sections (one per formation,
+    # returns [] → early return from RecomputeFormationAbsencesForFormation).
+    execute_results = [no_edge, empty, empty, empty, empty, empty]
     session.execute = AsyncMock(side_effect=execute_results)
     session.flush = AsyncMock()
     session.commit = AsyncMock()
@@ -269,7 +266,6 @@ async def test_idempotent_existing_edge_returns_false() -> None:
 
     session = AsyncMock()
 
-    from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
     from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 
     def _get(cls, pk):  # noqa: ANN001
