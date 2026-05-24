@@ -685,3 +685,64 @@ async def test_r7_uncorrelate_reruns_inference_without_error(
     # All remaining rows must have a valid source.
     for row in all_rows:
         assert row.source in ("inferred", "manual", "observed")
+
+
+async def test_r7_idempotent_correlate_repairs_stale_absences(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    r7_project: ProjectOrm,
+) -> None:
+    """Re-calling correlate on an existing edge repairs a stale absence table.
+
+    Regression for Blocker 3 fix-up 2: the original idempotent-edge path
+    returned early before running inference, so a transient failure that left
+    the absence table inconsistent was never repaired on retry.
+
+    Contract: after calling correlate twice with the same pair, the absence
+    count for FA is stable AND inference ran on the second call (verified by
+    artificially deleting the inferred row before the second call and
+    confirming it is restored afterwards).
+    """
+    from sqlalchemy import delete as sa_delete
+
+    stack = await _r7_stack(async_client, db_session, r7_project)
+    mid = stack["litho_model_id"]
+    fa_id = stack["fa_id"]
+    fb_id = stack["fb_id"]
+
+    # First call — creates the edge and writes the inferred absence.
+    resp1 = await async_client.post(
+        f"/projects/{r7_project.id}/geology/models/{mid}/correlations",
+        json={"formation_a_id": fa_id, "formation_b_id": fb_id},
+    )
+    assert resp1.status_code == 201, resp1.text
+    count_after_first = await _count_inferred_absences(db_session, fa_id)
+    assert count_after_first >= 1, (
+        f"Expected ≥1 inferred absence for FA after first correlate, got {count_after_first}"
+    )
+
+    # Simulate a transient failure: manually delete the inferred absence rows
+    # so the absence table is now stale.
+    await db_session.execute(
+        sa_delete(FormationAbsenceOrm).where(
+            FormationAbsenceOrm.formation_id == fa_id,
+            FormationAbsenceOrm.source == "inferred",
+        )
+    )
+    await db_session.commit()
+    assert await _count_inferred_absences(db_session, fa_id) == 0, (
+        "Absence rows should be gone after manual delete (precondition for the re-call test)"
+    )
+
+    # Second call — edge already exists (idempotent), but inference must
+    # re-run and restore the stale absence rows.
+    resp2 = await async_client.post(
+        f"/projects/{r7_project.id}/geology/models/{mid}/correlations",
+        json={"formation_a_id": fa_id, "formation_b_id": fb_id},
+    )
+    assert resp2.status_code == 200, resp2.text  # idempotent → 200
+    count_after_second = await _count_inferred_absences(db_session, fa_id)
+    assert count_after_second >= 1, (
+        f"Expected inference to repair absence rows on idempotent re-call; "
+        f"got {count_after_second} rows after second correlate"
+    )
