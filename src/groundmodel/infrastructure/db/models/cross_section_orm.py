@@ -6,12 +6,16 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, Double, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Double, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from groundmodel.infrastructure.db.base import Base
+
+# String FK reference to litho_lens — avoids a circular import since
+# litho_lens_orm also references cross_section via primary_section_id.
+_LITHO_LENS_TABLE = "litho_lens"
 
 
 class CrossSectionOrm(Base):
@@ -103,6 +107,27 @@ class CrossSectionOrm(Base):
     # so existing rows from before the column landed read as None;
     # frontend defaults apply via ``readCptChannels`` and similar.
     view_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True, default=None)
+
+    # Lens companion linkage (Slice 4 of debt #101).
+    # When set, this section was auto-created as the perpendicular companion
+    # for the referenced lens.  FK is ON DELETE SET NULL so deleting a lens
+    # reverts the section to a plain user section rather than cascading the
+    # delete.
+    companion_lens_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey(f"{_LITHO_LENS_TABLE}.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Stays True even after companion_lens_id is nulled by a lens deletion.
+    # The UI uses this flag to show a "was a lens companion" badge without a
+    # separate query.  Defaults False so all existing sections are unaffected.
+    is_lens_companion: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
