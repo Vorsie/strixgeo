@@ -27,7 +27,6 @@ import { Loader2, Route } from 'lucide-react'
 import { api } from '../../../api/client'
 import type {
   AdmixtureItem,
-  CreateLithoLensResponse,
   LithoCorrelationEdge,
 } from '../../../api/client'
 import type { CorrelateGestureState } from '../../../components/sections/CorrelationEdgesOverlay'
@@ -209,36 +208,6 @@ export default function SectionsCanvas(): JSX.Element {
       setCtaCreating(false)
     }
   }
-
-  // After a lens is successfully created, apply the updated section (so the
-  // synthetic contacts are visible immediately) and open the companion-offer
-  // dialog.  Wired as `onLensCreated` on SectionPanel.
-  const handleLensCreated = useCallback(
-    (result: CreateLithoLensResponse) => {
-      log.info(
-        '[SectionsCanvas] lens created:',
-        result.lens_id,
-        'synthetic_contacts:',
-        result.synthetic_contact_ids.length,
-        'skipped:',
-        result.skipped_absent_count,
-      )
-      // Apply the updated section so the seeded synthetic tips render
-      // immediately (the lens dialog already holds updated_section).
-      applyUpdatedSection(result.updated_section)
-      // Open the companion-offer dialog if we have an active litho model.
-      if (!activeLithoModel) return
-      setCompanionOffer({
-        lensId: result.lens_id,
-        // MarkAsLensDialog does not surface the lens name back through
-        // CreateLithoLensResponse — use null; the dialog copy gracefully
-        // omits the name when absent.
-        lensName: null,
-        modelId: activeLithoModel.id,
-      })
-    },
-    [activeLithoModel, applyUpdatedSection],
-  )
 
   // Resolve the currently-selected section object from the id + list.
   // Uses visibleSections (manifest-gated) — if a section is not saved it is
@@ -1188,14 +1157,7 @@ export default function SectionsCanvas(): JSX.Element {
         // section is on the lithostratigraphic axis.
         axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
         onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
-        // Blocker 4 fix (#101 reviewer): pass the active litho model id as a
-        // top-level prop so MarkAsLensDialog always has a valid UUID — even when
-        // the contacts array is empty (first lens on a freshly-accepted unit).
-        // The old contact-derivation fallback `contacts.find(...)?.model_id ?? ''`
-        // produced an empty string that the backend rejected.
         activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
-        // onLensCreated: only wired on the litho axis — handled below.
-        onLensCreated={isLitho ? handleLensCreated : undefined}
         // Slice 4 (#55): correlation edges + gesture state, litho axis only.
         // On the geological axis both props are undefined → CorrelationEdgesOverlay
         // is not mounted (no regression, no stale edge data).
