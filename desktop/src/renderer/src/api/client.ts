@@ -120,6 +120,12 @@ export interface ProjectBundleResponse {
   geological_models: Record<string, unknown>[]
   cross_sections: Record<string, unknown>[]
   investigation_reviews: Record<string, unknown>[]
+  /** Litho correlation edges (Phase 2). Absent in older bundles. */
+  litho_correlation_edges?: Record<string, unknown>[]
+  /** Litho lens entities (#101 Slice 7). Absent in older bundles. */
+  litho_lenses?: Record<string, unknown>[]
+  /** Absence records for litho lenses (#101 Slice 7). Absent in older bundles. */
+  litho_lens_absences?: Record<string, unknown>[]
 }
 
 // Investigation-review response — per-(project, investigation) row:
