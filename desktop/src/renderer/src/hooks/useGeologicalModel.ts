@@ -3297,12 +3297,16 @@ export function useGeologicalModel({
       try {
         // Pull the per-project segmenter prefs out of view_state (set
         // via File → Settings…). Falls back to defaults when unset.
+        // γunsat + Dr factor only ride along on the CPT path — the
+        // borehole segmenter ignores stress-derived parameters (no qc).
         const prefs = readLithoSegmenterPrefs(project.view_state)
         const body =
           anchorKind === 'cpt'
             ? {
                 cpt_id: anchorId,
                 minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
+                gunsat_kNm3: prefs.gunsatKNm3,
+                dr_compression_factor: prefs.drCompressionFactor,
               }
             : {
                 borehole_id: anchorId,
@@ -3773,6 +3777,8 @@ export function useGeologicalModel({
                 ? {
                     cpt_id: id,
                     minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
+                    gunsat_kNm3: prefs.gunsatKNm3,
+                    dr_compression_factor: prefs.drCompressionFactor,
                   }
                 : {
                     borehole_id: id,
