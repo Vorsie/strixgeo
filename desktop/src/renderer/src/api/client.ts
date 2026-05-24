@@ -122,10 +122,10 @@ export interface ProjectBundleResponse {
   investigation_reviews: Record<string, unknown>[]
   /** Litho correlation edges (Phase 2). Absent in older bundles. */
   litho_correlation_edges?: Record<string, unknown>[]
-  /** Litho lens entities (#101 Slice 7). Absent in older bundles. */
+  /** Litho lens metadata rows (Position 4). Absent in older bundles. */
   litho_lenses?: Record<string, unknown>[]
-  /** Absence records for litho lenses (#101 Slice 7). Absent in older bundles. */
-  litho_lens_absences?: Record<string, unknown>[]
+  /** Formation absence records (Position 4). Absent in older bundles. */
+  formation_absences?: Record<string, unknown>[]
 }
 
 // Investigation-review response — per-(project, investigation) row:
@@ -235,35 +235,41 @@ export interface GeologicalFormationUpdatePayload {
   parent_formation_id?: string | null
 }
 
-// #101 Slice 3: litho lens entity — one absent-investigation record.
-export interface AbsentInvestigation {
-  kind: 'borehole' | 'cpt'
-  id: string
+// Position 4: request body for POST .../lenses (name/upsert a lens body).
+export interface NameLensBodyRequest {
+  formation_id: string
+  body_ordinal: number
+  name: string
+  primary_section_id?: string | null
 }
 
-// #101 Slice 3: request body for POST .../lenses.
-export interface CreateLithoLensRequest {
-  parent_formation_id: string
-  section_id: string
-  name?: string | null
-  present_contact_ids?: string[]
-  absent_investigations?: AbsentInvestigation[]
-}
-
-// #101 Slice 3: response from POST .../lenses.
-export interface CreateLithoLensResponse {
+// Position 4: response from POST .../lenses.
+export interface NameLensBodyResponse {
   lens_id: string
-  synthetic_contact_ids: string[]
-  skipped_absent_count: number
-  updated_section: CrossSectionResponse
+  was_created: boolean
 }
 
-// #101 Slice 6: lightweight list item from GET .../lenses.
+// Position 4: request body for POST .../formations/{id}/absences.
+export interface UpsertFormationAbsenceRequest {
+  investigation_id: string
+  investigation_kind: 'borehole' | 'cpt'
+  source: 'manual' | 'observed'
+}
+
+// Position 4: response from POST .../formations/{id}/absences.
+export interface UpsertFormationAbsenceResponse {
+  absence_id: string
+  was_created: boolean
+}
+
+// Position 4: lightweight list item from GET .../lenses.
+// A row is METADATA attached to a body identified by (formation_id, body_ordinal).
 export interface LithoLensListItem {
   id: string
   app_project_id: string
   model_id: string
-  parent_formation_id: string
+  formation_id: string
+  body_ordinal: number
   name: string | null
   primary_section_id: string | null
   created_at: string
@@ -2008,9 +2014,9 @@ export const api = {
         { formation_id: formationId, admixtures },
       ),
 
-    // --- Litho lens (#101 Slices 3–6) ----------------------------------------
+    // --- Litho lens (Position 4) ----------------------------------------------
     //
-    // List all lenses for a lithostratigraphic model (#101 Slice 6).
+    // List all named lens bodies for a lithostratigraphic model.
     // Used by LithologyInspector to build per-formation lens-count badges.
     listLenses: (
       projectId: string,
@@ -2018,21 +2024,18 @@ export const api = {
     ): Promise<LithoLensListItem[]> =>
       get(`/projects/${projectId}/geology/models/${modelId}/lenses`),
 
-    // Create a lens entity. Atomically: creates the lens row, records
-    // absence rows, tags present contacts with lens_id, computes wedge-tip
-    // synthetic contacts (section-local, no TIN required), and seeds them
-    // into section.seeded_formation_contact_ids. The caller MUST apply
-    // updated_section via applyUpdatedSection — explicit-content invariant.
-    createLens: (
+    // Upsert the human label for a lens body identified by
+    // (formation_id, body_ordinal).  Creates a LithoLensOrm row on first
+    // call; updates the name on subsequent calls.
+    nameLensBody: (
       projectId: string,
       modelId: string,
-      body: CreateLithoLensRequest,
-    ): Promise<CreateLithoLensResponse> =>
+      body: NameLensBodyRequest,
+    ): Promise<NameLensBodyResponse> =>
       post(`/projects/${projectId}/geology/models/${modelId}/lenses`, body),
 
-    // Delete a lens. Removes the lens row (CASCADE evaporates absence
-    // records) and explicitly deletes its owned synthetic contacts.
-    // Anchored contacts (borehole/CPT-tagged) survive with lens_id cleared.
+    // Delete a lens metadata row.  Does NOT delete absence records —
+    // they are formation-scoped and survive independently.
     deleteLens: async (
       projectId: string,
       modelId: string,
@@ -2045,6 +2048,32 @@ export const api = {
         throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
       }
     },
+
+    // Record a user-intent absence for a formation at a specific
+    // investigation (source='manual'|'observed').  The inference engine
+    // owns 'inferred' rows; this endpoint only accepts user-intent sources.
+    upsertFormationAbsence: (
+      projectId: string,
+      formationId: string,
+      body: UpsertFormationAbsenceRequest,
+    ): Promise<UpsertFormationAbsenceResponse> =>
+      post(
+        `/projects/${projectId}/geology/formations/${formationId}/absences`,
+        body,
+      ),
+
+    // Trigger inference-engine recompute for one formation body.
+    // Writes/retracts 'inferred' absence rows; never touches
+    // 'manual'|'observed' rows.
+    recomputeFormationAbsences: (
+      projectId: string,
+      modelId: string,
+      formationId: string,
+    ): Promise<{ written_count: number; retracted_count: number; skipped_no_data_count: number }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/formations/${formationId}/absences/recompute`,
+        {},
+      ),
 
     // Auto-create a perpendicular companion section for a lens (#101 Slice 4).
     // Idempotent: returns the existing companion section if one already exists.
