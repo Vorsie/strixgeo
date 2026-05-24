@@ -1913,10 +1913,47 @@ Lens entity, deferred TIN/export**:
 | Rendering | Polygon-ribbon correlation (#121) becomes lens-aware: edges tagged with ``lens_id`` get stronger fill (~35% opacity) + dashed top/base boundary (signals "closed body"). Ribbon endpoints respect pinch-out tip contacts so a ribbon reaching an absent column thins to zero at the wedge tip. |
 | Bundle | ``litho_lenses[]`` + ``litho_lens_absences[]`` arrays in ``.gmproj`` v3. ``companion_lens_id`` on every section; ``lens_id`` on every contact. Additive — opens cleanly in builds that ignore it (still in pre-ship amnesty window). |
 
+**Pre-build pinch-outs as ghost contacts (owner, 2026-05-24 dogfeed).**
+The `ExtrapolatePinchOut` use case today requires both formations'
+**built TIN surfaces** (`slice_tin` along the section line on both),
+so the pinch-out gesture is reachable only after the user has built
+a 3D model. The user's workflow is the opposite: accept litho per
+test → correlate → mark pinch-outs → THEN build. We bridge this by
+making the lens entity's absence semantics double as a **deferred-
+resolve pinch-out**:
+
+* "Mark as lens" with an absent investigation = "this body
+  pinches out somewhere between the present columns and this
+  one" — an INTENT, not a precise geometry.
+* The lens row stores absences; no `synthetic_x/y/elevation` is
+  computed yet. A **ghost** `FormationContact` is committed with
+  all three synthetic-* fields `NULL`, tagged with `lens_id`,
+  source = `pinch_out_extrapolation`, confidence = `low`.
+* Section renderer shows the ghost as a faded wedge approximation
+  using section-local interpolation between the nearest present
+  contacts on the section line (so the user sees the intent
+  visually pre-build).
+* **Build 3D model** is the resolver: when `compute_tin` runs and
+  both formations now have surfaces, the build pass calls a new
+  `resolve_ghost_pinch_outs(lens_id)` that fills in
+  `synthetic_x/y/elevation` per the existing
+  `ExtrapolatePinchOut` math. Already-resolved ghosts (non-null
+  synthetics) are skipped; rebuilds re-resolve only stale ones.
+
+This keeps the math single-source-of-truth (TIN-based, deterministic
+dip-extrapolation-to-crossing) while removing the build-first
+prerequisite from the user-facing gesture. The interim disabled-
+state on `Extrapolate pinch-out…` (per-formation gate landed
+post-#118) stays as the bandage for users who haven't marked the
+unit as a lens yet — clicking still requires a TIN. Marking a lens
+becomes the affordance for pre-build pinch-outs.
+
 **What Approach C buys immediately.** Lens has identity; the
 perpendicular companion section is auto-created with the right
 geometry; pinch-outs are tagged with the lens; multiple distinct
-lenses of the same lithology don't collide; the bundle round-trips.
+lenses of the same lithology don't collide; ghost pinch-outs
+during correlation defer their precise tip math to build time;
+the bundle round-trips.
 
 **What it does NOT yet do.** Lens-aware closed-body TIN (Phase 5),
 lens-aware DXF/Plaxis export (Phase 5), cross-section lens correlation
