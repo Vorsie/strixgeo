@@ -102,4 +102,8 @@ contextBridge.exposeInMainWorld('electron', {
   // the menu item itself.
   onMenuEditUndo: (cb: () => void) => onMenuEvent('menu:edit-undo', cb),
   onMenuEditRedo: (cb: () => void) => onMenuEvent('menu:edit-redo', cb),
+
+  // App-level Settings dialog (File → Settings…). Same one-way fire as
+  // every other menu signal — the renderer owns the dialog state.
+  onMenuOpenSettings: (cb: () => void) => onMenuEvent('menu:open-settings', cb),
 })
