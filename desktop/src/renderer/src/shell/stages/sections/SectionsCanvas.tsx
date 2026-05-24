@@ -25,8 +25,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Route } from 'lucide-react'
 
 import { api } from '../../../api/client'
-import type { AdmixtureItem, LithoCorrelationEdge } from '../../../api/client'
+import type {
+  AdmixtureItem,
+  CreateLithoLensResponse,
+  LithoCorrelationEdge,
+} from '../../../api/client'
 import type { CorrelateGestureState } from '../../../components/sections/CorrelationEdgesOverlay'
+import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import { useShell } from '../../ShellContext'
 import SectionPanel from '../../../components/SectionPanel'
 import type { ContactCopyPayload } from '../../../components/sections/ContactsLayer'
@@ -120,6 +125,8 @@ export default function SectionsCanvas(): JSX.Element {
       handleSelectSection,
       handleCreateSection,
       applyUpdatedSection,
+      refreshSectionList,
+      handleSectionCreated,
       backdropModelIdOverride,
       setSectionFocusedColumn,
       correlateMode,
@@ -174,6 +181,15 @@ export default function SectionsCanvas(): JSX.Element {
   // to the Sections stage) so new users always see the prompt.
   const [ctaDismissed, setCtaDismissed] = useState(false)
 
+  // Companion-offer dialog state — opened after a lens is created (Blocker 1,
+  // owner directive 2026-05-22: "pop up an offer to auto-create a perpendicular
+  // cross-section").  Null when the dialog is not open.
+  const [companionOffer, setCompanionOffer] = useState<{
+    lensId: string
+    lensName: string | null
+    modelId: string
+  } | null>(null)
+
   // Sections need a projected METRIC horizontal CRS — same gate as the
   // toolbar (debt #31). Degrees (EPSG:4326) would silently produce
   // garbage along-section geometry, so gate on the supported-CRS
@@ -193,6 +209,36 @@ export default function SectionsCanvas(): JSX.Element {
       setCtaCreating(false)
     }
   }
+
+  // After a lens is successfully created, apply the updated section (so the
+  // synthetic contacts are visible immediately) and open the companion-offer
+  // dialog.  Wired as `onLensCreated` on SectionPanel.
+  const handleLensCreated = useCallback(
+    (result: CreateLithoLensResponse) => {
+      log.info(
+        '[SectionsCanvas] lens created:',
+        result.lens_id,
+        'synthetic_contacts:',
+        result.synthetic_contact_ids.length,
+        'skipped:',
+        result.skipped_absent_count,
+      )
+      // Apply the updated section so the seeded synthetic tips render
+      // immediately (the lens dialog already holds updated_section).
+      applyUpdatedSection(result.updated_section)
+      // Open the companion-offer dialog if we have an active litho model.
+      if (!activeLithoModel) return
+      setCompanionOffer({
+        lensId: result.lens_id,
+        // MarkAsLensDialog does not surface the lens name back through
+        // CreateLithoLensResponse — use null; the dialog copy gracefully
+        // omits the name when absent.
+        lensName: null,
+        modelId: activeLithoModel.id,
+      })
+    },
+    [activeLithoModel, applyUpdatedSection],
+  )
 
   // Resolve the currently-selected section object from the id + list.
   // Uses visibleSections (manifest-gated) — if a section is not saved it is
@@ -1142,6 +1188,14 @@ export default function SectionsCanvas(): JSX.Element {
         // section is on the lithostratigraphic axis.
         axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
         onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
+        // Blocker 4 fix (#101 reviewer): pass the active litho model id as a
+        // top-level prop so MarkAsLensDialog always has a valid UUID — even when
+        // the contacts array is empty (first lens on a freshly-accepted unit).
+        // The old contact-derivation fallback `contacts.find(...)?.model_id ?? ''`
+        // produced an empty string that the backend rejected.
+        activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
+        // onLensCreated: only wired on the litho axis — handled below.
+        onLensCreated={isLitho ? handleLensCreated : undefined}
         // Slice 4 (#55): correlation edges + gesture state, litho axis only.
         // On the geological axis both props are undefined → CorrelationEdgesOverlay
         // is not mounted (no regression, no stale edge data).
@@ -1204,6 +1258,28 @@ export default function SectionsCanvas(): JSX.Element {
           lets the user click "New cross-section" without fighting the
           map's pan/zoom handlers. Hides automatically once a section
           exists or once the user draws / imports. */}
+      {/* Companion-offer dialog — opened after lens creation.  Mounted at
+          the SectionsCanvas level so it persists across SectionPanel re-renders
+          and can refresh the section list + navigate to the new section. */}
+      {companionOffer !== null && project !== null && (
+        <CompanionOfferDialog
+          open={companionOffer !== null}
+          projectId={project.id}
+          modelId={companionOffer.modelId}
+          lensId={companionOffer.lensId}
+          lensName={companionOffer.lensName}
+          onSectionCreated={async (sectionId: string) => {
+            // Refresh the section list so the new companion appears in the
+            // sidebar and is selectable.  Then navigate to it and toast.
+            await refreshSectionList()
+            handleSectionCreated(sectionId)
+            handleSelectSection(sectionId)
+            toast('success', 'Perpendicular section created.')
+          }}
+          onClose={() => setCompanionOffer(null)}
+        />
+      )}
+
       {showCta && (
         <div className="absolute inset-0 flex items-end justify-center pb-12 pointer-events-none z-[500]">
           <div
