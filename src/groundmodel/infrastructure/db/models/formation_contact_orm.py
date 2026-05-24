@@ -176,19 +176,6 @@ class FormationContactOrm(Base):
     confidence: Mapped[str] = mapped_column(String(10), nullable=False, default="medium")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Optional tag identifying this contact as belonging to a specific
-    # litho lens body (#101). NULL for the vast majority of contacts —
-    # only contacts that the user has marked as part of a lens carry
-    # this. ON DELETE SET NULL: the lens row is metadata over real
-    # contact geometry; deleting the lens does NOT silently delete the
-    # synthetic / anchored contacts. The DeleteLithoLens use case
-    # (Slice 3) explicitly removes synthetic-only contacts.
-    lens_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("litho_lens.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
