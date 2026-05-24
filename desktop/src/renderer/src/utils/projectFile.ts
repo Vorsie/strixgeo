@@ -71,15 +71,15 @@ export interface ProjectFileV3 {
    */
   litho_correlation_edges: Record<string, unknown>[]
   /**
-   * Litho lens entities (#101 Slice 7).
-   * Absent in files saved before Slice 7 shipped — normalised to [] on parse.
+   * Litho lens metadata rows (Position 4).
+   * Absent in files saved before this field shipped — normalised to [] on parse.
    */
   litho_lenses: Record<string, unknown>[]
   /**
-   * Absence records for litho lenses (#101 Slice 7).
-   * Absent in files saved before Slice 7 shipped — normalised to [] on parse.
+   * Formation absence records (Position 4).
+   * Absent in files saved before this field shipped — normalised to [] on parse.
    */
-  litho_lens_absences: Record<string, unknown>[]
+  formation_absences: Record<string, unknown>[]
   /**
    * Manual lumping map from the last successful Fill-from-boreholes confirm.
    * Null when no lumping has been applied to this project yet, or when the
@@ -111,7 +111,7 @@ export function buildProjectFile(
     investigation_reviews: bundle.investigation_reviews ?? [],
     litho_correlation_edges: bundle.litho_correlation_edges ?? [],
     litho_lenses: bundle.litho_lenses ?? [],
-    litho_lens_absences: bundle.litho_lens_absences ?? [],
+    formation_absences: bundle.formation_absences ?? [],
     // WHY parameter-not-bundle: the bundle response comes from GET /bundle
     // which has no knowledge of the lumping map (it lives client-side after
     // the Fill-from-boreholes confirm).  The caller passes the map explicitly
@@ -153,8 +153,8 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.litho_lenses === undefined) {
     candidate.litho_lenses = []
   }
-  if (candidate.litho_lens_absences === undefined) {
-    candidate.litho_lens_absences = []
+  if (candidate.formation_absences === undefined) {
+    candidate.formation_absences = []
   }
   // Normalise the optional lumping field: absent in older files → null.
   // WHY normalise-not-reject: this field is additive (backwards-compat
@@ -188,7 +188,7 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     // in parseProjectFile.
     (v.litho_correlation_edges === undefined || Array.isArray(v.litho_correlation_edges)) &&
     (v.litho_lenses === undefined || Array.isArray(v.litho_lenses)) &&
-    (v.litho_lens_absences === undefined || Array.isArray(v.litho_lens_absences)) &&
+    (v.formation_absences === undefined || Array.isArray(v.formation_absences)) &&
     // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
     // (pre-this-build files) or null (no lumping applied) or a
     // StratigraphyLumping object. Any other type → reject the file.
