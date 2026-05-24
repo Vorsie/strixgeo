@@ -1,4 +1,4 @@
-"""Geology API — litho-lens CRUD endpoints (#101 Slice 3).
+"""Geology API — litho-lens CRUD + perpendicular companion endpoints (#101 Slices 3–4).
 
 Mounted under the shared ``/projects/{project_id}/geology`` prefix by
 this package's ``__init__``; paths follow the existing contact pattern.
@@ -18,6 +18,7 @@ from groundmodel.api.schemas.project.litho_lens import (
     CreateLithoLensResponse,
 )
 from groundmodel.application.create_litho_lens import CreateLithoLens
+from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_litho_lens import DeleteLithoLens
 from groundmodel.domain.services.lens_pinch_out_geometry import LensPinchGeometryError
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -178,3 +179,83 @@ async def delete_litho_lens(
         model_id=model_id,
         lens_id=lens_id,
     )
+
+
+@router.post(
+    "/models/{model_id}/lenses/{lens_id}/perpendicular-companion",
+    response_model=CrossSectionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_perpendicular_companion(
+    project_id: UUID,
+    model_id: UUID,
+    lens_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> CrossSectionResponse:
+    """Auto-create a perpendicular companion cross-section for a litho lens.
+
+    Creates a new cross-section perpendicular to the primary section on
+    which the lens was defined, centred on the lens centroid.  The half-
+    lengths of the companion section are determined by the nearest
+    investigation on each side within ``_SEARCH_BUFFER_M``; when no
+    investigation is found on a side the fallback is
+    ``max(2 × primary_buffer_m, 100 m)``.
+
+    **Idempotent.** If the lens already has a companion section, the
+    existing section is returned with HTTP 201 (the ``already_existed``
+    flag is visible in the use-case result but not surfaced to the HTTP
+    caller — returning the companion section is always the useful action).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        Model scope guard.
+    lens_id : UUID
+        The lens to create a companion section for.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    CrossSectionResponse
+        The companion section (newly created or pre-existing).
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project, or when the lens
+        does not exist in the project/model scope.
+    HTTPException(422)
+        When ``primary_section_id`` is null on the lens (pre-Slice-4 lens
+        with no recorded primary section), or when the primary section has
+        been deleted.
+    """
+    # Model scope guard.
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+    )
+
+    # Lens scope guard.
+    lens = await session.get(LithoLensOrm, lens_id)
+    if lens is None or lens.app_project_id != project_id or lens.model_id != model_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "lens_not_found", "message": f"Lens {lens_id} not found."},
+        )
+
+    try:
+        result = await CreatePerpendicularCompanion(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            lens_id=lens_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "companion_error", "message": str(exc)},
+        ) from exc
+
+    return CrossSectionResponse.model_validate(result.companion_section)
