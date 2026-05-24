@@ -189,5 +189,11 @@ class CrossSectionResponse(BaseModel):
     # True if this section was ever a lens companion — stays True even
     # after the referenced lens is deleted (companion_lens_id → None).
     is_lens_companion: bool = False
+    # Human-readable lens name for the companion badge in the section
+    # header. Populated only by the perpendicular-companion endpoint
+    # (which has the lens loaded); all other callers leave it None.
+    # Not stored on the section row — resolved by the endpoint that
+    # creates or re-fetches the companion context.
+    companion_lens_name: str | None = None
     created_at: datetime
     updated_at: datetime
