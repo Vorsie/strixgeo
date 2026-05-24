@@ -28,6 +28,11 @@ import {
   readLithoSegmenterPrefs,
   type LithoSegmenterPrefs,
 } from './utils/lithoSegmenterPrefs'
+import {
+  buildSectionDefaultsPatch,
+  readSectionDefaults,
+  type SectionDefaults,
+} from './utils/sectionDefaults'
 import AppShell from './shell/AppShell'
 import type { ShellContextValue } from './shell/ShellContext'
 
@@ -119,11 +124,10 @@ export default function App() {
   const { ready, apiError } = useAppBoot()
 
   // Initialise the theme system. The hook itself owns the class on
-  // <html>; we don't need to consume ``resolved``/``setChoice`` until a
-  // theme-toggle UI lands (UX Conventions in CLAUDE.md flagged that as
-  // a future task — calling the hook here ensures system-preference
-  // tracking is active from app start).
-  useTheme()
+  // <html>. ``choice`` + ``setChoice`` feed the Settings dialog's
+  // Appearance section so the user can pin light/dark; absent that
+  // override, the hook tracks the OS preference live.
+  const { choice: themeChoice, setChoice: setThemeChoice } = useTheme()
 
   // Undo / redo for geological-model edits (debt #45). Each mutation
   // handler below pushes a Command after success; Ctrl+Z reverts,
@@ -803,7 +807,7 @@ export default function App() {
     [selectedSectionId, sections],
   )
 
-  // Settings dialog — initial values + submit handler must be declared
+  // Settings dialog — initial values + submit handlers must be declared
   // above the early-return ladder so the hook count stays stable across
   // the !project / project transition. The dialog itself mounts in
   // BOTH render branches (welcome + shell).
@@ -811,10 +815,19 @@ export default function App() {
     () => readLithoSegmenterPrefs(project?.view_state ?? null),
     [project],
   )
+  const initialSectionDefaults = useMemo(
+    () => readSectionDefaults(project?.view_state ?? null),
+    [project],
+  )
   const handleSettingsLithoSegmenterSubmit = useCallback(
     (next: LithoSegmenterPrefs) => {
       void applyViewStatePatch(buildLithoSegmenterPatch(next))
-      setSettingsOpen(false)
+    },
+    [applyViewStatePatch],
+  )
+  const handleSettingsSectionDefaultsSubmit = useCallback(
+    (next: SectionDefaults) => {
+      void applyViewStatePatch(buildSectionDefaultsPatch(next))
     },
     [applyViewStatePatch],
   )
@@ -915,14 +928,20 @@ export default function App() {
             if (created !== null) setNewProjectOpen(false)
           }}
         />
-        {/* File → Settings is reachable from the welcome screen too;
-            controls are disabled (no project to persist into). */}
+        {/* File → Settings is reachable from the welcome screen too.
+            Project-scoped sections are disabled (no project to persist
+            into); the Appearance section stays interactive because it
+            persists per-device via useTheme. */}
         <SettingsDialog
           open={settingsOpen}
-          initialLithoSegmenter={initialLithoSegmenterPrefs}
           hasProject={false}
+          initialLithoSegmenter={initialLithoSegmenterPrefs}
+          initialSectionDefaults={initialSectionDefaults}
+          themeChoice={themeChoice}
           onCancel={() => setSettingsOpen(false)}
           onSubmitLithoSegmenter={handleSettingsLithoSegmenterSubmit}
+          onSubmitSectionDefaults={handleSettingsSectionDefaultsSubmit}
+          onSetThemeChoice={setThemeChoice}
         />
       </>
     )
@@ -967,14 +986,19 @@ export default function App() {
         closeProject={closeProject}
       />
       {/* App-level Settings dialog. Lives outside AppDialogs because
-          it persists into ``project.view_state`` rather than through
-          the metadata draft path. */}
+          it persists into ``project.view_state`` (per-project sections)
+          and localStorage (Appearance) rather than through the metadata
+          draft path. */}
       <SettingsDialog
         open={settingsOpen}
-        initialLithoSegmenter={initialLithoSegmenterPrefs}
         hasProject={true}
+        initialLithoSegmenter={initialLithoSegmenterPrefs}
+        initialSectionDefaults={initialSectionDefaults}
+        themeChoice={themeChoice}
         onCancel={() => setSettingsOpen(false)}
         onSubmitLithoSegmenter={handleSettingsLithoSegmenterSubmit}
+        onSubmitSectionDefaults={handleSettingsSectionDefaultsSubmit}
+        onSetThemeChoice={setThemeChoice}
       />
     </>
   )
