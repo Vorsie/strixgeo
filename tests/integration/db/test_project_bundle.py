@@ -1296,3 +1296,142 @@ async def test_restore_caps_oversized_surface_tin_blobs(
     # Normal control surface in the same bundle: untouched.
     assert ok.vertices == [[4.0, 5.0, 6.0]]
     assert ok.is_stale is False
+
+
+# ---------------------------------------------------------------------------
+# Should-fix 3 — formation_absences round-trip (#101 fix-up 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_bundle_carries_formation_absences(db_session: AsyncSession) -> None:
+    """formation_absences rows survive build → wipe → restore.
+
+    Covers both source='inferred' (engine-emitted) and source='manual'
+    (user-confirmed) rows, and verifies both the shape of the serialised
+    dict and the in-DB values after restore.
+    """
+    from uuid6 import uuid7 as _u
+
+    from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+
+    source = await _make_source_project(db_session)
+
+    formation = GeologicalFormationOrm(
+        id=_u(),
+        app_project_id=source.id,
+        name="KLEI A",
+        color="#8b5cf6",
+        display_order=0,
+    )
+    db_session.add(formation)
+    await db_session.flush()
+
+    inv_inferred = _u()
+    inv_manual = _u()
+
+    absence_inferred = FormationAbsenceOrm(
+        id=_u(),
+        formation_id=formation.id,
+        investigation_id=inv_inferred,
+        investigation_kind="borehole",
+        source="inferred",
+    )
+    absence_manual = FormationAbsenceOrm(
+        id=_u(),
+        formation_id=formation.id,
+        investigation_id=inv_manual,
+        investigation_kind="cpt",
+        source="manual",
+    )
+    db_session.add_all([absence_inferred, absence_manual])
+    await db_session.commit()
+
+    original_inferred_id = absence_inferred.id
+    original_manual_id = absence_manual.id
+
+    # ---- Build -----------------------------------------------------------
+    bundle = await build_project_bundle(db_session, source)
+    assert "formation_absences" in bundle, "bundle must carry formation_absences key"
+    assert len(bundle["formation_absences"]) == 2
+
+    # Check that both source values are preserved verbatim in the bundle.
+    sources = {ab["source"] for ab in bundle["formation_absences"]}
+    assert sources == {"inferred", "manual"}, (
+        f"Expected {{'inferred', 'manual'}} in bundle formation_absences; got {sources}"
+    )
+    kinds = {ab["investigation_kind"] for ab in bundle["formation_absences"]}
+    assert kinds == {"borehole", "cpt"}
+
+    # ---- Wipe ------------------------------------------------------------
+    await db_session.execute(
+        delete(FormationAbsenceOrm).where(FormationAbsenceOrm.formation_id == formation.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore ---------------------------------------------------------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        formation_absences_payload=bundle["formation_absences"],
+    )
+    await db_session.commit()
+
+    restored = list(
+        (
+            await db_session.execute(
+                select(FormationAbsenceOrm).where(FormationAbsenceOrm.formation_id == formation.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(restored) == 2, f"Expected 2 restored absences; got {len(restored)}"
+
+    by_id = {r.id: r for r in restored}
+    assert original_inferred_id in by_id, "inferred absence must survive restore"
+    assert original_manual_id in by_id, "manual absence must survive restore"
+    assert by_id[original_inferred_id].source == "inferred"
+    assert by_id[original_manual_id].source == "manual"
+    assert by_id[original_manual_id].investigation_kind == "cpt"
+
+    # ---- Second restore is idempotent (no duplicate rows) ----------------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        formation_absences_payload=bundle["formation_absences"],
+    )
+    await db_session.commit()
+    count_twice = len(
+        list(
+            (
+                await db_session.execute(
+                    select(FormationAbsenceOrm).where(
+                        FormationAbsenceOrm.formation_id == formation.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    )
+    assert count_twice == 2, f"Second restore must not duplicate rows; got {count_twice}"
