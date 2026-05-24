@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react'
 
 import Button from './ui/Button'
 import Modal from './ui/Modal'
+import NumericInput from './ui/NumericInput'
 import type { ThemeChoice } from '../hooks/useTheme'
 import {
   LITHO_SEGMENTER_BOUNDS,
@@ -525,26 +526,23 @@ function NumberRow({
           className="flex-1 accent-accent"
           aria-label={`${label} slider`}
         />
-        <input
+        {/* Locale-tolerant numeric box — accepts BOTH ``,`` and ``.``
+            as decimal separator, blocks letters/symbols at the keydown
+            level. See ``NumericInput.tsx`` for why we don't use
+            ``type=number``. Out-of-range values still land in the
+            controlled draft so the user can clear + retype; the
+            invalid flag (driven by the section's Save-validation
+            gate) paints the red border. */}
+        <NumericInput
           id={id}
-          type="number"
-          min={bounds.min}
-          max={bounds.max}
-          step={step}
           value={value}
-          onChange={e => {
-            const v = Number(e.target.value)
-            // Allow out-of-range values to land in the controlled input
-            // so the user can clear + retype; validation gate in the
-            // section's Save button blocks the commit.
-            onChange(Number.isFinite(v) ? v : value)
-          }}
+          onChange={onChange}
           disabled={disabled}
+          invalid={invalid}
+          aria-label={label}
           className={`w-24 border rounded px-2 py-1 text-sm bg-surface-overlay text-text-primary focus:outline-none focus:ring-2 focus:ring-accent ${
             invalid ? 'border-status-danger' : 'border-border-default'
           }`}
-          aria-label={label}
-          aria-invalid={invalid}
         />
         {unit && <span className="text-xs text-text-muted w-10">{unit}</span>}
       </div>
