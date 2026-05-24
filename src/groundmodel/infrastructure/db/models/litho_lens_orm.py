@@ -11,6 +11,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from groundmodel.infrastructure.db.base import Base
 
+# Forward reference — cross_section table is declared in cross_section_orm.py;
+# the FK is a string reference to avoid a circular import.
+_CROSS_SECTION_TABLE = "cross_section"
+
 
 class LithoLensOrm(Base):
     """Persisted LithoLens — a body of one lithology within a parent formation.
@@ -32,6 +36,9 @@ class LithoLensOrm(Base):
     * One ``litho_lens`` → 0..1 ``cross_section`` rows as its
       perpendicular companion (added in Slice 4 via the nullable
       ``companion_lens_id`` column on the section table)
+    * One ``litho_lens`` → 0..1 ``cross_section`` as its primary section
+      (``primary_section_id`` added in Slice 4 — the section on which the
+      lens was originally defined)
 
     No SQLAlchemy ``relationship()`` objects defined — every load goes
     through an explicit ``select()`` in the use case layer. Adding
@@ -76,6 +83,17 @@ class LithoLensOrm(Base):
     # Optional human label. UI falls back to a derived name when null
     # ("Lens 1 in <formation>").
     name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # The cross-section the lens was defined on (set at CreateLithoLens time).
+    # Nullable: SET NULL so deleting the section does not cascade-delete the
+    # lens.  Enables CreatePerpendicularCompanion to find the primary geometry
+    # without deriving it from contact membership (which breaks when the lens
+    # has zero present contacts).
+    primary_section_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey(f"{_CROSS_SECTION_TABLE}.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
