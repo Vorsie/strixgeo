@@ -261,7 +261,13 @@ async def test_canonical_ordering_enforced() -> None:
 
 @pytest.mark.asyncio
 async def test_idempotent_existing_edge_returns_false() -> None:
-    """When the edge already exists, was_created=False and no new insert."""
+    """When the edge already exists, was_created=False and no new insert.
+
+    Blocker 3 fix: inference now runs on idempotent re-call too (same path
+    as the new-edge branch). The mock must supply the additional execute
+    calls consumed by RecomputeFormationAbsencesForFormation._load_project_sections
+    (one per formation — both return [] so the inference early-returns).
+    """
     inserted: list = []
 
     session = AsyncMock()
@@ -278,13 +284,12 @@ async def test_idempotent_existing_edge_returns_false() -> None:
     existing_edge = MagicMock()
     existing_edge.id = UUID("00000000-0000-0000-0000-000000000055")
 
-    # First execute → existing edge found.
+    # existence-check + run_resolver's (formations, depth GROUP BY, edges)
+    # + inference trigger: 2 × _load_project_sections (one per formation,
+    # returns [] → early return from RecomputeFormationAbsencesForFormation).
     edge_result = _scalar_result(existing_edge)
-    # Resolver loads: empty formations, empty edges.
     empty = _scalars_result([])
-    # Resolver also needs model via session.get — already handled above.
-    # existence-check + run_resolver's (formations, depth GROUP BY, edges).
-    session.execute = AsyncMock(side_effect=[edge_result, empty, empty, empty])
+    session.execute = AsyncMock(side_effect=[edge_result, empty, empty, empty, empty, empty])
     session.flush = AsyncMock()
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
