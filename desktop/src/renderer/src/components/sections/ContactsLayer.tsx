@@ -2612,6 +2612,20 @@ export default function ContactsLayer({
                 }
               : undefined
           }
+          // Gate the pinch-out item when the formation has no TIN
+          // surface — the backend math (slice_tin on both formations
+          // along the section line) cannot run pre-build. Tooltip +
+          // sub-label explain the prerequisite so the user sees the
+          // limit at hover instead of clicking through to a confusing
+          // 422 toast. #118 follow-up; ghost-pinch-out pre-build
+          // path is #101.
+          pinchOutDisabledReason={
+            onPinchOutContact &&
+            surfacesByFormationId &&
+            !surfacesByFormationId.has(contactMenu.formationId)
+              ? 'Build the 3D model first — pinch-out needs the formation’s TIN surface.'
+              : null
+          }
           onClose={() => setContactMenu(null)}
         />,
         document.body,
@@ -2654,6 +2668,15 @@ interface ContactContextMenuProps {
   /** Fired when the user picks "Extrapolate pinch-out…". When absent
    * the item is hidden. */
   onPinchOut?: () => void
+  /** Optional reason the pinch-out item should be DISABLED (rather
+   *  than hidden). When set, the item still renders so the user
+   *  knows the gesture is intended for this surface, but it is
+   *  inert + carries the reason as a tooltip. Use case: the
+   *  formation has no TIN surface yet, so the backend pinch-out
+   *  math (which needs both formations' TINs) cannot run —
+   *  clicking would surface a confusing 422 instead of explaining
+   *  the prerequisite (#118 follow-up). */
+  pinchOutDisabledReason?: string | null
   /** Fired on click-outside or Esc — closes the menu. */
   onClose: () => void
 }
@@ -2689,8 +2712,10 @@ function ContactContextMenu({
   formationName,
   onDelete,
   onPinchOut,
+  pinchOutDisabledReason,
   onClose,
 }: ContactContextMenuProps): JSX.Element {
+  const pinchOutDisabled = pinchOutDisabledReason != null
   useEffect(() => {
     function handleDocClick(): void {
       onClose()
@@ -2721,7 +2746,13 @@ function ContactContextMenu({
       {onPinchOut && (
         <button
           type="button"
-          className="block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
+          disabled={pinchOutDisabled}
+          title={pinchOutDisabledReason ?? undefined}
+          className={
+            pinchOutDisabled
+              ? 'block w-full px-3 py-2 text-left text-gray-400 cursor-not-allowed dark:text-gray-500'
+              : 'block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700'
+          }
           onClick={e => {
             // nativeEvent.stopImmediatePropagation: the React-synthetic
             // stopPropagation on the container does NOT stop the
@@ -2729,12 +2760,19 @@ function ContactContextMenu({
             // redundant onClose — review S4. Stop the native event before
             // it reaches document.
             e.nativeEvent.stopImmediatePropagation()
+            if (pinchOutDisabled) return
             onPinchOut()
             onClose()
           }}
           role="menuitem"
+          aria-disabled={pinchOutDisabled}
         >
           Extrapolate pinch-out&hellip;
+          {pinchOutDisabled && (
+            <span className="block text-[10px] text-gray-400 mt-0.5 dark:text-gray-500">
+              {pinchOutDisabledReason}
+            </span>
+          )}
         </button>
       )}
       {onDelete && (
