@@ -1015,6 +1015,13 @@ export interface CrossSectionResponse {
    * consumers should treat absence as false.
    */
   is_lens_companion?: boolean
+  /**
+   * Human-readable lens name for the "Companion of: <name>" header badge
+   * (#101 Slice 6).  Only populated by the perpendicular-companion endpoint
+   * (which has the lens loaded); all other callers return null.  Optional
+   * because most GET /sections responses omit it.
+   */
+  companion_lens_name?: string | null
   created_at: string
   updated_at: string
 }
