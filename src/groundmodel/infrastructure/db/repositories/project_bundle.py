@@ -50,6 +50,7 @@ from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
 from groundmodel.infrastructure.db.models.cross_section_orm import CrossSectionOrm
+from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.formation_surface_orm import (
     FormationSurfaceOrm,
@@ -65,7 +66,6 @@ from groundmodel.infrastructure.db.models.investigation_review_orm import (
 from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
     LithoCorrelationEdgeOrm,
 )
-from groundmodel.infrastructure.db.models.litho_lens_absence_orm import LithoLensAbsenceOrm
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
@@ -340,15 +340,19 @@ async def _build_project_bundle_impl(
         .join(GeologicalModelOrm, LithoCorrelationEdgeOrm.model_id == GeologicalModelOrm.id)
         .where(GeologicalModelOrm.app_project_id == project.id)
     )
-    # Litho lens entities (#101 Slice 7).  app_project_id is declared on
-    # the lens table so we can scope directly without a model join.
+    # Litho lens metadata rows (#101 R4 Position 4).  Slim rows: id, model_id,
+    # formation_id, body_ordinal, name, primary_section_id.
+    # app_project_id is declared on the lens table so we scope directly.
     lenses_stmt = select(LithoLensOrm).where(LithoLensOrm.app_project_id == project.id)
-    # Absence records — scoped through lens → project via a JOIN so the
-    # bundle only contains absences that belong to this project.
+    # Formation absence records (#101 R4 Position 4).  Scoped via
+    # geological_formation → project (formation carries app_project_id).
     absences_stmt = (
-        select(LithoLensAbsenceOrm)
-        .join(LithoLensOrm, LithoLensAbsenceOrm.lens_id == LithoLensOrm.id)
-        .where(LithoLensOrm.app_project_id == project.id)
+        select(FormationAbsenceOrm)
+        .join(
+            GeologicalFormationOrm,
+            FormationAbsenceOrm.formation_id == GeologicalFormationOrm.id,
+        )
+        .where(GeologicalFormationOrm.app_project_id == project.id)
     )
 
     cpts = (await session.execute(cpts_stmt)).scalars().all()
@@ -377,17 +381,20 @@ async def _build_project_bundle_impl(
         # Additive field (Phase 2). Bundles saved before Phase 2 lack this
         # key; the schema's default_factory=list means they restore cleanly.
         "litho_correlation_edges": [_column_to_json(e, _SKIP_COLUMNS) for e in edges],
-        # Additive fields (#101 Slice 7). Bundles saved before these fields
-        # existed open cleanly via the schema's default_factory=list.
+        # Lens metadata + absence rows (#101 R4 Position 4). Slim shapes:
+        # litho_lenses carries (formation_id, body_ordinal, name, primary_section_id).
+        # formation_absences carries (formation_id, investigation_kind,
+        # investigation_id, source). Bundles saved before these fields existed
+        # open cleanly via the schema's default_factory=list.
         "litho_lenses": [_column_to_json(lens, _SKIP_COLUMNS) for lens in lenses],
-        "litho_lens_absences": [_column_to_json(a, _SKIP_COLUMNS) for a in absences],
+        "formation_absences": [_column_to_json(a, _SKIP_COLUMNS) for a in absences],
     }
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
         f"+ {len(formations)} formations + {len(units)} geotech units "
         f"+ {len(models)} models + {len(sections)} sections "
         f"+ {len(reviews)} reviews + {len(edges)} litho correlation edges "
-        f"+ {len(lenses)} litho lenses + {len(absences)} lens absences"
+        f"+ {len(lenses)} litho lenses + {len(absences)} formation absences"
     )
     return bundle
 
@@ -557,7 +564,7 @@ async def _restore_project_bundle_impl(
     geotechnical_units_payload: list[dict[str, Any]] | None = None,
     litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
     litho_lenses_payload: list[dict[str, Any]] | None = None,
-    litho_lens_absences_payload: list[dict[str, Any]] | None = None,
+    formation_absences_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
 ) -> ProjectOrm:
@@ -589,7 +596,7 @@ async def _restore_project_bundle_impl(
     geotechnical_units_payload = geotechnical_units_payload or []
     litho_correlation_edges_payload = litho_correlation_edges_payload or []
     litho_lenses_payload = litho_lenses_payload or []
-    litho_lens_absences_payload = litho_lens_absences_payload or []
+    formation_absences_payload = formation_absences_payload or []
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -1093,9 +1100,9 @@ async def _restore_project_bundle_impl(
             f"litho correlation edge(s) (model/formation not in project or missing FK)"
         )
 
-    # ---- Litho lenses (#101 Slice 7) ---------------------------------------
+    # ---- Litho lenses (Position 4) -----------------------------------------
     # Restored AFTER geological_models (lens.model_id FK must resolve) and
-    # formations (lens.parent_formation_id FK must resolve).  Each lens row
+    # formations (lens.formation_id FK must resolve).  Each lens row
     # carries app_project_id directly, so the existence check + injection
     # guard are straightforward.
     existing_lens_ids = set(
@@ -1137,18 +1144,18 @@ async def _restore_project_bundle_impl(
             )
             dropped_lenses += 1
             continue
-        # Parent-formation FK guard.
-        pf_raw = lens_payload.get("parent_formation_id")
+        # Formation FK guard.
+        pf_raw = lens_payload.get("formation_id")
         if pf_raw is None:
             logger.warning(
-                f"[{i}/{total_lenses}] litho lens {lens_id} missing parent_formation_id — dropped"
+                f"[{i}/{total_lenses}] litho lens {lens_id} missing formation_id — dropped"
             )
             dropped_lenses += 1
             continue
         pf_id = UUID(pf_raw) if isinstance(pf_raw, str) else pf_raw
         if pf_id not in valid_formation_ids:
             logger.warning(
-                f"[{i}/{total_lenses}] litho lens {lens_id}: parent_formation_id {pf_id} "
+                f"[{i}/{total_lenses}] litho lens {lens_id}: formation_id {pf_id} "
                 f"not present in this project — dropped (dangling FK)"
             )
             dropped_lenses += 1
@@ -1156,9 +1163,6 @@ async def _restore_project_bundle_impl(
         kwargs = _apply_json_to_kwargs(LithoLensOrm, lens_payload)
         kwargs["app_project_id"] = project_id
         session.add(LithoLensOrm(**kwargs))
-        # Track the id so the absence restore below can validate lens FKs
-        # even before the session is flushed (the lens was just added to the
-        # session but may not yet be in the DB).
         existing_lens_ids.add(lens_id)
         new_lenses += 1
         logger.debug(f"[{i}/{total_lenses}] litho lens {lens_id} queued for insert")
@@ -1168,16 +1172,20 @@ async def _restore_project_bundle_impl(
             f"litho lens(es) (model/formation not in project or missing FK)"
         )
 
-    # ---- Litho lens absences (#101 Slice 7) --------------------------------
-    # Restored AFTER litho lenses (absence.lens_id FK must resolve).
-    # ``existing_lens_ids`` above was updated in-loop so it covers both
-    # pre-existing and freshly-queued lens ids.
+    # ---- Formation absences (Position 4) -----------------------------------
+    # Restored AFTER geological formations (absence.formation_id FK must
+    # resolve).  ``valid_formation_ids`` was populated during the formation
+    # restore section above and covers both pre-existing and freshly-queued
+    # formation ids.
     existing_absence_ids = set(
         (
             await session.execute(
-                select(LithoLensAbsenceOrm.id)
-                .join(LithoLensOrm, LithoLensAbsenceOrm.lens_id == LithoLensOrm.id)
-                .where(LithoLensOrm.app_project_id == project_id)
+                select(FormationAbsenceOrm.id)
+                .join(
+                    GeologicalFormationOrm,
+                    FormationAbsenceOrm.formation_id == GeologicalFormationOrm.id,
+                )
+                .where(GeologicalFormationOrm.app_project_id == project_id)
             )
         )
         .scalars()
@@ -1186,41 +1194,47 @@ async def _restore_project_bundle_impl(
     new_absences = 0
     skipped_absences = 0
     dropped_absences = 0
-    total_absences = len(litho_lens_absences_payload)
-    logger.info(f"restore_project_bundle({project_id}): restoring {total_absences} lens absence(s)")
-    for i, ab_payload in enumerate(litho_lens_absences_payload, start=1):
+    total_absences = len(formation_absences_payload)
+    logger.info(
+        f"restore_project_bundle({project_id}): restoring {total_absences} formation absence(s)"
+    )
+    for i, ab_payload in enumerate(formation_absences_payload, start=1):
         ab_id_raw = ab_payload.get("id")
         if ab_id_raw is None:
-            logger.debug(f"[{i}/{total_absences}] lens absence skipped — payload has no id")
+            logger.debug(f"[{i}/{total_absences}] formation absence skipped — payload has no id")
             skipped_absences += 1
             continue
         ab_id = UUID(ab_id_raw) if isinstance(ab_id_raw, str) else ab_id_raw
         if ab_id in existing_absence_ids:
-            logger.debug(f"[{i}/{total_absences}] lens absence {ab_id} already present — skipped")
+            logger.debug(
+                f"[{i}/{total_absences}] formation absence {ab_id} already present — skipped"
+            )
             skipped_absences += 1
             continue
-        # Lens FK guard.
-        lens_id_raw = ab_payload.get("lens_id")
-        if lens_id_raw is None:
-            logger.warning(f"[{i}/{total_absences}] lens absence {ab_id} has no lens_id — dropped")
+        # Formation FK guard.
+        fa_id_raw = ab_payload.get("formation_id")
+        if fa_id_raw is None:
+            logger.warning(
+                f"[{i}/{total_absences}] formation absence {ab_id} has no formation_id — dropped"
+            )
             dropped_absences += 1
             continue
-        ab_lens_id = UUID(lens_id_raw) if isinstance(lens_id_raw, str) else lens_id_raw
-        if ab_lens_id not in existing_lens_ids:
+        ab_formation_id = UUID(fa_id_raw) if isinstance(fa_id_raw, str) else fa_id_raw
+        if ab_formation_id not in valid_formation_ids:
             logger.warning(
-                f"[{i}/{total_absences}] lens absence {ab_id} → lens {ab_lens_id} "
+                f"[{i}/{total_absences}] formation absence {ab_id} → formation {ab_formation_id} "
                 f"not in this project — dropped (dangling FK)"
             )
             dropped_absences += 1
             continue
-        kwargs = _apply_json_to_kwargs(LithoLensAbsenceOrm, ab_payload)
-        session.add(LithoLensAbsenceOrm(**kwargs))
+        kwargs = _apply_json_to_kwargs(FormationAbsenceOrm, ab_payload)
+        session.add(FormationAbsenceOrm(**kwargs))
         new_absences += 1
-        logger.debug(f"[{i}/{total_absences}] lens absence {ab_id} queued for insert")
+        logger.debug(f"[{i}/{total_absences}] formation absence {ab_id} queued for insert")
     if dropped_absences:
         logger.warning(
             f"restore_project_bundle({project_id}): dropped {dropped_absences} "
-            f"lens absence(s) (lens not in project or missing lens_id)"
+            f"formation absence(s) (formation not in project or missing formation_id)"
         )
 
     await session.flush()
@@ -1233,7 +1247,8 @@ async def _restore_project_bundle_impl(
         f"+{new_reviews} reviews ({dropped_reviews} dropped as orphan), "
         f"+{new_edges} litho edges ({skipped_edges} skipped, {dropped_edges} dropped), "
         f"+{new_lenses} lenses ({skipped_lenses} skipped, {dropped_lenses} dropped), "
-        f"+{new_absences} lens absences ({skipped_absences} skipped, {dropped_absences} dropped)"
+        f"+{new_absences} formation absences "
+        f"({skipped_absences} skipped, {dropped_absences} dropped)"
     )
     return project
 
@@ -1285,7 +1300,7 @@ class ProjectBundleService(GroundModelLogger):
         geotechnical_units_payload: list[dict[str, Any]] | None = None,
         litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
         litho_lenses_payload: list[dict[str, Any]] | None = None,
-        litho_lens_absences_payload: list[dict[str, Any]] | None = None,
+        formation_absences_payload: list[dict[str, Any]] | None = None,
     ) -> ProjectOrm:
         """Idempotently materialise the project tree from a bundle.
 
@@ -1305,7 +1320,7 @@ class ProjectBundleService(GroundModelLogger):
             geotechnical_units_payload,
             litho_correlation_edges_payload,
             litho_lenses_payload,
-            litho_lens_absences_payload,
+            formation_absences_payload,
             logger=self,
         )
 
@@ -1335,7 +1350,7 @@ async def restore_project_bundle(
     geotechnical_units_payload: list[dict[str, Any]] | None = None,
     litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
     litho_lenses_payload: list[dict[str, Any]] | None = None,
-    litho_lens_absences_payload: list[dict[str, Any]] | None = None,
+    formation_absences_payload: list[dict[str, Any]] | None = None,
 ) -> ProjectOrm:
     """Backwards-compat wrapper — see ``ProjectBundleService.restore``."""
     return await ProjectBundleService(session).restore(
@@ -1350,5 +1365,5 @@ async def restore_project_bundle(
         geotechnical_units_payload,
         litho_correlation_edges_payload,
         litho_lenses_payload,
-        litho_lens_absences_payload,
+        formation_absences_payload,
     )
