@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
@@ -91,6 +91,7 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
         formation_id: UUID,
         body_ordinal: int,
         section_id: UUID,
+        commit: bool = True,
     ) -> RecomputeFormationAbsencesResult:
         """Run inference and apply the absence delta.
 
@@ -107,6 +108,12 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
             process (from the ``ResolveLithoInstances`` resolver).
         section_id : UUID
             The cross-section that defines the corridor of investigations.
+        commit : bool
+            When ``True`` (the default) the session is committed after
+            applying the delta.  Pass ``False`` when the caller owns the
+            transaction and will commit after orchestrating multiple
+            inference runs in the same session (used by
+            ``RecomputeFormationAbsencesForFormation``).
 
         Returns
         -------
@@ -275,6 +282,7 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
                 f"UPSERT absence: {absence.investigation_kind} "
                 f"{absence.investigation_id} source={absence.source}"
             )
+            now = func.now()
             stmt = (
                 pg_insert(FormationAbsenceOrm)
                 .values(
@@ -283,10 +291,12 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
                     investigation_id=absence.investigation_id,
                     investigation_kind=absence.investigation_kind,
                     source=absence.source,
+                    created_at=now,
+                    updated_at=now,
                 )
                 .on_conflict_do_update(
                     constraint="uq_formation_absence_formation_investigation",
-                    set_={"source": absence.source},
+                    set_={"source": absence.source, "updated_at": func.now()},
                 )
             )
             await self._session.execute(stmt)
@@ -300,7 +310,8 @@ class RecomputeFormationAbsencesForBody(GroundModelLogger):
             retracted_count = len(result.to_retract)
             self.debug(f"Retracted {retracted_count} stale inferred absence(s)")
 
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
 
         self.success(
             f"RecomputeFormationAbsencesForBody done: "
