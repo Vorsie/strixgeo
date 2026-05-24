@@ -21,6 +21,7 @@ from groundmodel.infrastructure.db.models.investigation_review_orm import Invest
 from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
     LithoCorrelationEdgeOrm,
 )
+from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
 from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.organic_content_orm import OrganicContentOrm
@@ -46,6 +47,7 @@ __all__ = [
     "GrainSizeOrm",
     "InvestigationReviewOrm",
     "LithoCorrelationEdgeOrm",
+    "LithoLensOrm",
     "ObservationLayerOrm",
     "ObservationOrm",
     "OrganicContentOrm",
