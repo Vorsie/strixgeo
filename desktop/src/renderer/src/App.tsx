@@ -22,6 +22,12 @@ import NewProjectDialog from './components/NewProjectDialog'
 import AppBootError from './components/AppBootError'
 import AppLoading from './components/AppLoading'
 import AppDialogs from './components/AppDialogs'
+import SettingsDialog from './components/SettingsDialog'
+import {
+  buildLithoSegmenterPatch,
+  readLithoSegmenterPrefs,
+  type LithoSegmenterPrefs,
+} from './utils/lithoSegmenterPrefs'
 import AppShell from './shell/AppShell'
 import type { ShellContextValue } from './shell/ShellContext'
 
@@ -74,6 +80,7 @@ declare global {
       onMenuProjectOpenRecent: (cb: (path: string) => void) => () => void
       onMenuEditUndo: (cb: () => void) => () => void
       onMenuEditRedo: (cb: () => void) => () => void
+      onMenuOpenSettings: (cb: () => void) => () => void
     }
   }
 }
@@ -189,6 +196,13 @@ export default function App() {
       for (const off of offs) off()
     }
   }, [doUndo, doRedo])
+
+  // File → Settings… (Ctrl+,). Opens the renderer-side SettingsDialog.
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  useEffect(() => {
+    const off = window.electron.onMenuOpenSettings(() => setSettingsOpen(true))
+    return off
+  }, [])
 
   // CPT and borehole selection + view tab — these are cross-cutting
   // coordinator state. Both useInvestigationData and useSections need to
@@ -789,6 +803,22 @@ export default function App() {
     [selectedSectionId, sections],
   )
 
+  // Settings dialog — initial values + submit handler must be declared
+  // above the early-return ladder so the hook count stays stable across
+  // the !project / project transition. The dialog itself mounts in
+  // BOTH render branches (welcome + shell).
+  const initialLithoSegmenterPrefs = useMemo(
+    () => readLithoSegmenterPrefs(project?.view_state ?? null),
+    [project],
+  )
+  const handleSettingsLithoSegmenterSubmit = useCallback(
+    (next: LithoSegmenterPrefs) => {
+      void applyViewStatePatch(buildLithoSegmenterPatch(next))
+      setSettingsOpen(false)
+    },
+    [applyViewStatePatch],
+  )
+
   // ---------------------------------------------------------------------------
   // Shell context value — assembled here and passed to AppShell.
   //
@@ -885,6 +915,15 @@ export default function App() {
             if (created !== null) setNewProjectOpen(false)
           }}
         />
+        {/* File → Settings is reachable from the welcome screen too;
+            controls are disabled (no project to persist into). */}
+        <SettingsDialog
+          open={settingsOpen}
+          initialLithoSegmenter={initialLithoSegmenterPrefs}
+          hasProject={false}
+          onCancel={() => setSettingsOpen(false)}
+          onSubmitLithoSegmenter={handleSettingsLithoSegmenterSubmit}
+        />
       </>
     )
   }
@@ -926,6 +965,16 @@ export default function App() {
         closeConfirmOpen={closeConfirmOpen}
         setCloseConfirmOpen={setCloseConfirmOpen}
         closeProject={closeProject}
+      />
+      {/* App-level Settings dialog. Lives outside AppDialogs because
+          it persists into ``project.view_state`` rather than through
+          the metadata draft path. */}
+      <SettingsDialog
+        open={settingsOpen}
+        initialLithoSegmenter={initialLithoSegmenterPrefs}
+        hasProject={true}
+        onCancel={() => setSettingsOpen(false)}
+        onSubmitLithoSegmenter={handleSettingsLithoSegmenterSubmit}
       />
     </>
   )
