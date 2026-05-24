@@ -347,3 +347,73 @@ async def test_multiple_formations_absences_are_independent(
     await db_session.refresh(absence_b)
     assert absence_b.id == absence_b_id
     assert absence_b.formation_id == formation_b.id
+
+
+# ---------------------------------------------------------------------------
+# Blocker 4 — UPSERT WHERE guard preserves manual/observed rows
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upsert_where_guard_preserves_manual_row(db_session: AsyncSession) -> None:
+    """The inference UPSERT's WHERE clause must not overwrite source='manual'.
+
+    Regression for Blocker 4 fix-up 2: the on_conflict_do_update clause now
+    carries ``where=FormationAbsenceOrm.source == 'inferred'`` so a pre-existing
+    'manual' or 'observed' row is left untouched if the engine emits 'inferred'
+    for the same key.
+
+    Uses the raw pg_insert path to test the SQL expression in isolation,
+    without wiring the full RecomputeFormationAbsencesForBody use case.
+    """
+    from sqlalchemy import func
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from uuid6 import uuid7 as _uuid7
+
+    _, formation = await _make_fixture(db_session)
+
+    investigation_id = _uuid7()
+
+    # Pre-insert a 'manual' row.
+    manual_row = FormationAbsenceOrm(
+        id=_uuid7(),
+        formation_id=formation.id,
+        investigation_id=investigation_id,
+        investigation_kind="borehole",
+        source="manual",
+    )
+    db_session.add(manual_row)
+    await db_session.commit()
+    manual_row_id = manual_row.id
+
+    # Now run the UPSERT that the inference engine would run — emitting
+    # source='inferred' for the same (formation, kind, investigation) triple.
+    now = func.now()
+    stmt = (
+        pg_insert(FormationAbsenceOrm)
+        .values(
+            id=_uuid7(),
+            formation_id=formation.id,
+            investigation_id=investigation_id,
+            investigation_kind="borehole",
+            source="inferred",
+            created_at=now,
+            updated_at=now,
+        )
+        .on_conflict_do_update(
+            constraint="uq_formation_absence_formation_investigation",
+            set_={"source": "inferred", "updated_at": func.now()},
+            # The WHERE guard: only overwrite when the existing row is inferred.
+            where=FormationAbsenceOrm.source == "inferred",
+        )
+    )
+    await db_session.execute(stmt)
+    await db_session.commit()
+
+    # The row must still have source='manual' — the WHERE guard blocked the update.
+    await db_session.refresh(manual_row)
+    assert manual_row.source == "manual", (
+        f"Expected source='manual' to survive the inferred UPSERT; "
+        f"got source={manual_row.source!r} (WHERE guard not working)"
+    )
+    assert manual_row.id == manual_row_id, "Row id must not change (should not have been replaced)"
