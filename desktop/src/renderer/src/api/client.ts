@@ -229,6 +229,29 @@ export interface GeologicalFormationUpdatePayload {
   parent_formation_id?: string | null
 }
 
+// #101 Slice 3: litho lens entity — one absent-investigation record.
+export interface AbsentInvestigation {
+  kind: 'borehole' | 'cpt'
+  id: string
+}
+
+// #101 Slice 3: request body for POST .../lenses.
+export interface CreateLithoLensRequest {
+  parent_formation_id: string
+  section_id: string
+  name?: string | null
+  present_contact_ids?: string[]
+  absent_investigations?: AbsentInvestigation[]
+}
+
+// #101 Slice 3: response from POST .../lenses.
+export interface CreateLithoLensResponse {
+  lens_id: string
+  synthetic_contact_ids: string[]
+  skipped_absent_count: number
+  updated_section: CrossSectionResponse
+}
+
 // Phase-2 Slice 3: one edge in the litho correlation graph.
 // Consumed by the LithologyInspector stale-badge computation (to hash
 // the edge set) and by future Slice 4 section canvas rendering.
@@ -1942,6 +1965,36 @@ export const api = {
         `/projects/${projectId}/geology/models/${modelId}/correlations/admixtures`,
         { formation_id: formationId, admixtures },
       ),
+
+    // --- Litho lens (#101 Slice 3) -----------------------------------------
+    //
+    // Create a lens entity. Atomically: creates the lens row, records
+    // absence rows, tags present contacts with lens_id, computes wedge-tip
+    // synthetic contacts (section-local, no TIN required), and seeds them
+    // into section.seeded_formation_contact_ids. The caller MUST apply
+    // updated_section via applyUpdatedSection — explicit-content invariant.
+    createLens: (
+      projectId: string,
+      modelId: string,
+      body: CreateLithoLensRequest,
+    ): Promise<CreateLithoLensResponse> =>
+      post(`/projects/${projectId}/geology/models/${modelId}/lenses`, body),
+
+    // Delete a lens. Removes the lens row (CASCADE evaporates absence
+    // records) and explicitly deletes its owned synthetic contacts.
+    // Anchored contacts (borehole/CPT-tagged) survive with lens_id cleared.
+    deleteLens: async (
+      projectId: string,
+      modelId: string,
+      lensId: string,
+    ): Promise<void> => {
+      const path = `/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}`
+      const res = await fetch(`${_base}${path}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      }
+    },
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
