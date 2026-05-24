@@ -749,6 +749,122 @@ describe('CorrelationEdgesOverlay', () => {
     expect(container.querySelector('[data-testid="correlation-pulse"]')).toBeNull()
   })
 
+  // -------------------------------------------------------------------
+  // CE22–CE24 — #101 Blocker 1: body-context "Inspect lens body…" menu item.
+  // -------------------------------------------------------------------
+
+  // CE22: right-clicking a body chip fires onInspectLensBody(formationId, ordinal)
+  // when the prop is provided.  The testid "body-context-inspect" identifies the
+  // menu button; clicking it must forward the formation id and body ordinal.
+  it('CE22: right-click on body chip → "Inspect lens body…" appears and calls onInspectLensBody', () => {
+    const onInspectLensBody = vi.fn()
+    const fA = makeFormation('f-a', 'Zand', 3)
+    const fB = makeFormation('f-b', 'Klei', 3)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const gestureState: CorrelateGestureState = {
+      correlateMode: false,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+      onPropagateAdmixtures: vi.fn(),
+    }
+    renderOverlay({
+      edges: [makeEdge('f-a', 'f-b')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+      onInspectLensBody,
+    })
+    fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a'))
+    // The "Inspect lens body…" button must be present.
+    const inspectBtn = screen.getByTestId('body-context-inspect')
+    expect(inspectBtn).not.toBeNull()
+    fireEvent.click(inspectBtn)
+    // Must have been called with (formationId, bodyOrdinal).
+    expect(onInspectLensBody).toHaveBeenCalledOnce()
+    expect(onInspectLensBody).toHaveBeenCalledWith('f-a', 3)
+  })
+
+  // CE23: when onInspectLensBody is NOT provided the "Inspect lens body…" button
+  // must be absent from the context menu — no dead item cluttering the chip menu.
+  it('CE23: "Inspect lens body…" absent when onInspectLensBody prop is not provided', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const gestureState: CorrelateGestureState = {
+      correlateMode: false,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+      onPropagateAdmixtures: vi.fn(),
+    }
+    renderOverlay({
+      edges: [makeEdge('f-a', 'f-b')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+      // onInspectLensBody intentionally absent
+    })
+    fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a'))
+    expect(screen.queryByTestId('body-context-inspect')).toBeNull()
+  })
+
+  // CE24: regression — the old "Mark as lens…" menu item (Approach-C, removed in
+  // the R5 refactor) must never appear in the body context menu.  This guards
+  // against accidental re-introduction of the deleted handler.
+  it('CE24: regression — "Mark as lens" text is never present in body context menu', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const gestureState: CorrelateGestureState = {
+      correlateMode: false,
+      correlationSource: null,
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+      onPropagateAdmixtures: vi.fn(),
+    }
+    renderOverlay({
+      edges: [makeEdge('f-a', 'f-b')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+    })
+    fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a'))
+    // "Mark as lens" (any capitalisation) must be absent — the item was
+    // removed in the #101 R5 refactor and must not come back.
+    expect(screen.queryByText(/mark as lens/i)).toBeNull()
+  })
+
   // CE19: "Remove all correlations for this body" fires onUncorrelate
   // for every edge whose endpoints both carry the body's ordinal — not
   // just the edge under the right-clicked chip. Other bodies untouched.
