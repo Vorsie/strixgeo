@@ -602,6 +602,47 @@ describe('SectionPanel — correlate-mode hint pill (debt #100)', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Lens gesture — activeLithoModelId + onLensCreated prop contract
+// (Blockers 1 + 4, reviewer fixup 2026-05-24)
+// ---------------------------------------------------------------------------
+
+describe('SectionPanel — lens gesture prop contract', () => {
+  it('renders without error when activeLithoModelId + onLensCreated are provided with empty contacts', () => {
+    // Blocker 4 regression: previously SectionPanel derived modelId from
+    // contacts.find(...)?.model_id ?? '' — when contacts is empty the fallback
+    // produced '' and the backend rejected the request.  The prop is now
+    // threaded directly; this test confirms no crash on empty contacts.
+    const onLensCreated = vi.fn()
+    expect(() =>
+      render(
+        <SectionPanel
+          section={makeSection()}
+          zEpsg={5710}
+          axisMode="lithostratigraphic"
+          activeLithoModelId="01k-LITHO-MODEL"
+          onLensCreated={onLensCreated}
+          contacts={[]}
+        />,
+      ),
+    ).not.toThrow()
+  })
+
+  it('renders without error when onLensCreated is omitted (no gesture surface)', () => {
+    // When onLensCreated is absent the "Mark as lens…" menu item is hidden.
+    // This test guards against a regression where omitting the prop crashes.
+    expect(() =>
+      render(
+        <SectionPanel
+          section={makeSection()}
+          zEpsg={5710}
+          axisMode="lithostratigraphic"
+        />,
+      ),
+    ).not.toThrow()
+  })
+})
+
 // Note: the SectionPanel-level integration for "Remove from section"
 // (right-click column → menu → push undo command) is covered by unit
 // tests on the pure helper in ``sections/removeFromSectionCommand.test.ts``.
