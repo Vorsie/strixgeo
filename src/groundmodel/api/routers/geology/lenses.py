@@ -9,6 +9,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -241,14 +242,16 @@ async def delete_litho_lens(
 @router.post(
     "/models/{model_id}/lenses/{lens_id}/perpendicular-companion",
     response_model=CrossSectionResponse,
-    status_code=status.HTTP_201_CREATED,
+    # Default status_code omitted — the handler returns 201 (new) or 200
+    # (already existed).  FastAPI uses 200 as the OpenAPI default when
+    # status_code is absent; callers must check the actual response code.
 )
 async def create_perpendicular_companion(
     project_id: UUID,
     model_id: UUID,
     lens_id: UUID,
     session: AsyncSession = Depends(get_session),
-) -> CrossSectionResponse:
+) -> JSONResponse:
     """Auto-create a perpendicular companion cross-section for a litho lens.
 
     Creates a new cross-section perpendicular to the primary section on
@@ -259,9 +262,9 @@ async def create_perpendicular_companion(
     ``max(2 × primary_buffer_m, 100 m)``.
 
     **Idempotent.** If the lens already has a companion section, the
-    existing section is returned with HTTP 201 (the ``already_existed``
-    flag is visible in the use-case result but not surfaced to the HTTP
-    caller — returning the companion section is always the useful action).
+    existing section is returned with ``HTTP 200``; a freshly created
+    companion returns ``HTTP 201``.  The ``already_existed`` flag is
+    surfaced in the response body when ``already_existed=True``.
 
     Parameters
     ----------
@@ -319,4 +322,12 @@ async def create_perpendicular_companion(
     # can display "Companion of: <lens name>" without a second fetch.
     response = CrossSectionResponse.model_validate(result.companion_section)
     response.companion_lens_name = lens.name
-    return response
+
+    # 201 for a freshly-created companion; 200 for an idempotent re-call.
+    # The client uses the status code to decide whether to show a toast
+    # ("section created") vs a silent no-op.
+    http_status = status.HTTP_200_OK if result.already_existed else status.HTTP_201_CREATED
+    return JSONResponse(
+        status_code=http_status,
+        content=response.model_dump(mode="json"),
+    )
