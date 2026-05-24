@@ -166,36 +166,36 @@ class CorrelateLithoUnits(GroundModelLogger):
             LithoCorrelationEdgeOrm.formation_b_id == b_id,
         )
         existing = (await self._session.execute(existing_stmt)).scalar_one_or_none()
+        was_created: bool
+        edge: LithoCorrelationEdgeOrm
         if existing is not None:
             self.info(
                 f"CorrelateLithoUnits: edge already exists ({existing.id}) — "
-                f"returning idempotent result"
+                f"running resolver + inference for consistency repair"
             )
-            # Still run the resolver so ordinals are always fresh (a
-            # prior run may have failed to write ordinals back).
-            updated = await self.run_resolver(model_id)
-            return CorrelateResult(
-                edge=existing,
-                was_created=False,
-                instance_ordinals_updated=updated,
+            edge = existing
+            was_created = False
+        else:
+            # ---------------------------------------------------------------- #
+            # 6. Insert the new edge.                                           #
+            # ---------------------------------------------------------------- #
+            edge = LithoCorrelationEdgeOrm(
+                id=uuid7(),
+                model_id=model_id,
+                formation_a_id=a_id,
+                formation_b_id=b_id,
+                source=source,
             )
-
-        # ------------------------------------------------------------------ #
-        # 6. Insert the new edge.                                              #
-        # ------------------------------------------------------------------ #
-        edge = LithoCorrelationEdgeOrm(
-            id=uuid7(),
-            model_id=model_id,
-            formation_a_id=a_id,
-            formation_b_id=b_id,
-            source=source,
-        )
-        self._session.add(edge)
-        await self._session.flush()
-        self.debug(f"CorrelateLithoUnits: edge inserted {edge.id}")
+            self._session.add(edge)
+            await self._session.flush()
+            self.debug(f"CorrelateLithoUnits: edge inserted {edge.id}")
+            was_created = True
 
         # ------------------------------------------------------------------ #
         # 7. Re-run the resolver across all formations in this model.          #
+        #    Runs regardless of whether the edge was newly inserted or already #
+        #    existed — a prior run may have failed to write ordinals or        #
+        #    absences back; re-running here repairs the state atomically.      #
         # ------------------------------------------------------------------ #
         # run_resolver marks the changed formations' surfaces stale
         # internally (review S1) so this path and uncorrelate behave
@@ -204,8 +204,11 @@ class CorrelateLithoUnits(GroundModelLogger):
 
         # ------------------------------------------------------------------ #
         # 8. Trigger inference engine for both correlated formations.           #
-        #    The edge insert + resolver + absence delta all commit atomically   #
-        #    in step 9.  commit=False defers the session.commit() to step 9.   #
+        #    Runs regardless of was_created: idempotency at the edge level     #
+        #    does NOT imply idempotency at the absence level — a prior run     #
+        #    that crashed after edge insert but before inference leaves the    #
+        #    absence table stale.  Re-running here is always safe.             #
+        #    commit=False defers the session.commit() to step 9.              #
         # ------------------------------------------------------------------ #
         inference_uc = RecomputeFormationAbsencesForFormation(self._session)
         for fid in (formation_a_id, formation_b_id):
@@ -224,11 +227,12 @@ class CorrelateLithoUnits(GroundModelLogger):
         await self._session.refresh(edge)
         self.success(
             f"CorrelateLithoUnits: committed edge {edge.id}; "
+            f"was_created={was_created} "
             f"{len(updated)} formation ordinal(s) updated"
         )
         return CorrelateResult(
             edge=edge,
-            was_created=True,
+            was_created=was_created,
             instance_ordinals_updated=updated,
         )
 
