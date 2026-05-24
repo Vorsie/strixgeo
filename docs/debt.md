@@ -1107,6 +1107,40 @@ debt #3 / #4), `decision_type VARCHAR` (discriminator: `litho_accept`,
 prior state), `after_state JSONB NULL` (the committed state),
 `context JSONB` (anchor ids, model id, section id, …).
 
+**Suggestion-surface inventory (every one of these MUST instrument
+`record_decision` when it ships).** Owner directive 2026-05-24: ML
+training over user-made changes is a confirmed v1.0+ target across
+**all** suggestion surfaces, not just the litho segmenter. Adding a
+new suggestion gesture without wiring the decision log is technical
+debt the moment it lands. Current and committed surfaces:
+
+| Surface | When it fires | `decision_type` tokens |
+|---|---|---|
+| Litho segmenter (Suggest verb) | User accept/reject of ghost layer | `litho_accept`, `litho_reject`, `litho_modify_then_accept` |
+| Litho segmenter — bulk accept | User clicks "Accept all (N)" | `litho_bulk_accept` (one row per ghost in the bulk, payload includes the bulk batch id) |
+| Manual contact mutation | User creates / drags / deletes a contact | `contact_create`, `contact_move`, `contact_delete` |
+| Manual composition picker | User picks lithology + admixtures on a layer | `composition_pick`, `composition_modify` |
+| Formation rename / reorder / pin (drag stratigraphic column) | User mutates the formation ordering | `formation_rename`, `formation_reorder`, `formation_pin_toggle` |
+| Build 3D model trigger | User clicks Build | `build_trigger` (context: which formations were stale) |
+| Sync geology → litho seed | User runs "Fill from boreholes" / "Seed from stratigraphy" | `geology_sync`, `section_seed` |
+| Pinch-out extrapolation (geology axis right-click) | User confirms ghost wedge | `pinch_out_commit` |
+| **#101 Position 4 — formation_absence inference acceptance** | User confirms a `source='inferred'` absence → promotes to `'manual'` | `absence_confirm_inferred` |
+| **#101 Position 4 — formation_absence override** | User overrides an inferred absence type (lens-edge → fault / unconformity / erosion) | `absence_override_type` (payload includes from / to source values) |
+| **#101 Position 4 — name lens body** | User attaches a name to a body | `lens_name` |
+| **#101 Position 4 — create perpendicular companion** | User accepts the auto-create offer | `companion_section_create` |
+| **#127 auto-correlate — edge acceptance** | User confirms a `source='auto'` correlation edge → promotes to `'manual'` | `correlation_confirm_auto` |
+| **#127 auto-correlate — edge rejection** | User deletes a `source='auto'` edge | `correlation_reject_auto` |
+| **#127 auto-correlate — manual edge added** | User creates a correlation edge by hand (no auto suggestion to confirm or reject) | `correlation_manual_create` |
+| Geotech stage (Phase 5 — NAD assignment, parameter values) | User commits NAD class or design parameter | `geotech_nad_assign`, `geotech_param_commit` |
+| Parameters stage (Phase 5 — correlation formula vs Excel lookup pick) | User picks the method for a parameter | `parameter_method_pick` |
+| Map / DataInspector — investigation review (hide / accept / flag) | User marks an investigation reviewed | `investigation_review` |
+
+Owner caveat 2026-05-24: "there are a lot [other targets] I haven't
+flagged yet" — this inventory is the current snapshot. When a new
+suggestion gesture lands, append to this table in the same commit
+as the gesture itself. The list is the contract; the implementation
+catches up.
+
 For each decision, store **only the suggested position and the last
 committed position** (owner directive 2026-05-20). Intermediate drag
 previews are NOT logged — transient UI state, not decisions.
@@ -1129,12 +1163,28 @@ the moment ONE use case is wired; broader coverage compounds.
 
 ## 71. ML training pipeline that consumes the decision log (Tier D — post-MVP, owner-audited)
 
-**What.** Read `user_decision_log` rows for `decision_type =
-litho_accept` (initially) and train a model that predicts which
-ghost layers the user will keep / move / reject. Inputs: segmenter
-output + investigation features (qc / Ic / soil_code at depth) +
-project metadata. Outputs: refined layer suggestions, ranked. Re-
-trains as the log grows.
+**What.** Read `user_decision_log` rows and train **one model per
+suggestion surface** (see the inventory in #70). Each surface gets
+its own predictor that conditions on (suggested output + input
+features + user's accept/reject/modify pattern). v1.0+ targets:
+
+* **Litho segmenter** — predict which ghost layers the user will
+  keep / move / reject. Inputs: segmenter output + (qc / Ic /
+  soil_code at depth) + project metadata.
+* **Position 4 absence inference** — predict which `'inferred'`
+  absences the user will promote vs override-to-fault. Inputs:
+  body geometry + neighbour observations + project geology.
+* **Auto-correlate (#127)** — predict which `'auto'` correlations
+  the user will confirm vs delete. Inputs: column geometry +
+  depth window + dip features.
+* **Composition picker** — predict the lithology + admixture
+  combination the user is most likely to commit given the prior
+  layers + the segmenter's per-layer Ic / qc context.
+
+Outputs in every case: ranked refined suggestions. Re-trains as the
+log grows. Each surface is trained INDEPENDENTLY (no cross-surface
+joint model in v1.0+; future work) so a low-signal surface doesn't
+contaminate a high-signal one.
 
 **Why deferred.** Owner directive — audit ML rigorously by hand
 before any pipeline ships. ML accuracy claims need a human-in-the-
