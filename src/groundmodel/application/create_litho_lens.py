@@ -234,6 +234,9 @@ class CreateLithoLens(GroundModelLogger):
             model_id=model_id,
             parent_formation_id=parent_formation_id,
             name=name,
+            # Record the primary section so CreatePerpendicularCompanion can
+            # retrieve it without deriving it from contact membership.
+            primary_section_id=section_id,
         )
         self._session.add(lens)
         await self._session.flush()
