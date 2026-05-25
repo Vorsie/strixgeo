@@ -366,8 +366,15 @@ def infer_formation_absences(
     # COULD appear at an absent column is approximately [5, 8].
     # ------------------------------------------------------------------
     if not body_contacts:
-        # No contacts → no depth range → no inference possible.
-        result.skipped_no_data = [inv_id for inv_id, _ in absent_inv_keys]
+        # Body has collapsed — no contacts means no body identity exists.
+        # An inferred absence is only meaningful relative to a body; when the
+        # body is gone, every previously-inferred row for this formation is
+        # now stale evidence of a relationship that no longer holds. Retract
+        # them. ``'manual'`` and ``'observed'`` rows are preserved — the engine
+        # never owns those (the standard non-retraction guarantee for non-engine
+        # sources still applies). See debt #132 — uncorrelate gestures collapse
+        # body_contacts to empty and used to leak inferred rows forever.
+        result.to_retract = [a.absence_id for a in existing_absences if a.source == "inferred"]
         return result
 
     depths = [c.depth_top_m for c in body_contacts]
