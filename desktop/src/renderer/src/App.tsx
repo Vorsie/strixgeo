@@ -231,6 +231,16 @@ export default function App() {
   // ones). Soft coupling via the bus; cleared on project change.
   const [hoveredTestId, setHoveredTestId] = useState<string | null>(null)
 
+  // Geology deep-link target — set from the Sections (litho) canvas when
+  // the user picks "Edit in Geology stage" on a geological contact.
+  // AppShell watches this, switches to the geology stage, and selects the
+  // section. GeologyInspector reads it to highlight the specific contact.
+  // Cleared after the navigation applies (single-fire).
+  const [geoDeepLinkTarget, setGeoDeepLinkTarget] = useState<{
+    sectionId: string
+    contactId: string
+  } | null>(null)
+
   // Map layer-visibility, viewport bounds, and Leaflet camera persistence —
   // all lifted to App so the Sidebar can read/write the same state as
   // MapView, but grouped in a hook so App stays a thin coordinator.
@@ -892,6 +902,7 @@ export default function App() {
     handleSelect, handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, handleExportSectionPdf, outOfViewportCptIds, outOfViewportBoreholeIds,
     projectFilePath, manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds,
     marqueeSelectedIds, setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
+    geoDeepLinkTarget, setGeoDeepLinkTarget,
   })
 
   // ---------------------------------------------------------------------------
