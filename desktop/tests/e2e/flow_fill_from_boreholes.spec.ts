@@ -227,59 +227,105 @@ test.describe('flow_fill_from_boreholes (#130)', () => {
       // Capture formation count before any apply.
       const countBefore = await countFormations(FIXTURE_PROJECT_ID)
 
-      // Apply the fixture formations by name via POST /geology/formations for each.
-      // This simulates what the apply path does without going through the
-      // FormationSelectionDialog UI (which requires full Electron navigation).
-      // We create three formations and then verify re-creation is a no-op.
+      // The "discover" idempotency guarantee: calling discover twice on the
+      // same borehole data returns the same candidate list — no side-effects.
+      // The geological_formation table has no unique-name constraint (two
+      // investigators may name a formation the same thing), so raw-POST
+      // idempotency lives in the UI's apply flow, not the backend.
+      // We test the discover endpoint (the load-bearing part) is idempotent
+      // by resolving the geo model id, then calling discover twice and
+      // asserting the candidates sets are equal.
+      const geoModelRes = await page.evaluate(
+        async ([base, pid]) => {
+          const r = await fetch(`${base}/projects/${pid}/geology/models`)
+          return r.json()
+        },
+        [API_BASE, FIXTURE_PROJECT_ID],
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const geoModel = (geoModelRes as any[]).find((m: any) => m.kind === 'geological')
+      expect(geoModel).toBeTruthy()
+      const geoModelId: string = geoModel.id
+
+      // First discover call.
+      const discover1 = await page.evaluate(
+        async ([base, pid, mid, bhId]) => {
+          const r = await fetch(
+            `${base}/projects/${pid}/geology/models/${mid}/contacts/discover-from-stratigraphy`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ borehole_ids: [bhId] }),
+            },
+          )
+          return r.json()
+        },
+        [API_BASE, FIXTURE_PROJECT_ID, geoModelId, BH_ID],
+      )
+
+      // Second discover call — must return the same candidates.
+      const discover2 = await page.evaluate(
+        async ([base, pid, mid, bhId]) => {
+          const r = await fetch(
+            `${base}/projects/${pid}/geology/models/${mid}/contacts/discover-from-stratigraphy`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ borehole_ids: [bhId] }),
+            },
+          )
+          return r.json()
+        },
+        [API_BASE, FIXTURE_PROJECT_ID, geoModelId, BH_ID],
+      )
+
+      // Both calls return the same candidate names (discover is a read-only
+      // operation — it never writes to the DB).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const names1 = ((discover1 as any).candidates as any[]).map((c: any) => c.name).sort()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const names2 = ((discover2 as any).candidates as any[]).map((c: any) => c.name).sort()
+      expect(names1).toEqual(names2)
+
+      // Now test the apply path: create each formation, track IDs, and clean up.
+      // The formation count must not grow beyond countBefore + names1.length
+      // (the backend allows duplicates by name; the UI prevents them in practice).
+      const createdIds: string[] = []
       for (const name of STRAT_FORMATION_NAMES) {
-        await page.evaluate(
+        const res = await page.evaluate(
           async ([base, pid, formationName]) => {
-            // The backend returns 409 / 422 for duplicate names — we just ignore
-            // it here; the goal is "ensure the named formation exists".
-            await fetch(`${base}/projects/${pid}/geology/formations`, {
+            const r = await fetch(`${base}/projects/${pid}/geology/formations`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ name: formationName, color: '#9ca3af' }),
             })
+            return { status: r.status, json: await r.json() }
           },
           [API_BASE, FIXTURE_PROJECT_ID, name],
         )
-      }
-
-      const countMid = await countFormations(FIXTURE_PROJECT_ID)
-
-      // Try to create the same formations again — count must not grow.
-      for (const name of STRAT_FORMATION_NAMES) {
-        await page.evaluate(
-          async ([base, pid, formationName]) => {
-            await fetch(`${base}/projects/${pid}/geology/formations`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: formationName, color: '#9ca3af' }),
-            })
-          },
-          [API_BASE, FIXTURE_PROJECT_ID, name],
-        )
+        expect(res.status).toBe(201)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        createdIds.push((res.json as any).id as string)
       }
 
       const countAfter = await countFormations(FIXTURE_PROJECT_ID)
+      expect(countAfter).toBe(countBefore + STRAT_FORMATION_NAMES.length)
 
-      // The backend allows duplicate names (geological formations don't have a
-      // unique-name constraint within a project — two investigators may use
-      // the same name for different contacts). The idempotency being tested
-      // here is the DISCOVER+APPLY path: applying the same discover result
-      // twice should not add rows because apply uses the existing formation
-      // rather than creating a new one.
-      // We assert: the count after the second batch is the SAME as after the
-      // first batch (the fixture formations already existed from the fixture
-      // build script; the second apply round-trip is the idempotency check).
-      expect(countAfter).toBe(countMid)
+      // Clean up — delete each formation we just created by ID so the count
+      // is restored and later tests start from a known baseline.
+      for (const fid of createdIds) {
+        await page.evaluate(
+          async ([base, pid, id]) => {
+            await fetch(`${base}/projects/${pid}/geology/formations/${id}`, {
+              method: 'DELETE',
+            })
+          },
+          [API_BASE, FIXTURE_PROJECT_ID, fid],
+        )
+      }
 
-      // Restore the count to baseline by removing any we added above.
-      // We can't know which were new vs already present, so we simply verify
-      // the fixture's 3 known formations are still there (count >= 3 baseline
-      // already checked above) and the apply didn't break the existing rows.
-      expect(countAfter).toBeGreaterThanOrEqual(countBefore)
+      const countRestored = await countFormations(FIXTURE_PROJECT_ID)
+      expect(countRestored).toBe(countBefore)
     } finally {
       await closeApp(app)
     }
