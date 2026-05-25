@@ -34,7 +34,7 @@ import type {
   PinchOutExtrapolationResponse,
   ProjectResponse,
 } from '../api/client'
-import { formatAcceptParentSummary } from '../utils/acceptLithoSummary'
+import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
 import { mergeLithoLayers } from '../utils/lithoLayerMerge'
@@ -3664,6 +3664,10 @@ export function useGeologicalModel({
         // Debt #87: see acceptLithoSuggestion site above.
         const summary = formatAcceptParentSummary(result)
         if (summary !== null) toast(summary.kind, summary.message)
+        // Debt #76: surface straddle-split count so the user understands why
+        // "accept all" produced more contacts than ghost layers were visible.
+        const straddleMsg = formatStraddleSummary(result)
+        if (straddleMsg !== null) toast('warning', straddleMsg)
         // Stale-TIN diagnostic: aggregate the response's count into
         // the session counter so the inspector pill picks it up.
         if (result.stale_tin_fallback_count > 0) {
