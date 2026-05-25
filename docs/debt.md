@@ -3095,5 +3095,54 @@ schema migration on a stable table; the prop-threading (#131-b) can
 ship independently as a frontend-only change once the absence data is
 available in the section view's loaded state.
 
+## 132. Uncorrelate does not retract inferred absences when body collapses (Tier G — correctness)
+
+**What.** ``test_r7_uncorrelate_reruns_inference_without_error`` asserts
+that uncorrelating FA ↔ FB retracts the inferred-absence rows that the
+correlate hook had written. The DELETE endpoint returns 204 and the hook
+chain (``UncorrelateLithoUnits`` → ``RecomputeFormationAbsencesForFormation``
+→ ``RecomputeFormationAbsencesForBody``) fires successfully, but
+``retracted=0`` — the stale rows survive in DB.
+
+The bug was masked for some time by the ``formation_absence.updated_at``
+NOT NULL violation (debt fixed in migration ``k5e6f7a8b9c0`` 2026-05-25):
+the precondition assertion ``count_before >= 1`` was failing at line 663
+because the correlate write phase couldn't insert any inferred rows. With
+the schema fix in place, the precondition now passes and the real bug
+fails at line 678.
+
+**Root cause (current understanding).** Post-uncorrelate, the body
+identified by ``(formation_id, body_ordinal=0)`` no longer has the
+correlation edge that gave it body identity. ``RecomputeFormationAbsencesForBody``
+looks up the body's contacts, finds zero, and returns
+``skipped_no_data`` rather than emitting all existing rows to
+``to_retract``. The inference engine's ``infer_formation_absences``
+domain function does not have the design intent "no contacts → retract
+all existing inferred rows for this body" — it treats zero-contacts as
+"insufficient data to compute".
+
+**Why deferred.** Real correctness bug, but the fix is a design decision
+on the inference engine, not a one-liner. Two viable shapes:
+
+* **Shape A — domain-layer fix.** Extend ``infer_formation_absences``
+  to emit all existing inferred rows into ``to_retract`` when the body
+  has zero contacts. Simplest semantics; the inference engine becomes
+  the single source of truth for "what should the absence set be?".
+* **Shape B — use-case-layer fix.** Have ``UncorrelateLithoUnits`` (or
+  the recompute use case it calls) DELETE all ``'inferred'`` rows for
+  the affected (formation, body_ordinal) tuple as a first step, then
+  re-run inference to repopulate from scratch. More aggressive; doesn't
+  rely on the inference engine to recognise the collapse case.
+
+Shape A is the cleaner design but needs careful thinking about partial
+collapses (body still has SOME contacts on SOME sections but not others
+— do we retract per-section or globally?). Shape B is mechanical but
+risks over-deleting if a manual row got mis-classified as inferred.
+
+**When to revisit.** Before any user can hit the uncorrelate gesture
+on a corridor where the post-correlate inference wrote ``'inferred'``
+absences (= every realistic uncorrelate in v1.0). This is a v1.0 MVP
+correctness gate — must ship before the coworker binary.
+
 ## (end)
 
