@@ -49,6 +49,26 @@ if [ -n "$ts_changed" ]; then
   # any test loads (see memory/project_node_22_pin.md).
   (cd desktop && npx tsc --noEmit -p tsconfig.web.json)
   (cd desktop && npm test --silent)
+
+  # Playwright e2e smoke (flow_boot_open only, ~10 s budget).
+  # Only runs when the FastAPI backend is reachable — skips gracefully if
+  # it isn't so offline / first-boot commits don't block.
+  # Pre-conditions: `npm run build` inside desktop/ must have been run, and
+  # E2E_FIXTURE_PROJECT_ID must be set (populated by build_synthetic_fixture.py).
+  # Total target budget: Vitest (~15 s) + smoke (~10 s) ≤ 30 s.
+  if curl -sf http://127.0.0.1:8765/openapi.json >/dev/null 2>&1; then
+    if [ -f "desktop/out/main/index.js" ]; then
+      echo "[pre-commit] Running e2e smoke (flow_boot_open)…"
+      (cd desktop && npm run test:e2e:smoke --silent) || {
+        echo "[pre-commit] Smoke failed — commit blocked. Fix or skip with --no-verify."
+        exit 1
+      }
+    else
+      echo "[pre-commit] Skipping smoke — desktop/out/main/index.js not built (run npm run build)."
+    fi
+  else
+    echo "[pre-commit] Skipping smoke — FastAPI backend not reachable on :8765."
+  fi
 fi
 
 exit 0
