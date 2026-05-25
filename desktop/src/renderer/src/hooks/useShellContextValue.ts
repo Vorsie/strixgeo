@@ -138,6 +138,8 @@ export interface UseShellContextValueArgs {
   setMarqueeSelectedIds: ShellContextValue['coordinator']['setMarqueeSelectedIds']
   hoveredTestId: ShellContextValue['coordinator']['hoveredTestId']
   setHoveredTestId: ShellContextValue['coordinator']['setHoveredTestId']
+  geoDeepLinkTarget: ShellContextValue['coordinator']['geoDeepLinkTarget']
+  setGeoDeepLinkTarget: ShellContextValue['coordinator']['setGeoDeepLinkTarget']
 }
 
 /**
@@ -186,7 +188,7 @@ export function useShellContextValue(
     selectedBoreholeId, setSelectedId, setSelectedBoreholeId, view, setView, handleSelect,
     handleSelectBorehole, handleExportSectionDxf, handleExportSectionPlaxis2d, handleExportSectionPdf, outOfViewportCptIds, outOfViewportBoreholeIds, projectFilePath,
     manifestFormationIds, sessionImportCptIds, sessionImportBoreholeIds, sessionImportSectionIds, sessionImportFormationIds, marqueeSelectedIds,
-    setMarqueeSelectedIds, hoveredTestId, setHoveredTestId,
+    setMarqueeSelectedIds, hoveredTestId, setHoveredTestId, geoDeepLinkTarget, setGeoDeepLinkTarget,
   } = argsWithoutGeo
 
   // Re-destructure geo so the dep array stays byte-identical to the
@@ -347,6 +349,8 @@ export function useShellContextValue(
       setMarqueeSelectedIds,
       hoveredTestId,
       setHoveredTestId,
+      geoDeepLinkTarget,
+      setGeoDeepLinkTarget,
     },
   }),
   // Auto-derived dep array (debt #53, 2026-05-21). The prior shape was
