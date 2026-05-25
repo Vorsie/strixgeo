@@ -191,6 +191,7 @@ class SuggestLithoContacts(GroundModelLogger):
         model_id: UUID,
         borehole_id: UUID,
         minimum_layer_thickness_m: float = 0.15,
+        merge_same_lithology: bool = True,
     ) -> list[LithoLayerSuggestion]:
         """Suggest litho contacts for a borehole investigation.
 
@@ -209,6 +210,11 @@ class SuggestLithoContacts(GroundModelLogger):
             Minimum output layer thickness (default 0.15 m — matches
             typical CPT sampling resolution; finer = noise, coarser
             misses thin clay drapes per dogfeed 2026-05-23).
+        merge_same_lithology : bool
+            When ``True`` (default), collapse adjacent same-lithology segments
+            from the borehole observation layer mapping into a single layer.
+            Set to ``False`` to see the un-merged observation-layer boundaries
+            (useful for diagnosing individual description layers).
 
         Returns
         -------
@@ -224,7 +230,8 @@ class SuggestLithoContacts(GroundModelLogger):
         """
         self.info(
             f"SuggestLithoContacts.execute_for_borehole: model={model_id}, "
-            f"borehole={borehole_id}, min_thickness={minimum_layer_thickness_m}m"
+            f"borehole={borehole_id}, min_thickness={minimum_layer_thickness_m}m, "
+            f"merge_same_lithology={merge_same_lithology}"
         )
         project_id = await self._assert_litho_model(model_id)
 
@@ -292,6 +299,7 @@ class SuggestLithoContacts(GroundModelLogger):
             main_soil_codes=codes,
             minimum_layer_thickness_m=minimum_layer_thickness_m,
             admixtures_per_layer=admixtures_per_layer,
+            merge_same_lithology=merge_same_lithology,
         )
 
         self.success(
