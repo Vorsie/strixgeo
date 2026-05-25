@@ -713,6 +713,7 @@ def segment_borehole(
     main_soil_codes: Sequence[list[str]],
     minimum_layer_thickness_m: float = 0.15,
     admixtures_per_layer: Sequence[list[Admixture]] | None = None,
+    merge_same_lithology: bool = True,
 ) -> list[LithoLayerSuggestion]:
     """Segment borehole observation layers into lithostratigraphic layer suggestions.
 
@@ -730,13 +731,19 @@ def segment_borehole(
         DOV hoofdnaam code lists, one per layer.  The first element of each list
         is used as the primary soil type.  Empty lists yield ``None`` (skipped).
     minimum_layer_thickness_m : float
-        Minimum layer thickness for the greedy-merge (default 0.5 m).
+        Minimum layer thickness for the greedy-merge (default 0.15 m).
     admixtures_per_layer : Sequence[list[Admixture]] | None, optional
         Per-layer admixture lists (parallel to ``layer_tops_m``).  When provided
         and non-empty, admixtures present in >50% of each merged run's total
         thickness are propagated to ``LithoLayerSuggestion.suggested_admixtures``
         (debt #66 heuristic).  ``None`` or absent → empty admixtures on every
         suggestion (CPT path; borehole path without admixture data).
+    merge_same_lithology : bool
+        When ``True`` (default), run ``merge_adjacent_same_lithology`` as a
+        final pass to collapse adjacent segments that share the same lithology
+        code into a single layer.  Set to ``False`` to see the un-merged
+        greedy-merge output (useful for diagnosing individual observation-layer
+        boundaries before the Geotech stage).
 
     Returns
     -------
@@ -824,5 +831,8 @@ def segment_borehole(
                 suggested_admixtures=aggregated_admixtures,
             )
         )
+
+    if merge_same_lithology:
+        suggestions = merge_adjacent_same_lithology(suggestions)
 
     return suggestions
