@@ -69,6 +69,8 @@ function makeCtx(
       setSelectedId,
       setSelectedBoreholeId,
       setView,
+      geoDeepLinkTarget: null,
+      setGeoDeepLinkTarget: vi.fn(),
     },
   } as unknown as ShellContextValue
   return { setSelectedId, setSelectedBoreholeId, setView, ctx }

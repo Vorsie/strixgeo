@@ -86,6 +86,31 @@ export default function AppShell({ context }: AppShellProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context.project.id])
 
+  // Geology deep-link — triggered from the Sections (litho) canvas when
+  // the user picks "Edit in Geology stage" on a geological contact.
+  // Switches to the geology stage and selects the section so the user
+  // lands on the exact section + contact they want to fix.
+  //
+  // AppShell is responsible for the stage switch + section select only.
+  // The payload is NOT cleared here: GeologyInspector reads the
+  // contactId from the same payload and clears it after applying the
+  // per-contact focus, so the contactId survives the stage transition
+  // and the re-render that mounts GeologyInspector on the geology stage.
+  useEffect(() => {
+    const target = context.coordinator.geoDeepLinkTarget
+    if (target == null) return
+    log.info('shell', `geo-deep-link: stage=geology section=${target.sectionId} contact=${target.contactId}`)
+    setActiveStage('geology')
+    context.sections.handleSelectSection(target.sectionId)
+    // Payload is NOT cleared here — GeologyInspector consumes +
+    // clears it so the contactId reaches the geology stage.
+    // reason: setActiveStage and context.sections.handleSelectSection are
+    // stable callbacks; context.coordinator.geoDeepLinkTarget is the only
+    // signal that should trigger this effect. Including context itself would
+    // re-fire on every unrelated shell-state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [context.coordinator.geoDeepLinkTarget])
+
   // Open-a-detail → Data stage. handleSelect / handleSelectBorehole are
   // the single funnel for "show this investigation's detail" (map click
   // AND section double-click): they set the selection + view='chart'.
