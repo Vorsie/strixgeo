@@ -1,0 +1,311 @@
+"""Mock httpx transport for DOV HTTP traffic during e2e testing.
+
+When ``STRIX_DOV_FIXTURE_MODE=1`` is set, ``make_dov_async_client`` in
+``dov_http.py`` wires this transport instead of the production network path.
+All DOV HTTP calls (WFS + per-permkey XML downloads) are served from
+on-disk fixture files — no live DOV network access occurs.
+
+Route table
+-----------
+WFS count (resultType=hits):
+  ``GET https://www.dov.vlaanderen.be/geoserver/ows?typeNames=<layer>&resultType=hits``
+  → ``fixture_root/wfs/<layer_slug>_count.xml``
+
+WFS features (outputFormat=application/json):
+  ``GET https://www.dov.vlaanderen.be/geoserver/ows?typeNames=<layer>&...``
+  → ``fixture_root/wfs/<layer_slug>_features.json``
+
+Per-permkey CPT XML:
+  ``GET https://www.dov.vlaanderen.be/xdov/proxy/export/sondering/<permkey>``
+  → ``fixture_root/cpt/<permkey>``
+
+Per-permkey borehole XML:
+  ``GET https://www.dov.vlaanderen.be/xdov/proxy/export/boring/<permkey>``
+  → ``fixture_root/borehole/<permkey>``
+
+Per-permkey interpretation XML:
+  ``GET https://www.dov.vlaanderen.be/xdov/proxy/export/interpretatie/<permkey>``
+  → ``fixture_root/interpretatie/<permkey>``
+
+Per-permkey observation XML (grain-size):
+  ``GET https://www.dov.vlaanderen.be/xdov/proxy/export/observatie/<permkey>``
+  → ``fixture_root/observatie/<permkey>``
+
+Layer name → file-system slug mapping
+--------------------------------------
+The WFS ``typeNames`` parameter contains colons and hyphens that are
+unsafe as raw filenames. We map them to slugs:
+
+  ``dov-pub:Sonderingen``                                → ``sonderingen``
+  ``dov-pub:Boringen``                                   → ``boringen``
+  ``boringen:grondmonsters``                             → ``grondmonsters``
+  ``interpretaties:gecodeerde_lithologie``               → ``interpretaties_gecodeerde_lithologie``
+  (other interpretaties:* layers)                        → ``interpretaties_<rest>``
+  ``monster:observaties`` (grain-size CQL)               → ``observaties_grain_size``
+  ``monster:observaties`` (scalar / unknown CQL)         → ``observaties_scalar``
+
+Unknown route handling
+----------------------
+An unmatched URL returns HTTP 404 with a descriptive body. This is
+intentional: a missing fixture silences a test quietly; a 404 causes
+the import pipeline to raise ``httpx.HTTPStatusError``, which surfaces
+the test as a failure with a clear message.
+
+Environment variables
+---------------------
+``STRIX_DOV_FIXTURE_MODE`` : ``"1"``
+    Enables fixture mode. Any other value (or absent) uses the live network.
+``STRIX_DOV_FIXTURE_ROOT`` : path string
+    Root directory for fixture files. Defaults to
+    ``desktop/tests/e2e/fixtures/dov`` relative to the Python CWD (which is
+    the repository root when running under uvicorn from the repo root).
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+import httpx
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Env var that activates fixture mode.
+DOV_FIXTURE_MODE_ENV = "STRIX_DOV_FIXTURE_MODE"
+
+# Env var that overrides the fixture root directory.
+DOV_FIXTURE_ROOT_ENV = "STRIX_DOV_FIXTURE_ROOT"
+
+# Default fixture root — relative to the repo root (the process CWD when the
+# backend is launched via ``uv run uvicorn ... --cwd <repo-root>``).
+_DEFAULT_FIXTURE_ROOT = "desktop/tests/e2e/fixtures/dov"
+
+# DOV WFS endpoint (all WFS requests go here).
+_DOV_WFS_HOST = "www.dov.vlaanderen.be"
+
+# Per-resource proxy URL prefixes (path-only, without host).
+_CPT_PATH_PREFIX = "/xdov/proxy/export/sondering/"
+_BORING_PATH_PREFIX = "/xdov/proxy/export/boring/"
+_INTERP_PATH_PREFIX = "/xdov/proxy/export/interpretatie/"
+_OBS_PATH_PREFIX = "/xdov/proxy/export/observatie/"
+
+# WFS layer slug map: typeNames value → directory basename / slug.
+# The grain-size and scalar observation layers both use ``monster:observaties``
+# but differ in their CQL_FILTER — the router disambiguates by inspecting the
+# CQL_FILTER parameter.
+_GRAIN_SIZE_CQL_MARKER = "Onderkenningsproeven-korrelverdeling"
+_LAYER_TO_SLUG: dict[str, str] = {
+    "dov-pub:Sonderingen": "sonderingen",
+    "dov-pub:Boringen": "boringen",
+    "boringen:grondmonsters": "grondmonsters",
+}
+
+
+def _layer_slug(type_names: str, cql_filter: str) -> str:
+    """Map a WFS ``typeNames`` + optional ``CQL_FILTER`` to a fixture slug.
+
+    Parameters
+    ----------
+    type_names : str
+        Value of the WFS ``typeNames`` query parameter (e.g.
+        ``"dov-pub:Sonderingen"``).
+    cql_filter : str
+        Value of the ``CQL_FILTER`` parameter, or empty string. Used to
+        distinguish grain-size from scalar queries for the unified
+        ``monster:observaties`` layer.
+
+    Returns
+    -------
+    str
+        A filesystem-safe slug such as ``"sonderingen"`` or
+        ``"interpretaties_gecodeerde_lithologie"``.
+    """
+    if type_names in _LAYER_TO_SLUG:
+        return _LAYER_TO_SLUG[type_names]
+
+    if type_names == "monster:observaties":
+        # Grain-size queries carry the parametergroep in the CQL_FILTER.
+        if _GRAIN_SIZE_CQL_MARKER in cql_filter:
+            return "observaties_grain_size"
+        # Every other CQL variant (scalar Atterberg / CaCO3 / etc.) maps
+        # to a single "empty response" fixture so the import degrades
+        # gracefully to 0 scalar results.
+        return "observaties_scalar"
+
+    if type_names.startswith("interpretaties:"):
+        # ``interpretaties:gecodeerde_lithologie`` → ``interpretaties_gecodeerde_lithologie``
+        suffix = type_names.split(":", 1)[1]
+        return f"interpretaties_{suffix}"
+
+    # Unknown layer — return a slug that won't match any fixture; the caller
+    # will get a 404 and the import pipeline will surface it as an error.
+    safe = type_names.replace(":", "_").replace("-", "_")
+    return safe
+
+
+def _build_fixture_transport(fixture_root: Path) -> httpx.MockTransport:
+    """Return an httpx MockTransport serving DOV requests from on-disk fixtures.
+
+    Parameters
+    ----------
+    fixture_root : Path
+        Root directory containing ``wfs/``, ``cpt/``, ``borehole/``,
+        ``interpretatie/``, and ``observatie/`` subdirectories.
+
+    Returns
+    -------
+    httpx.MockTransport
+        A transport that routes requests by URL and query parameters,
+        reads the matching fixture file, and returns the contents with
+        an appropriate ``Content-Type``.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Route the request to the correct on-disk fixture file.
+
+        Parameters
+        ----------
+        request : httpx.Request
+            The intercepted HTTP request.
+
+        Returns
+        -------
+        httpx.Response
+            The fixture file's contents with a 200 status, or a 404
+            response when no matching fixture exists.
+        """
+        parsed = urlparse(str(request.url))
+        path = parsed.path
+        query = parse_qs(parsed.query, keep_blank_values=True)
+
+        def _qs(key: str) -> str:
+            """Return the first value for *key*, or empty string."""
+            return (query.get(key) or [""])[0]
+
+        # ------------------------------------------------------------------
+        # Route 1: WFS requests (all go to the GeoServer OWS endpoint).
+        # ------------------------------------------------------------------
+        if parsed.hostname == _DOV_WFS_HOST and path == "/geoserver/ows":
+            type_names = _qs("typeNames")
+            cql_filter = _qs("CQL_FILTER")
+            result_type = _qs("resultType").lower()
+            # outputFormat is not needed for routing — result_type determines
+            # count vs features; slug routing is by typeNames + CQL_FILTER.
+
+            slug = _layer_slug(type_names, cql_filter)
+
+            if result_type == "hits":
+                # WFS count request → XML response with numberMatched.
+                fixture_path = fixture_root / "wfs" / f"{slug}_count.xml"
+                fallback_path = fixture_root / "wfs" / "empty_count.xml"
+                content_type = "text/xml; charset=utf-8"
+            else:
+                # WFS features request → GeoJSON response.
+                fixture_path = fixture_root / "wfs" / f"{slug}_features.json"
+                fallback_path = fixture_root / "wfs" / "empty_features.json"
+                content_type = "application/json"
+
+            # Fall back to the empty fixture for layers without explicit fixture
+            # files (e.g. the 7 interpretation layers that have no data in the
+            # e2e bbox). The fallback exists so those WFS calls return cleanly
+            # rather than 404-ing and aborting the import.
+            if not fixture_path.exists() and fallback_path.exists():
+                return _serve_fixture(fallback_path, content_type)
+            return _serve_fixture(fixture_path, content_type)
+
+        # ------------------------------------------------------------------
+        # Route 2: per-permkey CPT XML (sondering proxy).
+        # ------------------------------------------------------------------
+        if path.startswith(_CPT_PATH_PREFIX):
+            permkey = path[len(_CPT_PATH_PREFIX) :].rstrip("/")
+            fixture_path = fixture_root / "cpt" / permkey
+            return _serve_fixture(fixture_path, "text/xml; charset=utf-8")
+
+        # ------------------------------------------------------------------
+        # Route 3: per-permkey borehole XML (boring proxy).
+        # ------------------------------------------------------------------
+        if path.startswith(_BORING_PATH_PREFIX):
+            permkey = path[len(_BORING_PATH_PREFIX) :].rstrip("/")
+            fixture_path = fixture_root / "borehole" / permkey
+            return _serve_fixture(fixture_path, "text/xml; charset=utf-8")
+
+        # ------------------------------------------------------------------
+        # Route 4: per-permkey interpretation XML.
+        # ------------------------------------------------------------------
+        if path.startswith(_INTERP_PATH_PREFIX):
+            permkey = path[len(_INTERP_PATH_PREFIX) :].rstrip("/")
+            fixture_path = fixture_root / "interpretatie" / permkey
+            return _serve_fixture(fixture_path, "text/xml; charset=utf-8")
+
+        # ------------------------------------------------------------------
+        # Route 5: per-permkey observation XML (grain-size).
+        # ------------------------------------------------------------------
+        if path.startswith(_OBS_PATH_PREFIX):
+            permkey = path[len(_OBS_PATH_PREFIX) :].rstrip("/")
+            fixture_path = fixture_root / "observatie" / permkey
+            return _serve_fixture(fixture_path, "text/xml; charset=utf-8")
+
+        # ------------------------------------------------------------------
+        # Unmatched route — 404 so missing fixtures fail loudly.
+        # ------------------------------------------------------------------
+        return httpx.Response(
+            404,
+            content=f"DOV fixture transport: no route for {request.method} {request.url}".encode(),
+        )
+
+    return httpx.MockTransport(handler)
+
+
+def _serve_fixture(fixture_path: Path, content_type: str) -> httpx.Response:
+    """Read *fixture_path* and return a 200 response, or a 404 if absent.
+
+    Parameters
+    ----------
+    fixture_path : Path
+        Absolute or relative path to the fixture file.
+    content_type : str
+        ``Content-Type`` header value for the response.
+
+    Returns
+    -------
+    httpx.Response
+        200 with the file's contents, or 404 when the file doesn't exist.
+    """
+    if not fixture_path.exists():
+        return httpx.Response(
+            404,
+            content=(
+                f"DOV fixture transport: no fixture at {fixture_path}. "
+                f"Create it or correct the test's bbox/permkey."
+            ).encode(),
+        )
+    return httpx.Response(
+        200,
+        content=fixture_path.read_bytes(),
+        headers={"content-type": content_type},
+    )
+
+
+def is_fixture_mode() -> bool:
+    """Return True when ``STRIX_DOV_FIXTURE_MODE=1`` is set.
+
+    Returns
+    -------
+    bool
+        ``True`` if the env var is ``"1"``, ``False`` otherwise.
+    """
+    return os.environ.get(DOV_FIXTURE_MODE_ENV) == "1"
+
+
+def fixture_root_path() -> Path:
+    """Return the fixture root directory from env or the default.
+
+    Returns
+    -------
+    Path
+        Absolute or CWD-relative path to the fixture root.
+    """
+    return Path(os.environ.get(DOV_FIXTURE_ROOT_ENV, _DEFAULT_FIXTURE_ROOT))
