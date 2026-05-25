@@ -2271,32 +2271,6 @@ contacts keyed by `model_id`; `SectionFormation` gains optional
 `litho_main_soil_code` / `nad_class`; exporters pick the level from the
 `model_id` argument they already take. No schema change.
 
-## 105. UX contract violations — confirm dialog, dark mode, focus contrast (Tier D — pre-coworker-binary)
-
-**What.** The UX audit found three standing contract violations:
-- `SectionsInspector.tsx:470` (`SectionRow.handleDelete`) uses native
-  `window.confirm` for an irreversible cross-section delete — default
-  focus on OS "OK", no action-named button. The contact-delete and
-  toolbar-delete paths were already fixed (#62); the inspector row was
-  missed. `SectionsToolbar.tsx` has the modal pattern to copy.
-- `WelcomeScreen.tsx`, `UnsavedChangesDialog.tsx`, `NewProjectDialog.tsx`
-  use raw Tailwind palette tokens (`bg-white`, `text-gray-800`, …) with
-  no `dark:` variants — the three primary entry-point surfaces render
-  white-on-white in dark mode (WCAG AA contrast fail). `docs/ux.md`
-  mandates semantic tokens / `dark:` pairs.
-- `Button.tsx:12` hardcodes `focus-visible:ring-blue-500` — ~2.8:1 on
-  dark surfaces, fails the WCAG 2.2 AA 3:1 UI-component requirement;
-  should be the theme-aware `ring-accent`. `DeleteContactConfirmDialog`'s
-  cancel `<button>` has no focus ring at all.
-
-**Why deferred.** Real accessibility / contract bugs but not a blocker
-on a current commit; grouped so the modal-pattern + token-migration are
-done once. The dark-mode-on-WelcomeScreen one is the most user-visible
-("white on white" on a dark-OS machine).
-
-**When to revisit.** Before the coworker binary — first impression +
-accessibility floor.
-
 ## 106. Application layer is welded to the ORM (Tier D — clean-architecture leak)
 
 **What.** ~20+ geology use cases (`accept_litho_suggestions.py`,
