@@ -48,7 +48,24 @@ if [ -n "$ts_changed" ]; then
   # Node 22 LTS to run the hook — Node 24 segfaults vitest before
   # any test loads (see memory/project_node_22_pin.md).
   (cd desktop && npx tsc --noEmit -p tsconfig.web.json)
-  (cd desktop && npm test --silent)
+
+  # Vitest — run only tests affected by the staged TS files. The full
+  # suite is ~80 s for 109 files / 1239 tests; ``vitest related`` walks
+  # the import graph from each given source file to find the test files
+  # that exercise it, typically 3-20 tests for a focused commit (~5-15 s).
+  # When a test file itself is staged, vitest runs it directly.
+  # If vitest config / setup files are staged, fall back to the full
+  # suite — their changes affect every test.
+  ts_paths_rel="$(echo "$ts_changed" | sed 's|^desktop/||' | tr '\n' ' ')"
+  config_changed="$(echo "$ts_changed" | grep -E '(vitest\.|vite\.config|tsconfig)' || true)"
+  if [ -n "$config_changed" ]; then
+    echo "[pre-commit] Vitest config touched — running full suite."
+    (cd desktop && npm test --silent)
+  else
+    echo "[pre-commit] Vitest related to: $ts_paths_rel"
+    # shellcheck disable=SC2086
+    (cd desktop && npx vitest related --run $ts_paths_rel)
+  fi
 
   # Playwright e2e smoke (flow_boot_open only, ~10 s budget).
   # Only runs when the FastAPI backend is reachable — skips gracefully if
