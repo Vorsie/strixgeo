@@ -552,6 +552,7 @@ export default function GeologyInspector(): JSX.Element {
           }}
           title="Add a new formation to this project"
           className="ml-auto"
+          data-testid="geology-create-formation-button"
         >
           <Plus size={12} className="mr-1" />
           Add formation
@@ -668,10 +669,11 @@ export default function GeologyInspector(): JSX.Element {
       {/* Formation list with drag-reorder */}
       {visibleFormations.length > 0 && (
         <ul className="flex flex-col gap-1">
-          {displayedFormations.map(f => (
+          {displayedFormations.map((f, idx) => (
             <FormationRow
               key={f.id}
               formation={f}
+              displayIndex={idx}
               unsaved={sessionImportFormationIds?.has(f.id) ?? false}
               isDragging={draggedId === f.id}
               isDragOver={
@@ -863,6 +865,9 @@ interface FormationRowProps {
   onDragLeave: () => void
   onDrop: () => void
   onDragEnd: () => void
+  /** Index (0-based) within the displayed (youngest-first) list —
+   *  used for ordinal-based testid targeting in e2e harnesses. */
+  displayIndex: number
 }
 
 /**
@@ -892,6 +897,7 @@ interface FormationRowProps {
  */
 function FormationRow({
   formation,
+  displayIndex,
   unsaved,
   isDragging,
   isDragOver,
@@ -906,6 +912,9 @@ function FormationRow({
 }: FormationRowProps): JSX.Element {
   return (
     <li
+      data-testid={`geology-formation-list-item-${formation.id}`}
+      data-formation-id={formation.id}
+      data-display-index={displayIndex}
       onDragOver={e => {
         // ``preventDefault`` is required to mark the row as a drop target;
         // without it the browser fires no drop event.
@@ -938,6 +947,7 @@ function FormationRow({
         }}
         onDragEnd={onDragEnd}
         title="Drag to reorder (lower = older)"
+        data-testid={`geology-formation-drag-handle-${formation.id}`}
         className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text-secondary shrink-0 -ml-1 px-0.5"
         aria-label={`Drag to reorder ${formation.name}`}
       >

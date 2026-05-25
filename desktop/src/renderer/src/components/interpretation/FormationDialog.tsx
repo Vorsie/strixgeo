@@ -175,7 +175,7 @@ export default function FormationDialog({
 
   const isEdit = initialValue !== null
   return (
-    <Modal open={open} onCancel={onCancel} labelledBy="formation-dialog-title" busy={busy}>
+    <Modal open={open} onCancel={onCancel} labelledBy="formation-dialog-title" busy={busy} testid="create-formation-dialog">
       <div className="p-6">
         <h2
           id="formation-dialog-title"
@@ -216,6 +216,7 @@ export default function FormationDialog({
             placeholder="e.g. Boom Klei"
             autoComplete="off"
             role="combobox"
+            data-testid="create-formation-name-input"
             aria-autocomplete="list"
             aria-expanded={suggestionsOpen && suggestions.length > 0}
             aria-controls="formation-name-suggestions"
@@ -308,6 +309,7 @@ export default function FormationDialog({
             size="md"
             onClick={() => void handleSubmit()}
             disabled={!name.trim() || busy}
+            data-testid="create-formation-submit"
           >
             {isEdit ? 'Save' : 'Create'}
           </Button>
