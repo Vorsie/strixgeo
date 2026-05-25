@@ -31,7 +31,7 @@ subdivision is built on top of it. Priority order:
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
-* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #115, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
+* **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
 * **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #117, #124, #125, #126
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
@@ -2480,34 +2480,6 @@ cost, no behaviour change.
 **When to revisit.** Decompose the restore function opportunistically
 the next time it is touched; the ContactsLayer extraction deserves its
 own focused pass (it is a recurring bug site).
-
-## 115. UX polish batch (Tier D)
-
-**What.** The UX audit's should-fix / consider tier:
-- `SectionsInspector` `InspectorSection` blocks are not collapsible —
-  the 420 px inspector overflows on a project with many sections +
-  formations + the Virtuele Boring strip. gINT/LeapFrog use collapsible
-  accordions; persist collapse state to localStorage.
-- `DataInspector.tsx:488` "Remove" uses `bg-status-danger` (red) for a
-  *reversible* project-local hide — red should be reserved for
-  irreversible intent.
-- `BoreholeLog.tsx:564` track header shows the translated label with no
-  raw-token `title` tooltip — violates the translate-at-boundary rule
-  ("show the source token so experts can verify the mapping").
-- `WelcomeScreen` dismiss + recent-project buttons have no focus ring.
-- `PerUnitTab` Phase-5 placeholder columns have no `aria-disabled` /
-  descriptive label — a screen-reader user tabs into a dead column.
-- `StageSpine` `SelectionFooter` has a dead `count===1 ? 'sel.' : 'sel.'`
-  ternary and an opaque "sel." label with no `aria-label`.
-- Tab bars are inconsistent — `ParametersCanvas` has proper
-  `role="tablist"` ARIA, `DataInspector` uses plain buttons; extract a
-  shared `TabBar` primitive with arrow-key nav.
-
-**Why deferred.** Polish — none blocking; batched so the inspector /
-token / ARIA work is done coherently.
-
-**When to revisit.** A Sections/Data-stage UX pass, or when the next tab
-surface is added (do the `TabBar` primitive then).
 
 ## 116. Test coverage gaps — RebuildModelSurfaces + SectionPdfReportExporter (Tier D)
 
