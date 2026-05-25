@@ -3020,11 +3020,24 @@ transfer accuracy and degenerate column-pairs):
 
 **Why deferred.** #101 Position 4 must land first — the inference
 engine + correlation-edge source enum + provisional rendering
-treatment are prerequisites. After #101 lands and the reviewer
-confirms, this slice ships in one focused build.
+treatment are prerequisites. After #101 + **#128 (Playwright
+e2e)** land, this slice ships next.
 
-**When to revisit.** Immediately after #101 Position 4 refactor +
-reviewer pass + owner smoke-test. Single slice, ~1.5 days.
+**Sequencing change (owner directive 2026-05-25):** **#128 ships
+BEFORE #127**, not after. Rationale: the #101 Position 4 build
+generated three post-merge bug fix-up rounds (initial fix-up
+post-Approach-C reviewer, Position-4 fix-up #2, materialiser
+``ground_level_m``, then the #129 dogfeed batch). Every one of
+those was a cross-boundary integration bug — passed unit + tsc +
+reviewer, surfaced only at owner smoke-test. Building #127 on
+top of the current unblocked-but-still-leaky stack means more of
+the same. Land #128 first → the auto-correlate work inherits the
+6-flow smoke set as its own regression net.
+
+**When to revisit.** After #128 ships (Playwright harness +
+initial 6-flow smoke set running). Single slice, ~1.5-2 days
+including the bottom-up sweep + dip transfer + Tertiary-less
+safeguards from above.
 
 ## 128. Playwright end-to-end smoke harness for the main user flows (Tier B — pre-coworker-binary quality investment)
 
@@ -3106,14 +3119,30 @@ test gates aren't sufficient on their own for the cross-boundary
 surfaces. Pre-distribution is the cutoff because shipping a 500
 to a real user is much worse than catching it in dogfeed.
 
-**Why deferred.** #101 + #127 first — both have explicit owner
-sequencing. After #127 lands and the litho workflow is stable,
-the Playwright harness ships and inherits the now-stable flows
-as its initial smoke set.
+**Why deferred until now.** Originally filed (2026-05-25 morning)
+as deferred until after #127 with the rationale "let the litho
+workflow stabilise, then build the smoke set on top of stable
+flows".
 
-**When to revisit.** After #127 ships (auto-correlate). Before
-the first external/paid distribution (debt #3 license keys
-trigger). Filed 2026-05-25 from the materialiser-bug dogfeed.
+**Sequencing change (owner directive 2026-05-25 afternoon):**
+**#128 ships BEFORE #127.** Rationale: the #101 Position 4 build
+generated four post-merge bug fix-up rounds in 24 hours (initial
+fix-up, Position-4 fix-up #2, materialiser ``ground_level_m``,
+then the #129 dogfeed batch). Every single one was a
+cross-boundary integration bug — passed unit + tsc + reviewer
+gates, surfaced only at owner smoke-test. Pattern is clear:
+existing test gates aren't sufficient for cross-boundary
+surfaces, and shipping #127 (which adds another suggestion
+surface) before #128 means more of the same. Land the harness
+first; #127 inherits the 6-flow smoke set as its regression net
+from day one.
+
+**When to revisit.** Immediately after #129 fix-up lands (the
+last bug from this session — currently in flight). Before
+#127 auto-correlate. Before the first external/paid distribution
+(debt #3 license keys trigger). Filed 2026-05-25 from the
+materialiser-bug dogfeed; sequencing escalated same day after
+#129 surfaced three more cross-boundary bugs.
 
 ## 129. Position-4 dogfeed batch (2026-05-25 #2) — three concrete bugs (Tier G)
 
