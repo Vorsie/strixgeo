@@ -134,6 +134,7 @@ function renderGhost(
     ) => void
     onSplitLayer?: (idx: number) => void
     onMergeLayers?: (upperIdx: number) => void
+    onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
     cptPlotByAnchorId?: ReadonlyMap<
       string,
       {
@@ -170,6 +171,7 @@ function renderGhost(
         onInsertLayer={opts.onInsertLayer}
         onSplitLayer={opts.onSplitLayer}
         onMergeLayers={opts.onMergeLayers}
+        onAbsorbLayer={opts.onAbsorbLayer}
         cptPlotByAnchorId={opts.cptPlotByAnchorId}
       />
     </svg>,
@@ -1585,6 +1587,155 @@ describe('LithoSuggestionGhostColumns', () => {
     // Bound = layer 1's own base = 4. Drag stuck at 4 (no movement).
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     expect(layer1Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
+  })
+
+  // -----------------------------------------------------------------
+  // AB — Shift+drag absorb gesture (dogfeed 2026-05-25)
+  // -----------------------------------------------------------------
+
+  // AB1: Shift+drag-down past lower neighbour's midpoint → onAbsorbLayer
+  // called with (draggerIdx=0, direction='down').
+  it('AB1 — Shift+drag-down past lower neighbour midpoint calls onAbsorbLayer(0, down)', () => {
+    const onAbsorbLayer = vi.fn()
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onAbsorbLayer },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    expect(baseHandle).not.toBeNull()
+    // Drag down to depth 3 m (= midpoint 3 of neighbour [2,4]) + a bit more.
+    // levelToScreen: pxPerM=100, surface=5, layer-0-base at depth 2 → clientY=200.
+    // Neighbour midpoint = 2 + (4-2)/2 = 3 m → clientY = 200 + (3-2)*100 = 300.
+    // Overshoot to clientY=350 (depth 3.5 m > midpoint 3 m).
+    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: true })
+    fireEvent.mouseMove(document, { clientY: 350, shiftKey: true })
+    fireEvent.mouseUp(document, { shiftKey: true })
+    // onAbsorbLayer fires; onEdit does NOT fire (absorb replaces the depth commit).
+    expect(onAbsorbLayer).toHaveBeenCalledTimes(1)
+    expect(onAbsorbLayer).toHaveBeenCalledWith(0, 'down')
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  // AB2: Shift+drag-down to a depth BEFORE the lower neighbour's midpoint
+  // → no absorb, normal clamp behaviour, no onAbsorbLayer call.
+  it('AB2 — Shift+drag-down short of midpoint clamps; no absorb', () => {
+    const onAbsorbLayer = vi.fn()
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onAbsorbLayer },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // Drag to depth 2.4 m — short of midpoint 3. clientY = 200 + 0.4*100 = 240.
+    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: true })
+    fireEvent.mouseMove(document, { clientY: 240, shiftKey: true })
+    fireEvent.mouseUp(document, { shiftKey: true })
+    expect(onAbsorbLayer).not.toHaveBeenCalled()
+    // onEdit still fires with the clamped depth (2.4 m within bounds).
+    expect(onEdit).toHaveBeenCalled()
+  })
+
+  // AB3: plain drag (no Shift) past the neighbour midpoint → clamps as
+  // today, no absorb. The absorb gesture is Shift-exclusive.
+  it('AB3 — plain drag (no Shift) past midpoint clamps; no absorb', () => {
+    const onAbsorbLayer = vi.fn()
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onAbsorbLayer },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // Plain drag past midpoint — no shiftKey.
+    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: false })
+    fireEvent.mouseMove(document, { clientY: 350, shiftKey: false })
+    fireEvent.mouseUp(document, { shiftKey: false })
+    expect(onAbsorbLayer).not.toHaveBeenCalled()
+    expect(onEdit).toHaveBeenCalled()
+  })
+
+  // AB4: Shift+drag-UP past upper neighbour's midpoint → onAbsorbLayer
+  // called with (draggerIdx=1, direction='up').
+  it('AB4 — Shift+drag-up past upper neighbour midpoint calls onAbsorbLayer(1, up)', () => {
+    const onAbsorbLayer = vi.fn()
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onAbsorbLayer },
+    )
+    // Top handle of layer 1 (drag it UP).
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
+    expect(topHandle).not.toBeNull()
+    // Layer 1 top at depth 2 → clientY=200.
+    // Upper neighbour is [0,2], midpoint = 1 m → clientY = 200 - (2-1)*100 = 100.
+    // Overshoot: drag to clientY=50 → depth = 2 - 1.5 = 0.5 m < midpoint 1 m.
+    fireEvent.mouseDown(topHandle!, { clientY: 200, shiftKey: true })
+    fireEvent.mouseMove(document, { clientY: 50, shiftKey: true })
+    fireEvent.mouseUp(document, { shiftKey: true })
+    expect(onAbsorbLayer).toHaveBeenCalledTimes(1)
+    expect(onAbsorbLayer).toHaveBeenCalledWith(1, 'up')
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  // AB5: while Shift-dragging past the midpoint, the absorb indicator
+  // renders; when NOT past midpoint (or plain drag), it does not.
+  it('AB5 — absorb indicator renders only while Shift-dragging past neighbour midpoint', () => {
+    const onAbsorbLayer = vi.fn()
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onAbsorbLayer },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // Before midpoint → no absorb indicator.
+    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: true })
+    fireEvent.mouseMove(document, { clientY: 240, shiftKey: true })
+    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).toBeNull()
+    // Past midpoint → absorb indicator appears.
+    fireEvent.mouseMove(document, { clientY: 350, shiftKey: true })
+    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).not.toBeNull()
+    // Merge/collapse indicator must NOT appear at the same time.
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
+    fireEvent.mouseUp(document, { shiftKey: true })
+  })
+
+  // AB6: after a Shift-drag absorb commit (mouseUp), the absorb
+  // indicator clears. Pins the Slice-3 lesson — drag state must reset
+  // fully on mouseUp; absorbPending must not linger.
+  it('AB6 — absorb indicator absent after mouseUp commit (no stuck state)', () => {
+    const onAbsorbLayer = vi.fn()
+    const onEdit = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onAbsorbLayer },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // Drag past midpoint → indicator appears.
+    fireEvent.mouseDown(baseHandle!, { clientY: 200, shiftKey: true })
+    fireEvent.mouseMove(document, { clientY: 350, shiftKey: true })
+    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).not.toBeNull()
+    // Release → absorb fires, drag state clears, indicator gone.
+    fireEvent.mouseUp(document, { shiftKey: true })
+    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).toBeNull()
+    expect(onAbsorbLayer).toHaveBeenCalledTimes(1)
   })
 
   // W5: multi-layer cascade is killed — drag past TWO same-parent
