@@ -43,6 +43,7 @@ export default function UnsavedChangesDialog({
       labelledBy="unsaved-changes-title"
       busy={busy}
       cardClassName="w-96"
+      testid="unsaved-changes-dialog"
     >
       <div className="p-5">
         <h2
@@ -66,6 +67,7 @@ export default function UnsavedChangesDialog({
             ref={cancelRef}
             onClick={onCancel}
             disabled={busy}
+            data-testid="unsaved-cancel"
             className="px-3.5 py-1.5 text-sm font-medium rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
           >
             Cancel
@@ -75,6 +77,7 @@ export default function UnsavedChangesDialog({
             size="md"
             onClick={onDiscard}
             disabled={busy}
+            data-testid="unsaved-discard-and-close"
           >
             Discard
           </Button>
@@ -83,6 +86,7 @@ export default function UnsavedChangesDialog({
             size="md"
             onClick={onSave}
             disabled={busy}
+            data-testid="unsaved-save-and-close"
           >
             Save
           </Button>
