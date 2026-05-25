@@ -26,6 +26,8 @@ interface PrimaryToolbarButtonProps {
    * in-flight affordance). Callers still own ``disabled`` + the label
    * swap; this only adds the motion docs/ux.md requires. */
   busy?: boolean
+  /** Optional data-testid passthrough for e2e harnesses. */
+  testid?: string
 }
 
 /**
@@ -45,6 +47,8 @@ interface PrimaryToolbarButtonProps {
  *     Tooltip text (full action description).
  * busy
  *     When true, the icon is swapped for a spinning ``RefreshCw``.
+ * testid
+ *     Optional data-testid for e2e harness targeting.
  *
  * Returns
  * -------
@@ -58,6 +62,7 @@ export function PrimaryToolbarButton({
   disabled,
   title,
   busy,
+  testid,
 }: PrimaryToolbarButtonProps): JSX.Element {
   return (
     <button
@@ -67,6 +72,7 @@ export function PrimaryToolbarButton({
       title={title}
       aria-label={title}
       aria-busy={busy}
+      data-testid={testid}
       className={[
         'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
