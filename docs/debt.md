@@ -3039,106 +3039,12 @@ initial 6-flow smoke set running). Single slice, ~1.5-2 days
 including the bottom-up sweep + dip transfer + Tertiary-less
 safeguards from above.
 
-## 128. Playwright end-to-end smoke harness for the main user flows (Tier B — pre-coworker-binary quality investment)
-
-**What.** Add Playwright (or equivalent — Cypress is the
-alternative) wired to the Electron app via the existing
-``electron-smoke.cjs`` scaffolding, with a small set of always-
-on end-to-end "happy path" smoke tests that exercise the cross-
-boundary user flows. These tests catch the class of bug that
-Vitest (frontend unit), Python unit, and Python integration all
-miss: **a UI click that hits a backend endpoint that hits a wrong
-ORM attribute name and 500s**.
-
-**Why this class of bug keeps surfacing.** Owner smoke-test
-2026-05-25 surfaced ``BoreholeOrm.ground_level_m`` not existing —
-the materialiser was wired in fix-up #2, all 989 unit + 1179
-Vitest tests + tsc + the reviewer pass were green, but the FIRST
-real click on Accept-all (bulk) hit the AttributeError because
-no test ever exercised the call chain through to the actual DB
-column. This is the **third** class-of-bug repeat in #101 alone:
-- Approach C reviewer pass: dead-wired Mark-as-lens menu
-  (frontend prop never threaded through)
-- Position 4 reviewer pass: ``InspectLensBodyPanel`` was never
-  built (frontend surface missing entirely)
-- Position 4 fix-up #2 owner smoke-test (THIS one): wrong ORM
-  attribute name in the materialiser
-
-Each previous instance was caught only by manual review / manual
-smoke-test, never by automated tests. A click-driven harness
-would catch all three at fix-up commit time, before they reach
-the owner.
-
-**Minimum viable smoke set (v1.0+).** Six flows that exercise the
-critical cross-boundary paths:
-
-1. **Boot + open .gmproj** — open the dogfeed Oudenaarde
-   project; assert the section list populates, the Litho
-   inspector renders, no console errors, no 500s in network log
-2. **Import a DOV CPT + accept litho per CPT** — single-anchor
-   accept; assert FormationContact rows exist post-commit
-3. **Bulk suggest + bulk accept** — the flow that broke today;
-   assert all 70 anchors accept without 500s (catches every
-   materialiser / inference-hook regression)
-4. **Correlate two same-lithology contacts across columns** —
-   assert ``litho_correlation_edge`` row + ``formation_absence``
-   rows materialise (catches the R7 hook chain end-to-end)
-5. **Right-click body → Inspect Lens Body panel opens** —
-   assert the panel renders + the actions are clickable
-   (catches the InspectLensBodyPanel-unreachable class)
-6. **Save + close + reopen .gmproj** — round-trip; assert every
-   row count matches pre-save (catches bundle persistence
-   regressions; #101 R6 ships ``formation_absences`` array)
-
-**Harness shape.** Playwright Electron driver
-(``@playwright/test`` with ``electron`` config). Launch the
-packaged dev build, drive the UI, capture network traffic,
-assert DOM + DB state (read-only Postgres connection to the
-integration DB for assertions on the persisted rows).
-
-Tests run:
-- Pre-commit (the 1-flow smoke that opens the app + clicks
-  one button) — fast, ~10s
-- Pre-PR / nightly (the full 6-flow set) — slower, ~2-3 min
-
-**Estimated cost.** ~3-4 days:
-- Day 1: Playwright + electron-playwright setup, headless mode,
-  the boot-and-open smoke
-- Day 2: bulk suggest/accept flow + correlate flow (the two
-  highest-payoff)
-- Day 3: Inspect Lens Body panel + bundle round-trip
-- Day 4: CI integration, pre-commit speedup, documentation
-
-**Why Tier B (pre-coworker-binary).** Every external user we
-distribute to is one click away from the next ``ground_level_m``-
-class bug. The investment compounds: the harness catches future
-regressions in the same flows the dogfeed has already burned
-hours on. The pattern of "three reviewer passes + three fix-up
-passes + still finding bugs at smoke-test" means our existing
-test gates aren't sufficient on their own for the cross-boundary
-surfaces. Pre-distribution is the cutoff because shipping a 500
-to a real user is much worse than catching it in dogfeed.
-
-**Why deferred until now.** Originally filed (2026-05-25 morning)
-as deferred until after #127 with the rationale "let the litho
-workflow stabilise, then build the smoke set on top of stable
-flows".
-
-**Sequencing change (owner directive 2026-05-25 afternoon):**
-**#128 ships BEFORE #127.** Rationale: the #101 Position 4 build
-generated four post-merge bug fix-up rounds in 24 hours (initial
-fix-up, Position-4 fix-up #2, materialiser ``ground_level_m``,
-then the #129 dogfeed batch). Every single one was a
-cross-boundary integration bug — passed unit + tsc + reviewer
-gates, surfaced only at owner smoke-test. Pattern is clear:
-existing test gates aren't sufficient for cross-boundary
-surfaces, and shipping #127 (which adds another suggestion
-surface) before #128 means more of the same. Land the harness
-first; #127 inherits the 6-flow smoke set as its regression net
-from day one.
-
-**When to revisit.** Before #127 auto-correlate. Before the first
-external/paid distribution (debt #3 license keys trigger). Filed
-2026-05-25 from the materialiser-bug dogfeed; sequencing
-escalated same day.
+*(#128 RESOLVED 2026-05-25 — Playwright e2e smoke harness shipped. 6 flows:
+boot+open, single-accept, bulk-accept (15 s budget + defer_inference invariant),
+correlate + mismatch rejection, InspectLensBodyPanel reachable, bundle round-trip.
+``playwright.config.ts`` + ``tsconfig.e2e.json`` + ``electron_launch.ts`` +
+``db_helper.ts`` + ``build_synthetic_fixture.py`` + 6 ``flow_*.spec.ts`` files.
+Pre-commit hook wires ``test:e2e:smoke`` after Vitest when backend reachable.
+Regression anchors: revert ``2d4d7913`` → flow 3 red; revert ``2ad9bb6e`` → flow 1 red.
+See commits on ``develop`` from 2026-05-25.)*
 
