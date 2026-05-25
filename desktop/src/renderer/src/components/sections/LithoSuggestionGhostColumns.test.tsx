@@ -1738,6 +1738,253 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onAbsorbLayer).toHaveBeenCalledTimes(1)
   })
 
+  // -----------------------------------------------------------------
+  // DR — drag handles are functional after any merge (dogfeed 2026-05-25)
+  //
+  // After a merge the surviving layer's boundary must remain draggable.
+  // Pre-fix: the drag-to-collapse snap path left a zero-thickness rejected
+  // layer between the merged layer and the one below. The crossedRejected
+  // clamp logic set boundsBelowM == currentBase, freezing the base handle.
+  // Fix: when a NEIGHBOUR (not self) is in the collapse chain, call
+  // onMergeLayers to remove the absorbed layer from suggestions entirely.
+  // -----------------------------------------------------------------
+
+  // DR1: drag-to-collapse merge (base-drag snap) — after the merge via
+  // onMergeLayers, re-render the component with the resulting shorter
+  // suggestions array and verify the surviving layer's base handle fires
+  // onEdit when the user drags it.
+  it('DR1 — base handle responds after drag-to-collapse merge (dogfeed 2026-05-25)', () => {
+    const onMergeLayers = vi.fn()
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container, rerender } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+        makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+      ],
+      { onEdit, onReject, onMergeLayers },
+    )
+    // Step 1: drag layer 0's base to layer 1's far edge (snap + merge).
+    const baseHandle0 = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandle0, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 700 }) // overshoot layer-1 base (4 m)
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
+    fireEvent.mouseUp(document)
+    // Verify onMergeLayers fired (not onReject) — the fix.
+    expect(onMergeLayers).toHaveBeenCalledTimes(1)
+    expect(onMergeLayers.mock.calls[0][0]).toBe(0) // upperIdx = min(0,1) = 0
+    expect(onReject).not.toHaveBeenCalled()
+    // Step 2: simulate parent applying the merge — shrink suggestions by
+    // removing layer 1, extend layer 0's base to 4.
+    const id = 'cpt-1'
+    rerender(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn(id)]}
+          investigationId={id}
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }), // S0 raw (edit carries the new base)
+            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }), // old S2, now idx 1
+          ]}
+          levelToScreen={levelToScreen}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set()}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={onReject}
+          onEdit={onEdit}
+          onMergeLayers={onMergeLayers}
+        />
+      </svg>,
+    )
+    // Step 3: drag the merged layer's base handle — must move.
+    onEdit.mockClear()
+    const baseHandlePost = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    expect(baseHandlePost).not.toBeNull()
+    // The merged layer's effective base is in edits (passed via prop); in
+    // this re-render the suggestions[0].depth_base_m is still 2 but edits
+    // would carry 4. For this test we pass no edits, so the handle starts
+    // at the raw base = 2. Drag 50 px down → 0.5 m → depth_base_m = 2.5.
+    fireEvent.mouseDown(baseHandlePost, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 250 })
+    fireEvent.mouseUp(document)
+    // Shared-boundary commit: layer 0 base + layer 1 top both fire.
+    expect(onEdit).toHaveBeenCalled()
+    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    expect(layer0Edit).toBeDefined()
+    expect(layer0Edit![1].depth_base_m).toBeCloseTo(2.5, 5)
+  })
+
+  // DR2: right-click "Merge layers" path — after onMergeLayers is
+  // called by the menu, the parent re-renders with shorter suggestions.
+  // Verify the merged layer's boundary handles fire onEdit normally.
+  it('DR2 — base handle responds after right-click Merge (dogfeed 2026-05-25)', () => {
+    const onEdit = vi.fn()
+    const id = 'cpt-1'
+    // Render post-merge state directly: two-layer ghost where layer 0
+    // was merged from [0,2) + [2,4) → edits carry depth_base_m=4; the
+    // component is given the merged suggestions + a non-empty edits Map.
+    const postMergeEdits = new Map([[0, { depth_base_m: 4 }]])
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn(id)]}
+          investigationId={id}
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }), // raw; edit carries merged base
+            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }), // next pending layer
+          ]}
+          levelToScreen={levelToScreen}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set()}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={onEdit}
+          edits={postMergeEdits}
+        />
+      </svg>,
+    )
+    // Base handle of the merged layer sits at the edit's depth (4 m).
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    expect(baseHandle).not.toBeNull()
+    // Drag UP 50 px (shallower): depth_base_m = 4 - 0.5 = 3.5.
+    fireEvent.mouseDown(baseHandle, { clientY: 100 }) // clientY=100 → initial depth=4? No.
+    // levelToScreen(5 - 4) = levelToScreen(1) = 500 - 100 = 400. So baseY=400.
+    // mousedown at clientY=400 (current base Y). Move to clientY=350 → +50px UP → depth 3.5.
+    fireEvent.mouseDown(baseHandle, { clientY: 400 })
+    fireEvent.mouseMove(document, { clientY: 350 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalled()
+    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    expect(layer0Edit).toBeDefined()
+    expect(layer0Edit![1].depth_base_m).toBeCloseTo(3.5, 5)
+  })
+
+  // DR3: Shift+drag absorb path — after onAbsorbLayer fires, the
+  // parent removes the absorbed neighbour. Re-render with the post-
+  // absorb state and verify the dragger's handle responds.
+  it('DR3 — base handle responds after Shift+drag absorb (dogfeed 2026-05-25)', () => {
+    const onAbsorbLayer = vi.fn()
+    const onEdit = vi.fn()
+    const id = 'cpt-1'
+    const { container, rerender } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn(id)]}
+          investigationId={id}
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+          ]}
+          levelToScreen={levelToScreen}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set()}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={onEdit}
+          onAbsorbLayer={onAbsorbLayer}
+        />
+      </svg>,
+    )
+    // Shift-drag base of layer 0 past layer 1's midpoint.
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandle, { clientY: 200, shiftKey: true })
+    fireEvent.mouseMove(document, { clientY: 350, shiftKey: true }) // past midpoint 3m
+    fireEvent.mouseUp(document, { shiftKey: true })
+    expect(onAbsorbLayer).toHaveBeenCalledWith(0, 'down')
+    // Simulate parent applying absorb: layer 1 removed, layer 0 base = 4.
+    onEdit.mockClear()
+    rerender(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn(id)]}
+          investigationId={id}
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }), // raw; edit carries absorbed base
+            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+          ]}
+          levelToScreen={levelToScreen}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set()}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={onEdit}
+          edits={new Map([[0, { depth_base_m: 4 }]])}
+          onAbsorbLayer={onAbsorbLayer}
+        />
+      </svg>,
+    )
+    // After absorb, layer 0 base is at 4 m. Drag UP 50 px → depth 3.5.
+    const baseHandlePost = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandlePost, { clientY: 400 }) // baseY = levelToScreen(5-4) = 400
+    fireEvent.mouseMove(document, { clientY: 350 })
+    fireEvent.mouseUp(document)
+    expect(onEdit).toHaveBeenCalled()
+    const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    expect(layer0Edit).toBeDefined()
+    expect(layer0Edit![1].depth_base_m).toBeCloseTo(3.5, 5)
+  })
+
+  // DR4: after a merge + a successful resize-drag, the drag state is
+  // fully clean (no leftover mergePending / absorbPending / snapTarget).
+  it('DR4 — drag state is fully clean after merge + subsequent resize (dogfeed 2026-05-25)', () => {
+    const onEdit = vi.fn()
+    const id = 'cpt-1'
+    // Post-merge state: one surviving layer spanning 0–4 m (edit carries base=4),
+    // plus a layer below. Verify a complete drag cycle leaves no indicator.
+    const { container } = render(
+      <svg>
+        <LithoSuggestionGhostColumns
+          columns={[makeColumn(id)]}
+          investigationId={id}
+          suggestions={[
+            makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+            makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),
+          ]}
+          levelToScreen={levelToScreen}
+          surfaceElevationM={5}
+          plotTop={0}
+          plotBottom={600}
+          bandHalfWidth={20}
+          acceptedIndices={new Set()}
+          rejectedIndices={new Set()}
+          onAccept={vi.fn()}
+          onReject={vi.fn()}
+          onEdit={onEdit}
+          edits={new Map([[0, { depth_base_m: 4 }]])}
+        />
+      </svg>,
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')!
+    fireEvent.mouseDown(baseHandle, { clientY: 400 })
+    fireEvent.mouseMove(document, { clientY: 350 })
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
+    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).toBeNull()
+    fireEvent.mouseUp(document)
+    // After mouseUp, indicators gone and drag readout gone — clean state.
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
+    expect(container.querySelector('[data-testid="litho-absorb-indicator"]')).toBeNull()
+    expect(container.querySelector('[data-testid="litho-drag-readout"]')).toBeNull()
+    expect(onEdit).toHaveBeenCalled()
+  })
+
   // W5: multi-layer cascade is killed — drag past TWO same-parent
   // neighbours stops at the FIRST neighbour's far edge, not the
   // farthest chain entry's far edge. Pins the user's exact 2026-05-23
