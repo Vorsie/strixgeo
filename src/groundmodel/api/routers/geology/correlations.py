@@ -5,6 +5,7 @@ geology package __init__; paths extend to:
 
   POST   /projects/{pid}/geology/models/{mid}/correlations
   DELETE /projects/{pid}/geology/models/{mid}/correlations
+  DELETE /projects/{pid}/geology/models/{mid}/correlations/auto
   POST   /projects/{pid}/geology/models/{mid}/correlations/resolve
   GET    /projects/{pid}/geology/models/{mid}/correlations
   PATCH  /projects/{pid}/geology/models/{mid}/correlations/admixtures
@@ -18,16 +19,18 @@ recur here: there is no section entity in scope.
 Idempotency contract:
   POST  /correlations           → 201 when a new edge was created; 200 when it already existed.
   DELETE /correlations          → 204 always (whether an edge was found-and-deleted or not).
+  DELETE /correlations/auto     → 200 always (count of rows deleted; 0 = nothing to delete).
   POST  /correlations/resolve   → 200 always (idempotent — no-change returns empty list).
   GET   /correlations           → 200 always (returns current edge list, possibly empty).
   PATCH /correlations/admixtures → 200 always (returns updated formation list).
   POST  /auto-correlate         → 200 always (idempotent; 0 edges_created = nothing new).
 
 Route ordering note:
-  The static segments ``/correlations/resolve`` and ``/correlations/admixtures``
-  MUST be registered before the parameterless ``/correlations`` POST route so
-  FastAPI does not misinterpret them as path parameters.  The current ordering
-  in this file ensures that: static-segment routes come first.
+  The static segments ``/correlations/resolve``, ``/correlations/admixtures``,
+  and ``/correlations/auto`` MUST be registered before the parameterless
+  ``/correlations`` routes so FastAPI does not misinterpret them as path
+  parameters.  The current ordering in this file ensures that: static-segment
+  routes come first.
 """
 
 from __future__ import annotations
@@ -35,13 +38,14 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.geological_formation import GeologicalFormationResponse
 from groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas import (
     AutoCorrelateResponse,
+    DeleteAutoCorrelationsResponse,
     LithoCorrelationEdgeListItem,
     LithoCorrelationRequest,
     LithoCorrelationResponse,
@@ -162,6 +166,80 @@ async def correlate_formations(
             status_code=status.HTTP_200_OK,
         )
     return response
+
+
+# ---------------------------------------------------------------------------
+# Slice 4-HalfA — delete all auto edges (re-correlate flow)
+# ---------------------------------------------------------------------------
+
+# IMPORTANT: this route must be registered BEFORE the bare ``/correlations``
+# DELETE route so FastAPI's static-segment matching fires on "auto" before
+# the bare DELETE handler (which expects a JSON body) is reached.  With
+# the current structure (one router, decorators in file order) FastAPI
+# resolves ambiguity by registration order.  Both /correlations and
+# /correlations/auto are distinct paths so there is no actual ambiguity
+# — this note is for future reviewers only.
+
+
+@router.delete(
+    "/models/{model_id}/correlations/auto",
+    response_model=DeleteAutoCorrelationsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Delete all source='auto' correlation edges for a model",
+)
+async def delete_auto_correlations(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> DeleteAutoCorrelationsResponse:
+    """Delete every ``litho_correlation_edge`` row with ``source='auto'`` for this model.
+
+    Manual edges (``source='manual'``) are never touched.
+
+    Idempotent: calling on a model that has no auto edges returns
+    ``deleted=0`` (200, not 404).
+
+    Used by the frontend re-correlate dialog — the user chose "Re-correlate:
+    delete auto edges and rerun".  The caller fires this endpoint first, then
+    immediately calls ``POST .../auto-correlate`` to regenerate the edges.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param).
+    model_id : UUID
+        The lithostratigraphic model whose auto edges are removed (path param).
+
+    Returns
+    -------
+    DeleteAutoCorrelationsResponse
+        Count of rows deleted.  Zero when no auto edges existed.
+
+    Raises
+    ------
+    404
+        When the model does not exist or does not belong to ``project_id``.
+    """
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+
+    stmt = (
+        delete(LithoCorrelationEdgeOrm)
+        .where(
+            LithoCorrelationEdgeOrm.model_id == model_id,
+            LithoCorrelationEdgeOrm.source == "auto",
+        )
+        .returning(LithoCorrelationEdgeOrm.id)
+    )
+    result = await session.execute(stmt)
+    deleted_count = len(result.fetchall())
+    await session.commit()
+
+    return DeleteAutoCorrelationsResponse(deleted=deleted_count)
 
 
 @router.delete(
