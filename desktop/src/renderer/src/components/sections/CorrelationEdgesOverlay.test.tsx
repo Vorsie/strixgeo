@@ -22,8 +22,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import CorrelationEdgesOverlay, { buildBandMap } from './CorrelationEdgesOverlay'
-import type { CorrelateGestureState } from './CorrelationEdgesOverlay'
+import CorrelationEdgesOverlay, { buildBandMap, computeRibbonPoints } from './CorrelationEdgesOverlay'
+import type { CorrelateGestureState, RibbonColumn } from './CorrelationEdgesOverlay'
 import type {
   FormationContactResponse,
   GeologicalFormationResponse,
@@ -188,11 +188,10 @@ describe('CorrelationEdgesOverlay', () => {
     expect(overlay!.querySelectorAll('line')).toHaveLength(0)
   })
 
-  // CE2 — debt #122: committed edges are always-on at ambient opacity
-  // (0.20); chip surface is always-on. The connecting line is visible at
-  // rest but faint, addressing the "too many lines" dogfeed complaint
-  // without hiding the correlation graph entirely.
-  it('CE2: edges render at ambient opacity at rest; chips are present per band', () => {
+  // CE2 — debts #121/#122: resolved edges render as ribbon polygons (not
+  // dashed lines) at ambient opacity (0.20). Chips are always-on per
+  // band.  The ribbon is keyed by body ordinal rather than edge id.
+  it('CE2: resolved edges render as ribbon at ambient opacity; chips are present per band', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Klei', 1)
     const contacts = [
@@ -215,11 +214,13 @@ describe('CorrelationEdgesOverlay', () => {
     // Chips render on every band with a non-null ordinal.
     expect(screen.getByTestId('body-chip-inv-1-f-a')).not.toBeNull()
     expect(screen.getByTestId('body-chip-inv-2-f-b')).not.toBeNull()
-    // Edge renders at rest (ambient opacity — always-on per debt #122).
-    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-1"]')
-    expect(edgeGroup).not.toBeNull()
+    // Ribbon (not dashed line) renders at rest — keyed by ordinal.
+    const ribbonGroup = container.querySelector('[data-testid="correlation-ribbon-1"]')
+    expect(ribbonGroup).not.toBeNull()
     // The group carries the ambient opacity attribute.
-    expect(edgeGroup!.getAttribute('opacity')).toBe('0.2')
+    expect(ribbonGroup!.getAttribute('opacity')).toBe('0.2')
+    // No per-edge dashed-line element for resolved edges.
+    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).toBeNull()
   })
 
   it('CE3: chip shows "#N" when instance_ordinal is set', () => {
@@ -646,11 +647,10 @@ describe('CorrelationEdgesOverlay', () => {
   // CE16–CE19 — debt #100: hover-to-reveal + body-level remove-all.
   // -------------------------------------------------------------------
 
-  // CE16: both edges render at ambient opacity at rest (debt #122 always-
-  // on). Hovering a chip for body-1 spikes that body's edge to 0.80;
-  // body-2's edge stays at ambient (0.20). No edge is suppressed —
-  // anti-spaghetti is achieved through low ambient opacity, not hiding.
-  it('CE16: hovering a chip spikes that body\'s edge opacity; other-body edges stay ambient', () => {
+  // CE16: both ribbons render at ambient opacity at rest (debt #121/#122).
+  // Hovering a chip for body-1 spikes that body's ribbon to 0.80;
+  // body-2's ribbon stays at ambient (0.20). Ribbons are keyed by ordinal.
+  it('CE16: hovering a chip spikes that body\'s ribbon opacity; other-body ribbons stay ambient', () => {
     const fA1 = makeFormation('f-a1', 'Zand', 1)
     const fA2 = makeFormation('f-a2', 'Zand', 1) // same body
     const fB1 = makeFormation('f-b1', 'Klei', 2) // different body
@@ -670,21 +670,21 @@ describe('CorrelationEdgesOverlay', () => {
       plotTop: 20,
       plotBottom: 200,
     })
-    // Both edges are present at rest.
-    expect(container.querySelector('[data-testid="correlation-edge-edge-A"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="correlation-edge-edge-B"]')).not.toBeNull()
+    // Both ribbons are present at rest.
+    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="correlation-ribbon-2"]')).not.toBeNull()
     // Both at ambient opacity.
-    expect(container.querySelector('[data-testid="correlation-edge-edge-A"]')!.getAttribute('opacity')).toBe('0.2')
-    expect(container.querySelector('[data-testid="correlation-edge-edge-B"]')!.getAttribute('opacity')).toBe('0.2')
-    // Hover a body-1 chip → body-1 edge spikes; body-2 stays ambient.
+    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')!.getAttribute('opacity')).toBe('0.2')
+    expect(container.querySelector('[data-testid="correlation-ribbon-2"]')!.getAttribute('opacity')).toBe('0.2')
+    // Hover a body-1 chip → body-1 ribbon spikes; body-2 stays ambient.
     fireEvent.mouseEnter(screen.getByTestId('body-chip-inv-1-f-a1'))
-    expect(container.querySelector('[data-testid="correlation-edge-edge-A"]')!.getAttribute('opacity')).toBe('0.8')
-    expect(container.querySelector('[data-testid="correlation-edge-edge-B"]')!.getAttribute('opacity')).toBe('0.2')
+    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')!.getAttribute('opacity')).toBe('0.8')
+    expect(container.querySelector('[data-testid="correlation-ribbon-2"]')!.getAttribute('opacity')).toBe('0.2')
   })
 
-  // CE17: mouseleave from the chip returns the edge to ambient opacity (0.20).
-  // Edges remain present — they no longer hide on mouseleave (debt #122).
-  it('CE17: mouseleave returns the body\'s edge to ambient opacity', () => {
+  // CE17: mouseleave from the chip returns the ribbon to ambient opacity (0.20).
+  // Ribbon remains present — always-on per debt #122.
+  it('CE17: mouseleave returns the body\'s ribbon to ambient opacity', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Zand', 1)
     const contacts = [
@@ -701,21 +701,22 @@ describe('CorrelationEdgesOverlay', () => {
       plotBottom: 200,
     })
     const chip = screen.getByTestId('body-chip-inv-1-f-a')
-    // Hover spikes the edge.
+    // Hover spikes the ribbon.
     fireEvent.mouseEnter(chip)
-    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')!.getAttribute('opacity')).toBe('0.8')
-    // Leave returns to ambient — edge still present.
+    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')!.getAttribute('opacity')).toBe('0.8')
+    // Leave returns to ambient — ribbon still present.
     fireEvent.mouseLeave(chip)
-    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')!.getAttribute('opacity')).toBe('0.2')
+    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')!.getAttribute('opacity')).toBe('0.2')
   })
 
   // -------------------------------------------------------------------
   // CE-O1..CE-O3 — debt #122: opacity fade for committed edges.
   // -------------------------------------------------------------------
 
-  // CE-O1: a committed edge with no hover renders at ambient opacity 0.20.
-  it('CE-O1: committed edge with no hover renders at ambient opacity 0.20', () => {
+  // CE-O1: a resolved committed edge renders as a ribbon at ambient opacity 0.20.
+  // The ribbon is keyed by body ordinal, not edge id.
+  it('CE-O1: resolved committed edge renders as ribbon at ambient opacity 0.20', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Klei', 1)
     const contacts = [
@@ -731,14 +732,13 @@ describe('CorrelationEdgesOverlay', () => {
       plotTop: 20,
       plotBottom: 200,
     })
-    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-1"]')
-    expect(edgeGroup).not.toBeNull()
-    expect(edgeGroup!.getAttribute('opacity')).toBe('0.2')
+    const ribbonGroup = container.querySelector('[data-testid="correlation-ribbon-1"]')
+    expect(ribbonGroup).not.toBeNull()
+    expect(ribbonGroup!.getAttribute('opacity')).toBe('0.2')
   })
 
-  // CE-O2: same edge with hoveredBodyOrdinal matching the body renders at
-  // spiked opacity 0.80.
-  it('CE-O2: committed edge with matching hover renders at spiked opacity 0.80', () => {
+  // CE-O2: hovering a chip of body ordinal 1 spikes the ribbon to 0.80.
+  it('CE-O2: ribbon with matching body hover renders at spiked opacity 0.80', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Klei', 1)
     const contacts = [
@@ -754,24 +754,26 @@ describe('CorrelationEdgesOverlay', () => {
       plotTop: 20,
       plotBottom: 200,
     })
-    // Hover a chip of body ordinal 1 to spike the edge.
+    // Hover a chip of body ordinal 1 to spike the ribbon.
     fireEvent.mouseEnter(screen.getByTestId('body-chip-inv-1-f-a'))
-    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-1"]')
-    expect(edgeGroup!.getAttribute('opacity')).toBe('0.8')
+    const ribbonGroup = container.querySelector('[data-testid="correlation-ribbon-1"]')
+    expect(ribbonGroup!.getAttribute('opacity')).toBe('0.8')
   })
 
-  // CE-O3: a committed 'auto' edge also renders at ambient opacity 0.20 at
-  // rest — the fade applies to both 'manual' and 'auto' committed sources.
-  // (Regression: the old EDGE_OPACITY_AUTO path is superseded.)
-  it('CE-O3: auto-source committed edge renders at ambient opacity (not full opacity)', () => {
-    const fA = makeFormation('f-a', 'Zand', 1)
-    const fB = makeFormation('f-b', 'Klei', 1)
+  // CE-O3: a pre-Resolve edge (ordinal null on either endpoint) renders as
+  // a dashed line at ambient opacity — the ribbon path only fires for
+  // resolved bodies. Regression: auto-source dashed-line edges are NOT
+  // the 'ribbon' element but the 'correlation-edge' element.
+  it('CE-O3: pre-Resolve edge (null ordinal) renders as dashed line, not ribbon', () => {
+    // Both formations have ordinal null — pre-Resolve state.
+    const fA = makeFormation('f-a', 'Zand', null)
+    const fB = makeFormation('f-b', 'Klei', null)
     const contacts = [
       makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
     const autoEdge: LithoCorrelationEdge = {
-      ...makeEdge('f-a', 'f-b', 'edge-auto'),
+      ...makeEdge('f-a', 'f-b', 'edge-pre-resolve'),
       source: 'auto',
     }
     const { container } = renderOverlay({
@@ -783,11 +785,12 @@ describe('CorrelationEdgesOverlay', () => {
       plotTop: 20,
       plotBottom: 200,
     })
-    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-auto"]')
+    // Dashed line present (pre-Resolve path).
+    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-pre-resolve"]')
     expect(edgeGroup).not.toBeNull()
-    // Ambient opacity — not full opacity (0.4 EDGE_OPACITY_AUTO is gone,
-    // 0.20 EDGE_OPACITY_AMBIENT applies uniformly across committed sources).
     expect(edgeGroup!.getAttribute('opacity')).toBe('0.2')
+    // No ribbon for pre-Resolve bodies.
+    expect(container.querySelector('[data-testid^="correlation-ribbon-"]')).toBeNull()
   })
 
   // CE20 — debt #100-followup 2026-05-23: when ``pulsingFormationIds``
@@ -1208,5 +1211,101 @@ describe('buildBandMap', () => {
     const f2Band = bands.get('f2')!
     // Deepest: closes at investigation bottom = 5 − 10 = −5.
     expect(f2Band.botLevel).toBeCloseTo(-5)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeRibbonPoints unit tests — debt #121 ribbon geometry anchors
+// ---------------------------------------------------------------------------
+//
+// CE-R1  Two-column ribbon returns a valid 4-corner polygon string with the
+//        expected top-left, top-right, bottom-right, bottom-left vertices.
+// CE-R2  Three-column ribbon is ONE continuous polygon (6 corners), NOT two
+//        separate quads (8 corners) — the ribbon spans all columns without
+//        interior seams.
+// CE-R3  Single-column input returns an empty string — there is no adjacent
+//        column to connect to.
+// CE-R4  Integration: a same-body edge pair across 3 columns produces a
+//        single ``correlation-ribbon-{ordinal}`` element, not two separate
+//        per-edge dashed lines — the ribbon-grouping logic fires correctly.
+
+describe('computeRibbonPoints', () => {
+  it('CE-R1: two-column ribbon returns 4 corners in correct order', () => {
+    const cols: RibbonColumn[] = [
+      { x: 100, topY: 20, botY: 60 },
+      { x: 200, topY: 25, botY: 65 },
+    ]
+    const pts = computeRibbonPoints(cols)
+    // Expected: top edge left→right, then bottom edge right→left.
+    // "100.00,20.00 200.00,25.00 200.00,65.00 100.00,60.00"
+    expect(pts).toBe('100.00,20.00 200.00,25.00 200.00,65.00 100.00,60.00')
+  })
+
+  it('CE-R2: three-column ribbon returns 6 corners (one continuous polygon)', () => {
+    const cols: RibbonColumn[] = [
+      { x: 100, topY: 20, botY: 60 },
+      { x: 150, topY: 22, botY: 62 },
+      { x: 200, topY: 25, botY: 65 },
+    ]
+    const pts = computeRibbonPoints(cols)
+    const ptsList = pts.split(' ')
+    // 6 corners: 3 top (L→R) + 3 bottom (R→L).
+    expect(ptsList).toHaveLength(6)
+    // First top-left corner.
+    expect(ptsList[0]).toBe('100.00,20.00')
+    // Last bottom-left corner (reversed bottom edge ends at leftmost column).
+    expect(ptsList[5]).toBe('100.00,60.00')
+  })
+
+  it('CE-R3: single-column input returns empty string — nothing to connect', () => {
+    const cols: RibbonColumn[] = [
+      { x: 100, topY: 20, botY: 60 },
+    ]
+    expect(computeRibbonPoints(cols)).toBe('')
+  })
+})
+
+describe('computeRibbonPoints integration — CE-R4', () => {
+  // CE-R4: a same-body edge pair across 3 columns (A↔B edge + B↔C edge)
+  // produces a SINGLE ribbon element keyed by ordinal, not two per-edge
+  // dashed lines. The ribbon-grouping logic in ribbonRenders folds all
+  // edges of the same body into one render item.
+  it('CE-R4: three-column body produces one ribbon, not two dashed lines', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Zand', 1)
+    const fC = makeFormation('f-c', 'Zand', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+      makeContact('c3', 'f-c', 'inv-3', 'cpt', 2.0),
+    ]
+    const { container } = renderOverlay({
+      edges: [
+        makeEdge('f-a', 'f-b', 'edge-AB'),
+        makeEdge('f-b', 'f-c', 'edge-BC'),
+      ],
+      contacts,
+      formations: [fA, fB, fC],
+      placedColumns: [
+        makeColumn('inv-1', 100, 10, 5),
+        makeColumn('inv-2', 200, 10, 20),
+        makeColumn('inv-3', 300, 10, 40),
+      ],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+    })
+    // Exactly one ribbon for body ordinal 1.
+    const ribbons = container.querySelectorAll('[data-testid="correlation-ribbon-1"]')
+    expect(ribbons).toHaveLength(1)
+    // No per-edge dashed lines for resolved edges.
+    expect(container.querySelector('[data-testid="correlation-edge-edge-AB"]')).toBeNull()
+    expect(container.querySelector('[data-testid="correlation-edge-edge-BC"]')).toBeNull()
+    // The ribbon's polygon should have 6 corners (3 columns × 2 = top+bottom).
+    const polygon = ribbons[0].querySelector('polygon')
+    expect(polygon).not.toBeNull()
+    const pts = polygon!.getAttribute('points')!.trim().split(' ')
+    // Ribbon polygon: 3 top + 3 bottom = 6 corners.
+    expect(pts).toHaveLength(6)
   })
 })
