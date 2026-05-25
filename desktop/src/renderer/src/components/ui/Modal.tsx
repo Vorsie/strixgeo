@@ -33,6 +33,8 @@ interface Props {
   // different Tailwind width class for wider forms (e.g. the project
   // metadata editor's six-field grid).
   cardClassName?: string
+  // Optional data-testid on the inner card element, for e2e harnesses.
+  testid?: string
   children: React.ReactNode
 }
 
@@ -42,6 +44,7 @@ export default function Modal({
   labelledBy,
   busy = false,
   cardClassName = 'w-96',
+  testid,
   children,
 }: Props) {
   useEffect(() => {
@@ -96,6 +99,7 @@ export default function Modal({
         // flipping CSS vars, so ``dark:`` is dead on a light-OS host and
         // every dialog rendered white. ``surface-overlay`` is the modal
         // surface in both themes.
+        data-testid={testid}
         className={`bg-surface-overlay border border-border-default text-text-primary rounded-lg shadow-lg ${cardClassName}`}
         onClick={e => e.stopPropagation()}
       >
