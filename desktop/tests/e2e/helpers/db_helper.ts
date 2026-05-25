@@ -920,3 +920,140 @@ export async function countLabTestsBySample(
     return parseInt(res.rows[0].n, 10)
   })
 }
+
+// ---------------------------------------------------------------------------
+// Cross-section helpers (added for #130 Flows T / U / V / W / X / Y)
+// ---------------------------------------------------------------------------
+
+/**
+ * Count ``cross_section`` rows belonging to a project.
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count in ``cross_section`` for this project.
+ */
+export async function countSections(projectId: string): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM cross_section WHERE app_project_id = $1`,
+      [projectId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
+
+/**
+ * Fetch a single ``cross_section`` row by its UUID.
+ *
+ * Returns the fields most relevant to the explicit-content invariant
+ * (``seeded_formation_contact_ids``) and the project-scope guard
+ * (``app_project_id``). The ``view_state`` column is JSONB — the pg
+ * driver returns it as a parsed JS object; callers can cast as needed.
+ *
+ * Parameters
+ * ----------
+ * sectionId : string
+ *   UUID of the cross_section row.
+ *
+ * Returns
+ * -------
+ * Object with the key fields, or ``null`` when the row does not exist.
+ */
+export async function getSectionById(
+  sectionId: string,
+): Promise<{
+  id: string
+  app_project_id: string
+  name: string
+  seeded_formation_contact_ids: string[]
+  excluded_cpt_ids: string[]
+  excluded_borehole_ids: string[]
+  view_state: unknown
+} | null> {
+  return withClient(async (client) => {
+    const res = await client.query<{
+      id: string
+      app_project_id: string
+      name: string
+      seeded_formation_contact_ids: string[]
+      excluded_cpt_ids: string[]
+      excluded_borehole_ids: string[]
+      view_state: unknown
+    }>(
+      `SELECT id,
+              app_project_id::text,
+              name,
+              seeded_formation_contact_ids::text[] AS seeded_formation_contact_ids,
+              excluded_cpt_ids::text[]             AS excluded_cpt_ids,
+              excluded_borehole_ids::text[]         AS excluded_borehole_ids,
+              view_state
+         FROM cross_section
+        WHERE id = $1`,
+      [sectionId],
+    )
+    return res.rows[0] ?? null
+  })
+}
+
+/**
+ * List all ``cross_section`` rows for a project, with minimal fields.
+ *
+ * Returns id, name, and display_order so callers can sort and find
+ * "Section A" (display_order=0) / "Section B" (display_order=1).
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * Array of objects with ``id``, ``name``, and ``display_order``.
+ */
+export async function listSectionsByProject(
+  projectId: string,
+): Promise<Array<{ id: string; name: string; display_order: number }>> {
+  return withClient(async (client) => {
+    const res = await client.query<{ id: string; name: string; display_order: number }>(
+      `SELECT id, name, display_order
+         FROM cross_section
+        WHERE app_project_id = $1
+        ORDER BY display_order ASC, name ASC`,
+      [projectId],
+    )
+    return res.rows
+  })
+}
+
+/**
+ * Count ``formation_contact`` rows for a specific geological model.
+ *
+ * Unlike ``countContacts`` (which filters on ``kind='lithostratigraphic'``),
+ * this helper counts ALL contacts for the given model regardless of kind.
+ * Used by Flow U to assert that the seed call does/does not create new contacts.
+ *
+ * Parameters
+ * ----------
+ * modelId : string
+ *   UUID of the geological model.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count in ``formation_contact`` for this model.
+ */
+export async function countFormationContactsByModel(modelId: string): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM formation_contact WHERE model_id = $1`,
+      [modelId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
