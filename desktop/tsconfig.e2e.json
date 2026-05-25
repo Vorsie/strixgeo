@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "tests/e2e/_compiled",
+    "rootDir": "tests/e2e",
+    "types": ["node", "@playwright/test"]
+  },
+  "include": ["tests/e2e/**/*"]
+}
