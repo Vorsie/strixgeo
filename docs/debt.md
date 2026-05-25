@@ -20,10 +20,13 @@ sections that follow.
 The litho ghost-review workflow must be solid before geotech
 subdivision is built on top of it. Priority order:
 
-* **#99** — litho drag-clamp must pass through rejected layers (bug)
-* **#98** — litho "add a layer" discoverability + right-click Split (owner green-lit)
-* **#102** — same-lithology boundary merge button
-* **#76** — accept-all "splits" displayed layers — diagnostic
+* **#119** — segment_cpt same-lithology auto-merge (design work — half-day + bench update)
+* **#120** — RESOLVED 2026-05-25 (band-rect clamp to investigation depth)
+* **#121** — correlation polygon-ribbon rendering, lens-aware (design work — after #101)
+* **#122** — correlation edge opacity fade + body-hover spike (polish — after #121)
+* **#123** — clay→silt correlation suggestion bug (needs owner reproduction)
+* **#99** — drag-clamp through rejected layers (awaiting owner reproduction — code investigated, G34b passes)
+* **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
@@ -1195,32 +1198,6 @@ deterministic, reviewable outputs first.
 **When to revisit.** After the decision-log table has accumulated N ≥
 200 litho accepts across ≥ 3 real projects AND the owner has spot-
 audited a representative sample. Don't fit a model on toy data.
-
-## 76. Accept-all sometimes "splits" displayed layers post-accept (Tier G — before the Geotech stage; diagnostic)
-
-**What.** Owner observed (2026-05-20 dogfeed) that clicking `Accept
-all` on a ghost overlay results in layers being visually "split"
-into smaller layers post-commit. Two likely causes both worth ruling
-out:
-
-- **Straddle splits** (expected): a suggestion that crosses a
-  geological-formation boundary is auto-split into TWO contacts by
-  `_compute_straddle_splits` — one per parent formation. The ghost
-  showed one layer; the committed result is two. Correct geological
-  semantics.
-- **Over-segmentation visible post-accept** (debt #74): the
-  segmenter produces multiple thin same-lithology layers that all
-  accept as separate contacts.
-
-**Why deferred.** Needs an explicit `accept_litho_suggestions`
-response log from a dogfeed session — the `straddle_split_count` +
-`created_contact_ids.length` fields tell us which mechanism is
-firing. Without that, "fix" is shooting in the dark.
-
-**When to revisit.** Next time the dogfeed shows the symptom, look at
-the backend log line `acceptAllLithoSuggestions ok created=N
-found=M straddle=K …` — if K > 0 it's straddle-split (expected); if
-K = 0 and N > the displayed-layer count it's #74 territory.
 
 
 ## 82. Drag-from-ghost-edge → correlation (Tier E — Phase 2.5 gesture follow-on)
@@ -2632,7 +2609,7 @@ litho contacts.
 **When to revisit.** First step of the session-2026-05-24 sequence.
 Prerequisite for #101. Half-day with tests.
 
-## 119. Litho segmenter: same-lithology auto-merge (Tier G — session 2026-05-24 blocker)
+## 119. Litho segmenter: same-lithology auto-merge (Tier G — design work, before Geotech stage)
 
 **What.** `segment_cpt` in `litho_segmentation.py` currently splits
 on every Robertson SBT zone integer change. Zones 5/6/7/8 all map to
@@ -2665,45 +2642,22 @@ still shows AGGREGATE Dr/NAD on the unit for context.
 are unaffected — change is to the suggest path, not the persisted
 shape.
 
-**Why deferred.** Architectural reversal — needed sign-off + the
-user-pick-still-allowed nuance.
+**Why deferred.** Design work (not a bug) — architectural reversal of
+a previous owner directive. Triage 2026-05-25: #127's auto-correlate
+makes the over-split state less painful (adjacent same-lithology
+bodies auto-correlate to the same body ordinal), but the segmenter
+still emits them and the manual merge UX is friction. Classified as
+B (design work before Geotech stage, not a pure bugfix).
 
-**When to revisit.** Session 2026-05-24 declared this a litho-stage
-prerequisite. Half-day + bench update.
+**When to revisit.** Before starting the Geotech subdivision stage —
+the litho inspector must show lithology-only units, not density-split
+sub-units, or the geotech stage's NAD-class-per-unit mapping will
+work against the wrong granularity. Half-day backend + bench update +
+CLAUDE.md MVP scope edit (density indicators move from litho to
+geotech).
 
-## 120. Section band-rect extends past investigation depth (Tier G — bug)
 
-**What.** `CorrelationEdgesOverlay.tsx:217-220`'s `buildBandMap`
-falls back to `plotBottomLevel` for the deepest formation's
-`botLevel`:
-
-```typescript
-const botLevel =
-  i + 1 < sorted.length
-    ? surface - sorted[i + 1].depth_top_m
-    : plotBottomLevel   // ← runs to the section's bottom, not the test's
-```
-
-so the click-target rectangle (and any future fill / outline) extends
-to the bottom of the entire section view, not to the bottom of the
-actual CPT/borehole. Visible as the blue dashed selection rectangle
-in Correlate mode extending well below the data column (dogfeed
-2026-05-24, image 4 showed clay band's blue outline going ~5 m past
-the test bottom on every column).
-
-**Fix shape.** Thread per-investigation `maxDepthM` into
-`buildBandMap` (already available on the section's column projection
-shape) and use `surface - maxDepthM` for the deepest band's
-`botLevel`. ~30-line diff plus a regression test (pick an
-investigation with a deepest formation; assert the band closes at
-the data bottom, not at `plotBottomLevel`).
-
-**Why deferred.** Same-day fix; queued with the session batch so
-the lens/correlate UX renders correctly on first commit.
-
-**When to revisit.** Session 2026-05-24 batch. Trivial.
-
-## 121. Correlation rendering: polygon ribbon, lens-aware (Tier G — session 2026-05-24 blocker)
+## 121. Correlation rendering: polygon ribbon, lens-aware (Tier G — design work, ~1 day)
 
 **What.** `CorrelationEdgesOverlay.tsx:1104-1113` renders a
 committed correlation edge as a **single dashed line** at
@@ -2722,11 +2676,19 @@ The ribbon endpoints respect pinch-out tip contacts (from #118 +
 #101's lens-absent semantics): a ribbon reaching an absent column
 thins to zero at the wedge tip, not at the column itself.
 
-**Why deferred.** Real new UI work, ~1 day with tests. Depends on
-#101 for lens-awareness — non-lens version could ship first then
-upgrade, but cleaner to land the lens dependencies first.
+**Why deferred.** Real UI work (~1 day with tests), not a bugfix.
+Triage 2026-05-25: classified as B (design work). #122 opacity
+fade is the lighter fix that addresses the immediate "too many
+lines" complaint; #121 (ribbon) is the richer visual work that
+benefits from being designed alongside the section visual-polish
+pass.
 
-**When to revisit.** After #118 + #101.
+**When to revisit.** When the section editor's first visual-polish
+pass starts (alongside the section background grid or per-body
+colour coding), OR when a paying customer flags the dashed-line
+edge as confusing after the opacity fix (#122) doesn't satisfy.
+After #101 Position 4 ships (lens-aware endpoints require the
+lens_id FK on correlation edges).
 
 ## 122. Correlation edge opacity fade + body-hover spike (Tier G — session 2026-05-24)
 
@@ -2739,12 +2701,17 @@ halo already does this for the body's chips — extend the gate to the
 body's edges/ribbons). Optionally hide edges entirely when zoomed
 out below a threshold (e.g. section length > 500 m per 100 px).
 
-**Why deferred.** Polish; smaller scope than the architectural
-items. Natural to land alongside #121 since both touch the
-rendering pass.
+**Why deferred.** Polish; smaller scope than #121. Triage
+2026-05-25: classified as B (UX polish, not a bugfix). The opacity
+fade is the lighter half (~20 lines) that directly addresses the
+"too many lines" dogfeed complaint; it can ship ahead of the full
+ribbon work in #121.
 
-**When to revisit.** After #121; same rendering pass absorbs the
-opacity logic.
+**When to revisit.** When the next litho-UX pass starts, or when a
+dogfeed session flags the spaghetti-edge density specifically. The
+opacity fade alone can ship ahead of #121 — it doesn't depend on
+the ribbon shape. Pair with the body-hover spike extension when the
+chip-hover halo work is next touched (same file, same state path).
 
 ## 123. Correlation suggestion bug: clay → silt cross-lithology pair (Tier G — needs reproduction)
 
@@ -2773,13 +2740,29 @@ the user's project and join through both endpoints'
 trace the create path; if not, the bug is in the renderer.
 
 **Why deferred.** Cannot diagnose blind — needs a specific
-reproduction point in the user's project. Owner asked to file it as
-debt with the others; expected to be re-opened with a screenshot
-zoom or column-name pair.
+reproduction point in the user's project. Triage 2026-05-25:
+classified as C (needs reproduction). The diagnostic SQL is cheap
+but the result is ambiguous without knowing which project + section
++ column pair shows the mismatched chips.
 
-**When to revisit.** Owner provides a reproduction. Otherwise pick
-up at the end of the session-2026-05-24 batch as a sweep —
-diagnostic SQL across the dogfeed project is cheap.
+**Evidence needed for diagnosis.**
+- The project ID and section ID where the symptom is visible.
+- The two column names (investigation IDs) showing clay and silt
+  bodies connected by the same correlation edge.
+- Output of:
+  ```sql
+  SELECT e.id, fa.litho_main_soil_code AS litho_a,
+         fb.litho_main_soil_code AS litho_b
+  FROM   litho_correlation_edge e
+  JOIN   geological_formation fa ON fa.id = e.formation_a_id
+  JOIN   geological_formation fb ON fb.id = e.formation_b_id
+  WHERE  fa.litho_main_soil_code != fb.litho_main_soil_code;
+  ```
+  If this returns rows, the mismatch is real (hypotheses a or b).
+  If empty, it's a renderer/display mismatch (hypothesis c).
+
+**When to revisit.** Owner provides the evidence above. Until then
+no code change is possible without risk of fixing the wrong layer.
 
 ## 124. CreateLithoLens — split into geometry service + DB-loading layer (Tier E)
 
