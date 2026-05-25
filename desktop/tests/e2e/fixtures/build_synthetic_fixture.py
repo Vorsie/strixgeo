@@ -404,15 +404,86 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _cleanup_litho_state(client: httpx.Client, api_base: str, project_id: str) -> None:
+    """Delete all litho-derived state for the fixture project so each test run starts clean.
+
+    The restore endpoint is idempotent (it skips existing rows), but it cannot
+    remove rows created by previous spec runs (accepted litho contacts, child
+    formations, correlation edges, lens metadata).  This function removes them
+    via the API DELETE endpoints before the restore so the project is in the
+    same clean state on every run.
+
+    Cleaned up in order (FK cascades handle the rest):
+    1. Lithostratigraphic model (cascades → formation_contact, litho_correlation_edge,
+       litho_lens metadata).
+    2. Litho child formations (those with parent_formation_id set, created by accept).
+       The geological model FK is SET NULL so they survive model deletion — explicit
+       delete needed.
+
+    Parameters
+    ----------
+    client : httpx.Client
+        Shared HTTP client (connected to the running backend).
+    api_base : str
+        Base URL of the FastAPI backend (no trailing slash).
+    project_id : str
+        UUID of the fixture project to clean.
+    """
+    geology_base = f"{api_base}/projects/{project_id}/geology"
+
+    # 1. Delete the lithostratigraphic model (cascades to contacts, edges, lenses).
+    models_resp = client.get(f"{geology_base}/models")
+    if models_resp.status_code == 200:
+        for model in models_resp.json():
+            if model.get("kind") == "lithostratigraphic":
+                mid = model["id"]
+                del_resp = client.delete(f"{geology_base}/models/{mid}")
+                if del_resp.status_code == 204:
+                    print(
+                        f"[fixture] Deleted lithostratigraphic model {mid}",
+                        file=sys.stderr,
+                    )
+                elif del_resp.status_code == 404:
+                    pass  # Already gone — fine.
+                else:
+                    print(
+                        f"[fixture] WARNING: DELETE /models/{mid} returned {del_resp.status_code}",
+                        file=sys.stderr,
+                    )
+
+    # 2. Delete litho child formations (parent_formation_id is not null).
+    #    Accept creates these; restore doesn't delete them.
+    formations_resp = client.get(f"{geology_base}/formations")
+    if formations_resp.status_code == 200:
+        child_ids = [
+            f["id"] for f in formations_resp.json() if f.get("parent_formation_id") is not None
+        ]
+        for fid in child_ids:
+            del_resp = client.delete(f"{geology_base}/formations/{fid}")
+            if del_resp.status_code not in (204, 404):
+                print(
+                    f"[fixture] WARNING: DELETE /formations/{fid} returned {del_resp.status_code}",
+                    file=sys.stderr,
+                )
+        if child_ids:
+            print(
+                f"[fixture] Deleted {len(child_ids)} litho child formation(s)",
+                file=sys.stderr,
+            )
+
+
 def main() -> None:
     """Build and POST the synthetic fixture, then print the project UUID.
 
     The function:
     1. Validates DATABASE_URL points at an integration/test DB.
     2. Confirms the backend is reachable (GET /openapi.json).
-    3. Builds the bundle dict.
-    4. POSTs to ``POST /projects/<id>/restore``.
-    5. Prints the project UUID on stdout (last line, bare UUID).
+    3. Cleans up any litho-derived state from a previous run (so each run
+       starts with the same baseline — no stale accepted contacts or litho
+       formations that would make accept-count assertions non-deterministic).
+    4. Builds the bundle dict.
+    5. POSTs to ``POST /projects/<id>/restore``.
+    6. Prints the project UUID on stdout (last line, bare UUID).
 
     Raises
     ------
@@ -443,6 +514,8 @@ def main() -> None:
         )
         sys.exit(1)
 
+    project_id = _uid("smoke-project")
+
     # Check backend reachability
     try:
         with httpx.Client(timeout=10.0) as client:
@@ -457,12 +530,17 @@ def main() -> None:
         )
         sys.exit(2)
 
-    project_id = _uid("smoke-project")
     bundle = _build_bundle(project_id)
 
-    print(f"[fixture] POSTing bundle for project {project_id} …", file=sys.stderr)
-
+    # Clean up any litho state left over from a previous run so each run
+    # starts with the same baseline state.  The restore below is idempotent
+    # for the base geological model + CPTs, but cannot remove rows that
+    # previous spec runs added (accepted contacts, child formations, etc.).
     with httpx.Client(timeout=30.0) as client:
+        print(f"[fixture] Cleaning up litho state for project {project_id} …", file=sys.stderr)
+        _cleanup_litho_state(client, api_base, project_id)
+
+        print(f"[fixture] POSTing bundle for project {project_id} …", file=sys.stderr)
         resp = client.post(
             f"{api_base}/projects/{project_id}/restore",
             content=json.dumps(bundle),
