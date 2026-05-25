@@ -526,6 +526,7 @@ function SectionRow({
 
   return (
     <li
+      data-testid={`section-row-${section.id}`}
       className={[
         'group relative flex items-center rounded transition-colors',
         unsaved ? 'border-l-2 border-l-status-amber pl-1' : 'pl-2',
