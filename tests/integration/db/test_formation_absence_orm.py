@@ -143,7 +143,10 @@ async def test_absence_check_constraint_rejects_bad_kind(db_session: AsyncSessio
             id=uuid7(),
             formation_id=formation.id,
             investigation_id=uuid7(),
-            investigation_kind="pressuremeter",  # invalid
+            # `sample` is short enough to fit the VARCHAR(10) column —
+            # the test must trip the CHECK constraint, not the column
+            # length limit (`pressuremeter` would do the latter).
+            investigation_kind="sample",  # invalid
             source="inferred",
         )
     )
