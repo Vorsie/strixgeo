@@ -397,6 +397,8 @@ interface Props {
     onSplitLayer?: (idx: number) => void
     /** Debt #102: merge two adjacent same-lithology pending layers. */
     onMergeLayers?: (upperIdx: number) => void
+    /** Dogfeed 2026-05-25: Shift+drag absorb — dragger absorbs neighbour. */
+    onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
   }
   /**
    * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
@@ -451,6 +453,8 @@ interface Props {
     onSplitLayer?: (anchorId: string, idx: number) => void
     /** Debt #102: bulk variant of merge — takes the anchorId. */
     onMergeLayers?: (anchorId: string, upperIdx: number) => void
+    /** Dogfeed 2026-05-25: bulk variant of absorb — takes the anchorId. */
+    onAbsorbLayer?: (anchorId: string, draggerIdx: number, direction: 'up' | 'down') => void
   }
   /**
    * Pinch-out ghost-preview state (ghost-UX slice).  When present, a
@@ -1967,6 +1971,7 @@ export default function SectionPanel({
                 onInsertLayer={lithoGhostState.onInsertLayer}
                 onSplitLayer={lithoGhostState.onSplitLayer}
                 onMergeLayers={lithoGhostState.onMergeLayers}
+                onAbsorbLayer={lithoGhostState.onAbsorbLayer}
                 // Per-CPT depth series for the drag readout (qc + Rf).
                 // ``cptPlots`` is already loaded by useSectionData for the
                 // CPT data columns; reuse here so the readout doesn't
@@ -2041,6 +2046,17 @@ export default function SectionPanel({
                       bulkLithoGhostState.onMergeLayers !== undefined
                         ? upperIdx => {
                             bulkLithoGhostState.onMergeLayers!(anchorId, upperIdx)
+                          }
+                        : undefined
+                    }
+                    onAbsorbLayer={
+                      bulkLithoGhostState.onAbsorbLayer !== undefined
+                        ? (draggerIdx, direction) => {
+                            bulkLithoGhostState.onAbsorbLayer!(
+                              anchorId,
+                              draggerIdx,
+                              direction,
+                            )
                           }
                         : undefined
                     }
@@ -2401,7 +2417,7 @@ function CanvasHints({
       {axisMode === 'lithostratigraphic' && (
         <div data-testid="litho-gesture-hint">
           Litho layer: double-click to accept · Alt+drag to copy composition ·
-          right-click for more
+          Shift+drag past neighbour midpoint to absorb · right-click for more
         </div>
       )}
     </div>
