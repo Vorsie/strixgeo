@@ -25,17 +25,20 @@ describe('readLithoSegmenterPrefs', () => {
           minimum_layer_thickness_m: 0.5,
           gunsat_kNm3: 18.0,
           dr_compression_factor: 0.6,
+          merge_same_lithology: false,
         },
       }),
     ).toEqual({
       minimumLayerThicknessM: 0.5,
       gunsatKNm3: 18.0,
       drCompressionFactor: 0.6,
+      mergeSameLithology: false,
     })
   })
 
   it('falls back to default on out-of-range value, field-independently', () => {
     // min_thickness too low → default; γunsat OK; Dr OK → only min_thickness resets
+    // merge_same_lithology absent → defaults to true
     expect(
       readLithoSegmenterPrefs({
         litho_segmenter: {
@@ -48,6 +51,7 @@ describe('readLithoSegmenterPrefs', () => {
       minimumLayerThicknessM: LITHO_SEGMENTER_DEFAULTS.minimumLayerThicknessM,
       gunsatKNm3: 20.0,
       drCompressionFactor: 0.5,
+      mergeSameLithology: true,
     })
   })
 
@@ -98,13 +102,49 @@ describe('buildLithoSegmenterPatch', () => {
         minimumLayerThicknessM: 0.3,
         gunsatKNm3: 17.5,
         drCompressionFactor: 0.7,
+        mergeSameLithology: true,
       }),
     ).toEqual({
       litho_segmenter: {
         minimum_layer_thickness_m: 0.3,
         gunsat_kNm3: 17.5,
         dr_compression_factor: 0.7,
+        merge_same_lithology: true,
       },
     })
+  })
+})
+
+describe('readLithoSegmenterPrefs — mergeSameLithology field', () => {
+  it('defaults to true when merge_same_lithology key is absent', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { minimum_layer_thickness_m: 0.15, gunsat_kNm3: 16.0 },
+      }).mergeSameLithology,
+    ).toBe(true)
+  })
+
+  it('returns true when stored as true', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { merge_same_lithology: true },
+      }).mergeSameLithology,
+    ).toBe(true)
+  })
+
+  it('returns false when stored as false', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { merge_same_lithology: false },
+      }).mergeSameLithology,
+    ).toBe(false)
+  })
+
+  it('defaults to true when stored as a non-boolean (e.g. string)', () => {
+    expect(
+      readLithoSegmenterPrefs({
+        litho_segmenter: { merge_same_lithology: 'yes' },
+      }).mergeSameLithology,
+    ).toBe(true)
   })
 })
