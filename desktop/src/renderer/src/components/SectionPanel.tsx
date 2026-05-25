@@ -1533,6 +1533,63 @@ export default function SectionPanel({
     return s
   }, [visibleColumns, cptPlots, boreholeDetails, enabledBhChannels])
 
+  // CM fix (dogfeed 2026-05-25): filter contacts passed to CorrelationEdgesOverlay
+  // so correlate gesture rects are not drawn at depths covered by active PENDING
+  // ghost layers. Old committed contacts from a prior suggest+accept cycle remain
+  // in the DB (backend Phase 1 limitation in accept_litho_suggestions.py) and
+  // produce clickable correlate zones even when the ghost has been re-merged into
+  // a different shape. Only PENDING layers shadow contacts — accepted layers ARE
+  // the committed contacts (correct DB state); rejected layers are dismissed.
+  const correlateContacts = useMemo((): readonly FormationContactResponse[] => {
+    if (!correlateGestureState?.correlateMode || !contacts) return contacts ?? []
+
+    // Build combined investigation → ghost map (focused anchor + bulk anchors).
+    type GhostEntry = {
+      suggestions: readonly LithoLayerSuggestion[]
+      accepted: ReadonlySet<number>
+      rejected: ReadonlySet<number>
+      edits: ReadonlyMap<number, { depth_top_m?: number; depth_base_m?: number }>
+    }
+    const ghostMap = new Map<string, GhostEntry>()
+
+    if (bulkLithoGhostState != null) {
+      for (const [anchorId, ghost] of bulkLithoGhostState.anchorGhosts) {
+        ghostMap.set(anchorId, {
+          suggestions: ghost.suggestions,
+          accepted: ghost.accepted,
+          rejected: ghost.rejected,
+          edits: ghost.edits,
+        })
+      }
+    }
+    if (lithoGhostState != null) {
+      // Focused anchor overwrites the bulk entry so the most specific state wins.
+      ghostMap.set(lithoGhostState.investigationId, {
+        suggestions: lithoGhostState.suggestions,
+        accepted: lithoGhostState.acceptedIndices,
+        rejected: lithoGhostState.rejectedIndices,
+        edits: lithoGhostState.edits ?? new Map(),
+      })
+    }
+    if (ghostMap.size === 0) return contacts
+
+    return contacts.filter(c => {
+      const anchorId = c.cpt_id ?? c.borehole_id
+      if (!anchorId) return true
+      const ghost = ghostMap.get(anchorId)
+      if (!ghost || ghost.suggestions.length === 0) return true
+      // Remove contacts whose depth_top_m falls inside any PENDING ghost layer.
+      // Pending = not accepted and not rejected.
+      const isShadowed = ghost.suggestions.some((s, idx) => {
+        if (ghost.accepted.has(idx) || ghost.rejected.has(idx)) return false
+        const topM = ghost.edits.get(idx)?.depth_top_m ?? s.depth_top_m
+        const baseM = ghost.edits.get(idx)?.depth_base_m ?? s.depth_base_m
+        return c.depth_top_m >= topM && c.depth_top_m < baseM
+      })
+      return !isShadowed
+    })
+  }, [contacts, correlateGestureState, lithoGhostState, bulkLithoGhostState])
+
   // ---- Render --------------------------------------------------------
 
   const datumShort = verticalDatumShort(zEpsg)
@@ -2110,7 +2167,7 @@ export default function SectionPanel({
             {correlationEdges !== undefined && (
               <CorrelationEdgesOverlay
                 edges={correlationEdges}
-                contacts={contacts}
+                contacts={correlateContacts}
                 formations={formations}
                 placedColumns={visibleColumns}
                 levelToScreen={levelToScreen}
