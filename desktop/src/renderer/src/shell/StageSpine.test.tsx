@@ -74,4 +74,27 @@ describe('StageSpine selection footer (debt #44)', () => {
     expect(arg).toBeInstanceOf(Set)
     expect(arg.size).toBe(0)
   })
+
+  // Regression anchors for debt #115 sub-item 6 — dead ternary + aria-label.
+  it('SF1 — footer clear button has an aria-label including the count (debt #115)', () => {
+    currentSelection = new Set(['cpt-1', 'cpt-2', 'cpt-3'])
+    render(<StageSpine activeStageId="data" onSelectStage={vi.fn()} />)
+    const btn = screen.getByTestId('selection-footer-clear')
+    const label = btn.getAttribute('aria-label') ?? ''
+    // aria-label must include the count and the word "selected"
+    expect(label).toMatch(/3/)
+    expect(label.toLowerCase()).toContain('selected')
+  })
+
+  it('SF2 — the "sel." abbreviation span has aria-label with full text (debt #115)', () => {
+    currentSelection = new Set(['bh-1'])
+    render(<StageSpine activeStageId="data" onSelectStage={vi.fn()} />)
+    const btn = screen.getByTestId('selection-footer-clear')
+    // Find the span inside the button that carries the aria-label
+    const span = btn.querySelector<HTMLSpanElement>('[aria-label]')
+    expect(span).not.toBeNull()
+    const spanLabel = span!.getAttribute('aria-label') ?? ''
+    expect(spanLabel).toMatch(/1/)
+    expect(spanLabel.toLowerCase()).toContain('selected')
+  })
 })

@@ -187,13 +187,19 @@ function SelectionFooter(): JSX.Element {
       <button
         type="button"
         className="w-full flex flex-col items-center gap-0.5 rounded px-1 py-1.5 bg-amber-100/80 dark:bg-amber-950/40 border border-status-amber text-text-primary hover:bg-amber-200/80 dark:hover:bg-amber-950/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-status-amber"
+        aria-label={`${count} selected — click to clear`}
         title={`${count} investigation${count === 1 ? '' : 's'} selected across stages — click to clear`}
         onClick={() => setMarqueeSelectedIds(new Set())}
         data-testid="selection-footer-clear"
       >
         <span className="text-[11px] font-semibold tabular-nums leading-none">{count}</span>
-        <span className="text-[8px] uppercase tracking-wide text-text-secondary leading-none">
-          {count === 1 ? 'sel.' : 'sel.'}
+        <span
+          className="text-[8px] uppercase tracking-wide text-text-secondary leading-none"
+          aria-label={`${count} selected`}
+        >
+          {/* "sel." is a visual abbreviation; aria-label on the parent span
+              announces the full word so screen readers say "N selected". */}
+          sel.
         </span>
       </button>
     </div>
