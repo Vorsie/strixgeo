@@ -34,11 +34,12 @@ class LithoSuggestionRequest(BaseModel):
         default 0.675 = average quartz sand).
     merge_same_lithology : bool
         When ``True`` (default per owner directive 2026-05-25), run the
-        same-lithology merge pass after Robertson-SBT segmentation so
-        adjacent sand-on-sand / clay-on-clay runs collapse into a single
-        layer.  Set to ``False`` to see the un-merged splits (useful for
-        diagnosing packing-density boundaries).  CPT path only; the
-        borehole path is unaffected.
+        same-lithology merge pass so adjacent sand-on-sand / clay-on-clay
+        segments collapse into a single layer.  Applies to both the CPT
+        path (after Robertson-SBT segmentation) and the borehole path
+        (after DOV hoofdnaam → lithology mapping).  Set to ``False`` to
+        see the un-merged splits (useful for diagnosing packing-density
+        boundaries or individual observation-layer sequences).
     """
 
     cpt_id: UUID | None = None
@@ -47,12 +48,12 @@ class LithoSuggestionRequest(BaseModel):
     gunsat_kNm3: float = Field(default=16.0, ge=8.0, le=25.0)
     gwater_kNm3: float = Field(default=9.81, ge=9.0, le=10.5)
     dr_compression_factor: float = Field(default=0.675, ge=0.1, le=2.0)
-    # Owner directive 2026-05-25: merge adjacent same-lithology segments by
-    # default.  Set to False to inspect un-merged Robertson-SBT-driven splits
+    # Owner directive 2026-05-25 (extended to borehole path 2026-05-25):
+    # merge adjacent same-lithology segments by default for BOTH CPT and
+    # borehole paths.  Set to False to inspect the un-merged segments
     # (useful for diagnosing packing-density boundaries before the Geotech
-    # stage ships its own split gesture).  CPT path only — the borehole
-    # segmenter produces one segment per observation layer so same-lithology
-    # adjacency doesn't arise from the Robertson zone signal.
+    # stage ships its own split gesture, or individual observation-layer
+    # sequences on the borehole path).
     merge_same_lithology: bool = True
 
     @model_validator(mode="after")

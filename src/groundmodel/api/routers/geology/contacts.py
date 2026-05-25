@@ -825,6 +825,7 @@ async def suggest_litho_contacts(
                 model_id=model_id,
                 borehole_id=request.borehole_id,  # type: ignore[arg-type]
                 minimum_layer_thickness_m=request.minimum_layer_thickness_m,
+                merge_same_lithology=request.merge_same_lithology,
             )
             investigation_type = "borehole"
     except InvalidModelKindError as exc:
