@@ -3722,9 +3722,11 @@ export function useGeologicalModel({
         toast('error', 'Could not accept all litho suggestions.')
       }
     },
-    // reason: same pattern as handleAcceptLithoSuggestion — all suggestion
-    // state is read synchronously from the closure and listed as deps so
-    // the callback identity refreshes on each new suggestion set.
+    // reason: all suggestion state (lithoSuggestions / lithoSuggestionAnchorKind /
+    // lithoSuggestionInvestigationId / lithoSuggestionRejected) is read
+    // synchronously from the closure and listed as deps so the callback
+    // identity refreshes on each new suggestion set. activeLithoModelRef is a
+    // ref (stable identity) and intentionally omitted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       project,
