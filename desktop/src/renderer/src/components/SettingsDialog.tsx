@@ -213,7 +213,8 @@ function LithoSection({
   const dirty =
     draft.minimumLayerThicknessM !== initial.minimumLayerThicknessM ||
     draft.gunsatKNm3 !== initial.gunsatKNm3 ||
-    draft.drCompressionFactor !== initial.drCompressionFactor
+    draft.drCompressionFactor !== initial.drCompressionFactor ||
+    draft.mergeSameLithology !== initial.mergeSameLithology
 
   return (
     <SectionShell
@@ -260,6 +261,14 @@ function LithoSection({
         step={0.005}
         disabled={!hasProject}
         invalid={!drValid}
+      />
+      <CheckboxRow
+        id="settings-merge-same-lithology"
+        label="Merge same-lithology layers"
+        hint="Adjacent splits that share lithology (sand-on-sand, etc.) are absorbed into one. Packing-density splits will return as suggestions in the Geotech stage when it ships."
+        checked={draft.mergeSameLithology}
+        onChange={v => setDraft({ ...draft, mergeSameLithology: v })}
+        disabled={!hasProject}
       />
 
       <SectionFooter
@@ -550,6 +559,43 @@ function NumberRow({
         {unit && <span className="text-xs text-text-muted w-10">{unit}</span>}
       </div>
       <p className="text-[11px] text-text-muted mt-1.5 leading-snug">{hint}</p>
+    </div>
+  )
+}
+
+function CheckboxRow({
+  id,
+  label,
+  hint,
+  checked,
+  onChange,
+  disabled,
+}: {
+  id: string
+  label: string
+  hint: string
+  checked: boolean
+  onChange: (next: boolean) => void
+  disabled?: boolean
+}): JSX.Element {
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className={`flex items-center gap-2 cursor-pointer select-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        <input
+          id={id}
+          data-testid={id}
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={e => onChange(e.target.checked)}
+          className="rounded accent-accent"
+        />
+        <span className="text-[11px] font-medium text-text-secondary">{label}</span>
+      </label>
+      <p className="text-[11px] text-text-muted mt-1.5 leading-snug ml-6">{hint}</p>
     </div>
   )
 }
