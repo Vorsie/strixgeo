@@ -355,6 +355,28 @@ export function ticks(min: number, max: number, targetTicks = 6): number[] {
   return out
 }
 
+/**
+ * Return the maximum measurement depth (m below surface) for a placed
+ * column. CPTs expose ``max_depth_m``; boreholes expose ``total_depth_m``.
+ * Returns ``null`` when the value is absent (column has no depth data yet).
+ *
+ * Parameters
+ * ----------
+ * col
+ *     A placed column from the section panel's layout pass.
+ *
+ * Returns
+ * -------
+ * number | null
+ *     Depth in metres below ground surface, or ``null``.
+ */
+export function columnMaxDepthM(col: PlacedColumn): number | null {
+  if (col.kind === 'cpt') {
+    return col.proj.item.max_depth_m
+  }
+  return col.proj.item.total_depth_m
+}
+
 // ---------------------------------------------------------------------------
 // useElementSize — measure container for SVG viewBox
 // ---------------------------------------------------------------------------
