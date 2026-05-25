@@ -237,6 +237,7 @@ function makeCtx(overrides: {
     handleInsertLithoLayer: vi.fn(),
     handleSplitLithoLayer: vi.fn(),
     handleMergeLithoLayers: vi.fn(),
+    handleAbsorbLithoLayer: vi.fn(),
       clearBulkLithoGhosts: () => {},
       handleStripLithoAdmixtures: () => {},
       handleReseedLithoAdmixtures: () => {},
