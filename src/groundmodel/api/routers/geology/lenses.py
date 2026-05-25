@@ -47,6 +47,7 @@ from groundmodel.api.schemas.project.litho_lens import (
 from groundmodel.application.create_perpendicular_companion import CreatePerpendicularCompanion
 from groundmodel.application.delete_lens_metadata import DeleteLensMetadata
 from groundmodel.application.name_lens_body import NameLensBody
+from groundmodel.application.recompute_all_absences_for_model import RecomputeAllAbsencesForModel
 from groundmodel.application.recompute_formation_absences_for_body import (
     RecomputeFormationAbsencesForBody,
 )
@@ -571,4 +572,100 @@ async def recompute_formation_absences(
         "written": result.written_count,
         "retracted": result.retracted_count,
         "skipped_no_data": result.skipped_no_data_count,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Bulk recompute all absences for a model (batch-accept companion)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/models/{model_id}/recompute-all-absences",
+    status_code=status.HTTP_200_OK,
+)
+async def recompute_all_absences_for_model(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Re-run absence inference for every formation with contacts in the model.
+
+    Designed as the one-shot finaliser for ``defer_inference=True`` bulk-accept
+    flows.  When the frontend accepts N anchors with ``defer_inference=True`` it
+    skips the per-accept R7 inference hook to avoid N × formations × sections
+    inference passes.  After the full batch of accepts, ONE call here runs a
+    single inference pass per formation — O(formations × sections) regardless
+    of N.
+
+    The model must be ``kind='lithostratigraphic'``.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    model_id : UUID
+        The lithostratigraphic model to recompute.  Must belong to
+        ``project_id`` and have ``kind='lithostratigraphic'``.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    dict
+        ``formations_processed``, ``total_written``, ``total_retracted``,
+        ``total_wedge_tips_created``, ``total_wedge_tips_deleted`` counts.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the model does not belong to the project.
+    HTTPException(422)
+        When the model kind is not ``'lithostratigraphic'``.
+    """
+    await get_in_project_or_404(
+        session.get(GeologicalModelOrm, model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+
+    # Kind guard: must be lithostratigraphic (same pattern as the other lens
+    # endpoints — callers that accidentally pass a geological model_id get a
+    # clear 422 rather than a silent no-op or a misleading 404).
+    model = await session.get(GeologicalModelOrm, model_id)
+    if model is not None and model.kind != MODEL_KIND_LITHOSTRATIGRAPHIC:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "wrong_model_kind",
+                "message": (
+                    f"Model {model_id} has kind='{model.kind}'; "
+                    f"recompute-all-absences requires kind='{MODEL_KIND_LITHOSTRATIGRAPHIC}'."
+                ),
+            },
+        )
+
+    try:
+        result = await RecomputeAllAbsencesForModel(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "recompute_all_error", "message": str(exc)},
+        ) from exc
+
+    logger.info(
+        f"recompute_all_absences_for_model: project={project_id} model={model_id} → "
+        f"formations_processed={result.formations_processed} "
+        f"written={result.total_written} retracted={result.total_retracted} "
+        f"wedge_tips_created={result.total_wedge_tips_created}"
+    )
+    return {
+        "formations_processed": result.formations_processed,
+        "total_written": result.total_written,
+        "total_retracted": result.total_retracted,
+        "total_wedge_tips_created": result.total_wedge_tips_created,
+        "total_wedge_tips_deleted": result.total_wedge_tips_deleted,
     }
