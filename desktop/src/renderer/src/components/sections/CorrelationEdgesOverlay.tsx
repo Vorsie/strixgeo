@@ -47,8 +47,12 @@ import type { PlacedColumn } from './utils'
 // Visual constants
 // ---------------------------------------------------------------------------
 
-/** Dash pattern for correlation edges. */
+/** Dash pattern for manually-drawn correlation edges. */
 const EDGE_DASH = '5 3'
+/** Dash pattern for auto-correlated edges — tighter gap signals provisional. */
+const EDGE_DASH_AUTO = '3 5'
+/** Opacity for auto-correlated edges — visually provisional. */
+const EDGE_OPACITY_AUTO = 0.4
 /** Edge stroke colour (Tailwind blue-500). */
 const EDGE_COLOR = '#3b82f6'
 /** Edge stroke width in pixels. */
@@ -1129,7 +1133,8 @@ export default function CorrelationEdgesOverlay({
                 })
               }}
             />
-            {/* Visible dashed line */}
+            {/* Visible dashed line — auto edges render at reduced opacity
+                with a tighter dash pattern to signal provisional status. */}
             <line
               x1={er.x1}
               y1={er.y1}
@@ -1137,7 +1142,8 @@ export default function CorrelationEdgesOverlay({
               y2={er.y2}
               stroke={EDGE_COLOR}
               strokeWidth={EDGE_WIDTH}
-              strokeDasharray={EDGE_DASH}
+              strokeDasharray={er.edge.source === 'auto' ? EDGE_DASH_AUTO : EDGE_DASH}
+              opacity={er.edge.source === 'auto' ? EDGE_OPACITY_AUTO : undefined}
               pointerEvents="none"
             />
           </g>
