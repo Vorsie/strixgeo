@@ -99,6 +99,13 @@ class LithoLayerSuggestion:
         NAD packing class (5–8 for clean sand from Dr; None for all other
         lithologies — admixture/silt-clayey classes 9–12 require borehole
         confirmation per project spec).
+    nad_class_range : tuple[int, int] | None
+        NAD class range ``(min, max)`` across the merged source segments.
+        ``(n, n)`` when all sources share NAD class ``n``; ``(lo, hi)`` when
+        they differ.  ``None`` when ``suggested_nad_class`` is ``None`` (i.e.
+        the layer is not a clean-sand CPT layer).
+        Populated by ``merge_adjacent_same_lithology``; un-merged layers carry
+        the singleton ``(n, n)`` or ``None`` mirroring ``suggested_nad_class``.
     mean_qc_mpa : float | None
         Mean cone resistance over the layer from the raw (unsmoothed) series.
         ``None`` for borehole-path suggestions.
@@ -124,6 +131,10 @@ class LithoLayerSuggestion:
     # CPT-path suggestions (CPT cannot distinguish admixtures).
     # Debt #66: heuristic — owner tunes at dogfeed.
     suggested_admixtures: tuple[Admixture, ...] = ()
+    # NAD class range across merged source segments — see field docstring.
+    # Defaults to None; set by segment_cpt (singleton) and
+    # merge_adjacent_same_lithology (range or singleton).
+    nad_class_range: tuple[int, int] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +256,7 @@ def segment_cpt(
     gunsat_kNm3: float = 16.0,
     gwater_kNm3: float = 9.81,
     dr_compression_factor: float = 0.675,
+    merge_same_lithology: bool = True,
 ) -> list[LithoLayerSuggestion]:
     """Segment a CPT series into lithostratigraphic layers via Robertson 2015/2009.
 
@@ -261,7 +273,7 @@ def segment_cpt(
     yw_m : float
         Groundwater table elevation in TAW (m).
     minimum_layer_thickness_m : float
-        Minimum layer thickness the segmenter will output (default 0.5 m).
+        Minimum layer thickness the segmenter will output (default 0.15 m).
         Thinner runs are merged into their neighbour.
     gunsat_kNm3 : float
         Unit weight of soil above the water table (default 16 kN/m³).
@@ -270,6 +282,12 @@ def segment_cpt(
     dr_compression_factor : float
         Compression factor for Dr computation (default 0.675 average quartz;
         see ``relative_density_sand``).
+    merge_same_lithology : bool
+        When ``True`` (default), run ``merge_adjacent_same_lithology`` as a
+        final pass to collapse adjacent segments that share the same lithology
+        code into a single layer.  Set to ``False`` to see the un-merged
+        Robertson-SBT-driven splits (useful for diagnosing packing-density
+        boundaries before the Geotech stage ships its own split gesture).
 
     Returns
     -------
@@ -366,18 +384,29 @@ def segment_cpt(
             # inferred from Ic ≥ 2.45 or FR ≥ 1.2), nad_class stays None —
             # admixture/silt-clayey classes 9–12 require borehole confirmation.
 
+        # nad_class_range singleton — (n, n) when NAD class is known,
+        # None otherwise.  merge_adjacent_same_lithology expands this to a
+        # proper range when adjacent same-lithology segments are collapsed.
+        nad_range: tuple[int, int] | None = (
+            (nad_class, nad_class) if nad_class is not None else None
+        )
+
         suggestions.append(
             LithoLayerSuggestion(
                 depth_top_m=depth_top,
                 depth_base_m=depth_base,
                 suggested_lithology=lithology,
                 suggested_nad_class=nad_class,
+                nad_class_range=nad_range,
                 mean_qc_mpa=mean_qc,
                 dr_pct=dr_pct,
                 confidence=confidence,
                 source="cpt_robertson_2015",
             )
         )
+
+    if merge_same_lithology:
+        suggestions = merge_adjacent_same_lithology(suggestions)
 
     return suggestions
 
@@ -500,6 +529,182 @@ def _aggregate_admixtures(
             )
         )
     return tuple(result)
+
+
+# ---------------------------------------------------------------------------
+# Same-lithology merge pass (debt #119)
+# ---------------------------------------------------------------------------
+
+# Small tolerance used when checking segment adjacency — segments whose gap
+# is smaller than this (in metres) are considered touching.  Floating-point
+# rounding in the depth series can produce gaps of ~1e-10 m after the
+# connect-the-dots pass in segment_cpt, so we use a generous 1 mm floor.
+_ADJACENCY_TOLERANCE_M: float = 0.001
+
+
+def merge_adjacent_same_lithology(
+    segments: list[LithoLayerSuggestion],
+) -> list[LithoLayerSuggestion]:
+    """Collapse adjacent segments that share ``suggested_lithology``.
+
+    Two segments merge when:
+
+    * They are positionally adjacent — segment ``i``'s ``depth_base_m`` equals
+      segment ``i+1``'s ``depth_top_m`` within ``_ADJACENCY_TOLERANCE_M``.
+    * They share the same ``suggested_lithology`` code (one of the five
+      ``BaseLithology`` tokens: ZAND / KLEI / SILT / GRIND / VEEN).
+
+    The merged segment:
+
+    * ``depth_top_m``  — the topmost original segment's top.
+    * ``depth_base_m`` — the bottommost original segment's base.
+    * ``suggested_lithology`` — the shared code.
+    * ``suggested_nad_class`` — thickness-weighted mean of non-None
+      ``suggested_nad_class`` values, rounded to the nearest integer; ``None``
+      when all sources are ``None``.
+    * ``nad_class_range`` — ``(min, max)`` across non-None
+      ``suggested_nad_class`` values; ``(n, n)`` when all sources share the
+      same class ``n``; ``None`` when all sources are ``None``.
+    * ``mean_qc_mpa`` — thickness-weighted mean of non-None values; ``None``
+      when all sources are ``None``.
+    * ``dr_pct`` — thickness-weighted mean of non-None values; ``None`` when
+      all sources are ``None``.
+    * ``confidence`` — the MINIMUM confidence across the merged sources
+      (most conservative: if any source is LOW, the merged layer is LOW).
+    * ``source`` — taken from the first source segment (homogeneous within a
+      single call chain: all CPT or all borehole).
+    * ``suggested_admixtures`` — re-aggregated via ``_aggregate_admixtures``
+      from the per-segment already-aggregated admixture tuples, weighted by
+      each segment's thickness.
+
+    Iterative — runs until no two adjacent segments can be merged, so a chain
+    of four or more same-lithology segments collapses in one call.
+
+    Parameters
+    ----------
+    segments : list[LithoLayerSuggestion]
+        Input list, ordered top to bottom.  May be empty or a single element.
+
+    Returns
+    -------
+    list[LithoLayerSuggestion]
+        Merged list, ordered top to bottom.  Fewer or equal items than the
+        input; never more.
+    """
+    if len(segments) <= 1:
+        return list(segments)
+
+    # Repeat until stable — each pass reduces the list by at least 1 element
+    # whenever a merge fires, so termination is guaranteed in ≤ N-1 passes.
+    changed = True
+    current = list(segments)
+    while changed and len(current) > 1:
+        changed = False
+        merged: list[LithoLayerSuggestion] = []
+        i = 0
+        while i < len(current):
+            seg = current[i]
+            # Greedily absorb all immediately-following adjacent same-lithology
+            # segments into one accumulator before appending.
+            group: list[LithoLayerSuggestion] = [seg]
+            while i + 1 < len(current):
+                nxt = current[i + 1]
+                # Adjacency: base of last group member ≈ top of next.
+                adjacent = abs(group[-1].depth_base_m - nxt.depth_top_m) <= _ADJACENCY_TOLERANCE_M
+                same_litho = group[-1].suggested_lithology == nxt.suggested_lithology
+                if adjacent and same_litho:
+                    group.append(nxt)
+                    i += 1
+                    changed = True
+                else:
+                    break
+            if len(group) == 1:
+                merged.append(seg)
+            else:
+                merged.append(_collapse_group(group))
+            i += 1
+        current = merged
+
+    return current
+
+
+def _collapse_group(group: list[LithoLayerSuggestion]) -> LithoLayerSuggestion:
+    """Merge a run of same-lithology segments into a single LithoLayerSuggestion.
+
+    Called only from ``merge_adjacent_same_lithology`` after the adjacency +
+    same-lithology gate has already been passed for every pair in the group.
+    All segments in the group must share ``suggested_lithology``.
+
+    Parameters
+    ----------
+    group : list[LithoLayerSuggestion]
+        Two or more adjacent same-lithology segments, ordered top to bottom.
+
+    Returns
+    -------
+    LithoLayerSuggestion
+        A single merged segment spanning the group.
+    """
+    thicknesses = [max(0.0, s.depth_base_m - s.depth_top_m) for s in group]
+
+    # Thickness-weighted mean for numeric per-layer values.
+    def _weighted_mean(values: list[float | None]) -> float | None:
+        pairs = [(v, t) for v, t in zip(values, thicknesses) if v is not None]
+        if not pairs:
+            return None
+        weight_sum = sum(t for _, t in pairs)
+        if weight_sum <= 0.0:
+            return None
+        return sum(v * t for v, t in pairs) / weight_sum
+
+    mean_qc = _weighted_mean([s.mean_qc_mpa for s in group])
+    dr_pct = _weighted_mean([s.dr_pct for s in group])
+
+    # NAD class — thickness-weighted mean (rounded) + range across sources.
+    nad_values = [
+        (s.suggested_nad_class, t)
+        for s, t in zip(group, thicknesses)
+        if s.suggested_nad_class is not None
+    ]
+    if nad_values:
+        weight_sum = sum(t for _, t in nad_values)
+        nad_weighted = (
+            sum(n * t for n, t in nad_values) / weight_sum if weight_sum > 0.0 else nad_values[0][0]
+        )
+        nad_class: int | None = round(nad_weighted)
+        nad_min = min(n for n, _ in nad_values)
+        nad_max = max(n for n, _ in nad_values)
+        nad_range: tuple[int, int] | None = (nad_min, nad_max)
+    else:
+        nad_class = None
+        nad_range = None
+
+    # Confidence — most conservative (LOW < MEDIUM < HIGH).
+    _CONF_ORDER = {
+        SuggestionConfidence.LOW: 0,
+        SuggestionConfidence.MEDIUM: 1,
+        SuggestionConfidence.HIGH: 2,
+    }
+    confidence = min(group, key=lambda s: _CONF_ORDER.get(s.confidence, 0)).confidence
+
+    # Admixtures — re-aggregate from the per-segment already-aggregated tuples.
+    # Each segment's admixtures are treated as one "observation layer" with the
+    # segment's thickness as its weight.
+    admix_per_layer: list[list[Admixture]] = [list(s.suggested_admixtures) for s in group]
+    aggregated_admixtures = _aggregate_admixtures(admix_per_layer, thicknesses, 0, len(group))
+
+    return LithoLayerSuggestion(
+        depth_top_m=group[0].depth_top_m,
+        depth_base_m=group[-1].depth_base_m,
+        suggested_lithology=group[0].suggested_lithology,
+        suggested_nad_class=nad_class,
+        nad_class_range=nad_range,
+        mean_qc_mpa=mean_qc,
+        dr_pct=dr_pct,
+        confidence=confidence,
+        source=group[0].source,
+        suggested_admixtures=aggregated_admixtures,
+    )
 
 
 def segment_borehole(
