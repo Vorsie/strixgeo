@@ -3151,3 +3151,46 @@ requirement. Tier-1 backfill happens immediately after #127.
 Pre-distribution sweep closes residuals before any external
 user sees the build.
 
+## 131. Ribbon: lens-aware variant + pinch-out terminus (Tier G — unshipped half of #121)
+
+**What.** #121 shipped 2026-05-25 with the basic ribbon shape: continuous
+polygon ribbons per body ordinal, replacing per-edge dashed lines (CE-R1/R2/
+R3/R4 pin the geometry). Two distinguishing features from the original
+debt #121 spec did NOT ship:
+
+* **Lens-aware variant** — when an edge connects two contacts that belong
+  to a known lens body, the ribbon should render with ~35% fill opacity
+  (vs the default 20%) + dashed top/base boundary lines, signalling
+  "closed body, not continuous formation".
+* **Pinch-out terminus** — when a ribbon endpoint reaches a column where
+  the formation is ABSENT (the pinch-out wedge tip), the polygon should
+  thin to zero at the wedge-tip x-position rather than at the column-line x,
+  producing a visible triangular taper instead of a square truncation.
+
+**Why deferred.** Both halves are blocked on plumbing the implementation
+agent discovered missing:
+
+* The ribbon's lens-aware branch needs ``lens_id`` exposed on the
+  ``LithoCorrelationEdge`` API response (and ideally as a FK on the ORM
+  ``LithoCorrelationEdgeOrm``). Today the ORM identifies lens bodies via
+  ``LithoLensOrm`` keyed by ``(model_id, formation_id, body_ordinal)`` —
+  the edge knows the body_ordinal indirectly via its contacts' formations,
+  but the join is implicit. Adding a denormalised ``lens_id`` column +
+  surfacing it in the API response would unblock the branch (~20 lines
+  + migration).
+* The pinch-out terminus branch needs the section component's props to
+  carry a ``formationAbsences`` array (or per-investigation pre-computed
+  "is the formation absent here?" lookup) alongside the existing contact
+  list. The materialised wedge-tip x is already in the ``litho_lens.
+  wedge_tip_along_m`` column from the #118 + #101 work; it just isn't
+  threaded into ``CorrelationEdgesOverlay``.
+
+**When to revisit.** Bundle with the next litho-UX pass — same component,
+same state path as the already-shipped half of #121. Owner directive
+gates the lens_id FK schema change (debt #131-a) since it's a small
+schema migration on a stable table; the prop-threading (#131-b) can
+ship independently as a frontend-only change once the absence data is
+available in the section view's loaded state.
+
+## (end)
+
