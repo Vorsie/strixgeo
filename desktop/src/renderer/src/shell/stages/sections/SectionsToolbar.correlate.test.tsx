@@ -326,6 +326,8 @@ function makeCtx(overrides: {
       setMarqueeSelectedIds: vi.fn(),
       hoveredTestId: null,
       setHoveredTestId: vi.fn(),
+      geoDeepLinkTarget: null,
+      setGeoDeepLinkTarget: vi.fn(),
     },
     mapState: {
       hiddenCptTypes: new Set(),

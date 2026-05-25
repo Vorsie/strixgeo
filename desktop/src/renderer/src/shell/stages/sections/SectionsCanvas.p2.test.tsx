@@ -458,6 +458,8 @@ function makeStubContext(overrides?: {
       setMarqueeSelectedIds: vi.fn(),
       hoveredTestId: null,
       setHoveredTestId: vi.fn(),
+      geoDeepLinkTarget: null,
+      setGeoDeepLinkTarget: vi.fn(),
     },
   }
 }
