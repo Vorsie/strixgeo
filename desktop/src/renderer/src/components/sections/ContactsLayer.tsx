@@ -251,6 +251,28 @@ interface Props {
    * short timer so the visual is transient. */
   focusedContactIds?: ReadonlySet<string>
   /**
+   * Deep-link to the Geology stage from the litho section view.
+   *
+   * When wired (litho axis only), a right-click on any **reference**
+   * (geological backdrop) contact hit-strip adds an "Edit in Geology
+   * stage" context-menu item.  Clicking that item calls this callback
+   * with the geological contact's id and formation id, which the caller
+   * (SectionsCanvas) forwards to the coordinator's ``geoDeepLinkTarget``
+   * so AppShell switches to the Geology stage on the right section.
+   *
+   * When absent (geological axis, or litho axis before the user has
+   * synced the geological reference), no hit-strips are added to the
+   * backdrop contacts and the menu item never appears.
+   *
+   * Parameters
+   * ----------
+   * contactId
+   *     ID of the right-clicked geological contact.
+   * formationId
+   *     Formation the contact belongs to.
+   */
+  onEditInGeologyStage?: (contactId: string, formationId: string) => void
+  /**
    * Per-project "show confidence fade" toggle (debt #94 follow-up).
    * When true (default), low-confidence segments render at the reduced
    * ``LOW_CONFIDENCE_ALPHA_MULTIPLIER``.  When false, the multiplier
@@ -584,6 +606,7 @@ export default function ContactsLayer({
   plotRight,
   focusedContactIds,
   showConfidenceFade = true,
+  onEditInGeologyStage,
 }: Props): JSX.Element | null {
   // ---- Contact context-menu state --------------------------------
   // Small two-item menu triggered by right-click on a contact
@@ -601,6 +624,12 @@ export default function ContactsLayer({
     formationName: string
     anchorKind: 'cpt' | 'borehole'
     anchorId: string
+    /** True when the right-clicked contact is a REFERENCE (geological
+     * backdrop) contact on the litho axis.  Gates which menu items
+     * appear: reference contacts show only "Edit in Geology stage"
+     * and suppress Delete / Pinch-out (those actions belong on the
+     * geological axis, not the litho view). */
+    isReferenceContact?: boolean
   } | null>(null)
 
   // Pending-delete confirmation state (debt #62 item 1). Set when the
@@ -2068,6 +2097,87 @@ export default function ContactsLayer({
     }
   }, [marquee, layers, setMarquee])
 
+  // Reference-contact hit-strips — invisible rects placed at each
+  // geological (reference) contact's depth position when
+  // ``onEditInGeologyStage`` is wired (litho axis only).  Right-clicking
+  // one opens a minimal context menu with a single "Edit in Geology stage"
+  // item so the user can navigate directly to the relevant geological
+  // contact for editing.
+  //
+  // The strip is the same height as the active-contact hit-strip
+  // (2 × DRAG_HIT_HALF_HEIGHT_PX) and as wide as the column band.
+  // ``pointerEvents`` is explicitly "all" (overriding the parent <g>'s
+  // backdrop pointerEvents="none") so only these strips are clickable.
+  const referenceContactHitStrips = useMemo(() => {
+    if (!onEditInGeologyStage || !referenceContacts || referenceContacts.length === 0) {
+      return [] as {
+        key: string
+        contactId: string
+        formationId: string
+        formationName: string
+        segLeftX: number
+        segRightX: number
+        segY: number
+      }[]
+    }
+    // Pre-index placed columns by anchor id for O(1) lookup.
+    const colByAnchorId = new Map<string, PlacedColumn>()
+    for (const col of placedColumns) {
+      const item = col.proj.item as { id: string }
+      colByAnchorId.set(item.id, col)
+    }
+    // Pre-index reference formations by id so we can look up names.
+    const refFormationById = new Map<string, { id: string; name: string; regional_ref: string | null; color: string; litho_main_soil_code?: string | null; litho_admixtures?: unknown }>()
+    if (referenceFormations) {
+      for (const f of referenceFormations) {
+        refFormationById.set(f.id, f)
+      }
+    }
+    const out: {
+      key: string
+      contactId: string
+      formationId: string
+      formationName: string
+      segLeftX: number
+      segRightX: number
+      segY: number
+    }[] = []
+    for (const c of referenceContacts) {
+      // Only anchor-backed contacts — synthetic lens tips have no column.
+      const anchorId = c.borehole_id ?? c.cpt_id
+      if (!anchorId) continue
+      const col = colByAnchorId.get(anchorId)
+      if (!col) continue
+      const item = col.proj.item as { elevation_m: number | null }
+      if (item.elevation_m === null) continue
+      const segY = levelToScreen(item.elevation_m - c.depth_top_m)
+      if (segY < plotTop - DRAG_HIT_HALF_HEIGHT_PX || segY > plotBottom + DRAG_HIT_HALF_HEIGHT_PX) {
+        continue
+      }
+      const halfW = col.width / 2
+      const formation = refFormationById.get(c.formation_id)
+      const formationName = formation?.name ?? formation?.regional_ref ?? c.formation_id
+      out.push({
+        key: `ref-strip-${c.id}`,
+        contactId: c.id,
+        formationId: c.formation_id,
+        formationName,
+        segLeftX: col.nudgedX - halfW,
+        segRightX: col.nudgedX + halfW,
+        segY,
+      })
+    }
+    return out
+  }, [
+    onEditInGeologyStage,
+    referenceContacts,
+    referenceFormations,
+    placedColumns,
+    levelToScreen,
+    plotTop,
+    plotBottom,
+  ])
+
   // Return null only when there is genuinely nothing to paint —
   // EITHER backdrop source counts as "something to paint" so the
   // snap-to-contact backdrop (referenceContacts) still renders on a
@@ -2076,7 +2186,8 @@ export default function ContactsLayer({
     layers.length === 0 &&
     polylines.length === 0 &&
     backdropPolylines.length === 0 &&
-    backdropContactPolylines.length === 0
+    backdropContactPolylines.length === 0 &&
+    referenceContactHitStrips.length === 0
   ) {
     return null
   }
@@ -2175,6 +2286,40 @@ export default function ContactsLayer({
           pointerEvents="none"
           data-testid={`backdrop-contact-${line.formationId}`}
         />
+      ))}
+      {/* Reference-contact hit-strips (litho axis, deep-link enabled).
+          Invisible rects placed at each geological (reference) contact's
+          depth position; right-click → "Edit in Geology stage" menu item.
+          Pointer events are explicitly "all" — these override the parent
+          backdrop layer's pointer-events="none" so ONLY the strips are
+          clickable, not the surrounding backdrop area. */}
+      {referenceContactHitStrips.map(strip => (
+        <rect
+          key={strip.key}
+          x={strip.segLeftX}
+          y={strip.segY - DRAG_HIT_HALF_HEIGHT_PX}
+          width={strip.segRightX - strip.segLeftX}
+          height={DRAG_HIT_HALF_HEIGHT_PX * 2}
+          fill="transparent"
+          style={{ cursor: 'context-menu', pointerEvents: 'all' }}
+          onContextMenu={e => {
+            e.preventDefault()
+            setContactMenu({
+              clientX: e.clientX,
+              clientY: e.clientY,
+              contactId: strip.contactId,
+              formationId: strip.formationId,
+              formationName: strip.formationName,
+              anchorKind: 'borehole',
+              anchorId: '',
+              isReferenceContact: true,
+            })
+          }}
+          data-testid="ref-contact-drag-strip"
+          data-contact-id={strip.contactId}
+        >
+          <title>{strip.formationName} — right-click to edit in Geology stage</title>
+        </rect>
       ))}
       {/* Filled coloured bands between adjacent formation tops.
           Drawn FIRST so every other section element (CPT curves,
@@ -2642,8 +2787,20 @@ export default function ContactsLayer({
           clientX={contactMenu.clientX}
           clientY={contactMenu.clientY}
           formationName={contactMenu.formationName}
+          // Reference contacts (geological backdrop on the litho axis)
+          // only show "Edit in Geology stage".  Delete + pinch-out
+          // belong on the geological axis, not the litho view.
+          onEditInGeologyStage={
+            contactMenu.isReferenceContact && onEditInGeologyStage
+              ? () => {
+                  const { contactId, formationId } = contactMenu
+                  setContactMenu(null)
+                  onEditInGeologyStage(contactId, formationId)
+                }
+              : undefined
+          }
           onDelete={
-            onDeleteContact
+            !contactMenu.isReferenceContact && onDeleteContact
               ? () => {
                   // Open the styled confirm dialog (debt #62 item 1).
                   // ContactContextMenu closes itself; we stash the
@@ -2658,7 +2815,7 @@ export default function ContactsLayer({
               : undefined
           }
           onPinchOut={
-            onPinchOutContact
+            !contactMenu.isReferenceContact && onPinchOutContact
               ? () => {
                   const { contactId, formationId, anchorKind, anchorId } =
                     contactMenu
@@ -2675,6 +2832,7 @@ export default function ContactsLayer({
           // 422 toast. #118 follow-up; ghost-pinch-out pre-build
           // path is #101.
           pinchOutDisabledReason={
+            !contactMenu.isReferenceContact &&
             onPinchOutContact &&
             surfacesByFormationId &&
             !surfacesByFormationId.has(contactMenu.formationId)
@@ -2715,6 +2873,13 @@ interface ContactContextMenuProps {
   clientY: number
   /** Human-readable formation name — shown as the menu subtitle. */
   formationName: string
+  /**
+   * Fired when the user picks "Edit in Geology stage" — only wired
+   * for REFERENCE (geological backdrop) contacts on the litho axis.
+   * When present, Delete and Pinch-out are suppressed (those belong
+   * on the geological axis).  When absent the item is hidden.
+   */
+  onEditInGeologyStage?: () => void
   /** Fired when the user picks "Delete contact". When absent the item
    * is hidden. The handler must gate the irreversible action via a
    * styled confirm dialog (DeleteContactConfirmDialog) —
@@ -2749,6 +2914,10 @@ interface ContactContextMenuProps {
  *     Viewport-fixed coordinates from ``e.clientX`` / ``e.clientY``.
  * formationName
  *     Shown as the menu subtitle for unambiguous context.
+ * onEditInGeologyStage
+ *     Optional — shows the "Edit in Geology stage" item (reference
+ *     contacts on the litho axis).  Suppresses Delete + Pinch-out
+ *     when present.
  * onDelete
  *     Optional — shows the "Delete contact" item.
  * onPinchOut
@@ -2765,6 +2934,7 @@ function ContactContextMenu({
   clientX,
   clientY,
   formationName,
+  onEditInGeologyStage,
   onDelete,
   onPinchOut,
   pinchOutDisabledReason,
@@ -2798,6 +2968,23 @@ function ContactContextMenu({
       <div className="max-w-[220px] truncate border-b border-gray-100 px-3 py-1.5 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
         {formationName}
       </div>
+      {onEditInGeologyStage && (
+        <button
+          type="button"
+          className="block w-full px-3 py-2 text-left hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-700"
+          onClick={e => {
+            // nativeEvent.stopImmediatePropagation: stop the document-level
+            // click handler from firing a redundant onClose.
+            e.nativeEvent.stopImmediatePropagation()
+            onEditInGeologyStage()
+            onClose()
+          }}
+          role="menuitem"
+          data-testid="geo-deep-link-menu-item"
+        >
+          Edit in Geology stage
+        </button>
+      )}
       {onPinchOut && (
         <button
           type="button"
