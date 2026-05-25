@@ -18,13 +18,16 @@ interface Props {
   // tweak spacing or sizing. Defaults are tuned for inline-after-name
   // usage.
   className?: string
+  // Optional testid for e2e harness assertion on the dirty marker.
+  'data-testid'?: string
 }
 
-export default function DirtyAsterisk({ title, className = '' }: Props) {
+export default function DirtyAsterisk({ title, className = '', 'data-testid': testid }: Props) {
   return (
     <span
       className={`text-amber-600 shrink-0 ${className}`.trim()}
       title={title}
+      data-testid={testid}
     >
       *
     </span>
