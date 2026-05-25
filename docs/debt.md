@@ -3096,10 +3096,17 @@ onward. Reviewers reject otherwise.
 These cover the user-facing surface where class-of-bug regressions
 have already happened OR are statistically most likely:
 
-* **Project lifecycle** — New / Save / Save As / Close (with
-  unsaved-changes prompt) / Open Recent / Settings dialog. The
-  bundle round-trip flow (#128 flow 6) covers the API path but
-  NOT the menu / keyboard path the user actually uses.
+* **Project lifecycle** — *(DONE 2026-05-25)* Flows A–E shipped:
+  new-project creation + 422 rejection (A), save round-trip +
+  view-state PATCH + invalid-payload 422 (B), open-recent IPC +
+  add-recent + ghost-entry error banner (C), unsaved-changes dialog
+  testids + save/discard/cancel API branches (D), settings dialog
+  open + litho-prefs PATCH/bundle + theme localStorage (E).
+  12 new `data-testid` attributes added across WelcomeScreen,
+  NewProjectDialog, SettingsDialog, UnsavedChangesDialog,
+  DirtyAsterisk, StageToolbar. DB helpers countProjects /
+  getProjectByName / getProjectViewState added to db_helper.ts.
+  All 13 commits on develop; tsc + vitest 1181/1181 green.
 * **Geology stage** — Create formation, drag-reorder + pin,
   Build 3D model (TIN trigger), Sync geology, Delete formation.
   Every TIN-build path went through reviewer-without-runtime-test
