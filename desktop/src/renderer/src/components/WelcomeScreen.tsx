@@ -148,6 +148,7 @@ export default function WelcomeScreen({
             onKeyDown={handleKey}
             placeholder="e.g. GEO-22/040 Brugge"
             disabled={busy}
+            data-testid="welcome-project-name-input"
             className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 disabled:bg-gray-50"
           />
 
@@ -157,6 +158,7 @@ export default function WelcomeScreen({
             className="w-full"
             onClick={() => void handleCreate()}
             disabled={!name.trim() || busy}
+            data-testid="welcome-new-project-button"
           >
             Create project…
           </Button>
@@ -174,6 +176,7 @@ export default function WelcomeScreen({
             className="w-full"
             onClick={() => void handleOpen()}
             disabled={busy}
+            data-testid="welcome-open-button"
           >
             Open project from file…
           </Button>
@@ -197,6 +200,7 @@ export default function WelcomeScreen({
                     onClick={() => void handleRecent(entry.path)}
                     disabled={busy}
                     title={entry.path}
+                    data-testid={`welcome-recent-entry-${entry.path}`}
                     className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed group"
                   >
                     <div className="text-sm text-gray-800 truncate">{entry.name}</div>
