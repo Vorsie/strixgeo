@@ -6,11 +6,13 @@ from groundmodel.api.schemas.project.litho_lens.name_lens_body_request import (
     NameLensBodyResponse,
 )
 from groundmodel.api.schemas.project.litho_lens.upsert_formation_absence_request import (
+    FormationAbsenceItem,
     UpsertFormationAbsenceRequest,
     UpsertFormationAbsenceResponse,
 )
 
 __all__ = [
+    "FormationAbsenceItem",
     "LithoLensListItem",
     "NameLensBodyRequest",
     "NameLensBodyResponse",
