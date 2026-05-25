@@ -528,6 +528,13 @@ interface Props {
    */
   correlateGestureState?: CorrelateGestureState
   /**
+   * Callback from SectionsCanvas — fired when the user picks
+   * "Inspect lens body…" from a body chip's context menu (#101 Blocker 1).
+   * Opens ``InspectLensBodyPanel`` at the SectionsCanvas level.
+   * Optional so the test-render path can mount without a seam.
+   */
+  onInspectLensBody?: (formationId: string, bodyOrdinal: number) => void
+  /**
    * Undo stack push hook (dogfeed 2026-05-23). When present, the
    * "Remove from section" gesture (right-click a column → "Remove
    * from section") pushes an undo command so Ctrl+Z restores the
@@ -557,6 +564,13 @@ interface Props {
    * Passed through to CorrelationEdgesOverlay. Optional.
    */
   pulsingFormationIds?: ReadonlySet<string>
+  /**
+   * Fired when the user clicks a band that cannot be correlated to the
+   * armed source — cross-group (different formation type) or same-
+   * investigation (self-edge blocked).  Carries a human-readable reason
+   * for a toast.  Passed through to CorrelationEdgesOverlay. Optional.
+   */
+  onRejectCorrelate?: (reason: string) => void
 }
 
 export default function SectionPanel({
@@ -598,6 +612,8 @@ export default function SectionPanel({
   pinchOutGhostState,
   correlationEdges,
   correlateGestureState,
+  onInspectLensBody,
+  onRejectCorrelate,
   undoStack,
   pendingGhostInvestigationCount = 0,
   pulsingFormationIds,
@@ -2073,6 +2089,8 @@ export default function SectionPanel({
                 plotBottom={MARGIN.top + plotHeight}
                 correlateGestureState={correlateGestureState}
                 pulsingFormationIds={pulsingFormationIds}
+                onInspectLensBody={onInspectLensBody}
+                onRejectCorrelate={onRejectCorrelate}
               />
             )}
 
