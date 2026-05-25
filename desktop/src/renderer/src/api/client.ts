@@ -249,6 +249,18 @@ export interface NameLensBodyResponse {
   was_created: boolean
 }
 
+// Position 4: one row from GET .../formations/{id}/absences.
+export interface FormationAbsenceItem {
+  id: string
+  formation_id: string
+  investigation_id: string
+  investigation_kind: 'borehole' | 'cpt'
+  /** 'inferred' | 'manual' | 'observed' */
+  source: string
+  created_at: string
+  updated_at: string
+}
+
 // Position 4: request body for POST .../formations/{id}/absences.
 export interface UpsertFormationAbsenceRequest {
   investigation_id: string
@@ -439,6 +451,11 @@ export interface AcceptLithoSuggestionsRequest {
   // seeded_formation_contact_ids (explicit-content invariant — #57).
   section_id?: string | null
   suggestions: LithoLayerSuggestion[]
+  // When true, skip the per-accept R7 inference + wedge-tip pass.
+  // The caller MUST follow the batch with recomputeAllAbsences() so
+  // inference runs once for the whole batch instead of N × formations.
+  // Default false preserves the original per-accept behaviour.
+  defer_inference?: boolean
 }
 
 export interface AcceptLithoSuggestionsResponse {
@@ -2049,6 +2066,13 @@ export const api = {
       }
     },
 
+    // Fetch all absence records for a formation (used by InspectLensBodyPanel).
+    listFormationAbsences: (
+      projectId: string,
+      formationId: string,
+    ): Promise<FormationAbsenceItem[]> =>
+      get(`/projects/${projectId}/geology/formations/${formationId}/absences`),
+
     // Record a user-intent absence for a formation at a specific
     // investigation (source='manual'|'observed').  The inference engine
     // owns 'inferred' rows; this endpoint only accepts user-intent sources.
@@ -2072,6 +2096,25 @@ export const api = {
     ): Promise<{ written_count: number; retracted_count: number; skipped_no_data_count: number }> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/formations/${formationId}/absences/recompute`,
+        {},
+      ),
+
+    // Bulk inference recompute — run absence inference + wedge-tip
+    // materialisation for every formation with contacts in the model.
+    // Called once after a defer_inference=true batch-accept sweep so
+    // inference runs O(formations × sections) instead of O(N × formations).
+    recomputeAllAbsences: (
+      projectId: string,
+      modelId: string,
+    ): Promise<{
+      formations_processed: number
+      total_written: number
+      total_retracted: number
+      total_wedge_tips_created: number
+      total_wedge_tips_deleted: number
+    }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/recompute-all-absences`,
         {},
       ),
 
