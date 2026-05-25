@@ -13,7 +13,9 @@
     "preview": "electron-vite preview",
     "package": "electron-vite build && node scripts/copy-cesium.mjs && electron-builder",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e:smoke": "playwright test tests/e2e/flow_boot_open.spec.ts",
+    "test:e2e:full": "playwright test"
   },
   "dependencies": {
     "cesium": "^1.141.0",
@@ -26,11 +28,13 @@
     "recharts": "^2.15.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/fs-extra": "^11.0.4",
     "@types/leaflet": "^1.9.16",
     "@types/node": "^22.15.21",
+    "@types/pg": "^8.20.0",
     "@types/proj4": "^2.5.5",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
@@ -42,6 +46,7 @@
     "electron-vite": "^3.1.0",
     "fs-extra": "^11.3.5",
     "jsdom": "^29.1.1",
+    "pg": "^8.21.0",
     "postcss": "^8.5.3",
     "serve-static": "^2.2.1",
     "tailwindcss": "^3.4.17",
