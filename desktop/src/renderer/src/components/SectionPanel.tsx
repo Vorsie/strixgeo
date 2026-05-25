@@ -40,6 +40,7 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
+  LithoContactCorrelationEdge,
   LithoCorrelationEdge,
   LithoLayerSuggestion,
   VirtueleBoringInvestigationPrediction,
@@ -71,6 +72,7 @@ import {
 import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
 import CorrelationEdgesOverlay, {
+  type ContactGestureState,
   type CorrelateGestureState,
 } from './sections/CorrelationEdgesOverlay'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
@@ -586,6 +588,24 @@ interface Props {
    * Absent on the geological axis (zero regression).
    */
   onEditInGeologyStage?: (contactId: string, formationId: string) => void
+  /**
+   * Contact-level correlation edges (#133 Phase 1).
+   *
+   * Forwarded to ``CorrelationEdgesOverlay`` which draws point-to-point
+   * solid emerald lines between the topY of each correlated contact's
+   * band.  Absent / undefined = no contact-edge overlay (zero regression
+   * on the geological axis or when the model has no contact correlations).
+   */
+  contactEdges?: readonly LithoContactCorrelationEdge[]
+  /**
+   * Gesture state for the boundary-click correlate gesture (#133 Phase 1).
+   *
+   * When present and ``contactCorrelateMode`` is true, hit-target rects
+   * render at the top boundary of each band so the user can click a
+   * contact line to arm it, then click another to create a contact edge.
+   * Absent / undefined = read-only (contact edges visible, no gesture UI).
+   */
+  contactGestureState?: ContactGestureState
 }
 
 export default function SectionPanel({
@@ -637,6 +657,8 @@ export default function SectionPanel({
   showConfidenceFade = true,
   activeLithoModelId,
   onEditInGeologyStage,
+  contactEdges,
+  contactGestureState,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2177,6 +2199,8 @@ export default function SectionPanel({
                 pulsingFormationIds={pulsingFormationIds}
                 onInspectLensBody={onInspectLensBody}
                 onRejectCorrelate={onRejectCorrelate}
+                contactEdges={contactEdges}
+                contactGestureState={contactGestureState}
               />
             )}
 
