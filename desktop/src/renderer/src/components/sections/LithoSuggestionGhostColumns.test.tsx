@@ -719,6 +719,62 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onEdit).toHaveBeenCalledWith(1, { depth_top_m: 0 })
   })
 
+  // G39 — dogfeed 2026-05-25: snap indicator must vanish after mouseUp
+  // completes a merge. Pre-fix the indicator stayed on-screen because
+  // collapseChainOnRelease=[] (outer-edge snap) kept the condition true
+  // even though nothing was actually merged — the next downward drag on
+  // the expanded layer immediately re-showed "release to merge" giving
+  // the "stuck in merge mode" appearance.
+  // Regression anchor: assert the snap indicator is gone after mouseUp
+  // in the neighbour-merge path (G32 scenario).
+  it('G39 — snap indicator is absent after merge-commit mouseUp (dogfeed 2026-05-25)', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
+      ],
+      { onEdit, onReject },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    // Overshoot layer-1 base (4 m) — snap fires, indicator appears.
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    fireEvent.mouseMove(document, { clientY: 700 })
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
+    // Release — merge commit fires, indicator MUST be gone.
+    fireEvent.mouseUp(document)
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
+  })
+
+  // G40 — dogfeed 2026-05-25: outer-edge snap (cursor hits test bottom
+  // while collapseChainOnRelease=[]) must NOT show the snap indicator.
+  // This was the core of the "stuck" symptom: after merging the only
+  // neighbour, the expanded layer's base handle was already AT the test
+  // bottom so any downward drag triggered snappedAtBelow with an empty
+  // chain, and the indicator showed "release to merge" when nothing
+  // would merge on release.
+  it('G40 — outer-edge snap (empty chain) does not show snap indicator (dogfeed 2026-05-25)', () => {
+    const onEdit = vi.fn()
+    const onReject = vi.fn()
+    // Single layer — no neighbour below, so the collapse chain is always
+    // [] (the last layer can only shrink to zero via self-collapse when
+    // dragged from the top). Drag the BASE far down → outer-edge snap
+    // (boundsBelowM=Infinity, no pending neighbour). No indicator.
+    const { container } = renderGhost(
+      [makeSuggestion({ depth_top_m: 0, depth_base_m: 2 })],
+      { onEdit, onReject },
+    )
+    const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
+    fireEvent.mouseDown(baseHandle!, { clientY: 200 })
+    // Drag far down — no neighbour, collapseChainBelow=[] → outer edge.
+    fireEvent.mouseMove(document, { clientY: 900 })
+    // Snap indicator must NOT appear for an empty collapse chain.
+    expect(container.querySelector('[data-testid="litho-snap-indicator"]')).toBeNull()
+    fireEvent.mouseUp(document)
+    expect(onReject).not.toHaveBeenCalled()
+  })
+
   // G34b — mirror of G34 for the OPPOSITE direction. Owner dogfeed
   // 2026-05-22: "rejected a layer, tried to pull the sand boundary
   // below it up, but couldn't pull onto the layer above the rejected
