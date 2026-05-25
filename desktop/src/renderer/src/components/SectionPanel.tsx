@@ -575,6 +575,17 @@ interface Props {
    * for a toast.  Passed through to CorrelationEdgesOverlay. Optional.
    */
   onRejectCorrelate?: (reason: string) => void
+  /**
+   * Geology-stage deep-link callback (litho axis only).
+   *
+   * Forwarded straight to ``ContactsLayer`` which wires it onto the
+   * reference-contact hit-strips.  When present and the section is
+   * displayed on the litho axis, a right-click on any geological
+   * (reference) contact strip shows an "Edit in Geology stage" menu
+   * item that fires this callback with the contact id + formation id.
+   * Absent on the geological axis (zero regression).
+   */
+  onEditInGeologyStage?: (contactId: string, formationId: string) => void
 }
 
 export default function SectionPanel({
@@ -625,6 +636,7 @@ export default function SectionPanel({
   onManualLithoUnitCreate,
   showConfidenceFade = true,
   activeLithoModelId,
+  onEditInGeologyStage,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -1935,6 +1947,7 @@ export default function SectionPanel({
                 endY: section.end_y,
               }}
               alongMToScreenX={warpedXToScreen}
+              onEditInGeologyStage={onEditInGeologyStage}
             />
 
             {/* Litho-suggestion ghost column (slice 3, #55) — interactive
