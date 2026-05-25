@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<dov-schema xmlns="http://kern.schemas.dov.vlaanderen.be"
-            xmlns:gml="http://www.opengis.net/gml/3.2">
+<ns4:dov-schema xmlns:ns4="http://kern.schemas.dov.vlaanderen.be"
+                xmlns:gml="http://www.opengis.net/gml/3.2">
   <sondering>
     <sondeernummer>E2E-DOV-CPT-002</sondeernummer>
     <datum_aanvang>2024-03-02</datum_aanvang>
@@ -53,4 +53,4 @@
       </penetratietest>
     </sondeonderzoek>
   </sondering>
-</dov-schema>
+</ns4:dov-schema>
