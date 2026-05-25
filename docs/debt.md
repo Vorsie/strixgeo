@@ -3045,6 +3045,115 @@ correlate + mismatch rejection, InspectLensBodyPanel reachable, bundle round-tri
 ``playwright.config.ts`` + ``tsconfig.e2e.json`` + ``electron_launch.ts`` +
 ``db_helper.ts`` + ``build_synthetic_fixture.py`` + 6 ``flow_*.spec.ts`` files.
 Pre-commit hook wires ``test:e2e:smoke`` after Vitest when backend reachable.
-Regression anchors: revert ``2d4d7913`` → flow 3 red; revert ``2ad9bb6e`` → flow 1 red.
-See commits on ``develop`` from 2026-05-25.)*
+Regression anchors: revert ``2d4d7913`` → single_accept red; revert ``2ad9bb6e``
+→ boot_open + inspect_lens red. The harness also caught a previously-undetected
+4th missing ``detail=`` kwarg in ``name_lens_body`` during the fix-up pass —
+exactly the class of bug it was built for. See commits on ``develop`` from
+2026-05-25.)*
+
+## 130. Playwright e2e coverage expansion — ongoing convention + backfill plan (Tier B)
+
+**What.** #128 shipped the harness foundation (6 flows). #130
+tracks the **ongoing convention** + **prioritized backfill** of the
+remaining user-facing surface so the harness compounds into a real
+regression net rather than stagnating at 6 flows.
+
+The harness's value proposition was proven on its own fix-up pass:
+the agent caught a **4th missing ``detail=`` kwarg** in
+``name_lens_body`` that the original #129a fix had missed. Without
+the harness, that bug ships silently — exactly the class of bug
+that bit Position 4 four times. Every additional flow sets another
+such trap.
+
+### Convention — load-bearing from #127 onward
+
+**Every new user-facing gesture ships with at least one e2e flow in
+the same commit batch as the gesture itself.** The pattern:
+
+1. Add the gesture (use case + endpoint + frontend wiring)
+2. Add the ``data-testid`` attributes the flow needs
+3. Write the spec at ``desktop/tests/e2e/flow_<name>.spec.ts``
+4. **Verify the spec catches a regression** of the gesture — intentionally break the gesture, run the flow, confirm red, restore
+5. Ship the whole bundle as one slice
+
+A gesture without a flow is incomplete-as-shipped from #127
+onward. Reviewers reject otherwise.
+
+### Tier-1 backfill targets (high payoff — schedule alongside existing slices)
+
+These cover the user-facing surface where class-of-bug regressions
+have already happened OR are statistically most likely:
+
+* **Project lifecycle** — New / Save / Save As / Close (with
+  unsaved-changes prompt) / Open Recent / Settings dialog. The
+  bundle round-trip flow (#128 flow 6) covers the API path but
+  NOT the menu / keyboard path the user actually uses.
+* **Geology stage** — Create formation, drag-reorder + pin,
+  Build 3D model (TIN trigger), Sync geology, Delete formation.
+  Every TIN-build path went through reviewer-without-runtime-test
+  and shipped at least once with a latent bug.
+* **Litho manual gestures** — Split layer, Merge same-lithology
+  boundary, Pinch-out (right-click → Extrapolate, both axes),
+  Composition picker (per-axis litho swap + admixtures).
+* **Export** — DXF section, Plaxis 3D, Plaxis 2D section. Exports
+  are downstream of everything; a regression here lands on
+  customers before us.
+
+### Tier-2 backfill targets
+
+* **Undo/redo** — for every mutation path. The undo stack is one
+  of the most error-prone surfaces; multiple partial-undo bugs
+  have shipped historically.
+* **Settings dialog** — locale-tolerant numeric inputs (comma vs
+  period acceptance), theme toggle (light/dark/system), litho
+  segmenter prefs persisting through .gmproj round-trip.
+* **Empty-project edge case** — boot, no investigations, every
+  stage page renders without crashing.
+* **Backend-unreachable error path** — kill the API server mid-
+  session, verify the frontend degrades gracefully instead of
+  white-screening.
+
+### Tier-3 backfill targets (lower payoff)
+
+* **Performance benchmarks** — DOV import wall-clock budget per
+  the CLAUDE.local.md baseline; alert if a slice regresses it
+  by > 25%.
+* **3D viewer load** — Cesium brittleness on dev / CI machines
+  without GPUs; the ``STRIX_DISABLE_GPU`` path needs its own
+  flow.
+* **DOV bbox import** — slow (~50s cold for shallow CPTs),
+  network-dependent, skip-by-default but available as a
+  nightly job.
+
+### Backfill scheduling
+
+* **#127 ships with flow 7** (auto-correlate) per the convention.
+* **Half-day immediately after #127** — dedicate one slice to
+  Tier-1 project-lifecycle + geology-stage flows. Aim for 5-6
+  new flows. Total harness footprint after that: ~12-13 flows.
+* **Per-slice from then on**: every Phase 4 / Phase 5 slice adds
+  1-2 flows.
+* **Pre-coworker-binary**: a final backfill sweep closes any
+  remaining Tier-1 gaps before debt #3 license-keys ships.
+
+### Anti-patterns to avoid
+
+* **Don't write happy-path-only flows.** Every flow must also
+  include at least one rejection / error path (#128's
+  ``flow_correlate.spec.ts`` covers both same-litho success AND
+  cross-litho rejection — copy that shape).
+* **Don't share state between flows.** The litho-state cleanup
+  pattern in ``build_synthetic_fixture.py`` exists because the
+  #128 agent originally hit cascading failures from cross-flow
+  state bleed. New flows MUST be runnable in any order.
+* **Don't add ``waitForTimeout`` arbitrary sleeps.** Use
+  ``waitForResponse`` / ``waitForSelector`` / ``expect().toBe*``.
+  Flake = root cause unfound; never paper over.
+
+### When to revisit
+
+Continuously. Each new feature includes its own flow as a ship
+requirement. Tier-1 backfill happens immediately after #127.
+Pre-distribution sweep closes residuals before any external
+user sees the build.
 
