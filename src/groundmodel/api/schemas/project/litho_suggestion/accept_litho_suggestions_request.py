@@ -31,12 +31,30 @@ class AcceptLithoSuggestionsRequest(BaseModel):
     suggestions : list[LithoLayerSuggestionItem]
         The ordered suggestion list returned by the suggest-litho endpoint.
         The caller may pass a subset (e.g. only accepted layers).
+    defer_inference : bool
+        When ``True``, the R7 inference hook
+        (``RecomputeFormationAbsencesForFormation`` +
+        ``MaterializeWedgeTipsForFormation``) is skipped for this call.
+        Contact-commit and section-seed still run.  The caller is responsible
+        for calling ``POST .../recompute-all-absences`` once after the full
+        batch of deferred accepts to run inference in a single pass.  Defaults
+        to ``False`` (original per-accept behaviour).
     """
 
     cpt_id: UUID | None = None
     borehole_id: UUID | None = None
     section_id: UUID | None = None
     suggestions: list[LithoLayerSuggestionItem] = Field(default_factory=list, min_length=1)
+    defer_inference: bool = Field(
+        default=False,
+        description=(
+            "When True, skip the per-accept inference + wedge-tip pass (R7 hook). "
+            "The contact-commit and section-seed steps still run. "
+            "The caller MUST follow with POST .../recompute-all-absences after all "
+            "deferred accepts complete so inference runs once for the whole batch. "
+            "Default False preserves the original per-accept behaviour."
+        ),
+    )
 
     @model_validator(mode="after")
     def _exactly_one_anchor(self) -> AcceptLithoSuggestionsRequest:
