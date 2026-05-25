@@ -157,6 +157,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleSelect,
       handleSelectBorehole,
       handleExportSectionDxf,
+      setGeoDeepLinkTarget,
     },
     mapState: {
       hiddenCptTypes,
@@ -1273,6 +1274,22 @@ export default function SectionsCanvas(): JSX.Element {
           // Rejection toasts for blocked correlate clicks (#129c): cross-group
           // and same-investigation bands surface a warning so the user knows why.
           onRejectCorrelate={isLitho ? (reason) => toast('warning', reason) : undefined}
+          // Geology-stage deep-link (litho axis only, dogfeed 2026-05-25).
+          // Right-click on a reference (geological backdrop) contact strip →
+          // "Edit in Geology stage" → sets geoDeepLinkTarget on the coordinator.
+          // AppShell watches the target and switches to the geology stage on
+          // the correct section; GeologyInspector consumes + clears the payload.
+          onEditInGeologyStage={
+            isLitho && contacts.length > 0
+              ? (contactId, _formationId) => {
+                  if (!selectedSection) return
+                  setGeoDeepLinkTarget({
+                    sectionId: selectedSection.id,
+                    contactId,
+                  })
+                }
+              : undefined
+          }
         />
         {/* Inspect-lens-body panel (#101 Blocker 1) — shared between section-selected
             and no-section branches; Portal via Modal escapes the SVG stacking context. */}
