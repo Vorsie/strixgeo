@@ -35,12 +35,19 @@ export interface LithoSegmenterPrefs {
    *  range 0.5 – 0.8 across quartz / feldspar / calcareous sands.
    *  Backend range 0.1 – 2.0 (defensive — we tighten in the UI). */
   drCompressionFactor: number
+  /** When true (default per owner directive 2026-05-25), adjacent
+   *  CPT segments that share the same lithology are collapsed into
+   *  one layer after Robertson-SBT segmentation. The packing-density
+   *  signal returns at the right layer: the Geotech stage's future
+   *  "Suggest packing split" gesture. CPT path only. */
+  mergeSameLithology: boolean
 }
 
 export const LITHO_SEGMENTER_DEFAULTS: LithoSegmenterPrefs = {
   minimumLayerThicknessM: 0.15,
   gunsatKNm3: 16.0,
   drCompressionFactor: 0.675,
+  mergeSameLithology: true,
 }
 
 export const LITHO_SEGMENTER_BOUNDS = {
@@ -96,6 +103,12 @@ export function readLithoSegmenterPrefs(
       LITHO_SEGMENTER_BOUNDS.drCompressionFactor,
       LITHO_SEGMENTER_DEFAULTS.drCompressionFactor,
     ),
+    // Boolean field — undefined/missing defaults to true (owner directive
+    // 2026-05-25: merge is on by default). Only explicit false disables.
+    mergeSameLithology:
+      typeof dict.merge_same_lithology === 'boolean'
+        ? dict.merge_same_lithology
+        : LITHO_SEGMENTER_DEFAULTS.mergeSameLithology,
   }
 }
 
@@ -113,6 +126,7 @@ export function buildLithoSegmenterPatch(
       minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
       gunsat_kNm3: prefs.gunsatKNm3,
       dr_compression_factor: prefs.drCompressionFactor,
+      merge_same_lithology: prefs.mergeSameLithology,
     },
   }
 }
