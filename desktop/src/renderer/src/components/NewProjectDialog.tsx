@@ -62,6 +62,7 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
       onCancel={onCancel}
       labelledBy="new-project-title"
       busy={busy}
+      testid="new-project-dialog"
     >
       <div className="p-6">
         <h2
@@ -90,6 +91,7 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
           onKeyDown={handleKey}
           disabled={busy}
           placeholder="e.g. GEO-22/040 Brugge"
+          data-testid="new-project-name-input"
           className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 disabled:bg-gray-50"
         />
 
@@ -107,6 +109,7 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
             size="md"
             onClick={() => void handleSubmit()}
             disabled={!name.trim() || busy}
+            data-testid="new-project-submit"
           >
             Create…
           </Button>
