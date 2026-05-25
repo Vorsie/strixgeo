@@ -2473,7 +2473,15 @@ export function useGeologicalModel({
       )
       // Refetch so correlation overlay + ordinal badges update.
       refetchFormations()
-      if (result.edges_created === 0) {
+      if (result.edges_created === 0 && result.edges_skipped_existing === 0) {
+        // No contacts with a valid litho code + parent formation — the model
+        // is empty or has no correlatable units yet. Guide the user toward
+        // accepting litho suggestions first.
+        toast(
+          'success',
+          'Auto-correlate: no correlatable units found — accept litho suggestions first.',
+        )
+      } else if (result.edges_created === 0) {
         toast('success', 'Auto-correlate: model already fully correlated — no new edges.')
       } else {
         toast(
