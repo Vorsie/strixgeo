@@ -21,8 +21,11 @@
  *   ``(model_id, formation_id, body_ordinal)``.
  * - Correlation edges live in ``litho_correlation_edge`` (joined to
  *   ``geological_model`` filtered by ``kind = 'lithostratigraphic'``).
- * - Projects live in ``app_project`` (``archived_at IS NULL`` for active ones;
+ * - Projects live in ``project`` (``archived_at IS NULL`` for active ones;
  *   ``view_state`` is JSONB).
+ *   Note: the ORM table is named ``project`` not ``app_project`` — the
+ *   column ``app_project_id`` in sibling tables is a FK that references
+ *   it but the table itself is just ``project``.
  */
 
 import { Client } from 'pg'
@@ -259,7 +262,7 @@ export async function listLithoModelIds(projectId: string): Promise<string[]> {
 export async function countProjects(): Promise<number> {
   return withClient(async (client) => {
     const res = await client.query<{ n: string }>(
-      `SELECT COUNT(*) AS n FROM app_project WHERE archived_at IS NULL`,
+      `SELECT COUNT(*) AS n FROM project WHERE archived_at IS NULL`,
     )
     return parseInt(res.rows[0].n, 10)
   })
@@ -285,7 +288,7 @@ export async function getProjectByName(
   return withClient(async (client) => {
     const res = await client.query<{ id: string; view_state: string }>(
       `SELECT id, view_state
-         FROM app_project
+         FROM project
         WHERE name = $1
           AND archived_at IS NULL
         LIMIT 1`,
@@ -320,7 +323,7 @@ export async function getProjectViewState(
 ): Promise<Record<string, unknown>> {
   return withClient(async (client) => {
     const res = await client.query<{ view_state: string }>(
-      `SELECT view_state FROM app_project WHERE id = $1`,
+      `SELECT view_state FROM project WHERE id = $1`,
       [projectId],
     )
     if (res.rows.length === 0) return {}
