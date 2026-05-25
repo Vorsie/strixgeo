@@ -89,4 +89,19 @@ describe('DeleteContactConfirmDialog', () => {
     )
     expect(container.querySelector('button')).toBeNull()
   })
+
+  it('D6 — Cancel button has a focus ring (debt #105 WCAG keyboard visibility)', () => {
+    // Regression anchor: Cancel had no focus-visible:ring-* class before
+    // this fix — keyboard users couldn't see which button had focus.
+    render(
+      <DeleteContactConfirmDialog
+        open
+        formationName="Zand"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const cancel = screen.getByRole('button', { name: /cancel/i })
+    expect(cancel.className).toContain('focus-visible:ring-')
+  })
 })

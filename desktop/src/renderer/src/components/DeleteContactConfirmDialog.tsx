@@ -68,12 +68,15 @@ export default function DeleteContactConfirmDialog({
           {/* Plain <button> for the cancel-ref-default-focus path —
               Button.tsx doesn't forwardRef and adding it for one site
               isn't worth the API churn (same call-out as in
-              UnsavedChangesDialog). */}
+              UnsavedChangesDialog). Semantic surface tokens are used
+              directly (no dark: pairs needed) so both light and dark
+              themes render correctly, and a focus ring is added so
+              keyboard users can see which button has focus. */}
           <button
             ref={cancelRef}
             onClick={onCancel}
             disabled={busy}
-            className="px-3.5 py-1.5 text-sm font-medium rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40 dark:bg-surface-page dark:border-border-default dark:text-text-primary"
+            className="px-3.5 py-1.5 text-sm font-medium rounded bg-surface-page border border-border-default text-text-primary hover:bg-surface-card disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Cancel
           </button>
