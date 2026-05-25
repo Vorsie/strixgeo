@@ -3357,6 +3357,7 @@ export function useGeologicalModel({
                 minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
                 gunsat_kNm3: prefs.gunsatKNm3,
                 dr_compression_factor: prefs.drCompressionFactor,
+                merge_same_lithology: prefs.mergeSameLithology,
               }
             : {
                 borehole_id: anchorId,
@@ -3835,6 +3836,7 @@ export function useGeologicalModel({
                     minimum_layer_thickness_m: prefs.minimumLayerThicknessM,
                     gunsat_kNm3: prefs.gunsatKNm3,
                     dr_compression_factor: prefs.drCompressionFactor,
+                    merge_same_lithology: prefs.mergeSameLithology,
                   }
                 : {
                     borehole_id: id,
