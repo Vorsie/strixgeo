@@ -31,11 +31,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.cross_section import CrossSectionResponse
 from groundmodel.api.schemas.project.litho_lens import (
+    FormationAbsenceItem,
     LithoLensListItem,
     NameLensBodyRequest,
     NameLensBodyResponse,
@@ -49,6 +51,8 @@ from groundmodel.application.recompute_formation_absences_for_body import (
     RecomputeFormationAbsencesForBody,
 )
 from groundmodel.application.upsert_formation_absence import UpsertFormationAbsence
+from groundmodel.infrastructure.db.models.formation_absence_orm import FormationAbsenceOrm
+from groundmodel.infrastructure.db.models.geological_formation_orm import GeologicalFormationOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_lens_orm import LithoLensOrm
 from groundmodel.infrastructure.db.session import get_session
@@ -102,11 +106,11 @@ async def list_litho_lenses(
     HTTPException(404)
         When the model does not belong to the project.
     """
-    from sqlalchemy import select
 
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
+        detail="Geological model not found",
     )
     stmt = (
         select(LithoLensOrm)
@@ -250,6 +254,7 @@ async def delete_lens_metadata(
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
+        detail="Geological model not found",
     )
 
     lens = await session.get(LithoLensOrm, lens_id)
@@ -320,6 +325,7 @@ async def create_perpendicular_companion(
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
+        detail="Geological model not found",
     )
 
     lens = await session.get(LithoLensOrm, lens_id)
@@ -349,6 +355,69 @@ async def create_perpendicular_companion(
         status_code=http_status,
         content=response.model_dump(mode="json"),
     )
+
+
+# ---------------------------------------------------------------------------
+# List absence records for a formation
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/formations/{formation_id}/absences",
+    response_model=list[FormationAbsenceItem],
+)
+async def list_formation_absences(
+    project_id: UUID,
+    formation_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> list[FormationAbsenceOrm]:
+    """Return all absence records for a formation in this project.
+
+    Used by the "Inspect lens body" panel to display which investigations
+    are absent for this formation and their confidence source
+    (``'inferred'`` / ``'manual'`` / ``'observed'``).
+
+    Parameters
+    ----------
+    project_id : UUID
+        Project scope guard.
+    formation_id : UUID
+        The geological formation whose absences are requested.
+    session : AsyncSession
+        Database session provided by DI.
+
+    Returns
+    -------
+    list[FormationAbsenceItem]
+        All absence rows for this formation, ordered by investigation_kind
+        then investigation_id for deterministic rendering.
+
+    Raises
+    ------
+    HTTPException(404)
+        When the formation does not belong to the project.
+    """
+    formation = await session.get(GeologicalFormationOrm, formation_id)
+    if formation is None or formation.app_project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "formation_not_found",
+                "message": f"Formation {formation_id} not found.",
+            },
+        )
+    stmt = (
+        select(FormationAbsenceOrm)
+        .where(FormationAbsenceOrm.formation_id == formation_id)
+        .order_by(
+            FormationAbsenceOrm.investigation_kind,
+            FormationAbsenceOrm.investigation_id,
+        )
+    )
+    result = await session.execute(stmt)
+    rows = list(result.scalars().all())
+    logger.debug(f"list_formation_absences: formation={formation_id} → {len(rows)} absence(s)")
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +544,7 @@ async def recompute_formation_absences(
     await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
+        detail="Geological model not found",
     )
 
     if section_id is None:
