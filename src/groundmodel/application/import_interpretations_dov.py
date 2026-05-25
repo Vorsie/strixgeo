@@ -61,6 +61,9 @@ from groundmodel.infrastructure.parsers.borehole.dov.interpretation_parse_result
 from groundmodel.infrastructure.parsers.borehole.dov.interpretation_wfs_row import (
     InterpretationWfsRow,
 )
+from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
+from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
+from groundmodel.shared.timing import ms_since
 
 # Map each Boringen-WFS availability flag to the ObservationType the
 # corresponding ``interpretaties:*`` WFS layer carries. Source of
@@ -80,9 +83,6 @@ _FLAG_TO_TYPE: dict[str, ObservationType] = {
         ObservationType.INFORMAL_HYDROGEOLOGICAL_STRATIGRAPHY
     ),
 }
-from groundmodel.infrastructure.parsers.cpt.dov.dov_xml_cache import DovXmlCache
-from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
-from groundmodel.shared.timing import ms_since
 
 
 class ImportInterpretationsDov(GroundModelLogger):
