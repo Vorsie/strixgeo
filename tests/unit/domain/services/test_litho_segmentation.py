@@ -1,15 +1,18 @@
-"""Behaviour of the CPT lithology segmenter (litho slice 3).
+"""Behaviour of the CPT and borehole lithology segmenters (litho slice 3).
 
 Pins the segmentation contract the owner specified: a user-set
 minimum layer thickness merges sub-threshold runs, the major
 lithology boundaries survive, sand layers carry a Dr-derived NAD
 class, and the output is a contiguous top-to-bottom partition. Pure
 unit — synthetic series, no DB, no DOV.
+
+Borehole-path tests (dogfeed 2026-05-25): same-lithology merge applies
+to the borehole segmenter identically to the CPT path.
 """
 
 from __future__ import annotations
 
-from groundmodel.domain.services.litho_segmentation import segment_cpt
+from groundmodel.domain.services.litho_segmentation import segment_borehole, segment_cpt
 
 
 def test_segments_sand_over_clay_and_merges_thin_sliver() -> None:
@@ -162,3 +165,164 @@ def test_min_thickness_controls_granularity() -> None:
 def test_empty_series_returns_no_layers() -> None:
     """No data → no suggestions, never a crash."""
     assert segment_cpt([], [], [], niveau_m=10.0, yw_m=10.0) == []
+
+
+# ---------------------------------------------------------------------------
+# Borehole-path merge tests (dogfeed 2026-05-25)
+# ---------------------------------------------------------------------------
+#
+# Data-structure note: the borehole segmenter uses layer MIDPOINTS as the
+# depth proxy inside _greedy_merge.  A single-layer run has zero midpoint
+# thickness and is absorbed into its neighbour by the greedy-merge before
+# merge_adjacent_same_lithology ever fires.  Tests therefore use at least
+# TWO observation layers per distinct lithology unit so each RLE run spans
+# a non-zero midpoint distance and survives the greedy-merge step.
+#
+# DOV hoofdnaam codes used below (see litho_segmentation_constants.py):
+#   "XZ" → ZAND (zand, generic)
+#   "KL" → KLEI (klei)
+#   "SI" → SILT (silt)
+
+
+def test_borehole_merge_collapses_same_lithology_stack() -> None:
+    """Two ZAND obs-layers / two KLEI obs-layers / two ZAND obs-layers.
+
+    After the greedy-merge (RLE collapses adjacent same-code layers to one
+    run each) we get three segments: ZAND [0-2], KLEI [2-4], ZAND [4-6].
+    The ZAND and KLEI runs are already distinct — merge_adjacent_same_lithology
+    has nothing to collapse.  Asserting three output layers verifies the whole
+    pipeline produces non-stacked output.
+
+    The dogfeed symptom (2026-05-25) was SAND/SAND/CLAY/SAND/SAND stacked
+    bands — five segments instead of three.  This test pins the correct shape.
+    """
+    # 6 observation layers, each 1 m thick, DOV codes: XZ XZ KL KL XZ XZ
+    tops = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+    bases = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    codes: list[list[str]] = [["XZ"], ["XZ"], ["KL"], ["KL"], ["XZ"], ["XZ"]]
+
+    layers = segment_borehole(tops, bases, codes, minimum_layer_thickness_m=0.5)
+
+    # Three segments: ZAND [0-2], KLEI [2-4], ZAND [4-6]
+    assert len(layers) == 3, [
+        (round(lyr.depth_top_m, 2), round(lyr.depth_base_m, 2), lyr.suggested_lithology)
+        for lyr in layers
+    ]
+    assert layers[0].suggested_lithology == "ZAND"
+    assert layers[0].depth_top_m == 0.0
+    assert layers[0].depth_base_m == 2.0
+    assert layers[1].suggested_lithology == "KLEI"
+    assert layers[1].depth_top_m == 2.0
+    assert layers[1].depth_base_m == 4.0
+    assert layers[2].suggested_lithology == "ZAND"
+    assert layers[2].depth_top_m == 4.0
+    assert layers[2].depth_base_m == 6.0
+    assert all(lyr.source == "borehole_observation" for lyr in layers)
+
+
+def test_borehole_merge_collapses_zand_split_by_thin_silt() -> None:
+    """A thin SILT interbed between two ZAND blocks that is thinner than
+    minimum_layer_thickness_m gets absorbed by greedy-merge, leaving two
+    adjacent ZAND runs.  merge_adjacent_same_lithology then collapses those
+    into a single ZAND layer — this is the exact merge-pass exercise.
+
+    Setup: ZAND×2 (2 m) / SILT×1 (0.25 m, sub-threshold) / ZAND×2 (2 m).
+    minimum_layer_thickness_m = 0.5 m.  The SILT run spans one layer whose
+    midpoint thickness = 0 relative to adjacent midpoints → absorbed by
+    greedy-merge into the preceding ZAND.  merge_adjacent_same_lithology
+    then finds two adjacent ZAND runs and collapses them to one.
+    """
+    # Observation layers — each 0.5 m except the thin SILT at 0.25 m
+    tops = [0.0, 0.5, 1.0, 1.25, 1.75]
+    bases = [0.5, 1.0, 1.25, 1.75, 2.25]
+    codes: list[list[str]] = [["XZ"], ["XZ"], ["SI"], ["XZ"], ["XZ"]]
+
+    layers = segment_borehole(tops, bases, codes, minimum_layer_thickness_m=0.5)
+
+    # The thin SILT is absorbed; the two ZAND runs merge → one ZAND layer.
+    assert len(layers) == 1, [
+        (round(lyr.depth_top_m, 3), round(lyr.depth_base_m, 3), lyr.suggested_lithology)
+        for lyr in layers
+    ]
+    assert layers[0].suggested_lithology == "ZAND"
+    assert layers[0].depth_top_m == 0.0
+    assert layers[0].depth_base_m == 2.25
+
+
+def test_borehole_merge_disabled_keeps_greedy_merge_output_unchanged() -> None:
+    """merge_same_lithology=False: the same-lithology merge pass is skipped;
+    the greedy-merge output is returned as-is.
+
+    Same input as test_borehole_merge_collapses_zand_split_by_thin_silt:
+    after greedy-merge the two ZAND runs are adjacent.  With merge disabled
+    both survive as separate layers.
+    """
+    tops = [0.0, 0.5, 1.0, 1.25, 1.75]
+    bases = [0.5, 1.0, 1.25, 1.75, 2.25]
+    codes: list[list[str]] = [["XZ"], ["XZ"], ["SI"], ["XZ"], ["XZ"]]
+
+    merged = segment_borehole(tops, bases, codes, minimum_layer_thickness_m=0.5)
+    unmerged = segment_borehole(
+        tops, bases, codes, minimum_layer_thickness_m=0.5, merge_same_lithology=False
+    )
+
+    # Merge collapses to fewer layers than the disabled path.
+    assert len(merged) < len(unmerged)
+    # Both end at the same base depth.
+    assert merged[-1].depth_base_m == unmerged[-1].depth_base_m
+
+
+def test_borehole_merge_admixtures_propagated_on_collapse() -> None:
+    """When two ZAND runs with a KL admixture collapse, the admixture is
+    carried into the merged result (not silently dropped).
+
+    Build a case where merge_adjacent_same_lithology fires: thin SILT between
+    two ZAND×2 blocks so the SILT is absorbed by greedy-merge, then the two
+    ZAND runs collapse.  The admixture on both ZAND groups must appear in
+    the merged result.
+    """
+    from groundmodel.domain.value_objects.admixture import Admixture
+
+    tops = [0.0, 0.5, 1.0, 1.25, 1.75]
+    bases = [0.5, 1.0, 1.25, 1.75, 2.25]
+    codes: list[list[str]] = [["XZ"], ["XZ"], ["SI"], ["XZ"], ["XZ"]]
+    admix = Admixture(soil_code="KL", amount="zwak", locally=False)
+    # ZAND layers carry the admixture; SILT layer does not.
+    admixtures: list[list[Admixture]] = [[admix], [admix], [], [admix], [admix]]
+
+    layers = segment_borehole(
+        tops,
+        bases,
+        codes,
+        minimum_layer_thickness_m=0.5,
+        admixtures_per_layer=admixtures,
+    )
+
+    # Collapsed to one ZAND layer carrying the KL admixture.
+    assert len(layers) == 1
+    assert layers[0].suggested_lithology == "ZAND"
+    assert len(layers[0].suggested_admixtures) == 1
+    assert layers[0].suggested_admixtures[0].soil_code == "KL"
+
+
+def test_borehole_merge_structural_error_unknown_code() -> None:
+    """Layers with unmappable codes are skipped; remaining mapped layers
+    still merge correctly — the function never raises on unknown codes."""
+    # UNKNOWN / ZAND×2 / KLEI×2 — the unknown code maps to None and
+    # is dropped by greedy-merge.
+    tops = [0.0, 1.0, 2.0, 3.0, 4.0]
+    bases = [1.0, 2.0, 3.0, 4.0, 5.0]
+    codes: list[list[str]] = [["NOTACODE"], ["XZ"], ["XZ"], ["KL"], ["KL"]]
+
+    layers = segment_borehole(tops, bases, codes, minimum_layer_thickness_m=0.5)
+
+    # The unknown layer is absorbed; one or two mappable layers remain.
+    assert len(layers) >= 1
+    assert all(
+        lyr.suggested_lithology in ("ZAND", "KLEI", "SILT", "GRIND", "VEEN") for lyr in layers
+    )
+
+
+def test_borehole_empty_series_returns_no_layers() -> None:
+    """No borehole layers → no suggestions, never a crash."""
+    assert segment_borehole([], [], []) == []
