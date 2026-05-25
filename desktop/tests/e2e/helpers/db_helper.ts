@@ -188,6 +188,35 @@ export async function getLensByOrdinal(
 }
 
 /**
+ * Count auto-correlated edges (``source = 'auto'``) for a project's
+ * lithostratigraphic models.
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count.
+ */
+export async function countAutoCorrelationEdges(projectId: string): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n
+         FROM litho_correlation_edge lce
+         JOIN geological_model gm ON gm.id = lce.model_id
+        WHERE gm.app_project_id = $1
+          AND gm.kind = 'lithostratigraphic'
+          AND lce.source = 'auto'`,
+      [projectId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
+
+/**
  * Fetch all lithostratigraphic model IDs for a project.
  *
  * Parameters
