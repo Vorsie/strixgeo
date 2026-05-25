@@ -67,18 +67,18 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
       <div className="p-6">
         <h2
           id="new-project-title"
-          className="text-base font-semibold text-gray-800 mb-1"
+          className="text-base font-semibold text-text-primary mb-1"
         >
           New project
         </h2>
-        <p className="text-xs text-gray-500 mb-4">
+        <p className="text-xs text-text-secondary mb-4">
           Name it now; richer details (client, site, tags, default CRSes…)
           can be added from the project's metadata editor when that lands.
         </p>
 
         <label
           htmlFor="new-project-name"
-          className="block text-xs font-medium text-gray-600 mb-1"
+          className="block text-xs font-medium text-text-secondary mb-1"
         >
           Project name
         </label>
@@ -92,7 +92,7 @@ export default function NewProjectDialog({ open, onSubmit, onCancel }: Props) {
           disabled={busy}
           placeholder="e.g. GEO-22/040 Brugge"
           data-testid="new-project-name-input"
-          className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 disabled:bg-gray-50"
+          className="w-full border border-border-default rounded px-3 py-1.5 text-sm text-text-primary bg-surface-page placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent mb-4 disabled:bg-surface-card"
         />
 
         <div className="flex justify-end gap-2">

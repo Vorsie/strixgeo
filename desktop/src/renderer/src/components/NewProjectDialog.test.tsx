@@ -103,4 +103,17 @@ describe('NewProjectDialog', () => {
     // Resolve the promise so the test cleans up cleanly.
     resolveSubmit?.()
   })
+
+  it('DK3 — name input uses semantic dark-mode-aware tokens (debt #105)', () => {
+    // Regression anchor: NewProjectDialog input previously used raw
+    // border-gray-300 + text-gray-800 + ring-blue-500 with no dark: variants.
+    // Semantic tokens resolve correctly in both themes via CSS custom properties.
+    render(<NewProjectDialog open onSubmit={vi.fn()} onCancel={vi.fn()} />)
+    const input = screen.getByLabelText(/Project name/i) as HTMLInputElement
+    expect(input.className).toContain('border-border-default')
+    expect(input.className).toContain('text-text-primary')
+    expect(input.className).toContain('ring-accent')
+    expect(input.className).not.toContain('text-gray-')
+    expect(input.className).not.toContain('ring-blue-')
+  })
 })
