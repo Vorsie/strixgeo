@@ -146,6 +146,29 @@ export interface Coordinator {
   hoveredTestId: string | null
   /** Set / clear the hovered investigation id (DataInspector row hover). */
   setHoveredTestId: (id: string | null) => void
+  /**
+   * Geology-stage deep-link request — set by the Sections canvas (litho
+   * axis) when the user picks "Edit in Geology stage" from a geological
+   * contact's context menu.
+   *
+   * ``AppShell`` watches this value and, when non-null, calls
+   * ``setActiveStage('geology')`` + selects the given section so the
+   * Geology stage opens on the right section with the contact selected
+   * for immediate editing.  The payload is cleared after the navigation
+   * applies (single-fire — subsequent re-mounts of the Geology inspector
+   * do not re-apply a stale target).
+   *
+   * Lives in Coordinator (not sections or geoModel) because it spans
+   * three hook boundaries: written by the Sections canvas, consumed by
+   * AppShell for the stage switch, and consumed by GeologyInspector for
+   * the per-contact focus — the same cross-boundary rationale as
+   * ``sessionImportSectionIds``.
+   */
+  geoDeepLinkTarget: { sectionId: string; contactId: string } | null
+  /** Set or clear the geology deep-link target. */
+  setGeoDeepLinkTarget: (
+    target: { sectionId: string; contactId: string } | null,
+  ) => void
 }
 
 /**
