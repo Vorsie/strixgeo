@@ -56,6 +56,14 @@ from groundmodel.application.section_snapshot import (  # noqa: E402
 from groundmodel.infrastructure.exporters.pdf_layout import (  # noqa: E402
     packed_column_positions,
 )
+from groundmodel.infrastructure.exporters.section_pdf_report_exporter_constants import (  # noqa: E402
+    COLUMN_BAND_WIDTH_M,
+    COLUMN_EDGE_GAP_M,
+    DEFAULT_DEPTH_M,
+    FIG_H_INCH,
+    FIG_W_INCH,
+    MAP_INSET_SIZE_INCH,
+)
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger  # noqa: E402
 
 
@@ -79,16 +87,6 @@ class ReportMetadata:
     author: str = ""
     notes: str = ""
     date: datetime | None = None
-
-
-# Visual constants — kept module-level so they're easy to tune without
-# walking the layout body.
-_COLUMN_BAND_WIDTH_M = 8.0  # band width per investigation, metres
-_COLUMN_EDGE_GAP_M = 2.0  # min gap between adjacent bands
-_MAP_INSET_SIZE_INCH = 2.2  # square inset (top-right corner)
-_FIG_W_INCH = 7.8  # A4 portrait minus margins
-_FIG_H_INCH = 5.6
-_DEFAULT_DEPTH_M = 30.0  # used when no contacts AND no surface_elev
 
 
 class SectionPdfReportExporter(GroundModelLogger):
@@ -121,13 +119,10 @@ class SectionPdfReportExporter(GroundModelLogger):
             header (callers can assert on this in a smoke test).
         """
         self.info(
-            "Exporting section PDF: project=%s section=%s investigations=%d formations=%d"
-            % (
-                snapshot.project_id,
-                snapshot.section_name,
-                len(snapshot.investigations),
-                len(snapshot.formations),
-            )
+            f"Exporting section PDF: project={snapshot.project_id} "
+            f"section={snapshot.section_name} "
+            f"investigations={len(snapshot.investigations)} "
+            f"formations={len(snapshot.formations)}"
         )
 
         report_date = metadata.date or datetime.now()
@@ -200,7 +195,7 @@ class SectionPdfReportExporter(GroundModelLogger):
         pdf_bytes = buffer.getvalue()
         buffer.close()
         self.success(
-            "Section PDF exported: %d bytes, section=%s" % (len(pdf_bytes), snapshot.section_name)
+            f"Section PDF exported: {len(pdf_bytes)} bytes, section={snapshot.section_name}"
         )
         return pdf_bytes
 
@@ -217,12 +212,12 @@ def _render_section_figure(snapshot: SectionSnapshot) -> io.BytesIO:
     Returns a ``BytesIO`` positioned at the start so ReportLab's
     ``Image`` can ingest it directly.
     """
-    fig, ax = plt.subplots(figsize=(_FIG_W_INCH, _FIG_H_INCH))
+    fig, ax = plt.subplots(figsize=(FIG_W_INCH, FIG_H_INCH))
 
     # --- Main axes: section drawing -----------------------------------
     # Compute the maximum depth for the y-axis: deepest contact OR
     # deepest investigation total_depth_m OR the default fallback.
-    max_depth = _DEFAULT_DEPTH_M
+    max_depth = DEFAULT_DEPTH_M
     for c in snapshot.contacts:
         if c.depth_m > max_depth:
             max_depth = c.depth_m
@@ -235,8 +230,8 @@ def _render_section_figure(snapshot: SectionSnapshot) -> io.BytesIO:
     # Column positions via the packed helper.
     investigations = list(snapshot.investigations)
     true_xs = [inv.along_distance_m for inv in investigations]
-    band_widths = [_COLUMN_BAND_WIDTH_M] * len(investigations)
-    nudged_xs = packed_column_positions(true_xs, band_widths, edge_gap_m=_COLUMN_EDGE_GAP_M)
+    band_widths = [COLUMN_BAND_WIDTH_M] * len(investigations)
+    nudged_xs = packed_column_positions(true_xs, band_widths, edge_gap_m=COLUMN_EDGE_GAP_M)
 
     # Per-investigation columns: a thin vertical line from surface to
     # its total_depth_m (or max_depth fallback) + the test name above
@@ -256,8 +251,6 @@ def _render_section_figure(snapshot: SectionSnapshot) -> io.BytesIO:
         )
 
     # Per-formation polylines (top picks across investigations).
-    formation_color: dict = {f.formation_id: f.color for f in snapshot.formations}
-    formation_name: dict = {f.formation_id: f.name for f in snapshot.formations}
     contacts_by_formation: dict = {}
     for c in snapshot.contacts:
         contacts_by_formation.setdefault(c.formation_id, []).append(c)
@@ -299,10 +292,10 @@ def _render_section_figure(snapshot: SectionSnapshot) -> io.BytesIO:
     # --- Inset: plan-view location map --------------------------------
     inset = fig.add_axes(
         [
-            1.0 - (_MAP_INSET_SIZE_INCH / _FIG_W_INCH) - 0.005,
-            1.0 - (_MAP_INSET_SIZE_INCH / _FIG_H_INCH) - 0.005,
-            _MAP_INSET_SIZE_INCH / _FIG_W_INCH,
-            _MAP_INSET_SIZE_INCH / _FIG_H_INCH,
+            1.0 - (MAP_INSET_SIZE_INCH / FIG_W_INCH) - 0.005,
+            1.0 - (MAP_INSET_SIZE_INCH / FIG_H_INCH) - 0.005,
+            MAP_INSET_SIZE_INCH / FIG_W_INCH,
+            MAP_INSET_SIZE_INCH / FIG_H_INCH,
         ]
     )
     _render_location_map(inset, snapshot, investigations)
