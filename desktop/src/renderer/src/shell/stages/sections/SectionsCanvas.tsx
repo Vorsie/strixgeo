@@ -98,6 +98,7 @@ export default function SectionsCanvas(): JSX.Element {
       handleInsertLithoLayer,
       handleSplitLithoLayer,
       handleMergeLithoLayers,
+      handleAbsorbLithoLayer,
       clearBulkLithoGhosts,
       pinchOutPreview,
       pinchOutLoading,
@@ -958,6 +959,11 @@ export default function SectionsCanvas(): JSX.Element {
         if (focusedSuggestAnchorId === null) return
         handleMergeLithoLayers(focusedSuggestAnchorId, upperIdx)
       },
+      // Dogfeed 2026-05-25: Shift+drag absorb.
+      onAbsorbLayer: (draggerIdx: number, direction: 'up' | 'down') => {
+        if (focusedSuggestAnchorId === null) return
+        handleAbsorbLithoLayer(focusedSuggestAnchorId, draggerIdx, direction)
+      },
     }
   }, [
     isLitho,
@@ -972,6 +978,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleInsertLithoLayer,
     handleSplitLithoLayer,
     handleMergeLithoLayers,
+    handleAbsorbLithoLayer,
   ])
 
   // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
@@ -1015,6 +1022,8 @@ export default function SectionsCanvas(): JSX.Element {
       onSplitLayer: handleSplitLithoLayer,
       // Debt #102: bulk variant takes (anchorId, upperIdx).
       onMergeLayers: handleMergeLithoLayers,
+      // Dogfeed 2026-05-25: bulk variant takes (anchorId, draggerIdx, direction).
+      onAbsorbLayer: handleAbsorbLithoLayer,
     }
   }, [
     isLitho,
@@ -1026,6 +1035,7 @@ export default function SectionsCanvas(): JSX.Element {
     handleInsertLithoLayer,
     handleSplitLithoLayer,
     handleMergeLithoLayers,
+    handleAbsorbLithoLayer,
   ])
 
   // Pinch-out ghost state — wired on whichever axis is active. Backend
