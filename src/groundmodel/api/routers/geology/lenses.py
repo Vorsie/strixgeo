@@ -181,6 +181,7 @@ async def name_lens_body(
     model = await get_in_project_or_404(
         session.get(GeologicalModelOrm, model_id),
         project_id,
+        detail="Geological model not found",
     )
 
     if model.kind != MODEL_KIND_LITHOSTRATIGRAPHIC:
