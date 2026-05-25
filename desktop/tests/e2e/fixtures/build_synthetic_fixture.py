@@ -405,20 +405,22 @@ def _build_bundle(project_id: str) -> dict[str, Any]:
 
 
 def _cleanup_litho_state(client: httpx.Client, api_base: str, project_id: str) -> None:
-    """Delete all litho-derived state for the fixture project so each test run starts clean.
+    """Delete all spec-created state for the fixture project so each run starts clean.
 
     The restore endpoint is idempotent (it skips existing rows), but it cannot
-    remove rows created by previous spec runs (accepted litho contacts, child
-    formations, correlation edges, lens metadata).  This function removes them
-    via the API DELETE endpoints before the restore so the project is in the
-    same clean state on every run.
+    remove rows created by previous spec runs (scratch formations / models from
+    flow_crossing_validator and flow_build_3d_model, failed-cleanup formations
+    from flow_create_formation, accepted litho contacts, correlation edges, etc.).
+    This function removes all of them via the API DELETE endpoints before the
+    restore so the project is in the same baseline state every run.
 
     Cleaned up in order (FK cascades handle the rest):
-    1. Lithostratigraphic model (cascades → formation_contact, litho_correlation_edge,
-       litho_lens metadata).
-    2. Litho child formations (those with parent_formation_id set, created by accept).
-       The geological model FK is SET NULL so they survive model deletion — explicit
-       delete needed.
+    1. All non-fixture geological models — cascades their contacts + surfaces.
+       The fixture geological model is identified by its deterministic UUID.
+    2. All lithostratigraphic models — cascades contacts, edges, lens metadata.
+    3. All non-fixture formations — covers scratch formations left by failed tests
+       (flow_crossing_validator A/B, flow_create_formation leaks) AND litho child
+       formations created by the accept flow.
 
     Parameters
     ----------
@@ -431,43 +433,51 @@ def _cleanup_litho_state(client: httpx.Client, api_base: str, project_id: str) -
     """
     geology_base = f"{api_base}/projects/{project_id}/geology"
 
-    # 1. Delete the lithostratigraphic model (cascades to contacts, edges, lenses).
+    # Deterministic fixture IDs — these are the ONLY rows we keep.
+    fixture_geo_model_id = _uid("geo-model")
+    fixture_formation_ids = {_uid(f"formation-{j}") for j in range(3)}
+
+    # 1. Delete all non-fixture geological models (scratch models from tests).
+    #    Cascade deletes their formation_contact + formation_surface rows.
     models_resp = client.get(f"{geology_base}/models")
     if models_resp.status_code == 200:
         for model in models_resp.json():
-            if model.get("kind") == "lithostratigraphic":
-                mid = model["id"]
-                del_resp = client.delete(f"{geology_base}/models/{mid}")
-                if del_resp.status_code == 204:
-                    print(
-                        f"[fixture] Deleted lithostratigraphic model {mid}",
-                        file=sys.stderr,
-                    )
-                elif del_resp.status_code == 404:
-                    pass  # Already gone — fine.
-                else:
-                    print(
-                        f"[fixture] WARNING: DELETE /models/{mid} returned {del_resp.status_code}",
-                        file=sys.stderr,
-                    )
+            mid = model["id"]
+            if mid == fixture_geo_model_id:
+                continue  # Keep the fixture geological model.
+            del_resp = client.delete(f"{geology_base}/models/{mid}")
+            if del_resp.status_code == 204:
+                print(
+                    f"[fixture] Deleted scratch/litho model {mid} (kind={model.get('kind')!r})",
+                    file=sys.stderr,
+                )
+            elif del_resp.status_code == 404:
+                pass  # Already gone — fine.
+            else:
+                print(
+                    f"[fixture] WARNING: DELETE /models/{mid} returned {del_resp.status_code}",
+                    file=sys.stderr,
+                )
 
-    # 2. Delete litho child formations (parent_formation_id is not null).
-    #    Accept creates these; restore doesn't delete them.
+    # 2. Delete all non-fixture formations.
+    #    This covers: litho child formations (parent_formation_id set),
+    #    scratch formations (E2E-Crossing-*, E2E-Formation-*) left by
+    #    failed test cleanups.
     formations_resp = client.get(f"{geology_base}/formations")
     if formations_resp.status_code == 200:
-        child_ids = [
-            f["id"] for f in formations_resp.json() if f.get("parent_formation_id") is not None
+        extra_ids = [
+            f["id"] for f in formations_resp.json() if f["id"] not in fixture_formation_ids
         ]
-        for fid in child_ids:
+        for fid in extra_ids:
             del_resp = client.delete(f"{geology_base}/formations/{fid}")
             if del_resp.status_code not in (204, 404):
                 print(
                     f"[fixture] WARNING: DELETE /formations/{fid} returned {del_resp.status_code}",
                     file=sys.stderr,
                 )
-        if child_ids:
+        if extra_ids:
             print(
-                f"[fixture] Deleted {len(child_ids)} litho child formation(s)",
+                f"[fixture] Deleted {len(extra_ids)} non-fixture formation(s)",
                 file=sys.stderr,
             )
 
