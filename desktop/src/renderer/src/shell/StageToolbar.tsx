@@ -107,6 +107,7 @@ export default function StageToolbar({
             <DirtyAsterisk
               className="shrink-0"
               title="Unsaved changes — File → Save (Ctrl+S) to commit"
+              data-testid="dirty-marker"
             />
           )}
         </button>
