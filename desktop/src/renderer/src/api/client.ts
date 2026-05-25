@@ -443,6 +443,11 @@ export interface LithoLayerSuggestion {
   // formation boundary (the backend splits it into two contacts on
   // Accept). Frontend renders amber border + tooltip.
   spans_boundary: boolean
+  // NAD class range [min, max] across merged source segments (debt #119).
+  // (n, n) when all sources share one class; (lo, hi) when they differ;
+  // null for non-clean-sand and borehole-path layers. Optional so older
+  // bundles that pre-date the merge pass stay compatible.
+  nad_class_range?: [number, number] | null
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +505,9 @@ export interface LithoSuggestionRequest {
   gunsat_kNm3?: number
   gwater_kNm3?: number
   dr_compression_factor?: number
+  // Owner directive 2026-05-25: merge adjacent same-lithology CPT segments
+  // by default. False exposes un-merged Robertson-SBT splits.
+  merge_same_lithology?: boolean
 }
 
 export interface FormationContactUpdatePayload {
