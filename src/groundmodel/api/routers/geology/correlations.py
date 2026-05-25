@@ -8,6 +8,7 @@ geology package __init__; paths extend to:
   POST   /projects/{pid}/geology/models/{mid}/correlations/resolve
   GET    /projects/{pid}/geology/models/{mid}/correlations
   PATCH  /projects/{pid}/geology/models/{mid}/correlations/admixtures
+  POST   /projects/{pid}/geology/models/{mid}/auto-correlate   (#127)
 
 All endpoints are MODEL-level only.  They take no section_id and
 do NOT modify seeded_formation_contact_ids on any cross-section row.
@@ -20,6 +21,7 @@ Idempotency contract:
   POST  /correlations/resolve   → 200 always (idempotent — no-change returns empty list).
   GET   /correlations           → 200 always (returns current edge list, possibly empty).
   PATCH /correlations/admixtures → 200 always (returns updated formation list).
+  POST  /auto-correlate         → 200 always (idempotent; 0 edges_created = nothing new).
 
 Route ordering note:
   The static segments ``/correlations/resolve`` and ``/correlations/admixtures``
@@ -39,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from groundmodel.api.routers._helpers import get_in_project_or_404
 from groundmodel.api.schemas.project.geological_formation import GeologicalFormationResponse
 from groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas import (
+    AutoCorrelateResponse,
     LithoCorrelationEdgeListItem,
     LithoCorrelationRequest,
     LithoCorrelationResponse,
@@ -47,6 +50,7 @@ from groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas
     PropagateAdmixturesResponse,
     ResolveInstancesResponse,
 )
+from groundmodel.application.auto_correlate_litho_bodies import AutoCorrelateLithoBodies
 from groundmodel.application.correlate_litho_units import CorrelateLithoUnits
 from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdmixtures
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
@@ -436,3 +440,77 @@ async def list_correlations(
     )
     rows = list((await session.execute(stmt)).scalars().all())
     return rows
+
+
+# ---------------------------------------------------------------------------
+# #127 — auto-correlate endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/models/{model_id}/auto-correlate",
+    response_model=AutoCorrelateResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Run the auto-correlate algorithm across a lithostratigraphic model",
+)
+async def auto_correlate_model(
+    project_id: UUID,
+    model_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> AutoCorrelateResponse:
+    """Run the bottom-up dip-transfer auto-correlate algorithm for a model.
+
+    Loads all formation contacts in the model, computes correlation
+    candidates using the pure domain algorithm (distance-aware window,
+    mutual-nearest-neighbour disambiguation, Theil-Sen dip transfer),
+    inserts net-new edges with ``source='auto'``, re-runs the ordinal
+    resolver once, and triggers absence inference for each touched
+    formation — all in a single transaction.
+
+    Idempotent: calling again with no new contacts / edges produces
+    ``edges_created=0`` and is a no-op.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param).
+    model_id : UUID
+        The lithostratigraphic model to process (path param).
+
+    Returns
+    -------
+    AutoCorrelateResponse
+        Counts of edges created, skipped, and formations recomputed.
+        ``edges_created=0`` means the model was already fully correlated.
+
+    Raises
+    ------
+    404
+        When the model does not exist or does not belong to ``project_id``.
+    422
+        When the model is not of kind ``'lithostratigraphic'``.
+    """
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+
+    try:
+        result = await AutoCorrelateLithoBodies(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+        )
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
+
+    return AutoCorrelateResponse(
+        edges_created=result.edges_created,
+        edges_skipped_existing=result.edges_skipped_existing,
+        formations_recomputed=result.formations_recomputed,
+        wedge_tips_materialised=result.wedge_tips_materialised,
+    )
