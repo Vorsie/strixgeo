@@ -26,7 +26,7 @@ subdivision is built on top of it. Priority order:
 * **#123** — clay→silt correlation suggestion bug (needs owner reproduction)
 * **#99** — drag-clamp through rejected layers (awaiting owner reproduction — code investigated, G34b passes)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
-* **#133** — boundary-to-boundary correlation Phase 1 (schema + endpoints + gesture + renderer — #127 successor model)
+* **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
