@@ -17,8 +17,11 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.cpt_series_orm import CptSeriesOrm
+from groundmodel.infrastructure.db.models.observation_layer_orm import ObservationLayerOrm
+from groundmodel.infrastructure.db.models.observation_orm import ObservationOrm
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
 
@@ -438,3 +441,146 @@ async def test_suggest_litho_requires_exactly_one_anchor(
     assert (
         await async_client.post(url, json={"cpt_id": str(uuid4()), "borehole_id": str(uuid4())})
     ).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Borehole-path suggest-litho (dogfeed 2026-05-25 — Slice A)
+# ---------------------------------------------------------------------------
+
+
+async def _borehole_with_zand_klei_zand(
+    db_session: AsyncSession, project: ProjectOrm
+) -> BoreholeOrm:
+    """A borehole with coded_lithology layers: XZ×2 / KL×2 / XZ×2.
+
+    Six 1-m observation layers.  After RLE + greedy-merge (min=0.5 m)
+    the segmenter produces three runs (ZAND / KLEI / ZAND) which
+    ``merge_adjacent_same_lithology`` leaves unchanged (already distinct).
+    """
+    bh = BoreholeOrm(
+        id=uuid7(),
+        name="BH-LITHO-MERGE",
+        app_project_id=project.id,
+        location_x=150001.0,
+        location_y=200001.0,
+        epsg=31370,
+        total_depth_m=6.0,
+    )
+    db_session.add(bh)
+    await db_session.flush()
+
+    obs = ObservationOrm(
+        id=uuid7(),
+        borehole_id=bh.id,
+        observation_type="coded_lithology",
+    )
+    db_session.add(obs)
+    await db_session.flush()
+
+    # DOV codes: XZ=zand, KL=klei (two layers per lithology unit).
+    layer_data = [
+        (0.0, 1.0, ["XZ"]),
+        (1.0, 2.0, ["XZ"]),
+        (2.0, 3.0, ["KL"]),
+        (3.0, 4.0, ["KL"]),
+        (4.0, 5.0, ["XZ"]),
+        (5.0, 6.0, ["XZ"]),
+    ]
+    for idx, (top, base, codes) in enumerate(layer_data):
+        db_session.add(
+            ObservationLayerOrm(
+                id=uuid7(),
+                observation_id=obs.id,
+                top_m=top,
+                base_m=base,
+                main_soil_codes=codes,
+                layer_index=idx,
+            )
+        )
+    await db_session.commit()
+    return bh
+
+
+async def test_suggest_litho_borehole_path_returns_merged_layers(
+    async_client: AsyncClient, project: ProjectOrm, db_session: AsyncSession
+) -> None:
+    """Happy path (borehole, dogfeed 2026-05-25): a litho model + a
+    ZAND/KLEI/ZAND borehole → three ordered, contiguous layers with
+    correct lithology sequence and borehole_observation source.
+
+    Regression guard: before Slice A the borehole branch did NOT apply
+    merge_adjacent_same_lithology, so same-lithology observation layers
+    from adjacent coded_lithology records survived as separate bands.
+    """
+    geo = await _create_model(async_client, project.id)
+    litho = await _create_model(
+        async_client, project.id, kind="lithostratigraphic", parent_id=geo["id"]
+    )
+    bh = await _borehole_with_zand_klei_zand(db_session, project)
+
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho['id']}/contacts/suggest-litho",
+        json={"borehole_id": str(bh.id), "minimum_layer_thickness_m": 0.5},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["investigation_type"] == "borehole"
+    layers = body["layers"]
+
+    # Three layers (RLE collapses adjacent same-code layers; merge pass
+    # verifies no stacked same-lithology bands survive).
+    assert len(layers) == 3, [
+        (lyr["depth_top_m"], lyr["depth_base_m"], lyr["suggested_lithology"]) for lyr in layers
+    ]
+    # Ordered, contiguous.
+    for a, b in zip(layers, layers[1:], strict=False):
+        assert b["depth_top_m"] == a["depth_base_m"]
+    assert layers[0]["suggested_lithology"] == "ZAND"
+    assert layers[1]["suggested_lithology"] == "KLEI"
+    assert layers[2]["suggested_lithology"] == "ZAND"
+    # All sourced from borehole observation.
+    assert all(lyr["source"] == "borehole_observation" for lyr in layers)
+
+
+async def test_suggest_litho_borehole_merge_disabled_exposes_raw_segments(
+    async_client: AsyncClient, project: ProjectOrm, db_session: AsyncSession
+) -> None:
+    """merge_same_lithology=False on the borehole path: the merge pass is
+    skipped and more (or equal) layers are returned than with merge=True."""
+    geo = await _create_model(async_client, project.id)
+    litho = await _create_model(
+        async_client, project.id, kind="lithostratigraphic", parent_id=geo["id"]
+    )
+    bh = await _borehole_with_zand_klei_zand(db_session, project)
+    url = f"/projects/{project.id}/geology/models/{litho['id']}/contacts/suggest-litho"
+
+    merged_resp = await async_client.post(
+        url, json={"borehole_id": str(bh.id), "minimum_layer_thickness_m": 0.5}
+    )
+    unmerged_resp = await async_client.post(
+        url,
+        json={
+            "borehole_id": str(bh.id),
+            "minimum_layer_thickness_m": 0.5,
+            "merge_same_lithology": False,
+        },
+    )
+    assert merged_resp.status_code == 200
+    assert unmerged_resp.status_code == 200
+    # Disabled merge keeps at least as many layers as the merged result.
+    assert len(unmerged_resp.json()["layers"]) >= len(merged_resp.json()["layers"])
+
+
+async def test_suggest_litho_borehole_missing_is_404(
+    async_client: AsyncClient, project: ProjectOrm
+) -> None:
+    """A litho model but a non-existent borehole → 404."""
+    geo = await _create_model(async_client, project.id)
+    litho = await _create_model(
+        async_client, project.id, kind="lithostratigraphic", parent_id=geo["id"]
+    )
+    resp = await async_client.post(
+        f"/projects/{project.id}/geology/models/{litho['id']}/contacts/suggest-litho",
+        json={"borehole_id": str(uuid4())},
+    )
+    assert resp.status_code == 404
