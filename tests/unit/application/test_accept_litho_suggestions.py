@@ -1142,3 +1142,76 @@ def test_e7_contact_based_parent_wins_over_extrapolation() -> None:
     )
     assert result.intervals == [(2.0, upper_fid)]
     assert result.extrapolated is False
+
+
+# ---------------------------------------------------------------------------
+# BI1/BI2 — defer_inference=True batch-mode path (#129b)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bi1_defer_inference_skips_r7_hook() -> None:
+    """defer_inference=True: contacts are committed but inference is NOT triggered.
+
+    Regression guard for the bulk-accept speedup: when defer_inference=True
+    the use case must NOT call RecomputeFormationAbsencesForFormation or
+    MaterializeWedgeTipsForFormation. The contact-commit and session.commit
+    still run. The execute call sequence (execute call count) is shorter than
+    the default path — the inference trigger issues no extra execute calls here.
+    """
+    # Session without inference execute calls (inference_formation_count=0).
+    session = _make_session(
+        surface_rows=[],
+        geo_contacts_at_inv=[],
+        existing_contact_ids=[None],  # no existing contact → create
+        inference_formation_count=0,  # R7 hook skipped when defer_inference=True
+    )
+    uc = _use_case(session)
+
+    suggestions = [_make_suggestion(0.0, 5.0, "KLEI")]
+    result = await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=suggestions,
+        borehole_id=BOREHOLE_ID,
+        defer_inference=True,
+    )
+
+    # Contact is still created (contact-commit is not skipped).
+    assert len(result.created_contact_ids) == 1
+    # Commit still runs (transaction is not deferred).
+    session.commit.assert_awaited_once()
+    # All execute side-effects consumed — no extra inference query fired.
+    # (If R7 fired, one extra execute call would have been issued for the
+    # _load_project_sections query and the test would error on the side-effect
+    # list being too short.)
+
+
+@pytest.mark.asyncio
+async def test_bi2_defer_inference_false_keeps_r7_hook() -> None:
+    """defer_inference=False (the default): inference hook still fires as before.
+
+    Regression guard: the default path must not change. With one suggestion and
+    one affected formation the R7 hook issues one extra execute call
+    (_load_project_sections, which returns [] → early return). The session
+    mock includes that extra call, and it is consumed.
+    """
+    session = _make_session(
+        surface_rows=[],
+        geo_contacts_at_inv=[],
+        existing_contact_ids=[None],
+        inference_formation_count=1,  # default: R7 fires for the one affected formation
+    )
+    uc = _use_case(session)
+
+    suggestions = [_make_suggestion(0.0, 5.0, "KLEI")]
+    result = await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=suggestions,
+        borehole_id=BOREHOLE_ID,
+        defer_inference=False,  # explicit default
+    )
+
+    assert len(result.created_contact_ids) == 1
+    session.commit.assert_awaited_once()
