@@ -22,7 +22,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import CorrelationEdgesOverlay from './CorrelationEdgesOverlay'
+import CorrelationEdgesOverlay, { buildBandMap } from './CorrelationEdgesOverlay'
 import type { CorrelateGestureState } from './CorrelationEdgesOverlay'
 import type {
   FormationContactResponse,
@@ -999,5 +999,125 @@ describe('CorrelationEdgesOverlay', () => {
     const calls = onUncorrelate.mock.calls.map(c => [c[0], c[1]].sort())
     expect(calls).toContainEqual(['f-a1', 'f-a2'].sort())
     expect(calls).toContainEqual(['f-a2', 'f-a3'].sort())
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildBandMap unit tests — debt #120 regression
+// ---------------------------------------------------------------------------
+//
+// CE-B1  Deepest band closes at investigation bottom (surface − max_depth_m),
+//        NOT at plotBottomLevel.  This is the #120 regression anchor:
+//        before the fix, the deepest band extended to plotBottomLevel
+//        (the section-view floor), making click-target rects extend ~5 m
+//        past the CPT/borehole bottom on every column.
+// CE-B2  When max_depth_m is null (column has no depth info), the deepest
+//        band falls back to plotBottomLevel as before.
+// CE-B3  Intermediate bands always close at the next contact's top level,
+//        regardless of max_depth_m — the fix only applies to the LAST band.
+
+describe('buildBandMap', () => {
+  function makeMinimalContact(
+    id: string,
+    formationId: string,
+    investigationId: string,
+    depthTopM: number,
+  ): FormationContactResponse {
+    return {
+      id,
+      model_id: 'model-1',
+      formation_id: formationId,
+      cpt_id: investigationId,
+      borehole_id: null,
+      synthetic_x: null,
+      synthetic_y: null,
+      synthetic_elevation_m: null,
+      depth_top_m: depthTopM,
+      source: 'manual_pick' as const,
+      confidence: 'high' as const,
+      observation_id: null,
+      observation_layer_id: null,
+      notes: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+  }
+
+  function makeMinimalColumn(
+    id: string,
+    elevationM: number,
+    maxDepthM: number | null,
+  ): PlacedColumn {
+    return {
+      kind: 'cpt',
+      proj: {
+        item: {
+          id,
+          name: id,
+          cpt_type: 'CPTM',
+          location_x: 0,
+          location_y: 0,
+          elevation_m: elevationM,
+          epsg: 31370,
+          z_epsg: 5710,
+          max_depth_m: maxDepthM,
+          n_rows: 100,
+          elevation_source: 'dem',
+          start_date: null,
+        } as CptListItem,
+        along: 0,
+        offset: 0,
+      } as ProjectedInvestigation<CptListItem>,
+      trueX: 0,
+      nudgedX: 0,
+      width: 40,
+      displaced: false,
+    }
+  }
+
+  it('CE-B1 — deepest band closes at investigation bottom (max_depth_m), not plotBottomLevel', () => {
+    // Surface at 5 m TAW, single contact at 3 m depth, max_depth = 10 m.
+    // Expected deepest-band botLevel = 5 − 10 = −5.
+    // plotBottomLevel is much lower at −50 — must NOT be used.
+    const contact = makeMinimalContact('c1', 'f1', 'inv-1', 3)
+    const col = makeMinimalColumn('inv-1', 5, 10)
+    const bandMap = buildBandMap([contact], [col], -50)
+    const bands = bandMap.get('inv-1')!
+    expect(bands).toBeDefined()
+    const f1Band = bands.get('f1')!
+    expect(f1Band).toBeDefined()
+    // Top of this single contact: surface − depth_top = 5 − 3 = 2.
+    expect(f1Band.topLevel).toBeCloseTo(2)
+    // Bottom must be investigation bottom (5 − 10 = −5), not −50.
+    expect(f1Band.botLevel).toBeCloseTo(-5)
+  })
+
+  it('CE-B2 — when max_depth_m is null, falls back to plotBottomLevel', () => {
+    // Surface at 5 m TAW, single contact at 3 m depth, max_depth_m = null.
+    const contact = makeMinimalContact('c1', 'f1', 'inv-1', 3)
+    const col = makeMinimalColumn('inv-1', 5, null)
+    const bandMap = buildBandMap([contact], [col], -50)
+    const bands = bandMap.get('inv-1')!
+    const f1Band = bands.get('f1')!
+    // Fallback to plotBottomLevel.
+    expect(f1Band.botLevel).toBeCloseTo(-50)
+  })
+
+  it('CE-B3 — intermediate bands close at next contact top, not at max_depth_m', () => {
+    // Two contacts: f1 at 3 m, f2 at 7 m.  max_depth = 10 m.
+    // f1's band bottom must be surface − 7 = −2, not surface − 10 = −5.
+    const contacts = [
+      makeMinimalContact('c1', 'f1', 'inv-1', 3),
+      makeMinimalContact('c2', 'f2', 'inv-1', 7),
+    ]
+    const col = makeMinimalColumn('inv-1', 5, 10)
+    const bandMap = buildBandMap(contacts, [col], -50)
+    const bands = bandMap.get('inv-1')!
+    const f1Band = bands.get('f1')!
+    // Intermediate: closes at next contact's top = 5 − 7 = −2.
+    expect(f1Band.botLevel).toBeCloseTo(-2)
+    const f2Band = bands.get('f2')!
+    // Deepest: closes at investigation bottom = 5 − 10 = −5.
+    expect(f2Band.botLevel).toBeCloseTo(-5)
   })
 })

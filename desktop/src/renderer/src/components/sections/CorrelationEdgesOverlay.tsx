@@ -41,6 +41,7 @@ import type {
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
 import type { GhostAdmixtureItem } from '../interpretation/LithoGhostCompositionEditor'
 import type { CorrelationSource } from './useCorrelate'
+import { columnMaxDepthM } from './utils'
 import type { PlacedColumn } from './utils'
 
 // ---------------------------------------------------------------------------
@@ -182,34 +183,45 @@ function anchorId(c: FormationContactResponse): string | null {
  *
  * Band bottom = the next shallower contact's top level − the current
  * contact's top level converted from depth using the investigation's
- * surface elevation.  When no next contact exists the band bottom falls
- * to the plotBottom level.
+ * surface elevation.  When no next contact exists the band bottom closes
+ * at the investigation's own maximum depth (``max_depth_m`` for CPTs,
+ * ``total_depth_m`` for boreholes), falling back to ``plotBottomLevel``
+ * only when the depth field is absent.  This prevents the deepest band
+ * from extending past the data column to the section-view floor (debt
+ * #120).
  *
  * Parameters
  * ----------
  * contacts
  *     Section-filtered contacts.
  * columns
- *     Placed columns (carries surface elevation via proj.item.elevation_m).
+ *     Placed columns (carries surface elevation via proj.item.elevation_m
+ *     and max depth via max_depth_m / total_depth_m).
  * plotBottomLevel
  *     Absolute level corresponding to the bottom of the visible plot,
- *     computed by inverting levelToScreen at plotBottom.
+ *     used as a fallback when the column depth field is absent.
  *
  * Returns
  * -------
  * Map<string, Map<string, { topLevel: number; botLevel: number }>>
  */
-function buildBandMap(
+export function buildBandMap(
   contacts: readonly FormationContactResponse[],
   columns: readonly PlacedColumn[],
   plotBottomLevel: number,
 ): Map<string, Map<string, { topLevel: number; botLevel: number }>> {
   // investId → elevation_m (surface)
   const surfaceByInvest = new Map<string, number>()
+  // investId → max measurement depth in m below surface
+  const maxDepthByInvest = new Map<string, number>()
   for (const col of columns) {
     const elev = col.proj.item.elevation_m
     if (elev !== null && elev !== undefined) {
       surfaceByInvest.set(col.proj.item.id, elev)
+    }
+    const maxDepth = columnMaxDepthM(col)
+    if (maxDepth !== null) {
+      maxDepthByInvest.set(col.proj.item.id, maxDepth)
     }
   }
 
@@ -232,13 +244,19 @@ function buildBandMap(
     const sorted = [...cList].sort((a, b) => a.depth_top_m - b.depth_top_m)
     const bands = new Map<string, { topLevel: number; botLevel: number }>()
 
+    const maxDepth = maxDepthByInvest.get(investId)
+    // Deepest band closes at the investigation's actual bottom level, not the
+    // section view's floor — prevents the band from extending past the data.
+    const investigationBottomLevel =
+      maxDepth !== undefined ? surface - maxDepth : plotBottomLevel
+
     for (let i = 0; i < sorted.length; i++) {
       const c = sorted[i]
       const topLevel = surface - c.depth_top_m
       const botLevel =
         i + 1 < sorted.length
           ? surface - sorted[i + 1].depth_top_m
-          : plotBottomLevel
+          : investigationBottomLevel
       bands.set(c.formation_id, { topLevel, botLevel })
     }
 
