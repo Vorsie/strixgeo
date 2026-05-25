@@ -188,10 +188,11 @@ describe('CorrelationEdgesOverlay', () => {
     expect(overlay!.querySelectorAll('line')).toHaveLength(0)
   })
 
-  // CE2 — debt #100: edges are hidden by default and revealed only on
-  // chip hover. The chip surface is always-on; the connecting line is
-  // off-by-default to kill the crisscrossing-spaghetti effect.
-  it('CE2: edges are hidden by default; chip + edge-revealed surfaces are present per band', () => {
+  // CE2 — debt #122: committed edges are always-on at ambient opacity
+  // (0.20); chip surface is always-on. The connecting line is visible at
+  // rest but faint, addressing the "too many lines" dogfeed complaint
+  // without hiding the correlation graph entirely.
+  it('CE2: edges render at ambient opacity at rest; chips are present per band', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Klei', 1)
     const contacts = [
@@ -203,7 +204,7 @@ describe('CorrelationEdgesOverlay', () => {
       makeColumn('inv-2', 200, 10, 20),
     ]
     const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
+      edges: [makeEdge('f-a', 'f-b', 'edge-1')],
       contacts,
       formations: [fA, fB],
       placedColumns: columns,
@@ -214,10 +215,11 @@ describe('CorrelationEdgesOverlay', () => {
     // Chips render on every band with a non-null ordinal.
     expect(screen.getByTestId('body-chip-inv-1-f-a')).not.toBeNull()
     expect(screen.getByTestId('body-chip-inv-2-f-b')).not.toBeNull()
-    // No edge lines visible at rest (other than the drag-preview, which
-    // is absent without a drag in flight).
-    const overlay = container.querySelector('[data-testid="correlation-edges-overlay"]')!
-    expect(overlay.querySelectorAll('line').length).toBe(0)
+    // Edge renders at rest (ambient opacity — always-on per debt #122).
+    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-1"]')
+    expect(edgeGroup).not.toBeNull()
+    // The group carries the ambient opacity attribute.
+    expect(edgeGroup!.getAttribute('opacity')).toBe('0.2')
   })
 
   it('CE3: chip shows "#N" when instance_ordinal is set', () => {
@@ -644,10 +646,11 @@ describe('CorrelationEdgesOverlay', () => {
   // CE16–CE19 — debt #100: hover-to-reveal + body-level remove-all.
   // -------------------------------------------------------------------
 
-  // CE16: hovering a chip whose ordinal is N reveals every edge whose
-  // two endpoint formations both carry ordinal N. Other-body edges
-  // stay hidden — that is the whole anti-spaghetti contract.
-  it('CE16: hovering a chip reveals edges for that body only', () => {
+  // CE16: both edges render at ambient opacity at rest (debt #122 always-
+  // on). Hovering a chip for body-1 spikes that body's edge to 0.80;
+  // body-2's edge stays at ambient (0.20). No edge is suppressed —
+  // anti-spaghetti is achieved through low ambient opacity, not hiding.
+  it('CE16: hovering a chip spikes that body\'s edge opacity; other-body edges stay ambient', () => {
     const fA1 = makeFormation('f-a1', 'Zand', 1)
     const fA2 = makeFormation('f-a2', 'Zand', 1) // same body
     const fB1 = makeFormation('f-b1', 'Klei', 2) // different body
@@ -667,18 +670,21 @@ describe('CorrelationEdgesOverlay', () => {
       plotTop: 20,
       plotBottom: 200,
     })
-    // Idle: no edge lines.
-    expect(container.querySelectorAll('[data-testid^="correlation-edge-"]').length).toBe(0)
-    // Hover a body-1 chip → only the body-1 edge appears.
-    fireEvent.mouseEnter(screen.getByTestId('body-chip-inv-1-f-a1'))
+    // Both edges are present at rest.
     expect(container.querySelector('[data-testid="correlation-edge-edge-A"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="correlation-edge-edge-B"]')).toBeNull()
+    expect(container.querySelector('[data-testid="correlation-edge-edge-B"]')).not.toBeNull()
+    // Both at ambient opacity.
+    expect(container.querySelector('[data-testid="correlation-edge-edge-A"]')!.getAttribute('opacity')).toBe('0.2')
+    expect(container.querySelector('[data-testid="correlation-edge-edge-B"]')!.getAttribute('opacity')).toBe('0.2')
+    // Hover a body-1 chip → body-1 edge spikes; body-2 stays ambient.
+    fireEvent.mouseEnter(screen.getByTestId('body-chip-inv-1-f-a1'))
+    expect(container.querySelector('[data-testid="correlation-edge-edge-A"]')!.getAttribute('opacity')).toBe('0.8')
+    expect(container.querySelector('[data-testid="correlation-edge-edge-B"]')!.getAttribute('opacity')).toBe('0.2')
   })
 
-  // CE17: mouseleave from the chip clears the hover state and hides
-  // the previously-revealed edges. Idempotent — the next hover re-
-  // reveals from clean state.
-  it('CE17: mouseleave hides revealed edges', () => {
+  // CE17: mouseleave from the chip returns the edge to ambient opacity (0.20).
+  // Edges remain present — they no longer hide on mouseleave (debt #122).
+  it('CE17: mouseleave returns the body\'s edge to ambient opacity', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Zand', 1)
     const contacts = [
@@ -695,10 +701,93 @@ describe('CorrelationEdgesOverlay', () => {
       plotBottom: 200,
     })
     const chip = screen.getByTestId('body-chip-inv-1-f-a')
+    // Hover spikes the edge.
     fireEvent.mouseEnter(chip)
-    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')!.getAttribute('opacity')).toBe('0.8')
+    // Leave returns to ambient — edge still present.
     fireEvent.mouseLeave(chip)
-    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).toBeNull()
+    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')!.getAttribute('opacity')).toBe('0.2')
+  })
+
+  // -------------------------------------------------------------------
+  // CE-O1..CE-O3 — debt #122: opacity fade for committed edges.
+  // -------------------------------------------------------------------
+
+  // CE-O1: a committed edge with no hover renders at ambient opacity 0.20.
+  it('CE-O1: committed edge with no hover renders at ambient opacity 0.20', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const { container } = renderOverlay({
+      edges: [makeEdge('f-a', 'f-b', 'edge-1')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+    })
+    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-1"]')
+    expect(edgeGroup).not.toBeNull()
+    expect(edgeGroup!.getAttribute('opacity')).toBe('0.2')
+  })
+
+  // CE-O2: same edge with hoveredBodyOrdinal matching the body renders at
+  // spiked opacity 0.80.
+  it('CE-O2: committed edge with matching hover renders at spiked opacity 0.80', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const { container } = renderOverlay({
+      edges: [makeEdge('f-a', 'f-b', 'edge-1')],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+    })
+    // Hover a chip of body ordinal 1 to spike the edge.
+    fireEvent.mouseEnter(screen.getByTestId('body-chip-inv-1-f-a'))
+    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-1"]')
+    expect(edgeGroup!.getAttribute('opacity')).toBe('0.8')
+  })
+
+  // CE-O3: a committed 'auto' edge also renders at ambient opacity 0.20 at
+  // rest — the fade applies to both 'manual' and 'auto' committed sources.
+  // (Regression: the old EDGE_OPACITY_AUTO path is superseded.)
+  it('CE-O3: auto-source committed edge renders at ambient opacity (not full opacity)', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const fB = makeFormation('f-b', 'Klei', 1)
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    const autoEdge: LithoCorrelationEdge = {
+      ...makeEdge('f-a', 'f-b', 'edge-auto'),
+      source: 'auto',
+    }
+    const { container } = renderOverlay({
+      edges: [autoEdge],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+    })
+    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-auto"]')
+    expect(edgeGroup).not.toBeNull()
+    // Ambient opacity — not full opacity (0.4 EDGE_OPACITY_AUTO is gone,
+    // 0.20 EDGE_OPACITY_AMBIENT applies uniformly across committed sources).
+    expect(edgeGroup!.getAttribute('opacity')).toBe('0.2')
   })
 
   // CE20 — debt #100-followup 2026-05-23: when ``pulsingFormationIds``
