@@ -37,7 +37,7 @@ import type {
 import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
-import { mergeLithoLayers } from '../utils/lithoLayerMerge'
+import { absorbLithoLayer, mergeLithoLayers } from '../utils/lithoLayerMerge'
 import type { UndoCommand } from './useUndoStack'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
@@ -449,6 +449,18 @@ export interface UseGeologicalModelResult {
    * reconciles with the no-auto-merge directive (#74 history).
    */
   handleMergeLithoLayers: (anchorId: string, upperIdx: number) => void
+  /**
+   * Dogfeed 2026-05-25 — Shift+drag absorb gesture. Fires when the
+   * user releases a Shift-dragged edge past the pending neighbour's
+   * midpoint. The dragger's depth extends to cover the absorbed
+   * neighbour; the neighbour is removed from the ghost; the dragger's
+   * composition is preserved unchanged.
+   */
+  handleAbsorbLithoLayer: (
+    anchorId: string,
+    draggerIdx: number,
+    direction: 'up' | 'down',
+  ) => void
   /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
   clearBulkLithoGhosts: () => void
   /**
@@ -3315,6 +3327,23 @@ export function useGeologicalModel({
     [],
   )
 
+  // Dogfeed 2026-05-25: Shift+drag absorb gesture. Mirrors
+  // handleMergeLithoLayers — pure helper absorbLithoLayer does the
+  // index-shift math; the drag handler gates on cursor past midpoint.
+  const handleAbsorbLithoLayer = useCallback(
+    (anchorId: string, draggerIdx: number, direction: 'up' | 'down'): void => {
+      setGhostsByAnchor(prev => {
+        const existing = prev.get(anchorId)
+        if (!existing) return prev
+        const updated = absorbLithoLayer(existing, draggerIdx, direction)
+        const next = new Map(prev)
+        next.set(anchorId, updated)
+        return next
+      })
+    },
+    [],
+  )
+
   // B-1 (senior-review, data-integrity): a ghost overlay left showing
   // when the active litho model SWITCHES would accept onto the new
   // model (activeLithoModelRef points at the new one) while the
@@ -4529,6 +4558,7 @@ export function useGeologicalModel({
     handleInsertLithoLayer,
     handleSplitLithoLayer,
     handleMergeLithoLayers,
+    handleAbsorbLithoLayer,
     clearBulkLithoGhosts,
     handleStripLithoAdmixtures,
     handleReseedLithoAdmixtures,
