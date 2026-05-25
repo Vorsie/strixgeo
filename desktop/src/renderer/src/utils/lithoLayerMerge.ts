@@ -1,19 +1,16 @@
-// Pure helper for debt #102 — merge two adjacent same-lithology
-// pending litho ghost layers into one. The user reaches this via the
-// "Merge layers" item on the boundary-context-menu, which only appears
-// when the two layers either side of the boundary share the same
-// effective lithology.
+// Pure helpers for litho ghost layer structural edits:
 //
-// Owner directive 2026-05-22: NOT automatic. The segmenter splits on
-// Robertson zone integer changes (which correlate with NAD-class
-// transitions) — those splits matter for the geotechnical model, so
-// auto-merging same-lithology stacks would lose signal. Merge is a
-// user-initiated, layer-by-layer choice. Reconciles with the no-auto-
-// merge directive (#74 history).
+//   canMergeAt      — predicate: boundary is same-lithology pending pair
+//   mergeLithoLayers — debt #102: merge two adjacent same-lithology layers
+//   absorbLithoLayer — dogfeed 2026-05-25: shift+drag absorb gesture:
+//                      dragger's depth_top/depth_base extends to absorb the
+//                      neighbour in the given direction; neighbour is removed;
+//                      dragger's composition wins.
 //
-// Kept module-level + pure so the index-shift math has a tight unit
-// test surface without rendering. ``useGeologicalModel.handleMergeLithoLayers``
-// is a thin wrapper that applies this transform inside ``setGhostsByAnchor``.
+// All functions are kept module-level + pure (no I/O, no logging, no class
+// state) so the index-shift math has a tight unit test surface without
+// rendering. The hook wrappers (handleMergeLithoLayers,
+// handleAbsorbLithoLayer) apply the transforms inside setGhostsByAnchor.
 
 import type { LithoLayerSuggestion } from '../api/client'
 import type { BulkAnchorGhost, LithoSuggestionEdit } from '../hooks/useGeologicalModel'
@@ -119,6 +116,110 @@ export function mergeLithoLayers(
   }
   const priorUpperEdit = newEdits.get(upperIdx) ?? {}
   newEdits.set(upperIdx, { ...priorUpperEdit, depth_base_m: lowerEffectiveBase })
+
+  return {
+    ...ghost,
+    suggestions: newSuggestions,
+    accepted: newAccepted,
+    rejected: newRejected,
+    edits: newEdits,
+  }
+}
+
+/**
+ * Absorb a neighbour into ``draggerIdx`` in the given direction.
+ *
+ * The dragger's depth extends to cover the absorbed neighbour's outer
+ * edge; the neighbour is removed from the ghost list; the dragger's
+ * composition (lithology + admixtures) is preserved unchanged.  The
+ * neighbour's composition, accepted/rejected state, and depth edits are
+ * all discarded.
+ *
+ * Direction semantics:
+ *   ``'down'`` — absorb the layer BELOW (index ``draggerIdx + 1``).
+ *                Dragger's ``depth_base_m`` extends to the absorbed
+ *                layer's effective ``depth_base_m``.
+ *   ``'up'``   — absorb the layer ABOVE (index ``draggerIdx - 1``).
+ *                Dragger's ``depth_top_m`` extends to the absorbed
+ *                layer's effective ``depth_top_m``.
+ *
+ * This function does NOT validate that the neighbour exists or is
+ * pending — the drag handler gate-checks those conditions before
+ * calling (``absorbPending !== null``).
+ *
+ * Pure: returns a new ``BulkAnchorGhost``.  Pass through
+ * ``setGhostsByAnchor`` in ``useGeologicalModel.handleAbsorbLithoLayer``.
+ *
+ * Parameters
+ * ----------
+ * ghost
+ *     The anchor's current ghost state.
+ * draggerIdx
+ *     Index of the layer being dragged (the one that wins the absorb).
+ * direction
+ *     ``'down'`` to absorb the lower neighbour; ``'up'`` for the upper.
+ *
+ * Returns
+ * -------
+ * BulkAnchorGhost
+ *     New ghost with the neighbour removed + dragger depth extended +
+ *     all indices > absorbedIdx shifted down by 1.
+ */
+export function absorbLithoLayer(
+  ghost: BulkAnchorGhost,
+  draggerIdx: number,
+  direction: 'up' | 'down',
+): BulkAnchorGhost {
+  const absorbedIdx = direction === 'down' ? draggerIdx + 1 : draggerIdx - 1
+  const absorbed = ghost.suggestions[absorbedIdx]
+  const absorbedEdit = ghost.edits.get(absorbedIdx)
+
+  // Resolve the absorbed neighbour's outer edge (the edge furthest from
+  // the dragger — this is where the dragger extends to).
+  const newOuterDepth =
+    direction === 'down'
+      ? (absorbedEdit?.depth_base_m ?? absorbed.depth_base_m)
+      : (absorbedEdit?.depth_top_m ?? absorbed.depth_top_m)
+
+  // Remove the absorbed layer from suggestions; all other layers keep
+  // their relative order.
+  const newSuggestions = [
+    ...ghost.suggestions.slice(0, absorbedIdx),
+    ...ghost.suggestions.slice(absorbedIdx + 1),
+  ]
+
+  // Indices > absorbedIdx shift down by 1.  The dragger's index may
+  // change if it was ABOVE the absorbed layer (direction='up', so
+  // draggerIdx > absorbedIdx is impossible — draggerIdx = absorbedIdx+1;
+  // after dropping absorbedIdx, the dragger lands at absorbedIdx).
+  const shift = (i: number): number => (i > absorbedIdx ? i - 1 : i)
+  const newDraggerIdx = shift(draggerIdx)
+
+  const newAccepted = new Set<number>()
+  for (const i of ghost.accepted) {
+    if (i === absorbedIdx) continue // absorbed layer's accepted state dropped
+    newAccepted.add(shift(i))
+  }
+  const newRejected = new Set<number>()
+  for (const i of ghost.rejected) {
+    if (i === absorbedIdx) continue // absorbed layer's rejected state dropped
+    newRejected.add(shift(i))
+  }
+
+  // Edits Map: drop the absorbed layer's edit; shift all remaining keys;
+  // then patch the dragger's edit to extend its depth to the outer edge.
+  // The dragger's existing composition / opposite depth edits are preserved.
+  const newEdits = new Map<number, LithoSuggestionEdit>()
+  for (const [k, v] of ghost.edits) {
+    if (k === absorbedIdx) continue // absorbed layer's edit discarded
+    newEdits.set(shift(k), v)
+  }
+  const priorDraggerEdit = newEdits.get(newDraggerIdx) ?? {}
+  const depthPatch: LithoSuggestionEdit =
+    direction === 'down'
+      ? { ...priorDraggerEdit, depth_base_m: newOuterDepth }
+      : { ...priorDraggerEdit, depth_top_m: newOuterDepth }
+  newEdits.set(newDraggerIdx, depthPatch)
 
   return {
     ...ghost,
