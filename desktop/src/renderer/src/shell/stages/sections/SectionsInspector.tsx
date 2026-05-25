@@ -10,9 +10,11 @@
 //
 // All state is sourced from useShell() — no props accepted.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
   Eraser,
   Info,
   Pencil,
@@ -289,6 +291,23 @@ export default function SectionsInspector(): JSX.Element {
 // InspectorSection — collapsible section header + content slot
 // ---------------------------------------------------------------------------
 
+// localStorage key pattern: sections-inspector-collapse:<label-slug>
+// Value: 'open' | 'closed'. Default is 'open' for first-time users.
+function inspectorCollapseKey(label: string): string {
+  return `sections-inspector-collapse:${label.toLowerCase().replace(/\s+/g, '-')}`
+}
+
+function loadCollapseState(label: string): boolean {
+  // Returns true = open, false = closed. Default open.
+  try {
+    const raw = localStorage.getItem(inspectorCollapseKey(label))
+    if (raw === 'closed') return false
+  } catch {
+    // localStorage unavailable — default open.
+  }
+  return true
+}
+
 interface InspectorSectionProps {
   label: string
   count?: number
@@ -298,12 +317,22 @@ interface InspectorSectionProps {
 }
 
 /**
- * Labelled section of the inspector panel.
+ * Collapsible labelled section of the Sections-stage inspector panel.
+ *
+ * The chevron header toggles content visibility; collapse state is
+ * persisted to localStorage keyed by ``label`` so the user's choices
+ * survive page refreshes.  Default state is open (first-time users see
+ * everything).
+ *
+ * The header is a ``<button>`` with ``aria-expanded`` + ``aria-controls``
+ * so keyboard users can toggle with Space / Enter and screen readers
+ * announce the open/closed state.
  *
  * Parameters
  * ----------
  * label
- *     Header text for this inspector section.
+ *     Header text for this inspector section (also used as the
+ *     localStorage key discriminator — keep it unique per section).
  * count
  *     Optional count shown after the label.
  * badge
@@ -316,7 +345,7 @@ interface InspectorSectionProps {
  * Returns
  * -------
  * JSX.Element
- *     The labelled section element.
+ *     The labelled collapsible section element.
  */
 function InspectorSection({
   label,
@@ -325,9 +354,37 @@ function InspectorSection({
   badgeAmber,
   children,
 }: InspectorSectionProps): JSX.Element {
+  const [open, setOpen] = useState<boolean>(() => loadCollapseState(label))
+  const panelId = `sections-inspector-panel-${label.toLowerCase().replace(/\s+/g, '-')}`
+
+  const toggle = useCallback(() => {
+    setOpen(prev => {
+      const next = !prev
+      try {
+        localStorage.setItem(inspectorCollapseKey(label), next ? 'open' : 'closed')
+      } catch {
+        // localStorage unavailable — no-op.
+      }
+      return next
+    })
+  }, [label])
+
+  const Chevron = open ? ChevronDown : ChevronRight
+
   return (
     <div className="border-b border-border-subtle last:border-0">
-      <div className="flex items-center gap-1.5 px-3 py-2 bg-surface-card">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={toggle}
+        className="w-full flex items-center gap-1.5 px-3 py-2 bg-surface-card hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent text-left transition-colors"
+      >
+        <Chevron
+          size={12}
+          className="text-text-muted shrink-0"
+          aria-hidden="true"
+        />
         <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide">
           {label}
         </span>
@@ -346,8 +403,12 @@ function InspectorSection({
             {badge}
           </span>
         )}
-      </div>
-      <div className="px-3 py-2">{children}</div>
+      </button>
+      {open && (
+        <div id={panelId} className="px-3 py-2">
+          {children}
+        </div>
+      )}
     </div>
   )
 }
