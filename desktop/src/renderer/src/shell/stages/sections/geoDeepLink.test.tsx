@@ -1,0 +1,606 @@
+// Geo deep-link tests (dogfeed 2026-05-25, Slice 6).
+//
+// GD1 — right-click on a reference (geological backdrop) contact hit-strip
+//        in the litho section view → the contact context menu opens with the
+//        "Edit in Geology stage" item present.
+//
+// GD2 — clicking "Edit in Geology stage" calls the onEditInGeologyStage
+//        callback with the correct contactId + formationId args, and the
+//        menu does NOT show Delete / Pinch-out for reference contacts.
+//
+// GD3 — GeologyInspector mounts with a non-null ``geoDeepLinkTarget`` →
+//        ``handleFocusContacts`` is called with the contact id.
+//
+// GD4 — GeologyInspector calls ``setGeoDeepLinkTarget(null)`` after
+//        consuming the payload so a re-mount does not re-fire the focus.
+//
+// GD1/GD2 exercise ContactsLayer (the hit-strip + menu item surface).
+// GD3/GD4 exercise GeologyInspector (the payload consumer + clear).
+
+import { render, cleanup, fireEvent, screen, act } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// ---------------------------------------------------------------------------
+// GD1 / GD2  — ContactsLayer ref-contact hit-strip + menu item
+// ---------------------------------------------------------------------------
+
+import ContactsLayer from '../../../components/sections/ContactsLayer'
+import type {
+  FormationContactResponse,
+  GeologicalFormationResponse,
+} from '../../../api/client'
+import type { PlacedColumn } from '../../../components/sections/utils'
+
+// Minimal PlacedColumn that satisfies all required PlacedColumnBase fields.
+const makePlacedColumn = (anchorId: string): PlacedColumn =>
+  ({
+    kind: 'borehole',
+    nudgedX: 100,
+    trueX: 100,
+    displaced: false,
+    width: 40,
+    proj: {
+      along: 0,
+      offset: 0,
+      perpOffset: 0,
+      item: { id: anchorId, elevation_m: 10 } as PlacedColumn['proj']['item'],
+    },
+  }) as PlacedColumn
+
+const makeContact = (
+  id: string,
+  formationId: string,
+  anchorId: string,
+): FormationContactResponse =>
+  ({
+    id,
+    model_id: 'model-1',
+    formation_id: formationId,
+    depth_top_m: 2,
+    borehole_id: anchorId,
+    cpt_id: null,
+    synthetic_x: null,
+    synthetic_y: null,
+    synthetic_elevation_m: null,
+    source: 'manual_pick',
+    confidence: 'high',
+    observation_id: null,
+    observation_layer_id: null,
+    notes: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }) as FormationContactResponse
+
+const makeFormation = (id: string, name: string): GeologicalFormationResponse =>
+  ({
+    id,
+    name,
+    regional_ref: null,
+    color: '#aabbcc',
+    display_order: 0,
+    pinned_order: false,
+    app_project_id: 'proj-1',
+    code: null,
+    description: null,
+    lithology: null,
+    nad_class: null,
+    parent_formation_id: null,
+    parent_formation_name: null,
+    parent_extrapolated: false,
+    litho_main_soil_code: null,
+    litho_admixtures: null,
+    instance_ordinal: null,
+    instance_ordinal_locked: false,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }) as GeologicalFormationResponse
+
+// Wrap ContactsLayer in a minimal SVG so SVGElement methods don't throw.
+function renderContactsLayer(
+  props: Parameters<typeof ContactsLayer>[0],
+): ReturnType<typeof render> {
+  return render(
+    <svg width="600" height="400" data-testid="section-svg">
+      <ContactsLayer {...props} />
+    </svg>,
+  )
+}
+
+describe('GD1 — right-click reference contact shows "Edit in Geology stage" menu item', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('renders the context menu with geo-deep-link-menu-item on right-click', () => {
+    const onEditInGeologyStage = vi.fn()
+    const anchorId = 'borehole-1'
+    const contactId = 'ref-contact-1'
+    const formationId = 'formation-1'
+
+    renderContactsLayer({
+      contacts: [],
+      formations: [],
+      placedColumns: [makePlacedColumn(anchorId)],
+      levelToScreen: (level) => (10 - level) * 20,
+      plotTop: 0,
+      plotBottom: 400,
+      referenceContacts: [makeContact(contactId, formationId, anchorId)],
+      referenceFormations: [makeFormation(formationId, 'Boom Klei')],
+      onEditInGeologyStage,
+    })
+
+    const strip = document.querySelector('[data-testid="ref-contact-drag-strip"]')
+    expect(strip).not.toBeNull()
+
+    fireEvent.contextMenu(strip!)
+    const menuItem = screen.getByTestId('geo-deep-link-menu-item')
+    expect(menuItem).toBeTruthy()
+    expect(menuItem.textContent).toBe('Edit in Geology stage')
+  })
+
+  it('does NOT render a hit-strip when onEditInGeologyStage is absent', () => {
+    const anchorId = 'borehole-1'
+    const contactId = 'ref-contact-1'
+    const formationId = 'formation-1'
+
+    renderContactsLayer({
+      contacts: [],
+      formations: [],
+      placedColumns: [makePlacedColumn(anchorId)],
+      levelToScreen: (level) => (10 - level) * 20,
+      plotTop: 0,
+      plotBottom: 400,
+      referenceContacts: [makeContact(contactId, formationId, anchorId)],
+      referenceFormations: [makeFormation(formationId, 'Boom Klei')],
+      // onEditInGeologyStage absent — hit-strips must not render
+    })
+
+    const strip = document.querySelector('[data-testid="ref-contact-drag-strip"]')
+    expect(strip).toBeNull()
+  })
+})
+
+describe('GD2 — clicking "Edit in Geology stage" calls the callback with correct args', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('fires onEditInGeologyStage with the contact id + formation id', () => {
+    const onEditInGeologyStage = vi.fn()
+    const anchorId = 'borehole-1'
+    const contactId = 'ref-contact-1'
+    const formationId = 'formation-1'
+
+    renderContactsLayer({
+      contacts: [],
+      formations: [],
+      placedColumns: [makePlacedColumn(anchorId)],
+      levelToScreen: (level) => (10 - level) * 20,
+      plotTop: 0,
+      plotBottom: 400,
+      referenceContacts: [makeContact(contactId, formationId, anchorId)],
+      referenceFormations: [makeFormation(formationId, 'Boom Klei')],
+      onEditInGeologyStage,
+    })
+
+    const strip = document.querySelector('[data-testid="ref-contact-drag-strip"]')!
+    fireEvent.contextMenu(strip)
+
+    const menuItem = screen.getByTestId('geo-deep-link-menu-item')
+    fireEvent.click(menuItem)
+
+    expect(onEditInGeologyStage).toHaveBeenCalledTimes(1)
+    expect(onEditInGeologyStage).toHaveBeenCalledWith(contactId, formationId)
+  })
+
+  it('does NOT render Delete or Pinch-out items for reference contacts', () => {
+    const onEditInGeologyStage = vi.fn()
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const anchorId = 'borehole-1'
+    const contactId = 'ref-contact-1'
+    const formationId = 'formation-1'
+
+    renderContactsLayer({
+      contacts: [],
+      formations: [],
+      placedColumns: [makePlacedColumn(anchorId)],
+      levelToScreen: (level) => (10 - level) * 20,
+      plotTop: 0,
+      plotBottom: 400,
+      referenceContacts: [makeContact(contactId, formationId, anchorId)],
+      referenceFormations: [makeFormation(formationId, 'Boom Klei')],
+      onEditInGeologyStage,
+      onDeleteContact,
+    })
+
+    const strip = document.querySelector('[data-testid="ref-contact-drag-strip"]')!
+    fireEvent.contextMenu(strip)
+
+    // Reference contact menu: no Delete, no Pinch-out, only deep-link item
+    expect(screen.queryByText('Delete contact')).toBeNull()
+    expect(screen.queryByText(/Extrapolate pinch-out/)).toBeNull()
+    expect(screen.getByTestId('geo-deep-link-menu-item')).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GD3 / GD4  — GeologyInspector payload consumer + clear
+// ---------------------------------------------------------------------------
+
+import { ShellContext } from '../../ShellContext'
+import type { ShellContextValue } from '../../ShellContext'
+import GeologyInspector from '../geology/GeologyInspector'
+
+vi.mock('../../../api/client', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
+  return {
+    ...actual,
+    setBaseUrl: vi.fn(),
+    api: {
+      geology: {
+        validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+      },
+    },
+  }
+})
+
+vi.mock('../../../components/interpretation/FormationDialog', () => ({
+  default: () => null,
+}))
+
+const noopAsync = (): Promise<void> => Promise.resolve()
+const noopAsyncNull = (): Promise<null> => Promise.resolve(null)
+const noopAsyncNullableModel =
+  (): Promise<import('../../../api/client').GeologicalModelResponse | null> =>
+    Promise.resolve(null)
+const noopAsyncCandidates = (): Promise<{
+  candidates: import('../../../hooks/useGeologicalModel').FormationCandidate[]
+  collisions: import('../../../hooks/useGeologicalModel').LumpingCollision[]
+}> => Promise.resolve({ candidates: [], collisions: [] })
+
+function makeStubContext(overrides?: {
+  geoDeepLinkTarget?: { sectionId: string; contactId: string } | null
+  setGeoDeepLinkTarget?: (target: { sectionId: string; contactId: string } | null) => void
+  handleFocusContacts?: (ids: readonly string[]) => void
+}): ShellContextValue {
+  const handleFocusContacts = overrides?.handleFocusContacts ?? vi.fn()
+  const setGeoDeepLinkTarget = overrides?.setGeoDeepLinkTarget ?? vi.fn()
+  const geoDeepLinkTarget = overrides?.geoDeepLinkTarget ?? null
+
+  return {
+    project: {
+      id: 'proj-1',
+      name: 'Test Project',
+      project_number: null,
+      client: null,
+      site_label: null,
+      description: null,
+      tags: [],
+      default_horizontal_epsg: 31370,
+      default_vertical_epsg: 5710,
+      phase: 'design',
+      status: 'active',
+      view_state: {},
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      archived_at: null,
+    },
+    lifecycle: {
+      projectDirty: false,
+      newProjectOpen: false,
+      setNewProjectOpen: vi.fn(),
+      metadataEditorOpen: false,
+      setMetadataEditorOpen: vi.fn(),
+      closeConfirmOpen: false,
+      setCloseConfirmOpen: vi.fn(),
+      unsavedDialogOpen: false,
+      unsavedSaving: false,
+      saveProject: () => Promise.resolve(true),
+      discardSessionImports: vi.fn(),
+      handleCloseProjectRequest: vi.fn(),
+      handleUnsavedSave: noopAsync,
+      handleUnsavedDiscard: vi.fn(),
+      handleUnsavedCancel: vi.fn(),
+      stageLumping: vi.fn(),
+      currentLumping: null,
+    },
+    investigations: {
+      cpts: [],
+      boreholes: [],
+      detailMap: new Map(),
+      plotMap: new Map(),
+      boreholeDetailMap: new Map(),
+      importing: false,
+      dovImporting: false,
+      dovImportState: { status: 'idle' } as const,
+      resetDovImport: vi.fn(),
+      bboxImportType: null,
+      removedCptIds: new Set(),
+      removedBoreholeIds: new Set(),
+      refreshList: noopAsync,
+      refreshBoreholeList: noopAsync,
+      loadCptDetail: noopAsync,
+      loadChart: noopAsync,
+      loadBoreholeDetail: noopAsync,
+      cancelBboxDraw: vi.fn(),
+      unhideCpts: vi.fn(),
+      unhideBoreholes: vi.fn(),
+      handleRemoveCpts: vi.fn(),
+      handleRemoveBoreholes: vi.fn(),
+      handleRestoreAllCpts: vi.fn(),
+      handleRestoreAllBoreholes: vi.fn(),
+      handlePatchCptElevation: noopAsync,
+      handlePatchBoreholeElevation: noopAsync,
+      handleImportCpt: noopAsync,
+      handleImportDov: vi.fn(),
+      handleImportBoreholeDov: vi.fn(),
+      handleBboxDrawn: noopAsync,
+      pendingCptPins: [],
+    },
+    visibleCpts: [],
+    visibleBoreholes: [],
+    geoModel: {
+      activeGeologicalModel: null,
+      models: [],
+      activeLithoModel: null,
+      handleCreateLithoModel: async () => null,
+      handleActivateLithoModel: async () => {},
+      lithoContacts: [],
+      lithoFormations: [],
+      lithoSurfacesByFormationId: new Map(),
+      handleCreateLithoContact: noopAsync,
+      handleInlineLithoCreateFormation: noopAsyncNull,
+      formations: [],
+      visibleFormations: [],
+      formationsRefreshCounter: 0,
+      contacts: [],
+      surfacesByFormationId: new Map(),
+      crossingsRefreshCounter: 0,
+      staleSurfaceCount: 0,
+      handleFormationCreated: vi.fn(),
+      handleFormationUpdated: vi.fn(),
+      handleFormationDeleted: vi.fn(),
+      handleInlineCreateFormation: noopAsyncNull,
+      refetchFormations: vi.fn(),
+      handleCreateContact: noopAsync,
+      handleUpdateContactDepth: noopAsync,
+      handleBatchCreateContacts: noopAsync,
+      handleBatchUpdateContacts: noopAsync,
+      handleDeleteContact: noopAsync,
+      handleAutoPopulateFromStratigraphy: noopAsync,
+      handleSeedLithoFromParent: noopAsync,
+      handleDedupeContacts: () => Promise.resolve(0),
+      handleRebuildSurfaces: noopAsync,
+      handleExportModelPlaxis3d: noopAsync,
+      handleToggleBoreholeInModel: noopAsync,
+      discardContacts: vi.fn(),
+      discoverBoreholeFormations: noopAsyncCandidates,
+      applyBoreholeFormationSelection: noopAsync,
+      handleDeleteModel: noopAsync,
+      ensureActiveGeologicalModel: noopAsyncNullableModel,
+      ghostsByAnchor: new Map(),
+      focusedSuggestAnchorId: null,
+      handleEditLithoSuggestion: () => {},
+      bulkLithoSuggesting: false,
+      handleSuggestAllLitho: async () => {},
+      handleAcceptBulkLitho: async () => {},
+      handleAcceptAllBulkLitho: async () => {},
+      handleRejectBulkLitho: () => {},
+      handleUnrejectBulkLitho: () => {},
+      handleEditBulkLitho: () => {},
+      handleInsertLithoLayer: vi.fn(),
+      handleSplitLithoLayer: vi.fn(),
+      handleMergeLithoLayers: vi.fn(),
+      handleAbsorbLithoLayer: vi.fn(),
+      clearBulkLithoGhosts: () => {},
+      handleStripLithoAdmixtures: () => {},
+      handleReseedLithoAdmixtures: () => {},
+      handleClearLithoModel: noopAsync,
+      refetchLithoContacts: () => {},
+      lithoSuggesting: false,
+      handleSuggestLitho: noopAsync,
+      handleAcceptLithoSuggestion: noopAsync,
+      handleAcceptAllLithoSuggestions: noopAsync,
+      handleRejectLithoSuggestion: vi.fn(),
+      handleUnrejectLithoSuggestion: vi.fn(),
+      clearLithoSuggestions: vi.fn(),
+      pinchOutPreview: null,
+      pinchOutLoading: false,
+      handlePreviewPinchOut: async () => false,
+      handleCommitPinchOut: noopAsync,
+      clearPinchOutPreview: vi.fn(),
+      handleDeleteLithoModel: noopAsync,
+      backdropSurfacesByFormationId: new Map(),
+      handleLoadBackdropSurfaces: noopAsync,
+      lithoStaleSurfaceCount: 0,
+      lithoStaleTinSessionCount: 0,
+      handleRebuildLithoSurfaces: noopAsync,
+      handleAutoCorrelate: noopAsync,
+    },
+    sections: {
+      sections: [],
+      selectedSectionId: null,
+      drawingSection: false,
+      focusedContactIds: [],
+      visibleSections: [],
+      effectiveHorizontalEpsg: 31370,
+      sectionModelAxis: 'geological' as const,
+      setSectionModelAxis: vi.fn(),
+      backdropModelIdOverride: null,
+      setBackdropModelIdOverride: vi.fn(),
+      refreshSectionList: noopAsync,
+      clearSectionSelection: vi.fn(),
+      handleSectionCreated: vi.fn(),
+      handleSectionDeleted: vi.fn(),
+      handleCreateSection: noopAsyncNull,
+      cancelSectionDraw: vi.fn(),
+      handleSectionLineDrawn: noopAsync,
+      handleDeleteSection: noopAsync,
+      handlePatchSelectedSection: noopAsync,
+      handleSelectSection: vi.fn(),
+      handleFocusContacts,
+      applyUpdatedSection: vi.fn(),
+      sectionFocusedColumn: null,
+      setSectionFocusedColumn: vi.fn(),
+      correlateMode: false,
+      correlationSource: null,
+      enterCorrelateMode: vi.fn(),
+      exitCorrelateMode: vi.fn(),
+      armCorrelationSource: vi.fn(),
+      clearCorrelationSource: vi.fn(),
+    },
+    overlays: {
+      demSource: null,
+      demOverlay: { enabled: false, opacity: 0.6 },
+      handleDemOverlayChange: noopAsync,
+      virtueleBoringOverlay: { modelA: null, modelB: null, maxDepthM: null },
+      virtueleBoringSectionModels: [],
+      virtueleBoringPredictions: [],
+      virtueleBoringLoading: false,
+      virtueleBoringSkippedCount: 0,
+      virtueleBoringPredictionByInvestigationId: new Map(),
+      cptEffectiveModels: [],
+      boreholeEffectiveModels: [],
+      showOverlayOnSection: false,
+      showOverlayOnCpt: false,
+      showOverlayOnBorehole: false,
+      cptVirtueleBoringOverride: '',
+      boreholeVirtueleBoringOverride: '',
+      handleChangeVirtueleBoringPicker: noopAsync,
+      handleSetShowOverlay: vi.fn(),
+      handleSetOverlayOverride: vi.fn(),
+      showConfidenceFade: true,
+      handleSetShowConfidenceFade: vi.fn(),
+    },
+    toasts: {
+      toasts: [],
+      toast: vi.fn(),
+    },
+    undo: {
+      push: vi.fn(),
+      undo: noopAsync,
+      redo: noopAsync,
+      clear: vi.fn(),
+      canUndo: false,
+      canRedo: false,
+      busy: false,
+    },
+    boot: { ready: true, apiError: false },
+    mapState: {
+      hiddenCptTypes: new Set(),
+      hiddenBoreholeValues: {
+        drill_method: new Set<string>(),
+        borehole_type: new Set<string>(),
+      },
+      boreholeAxis: 'drill_method',
+      viewportBounds: null,
+      mapCameraRef: { current: null },
+      handleToggleCptType: vi.fn(),
+      handleToggleBoreholeValue: vi.fn(),
+      setBoreholeAxis: vi.fn(),
+      handleViewportChange: vi.fn(),
+      handleMapCameraChange: vi.fn(),
+    },
+    coordinator: {
+      selectedId: null,
+      selectedBoreholeId: null,
+      setSelectedId: vi.fn(),
+      setSelectedBoreholeId: vi.fn(),
+      view: 'map',
+      setView: vi.fn(),
+      handleSelect: noopAsync,
+      handleSelectBorehole: noopAsync,
+      handleExportSectionDxf: noopAsync,
+      handleExportSectionPlaxis2d: noopAsync,
+      handleExportSectionPdf: vi.fn(),
+      outOfViewportCptIds: new Set(),
+      outOfViewportBoreholeIds: new Set(),
+      projectFilePath: null,
+      manifestFormationIds: new Set(),
+      sessionImportCptIds: new Set(),
+      sessionImportBoreholeIds: new Set(),
+      sessionImportSectionIds: new Set(),
+      sessionImportFormationIds: new Set(),
+      marqueeSelectedIds: new Set(),
+      setMarqueeSelectedIds: vi.fn(),
+      hoveredTestId: null,
+      setHoveredTestId: vi.fn(),
+      geoDeepLinkTarget,
+      setGeoDeepLinkTarget,
+    },
+  }
+}
+
+describe('GD3 — GeologyInspector consumes geoDeepLinkTarget on mount', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  it('calls handleFocusContacts with the contact id when target is set', async () => {
+    const handleFocusContacts = vi.fn()
+    const setGeoDeepLinkTarget = vi.fn()
+    const ctx = makeStubContext({
+      geoDeepLinkTarget: { sectionId: 'section-1', contactId: 'contact-1' },
+      handleFocusContacts,
+      setGeoDeepLinkTarget,
+    })
+
+    await act(async () => {
+      render(
+        <ShellContext.Provider value={ctx}>
+          <GeologyInspector />
+        </ShellContext.Provider>,
+      )
+    })
+
+    expect(handleFocusContacts).toHaveBeenCalledTimes(1)
+    expect(handleFocusContacts).toHaveBeenCalledWith(['contact-1'])
+  })
+
+  it('does NOT call handleFocusContacts when geoDeepLinkTarget is null', async () => {
+    const handleFocusContacts = vi.fn()
+    const ctx = makeStubContext({ geoDeepLinkTarget: null, handleFocusContacts })
+
+    await act(async () => {
+      render(
+        <ShellContext.Provider value={ctx}>
+          <GeologyInspector />
+        </ShellContext.Provider>,
+      )
+    })
+
+    expect(handleFocusContacts).not.toHaveBeenCalled()
+  })
+})
+
+describe('GD4 — GeologyInspector clears payload after first apply', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  it('calls setGeoDeepLinkTarget(null) to clear the bus after consuming the contact id', async () => {
+    const handleFocusContacts = vi.fn()
+    const setGeoDeepLinkTarget = vi.fn()
+    const ctx = makeStubContext({
+      geoDeepLinkTarget: { sectionId: 'section-1', contactId: 'contact-42' },
+      handleFocusContacts,
+      setGeoDeepLinkTarget,
+    })
+
+    await act(async () => {
+      render(
+        <ShellContext.Provider value={ctx}>
+          <GeologyInspector />
+        </ShellContext.Provider>,
+      )
+    })
+
+    // The inspector must clear the target after consuming it so a
+    // re-mount does not re-fire the focus.
+    expect(setGeoDeepLinkTarget).toHaveBeenCalledTimes(1)
+    expect(setGeoDeepLinkTarget).toHaveBeenCalledWith(null)
+  })
+})
