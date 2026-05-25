@@ -18,19 +18,31 @@
 //   CT6  Switching the axis from lithostratigraphic back to geological
 //        invokes setSectionModelAxis('geological') — the toolbar delegates
 //        clearing correlate mode to the useSections axis-switch wrapper.
+//
+//   Auto-correlate pre-check (Slice 4 Half-A) — handleAutoCorrelateWithCheck:
+//   ACW1 0 existing auto edges → fires handleAutoCorrelate immediately (no dialog).
+//   ACW2 N>0 existing auto edges → opens ReCorrelateConfirmDialog instead of
+//        firing immediately.
+//   ACW3 listCorrelations API error → toasts an error, does NOT open dialog,
+//        does NOT fire handleAutoCorrelate.
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, act } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
-import type { GeologicalModelResponse } from '../../../api/client'
+import { api } from '../../../api/client'
+import type { GeologicalModelResponse, LithoCorrelationEdge } from '../../../api/client'
 import SectionsToolbar from './SectionsToolbar'
 
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
 
+// vi.mock is hoisted — the factory must NOT reference top-level `const`
+// variables declared in the test module (TDZ). All mock functions are
+// created inside the factory so they are available at hoist time.
+// The ACW tests override them per-call with .mockResolvedValueOnce().
 vi.mock('../../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
   return {
@@ -39,6 +51,16 @@ vi.mock('../../../api/client', async () => {
     api: {
       geology: {
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+        // Default: empty list → ACW1 branch (no dialog). ACW tests override
+        // with .mockResolvedValueOnce() via the imported api object.
+        listCorrelations: vi.fn().mockResolvedValue([]),
+        deleteAutoCorrelations: vi.fn().mockResolvedValue({ deleted: 0 }),
+        autoCorrelate: vi.fn().mockResolvedValue({
+          edges_created: 0,
+          edges_skipped_existing: 0,
+          formations_recomputed: 0,
+          wedge_tips_materialised: 0,
+        }),
       },
       virtueleBoring: {
         getModels: vi.fn().mockResolvedValue([]),
@@ -79,6 +101,16 @@ function makeLithoModel(): GeologicalModelResponse {
   }
 }
 
+function makeAutoEdge(id: string): LithoCorrelationEdge {
+  return {
+    id,
+    formation_a_id: 'fa-1',
+    formation_b_id: 'fb-1',
+    source: 'auto',
+    created_at: '2026-01-01T00:00:00Z',
+  }
+}
+
 function makeCtx(overrides: {
   activeLithoModel?: GeologicalModelResponse | null
   sectionModelAxis?: 'geological' | 'lithostratigraphic'
@@ -87,10 +119,13 @@ function makeCtx(overrides: {
   correlateMode?: boolean
   enterCorrelateMode?: () => void
   exitCorrelateMode?: () => void
+  handleAutoCorrelate?: () => Promise<void>
+  toast?: () => void
 } = {}): ShellContextValue {
   const setSectionModelAxis = overrides.setSectionModelAxis ?? vi.fn()
   const enterCorrelateMode = overrides.enterCorrelateMode ?? vi.fn()
   const exitCorrelateMode = overrides.exitCorrelateMode ?? vi.fn()
+  const toastFn = overrides.toast ?? vi.fn()
 
   return {
     project: {
@@ -224,6 +259,10 @@ function makeCtx(overrides: {
       handleRejectBulkLitho: () => {},
       handleUnrejectBulkLitho: () => {},
       handleEditBulkLitho: () => {},
+      handleInsertLithoLayer: vi.fn(),
+      handleSplitLithoLayer: vi.fn(),
+      handleMergeLithoLayers: vi.fn(),
+      handleAbsorbLithoLayer: vi.fn(),
       clearBulkLithoGhosts: () => {},
       handleStripLithoAdmixtures: () => {},
       handleReseedLithoAdmixtures: () => {},
@@ -245,8 +284,9 @@ function makeCtx(overrides: {
       backdropSurfacesByFormationId: new Map(),
       handleLoadBackdropSurfaces: noopAsync,
       lithoStaleSurfaceCount: 0,
+      lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
-      handleAutoCorrelate: noopAsync,
+      handleAutoCorrelate: overrides.handleAutoCorrelate ?? noopAsync,
     },
     sections: {
       sections: overrides.selectedSectionId
@@ -302,18 +342,21 @@ function makeCtx(overrides: {
       handleChangeVirtueleBoringPicker: noopAsync,
       handleSetShowOverlay: vi.fn(),
       handleSetOverlayOverride: vi.fn(),
+      showConfidenceFade: true,
+      handleSetShowConfidenceFade: vi.fn(),
     },
     coordinator: {
       selectedId: null,
       selectedBoreholeId: null,
       setSelectedId: vi.fn(),
       setSelectedBoreholeId: vi.fn(),
-      view: 'data',
+      view: 'map',
       setView: vi.fn(),
-      handleSelect: vi.fn(),
-      handleSelectBorehole: vi.fn(),
+      handleSelect: noopAsync,
+      handleSelectBorehole: noopAsync,
       handleExportSectionDxf: noopAsync,
       handleExportSectionPlaxis2d: noopAsync,
+      handleExportSectionPdf: vi.fn(),
       outOfViewportCptIds: new Set(),
       outOfViewportBoreholeIds: new Set(),
       projectFilePath: null,
@@ -331,8 +374,12 @@ function makeCtx(overrides: {
     },
     mapState: {
       hiddenCptTypes: new Set(),
-      hiddenBoreholeValues: new Set(),
-      boreholeAxis: 'none',
+      hiddenBoreholeValues: {
+        drill_method: new Set<string>(),
+        borehole_type: new Set<string>(),
+      },
+      boreholeAxis: 'drill_method',
+      viewportBounds: null,
       mapCameraRef: { current: null },
       handleToggleCptType: vi.fn(),
       handleToggleBoreholeValue: vi.fn(),
@@ -340,8 +387,7 @@ function makeCtx(overrides: {
       handleViewportChange: vi.fn(),
       handleMapCameraChange: vi.fn(),
     },
-    toasts: [],
-    toast: vi.fn(),
+    toasts: { toasts: [], toast: toastFn },
     undo: {
       push: vi.fn(),
       undo: noopAsync,
@@ -351,8 +397,7 @@ function makeCtx(overrides: {
       canRedo: false,
       busy: false,
     },
-    ready: true,
-    apiError: null,
+    boot: { ready: true, apiError: false },
   } as unknown as ShellContextValue
 }
 
@@ -369,7 +414,7 @@ function renderWith(ctx: ShellContextValue) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — Correlate mode button (CT1–CT6)
 // ---------------------------------------------------------------------------
 
 describe('SectionsToolbar Correlate button (Slice 4)', () => {
@@ -459,5 +504,133 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
     const geoBtn = screen.getByRole('radio', { name: /geology/i })
     fireEvent.click(geoBtn)
     expect(setSectionModelAxis).toHaveBeenCalledWith('geological')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests — Auto-correlate pre-check (Slice 4 Half-A — ACW1–ACW3)
+//
+// handleAutoCorrelateWithCheck:
+//   1. GET listCorrelations → count source='auto' edges.
+//   2. autoCount === 0 → fire handleAutoCorrelate immediately (no dialog).
+//   3. autoCount > 0  → open ReCorrelateConfirmDialog.
+//
+// WHY these tests: the CT tests above only cover the "Correlate mode" toggle
+// button. handleAutoCorrelateWithCheck was never exercised by any Vitest test
+// before ACW1-ACW3 were added (dogfeed 2026-05-25 regression anchor). The
+// dialog wiring is correct in code but the missing tests left the pre-check
+// path un-anchored — any refactor that broke the source='auto' filter or
+// accidentally swapped the zero-branch logic would have been invisible.
+// ---------------------------------------------------------------------------
+
+describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => cleanup())
+
+  it('ACW1: 0 auto edges → fires handleAutoCorrelate immediately, no dialog', async () => {
+    // listCorrelations returns [] → autoCount = 0 → immediate fire.
+    vi.mocked(api.geology.listCorrelations).mockResolvedValueOnce([])
+    const handleAutoCorrelate = vi.fn().mockResolvedValue(undefined)
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        handleAutoCorrelate,
+      }),
+    )
+
+    const btn = screen.getByTestId('litho-auto-correlate')
+    await act(async () => { fireEvent.click(btn) })
+
+    // handleAutoCorrelate fires; the dialog must NOT open.
+    expect(handleAutoCorrelate).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('re-correlate-confirm-dialog')).toBeNull()
+  })
+
+  it('ACW1b: manual-only edges (source=manual) are NOT counted as auto edges', async () => {
+    // A manual edge must not trigger the dialog — only source='auto' counts.
+    const manualEdge: LithoCorrelationEdge = {
+      id: 'edge-manual-1',
+      formation_a_id: 'fa-1',
+      formation_b_id: 'fb-1',
+      source: 'manual',
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    vi.mocked(api.geology.listCorrelations).mockResolvedValueOnce([manualEdge])
+    const handleAutoCorrelate = vi.fn().mockResolvedValue(undefined)
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        handleAutoCorrelate,
+      }),
+    )
+
+    const btn = screen.getByTestId('litho-auto-correlate')
+    await act(async () => { fireEvent.click(btn) })
+
+    // Manual edges do not trigger the dialog — fires immediately.
+    expect(handleAutoCorrelate).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('re-correlate-confirm-dialog')).toBeNull()
+  })
+
+  it('ACW2: N>0 auto edges → dialog opens, handleAutoCorrelate NOT yet called', async () => {
+    // listCorrelations returns 3 auto edges → autoCount = 3 → dialog opens.
+    vi.mocked(api.geology.listCorrelations).mockResolvedValueOnce([
+      makeAutoEdge('edge-auto-1'),
+      makeAutoEdge('edge-auto-2'),
+      makeAutoEdge('edge-auto-3'),
+    ])
+    const handleAutoCorrelate = vi.fn().mockResolvedValue(undefined)
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        handleAutoCorrelate,
+      }),
+    )
+
+    const btn = screen.getByTestId('litho-auto-correlate')
+    await act(async () => { fireEvent.click(btn) })
+
+    // Dialog must be visible.
+    expect(screen.getByTestId('re-correlate-confirm-dialog')).not.toBeNull()
+    // handleAutoCorrelate must NOT have fired yet — that's the dialog's job.
+    expect(handleAutoCorrelate).not.toHaveBeenCalled()
+    // Dialog shows the edge count.
+    expect(screen.getByText('3')).not.toBeNull()
+  })
+
+  it('ACW3: listCorrelations error → toast error, no dialog, handleAutoCorrelate not called', async () => {
+    // Pre-check fails → toast error, clean up, no dialog.
+    vi.mocked(api.geology.listCorrelations).mockRejectedValueOnce(new Error('network failure'))
+    const handleAutoCorrelate = vi.fn()
+    const toast = vi.fn()
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        handleAutoCorrelate,
+        toast,
+      }),
+    )
+
+    const btn = screen.getByTestId('litho-auto-correlate')
+    await act(async () => { fireEvent.click(btn) })
+
+    // Error toast fired; dialog absent; handleAutoCorrelate never called.
+    expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('pre-check'))
+    expect(screen.queryByTestId('re-correlate-confirm-dialog')).toBeNull()
+    expect(handleAutoCorrelate).not.toHaveBeenCalled()
+    // Button should return to enabled state (autoCorrelating cleared in finally).
+    expect(btn).not.toBeDisabled()
   })
 })
