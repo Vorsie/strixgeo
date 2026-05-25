@@ -106,6 +106,8 @@ export default function PerUnitTab(): JSX.Element {
 function PhaseFiveHeader({ label }: { label: string }): JSX.Element {
   return (
     <th
+      aria-disabled="true"
+      aria-label={`${label} — Phase 5 (not yet available)`}
       className="px-2 py-1.5 text-left font-medium text-text-muted opacity-60"
       title="Phase-5 aggregate — populated when the correlation / xlsx pipeline lands."
     >
@@ -115,5 +117,13 @@ function PhaseFiveHeader({ label }: { label: string }): JSX.Element {
 }
 
 function PhaseFiveCell(): JSX.Element {
-  return <td className="px-2 py-1 text-text-muted opacity-50">—</td>
+  return (
+    <td
+      aria-disabled="true"
+      aria-label="Phase 5 — not yet available"
+      className="px-2 py-1 text-text-muted opacity-50"
+    >
+      —
+    </td>
+  )
 }
