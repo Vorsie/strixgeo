@@ -36,6 +36,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   FormationContactResponse,
   GeologicalFormationResponse,
+  LithoContactCorrelationEdge,
   LithoCorrelationEdge,
 } from '../../api/client'
 import LithoGhostCompositionEditor from '../interpretation/LithoGhostCompositionEditor'
@@ -50,6 +51,24 @@ import type { PlacedColumn } from './utils'
 
 /** Dash pattern for manually-drawn correlation edges. */
 const EDGE_DASH = '5 3'
+/** Stroke colour for contact-level correlation edges (#133 Phase 1).
+ *  Chosen as Tailwind emerald-500 to visually distinguish from the
+ *  formation-level blue edges.  Contact edges are point-to-point lines
+ *  between the topY of each correlated contact's band; no ribbon. */
+const CONTACT_EDGE_COLOR = '#10b981'
+/** Stroke width for contact-level edges — slightly thicker than body
+ *  edges so the two overlay types read distinctly when both are present. */
+const CONTACT_EDGE_WIDTH = 1.8
+/** Dash pattern for contact-level edges — solid (no dash) so they
+ *  contrast visually with the dashed formation-level lines. */
+const CONTACT_EDGE_DASH = 'none'
+/** Ambient opacity for contact-level edges (same policy as body edges). */
+const CONTACT_EDGE_OPACITY = 0.65
+/** Hit target height around each contact top-boundary line (±px), used
+ *  as the clickable rect height when contactCorrelateMode is active. */
+const CONTACT_HIT_HEIGHT = 12
+/** Stroke colour for armed contact boundary line. */
+const CONTACT_ARM_COLOR = '#34d399'
 /** Dash pattern for auto-correlated edges — tighter gap signals provisional. */
 const EDGE_DASH_AUTO = '3 5'
 /**
@@ -143,6 +162,30 @@ export interface CorrelateGestureState {
   ) => Promise<void>
 }
 
+/**
+ * Gesture state for the contact-level (boundary-to-boundary) correlate
+ * gesture (#133 Phase 1).  Separate from ``CorrelateGestureState`` so
+ * the new gesture does not break existing callers of the body-level path.
+ *
+ * State machine mirrors the body-level path: Idle → enterMode → Armed →
+ * fire onContactCorrelate → Idle.  The mode toggle is surfaced in the
+ * correlate-mode toolbar: a "Boundary" tab next to the existing "Body" tab.
+ */
+export interface ContactGestureState {
+  /** Whether boundary-click gesture mode is active (sub-mode of correlateMode). */
+  contactCorrelateMode: boolean
+  /** Id of the currently armed source contact, null when nothing armed. */
+  armedContactId: string | null
+  /** Arm a source contact by id. */
+  onArmContact: (contactId: string) => void
+  /** Clear armed state (stay in mode). */
+  onClearArmedContact: () => void
+  /** Fired when a valid target contact is clicked — POST contact edge. */
+  onContactCorrelate: (contactAId: string, contactBId: string) => Promise<void>
+  /** Fired when a contact edge is right-clicked → remove. */
+  onContactUncorrelate: (contactAId: string, contactBId: string) => Promise<void>
+}
+
 interface Props {
   /** Correlation edges for the active litho model. */
   edges: readonly LithoCorrelationEdge[]
@@ -186,6 +229,20 @@ interface Props {
    * (safe default for read-only or test contexts).
    */
   onRejectCorrelate?: (reason: string) => void
+  /**
+   * Contact-level correlation edges (#133 Phase 1).  When present, draws
+   * point-to-point lines between the topY of each correlated contact's
+   * band.  Absent / undefined = no contact-edge overlay.
+   */
+  contactEdges?: readonly LithoContactCorrelationEdge[]
+  /**
+   * Gesture state for the boundary-click correlate gesture (#133 Phase 1).
+   * When present alongside a truthy ``contactCorrelateMode``, hit-targets
+   * appear at the top boundary of each band so the user can click a
+   * contact line rather than a body body.
+   * Absent / undefined = read-only (contact edges visible, no gesture UI).
+   */
+  contactGestureState?: ContactGestureState
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +439,53 @@ function bandRect(
   const botY = Math.min(plotBottom, levelToScreen(band.botLevel))
   if (botY <= topY) return null
   return { topY, botY }
+}
+
+/**
+ * Build a map from contact id → ``{ x: number; topY: number }`` for each
+ * contact that has a placed column on this section.  Used to draw
+ * contact-level correlation edges as point-to-point lines anchored at the
+ * top-boundary (topY) of the contact's band.
+ *
+ * Parameters
+ * ----------
+ * contacts
+ *     Section-filtered contacts.
+ * columns
+ *     Placed columns (same list as passed to the component).
+ * bandMap
+ *     Pre-computed band map from ``buildBandMap``.
+ * levelToScreen
+ *     Elevation-to-screen converter.
+ *
+ * Returns
+ * -------
+ * Map<string, { x: number; topY: number }>
+ *     Keyed by contact id.  Only contacts whose anchor column is on this
+ *     section AND whose formation band exists in ``bandMap`` are included.
+ */
+export function buildContactScreenMap(
+  contacts: readonly FormationContactResponse[],
+  columns: readonly PlacedColumn[],
+  bandMap: Map<string, Map<string, { topLevel: number; botLevel: number }>>,
+  levelToScreen: (level: number) => number,
+): Map<string, { x: number; topY: number }> {
+  const result = new Map<string, { x: number; topY: number }>()
+  for (const c of contacts) {
+    const invId = anchorId(c)
+    if (invId === null) continue
+    const colBands = bandMap.get(invId)
+    if (!colBands) continue
+    const band = colBands.get(c.formation_id)
+    if (!band) continue
+    const col = columns.find(col => col.proj.item.id === invId)
+    if (!col) continue
+    result.set(c.id, {
+      x: col.nudgedX,
+      topY: levelToScreen(band.topLevel),
+    })
+  }
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +788,8 @@ export default function CorrelationEdgesOverlay({
   pulsingFormationIds,
   onInspectLensBody,
   onRejectCorrelate,
+  contactEdges,
+  contactGestureState,
 }: Props): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   /** Body-level context menu (debt #100) — opened by right-clicking a
@@ -775,6 +881,31 @@ export default function CorrelationEdgesOverlay({
     for (const f of formations) m.set(f.id, f)
     return m
   }, [formations])
+
+  // Contact-level screen position map (#133 Phase 1): contact id → { x, topY }.
+  // Re-computed whenever contacts, columns, bandMap, or the transform changes.
+  const contactScreenMap = useMemo(
+    () => buildContactScreenMap(contacts, placedColumns, bandMap, levelToScreen),
+    [contacts, placedColumns, bandMap, levelToScreen],
+  )
+
+  // Destructure contactGestureState with safe defaults so the render
+  // block can use these without repeated optional-chain guards.
+  const {
+    contactCorrelateMode,
+    armedContactId,
+    onArmContact,
+    onClearArmedContact,
+    onContactCorrelate,
+    onContactUncorrelate,
+  } = contactGestureState ?? {
+    contactCorrelateMode: false,
+    armedContactId: null,
+    onArmContact: (_: string) => {},
+    onClearArmedContact: () => {},
+    onContactCorrelate: async (_a: string, _b: string) => {},
+    onContactUncorrelate: async (_a: string, _b: string) => {},
+  }
 
   // True-spacing warning: when correlate mode is active and any adjacent
   // column is < TRUE_SPACING_WARN_M apart in true along-axis distance.
@@ -1637,6 +1768,106 @@ export default function CorrelationEdgesOverlay({
           />
         )
       })}
+
+      {/* Contact-level correlation edges (#133 Phase 1).
+          Point-to-point solid emerald lines between the topY of each
+          correlated contact's band.  Distinct from the formation-level
+          dashed blue lines so both overlay types are readable when active
+          simultaneously.  Each line renders from contact_a's column
+          nudgedX at its band topY to contact_b's equivalent.
+          Absent when ``contactEdges`` is undefined (no regression). */}
+      {contactEdges && contactEdges.length > 0 && (
+        <g data-testid="contact-edges-overlay" pointerEvents="none">
+          {contactEdges.map(ce => {
+            const ptA = contactScreenMap.get(ce.contact_a_id)
+            const ptB = contactScreenMap.get(ce.contact_b_id)
+            if (!ptA || !ptB) return null
+            return (
+              <line
+                key={`contact-edge-${ce.id}`}
+                data-testid={`contact-edge-${ce.id}`}
+                x1={ptA.x}
+                y1={ptA.topY}
+                x2={ptB.x}
+                y2={ptB.topY}
+                stroke={CONTACT_EDGE_COLOR}
+                strokeWidth={CONTACT_EDGE_WIDTH}
+                strokeDasharray={CONTACT_EDGE_DASH}
+                opacity={CONTACT_EDGE_OPACITY}
+                pointerEvents="none"
+              />
+            )
+          })}
+        </g>
+      )}
+
+      {/* Contact-level gesture hit-targets (#133 Phase 1).
+          When ``contactCorrelateMode`` is active, thin horizontal rects
+          render centred on the topY of each contact's band across all
+          placed columns.  Clicking a rect arms the contact as source (if
+          nothing is armed yet) or fires ``onContactCorrelate`` (if the
+          same contact boundary is clicked from a different column).
+          Same-contact click (armed contact clicked again) clears the arm.
+          Absent when ``contactGestureState`` is not provided or
+          ``contactCorrelateMode`` is false. */}
+      {contactCorrelateMode && (
+        <g data-testid="contact-gesture-rects" style={{ pointerEvents: 'auto' }}>
+          {contacts.map(c => {
+            const pt = contactScreenMap.get(c.id)
+            if (!pt) return null
+            const col = placedColumns.find(col => {
+              const inv = col.proj.item.id
+              return inv === c.cpt_id || inv === c.borehole_id
+            })
+            if (!col) return null
+            const hw = col.width / 2
+            const rectY = pt.topY - CONTACT_HIT_HEIGHT / 2
+            const isArmed = armedContactId === c.id
+            return (
+              <g key={`contact-hit-${c.id}`}>
+                {/* Visible indicator line when this contact is armed */}
+                {isArmed && (
+                  <line
+                    x1={pt.x - hw}
+                    y1={pt.topY}
+                    x2={pt.x + hw}
+                    y2={pt.topY}
+                    stroke={CONTACT_ARM_COLOR}
+                    strokeWidth={2.5}
+                    pointerEvents="none"
+                  />
+                )}
+                {/* Invisible click-capture rect */}
+                <rect
+                  data-testid={`contact-hit-${c.id}`}
+                  data-contact-id={c.id}
+                  x={pt.x - hw}
+                  y={rectY}
+                  width={hw * 2}
+                  height={CONTACT_HIT_HEIGHT}
+                  fill="transparent"
+                  stroke={isArmed ? CONTACT_ARM_COLOR : 'transparent'}
+                  strokeWidth={isArmed ? 1 : 0}
+                  strokeDasharray="3 2"
+                  style={{ cursor: 'crosshair', pointerEvents: 'all' }}
+                  onClick={() => {
+                    if (isArmed) {
+                      // Click on the armed source → clear the arm
+                      onClearArmedContact()
+                    } else if (armedContactId !== null) {
+                      // A different contact is armed → fire correlation
+                      void onContactCorrelate(armedContactId, c.id)
+                    } else {
+                      // Nothing armed → arm this contact
+                      onArmContact(c.id)
+                    }
+                  }}
+                />
+              </g>
+            )
+          })}
+        </g>
+      )}
 
       {/* Drag-arm preview line (debt #78). Dashed blue line from the
           source band centre to the live cursor, while a drag-arm
