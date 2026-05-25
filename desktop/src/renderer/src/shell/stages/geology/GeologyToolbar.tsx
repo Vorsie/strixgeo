@@ -318,6 +318,7 @@ export default function GeologyToolbar(): JSX.Element {
         onClick={() => void handleFillFromBoreholes()}
         disabled={!canFill}
         busy={discovering || applying}
+        testid="geology-fill-from-boreholes-button"
         title={
           visibleBoreholes.length === 0
             ? 'No boreholes visible in this project'
@@ -343,6 +344,7 @@ export default function GeologyToolbar(): JSX.Element {
         onClick={() => void handleBuild()}
         disabled={rebuilding || !hasModel || contacts.length === 0}
         amber={staleSurfaceCount > 0 && !rebuilding && contacts.length > 0}
+        testid="geology-build-model-button"
         title={
           !hasModel
             ? 'No active stratigraphy — create formations and contacts first'
