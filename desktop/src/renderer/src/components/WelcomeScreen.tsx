@@ -103,7 +103,10 @@ export default function WelcomeScreen({
   }
 
   return (
-    <div className="flex items-center justify-center h-screen bg-gray-50">
+    <div
+      className="flex items-center justify-center h-screen bg-gray-50"
+      data-testid="welcome-screen"
+    >
       <div className="flex flex-col gap-3 max-w-[800px]">
         {openError !== null && (
           <div
