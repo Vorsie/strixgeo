@@ -226,4 +226,36 @@ describe('WelcomeScreen', () => {
     expect(root.className).toContain('bg-surface-app')
     expect(root.className).not.toContain('bg-gray-')
   })
+
+  // Regression anchors for debt #115 sub-item 4 — focus rings.
+  it('FR1 — dismiss button on the error banner has focus-visible ring classes (debt #115)', async () => {
+    const onOpen = vi.fn().mockResolvedValue('failed' as const)
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={onOpen}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Open project from file/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    const dismiss = screen.getByRole('button', { name: /Dismiss/i })
+    expect(dismiss.className).toContain('focus-visible:ring-2')
+    expect(dismiss.className).toContain('focus-visible:ring-accent')
+  })
+
+  it('FR2 — recent-project entry buttons have focus-visible ring classes (debt #115)', async () => {
+    render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    // Wait for the recent list to render.
+    await screen.findByText('Site A')
+    const recentBtn = screen.getByTestId(`welcome-recent-entry-${RECENT_FIXTURE[0].path}`)
+    expect(recentBtn.className).toContain('focus-visible:ring-2')
+    expect(recentBtn.className).toContain('focus-visible:ring-accent')
+  })
 })

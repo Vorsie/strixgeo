@@ -117,7 +117,7 @@ export default function WelcomeScreen({
             <div className="flex-1">{openError}</div>
             <button
               onClick={() => setOpenError(null)}
-              className="text-amber-700 hover:text-amber-900 text-xs"
+              className="text-amber-700 hover:text-amber-900 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
               aria-label="Dismiss"
             >
               ✕
@@ -201,7 +201,7 @@ export default function WelcomeScreen({
                     disabled={busy}
                     title={entry.path}
                     data-testid={`welcome-recent-entry-${entry.path}`}
-                    className="w-full text-left px-2 py-1.5 rounded hover:bg-surface-card disabled:opacity-50 disabled:cursor-not-allowed group"
+                    className="w-full text-left px-2 py-1.5 rounded hover:bg-surface-card disabled:opacity-50 disabled:cursor-not-allowed group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
                   >
                     <div className="text-sm text-text-primary truncate">{entry.name}</div>
                     <div className="text-[10px] text-text-muted truncate font-mono">
