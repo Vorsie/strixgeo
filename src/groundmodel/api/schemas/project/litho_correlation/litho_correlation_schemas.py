@@ -204,3 +204,32 @@ class LithoCorrelationEdgeListItem(BaseModel):
     formation_b_id: UUID
     source: str
     created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# POST /models/{mid}/auto-correlate — #127
+# ---------------------------------------------------------------------------
+
+
+class AutoCorrelateResponse(BaseModel):
+    """Response body for ``POST .../auto-correlate``.
+
+    Attributes
+    ----------
+    edges_created : int
+        Number of net-new ``litho_correlation_edge`` rows inserted with
+        ``source='auto'``.
+    edges_skipped_existing : int
+        Candidates already present as edges (any source) — not
+        re-inserted.
+    formations_recomputed : int
+        Unique formation ids for which absence inference was triggered.
+    wedge_tips_materialised : int
+        Unique formation ids for which wedge-tip materialisation was
+        triggered.
+    """
+
+    edges_created: int
+    edges_skipped_existing: int
+    formations_recomputed: int
+    wedge_tips_materialised: int
