@@ -26,6 +26,7 @@ subdivision is built on top of it. Priority order:
 * **#123** — clay→silt correlation suggestion bug (needs owner reproduction)
 * **#99** — drag-clamp through rejected layers (awaiting owner reproduction — code investigated, G34b passes)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
+* **#133** — boundary-to-boundary correlation Phase 1 (schema + endpoints + gesture + renderer — #127 successor model)
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
@@ -3149,6 +3150,61 @@ user-visible bug.
 **What ships today (2026-05-25).** Shape A guard + xfail mark + unit
 anchors for the empty-body-contacts safety net. The Phase-5 retraction
 remains the open work.
+
+## 133. Boundary-to-boundary correlation (contact-level edges — replaces formation-level model)
+
+**What.** The current correlation model connects two FORMATIONS
+(``litho_correlation_edge.formation_a_id`` / ``formation_b_id``). The
+new model — owner directive 2026-05-25 — connects two CONTACTS
+(``litho_contact_correlation_edge.contact_a_id`` / ``contact_b_id``).
+Two correlated contacts bound a body. A layer between two pairs of
+correlated contacts on adjacent columns whose lithology differs from the
+connecting body is a LENS — the first representation of facies geometry
+that is not available in the formation-level model.
+
+Concrete scenario (owner dogfeed):
+
+> "Column A: …sand, SILT, clay… Column B: …sand, clay…  
+> Correlate the sand/SILT top boundary to the sand/clay top boundary
+> on column B, AND the SILT/clay base boundary to the same clay top.
+> The silty interval on A is now a lens."
+
+**Why phased.** The full migration touches ~15+ files (ORM, migration,
+use cases, router, schemas, API client, gesture, renderer). Landing it
+in one commit risks half-broken state across a nightly build. Three
+clean phases:
+
+**Phase 1 (shipped 2026-05-26 — this entry):** Schema +
+endpoints + manual gesture + basic renderer support.
+- New table ``litho_contact_correlation_edge`` (contact-level edges).
+- ``POST / DELETE / GET .../contact-correlations`` endpoints.
+- Frontend: contact-boundary click gesture in correlate mode (boundary
+  line becomes the hit target instead of the body band).
+- Renderer: point-to-point lines between correlated contacts alongside
+  the existing body-level ribbons.
+- Old formation-level endpoints + edge table retained; NOT migrated.
+
+**Phase 2 (next slice, after dogfeed proves Phase 1):**
+- Auto-correlate at contact level (new ``AutoCorrelateContactEdges``
+  use case: same bottom-up + dip-transfer heuristic but on contacts
+  not formations).
+- Lens detection: walk the contact-edge graph; a layer whose top +
+  base contacts are both correlated across columns AND whose body
+  lithology differs from the flanking bodies is a LENS. Store result
+  in ``litho_lens``.
+- Lens-aware ribbon styling (composes with #131).
+
+**Phase 3 (before any external distribution):**
+- Migrate existing formation-level edges to contact-level (best-effort:
+  pick the shallowest contact in each formation's column as the
+  canonical boundary).
+- Remove the old formation-level correlate gesture from the UI.
+- Keep the old API endpoints as deprecated, accept-no-new-writes
+  paths for the backwards-compat window.
+
+**When to revisit.** Phase 2: next slice after Phase 1 dogfeed
+confirms the boundary-click gesture is usable. Phase 3: before first
+external/paid distribution (backwards-compat re-arm trigger).
 
 ## (end)
 
