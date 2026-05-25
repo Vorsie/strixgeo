@@ -995,10 +995,29 @@ export default function LithoSuggestionGhostColumns({
           onEdit(visible, { depth_top_m: final })
         }
       }
-      // Auto-reject every idx in the chain — covers both the #81
-      // self-collapse (chain == [drag.idx]) and the single-step
-      // neighbour-merge gesture (chain == [neighbour.idx]).
-      for (const i of chain) onReject(i)
+      // Resolve each chain entry. Two cases:
+      //   i === drag.idx  → self-collapse (#81): the dragged layer folded
+      //     onto its own opposite edge. Keep it in suggestions as a rejected
+      //     layer so the user can undo via the ↻ icon.
+      //   i !== drag.idx  → neighbour absorbed: the user dragged one layer
+      //     into the adjacent one. Call onMergeLayers to REMOVE the absorbed
+      //     layer from suggestions entirely (matching the right-click Merge
+      //     path). This avoids leaving a zero-thickness rejected layer that
+      //     freezes subsequent drag bounds — dogfeed 2026-05-25 bug: after a
+      //     drag-to-collapse merge the surviving layer's base handle was clamped
+      //     at the exact current depth (the zero-thickness rejected neighbour's
+      //     near edge equalled the merged layer's base) making the boundary
+      //     immovable in both directions. Falls back to onReject when
+      //     onMergeLayers is not wired (backwards-compat for callers that
+      //     haven't opted in).
+      for (const i of chain) {
+        if (i !== drag.idx && onMergeLayers !== undefined) {
+          // upperIdx is the smaller index — the surviving layer.
+          onMergeLayers(Math.min(drag.idx, i))
+        } else {
+          onReject(i)
+        }
+      }
       setDrag(null)
     }
     document.addEventListener('mousemove', handleMove)
@@ -1007,12 +1026,12 @@ export default function LithoSuggestionGhostColumns({
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleUp)
     }
-  // reason: onAbsorbLayer identity is stable (useCallback); edits is a
-  // ReadonlyMap that changes by reference on every edit commit — listing
-  // it here keeps the closure fresh for the absorb-midpoint lookup.
+  // reason: onAbsorbLayer + onMergeLayers identities are stable (useCallback);
+  // edits is a ReadonlyMap that changes by reference on every edit commit —
+  // listing it here keeps the closure fresh for the absorb-midpoint lookup.
   // suggestions is a readonly array that changes by reference on accept
   // (the hook replaces the BulkAnchorGhost); same pattern as onEdit.
-  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, suggestions, edits, acceptedIndices, rejectedIndices])
+  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, onMergeLayers, suggestions, edits, acceptedIndices, rejectedIndices])
 
   // Debt #86: document-level mousemove + mouseup while a copy-drag is
   // active. Uses ``document.elementsFromPoint`` to find a drop target
