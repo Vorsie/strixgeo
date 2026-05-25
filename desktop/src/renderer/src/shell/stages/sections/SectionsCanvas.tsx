@@ -27,10 +27,14 @@ import { Loader2, Route } from 'lucide-react'
 import { api } from '../../../api/client'
 import type {
   AdmixtureItem,
+  LithoContactCorrelationEdge,
   LithoCorrelationEdge,
   LithoLensListItem,
 } from '../../../api/client'
-import type { CorrelateGestureState } from '../../../components/sections/CorrelationEdgesOverlay'
+import type {
+  ContactGestureState,
+  CorrelateGestureState,
+} from '../../../components/sections/CorrelationEdgesOverlay'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
@@ -523,6 +527,151 @@ export default function SectionsCanvas(): JSX.Element {
     handleCorrelate,
     handleUncorrelate,
     handlePropagateAdmixtures,
+  ])
+
+  // #133 Phase 1: contact-level correlation edges.
+  //
+  // Separate state + separate refetch from the formation-level edges above
+  // so the two layers are independently maintained.  Contact edges are
+  // also MODEL-level (no section_id) and fetched fresh after each mutation.
+  const [contactCorrelationEdges, setContactCorrelationEdges] = useState<
+    LithoContactCorrelationEdge[]
+  >([])
+
+  // Armed contact id — the source boundary the user clicked first.
+  // Null = nothing armed (idle).  Lives here alongside the formation-level
+  // correlationSource (owned by the ShellContext's sections slice) so the
+  // two gesture modes are independent.
+  const [armedContactId, setArmedContactId] = useState<string | null>(null)
+
+  // Contact-correlate mode flag — true when the toolbar has switched
+  // to "Boundary" sub-mode.  Not yet wired to the toolbar (Phase 2);
+  // for now this is always false in production and the mode is only
+  // exercisable by tests / dev builds.  TODO(#133 Phase 2): wire to toolbar.
+  const [contactCorrelateMode, setContactCorrelateMode] = useState(false)
+  // Expose setter for tests and the future toolbar wire.
+  void setContactCorrelateMode
+
+  const refetchContactEdges = useCallback(async () => {
+    if (lithoModelId === null) {
+      setContactCorrelationEdges([])
+      return
+    }
+    log.debug(
+      'section',
+      `listContactCorrelations: GET project=${project.id} model=${lithoModelId}`,
+    )
+    try {
+      const edges = await api.geology.listContactCorrelations(project.id, lithoModelId)
+      setContactCorrelationEdges(edges)
+      log.debug(
+        'section',
+        `listContactCorrelations: ${edges.length} edge(s) for model ${lithoModelId}`,
+      )
+    } catch (err) {
+      log.warn('section', 'refetchContactEdges: listContactCorrelations failed', err)
+    }
+  }, [lithoModelId, project.id])
+
+  useEffect(() => {
+    if (!isLitho) {
+      setContactCorrelationEdges([])
+      return
+    }
+    void refetchContactEdges()
+    // reason: same axis as the formation-level refetchEdges above — isLitho +
+    // activeLithoModel.id + selectedSectionId drive the re-fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLitho, activeLithoModel?.id, selectedSectionId])
+
+  const handleCreateContactCorrelation = useCallback(
+    async (contactAId: string, contactBId: string): Promise<void> => {
+      if (!activeLithoModel) return
+      log.info(
+        'section',
+        `contact-correlate: linking ${contactAId} ↔ ${contactBId} on model ${activeLithoModel.id}`,
+      )
+      try {
+        await api.geology.createContactCorrelation(
+          project.id,
+          activeLithoModel.id,
+          contactAId,
+          contactBId,
+        )
+        await refetchContactEdges()
+        setArmedContactId(null)
+        toast('success', 'Boundary correlation added.')
+        log.success(
+          'section',
+          `contact-correlate: edge ${contactAId} ↔ ${contactBId} created`,
+        )
+      } catch (err) {
+        log.warn('section', 'handleCreateContactCorrelation: POST failed', err)
+        toast('error', 'Could not create the boundary correlation — try again.')
+      }
+    },
+    [activeLithoModel, project.id, refetchContactEdges, toast],
+  )
+
+  const handleDeleteContactCorrelation = useCallback(
+    async (contactAId: string, contactBId: string): Promise<void> => {
+      if (!activeLithoModel) return
+      log.info(
+        'section',
+        `contact-uncorrelate: removing ${contactAId} ↔ ${contactBId} on model ${activeLithoModel.id}`,
+      )
+      // Optimistic removal.
+      setContactCorrelationEdges(prev =>
+        prev.filter(
+          e =>
+            !(
+              (e.contact_a_id === contactAId && e.contact_b_id === contactBId) ||
+              (e.contact_a_id === contactBId && e.contact_b_id === contactAId)
+            ),
+        ),
+      )
+      try {
+        await api.geology.deleteContactCorrelation(
+          project.id,
+          activeLithoModel.id,
+          contactAId,
+          contactBId,
+        )
+        await refetchContactEdges()
+        log.success(
+          'section',
+          `contact-uncorrelate: edge ${contactAId} ↔ ${contactBId} removed`,
+        )
+      } catch (err) {
+        log.warn(
+          'section',
+          'handleDeleteContactCorrelation: DELETE failed — rolling back optimistic removal',
+          err,
+        )
+        await refetchContactEdges()
+      }
+    },
+    [activeLithoModel, project.id, refetchContactEdges],
+  )
+
+  // Build the contactGestureState passed to SectionPanel.
+  // Only wired on the litho axis; absent on the geological axis.
+  const contactGestureState: ContactGestureState | undefined = useMemo(() => {
+    if (!isLitho) return undefined
+    return {
+      contactCorrelateMode,
+      armedContactId,
+      onArmContact: (id: string) => setArmedContactId(id),
+      onClearArmedContact: () => setArmedContactId(null),
+      onContactCorrelate: handleCreateContactCorrelation,
+      onContactUncorrelate: handleDeleteContactCorrelation,
+    }
+  }, [
+    isLitho,
+    contactCorrelateMode,
+    armedContactId,
+    handleCreateContactCorrelation,
+    handleDeleteContactCorrelation,
   ])
 
   // Slice 2 (#55): axis-aware contact/formation/surface routing.
@@ -1262,6 +1411,13 @@ export default function SectionsCanvas(): JSX.Element {
           // is not mounted (no regression, no stale edge data).
           correlationEdges={isLitho ? correlationEdges : undefined}
           correlateGestureState={correlateGestureState}
+          // #133 Phase 1: contact-level correlation edges + gesture state,
+          // litho axis only.  contactCorrelateMode is currently always false
+          // (no toolbar toggle yet; Phase 2 wires that); the edges are
+          // always fetched and rendered so existing edges from the API are
+          // visible even before the gesture mode is exposed in the UI.
+          contactEdges={isLitho ? contactCorrelationEdges : undefined}
+          contactGestureState={contactGestureState}
           pendingGhostInvestigationCount={
             isLitho ? pendingGhostInvestigationCount : 0
           }
