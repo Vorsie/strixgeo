@@ -1,0 +1,431 @@
+// Behavioural regression net for SectionsInspector.SectionRow confirm modal
+// (debt #105 fix 1 — replaces window.confirm with a Modal dialog).
+//
+// DM1 — delete button renders; clicking it opens the confirm modal (does NOT
+//        immediately call onDelete).
+// DM2 — Esc dismisses the modal without calling onDelete.
+// DM3 — clicking "Delete cross-section" calls onDelete.
+// DM4 — Cancel button has default focus (autoFocus) — accidental Enter must
+//        NOT fire the destructive action (docs/ux.md irreversible rule).
+// DM5 — backdrop click (via Esc / onCancel) dismisses without calling onDelete.
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { ShellContext } from '../../ShellContext'
+import type { ShellContextValue } from '../../ShellContext'
+import type { CrossSectionResponse } from '../../../api/client'
+import SectionsInspector from './SectionsInspector'
+
+// ---------------------------------------------------------------------------
+// Module mocks — mirrors SectionsInspector.modelActions.test shape
+// ---------------------------------------------------------------------------
+
+vi.mock('../../../api/client', async () => {
+  const actual =
+    await vi.importActual<typeof import('../../../api/client')>('../../../api/client')
+  return {
+    ...actual,
+    setBaseUrl: vi.fn(),
+    api: {
+      geology: {
+        validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
+      },
+      virtueleBoring: {
+        getModels: vi.fn().mockResolvedValue([]),
+      },
+    },
+  }
+})
+
+vi.mock('../../../utils/log', () => ({
+  log: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+  },
+}))
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const noopAsync = (): Promise<void> => Promise.resolve()
+
+function makeSection(): CrossSectionResponse {
+  return {
+    id: 'sec-1',
+    app_project_id: 'proj-1',
+    name: 'Test section',
+    description: null,
+    display_order: 0,
+    start_x: 0,
+    start_y: 0,
+    end_x: 100,
+    end_y: 0,
+    epsg: 31370,
+    projection_buffer_m: 50,
+    vertical_exaggeration: 2,
+    excluded_cpt_ids: [],
+    excluded_borehole_ids: [],
+    min_depth_m: null,
+    max_depth_m: null,
+    view_state: null,
+    seeded_formation_contact_ids: [],
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
+function makeCtx(overrides: {
+  handleDeleteSection?: () => Promise<void>
+} = {}): ShellContextValue {
+  const section = makeSection()
+  return {
+    project: {
+      id: 'proj-1',
+      name: 'Test',
+      project_number: null,
+      client: null,
+      site_label: null,
+      description: null,
+      tags: [],
+      default_horizontal_epsg: 31370,
+      default_vertical_epsg: 5710,
+      phase: 'design',
+      status: 'active',
+      view_state: {},
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      archived_at: null,
+    },
+    lifecycle: {
+      projectDirty: false,
+      newProjectOpen: false,
+      setNewProjectOpen: vi.fn(),
+      metadataEditorOpen: false,
+      setMetadataEditorOpen: vi.fn(),
+      closeConfirmOpen: false,
+      setCloseConfirmOpen: vi.fn(),
+      unsavedDialogOpen: false,
+      unsavedSaving: false,
+      saveProject: () => Promise.resolve(true),
+      discardSessionImports: vi.fn(),
+      handleCloseProjectRequest: vi.fn(),
+      handleUnsavedSave: noopAsync,
+      handleUnsavedDiscard: vi.fn(),
+      handleUnsavedCancel: vi.fn(),
+      stageLumping: vi.fn(),
+      currentLumping: null,
+    },
+    investigations: {
+      cpts: [],
+      boreholes: [],
+      detailMap: new Map(),
+      plotMap: new Map(),
+      boreholeDetailMap: new Map(),
+      importing: false,
+      dovImporting: false,
+      dovImportState: { status: 'idle' } as const,
+      resetDovImport: vi.fn(),
+      bboxImportType: null,
+      removedCptIds: new Set(),
+      removedBoreholeIds: new Set(),
+      refreshList: noopAsync,
+      refreshBoreholeList: noopAsync,
+      loadCptDetail: noopAsync,
+      loadChart: noopAsync,
+      loadBoreholeDetail: noopAsync,
+      cancelBboxDraw: vi.fn(),
+      unhideCpts: vi.fn(),
+      unhideBoreholes: vi.fn(),
+      handleRemoveCpts: vi.fn(),
+      handleRemoveBoreholes: vi.fn(),
+      handleRestoreAllCpts: vi.fn(),
+      handleRestoreAllBoreholes: vi.fn(),
+      handlePatchCptElevation: noopAsync,
+      handlePatchBoreholeElevation: noopAsync,
+      handleImportCpt: noopAsync,
+      handleImportDov: vi.fn(),
+      handleImportBoreholeDov: vi.fn(),
+      handleBboxDrawn: noopAsync,
+      pendingCptPins: [],
+    },
+    visibleCpts: [],
+    visibleBoreholes: [],
+    geoModel: {
+      activeGeologicalModel: null,
+      models: [],
+      activeLithoModel: null,
+      handleCreateLithoModel: async () => null,
+      handleActivateLithoModel: async () => {},
+      lithoContacts: [],
+      lithoFormations: [],
+      lithoSurfacesByFormationId: new Map(),
+      handleCreateLithoContact: noopAsync,
+      handleInlineLithoCreateFormation: async () => null,
+      formations: [],
+      visibleFormations: [],
+      formationsRefreshCounter: 0,
+      contacts: [],
+      surfacesByFormationId: new Map(),
+      crossingsRefreshCounter: 0,
+      staleSurfaceCount: 0,
+      handleFormationCreated: vi.fn(),
+      handleFormationUpdated: vi.fn(),
+      handleFormationDeleted: vi.fn(),
+      handleInlineCreateFormation: async () => null,
+      refetchFormations: vi.fn(),
+      handleCreateContact: noopAsync,
+      handleUpdateContactDepth: noopAsync,
+      handleBatchCreateContacts: noopAsync,
+      handleBatchUpdateContacts: noopAsync,
+      handleDeleteContact: noopAsync,
+      handleAutoPopulateFromStratigraphy: noopAsync,
+      handleSeedLithoFromParent: noopAsync,
+      handleDedupeContacts: () => Promise.resolve(0),
+      handleRebuildSurfaces: noopAsync,
+      handleExportModelPlaxis3d: noopAsync,
+      handleToggleBoreholeInModel: noopAsync,
+      discardContacts: vi.fn(),
+      discoverBoreholeFormations: () =>
+        Promise.resolve({ candidates: [], collisions: [] }),
+      applyBoreholeFormationSelection: noopAsync,
+      handleDeleteModel: noopAsync,
+      ensureActiveGeologicalModel: () => Promise.resolve(null),
+      ghostsByAnchor: new Map(),
+      focusedSuggestAnchorId: null,
+      handleEditLithoSuggestion: () => {},
+      bulkLithoSuggesting: false,
+      handleSuggestAllLitho: async () => {},
+      handleAcceptBulkLitho: async () => {},
+      handleAcceptAllBulkLitho: async () => {},
+      handleRejectBulkLitho: () => {},
+      handleUnrejectBulkLitho: () => {},
+      handleEditBulkLitho: () => {},
+      handleInsertLithoLayer: vi.fn(),
+      handleSplitLithoLayer: vi.fn(),
+      handleMergeLithoLayers: vi.fn(),
+      clearBulkLithoGhosts: () => {},
+      handleStripLithoAdmixtures: () => {},
+      handleReseedLithoAdmixtures: () => {},
+      handleClearLithoModel: noopAsync,
+      refetchLithoContacts: () => {},
+      lithoSuggesting: false,
+      handleSuggestLitho: noopAsync,
+      handleAcceptLithoSuggestion: noopAsync,
+      handleAcceptAllLithoSuggestions: noopAsync,
+      handleRejectLithoSuggestion: vi.fn(),
+      handleUnrejectLithoSuggestion: vi.fn(),
+      clearLithoSuggestions: vi.fn(),
+      pinchOutPreview: null,
+      pinchOutLoading: false,
+      handlePreviewPinchOut: async () => false,
+      handleCommitPinchOut: noopAsync,
+      clearPinchOutPreview: vi.fn(),
+      handleDeleteLithoModel: noopAsync,
+      backdropSurfacesByFormationId: new Map(),
+      handleLoadBackdropSurfaces: noopAsync,
+      lithoStaleSurfaceCount: 0,
+      lithoStaleTinSessionCount: 0,
+      handleRebuildLithoSurfaces: noopAsync,
+      handleAutoCorrelate: noopAsync,
+    },
+    sections: {
+      sections: [section],
+      selectedSectionId: null,
+      drawingSection: false,
+      focusedContactIds: [],
+      visibleSections: [section],
+      effectiveHorizontalEpsg: 31370,
+      sectionModelAxis: 'geological',
+      setSectionModelAxis: vi.fn(),
+      backdropModelIdOverride: null,
+      setBackdropModelIdOverride: vi.fn(),
+      refreshSectionList: noopAsync,
+      clearSectionSelection: vi.fn(),
+      handleSectionCreated: vi.fn(),
+      handleSectionDeleted: vi.fn(),
+      handleCreateSection: () => Promise.resolve(null),
+      cancelSectionDraw: vi.fn(),
+      handleSectionLineDrawn: noopAsync,
+      handleDeleteSection: overrides.handleDeleteSection ?? noopAsync,
+      handlePatchSelectedSection: noopAsync,
+      handleSelectSection: vi.fn(),
+      handleFocusContacts: vi.fn(),
+      applyUpdatedSection: vi.fn(),
+      sectionFocusedColumn: null,
+      setSectionFocusedColumn: vi.fn(),
+      correlateMode: false,
+      correlationSource: null,
+      enterCorrelateMode: vi.fn(),
+      exitCorrelateMode: vi.fn(),
+      armCorrelationSource: vi.fn(),
+      clearCorrelationSource: vi.fn(),
+    },
+    overlays: {
+      demSource: null,
+      demOverlay: { enabled: false, opacity: 0.6 },
+      handleDemOverlayChange: noopAsync,
+      virtueleBoringOverlay: { modelA: null, modelB: null, maxDepthM: null },
+      virtueleBoringSectionModels: [],
+      virtueleBoringPredictions: [],
+      virtueleBoringLoading: false,
+      virtueleBoringSkippedCount: 0,
+      virtueleBoringPredictionByInvestigationId: new Map(),
+      cptEffectiveModels: [],
+      boreholeEffectiveModels: [],
+      showOverlayOnSection: false,
+      showOverlayOnCpt: false,
+      showOverlayOnBorehole: false,
+      cptVirtueleBoringOverride: '',
+      boreholeVirtueleBoringOverride: '',
+      handleChangeVirtueleBoringPicker: noopAsync,
+      handleSetShowOverlay: vi.fn(),
+      handleSetOverlayOverride: vi.fn(),
+      showConfidenceFade: true,
+      handleSetShowConfidenceFade: vi.fn(),
+    },
+    toasts: { toasts: [], toast: vi.fn() },
+    undo: {
+      push: vi.fn(),
+      undo: noopAsync,
+      redo: noopAsync,
+      clear: vi.fn(),
+      canUndo: false,
+      canRedo: false,
+      busy: false,
+    },
+    boot: { ready: true, apiError: false },
+    mapState: {
+      hiddenCptTypes: new Set(),
+      hiddenBoreholeValues: {
+        drill_method: new Set<string>(),
+        borehole_type: new Set<string>(),
+      },
+      boreholeAxis: 'drill_method',
+      viewportBounds: null,
+      mapCameraRef: { current: null },
+      handleToggleCptType: vi.fn(),
+      handleToggleBoreholeValue: vi.fn(),
+      setBoreholeAxis: vi.fn(),
+      handleViewportChange: vi.fn(),
+      handleMapCameraChange: vi.fn(),
+    },
+    coordinator: {
+      selectedId: null,
+      selectedBoreholeId: null,
+      setSelectedId: vi.fn(),
+      setSelectedBoreholeId: vi.fn(),
+      view: 'map',
+      setView: vi.fn(),
+      handleSelect: noopAsync,
+      handleSelectBorehole: noopAsync,
+      handleExportSectionDxf: noopAsync,
+      handleExportSectionPlaxis2d: noopAsync,
+      handleExportSectionPdf: vi.fn(),
+      outOfViewportCptIds: new Set(),
+      outOfViewportBoreholeIds: new Set(),
+      projectFilePath: null,
+      manifestFormationIds: new Set(),
+      sessionImportCptIds: new Set(),
+      sessionImportBoreholeIds: new Set(),
+      sessionImportSectionIds: new Set(),
+      sessionImportFormationIds: new Set(),
+      marqueeSelectedIds: new Set(),
+      setMarqueeSelectedIds: vi.fn(),
+      hoveredTestId: null,
+      setHoveredTestId: vi.fn(),
+    },
+  }
+}
+
+function renderInspector(ctx: ShellContextValue) {
+  return render(
+    <ShellContext.Provider value={ctx}>
+      <SectionsInspector />
+    </ShellContext.Provider>,
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
+beforeEach(() => {
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+})
+
+afterEach(() => {
+  cleanup()
+  consoleErrorSpy.mockRestore()
+  vi.restoreAllMocks()
+})
+
+describe('SectionsInspector — SectionRow delete confirm modal (debt #105)', () => {
+  it('DM1 — delete button opens modal without calling onDelete', () => {
+    const onDelete = vi.fn()
+    const ctx = makeCtx({ handleDeleteSection: onDelete })
+    renderInspector(ctx)
+
+    // The delete icon button should exist (hover-visible via CSS opacity,
+    // but present in DOM). We find by testid.
+    const deleteBtn = screen.getByTestId('section-row-delete-sec-1')
+    fireEvent.click(deleteBtn)
+
+    // Modal should now be open — the h2 title is present.
+    expect(screen.getByText(/Delete cross-section\?/)).toBeInTheDocument()
+    // The section name appears inside the modal body description span.
+    const modalBody = screen.getByRole('dialog')
+    expect(modalBody).toBeInTheDocument()
+    // onDelete must NOT have been called yet.
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('DM2 — Esc dismisses the modal without calling onDelete', () => {
+    const onDelete = vi.fn()
+    renderInspector(makeCtx({ handleDeleteSection: onDelete }))
+
+    fireEvent.click(screen.getByTestId('section-row-delete-sec-1'))
+    expect(screen.getByText(/Delete cross-section\?/)).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByText(/Delete cross-section\?/)).not.toBeInTheDocument()
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('DM3 — clicking "Delete cross-section" button calls onDelete', async () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined)
+    renderInspector(makeCtx({ handleDeleteSection: onDelete }))
+
+    fireEvent.click(screen.getByTestId('section-row-delete-sec-1'))
+    const confirmBtn = screen.getByTestId('section-row-delete-confirm-sec-1')
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1))
+  })
+
+  it('DM4 — Cancel button receives default focus when modal opens', () => {
+    renderInspector(makeCtx())
+    fireEvent.click(screen.getByTestId('section-row-delete-sec-1'))
+
+    // The modal is open; Cancel should have focus (autoFocus).
+    const cancel = screen.getByRole('button', { name: /Cancel/i })
+    expect(document.activeElement).toBe(cancel)
+  })
+
+  it('DM5 — Cancel button dismisses without calling onDelete', () => {
+    const onDelete = vi.fn()
+    renderInspector(makeCtx({ handleDeleteSection: onDelete }))
+
+    fireEvent.click(screen.getByTestId('section-row-delete-sec-1'))
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }))
+
+    expect(screen.queryByText(/Delete cross-section\?/)).not.toBeInTheDocument()
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+})

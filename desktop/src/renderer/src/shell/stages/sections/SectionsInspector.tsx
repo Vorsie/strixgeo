@@ -31,6 +31,8 @@ import type {
 } from '../../../api/client'
 import { useCrossingsValidation } from '../../../hooks/useCrossingsValidation'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
+import Button from '../../../components/ui/Button'
+import Modal from '../../../components/ui/Modal'
 import VirtueleBoringStrip from '../../../components/sections/VirtueleBoringStrip'
 import { isGeologicalFormation } from '../../../utils/formationKind'
 import { hashHexColor } from '../../../utils/hashColor'
@@ -509,61 +511,127 @@ function SectionRow({
   onDelete,
 }: SectionRowProps): JSX.Element {
   const [deleting, setDeleting] = useState(false)
+  // Delete confirm modal state — replaces window.confirm() per UX rules:
+  // irreversible actions require a Modal with default-focus on Cancel and a
+  // button labelled with the action name (not "OK"). See docs/ux.md.
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
   const dx = section.end_x - section.start_x
   const dy = section.end_y - section.start_y
   const lengthM = Math.sqrt(dx * dx + dy * dy)
 
-  function handleDelete(e: React.MouseEvent): void {
+  function handleDeleteClick(e: React.MouseEvent): void {
     e.stopPropagation()
-    const ok = window.confirm(
-      `Delete cross-section "${section.name}"? This can't be undone.`,
-    )
-    if (!ok) return
+    if (deleting) return
+    setDeleteConfirmOpen(true)
+  }
+
+  async function confirmDelete(): Promise<void> {
+    setDeleteConfirmOpen(false)
     setDeleting(true)
-    void onDelete().finally(() => setDeleting(false))
+    try {
+      await onDelete()
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
-    <li
-      data-testid={`section-row-${section.id}`}
-      className={[
-        'group relative flex items-center rounded transition-colors',
-        unsaved ? 'border-l-2 border-l-status-amber pl-1' : 'pl-2',
-        selected
-          ? 'bg-accent/10 text-accent'
-          : 'hover:bg-surface-card text-text-secondary',
-      ].join(' ')}
-    >
-      <button
-        onClick={onClick}
-        className="flex-1 text-left py-1.5 pr-7 min-w-0"
+    <>
+      <li
+        data-testid={`section-row-${section.id}`}
+        className={[
+          'group relative flex items-center rounded transition-colors',
+          unsaved ? 'border-l-2 border-l-status-amber pl-1' : 'pl-2',
+          selected
+            ? 'bg-accent/10 text-accent'
+            : 'hover:bg-surface-card text-text-secondary',
+        ].join(' ')}
       >
-        <div className="flex items-center gap-1.5">
-          <Slash size={11} className="flex-shrink-0 opacity-70" />
-          <span className="text-xs font-medium truncate">{section.name}</span>
-          {unsaved && (
-            <DirtyAsterisk title="Created since last save — File → Save to commit" />
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 pl-4 text-[10px] text-text-muted">
-          <span>{lengthM.toFixed(0)} m</span>
-          <span>·</span>
-          <span title="Lateral projection buffer">
-            ±{section.projection_buffer_m.toFixed(0)} m
-          </span>
-        </div>
-      </button>
+        <button
+          onClick={onClick}
+          className="flex-1 text-left py-1.5 pr-7 min-w-0"
+        >
+          <div className="flex items-center gap-1.5">
+            <Slash size={11} className="flex-shrink-0 opacity-70" />
+            <span className="text-xs font-medium truncate">{section.name}</span>
+            {unsaved && (
+              <DirtyAsterisk title="Created since last save — File → Save to commit" />
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 pl-4 text-[10px] text-text-muted">
+            <span>{lengthM.toFixed(0)} m</span>
+            <span>·</span>
+            <span title="Lateral projection buffer">
+              ±{section.projection_buffer_m.toFixed(0)} m
+            </span>
+          </div>
+        </button>
 
-      <button
-        onClick={handleDelete}
-        disabled={deleting}
-        title={deleting ? 'Deleting…' : 'Delete cross-section'}
-        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted hover:text-status-danger hover:bg-status-danger/10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 transition-opacity"
+        <button
+          onClick={handleDeleteClick}
+          disabled={deleting}
+          title={deleting ? 'Deleting…' : 'Delete cross-section'}
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-muted hover:text-status-danger hover:bg-status-danger/10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30 transition-opacity"
+          data-testid={`section-row-delete-${section.id}`}
+        >
+          <Trash2 size={12} />
+        </button>
+      </li>
+
+      {/* Delete-confirm modal — replaces window.confirm(). Per docs/ux.md
+          irreversible-vs-reversible rule: destructive actions need a Modal
+          with default focus on Cancel and a button that names the action.
+          ``busy`` set while the delete request is in-flight prevents
+          Esc / backdrop-click from dismissing mid-request. */}
+      <Modal
+        open={deleteConfirmOpen}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        labelledBy={`delete-section-row-title-${section.id}`}
+        busy={deleting}
+        cardClassName="w-80"
       >
-        <Trash2 size={12} />
-      </button>
-    </li>
+        <div className="p-5">
+          <h2
+            id={`delete-section-row-title-${section.id}`}
+            className="text-sm font-semibold text-text-primary mb-1"
+          >
+            Delete cross-section?
+          </h2>
+          <p className="text-xs text-text-muted mb-4">
+            <span className="font-medium text-text-secondary">{section.name}</span>{' '}
+            will be permanently deleted. Formation contacts placed on it are also removed.
+            This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            {/* Cancel has default focus (autoFocus) — the safe default
+                for an irreversible confirm dialog per docs/ux.md. */}
+            <Button
+              variant="secondary"
+              size="md"
+              // reason: autoFocus on the Cancel button is the safe default for
+              // a destructive-confirm modal — the user must actively choose the
+              // destructive action, not accidentally confirm it on Enter.
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+              data-testid={`section-row-delete-confirm-${section.id}`}
+            >
+              {deleting ? 'Deleting…' : 'Delete cross-section'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   )
 }
 
