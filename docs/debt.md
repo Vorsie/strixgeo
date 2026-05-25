@@ -20,7 +20,6 @@ sections that follow.
 The litho ghost-review workflow must be solid before geotech
 subdivision is built on top of it. Priority order:
 
-* **#119** — segment_cpt same-lithology auto-merge (design work — half-day + bench update)
 * **#120** — RESOLVED 2026-05-25 (band-rect clamp to investigation depth)
 * **#121** — correlation polygon-ribbon rendering, lens-aware (design work — after #101)
 * **#122** — correlation edge opacity fade + body-hover spike (polish — after #121)
