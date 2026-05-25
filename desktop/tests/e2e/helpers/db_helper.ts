@@ -21,6 +21,8 @@
  *   ``(model_id, formation_id, body_ordinal)``.
  * - Correlation edges live in ``litho_correlation_edge`` (joined to
  *   ``geological_model`` filtered by ``kind = 'lithostratigraphic'``).
+ * - Projects live in ``app_project`` (``archived_at IS NULL`` for active ones;
+ *   ``view_state`` is JSONB).
  */
 
 import { Client } from 'pg'
@@ -239,5 +241,93 @@ export async function listLithoModelIds(projectId: string): Promise<string[]> {
       [projectId],
     )
     return res.rows.map((r) => r.id)
+  })
+}
+
+/**
+ * Count the total number of non-archived project rows.
+ *
+ * Parameters
+ * ----------
+ * None.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count of active (non-archived) projects.
+ */
+export async function countProjects(): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM app_project WHERE archived_at IS NULL`,
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
+
+/**
+ * Find a project by exact name (case-sensitive) and return its id and
+ * view_state.  Returns ``null`` when no matching non-archived project
+ * exists.
+ *
+ * Parameters
+ * ----------
+ * name : string
+ *   The project name to search for.
+ *
+ * Returns
+ * -------
+ * ``{ id, view_state }`` or ``null``.
+ */
+export async function getProjectByName(
+  name: string,
+): Promise<{ id: string; view_state: Record<string, unknown> } | null> {
+  return withClient(async (client) => {
+    const res = await client.query<{ id: string; view_state: string }>(
+      `SELECT id, view_state
+         FROM app_project
+        WHERE name = $1
+          AND archived_at IS NULL
+        LIMIT 1`,
+      [name],
+    )
+    if (res.rows.length === 0) return null
+    const row = res.rows[0]
+    // view_state is stored as JSONB — the pg driver returns it as a
+    // parsed object; cast defensively in case it arrives as a string.
+    const vs =
+      typeof row.view_state === 'string'
+        ? (JSON.parse(row.view_state) as Record<string, unknown>)
+        : ((row.view_state as unknown) as Record<string, unknown>)
+    return { id: row.id, view_state: vs ?? {} }
+  })
+}
+
+/**
+ * Fetch the ``view_state`` JSON blob for a project.
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * ``Record<string, unknown>`` — empty object when the column is NULL.
+ */
+export async function getProjectViewState(
+  projectId: string,
+): Promise<Record<string, unknown>> {
+  return withClient(async (client) => {
+    const res = await client.query<{ view_state: string }>(
+      `SELECT view_state FROM app_project WHERE id = $1`,
+      [projectId],
+    )
+    if (res.rows.length === 0) return {}
+    const raw = res.rows[0].view_state
+    if (raw === null || raw === undefined) return {}
+    return typeof raw === 'string'
+      ? (JSON.parse(raw) as Record<string, unknown>)
+      : ((raw as unknown) as Record<string, unknown>)
   })
 }
