@@ -142,6 +142,23 @@ interface Props {
    * stroke + slightly boosted fill opacity during the window.
    */
   pulsingFormationIds?: ReadonlySet<string>
+  /**
+   * Callback fired when the user picks "Inspect lens body…" from the
+   * body chip context menu (#101 Blocker 1).  The caller opens
+   * InspectLensBodyPanel with the supplied formation id + ordinal.
+   * Optional so callers that don't need the inspect path (e.g. tests)
+   * don't have to stub it.
+   */
+  onInspectLensBody?: (formationId: string, bodyOrdinal: number) => void
+  /**
+   * Callback fired when the user clicks a band that cannot be used as
+   * a correlation target — cross-group bands (different formation type)
+   * or same-investigation bands (self-edge blocked).  Carries a human-
+   * readable reason string so the caller can surface a toast.
+   * Optional; omitting it leaves the interaction silently blocked
+   * (safe default for read-only or test contexts).
+   */
+  onRejectCorrelate?: (reason: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -462,6 +479,8 @@ interface BodyContextMenuProps {
   /** Removes every edge in the body's correlation graph. Caller fans the
    *  per-edge ``onUncorrelate`` calls and refreshes once on completion. */
   onRemoveAll: () => void
+  /** Opens the InspectLensBodyPanel for this body (#101 Blocker 1). */
+  onInspect?: () => void
   onClose: () => void
 }
 
@@ -469,6 +488,7 @@ function BodyContextMenu({
   menu,
   onEditAdmixtures,
   onRemoveAll,
+  onInspect,
   onClose,
 }: BodyContextMenuProps): JSX.Element {
   const itemStyle: React.CSSProperties = {
@@ -487,7 +507,7 @@ function BodyContextMenu({
       x={menu.x}
       y={menu.y}
       width={220}
-      height={70}
+      height={96}
       style={{ overflow: 'visible' }}
     >
       <div
@@ -502,6 +522,13 @@ function BodyContextMenu({
           minWidth: 220,
         }}
       >
+        {onInspect && (
+          <button type="button" style={itemStyle} onClick={onInspect}
+            data-testid="body-context-inspect"
+          >
+            Inspect lens body…
+          </button>
+        )}
         <button type="button" style={itemStyle} onClick={onEditAdmixtures}>
           Edit admixtures for this body
         </button>
@@ -566,6 +593,8 @@ export default function CorrelationEdgesOverlay({
   plotBottom,
   correlateGestureState,
   pulsingFormationIds,
+  onInspectLensBody,
+  onRejectCorrelate,
 }: Props): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   /** Body-level context menu (debt #100) — opened by right-clicking a
@@ -1273,19 +1302,24 @@ export default function CorrelationEdgesOverlay({
         }
 
         if (gr.isCrossGroup) {
-          // Cross-group band: not-allowed cursor (Phase 5 enforcement; currently all valid above)
+          // Cross-group band: not-allowed cursor + rejection toast on click.
+          // Previously silent — the title tooltip was not discoverable.
           return (
             <g key={`gesture-${gr.investigationId}-${gr.formationId}`} style={{ pointerEvents: 'auto' }}>
               <rect
+                data-testid={`correlate-reject-crossgroup-${gr.investigationId}-${gr.formationId}`}
                 x={rectX}
                 y={gr.topY}
                 width={rectWidth}
                 height={rectHeight}
                 fill="transparent"
                 style={{ cursor: 'not-allowed' }}
-              >
-                <title>Formation belongs to a different correlation group</title>
-              </rect>
+                onClick={() =>
+                  onRejectCorrelate?.(
+                    `"${gr.label}" belongs to a different formation group — only same-type units can be correlated.`,
+                  )
+                }
+              />
             </g>
           )
         }
@@ -1320,16 +1354,25 @@ export default function CorrelationEdgesOverlay({
           )
         }
 
-        // Source is armed but this is neither source nor valid target: neutral transparent
+        // Source is armed but this is neither source nor valid target.
+        // This occurs when the band is on the same investigation as the
+        // armed source (self-edge blocked). Fire a rejection toast so
+        // the user knows why the click did nothing.
         return (
           <rect
             key={`gesture-${gr.investigationId}-${gr.formationId}`}
+            data-testid={`correlate-reject-sameinv-${gr.investigationId}-${gr.formationId}`}
             x={rectX}
             y={gr.topY}
             width={rectWidth}
             height={rectHeight}
             fill="transparent"
-            style={{ pointerEvents: 'auto' }}
+            style={{ pointerEvents: 'auto', cursor: 'not-allowed' }}
+            onClick={() =>
+              onRejectCorrelate?.(
+                'Select a unit on a different investigation to correlate.',
+              )
+            }
           />
         )
       })}
@@ -1371,6 +1414,15 @@ export default function CorrelationEdgesOverlay({
           menu={bodyContextMenu}
           onEditAdmixtures={handleBodyContextEditAdmixtures}
           onRemoveAll={() => void handleBodyContextRemoveAll()}
+          onInspect={
+            onInspectLensBody
+              ? () => {
+                  const { seedFormationId, ordinal } = bodyContextMenu
+                  setBodyContextMenu(null)
+                  onInspectLensBody(seedFormationId, ordinal)
+                }
+              : undefined
+          }
           onClose={() => setBodyContextMenu(null)}
         />
       )}
