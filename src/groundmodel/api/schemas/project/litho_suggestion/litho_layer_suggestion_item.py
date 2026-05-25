@@ -72,6 +72,11 @@ class LithoLayerSuggestionItem(BaseModel):
         formation boundary (i.e. it would be split into two contacts on
         Accept).  The frontend renders such layers with an amber border/
         tooltip to warn the engineer.
+    nad_class_range : tuple[int, int] | None
+        NAD class range ``(min, max)`` across the merged source segments.
+        ``(n, n)`` when all sources share NAD class ``n``; ``(lo, hi)`` when
+        they differ; ``None`` for non-clean-sand layers and borehole-path
+        suggestions.  Populated by the segmenter merge pass (debt #119).
     """
 
     depth_top_m: float = Field(ge=0.0)
@@ -87,3 +92,9 @@ class LithoLayerSuggestionItem(BaseModel):
     suggested_admixtures: list[AdmixtureItem] = Field(default_factory=list)
     parent_formation_id: UUID | None = None
     spans_boundary: bool = False
+    # NAD class range across merged source segments.  (n, n) when all sources
+    # share the same class; (lo, hi) when they differ; None when the layer is
+    # not a clean-sand CPT layer.  Populated by the segmenter merge pass;
+    # None on borehole-path suggestions (no Robertson qc/Dr).
+    # Additive field — pre-merge clients tolerate None when absent.
+    nad_class_range: tuple[int, int] | None = None

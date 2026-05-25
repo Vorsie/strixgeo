@@ -27,7 +27,6 @@ from groundmodel.domain.services.litho_segmentation import (
     segment_cpt,
 )
 from groundmodel.domain.value_objects.admixture import Admixture
-from groundmodel.infrastructure.db.models.admixture_orm import AdmixtureOrm
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
 from groundmodel.infrastructure.db.models.cpt_orm import CptOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
@@ -96,6 +95,7 @@ class SuggestLithoContacts(GroundModelLogger):
         gunsat_kNm3: float = 16.0,
         gwater_kNm3: float = 9.81,
         dr_compression_factor: float = 0.675,
+        merge_same_lithology: bool = True,
     ) -> list[LithoLayerSuggestion]:
         """Suggest litho contacts for a CPT investigation.
 
@@ -116,6 +116,10 @@ class SuggestLithoContacts(GroundModelLogger):
             Unit weight of water (default 9.81 kN/m³).
         dr_compression_factor : float
             Sand relative-density compression factor (default 0.675 average).
+        merge_same_lithology : bool
+            When ``True`` (default), collapse adjacent same-lithology segments
+            into a single layer after Robertson segmentation.  Pass ``False``
+            to expose the un-merged splits (diagnostics / pre-geotech-stage).
 
         Returns
         -------
@@ -175,6 +179,7 @@ class SuggestLithoContacts(GroundModelLogger):
             gunsat_kNm3=gunsat_kNm3,
             gwater_kNm3=gwater_kNm3,
             dr_compression_factor=dr_compression_factor,
+            merge_same_lithology=merge_same_lithology,
         )
 
         self.success(f"SuggestLithoContacts: cpt={cpt.name} → {len(suggestions)} suggested layers")
