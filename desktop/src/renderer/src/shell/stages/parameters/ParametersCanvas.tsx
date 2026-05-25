@@ -33,37 +33,36 @@ import { useState } from 'react'
 import { BarChart3, Beaker, Sliders, Sparkles } from 'lucide-react'
 
 import { EmptyState } from '../../EmptyState'
+import TabBar from '../../../components/ui/TabBar'
+import type { TabSpec } from '../../../components/ui/TabBar'
 import MethodConfigTab from './tabs/MethodConfigTab'
 import PerTestTab from './tabs/PerTestTab'
 import PerUnitTab from './tabs/PerUnitTab'
 
 type TabId = 'per-test' | 'per-unit' | 'methods'
 
-interface TabSpec {
-  id: TabId
-  label: string
-  icon: typeof Beaker
-  hint: string
-}
-
-const TABS: readonly TabSpec[] = [
+// TabSpec is the imported type from TabBar; cast id to TabId for type safety.
+const TABS: readonly (TabSpec & { id: TabId; iconComponent: typeof Beaker })[] = [
   {
     id: 'per-test',
     label: 'Per test',
-    icon: Beaker,
+    iconComponent: Beaker,
     hint: 'One row per CPT / borehole / lab test; columns are parameters.',
+    testid: 'parameters-tab-per-test',
   },
   {
     id: 'per-unit',
     label: 'Per unit',
-    icon: BarChart3,
+    iconComponent: BarChart3,
     hint: 'One row per litho / geotechnical unit; columns aggregate over the unit (mean / P50 / P95 / derived values).',
+    testid: 'parameters-tab-per-unit',
   },
   {
     id: 'methods',
     label: 'Methods',
-    icon: Sliders,
+    iconComponent: Sliders,
     hint: 'Correlations (formula) vs Excel lookups (NAD-NEN table) — hard-separated. Plus probabilistic + ML hooks.',
+    testid: 'parameters-tab-methods',
   },
 ] as const
 
@@ -87,37 +86,24 @@ export default function ParametersCanvas(): JSX.Element {
 
   return (
     <div className="flex flex-col h-full bg-surface-app text-text-primary">
-      {/* Tab bar */}
-      <div
-        className="flex items-center gap-0 border-b border-border-subtle bg-surface-sunken"
-        role="tablist"
-        aria-label="Parameter views"
-      >
-        {TABS.map(spec => {
-          const Icon = spec.icon
-          const active = tab === spec.id
-          return (
-            <button
-              key={spec.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              aria-controls={`parameters-tab-${spec.id}`}
-              title={spec.hint}
-              onClick={() => setTab(spec.id)}
-              className={[
-                'flex items-center gap-1.5 px-3 py-2 text-[11px] border-b-2 transition-colors',
-                active
-                  ? 'border-b-status-amber text-text-primary bg-surface-app'
-                  : 'border-b-transparent text-text-secondary hover:text-text-primary hover:bg-surface-app/60',
-              ].join(' ')}
-              data-testid={`parameters-tab-${spec.id}`}
-            >
-              <Icon size={13} aria-hidden="true" />
-              <span>{spec.label}</span>
-            </button>
-          )
-        })}
+      {/* Tab bar — uses the shared TabBar primitive for accessible role="tablist"
+          + Arrow-key navigation. The aria-controls id prefix "tab-panel-" is
+          the TabBar convention; panel divs below use matching ids. */}
+      <div className="flex items-center border-b border-border-subtle bg-surface-sunken">
+        <TabBar
+          tabs={TABS.map(spec => ({
+            id: spec.id,
+            label: spec.label,
+            icon: <spec.iconComponent size={13} aria-hidden="true" />,
+            hint: spec.hint,
+            testid: spec.testid,
+          }))}
+          activeId={tab}
+          onActivate={id => setTab(id as TabId)}
+          ariaLabel="Parameter views"
+          containerClassName="flex items-center gap-0"
+          tabClassName="px-3 py-2 text-[11px] border-b-2 transition-colors aria-selected:border-b-status-amber aria-selected:text-text-primary aria-selected:bg-surface-app aria-[selected=false]:border-b-transparent aria-[selected=false]:text-text-secondary aria-[selected=false]:hover:text-text-primary aria-[selected=false]:hover:bg-surface-app/60"
+        />
         <div className="ml-auto flex items-center gap-1.5 px-3 py-2 text-[10px] text-text-muted">
           <Sparkles size={11} aria-hidden="true" />
           <span>
@@ -132,7 +118,7 @@ export default function ParametersCanvas(): JSX.Element {
       <div className="flex-1 min-h-0 overflow-auto">
         {tab === 'per-test' && (
           <div
-            id="parameters-tab-per-test"
+            id="tab-panel-per-test"
             role="tabpanel"
             data-testid="parameters-panel-per-test"
             className="h-full"
@@ -142,7 +128,7 @@ export default function ParametersCanvas(): JSX.Element {
         )}
         {tab === 'per-unit' && (
           <div
-            id="parameters-tab-per-unit"
+            id="tab-panel-per-unit"
             role="tabpanel"
             data-testid="parameters-panel-per-unit"
             className="h-full"
@@ -152,7 +138,7 @@ export default function ParametersCanvas(): JSX.Element {
         )}
         {tab === 'methods' && (
           <div
-            id="parameters-tab-methods"
+            id="tab-panel-methods"
             role="tabpanel"
             data-testid="parameters-panel-methods"
             className="h-full"

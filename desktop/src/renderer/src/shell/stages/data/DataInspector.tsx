@@ -40,6 +40,7 @@ import { useShell } from '../../ShellContext'
 import { EmptyState as SharedEmptyState } from '../../EmptyState'
 import { usePersistedJSON } from '../../../hooks/usePersistedJSON'
 import DirtyAsterisk from '../../../components/ui/DirtyAsterisk'
+import TabBar from '../../../components/ui/TabBar'
 import { isTypingTarget } from '../../../utils/keyboard'
 import { isWithinDateRange, parseInvestigationDate } from '../../../utils/investigationDate'
 import type { BoreholeAxis, BoreholeListItem, CptListItem } from '../../../api/client'
@@ -432,21 +433,31 @@ export default function DataInspector(): JSX.Element {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Tab bar — CPT / Borehole */}
-      <div className="flex border-b border-[--color-border-subtle] flex-shrink-0">
-        <InspectorTab
-          icon={<Activity size={13} />}
-          label="CPT"
-          active={activeTab === 'cpt'}
-          onClick={() => setActiveTab('cpt')}
-        />
-        <InspectorTab
-          icon={<Drill size={13} />}
-          label="Borehole"
-          active={activeTab === 'borehole'}
-          onClick={() => setActiveTab('borehole')}
-        />
-      </div>
+      {/* Tab bar — CPT / Borehole.
+          TabBar provides role="tablist" + role="tab" + aria-selected +
+          Arrow-Left/Right keyboard navigation. Active/inactive colours are
+          applied via Tailwind's aria-selected: modifier so the component
+          stays stateless (no duplicate active-tab prop). */}
+      <TabBar
+        tabs={[
+          {
+            id: 'cpt',
+            label: 'CPT',
+            icon: <Activity size={13} aria-hidden="true" />,
+          },
+          {
+            id: 'borehole',
+            label: 'Borehole',
+            icon: <Drill size={13} aria-hidden="true" />,
+          },
+        ]}
+        activeId={activeTab}
+        onActivate={id => setActiveTab(id as InspectorTab)}
+        ariaLabel="Investigation type"
+        layout="col"
+        containerClassName="flex border-b border-[--color-border-subtle] flex-shrink-0"
+        tabClassName="flex-1 py-1.5 text-[10px] font-medium transition-colors border-b-2 aria-selected:text-[--color-accent] aria-selected:border-[--color-accent] aria-[selected=false]:text-[--color-text-secondary] aria-[selected=false]:border-transparent aria-[selected=false]:hover:text-[--color-text-primary] aria-[selected=false]:hover:bg-[--color-surface-card]"
+      />
 
       {/* Search */}
       {hasList && (
@@ -485,7 +496,10 @@ export default function DataInspector(): JSX.Element {
           <span className="text-accent font-medium">{selectedCount} selected</span>
           <button
             onClick={bulkRemove}
-            className="ml-auto px-2 py-0.5 rounded bg-status-danger text-white hover:opacity-90 transition-opacity text-[10px] font-semibold uppercase tracking-wide"
+            // Remove is a project-local hide — reversible — so it uses a
+            // neutral secondary token, NOT bg-status-danger (which is
+            // reserved for irreversible destructive actions per UX rule).
+            className="ml-auto px-2 py-0.5 rounded bg-surface-page border border-border-default text-text-primary hover:bg-surface-card transition-colors text-[10px] font-semibold uppercase tracking-wide"
           >
             Remove
           </button>
@@ -637,37 +651,6 @@ export default function DataInspector(): JSX.Element {
         )}
       </div>
     </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Tab button
-// ---------------------------------------------------------------------------
-
-function InspectorTab({
-  icon,
-  label,
-  active,
-  onClick,
-}: {
-  icon: React.ReactNode
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        'flex-1 flex flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors',
-        active
-          ? 'text-[--color-accent] border-b-2 border-[--color-accent]'
-          : 'text-[--color-text-secondary] hover:text-[--color-text-primary] hover:bg-[--color-surface-card]',
-      ].join(' ')}
-    >
-      {icon}
-      {label}
-    </button>
   )
 }
 
