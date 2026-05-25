@@ -2828,7 +2828,7 @@ mechanical and non-breaking.
 compat suspension is still in effect. One migration line.
 Filed from #101 senior-code-reviewer pass, 2026-05-24.
 
-## 127. Auto-correlate litho bodies on accept / import (Tier G — fold in after #101 Position 4 lands)
+## 127. RESOLVED — Auto-correlate litho bodies on accept / import
 
 **What.** When the user accepts litho suggestions per CPT / borehole
 or imports new tests, the system should **automatically propose
@@ -3034,10 +3034,22 @@ top of the current unblocked-but-still-leaky stack means more of
 the same. Land #128 first → the auto-correlate work inherits the
 6-flow smoke set as its own regression net.
 
-**When to revisit.** After #128 ships (Playwright harness +
-initial 6-flow smoke set running). Single slice, ~1.5-2 days
-including the bottom-up sweep + dip transfer + Tertiary-less
-safeguards from above.
+*(#127 RESOLVED 2026-05-25 — Auto-correlate shipped across 6 slices. Slice 1:
+CHECK constraint ``ck_litho_correlation_edge_source`` (migration j4d5e6f7a8b9).
+Slice 2: pure domain service ``auto_correlate_litho_bodies`` + ``robust_slope_fit``
+(Theil-Sen 1-D dip estimator) + ``_mutual_nearest_neighbour`` + 33 unit tests.
+Slice 3: ``AutoCorrelateLithoBodies`` use case + ``POST .../auto-correlate``
+endpoint (``source='auto'`` batch insert → flush → run_resolver → absence
+recompute + wedge materialisation → single commit).
+Slice 4: ``AutoCorrelateResult`` type + ``api.geology.autoCorrelate`` in
+``client.ts``; ``handleAutoCorrelate`` hook + fire-on-acceptAll in
+``useGeologicalModel``; ``Auto-correlate`` toolbar button (``testid=litho-auto-correlate``)
+in SectionsToolbar; ``source='auto'`` edges render at 40% opacity / ``3 5`` dash
+in CorrelationEdgesOverlay.
+Slice 5: ``countAutoCorrelationEdges`` helper in ``db_helper.ts``; e2e flow
+``flow_auto_correlate.spec.ts`` (happy path + idempotency + wrong-kind 422).
+Slice 6: docs/debt.md + CLAUDE.md updated.
+See commits on ``develop`` from 2026-05-25.)*
 
 *(#128 RESOLVED 2026-05-25 — Playwright e2e smoke harness shipped. 6 flows:
 boot+open, single-accept, bulk-accept (15 s budget + defer_inference invariant),
