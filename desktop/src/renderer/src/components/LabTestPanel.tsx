@@ -92,7 +92,10 @@ export default function LabTestPanel({
   }, [onClose, onSelectSample, prevSample?.id, nextSample?.id])
 
   return (
-    <aside className="w-[420px] shrink-0 h-full bg-white border-l border-gray-200 shadow-lg flex flex-col">
+    <aside
+      className="w-[420px] shrink-0 h-full bg-white border-l border-gray-200 shadow-lg flex flex-col"
+      data-testid={`sample-inspector-${sample.id}`}
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50">
         <div className="flex-1 min-w-0">
@@ -156,7 +159,10 @@ export default function LabTestPanel({
           alongside the actual scalar tests grouped by parametergroep. */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {!hasAny && (
-          <div className="text-xs text-gray-400 italic text-center py-8">
+          <div
+            className="text-xs text-gray-400 italic text-center py-8"
+            data-testid="lab-test-empty-state"
+          >
             No lab tests recorded for this sample.
           </div>
         )}
@@ -245,7 +251,7 @@ function GrainSizeSection({
   }
 
   return (
-    <section>
+    <section data-testid="lab-test-grain-size">
       <SectionTitle
         title="Grain size"
         subtitle={
@@ -411,7 +417,7 @@ function ScalarTestsSection({
   }
 
   return (
-    <section>
+    <section data-testid="lab-test-identification">
       <SectionTitle
         title={title}
         subtitle={`${tests.length} test${tests.length === 1 ? '' : 's'}`}
