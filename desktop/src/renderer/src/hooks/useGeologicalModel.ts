@@ -613,6 +613,17 @@ export interface UseGeologicalModelResult {
    * Promise<void>
    */
   handleClearLithoModel: () => Promise<void>
+  /**
+   * Run the auto-correlate algorithm across the active lithostratigraphic
+   * model (#127).  Inserts net-new ``source='auto'`` edges, re-runs the
+   * ordinal resolver, triggers inference per formation — all server-side
+   * in one transaction.  Idempotent; toasts a summary on completion.
+   *
+   * Returns
+   * -------
+   * Promise<void>
+   */
+  handleAutoCorrelate: () => Promise<void>
 }
 
 /**
@@ -2433,6 +2444,38 @@ export function useGeologicalModel({
     }
   }, [project, refetchLithoContacts, refetchFormations, refetchLithoSurfaces, toast])
 
+  // #127 — auto-correlate: fire the domain algorithm across the model,
+  // persist net-new edges with source='auto', re-run the resolver, and
+  // trigger inference per formation — all in one server-side transaction.
+  const handleAutoCorrelate = useCallback(async (): Promise<void> => {
+    const model = activeLithoModelRef.current
+    if (!project || !model) return
+    log.info('geology', `autoCorrelate entry model=${model.id}`)
+    try {
+      const result = await api.geology.autoCorrelate(project.id, model.id)
+      log.success(
+        'geology',
+        `autoCorrelate ok edges_created=${result.edges_created} ` +
+          `skipped=${result.edges_skipped_existing} ` +
+          `recomputed=${result.formations_recomputed}`,
+      )
+      // Refetch so correlation overlay + ordinal badges update.
+      refetchFormations()
+      if (result.edges_created === 0) {
+        toast('success', 'Auto-correlate: model already fully correlated — no new edges.')
+      } else {
+        toast(
+          'success',
+          `Auto-correlate: ${result.edges_created} edge${result.edges_created === 1 ? '' : 's'} created, ` +
+            `${result.formations_recomputed} formation${result.formations_recomputed === 1 ? '' : 's'} updated.`,
+        )
+      }
+    } catch (err) {
+      log.error('geology', 'autoCorrelate failed', err)
+      toast('error', 'Auto-correlate failed — see console.')
+    }
+  }, [project, refetchFormations, toast])
+
   // Removes a set of contact ids from local state only (no DB call).
   // The caller (discardSessionImports) owns the DB deletes; this
   // callback just keeps the in-memory contacts list consistent.
@@ -4081,6 +4124,18 @@ export function useGeologicalModel({
         'geology',
         `acceptAllBulkLitho done anchors=${entries.length} contacts=${totalCommitted} failures=${failures.length} extrapolated=${totalExtrapolated} orphan=${totalOrphan}`,
       )
+      // #127 — fire auto-correlate after every bulk accept so the
+      // correlation graph stays up-to-date without a manual button press.
+      // Non-fatal: a failure here does not roll back the accepted contacts.
+      try {
+        const acResult = await api.geology.autoCorrelate(project.id, model.id)
+        log.info(
+          'geology',
+          `acceptAllBulkLitho auto-correlate ok edges_created=${acResult.edges_created} skipped=${acResult.edges_skipped_existing}`,
+        )
+      } catch (err) {
+        log.warn('geology', 'acceptAllBulkLitho auto-correlate failed (non-fatal)', err)
+      }
       // Debt #87: emit ONE aggregated warning when any anchor produced
       // units needing review. Built via the same helper for wording parity.
       const aggSummary = formatAcceptParentSummary({
@@ -4477,5 +4532,6 @@ export function useGeologicalModel({
     backdropSurfacesByFormationId,
     handleLoadBackdropSurfaces,
     handleClearLithoModel,
+    handleAutoCorrelate,
   }
 }
