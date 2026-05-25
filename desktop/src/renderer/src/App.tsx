@@ -669,7 +669,11 @@ export default function App() {
         )
       }
     },
-    // reason: same closure-safety argument as handleExportSectionDxf.
+    // reason: toast from useToasts closes over a toastId ref internally,
+    // so identity instability does not cause stale-closure reads here.
+    // The handler only dispatches fire-and-forget API calls and dialog
+    // interactions that do not depend on any captured state that can go
+    // stale — the empty dep array is intentionally safe.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   )
