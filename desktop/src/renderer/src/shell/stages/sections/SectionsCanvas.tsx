@@ -1260,6 +1260,9 @@ export default function SectionsCanvas(): JSX.Element {
           onInspectLensBody={
             isLitho ? (fid, ord) => void handleOpenInspectLensBody(fid, ord) : undefined
           }
+          // Rejection toasts for blocked correlate clicks (#129c): cross-group
+          // and same-investigation bands surface a warning so the user knows why.
+          onRejectCorrelate={isLitho ? (reason) => toast('warning', reason) : undefined}
         />
         {/* Inspect-lens-body panel (#101 Blocker 1) — shared between section-selected
             and no-section branches; Portal via Modal escapes the SVG stacking context. */}
