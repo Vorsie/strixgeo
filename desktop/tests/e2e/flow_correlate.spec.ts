@@ -65,29 +65,40 @@ test.describe('flow_correlate', () => {
         return
       }
 
-      // Group by lithology code to find a pair with the same code.
+      // Group by (litho_main_soil_code, parent_formation_id) to find correlatable pairs.
+      // The correlate endpoint requires BOTH same lithology AND same geological parent —
+      // a KLEI under Quaternary and a KLEI under Tertiary Clay are NOT correlatable.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const byCode = new Map<string, any[]>()
+      const byCodeAndParent = new Map<string, any[]>()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const byCodeOnly = new Map<string, any[]>()
       for (const f of lithoFormations) {
         const code: string = f.litho_main_soil_code
-        if (!byCode.has(code)) byCode.set(code, [])
-        byCode.get(code)!.push(f)
+        const parent: string = f.parent_formation_id ?? ''
+        const key = `${code}::${parent}`
+        if (!byCodeAndParent.has(key)) byCodeAndParent.set(key, [])
+        byCodeAndParent.get(key)!.push(f)
+        // Also track by code-only for the diff-pair search.
+        if (!byCodeOnly.has(code)) byCodeOnly.set(code, [])
+        byCodeOnly.get(code)!.push(f)
       }
 
-      // Find a same-code pair.
+      // Find a same-code + same-parent pair (the only pair the correlate endpoint accepts).
       let samePair: [string, string] | null = null
-      for (const [, group] of byCode) {
+      for (const [, group] of byCodeAndParent) {
         if (group.length >= 2) {
           samePair = [group[0].id, group[1].id]
           break
         }
       }
 
-      // Find a different-code pair.
-      const codes = [...byCode.keys()]
+      // Find a different-code pair (for the rejection-path test).
+      // Must use formations with DIFFERENT litho_main_soil_code so the 422 is the
+      // lithology_mismatch guard, not the parent_mismatch guard.
+      const codes = [...byCodeOnly.keys()]
       let diffPair: [string, string] | null = null
       if (codes.length >= 2) {
-        diffPair = [byCode.get(codes[0])![0].id, byCode.get(codes[1])![0].id]
+        diffPair = [byCodeOnly.get(codes[0])![0].id, byCodeOnly.get(codes[1])![0].id]
       }
 
       const edgesBefore = await countCorrelationEdges(FIXTURE_PROJECT_ID)
@@ -102,8 +113,8 @@ test.describe('flow_correlate', () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  formation_id_a: aId,
-                  formation_id_b: bId,
+                  formation_a_id: aId,
+                  formation_b_id: bId,
                 }),
               },
             )
@@ -111,7 +122,9 @@ test.describe('flow_correlate', () => {
           },
           [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, samePair[0], samePair[1]],
         )
-        expect(correlateRes.status).toBe(200)
+        // 201 on new edge, 200 if already exists (idempotent) — both are success.
+        expect(correlateRes.status).toBeGreaterThanOrEqual(200)
+        expect(correlateRes.status).toBeLessThan(300)
 
         const edgesAfter = await countCorrelationEdges(FIXTURE_PROJECT_ID)
         expect(edgesAfter).toBeGreaterThan(edgesBefore)
@@ -134,19 +147,23 @@ test.describe('flow_correlate', () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  formation_id_a: aId,
-                  formation_id_b: bId,
+                  formation_a_id: aId,
+                  formation_b_id: bId,
                 }),
               },
             )
-            return { status: r.status, json: r.status !== 200 ? await r.json() : null }
+            return { status: r.status, json: r.status < 200 || r.status >= 300 ? await r.json() : null }
           },
           [API_BASE, FIXTURE_PROJECT_ID, lithoModelId, diffPair[0], diffPair[1]],
         )
         // The correlate endpoint must reject mismatched lithologies.
         expect(rejectRes.status).toBe(422)
+        // The detail is a plain string containing the mismatch description
+        // (e.g. "Formations have different litho_main_soil_code: 'KLEI' vs 'SILT'").
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        expect((rejectRes.json as any)?.detail?.code ?? '').toBe('lithology_mismatch')
+        const detail = (rejectRes.json as any)?.detail ?? ''
+        const detailStr = typeof detail === 'string' ? detail : (detail?.code ?? detail?.message ?? JSON.stringify(detail))
+        expect(detailStr).toMatch(/different.*litho|lithology_mismatch/i)
       }
     } finally {
       await closeApp(app)
