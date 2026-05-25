@@ -225,7 +225,7 @@ function LithoSection({
       <NumberRow
         id="settings-min-thickness"
         label="Minimum layer thickness (m)"
-        hint={`Layers thinner than this are merged into their neighbour. Lower values catch thin clay drapes; higher values produce a coarser column. Default ${LITHO_SEGMENTER_DEFAULTS.minimumLayerThicknessM} m.`}
+        hint={`Layers thinner than this are merged into their neighbour, regardless of lithology. Lower values catch thin clay drapes; higher values produce a coarser column. Composes with the "Merge same-lithology layers" toggle below — thickness merging runs first, then same-lithology merging. Default ${LITHO_SEGMENTER_DEFAULTS.minimumLayerThicknessM} m.`}
         value={draft.minimumLayerThicknessM}
         onChange={v => setDraft({ ...draft, minimumLayerThicknessM: v })}
         bounds={thicknessBounds}
