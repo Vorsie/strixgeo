@@ -584,6 +584,7 @@ export default function SectionsToolbar(): JSX.Element {
                 onClick={() => void handleAcceptAll()}
                 disabled={acceptingAll}
                 busy={acceptingAll}
+                testid="litho-accept-all"
                 title={
                   acceptingAll
                     ? 'Committing all suggestion layers…'
@@ -606,6 +607,7 @@ export default function SectionsToolbar(): JSX.Element {
                 onClick={() => void handleAcceptAllBulk()}
                 disabled={acceptingAllBulk}
                 busy={acceptingAllBulk}
+                testid="litho-accept-all-bulk"
                 title={
                   acceptingAllBulk
                     ? 'Committing all bulk suggestion layers…'
