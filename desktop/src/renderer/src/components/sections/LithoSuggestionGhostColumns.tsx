@@ -517,6 +517,21 @@ export interface LithoSuggestionGhostColumnsProps {
    */
   onMergeLayers?: (upperIdx: number) => void
   /**
+   * Dogfeed 2026-05-25 — Shift+drag absorb gesture. Fired on mouseup
+   * when the user Shift-drags an edge past the neighbour's midpoint.
+   * The dragger's depth extends to cover the absorbed layer's outer
+   * edge; the neighbour is removed; the dragger's composition wins.
+   *
+   * ``draggerIdx`` is the index of the dragged layer; ``direction`` is
+   * ``'down'`` when the lower neighbour is absorbed (base-drag past its
+   * midpoint) or ``'up'`` when the upper neighbour is absorbed
+   * (top-drag past its midpoint).
+   *
+   * Optional — when absent, Shift+drag clamps at the neighbour boundary
+   * without absorbing (zero regression for callers that haven't opted in).
+   */
+  onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
+  /**
    * Optional CPT depth-series for the dragged investigation. When the
    * investigation is a CPT and this map carries an entry for its id,
    * the live drag readout shows ``qc`` (MPa) and ``Rf`` (%) at the
@@ -595,6 +610,7 @@ export default function LithoSuggestionGhostColumns({
   onInsertLayer,
   onSplitLayer,
   onMergeLayers,
+  onAbsorbLayer,
   cptPlotByAnchorId,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
@@ -668,6 +684,19 @@ export default function LithoSuggestionGhostColumns({
      * friction.
      */
     collapseChainOnRelease: number[]
+    /**
+     * When non-null, the user is holding Shift and has dragged the edge
+     * past the neighbour's MIDPOINT — releasing here will call
+     * onAbsorbLayer. The value is the direction of the absorb:
+     * ``'down'`` when the lower neighbour is pending absorption (base-
+     * drag past midpoint) or ``'up'`` for the upper (top-drag up past
+     * midpoint). Mutually exclusive with ``snapped``: if the cursor has
+     * crossed the midpoint, the absorb indicator renders instead of the
+     * merge/collapse indicator.
+     * Null = no absorb pending (plain drag or Shift-drag short of
+     * midpoint).
+     */
+    absorbPending: 'up' | 'down' | null
   } | null>(null)
 
   // Composition editor (debt #72). Tracks which suggestion index is
@@ -835,6 +864,73 @@ export default function LithoSuggestionGhostColumns({
         collapseChainOnRelease = drag.collapseChainBelow
       }
       const next = snapTargetM !== null ? snapTargetM : clamped
+
+      // Shift+drag absorb gesture (dogfeed 2026-05-25). When the user
+      // holds Shift AND the cursor has crossed the neighbour's MIDPOINT,
+      // set absorbPending so the indicator renders and the mouseup
+      // handler fires onAbsorbLayer. The midpoint check is: cursor
+      // depth (rawUnclamped) has crossed the midpoint of the relevant
+      // pending neighbour in the drag direction.
+      //
+      // Only arms when onAbsorbLayer is wired (prop present); plain
+      // dragging or missing prop leaves absorbPending null so existing
+      // clamp + merge behaviour is unchanged.
+      //
+      // Mutually exclusive with snapped: if absorbPending is set the
+      // absorb indicator renders; if snapped (but not absorb) the merge
+      // indicator renders. This means the Shift key is the only
+      // difference between the two paths — the absorb gesture is the
+      // Shift-variant of the existing merge snap.
+      let absorbPending: 'up' | 'down' | null = null
+      if (e.shiftKey && onAbsorbLayer !== undefined) {
+        if (drag.edge === 'base') {
+          // Looking for lower neighbour to absorb.
+          const neighbourBelow = findVisibleNeighbourBelow(
+            drag.idx,
+            suggestions.length,
+            acceptedIndices,
+            rejectedIndices,
+          )
+          if (
+            neighbourBelow !== null &&
+            neighbourBelow.kind === 'pending' &&
+            !neighbourBelow.crossedRejected
+          ) {
+            const { topM: nTop, baseM: nBase } = effectiveDepths(
+              suggestions,
+              edits,
+              neighbourBelow.idx,
+            )
+            const midpoint = nTop + (nBase - nTop) / 2
+            if (rawUnclamped > midpoint) {
+              absorbPending = 'down'
+            }
+          }
+        } else {
+          // edge === 'top': looking for upper neighbour to absorb.
+          const neighbourAbove = findVisibleNeighbourAbove(
+            drag.idx,
+            acceptedIndices,
+            rejectedIndices,
+          )
+          if (
+            neighbourAbove !== null &&
+            neighbourAbove.kind === 'pending' &&
+            !neighbourAbove.crossedRejected
+          ) {
+            const { topM: nTop, baseM: nBase } = effectiveDepths(
+              suggestions,
+              edits,
+              neighbourAbove.idx,
+            )
+            const midpoint = nTop + (nBase - nTop) / 2
+            if (rawUnclamped < midpoint) {
+              absorbPending = 'up'
+            }
+          }
+        }
+      }
+
       setDrag(d =>
         d !== null
           ? {
@@ -843,12 +939,26 @@ export default function LithoSuggestionGhostColumns({
               snapped: snapTargetM !== null,
               snapTargetM,
               collapseChainOnRelease,
+              absorbPending,
             }
           : null,
       )
     }
     function handleUp(): void {
       if (!drag) return
+
+      // Shift+drag absorb — takes priority over the normal clamp/snap
+      // path. When absorbPending is set, fire onAbsorbLayer and skip
+      // the depth-commit + auto-reject path entirely: the absorb helper
+      // (absorbLithoLayer) rebuilds the ghost with the correct extended
+      // depths + removed neighbour in one atomic step; no onEdit calls
+      // are needed from here.
+      if (drag.absorbPending !== null && onAbsorbLayer !== undefined) {
+        onAbsorbLayer(drag.idx, drag.absorbPending)
+        setDrag(null)
+        return
+      }
+
       const final = drag.currentDepthM
       // Collapse chain on release. After the kill-multi-cascade
       // refactor, the chain has at most ONE entry per direction:
@@ -897,7 +1007,12 @@ export default function LithoSuggestionGhostColumns({
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleUp)
     }
-  }, [drag, pxPerM, onEdit, onReject, suggestions.length, acceptedIndices, rejectedIndices])
+  // reason: onAbsorbLayer identity is stable (useCallback); edits is a
+  // ReadonlyMap that changes by reference on every edit commit — listing
+  // it here keeps the closure fresh for the absorb-midpoint lookup.
+  // suggestions is a readonly array that changes by reference on accept
+  // (the hook replaces the BulkAnchorGhost); same pattern as onEdit.
+  }, [drag, pxPerM, onEdit, onReject, onAbsorbLayer, suggestions, edits, acceptedIndices, rejectedIndices])
 
   // Debt #86: document-level mousemove + mouseup while a copy-drag is
   // active. Uses ``document.elementsFromPoint`` to find a drop target
@@ -1234,6 +1349,7 @@ export default function LithoSuggestionGhostColumns({
                       snapped: false,
                       snapTargetM: null,
                       collapseChainOnRelease: [],
+                      absorbPending: null,
                     })
                   }}
                 />
@@ -1267,6 +1383,7 @@ export default function LithoSuggestionGhostColumns({
                       snapped: false,
                       snapTargetM: null,
                       collapseChainOnRelease: [],
+                      absorbPending: null,
                     })
                   }}
                 />
@@ -1371,10 +1488,13 @@ export default function LithoSuggestionGhostColumns({
           - "release to collapse" — dragged layer collapses onto itself (chain=[own.idx])
           NOT shown for outer-edge snap (chain=[]): cursor hit the test-bottom
           or ground surface, so snapping here changes nothing on release and
-          showing "release to merge" is misleading (dogfeed 2026-05-25). */}
+          showing "release to merge" is misleading (dogfeed 2026-05-25).
+          NOT shown when absorbPending is set — the absorb indicator takes
+          precedence (mutually exclusive: Shift+drag vs plain drag). */}
       {drag?.snapped &&
         drag.snapTargetM !== null &&
-        drag.collapseChainOnRelease.length > 0 && (
+        drag.collapseChainOnRelease.length > 0 &&
+        drag.absorbPending === null && (
         <g data-testid="litho-snap-indicator" style={{ pointerEvents: 'none' }}>
           {(() => {
             const y = Math.max(
@@ -1408,6 +1528,54 @@ export default function LithoSuggestionGhostColumns({
                   style={{ userSelect: 'none' }}
                 >
                   {label}
+                </text>
+              </>
+            )
+          })()}
+        </g>
+      )}
+      {/* Absorb indicator (dogfeed 2026-05-25 — Shift+drag gesture).
+          Renders when absorbPending is non-null: user is holding Shift
+          and has dragged the edge past the neighbour's midpoint. A
+          dark-amber solid line + a directional arrow label distinguishes
+          this from the plain merge/collapse indicator (amber dashed).
+          Colour: #92400e (amber-800) — darker than the snap indicator's
+          #d97706 (amber-600), so the two are visually distinct without
+          needing a completely different hue. Arrow: ⇩ for absorb-down,
+          ⇧ for absorb-up. Mutually exclusive with the snap indicator. */}
+      {drag?.absorbPending !== null && drag?.absorbPending !== undefined && (
+        <g data-testid="litho-absorb-indicator" style={{ pointerEvents: 'none' }}>
+          {(() => {
+            // Position the indicator at the current drag depth so it
+            // tracks the boundary live.
+            const y = Math.max(
+              plotTop,
+              Math.min(
+                plotBottom,
+                levelToScreen(surfaceElevationM - drag.currentDepthM),
+              ),
+            )
+            const arrow = drag.absorbPending === 'down' ? '⇩ absorb' : '⇧ absorb'
+            return (
+              <>
+                <line
+                  x1={left - 2}
+                  y1={y}
+                  x2={left + ghostWidth + 2}
+                  y2={y}
+                  stroke="#92400e"
+                  strokeWidth={2}
+                  strokeDasharray="none"
+                />
+                <text
+                  x={left + ghostWidth / 2}
+                  y={y - 4}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fill="#92400e"
+                  style={{ userSelect: 'none' }}
+                >
+                  {arrow}
                 </text>
               </>
             )
