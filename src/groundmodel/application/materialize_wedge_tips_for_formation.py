@@ -318,6 +318,12 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
         inv_elevation: dict[UUID, float | None] = {}
 
         if all_inv_ids:
+            # The borehole + CPT investigation surface elevation is
+            # stored on the ``elevation_m`` column, NOT ``ground_level_m``
+            # (the latter does not exist on either ORM — the materialiser
+            # initially referenced it by mistake and 500'd every accept-
+            # all call until the fix). Source of truth: BoreholeOrm /
+            # CptOrm field declarations + the ElevationSource enum.
             bh_rows = list(
                 (
                     await self._session.execute(
@@ -325,14 +331,14 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
                             BoreholeOrm.id,
                             BoreholeOrm.location_x,
                             BoreholeOrm.location_y,
-                            BoreholeOrm.ground_level_m,
+                            BoreholeOrm.elevation_m,
                         ).where(BoreholeOrm.id.in_(all_inv_ids))
                     )
                 ).all()
             )
             for r in bh_rows:
                 inv_xy[r.id] = (r.location_x, r.location_y)
-                inv_elevation[r.id] = r.ground_level_m
+                inv_elevation[r.id] = r.elevation_m
 
             cpt_rows = list(
                 (
@@ -341,14 +347,14 @@ class MaterializeWedgeTipsForFormation(GroundModelLogger):
                             CptOrm.id,
                             CptOrm.location_x,
                             CptOrm.location_y,
-                            CptOrm.ground_level_m,
+                            CptOrm.elevation_m,
                         ).where(CptOrm.id.in_(all_inv_ids))
                     )
                 ).all()
             )
             for r in cpt_rows:
                 inv_xy[r.id] = (r.location_x, r.location_y)
-                inv_elevation[r.id] = r.ground_level_m
+                inv_elevation[r.id] = r.elevation_m
 
         self.debug(f"MaterializeWedgeTipsForFormation: geocoded {len(inv_xy)} investigation(s)")
 
