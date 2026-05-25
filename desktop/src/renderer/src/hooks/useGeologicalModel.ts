@@ -4009,6 +4009,10 @@ export function useGeologicalModel({
             ...(ghost.kind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
             section_id: sectionId ?? null,
             suggestions: pendingLayers,
+            // Skip the per-accept R7 inference pass — one bulk recompute
+            // runs after the full loop so inference is O(formations × sections)
+            // instead of O(N × formations × sections).
+            defer_inference: true,
           }
           const result = await api.geology.acceptLithoSuggestions(
             project.id,
@@ -4047,6 +4051,31 @@ export function useGeologicalModel({
           log.warn('geology', `acceptAllBulkLitho anchor=${anchorId} failed`, err)
           failures.push(anchorId)
         }
+      }
+      log.debug(
+        'geology',
+        `acceptAllBulkLitho loop done anchors=${entries.length} contacts=${totalCommitted} failures=${failures.length} — running bulk inference recompute`,
+      )
+      // Single inference + wedge-tip pass for the whole batch (#129b).
+      // This replaces the N × per-accept R7 hook calls that caused
+      // 70–140 s hangs with 70 anchors.
+      const committedCount = entries.length - failures.length
+      try {
+        const recomputeResult = await api.geology.recomputeAllAbsences(project.id, model.id)
+        log.success(
+          'geology',
+          `acceptAllBulkLitho recompute done formations=${recomputeResult.formations_processed} written=${recomputeResult.total_written} retracted=${recomputeResult.total_retracted}`,
+        )
+        toast(
+          'success',
+          `Accepted ${committedCount} anchor${committedCount === 1 ? '' : 's'} — inference updated.`,
+        )
+      } catch (err) {
+        log.warn('geology', 'acceptAllBulkLitho recompute-all-absences failed (non-fatal)', err)
+        toast(
+          'warning',
+          `Accepted ${committedCount} anchor${committedCount === 1 ? '' : 's'} — inference recompute failed.`,
+        )
       }
       log.success(
         'geology',
