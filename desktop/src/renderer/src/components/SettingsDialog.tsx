@@ -93,6 +93,7 @@ export default function SettingsDialog({
       onCancel={onCancel}
       labelledBy="settings-title"
       cardClassName="w-[720px] max-h-[80vh] flex flex-col"
+      testid="settings-dialog"
     >
       <div className="flex flex-col flex-1 min-h-0">
         <div className="px-6 pt-5 pb-3 border-b border-border-subtle flex items-center gap-2">
@@ -120,6 +121,7 @@ export default function SettingsDialog({
                   role="tab"
                   aria-selected={selected}
                   onClick={() => setActive(s.key)}
+                  data-testid={`settings-section-${s.key}`}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs ${
                     selected
                       ? 'bg-surface-card text-text-primary font-medium'
@@ -466,6 +468,7 @@ function SectionFooter({
           size="sm"
           onClick={onSubmit}
           disabled={!dirty || !allValid || !hasProject}
+          data-testid="settings-save-button"
         >
           Save
         </Button>
