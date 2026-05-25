@@ -1,9 +1,9 @@
-// Unit pins for formatAcceptParentSummary (debt #87).
+// Unit pins for formatAcceptParentSummary (debt #87) and formatStraddleSummary (debt #76).
 
 import { describe, expect, it } from 'vitest'
 
 import type { AcceptLithoSuggestionsResponse } from '../api/client'
-import { formatAcceptParentSummary } from './acceptLithoSummary'
+import { formatAcceptParentSummary, formatStraddleSummary } from './acceptLithoSummary'
 
 function base(): AcceptLithoSuggestionsResponse {
   return {
@@ -70,5 +70,38 @@ describe('formatAcceptParentSummary', () => {
     expect(s?.message).toBe(
       '1 parent extrapolated, 2 unassigned — review in Lithology inspector',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatStraddleSummary — debt #76
+// ---------------------------------------------------------------------------
+//
+// S1  Returns null when straddle_split_count is 0.
+// S2  Returns null when straddle_split_count is absent (undefined).
+// S3  Returns a message for count = 1 with singular wording.
+// S4  Returns a message for count > 1 with plural wording.
+
+describe('formatStraddleSummary', () => {
+  it('S1 — returns null when straddle_split_count is 0', () => {
+    expect(formatStraddleSummary(base())).toBeNull()
+  })
+
+  it('S2 — returns null when straddle_split_count is absent (undefined)', () => {
+    // Simulate an older response payload that doesn't carry the field.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r: any = { ...base() }
+    delete r.straddle_split_count
+    expect(formatStraddleSummary(r as ReturnType<typeof base>)).toBeNull()
+  })
+
+  it('S3 — singular message for count = 1', () => {
+    const msg = formatStraddleSummary({ ...base(), straddle_split_count: 1 })
+    expect(msg).toBe('1 layer split at a formation boundary — expected (each produces 2 contacts)')
+  })
+
+  it('S4 — plural message for count > 1', () => {
+    const msg = formatStraddleSummary({ ...base(), straddle_split_count: 3 })
+    expect(msg).toBe('3 layers split at a formation boundary — expected (each produces 2 contacts)')
   })
 })
