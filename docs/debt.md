@@ -2657,62 +2657,6 @@ CLAUDE.md MVP scope edit (density indicators move from litho to
 geotech).
 
 
-## 121. Correlation rendering: polygon ribbon, lens-aware (Tier G — design work, ~1 day)
-
-**What.** `CorrelationEdgesOverlay.tsx:1104-1113` renders a
-committed correlation edge as a **single dashed line** at
-band-midpoint. Replace with a **filled quadrilateral** spanning
-`(xA, top_A) → (xB, top_B) → (xB, base_B) → (xA, base_A)` per edge,
-coloured with the lithology hue at ~25% opacity. When 3+ columns
-share a `body_ordinal`, render ONE continuous ribbon through them
-all (not three separate quads — overlapping fills at chained
-columns are ugly). Group edges by body ordinal and emit a
-polyline-style ribbon per body.
-
-**Lens-aware composition.** Edges/ribbons tagged with `lens_id`
-(from #101) get stronger fill (~35% opacity) + a dashed top/base
-boundary — visually signals "closed body, not continuous formation".
-The ribbon endpoints respect pinch-out tip contacts (from #118 +
-#101's lens-absent semantics): a ribbon reaching an absent column
-thins to zero at the wedge tip, not at the column itself.
-
-**Why deferred.** Real UI work (~1 day with tests), not a bugfix.
-Triage 2026-05-25: classified as B (design work). #122 opacity
-fade is the lighter fix that addresses the immediate "too many
-lines" complaint; #121 (ribbon) is the richer visual work that
-benefits from being designed alongside the section visual-polish
-pass.
-
-**When to revisit.** When the section editor's first visual-polish
-pass starts (alongside the section background grid or per-body
-colour coding), OR when a paying customer flags the dashed-line
-edge as confusing after the opacity fix (#122) doesn't satisfy.
-After #101 Position 4 ships (lens-aware endpoints require the
-lens_id FK on correlation edges).
-
-## 122. Correlation edge opacity fade + body-hover spike (Tier G — session 2026-05-24)
-
-**What.** Committed correlation edges render at full opacity today,
-producing visual noise when N×M layers × columns. Dogfeed
-2026-05-24 reported "too many suggestion lines" for what is
-actually a fully-committed correlation set (not suggestions). Drop
-default opacity to ~20%; spike to ~80% on body-hover (the chip-hover
-halo already does this for the body's chips — extend the gate to the
-body's edges/ribbons). Optionally hide edges entirely when zoomed
-out below a threshold (e.g. section length > 500 m per 100 px).
-
-**Why deferred.** Polish; smaller scope than #121. Triage
-2026-05-25: classified as B (UX polish, not a bugfix). The opacity
-fade is the lighter half (~20 lines) that directly addresses the
-"too many lines" dogfeed complaint; it can ship ahead of the full
-ribbon work in #121.
-
-**When to revisit.** When the next litho-UX pass starts, or when a
-dogfeed session flags the spaghetti-edge density specifically. The
-opacity fade alone can ship ahead of #121 — it doesn't depend on
-the ribbon shape. Pair with the body-hover spike extension when the
-chip-hover halo work is next touched (same file, same state path).
-
 ## 123. Correlation suggestion bug: clay → silt cross-lithology pair (Tier G — needs reproduction)
 
 **What.** Dogfeed 2026-05-24 user-reported: at least one committed
