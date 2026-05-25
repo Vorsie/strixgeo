@@ -700,3 +700,223 @@ export async function countGeoContactsBySource(
     return parseInt(res.rows[0].n, 10)
   })
 }
+
+// ---------------------------------------------------------------------------
+// Import + test-data helpers (added for #130 Flow P/Q/R/S slice)
+// ---------------------------------------------------------------------------
+
+/**
+ * Count CPT rows belonging to a project.
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count in ``cpt`` for this project.
+ */
+export async function countCpts(projectId: string): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM cpt WHERE app_project_id = $1`,
+      [projectId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
+
+/**
+ * Fetch a CPT and its series arrays by CPT UUID.
+ *
+ * Returns the CPT summary fields plus the depths array from ``cpt_series``
+ * so callers can assert the series was persisted and is non-empty.
+ *
+ * Parameters
+ * ----------
+ * cptId : string
+ *   UUID of the CPT record.
+ *
+ * Returns
+ * -------
+ * ``{ id, n_rows, max_depth_m, depths: number[] }`` or ``null`` when the
+ * CPT does not exist or has no associated series row.
+ */
+export async function getCptWithSeries(
+  cptId: string,
+): Promise<{ id: string; n_rows: number | null; max_depth_m: number | null; depths: number[] } | null> {
+  return withClient(async (client) => {
+    const res = await client.query<{
+      id: string
+      n_rows: number | null
+      max_depth_m: number | null
+      depths_m: unknown
+    }>(
+      `SELECT c.id, c.n_rows, c.max_depth_m, cs.depths_m
+         FROM cpt c
+         LEFT JOIN cpt_series cs ON cs.cpt_id = c.id
+        WHERE c.id = $1`,
+      [cptId],
+    )
+    if (res.rows.length === 0) return null
+    const row = res.rows[0]
+    // depths_m is a Postgres ARRAY — the pg driver returns it as a JS array.
+    const depths = Array.isArray(row.depths_m)
+      ? (row.depths_m as number[])
+      : []
+    return {
+      id: row.id,
+      n_rows: row.n_rows ?? null,
+      max_depth_m: row.max_depth_m ?? null,
+      depths,
+    }
+  })
+}
+
+/**
+ * Count borehole rows belonging to a project.
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count in ``borehole`` for this project.
+ */
+export async function countBoreholes(projectId: string): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM borehole WHERE app_project_id = $1`,
+      [projectId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
+
+/**
+ * Fetch a borehole and a summary of its child tree by borehole UUID.
+ *
+ * Returns counts of drill segments, observation layers, samples, and the
+ * total number of lab test rows across all six families.  Used by Flow Q
+ * to assert that the full child tree was restored via the bundle endpoint.
+ *
+ * Parameters
+ * ----------
+ * boreholeId : string
+ *   UUID of the borehole record.
+ *
+ * Returns
+ * -------
+ * ``{ id, drill_segments, observation_layers, samples, lab_tests_count }``
+ * or ``null`` when the borehole does not exist.
+ */
+export async function getBoreholeWithChildren(boreholeId: string): Promise<{
+  id: string
+  drill_segments: number
+  observation_layers: number
+  samples: number
+  lab_tests_count: number
+} | null> {
+  return withClient(async (client) => {
+    // Borehole existence check
+    const bhRes = await client.query<{ id: string }>(
+      `SELECT id FROM borehole WHERE id = $1`,
+      [boreholeId],
+    )
+    if (bhRes.rows.length === 0) return null
+
+    // Count child rows in parallel via individual queries (simplest path).
+    const [dsRes, olRes, sampRes, labRes] = await Promise.all([
+      client.query<{ n: string }>(
+        `SELECT COUNT(*) AS n FROM drill_segment WHERE borehole_id = $1`,
+        [boreholeId],
+      ),
+      client.query<{ n: string }>(
+        `SELECT COUNT(*) AS n
+           FROM observation_layer ol
+           JOIN observation o ON o.id = ol.observation_id
+          WHERE o.borehole_id = $1`,
+        [boreholeId],
+      ),
+      client.query<{ n: string }>(
+        `SELECT COUNT(*) AS n FROM sample WHERE borehole_id = $1`,
+        [boreholeId],
+      ),
+      // All six lab-test families joined on sample.borehole_id
+      client.query<{ n: string }>(
+        `SELECT (
+           (SELECT COUNT(*) FROM grain_size gs
+              JOIN sample s ON s.id = gs.sample_id WHERE s.borehole_id = $1) +
+           (SELECT COUNT(*) FROM atterberg_limits al
+              JOIN sample s ON s.id = al.sample_id WHERE s.borehole_id = $1) +
+           (SELECT COUNT(*) FROM caco3_content cc
+              JOIN sample s ON s.id = cc.sample_id WHERE s.borehole_id = $1) +
+           (SELECT COUNT(*) FROM organic_content oc
+              JOIN sample s ON s.id = oc.sample_id WHERE s.borehole_id = $1) +
+           (SELECT COUNT(*) FROM water_content wc
+              JOIN sample s ON s.id = wc.sample_id WHERE s.borehole_id = $1) +
+           (SELECT COUNT(*) FROM scalar_lab_test slt
+              JOIN sample s ON s.id = slt.sample_id WHERE s.borehole_id = $1)
+         ) AS n`,
+        [boreholeId],
+      ),
+    ])
+
+    return {
+      id: boreholeId,
+      drill_segments: parseInt(dsRes.rows[0].n, 10),
+      observation_layers: parseInt(olRes.rows[0].n, 10),
+      samples: parseInt(sampRes.rows[0].n, 10),
+      lab_tests_count: parseInt(labRes.rows[0].n, 10),
+    }
+  })
+}
+
+/**
+ * Count lab tests in a specific family belonging to a sample.
+ *
+ * Parameters
+ * ----------
+ * sampleId : string
+ *   UUID of the sample.
+ * family : string
+ *   One of ``'grain_size'``, ``'atterberg'``, ``'caco3'``, ``'organic'``,
+ *   ``'water'``, or ``'scalar'``.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count in the matching lab-test table.
+ *
+ * Raises
+ * ------
+ * Error
+ *   If an unknown family name is passed.
+ */
+export async function countLabTestsBySample(
+  sampleId: string,
+  family: 'grain_size' | 'atterberg' | 'caco3' | 'organic' | 'water' | 'scalar',
+): Promise<number> {
+  // Map family alias → DB table name (matches ORM __tablename__).
+  const TABLE_MAP: Record<typeof family, string> = {
+    grain_size: 'grain_size',
+    atterberg: 'atterberg_limits',
+    caco3: 'caco3_content',
+    organic: 'organic_content',
+    water: 'water_content',
+    scalar: 'scalar_lab_test',
+  }
+  const table = TABLE_MAP[family]
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM ${table} WHERE sample_id = $1`,
+      [sampleId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
