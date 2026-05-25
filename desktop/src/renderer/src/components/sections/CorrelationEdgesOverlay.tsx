@@ -68,6 +68,16 @@ const EDGE_OPACITY_AMBIENT = 0.20
 const EDGE_OPACITY_HOVERED = 0.80
 /** Edge stroke colour (Tailwind blue-500). */
 const EDGE_COLOR = '#3b82f6'
+/**
+ * Fill opacity for the correlation-body ribbon polygon (debt #121).
+ * Low enough not to obscure the CPT/borehole data behind it; the
+ * boundary lines and chip chips carry the primary visual weight.
+ */
+const RIBBON_FILL_OPACITY = 0.18
+/** Fill colour for the ribbon polygon (Tailwind blue-400). */
+const RIBBON_FILL_COLOR = '#60a5fa'
+/** Stroke width for the ribbon top + base boundary lines. */
+const RIBBON_BOUNDARY_WIDTH = 0.8
 /** Edge stroke width in pixels. */
 const EDGE_WIDTH = 1.5
 /** Half-width of the invisible hit rect around an edge line. */
@@ -276,6 +286,51 @@ export function buildBandMap(
   }
 
   return result
+}
+
+/**
+ * One column's contribution to a ribbon polygon.
+ *
+ * ``x``      — screen X of the column (nudgedX).
+ * ``topY``   — screen Y of the band's top edge at this column.
+ * ``botY``   — screen Y of the band's bottom edge at this column.
+ */
+export interface RibbonColumn {
+  x: number
+  topY: number
+  botY: number
+}
+
+/**
+ * Build the SVG ``points`` attribute for a correlation-body ribbon polygon.
+ *
+ * The ribbon is a closed polygon spanning N ordered columns.  It is rendered
+ * as a single shape rather than N−1 separate quads so adjacent-column
+ * boundaries don't produce distracting interior seam lines.
+ *
+ * Shape: forward along the top edge (left→right), then back along the bottom
+ * edge (right→left), closed back to the first top point.  Each column
+ * contributes two vertices on the top edge and two on the bottom edge, giving
+ * the fill a piecewise-linear profile that matches the band extent exactly.
+ *
+ * Parameters
+ * ----------
+ * columns
+ *     The columns that carry this body, ordered left-to-right by screen X.
+ *     Must have at least 2 entries — a single-column body has no edge to
+ *     draw.
+ *
+ * Returns
+ * -------
+ * string
+ *     SVG ``points`` attribute value (space-separated ``x,y`` pairs), or
+ *     empty string when ``columns.length < 2``.
+ */
+export function computeRibbonPoints(columns: readonly RibbonColumn[]): string {
+  if (columns.length < 2) return ''
+  const topPts = columns.map(c => `${c.x.toFixed(2)},${c.topY.toFixed(2)}`)
+  const botPts = [...columns].reverse().map(c => `${c.x.toFixed(2)},${c.botY.toFixed(2)}`)
+  return [...topPts, ...botPts].join(' ')
 }
 
 /**
@@ -819,6 +874,106 @@ export default function CorrelationEdgesOverlay({
     return result
   }, [edges, placedColumns, bandMap, levelToScreen])
 
+  /**
+   * Per-body ribbon render data.
+   *
+   * For each unique ``instance_ordinal`` that has at least one edge, collect
+   * every column on this section that carries a formation with that ordinal,
+   * sort left-to-right, and build the ribbon's ``RibbonColumn[]``.  Bodies
+   * with ordinal ``null`` (pre-Resolve) fall through to the per-edge dashed
+   * line path in the render block instead.
+   *
+   * A body must span at least TWO columns to have a ribbon — a single-column
+   * body has no neighbouring investigation to connect to.
+   */
+  interface RibbonRenderItem {
+    /** Shared instance ordinal — the body's identity. */
+    ordinal: number
+    /** One entry per column that carries any formation of this body,
+     *  ordered left-to-right by screen X. */
+    columns: RibbonColumn[]
+    /** Any formation id belonging to this body — used for right-click
+     *  context menu (the per-edge fallback surfaces its own menu). */
+    sampleEdgeFormationAId: string
+    sampleEdgeFormationBId: string
+    /** Representative edge id — used for the per-ribbon context-menu
+     *  data-testid so tests can query the ribbon. */
+    sampleEdgeId: string
+  }
+
+  const ribbonRenders = useMemo((): RibbonRenderItem[] => {
+    // Build ordinal → { formationIds, sampleEdge } map from edges whose
+    // endpoints BOTH have a non-null instance_ordinal (resolved bodies only).
+    const byOrdinal = new Map<number, {
+      formationIds: Set<string>
+      sampleEdgeFormationAId: string
+      sampleEdgeFormationBId: string
+      sampleEdgeId: string
+    }>()
+
+    for (const edge of edges) {
+      const fA = formationById.get(edge.formation_a_id)
+      const fB = formationById.get(edge.formation_b_id)
+      const ordinal = fA?.instance_ordinal
+      if (
+        ordinal === null ||
+        ordinal === undefined ||
+        fA?.instance_ordinal !== fB?.instance_ordinal
+      ) {
+        continue
+      }
+      if (!byOrdinal.has(ordinal)) {
+        byOrdinal.set(ordinal, {
+          formationIds: new Set(),
+          sampleEdgeFormationAId: edge.formation_a_id,
+          sampleEdgeFormationBId: edge.formation_b_id,
+          sampleEdgeId: edge.id,
+        })
+      }
+      const entry = byOrdinal.get(ordinal)!
+      entry.formationIds.add(edge.formation_a_id)
+      entry.formationIds.add(edge.formation_b_id)
+    }
+
+    const result: RibbonRenderItem[] = []
+
+    for (const [ordinal, entry] of byOrdinal) {
+      // Find every column on this section that carries any formation in
+      // this body, collect the band extent for rendering.
+      const ribbonCols: RibbonColumn[] = []
+      for (const col of placedColumns) {
+        const invId = col.proj.item.id
+        const colBands = bandMap.get(invId)
+        if (!colBands) continue
+        // Each formation in this body can appear at most once per column.
+        for (const fId of entry.formationIds) {
+          const band = colBands.get(fId)
+          if (!band) continue
+          ribbonCols.push({
+            x: col.nudgedX,
+            topY: levelToScreen(band.topLevel),
+            botY: levelToScreen(band.botLevel),
+          })
+          break // one formation per column (body-per-column constraint)
+        }
+      }
+      // Sort left-to-right by screen X.
+      ribbonCols.sort((a, b) => a.x - b.x)
+      // Need at least 2 columns for a ribbon.
+      if (ribbonCols.length < 2) continue
+
+      result.push({
+        ordinal,
+        columns: ribbonCols,
+        sampleEdgeFormationAId: entry.sampleEdgeFormationAId,
+        sampleEdgeFormationBId: entry.sampleEdgeFormationBId,
+        sampleEdgeId: entry.sampleEdgeId,
+      })
+    }
+
+    return result
+  }, [edges, formationById, placedColumns, bandMap, levelToScreen])
+
   // In correlate mode: build per-formation-per-column gesture rect data.
   interface GestureRect {
     investigationId: string
@@ -1120,30 +1275,31 @@ export default function CorrelationEdgesOverlay({
         </text>
       )}
 
-      {/* Correlation edge lines (debt #122 — always-on at ambient opacity;
-          spike to hovered opacity when the user hovers a body chip with
-          the matching ordinal). Pre-Resolve edges (either endpoint's
-          ordinal null) stay ambient — no chip to hover them but the line
-          is visible as a low-opacity hint, nudging the user to run
-          Resolve. The edge-midpoint "body N" badge is gone — the chip
-          on each band carries the body number on a more permanent
-          surface. */}
+      {/* Pre-Resolve edge lines — dashed lines for edges whose endpoints
+          have not yet been assigned an instance_ordinal by the resolver.
+          Resolved bodies (ordinal set on both endpoints) are rendered as
+          ribbon polygons below; this block handles only the pre-Resolve
+          "stale" state (debt #122 always-on ambient, spike on hover). */}
       {edgeRenders.map((er, idx) => {
         const fA = formationById.get(er.edge.formation_a_id)
         const fB = formationById.get(er.edge.formation_b_id)
-        // Body is hovered iff a chip of the same ordinal is being hovered.
-        // Pre-Resolve edges (ordinal null on either side) are never hovered
-        // since there is no chip — they remain at ambient opacity only.
-        const isBodyHovered =
-          hoveredBodyOrdinal !== null &&
-          fA?.instance_ordinal === hoveredBodyOrdinal &&
-          fB?.instance_ordinal === hoveredBodyOrdinal
-        const opacity = isBodyHovered ? EDGE_OPACITY_HOVERED : EDGE_OPACITY_AMBIENT
+        // Pre-Resolve edges: either ordinal is null — rendered as a dashed
+        // line here. Resolved bodies (both ordinals non-null + equal) are
+        // rendered as continuous ribbon polygons in the block below.
+        const aOrdinal = fA?.instance_ordinal
+        const bOrdinal = fB?.instance_ordinal
+        const isResolved =
+          aOrdinal !== null &&
+          aOrdinal !== undefined &&
+          bOrdinal !== null &&
+          bOrdinal !== undefined &&
+          aOrdinal === bOrdinal
+        if (isResolved) return null
+        // Pre-Resolve: always ambient; no spike possible (no chip to hover).
         return (
-          <g key={`edge-${er.edge.id}-${idx}`} data-testid={`correlation-edge-${er.edge.id}`} opacity={opacity}>
+          <g key={`edge-${er.edge.id}-${idx}`} data-testid={`correlation-edge-${er.edge.id}`} opacity={EDGE_OPACITY_AMBIENT}>
             {/* Invisible hit rect — per-edge "remove this correlation"
-                right-click fallback. Pointer events are always active
-                so the user can right-click even at ambient opacity. */}
+                right-click fallback. */}
             <line
               x1={er.x1}
               y1={er.y1}
@@ -1162,9 +1318,7 @@ export default function CorrelationEdgesOverlay({
                 })
               }}
             />
-            {/* Visible dashed line — auto edges use a tighter dash pattern
-                to signal provisional status. The opacity gate is on the
-                parent <g> (ambient vs hovered). */}
+            {/* Visible dashed line — auto edges use tighter dash pattern. */}
             <line
               x1={er.x1}
               y1={er.y1}
@@ -1174,6 +1328,78 @@ export default function CorrelationEdgesOverlay({
               strokeWidth={EDGE_WIDTH}
               strokeDasharray={er.edge.source === 'auto' ? EDGE_DASH_AUTO : EDGE_DASH}
               pointerEvents="none"
+            />
+          </g>
+        )
+      })}
+
+      {/* Resolved-body ribbon polygons (debt #121). One continuous polygon
+          ribbon per body ordinal, spanning all columns that carry a
+          formation of that body. The ribbon replaces per-edge dashed lines
+          for resolved bodies (both endpoints have instance_ordinal set).
+          Ambient opacity (0.20) at rest; spikes to 0.80 when the body's
+          chip is hovered — same gate as the per-edge dashed-line path. */}
+      {ribbonRenders.map(ribbon => {
+        const isBodyHovered = hoveredBodyOrdinal === ribbon.ordinal
+        const opacity = isBodyHovered ? EDGE_OPACITY_HOVERED : EDGE_OPACITY_AMBIENT
+        const pts = computeRibbonPoints(ribbon.columns)
+        if (!pts) return null
+        // Boundary points for top and bottom lines.
+        const topPts = ribbon.columns.map(c => `${c.x.toFixed(2)},${c.topY.toFixed(2)}`).join(' ')
+        const botPts = ribbon.columns.map(c => `${c.x.toFixed(2)},${c.botY.toFixed(2)}`).join(' ')
+        return (
+          <g
+            key={`ribbon-${ribbon.ordinal}`}
+            data-testid={`correlation-ribbon-${ribbon.ordinal}`}
+            opacity={opacity}
+          >
+            {/* Filled ribbon polygon — Tailwind blue-400 fill at low
+                opacity so the CPT/borehole data behind is readable. */}
+            <polygon
+              points={pts}
+              fill={RIBBON_FILL_COLOR}
+              fillOpacity={RIBBON_FILL_OPACITY}
+              stroke="none"
+              pointerEvents="none"
+            />
+            {/* Top boundary line — thin stroke so the ribbon extent is
+                legible even at ambient opacity. */}
+            <polyline
+              points={topPts}
+              fill="none"
+              stroke={EDGE_COLOR}
+              strokeWidth={RIBBON_BOUNDARY_WIDTH}
+              strokeDasharray={EDGE_DASH}
+              pointerEvents="none"
+            />
+            {/* Bottom boundary line. */}
+            <polyline
+              points={botPts}
+              fill="none"
+              stroke={EDGE_COLOR}
+              strokeWidth={RIBBON_BOUNDARY_WIDTH}
+              strokeDasharray={EDGE_DASH}
+              pointerEvents="none"
+            />
+            {/* Invisible polygon hit area for right-click context menu
+                (fallback to the per-edge "remove this correlation" path). */}
+            <polygon
+              points={pts}
+              fill="transparent"
+              stroke="transparent"
+              strokeWidth={EDGE_HIT_PADDING * 2}
+              style={{ pointerEvents: 'all', cursor: 'context-menu' }}
+              onContextMenu={e => {
+                e.preventDefault()
+                const mx = ribbon.columns[Math.floor(ribbon.columns.length / 2)].x
+                const my = ribbon.columns[Math.floor(ribbon.columns.length / 2)].topY
+                setContextMenu({
+                  x: mx,
+                  y: my - 8,
+                  formationAId: ribbon.sampleEdgeFormationAId,
+                  formationBId: ribbon.sampleEdgeFormationBId,
+                })
+              }}
             />
           </g>
         )
