@@ -1,3 +1,14 @@
+// Shared button component for dialogs and panels.
+//
+// Variants: primary (accent-filled), secondary (surface border), danger
+// (destructive red), ghost (text-only). The focus ring uses ``ring-accent``
+// (resolves to blue-600 in light, blue-400 in dark) which clears the WCAG
+// 2.2 AA 3:1 UI-component contrast requirement in both themes. The previous
+// ``ring-blue-500`` was ~2.8:1 on dark surfaces (AA fail).
+//
+// ``secondary`` and ``ghost`` use semantic surface tokens so they render
+// correctly in dark mode without extra ``dark:`` pairs per-callsite.
+
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost'
@@ -9,13 +20,19 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode
 }
 
-const BASE = 'inline-flex items-center justify-center gap-1.5 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:pointer-events-none disabled:opacity-40'
+// ring-accent resolves to blue-600 (light) / blue-400 (dark) via the CSS
+// custom property --color-accent. Both clear WCAG 2.2 AA 3:1 against
+// the respective surface backgrounds.
+const BASE = 'inline-flex items-center justify-center gap-1.5 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-40'
 
 const VARIANTS: Record<Variant, string> = {
-  primary:   'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800',
-  secondary: 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 active:bg-gray-100',
-  danger:    'bg-red-600 text-white hover:bg-red-700 active:bg-red-800',
-  ghost:     'text-gray-600 hover:bg-gray-100 active:bg-gray-200',
+  // primary + danger are accent/danger fills — surface-agnostic.
+  primary:   'bg-accent text-text-on-accent hover:bg-accent-muted active:bg-accent-muted',
+  danger:    'bg-status-danger text-white hover:bg-red-700 active:bg-red-800',
+  // secondary / ghost use semantic surface tokens so they adapt to dark mode
+  // via CSS custom properties rather than needing ``dark:`` per-callsite.
+  secondary: 'bg-surface-page border border-border-default text-text-primary hover:bg-surface-card active:bg-surface-card',
+  ghost:     'text-text-secondary hover:bg-surface-card active:bg-surface-card',
 }
 
 const SIZES: Record<Size, string> = {
@@ -23,6 +40,24 @@ const SIZES: Record<Size, string> = {
   md: 'px-3.5 py-1.5 text-sm',
 }
 
+/**
+ * Shared button for dialogs and inspector panels.
+ *
+ * Parameters
+ * ----------
+ * variant
+ *     Visual intent: ``primary``, ``secondary``, ``danger``, or ``ghost``.
+ *     Defaults to ``secondary``.
+ * size
+ *     ``sm`` (default) or ``md``.
+ * children
+ *     Button label content.
+ *
+ * Returns
+ * -------
+ * JSX.Element
+ *     The button element.
+ */
 export default function Button({ variant = 'secondary', size = 'sm', className = '', children, ...rest }: Props) {
   return (
     <button
