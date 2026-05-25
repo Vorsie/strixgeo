@@ -3095,54 +3095,61 @@ schema migration on a stable table; the prop-threading (#131-b) can
 ship independently as a frontend-only change once the absence data is
 available in the section view's loaded state.
 
-## 132. Uncorrelate does not retract inferred absences when body collapses (Tier G — correctness)
+## 132. Correlation-graph-aware inference on uncorrelate (Tier G — Phase 5 design issue)
 
 **What.** ``test_r7_uncorrelate_reruns_inference_without_error`` asserts
-that uncorrelating FA ↔ FB retracts the inferred-absence rows that the
-correlate hook had written. The DELETE endpoint returns 204 and the hook
-chain (``UncorrelateLithoUnits`` → ``RecomputeFormationAbsencesForFormation``
-→ ``RecomputeFormationAbsencesForBody``) fires successfully, but
-``retracted=0`` — the stale rows survive in DB.
+that uncorrelating FA ↔ FB causes the recompute hook to RETRACT the
+inferred absence row that the correlate phase wrote. Today the
+``count_after < count_before`` assertion fails. Marked ``xfail`` 2026-05-25
+pending the Phase-5 design.
 
-The bug was masked for some time by the ``formation_absence.updated_at``
-NOT NULL violation (debt fixed in migration ``k5e6f7a8b9c0`` 2026-05-25):
-the precondition assertion ``count_before >= 1`` was failing at line 663
-because the correlate write phase couldn't insert any inferred rows. With
-the schema fix in place, the precondition now passes and the real bug
-fails at line 678.
+**Investigation (2026-05-25).**
 
-**Root cause (current understanding).** Post-uncorrelate, the body
-identified by ``(formation_id, body_ordinal=0)`` no longer has the
-correlation edge that gave it body identity. ``RecomputeFormationAbsencesForBody``
-looks up the body's contacts, finds zero, and returns
-``skipped_no_data`` rather than emitting all existing rows to
-``to_retract``. The inference engine's ``infer_formation_absences``
-domain function does not have the design intent "no contacts → retract
-all existing inferred rows for this body" — it treats zero-contacts as
-"insufficient data to compute".
+The initial diagnosis was "body collapses to zero contacts on uncorrelate
+→ engine doesn't recognise collapse case." Shape A fix shipped (commit
+``daa5a952``): ``infer_formation_absences`` now emits all existing
+inferred rows into ``to_retract`` when ``body_contacts`` is empty. The
+guard is correct + unit-tested but does NOT solve the test case.
 
-**Why deferred.** Real correctness bug, but the fix is a design decision
-on the inference engine, not a one-liner. Two viable shapes:
+Why: correlation in Position 4 lives at the FORMATION level
+(``litho_correlation_edge.formation_a_id`` ↔ ``formation_b_id``), not
+at the CONTACT level. After uncorrelate, the contacts themselves survive
+unchanged. ``RecomputeFormationAbsencesForBody`` loads
+``body_contacts = all contacts for (model, formation)`` per the
+intentional MVP simplification documented at
+``recompute_formation_absences_for_body.py:155-168``:
 
-* **Shape A — domain-layer fix.** Extend ``infer_formation_absences``
-  to emit all existing inferred rows into ``to_retract`` when the body
-  has zero contacts. Simplest semantics; the inference engine becomes
-  the single source of truth for "what should the absence set be?".
-* **Shape B — use-case-layer fix.** Have ``UncorrelateLithoUnits`` (or
-  the recompute use case it calls) DELETE all ``'inferred'`` rows for
-  the affected (formation, body_ordinal) tuple as a first step, then
-  re-run inference to repopulate from scratch. More aggressive; doesn't
-  rely on the inference engine to recognise the collapse case.
+> "For Position 4 MVP: we treat ALL contacts for (model, formation) as
+> the body's contacts. Multi-body disambiguation (ordinal > 1) is a
+> Phase 5 refinement..."
 
-Shape A is the cleaner design but needs careful thinking about partial
-collapses (body still has SOME contacts on SOME sections but not others
-— do we retract per-section or globally?). Shape B is mechanical but
-risks over-deleting if a manual row got mis-classified as inferred.
+So after uncorrelate ``body_contacts == [the surviving contact]``,
+non-empty. The engine has no visibility into the correlation graph;
+same inputs → same UPSERT of the same row → count unchanged.
 
-**When to revisit.** Before any user can hit the uncorrelate gesture
-on a corridor where the post-correlate inference wrote ``'inferred'``
-absences (= every realistic uncorrelate in v1.0). This is a v1.0 MVP
-correctness gate — must ship before the coworker binary.
+**Why deferred.** True retraction requires the inference engine to
+become correlation-graph-aware (an isolated formation must produce no
+inferred absences in the corridor). That's the Phase-5 multi-body-
+disambiguation work the MVP simplification explicitly defers. Two
+shapes when the time comes:
+
+* **Shape C — engine takes correlation-graph context.** A new input
+  parameter ``is_isolated_body: bool`` (or richer ``correlation_neighbors:
+  list[UUID]``) flows from the recompute. Engine retracts when isolated.
+* **Shape D — recompute pre-filters.** The recompute use case loads the
+  correlation graph, detects isolation, and calls infer with
+  ``body_contacts=[]``. Composes with the already-shipped Shape A guard.
+
+Shape D is the cheaper transitional path (no domain-engine signature
+change). Shape C is the cleaner endgame.
+
+**When to revisit.** Phase 5 multi-body disambiguation, OR when a
+dogfeed session reports phantom absences surviving uncorrelate as a
+user-visible bug.
+
+**What ships today (2026-05-25).** Shape A guard + xfail mark + unit
+anchors for the empty-body-contacts safety net. The Phase-5 retraction
+remains the open work.
 
 ## (end)
 
