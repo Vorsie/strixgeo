@@ -350,6 +350,7 @@ function makeStubContext(overrides?: {
       lithoStaleSurfaceCount: 0,
     lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
+      handleAutoCorrelate: noopAsync,
     },
     sections: {
       sections: [section],

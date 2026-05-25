@@ -246,6 +246,7 @@ function makeCtx(overrides: {
       handleLoadBackdropSurfaces: noopAsync,
       lithoStaleSurfaceCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
+      handleAutoCorrelate: noopAsync,
     },
     sections: {
       sections: overrides.selectedSectionId
@@ -393,7 +394,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         selectedSectionId: 'sec-1',
       }),
     )
-    const btn = screen.getByRole('button', { name: /correlate/i })
+    const btn = screen.getByRole('button', { name: 'Correlate' })
     expect(btn).toBeDisabled()
   })
 
@@ -405,7 +406,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         selectedSectionId: null,
       }),
     )
-    const btn = screen.getByRole('button', { name: /correlate/i })
+    const btn = screen.getByRole('button', { name: 'Correlate' })
     expect(btn).toBeDisabled()
   })
 
@@ -420,7 +421,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         enterCorrelateMode,
       }),
     )
-    const btn = screen.getByRole('button', { name: /correlate/i })
+    const btn = screen.getByRole('button', { name: 'Correlate' })
     expect(btn).not.toBeDisabled()
     fireEvent.click(btn)
     expect(enterCorrelateMode).toHaveBeenCalledOnce()

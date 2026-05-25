@@ -192,6 +192,7 @@ function makeCtx(overrides: {
       lithoStaleSurfaceCount: 0,
     lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
+      handleAutoCorrelate: noopAsync,
       handleCreateLithoContact: noopAsync,
       handleInlineLithoCreateFormation: () => Promise.resolve(null),
       formations: [],
