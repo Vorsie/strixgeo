@@ -233,3 +233,16 @@ class AutoCorrelateResponse(BaseModel):
     edges_skipped_existing: int
     formations_recomputed: int
     wedge_tips_materialised: int
+
+
+class DeleteAutoCorrelationsResponse(BaseModel):
+    """Response body for ``DELETE .../correlations/auto``.
+
+    Attributes
+    ----------
+    deleted : int
+        Number of ``litho_correlation_edge`` rows with ``source='auto'``
+        that were removed.  Zero when no auto edges existed (idempotent).
+    """
+
+    deleted: int
