@@ -61,7 +61,7 @@ class PlaxisSectionExporter(BaseExporter):
         """Initialise with the standard module-named logger."""
         super().__init__(__name__)
 
-    def export(self, snapshot: SectionSnapshot) -> bytes:  # type: ignore[override]
+    def export(self, snapshot: SectionSnapshot) -> bytes:  # type: ignore[override]  # BaseExporter.export() takes GroundModelSnapshot; section exporter takes SectionSnapshot — intentional narrowing, same return type
         """Serialise the section snapshot to a ``plxscripting`` script.
 
         Parameters
