@@ -305,6 +305,14 @@ export interface ResolveInstancesResponse {
   updated: Array<{ formation_id: string; new_ordinal: number }>
 }
 
+// #127: response from POST /models/{mid}/auto-correlate.
+export interface AutoCorrelateResult {
+  edges_created: number
+  edges_skipped_existing: number
+  formations_recomputed: number
+  wedge_tips_materialised: number
+}
+
 // Geological-model response — a project can have multiple
 // interpretation models; one is active at a time. Contacts live as
 // child rows fetched separately so the model list response stays
@@ -2131,6 +2139,21 @@ export const api = {
     ): Promise<CrossSectionResponse> =>
       post(
         `/projects/${projectId}/geology/models/${modelId}/lenses/${lensId}/perpendicular-companion`,
+        {},
+      ),
+
+    // --- Auto-correlate (#127) -----------------------------------------------
+    //
+    // Run the bottom-up dip-transfer algorithm across the whole model.
+    // Inserts net-new edges with source='auto', runs the ordinal resolver
+    // once, and triggers absence inference per touched formation — all in
+    // one transaction.  Idempotent: edges_created=0 means nothing new.
+    autoCorrelate: (
+      projectId: string,
+      modelId: string,
+    ): Promise<AutoCorrelateResult> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/auto-correlate`,
         {},
       ),
   },
