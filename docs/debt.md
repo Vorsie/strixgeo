@@ -3137,84 +3137,8 @@ surface) before #128 means more of the same. Land the harness
 first; #127 inherits the 6-flow smoke set as its regression net
 from day one.
 
-**When to revisit.** Immediately after #129 fix-up lands (the
-last bug from this session — currently in flight). Before
-#127 auto-correlate. Before the first external/paid distribution
-(debt #3 license keys trigger). Filed 2026-05-25 from the
-materialiser-bug dogfeed; sequencing escalated same day after
-#129 surfaced three more cross-boundary bugs.
-
-## 129. Position-4 dogfeed batch (2026-05-25 #2) — three concrete bugs (Tier G)
-
-Three issues surfaced in the second dogfeed pass after the
-``ground_level_m`` fix landed. All visible in the same session;
-file as one batch with a single fix-up dispatch.
-
-**129a — ``GET .../lenses`` 500s at boot.** The
-``LithologyInspector`` fetches the lens metadata list on mount;
-the response 500s (browser shows CORS-mask because CORS headers
-don't attach to error responses). Likely root cause: the .strix
-file the user re-opened was created before R1's schema reshape;
-restore writes lens rows with the old shape, the new
-``LithoLensListItem`` Pydantic schema rejects them (e.g.
-``body_ordinal`` missing), validation 500s. OR the dev DB has
-schema drift the user's last ``alembic upgrade head`` didn't
-cover. Diagnose with a manual curl + a backend log scrape.
-
-**129b — Bulk accept is catastrophically slow.** ``Accept all
-(bulk)`` on 70 anchors takes ~70-140 seconds. Cause: the
-frontend fans out one HTTP call per anchor, and each call's R7
-hook re-runs ``RecomputeFormationAbsencesForFormation`` +
-``MaterializeWedgeTipsForFormation`` for **every** affected
-formation × every section. With ~8 formations × 2 sections × 70
-anchors = ~1100 inference passes, each ~30-70ms = catastrophic.
-
-**Fix shape (chosen design):** add a new ``defer_inference: bool
-= False`` parameter to ``AcceptLithoSuggestions.execute()``. When
-true, the R7 hook is **skipped** for this call. Frontend's
-``handleAcceptAllBulk`` passes ``defer_inference=True`` on every
-per-anchor call inside the batch, then makes one final POST to a
-new lightweight endpoint
-``POST .../models/{model_id}/recompute-all-absences`` that runs
-the inference engine once over every affected formation in the
-model. Net result: ~70 fast accepts (no inference math) + ~1
-inference pass = ~5-10 seconds total instead of 70-140.
-
-Reject alternative — per-formation diff in the R7 hook (compute
-which formations actually have new contacts and recompute only
-those). Architecturally cleaner but more invasive; the defer +
-single final call is simpler and matches the user's mental model
-("I'm doing a bulk operation, optimize for the batch").
-
-**129c — Correlation gesture has no immediate visual feedback.**
-After Correlate-mode click-1 + click-2, no toast, no flash, no
-new dashed line. User: "I have no idea if something is correlated
-after 2 clicks." The orange "59 investigations still have pending
-suggestions" warning in the section toolbar tells the user the
-gesture is BLOCKED until all suggestions are committed (the
-gesture only operates on committed bands), but the warning is
-easy to miss given the busy interface around it.
-
-**Three fixes overlap here:**
-1. On successful correlate → immediate toast ("Correlated
-   [formation] across [N] columns") + brief flash on the source
-   + target band (200ms accent-color halo)
-2. On rejected correlate (pending suggestions, cross-formation,
-   etc.) → red toast with the specific reason — don't make the
-   user inspect the small orange warning
-3. The CorrelationEdgesOverlay should refresh its edge list
-   immediately after the POST commits (today: relies on a refetch
-   that may lag). Confirm in the frontend hook chain.
-
-**Estimated cost.** ~1 day for the three fixes plus a brief
-investigation pass on 129a's root cause. The bulk-defer is the
-biggest change (~3 hours including backend test + frontend wire).
-
-**Why Tier G.** All three actively block the litho-stage smoke-
-test. Without 129b in particular, the workflow is unusable on a
-project with >20 investigations.
-
-**When to revisit.** Immediately — dispatch the fix-up batch in
-the same session as the materialiser fix. Filed 2026-05-25 from
-the post-materialiser-fix dogfeed.
+**When to revisit.** Before #127 auto-correlate. Before the first
+external/paid distribution (debt #3 license keys trigger). Filed
+2026-05-25 from the materialiser-bug dogfeed; sequencing
+escalated same day.
 
