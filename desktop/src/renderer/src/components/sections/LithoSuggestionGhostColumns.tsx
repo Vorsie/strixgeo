@@ -1366,11 +1366,15 @@ export default function LithoSuggestionGhostColumns({
       )}
       {/* Snap-to-collapse indicator (debt #81). A short amber dashed
           line at the snap target depth, drawn across the ghost column,
-          plus a "merge" hint label. Visible only while the drag is
-          snapped to the opposite edge; the dragged-layer rect's own
-          rendering already collapses to zero height when this fires,
-          so the indicator gives the user a "release to collapse" cue. */}
-      {drag?.snapped && drag.snapTargetM !== null && (
+          plus a contextual hint label.
+          - "release to merge"    — neighbour will be absorbed (chain=[neighbour.idx])
+          - "release to collapse" — dragged layer collapses onto itself (chain=[own.idx])
+          NOT shown for outer-edge snap (chain=[]): cursor hit the test-bottom
+          or ground surface, so snapping here changes nothing on release and
+          showing "release to merge" is misleading (dogfeed 2026-05-25). */}
+      {drag?.snapped &&
+        drag.snapTargetM !== null &&
+        drag.collapseChainOnRelease.length > 0 && (
         <g data-testid="litho-snap-indicator" style={{ pointerEvents: 'none' }}>
           {(() => {
             const y = Math.max(
@@ -1380,6 +1384,10 @@ export default function LithoSuggestionGhostColumns({
                 levelToScreen(surfaceElevationM - drag.snapTargetM),
               ),
             )
+            const label =
+              drag.collapseChainOnRelease[0] === drag.idx
+                ? 'release to collapse'
+                : 'release to merge'
             return (
               <>
                 <line
@@ -1399,7 +1407,7 @@ export default function LithoSuggestionGhostColumns({
                   fill="#d97706"
                   style={{ userSelect: 'none' }}
                 >
-                  release to merge
+                  {label}
                 </text>
               </>
             )
