@@ -98,4 +98,25 @@ describe('UnsavedChangesDialog', () => {
     )
     expect(screen.getByRole('button', { name: /Cancel/ })).toHaveFocus()
   })
+
+  it('DK2 — Cancel button uses semantic dark-mode-aware tokens (debt #105)', () => {
+    // Regression anchor: UnsavedChangesDialog.Cancel previously used raw
+    // bg-white + border-gray-300 + text-gray-700 with no dark: variants.
+    // Semantic tokens (bg-surface-page, border-border-default, text-text-primary)
+    // resolve correctly in both themes via CSS custom properties.
+    render(
+      <UnsavedChangesDialog
+        open
+        projectName="Site A"
+        onSave={vi.fn()}
+        onDiscard={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    const cancel = screen.getByRole('button', { name: /Cancel/ })
+    expect(cancel.className).toContain('bg-surface-page')
+    expect(cancel.className).toContain('text-text-primary')
+    expect(cancel.className).not.toContain('text-gray-')
+    expect(cancel.className).not.toContain('bg-white')
+  })
 })

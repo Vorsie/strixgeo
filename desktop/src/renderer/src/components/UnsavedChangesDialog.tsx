@@ -48,12 +48,12 @@ export default function UnsavedChangesDialog({
       <div className="p-5">
         <h2
           id="unsaved-changes-title"
-          className="text-sm font-semibold text-gray-800 mb-1"
+          className="text-sm font-semibold text-text-primary mb-1"
         >
           Save changes to{' '}
           <span className="font-bold">{projectName}</span>?
         </h2>
-        <p className="text-xs text-gray-500 mb-4">
+        <p className="text-xs text-text-secondary mb-4">
           The metadata editor has unsaved edits. If you discard, your
           typed values will be lost; the database row stays as it was.
         </p>
@@ -68,7 +68,7 @@ export default function UnsavedChangesDialog({
             onClick={onCancel}
             disabled={busy}
             data-testid="unsaved-cancel"
-            className="px-3.5 py-1.5 text-sm font-medium rounded bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+            className="px-3.5 py-1.5 text-sm font-medium rounded bg-surface-page border border-border-default text-text-primary hover:bg-surface-card disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Cancel
           </button>
