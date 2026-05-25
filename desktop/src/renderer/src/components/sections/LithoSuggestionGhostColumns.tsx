@@ -1757,7 +1757,16 @@ function LithoSuggestionLayer({
   const parentNote = parentName != null ? ` | parent: ${parentName}` : ''
 
   // Build the tooltip with all segmenter metadata.
-  const nadNote = layer.suggested_nad_class != null ? ` · NAD ${layer.suggested_nad_class}` : ''
+  // nad_class_range is present on merged layers (debt #119); fall back to
+  // the scalar suggested_nad_class for un-merged / borehole-path layers.
+  const nadNote = (() => {
+    const range = layer.nad_class_range
+    if (range != null) {
+      const [lo, hi] = range
+      return lo === hi ? ` · NAD ${lo}` : ` · NAD ${lo}–${hi}`
+    }
+    return layer.suggested_nad_class != null ? ` · NAD ${layer.suggested_nad_class}` : ''
+  })()
   const qcNote = layer.mean_qc_mpa != null ? ` · qc ${layer.mean_qc_mpa.toFixed(2)} MPa` : ''
   const drNote = layer.dr_pct != null ? ` · Dr ${layer.dr_pct.toFixed(0)}%` : ''
   const statusNote = accepted ? ' ✓ accepted' : rejected ? ' ✗ rejected' : ' (click to accept)'
