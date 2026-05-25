@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 
 import { useShell } from '../../ShellContext'
@@ -66,6 +66,7 @@ export default function SectionsToolbar(): JSX.Element {
       clearBulkLithoGhosts,
       handleStripLithoAdmixtures,
       handleReseedLithoAdmixtures,
+      handleAutoCorrelate,
       // Debt #92 "new tests" filter: scope the Suggest split-button's
       // "for new tests" item to anchors not yet in the active litho
       // model's contact set. Build / Dedupe / Sync moved with their
@@ -93,6 +94,7 @@ export default function SectionsToolbar(): JSX.Element {
   // Bulk-suggest (debt #73 / Phase 3) — confirmation modal + accept-all state.
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
   const [acceptingAllBulk, setAcceptingAllBulk] = useState(false)
+  const [autoCorrelating, setAutoCorrelating] = useState(false)
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
@@ -646,6 +648,28 @@ export default function SectionsToolbar(): JSX.Element {
             // here, not "unsaved") because it makes the active mode obvious
             // without adding a new token. Amber = ongoing action in progress.
             amber={correlateMode}
+          />
+          {/* Auto-correlate — #127: fire the domain algorithm across the
+              whole model; inserts source='auto' edges in bulk. Enabled
+              iff a litho model is active; does NOT require an open
+              section (model-level operation). */}
+          <ToolbarButton
+            icon={<Zap size={13} />}
+            label={autoCorrelating ? 'Correlating…' : 'Auto-correlate'}
+            onClick={() => {
+              setAutoCorrelating(true)
+              void handleAutoCorrelate().finally(() => setAutoCorrelating(false))
+            }}
+            disabled={!activeLithoModel || autoCorrelating}
+            busy={autoCorrelating}
+            testid="litho-auto-correlate"
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : autoCorrelating
+                  ? 'Running auto-correlate…'
+                  : 'Auto-correlate: run the bottom-up dip-transfer algorithm across the whole model — inserts edges between matching litho units at neighbouring investigations'
+            }
           />
           {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
               admixtures on the ghost suggestions before accepting. The
