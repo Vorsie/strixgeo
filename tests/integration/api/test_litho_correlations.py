@@ -776,3 +776,132 @@ async def test_r7_idempotent_correlate_repairs_stale_absences(
         f"Expected inference to repair absence rows on idempotent re-call; "
         f"got {count_after_second} rows after second correlate"
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4 Half-A — DELETE /correlations/auto (re-correlate flow)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def recorrelate_project(db_session: AsyncSession) -> ProjectOrm:
+    """Bare active project for the delete-auto-edges tests."""
+    proj = ProjectOrm(id=uuid7(), name="delete auto edges test", status="active")
+    db_session.add(proj)
+    await db_session.commit()
+    return proj
+
+
+async def test_delete_auto_edges_removes_only_auto_edges(
+    async_client: AsyncClient,
+    recorrelate_project: ProjectOrm,
+    db_session: AsyncSession,
+) -> None:
+    """DELETE /correlations/auto removes source='auto' edges; manual edges survive.
+
+    Integration anchor for the re-correlate dialog (Slice 4 Half-A):
+    * Manual edge created by POST /correlations.
+    * Auto edge inserted directly in the DB (the POST /auto-correlate
+      requires investigation+contact scaffolding; direct insert is the
+      lightweight path for this focused contract test).
+    * After DELETE /correlations/auto: manual edge survives, auto edge gone.
+    * Calling DELETE /correlations/auto again (idempotent): returns 0.
+    """
+    from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
+        LithoCorrelationEdgeOrm,
+    )
+
+    mid, a, b = await _two_formations_in_litho_model(async_client, recorrelate_project.id)
+    base = f"/projects/{recorrelate_project.id}/geology/models/{mid}"
+
+    # Create a manual edge via the public endpoint.
+    manual_resp = await async_client.post(
+        f"{base}/correlations",
+        json={"formation_a_id": a, "formation_b_id": b},
+    )
+    assert manual_resp.status_code == 201, manual_resp.text
+    manual_edge_id = manual_resp.json()["edge_id"]
+
+    # Insert a fake auto edge directly so we don't need the full CPT scaffold.
+    # Formation ids must be ordered (a < b is already guaranteed by the
+    # canonical-order test above, but we need a different pair — we reuse
+    # the same (a, b) which conflicts with the manual edge.  Create a third
+    # formation and use (a, c) for the auto edge.
+    fc_resp = await async_client.post(
+        f"/projects/{recorrelate_project.id}/geology/formations",
+        json={"name": "ZAND occ C", "color": "#bbb"},
+    )
+    assert fc_resp.status_code == 201, fc_resp.text
+    c = fc_resp.json()["id"]
+
+    # Canonical ordering: use (min(a,c), max(a,c)).
+    lo, hi = (a, c) if a < c else (c, a)
+
+    from uuid import UUID
+
+    auto_edge = LithoCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=UUID(mid),
+        formation_a_id=UUID(lo),
+        formation_b_id=UUID(hi),
+        source="auto",
+    )
+    db_session.add(auto_edge)
+    await db_session.commit()
+
+    # Confirm both edges exist before the delete.
+    edges_before_resp = await async_client.get(f"{base}/correlations")
+    assert edges_before_resp.status_code == 200, edges_before_resp.text
+    edges_before = edges_before_resp.json()
+    sources_before = {e["source"] for e in edges_before}
+    assert "manual" in sources_before, "Expected a manual edge before DELETE"
+    assert "auto" in sources_before, "Expected an auto edge before DELETE"
+
+    # DELETE /correlations/auto — must return 200 with deleted=1.
+    del_resp = await async_client.request("DELETE", f"{base}/correlations/auto")
+    assert del_resp.status_code == 200, del_resp.text
+    del_body = del_resp.json()
+    assert del_body["deleted"] == 1
+
+    # Manual edge must survive; auto edge must be gone.
+    edges_after_resp = await async_client.get(f"{base}/correlations")
+    assert edges_after_resp.status_code == 200, edges_after_resp.text
+    edges_after = edges_after_resp.json()
+    ids_after = {e["id"] for e in edges_after}
+    sources_after = {e["source"] for e in edges_after}
+    assert manual_edge_id in ids_after, "Manual edge must survive DELETE /correlations/auto"
+    assert "auto" not in sources_after, "No auto edges should remain after DELETE"
+
+    # Idempotent: calling again on an already-empty auto set returns deleted=0.
+    del_resp2 = await async_client.request("DELETE", f"{base}/correlations/auto")
+    assert del_resp2.status_code == 200, del_resp2.text
+    assert del_resp2.json()["deleted"] == 0
+
+
+async def test_delete_auto_edges_404_for_unknown_model(
+    async_client: AsyncClient,
+    recorrelate_project: ProjectOrm,
+) -> None:
+    """DELETE /correlations/auto returns 404 when the model does not exist."""
+    r = await async_client.request(
+        "DELETE",
+        f"/projects/{recorrelate_project.id}/geology/models/{uuid7()}/correlations/auto",
+    )
+    assert r.status_code == 404, r.text
+
+
+async def test_delete_auto_edges_empty_model_returns_zero(
+    async_client: AsyncClient,
+    recorrelate_project: ProjectOrm,
+) -> None:
+    """DELETE /correlations/auto on a model with no edges at all returns deleted=0."""
+    geo = await _geo_model(async_client, recorrelate_project.id)
+    litho = await _litho_model(async_client, recorrelate_project.id, geo["id"])
+    mid = litho["id"]
+
+    r = await async_client.request(
+        "DELETE",
+        f"/projects/{recorrelate_project.id}/geology/models/{mid}/correlations/auto",
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == 0
