@@ -10,6 +10,17 @@
  * ``DATABASE_URL`` does not end in ``_integration`` or ``_test``, every
  * call throws before touching the DB so the dev DB can't be read
  * mistakenly (reading is safe, but the guard prevents accidental misuse).
+ *
+ * Table mapping (matches the ORM models — do NOT invent table names):
+ * - Contacts live in ``formation_contact`` (joined to ``geological_model``
+ *   filtered by ``kind = 'lithostratigraphic'``).
+ * - Litho models are rows in ``geological_model`` with ``kind = 'lithostratigraphic'``.
+ * - Formation absences live in ``formation_absence`` (joined to
+ *   ``geological_formation`` to reach ``app_project_id``).
+ * - Lens metadata lives in ``litho_lens`` keyed by
+ *   ``(model_id, formation_id, body_ordinal)``.
+ * - Correlation edges live in ``litho_correlation_edge`` (joined to
+ *   ``geological_model`` filtered by ``kind = 'lithostratigraphic'``).
  */
 
 import { Client } from 'pg'
@@ -49,7 +60,8 @@ async function withClient<T>(fn: (client: Client) => Promise<T>): Promise<T> {
 }
 
 /**
- * Count lithostratigraphic contacts (``litho_contact`` rows) for a project.
+ * Count lithostratigraphic contacts (``formation_contact`` rows via
+ * ``geological_model`` with ``kind='lithostratigraphic'``) for a project.
  *
  * Parameters
  * ----------
@@ -65,9 +77,10 @@ export async function countContacts(projectId: string): Promise<number> {
   return withClient(async (client) => {
     const res = await client.query<{ n: string }>(
       `SELECT COUNT(*) AS n
-         FROM litho_contact lc
-         JOIN litho_model lm ON lm.id = lc.litho_model_id
-        WHERE lm.app_project_id = $1`,
+         FROM formation_contact fc
+         JOIN geological_model gm ON gm.id = fc.model_id
+        WHERE gm.app_project_id = $1
+          AND gm.kind = 'lithostratigraphic'`,
       [projectId],
     )
     return parseInt(res.rows[0].n, 10)
@@ -75,7 +88,8 @@ export async function countContacts(projectId: string): Promise<number> {
 }
 
 /**
- * Count correlation edges (``litho_correlation_edge`` rows) for a project.
+ * Count correlation edges (``litho_correlation_edge`` rows) for a project's
+ * lithostratigraphic models.
  *
  * Parameters
  * ----------
@@ -92,8 +106,9 @@ export async function countCorrelationEdges(projectId: string): Promise<number> 
     const res = await client.query<{ n: string }>(
       `SELECT COUNT(*) AS n
          FROM litho_correlation_edge lce
-         JOIN litho_model lm ON lm.id = lce.litho_model_id
-        WHERE lm.app_project_id = $1`,
+         JOIN geological_model gm ON gm.id = lce.model_id
+        WHERE gm.app_project_id = $1
+          AND gm.kind = 'lithostratigraphic'`,
       [projectId],
     )
     return parseInt(res.rows[0].n, 10)
@@ -103,10 +118,13 @@ export async function countCorrelationEdges(projectId: string): Promise<number> 
 /**
  * List formation-absence rows for a project.
  *
- * Each absence row represents a (litho model, investigation, geological
- * formation) triple where the formation is absent in the CPT column.
- * Used to assert that the bulk-accept flow triggered exactly one
- * ``recompute-all-absences`` pass.
+ * Each absence row represents a (formation, investigation) pair where the
+ * formation is absent at the investigation's location. Used to assert that
+ * the bulk-accept flow triggered exactly one ``recompute-all-absences`` pass.
+ *
+ * The ``formation_absence`` table has no direct project FK; we reach the
+ * project via ``formation_absence.formation_id → geological_formation.id``
+ * and then filter on ``geological_formation.app_project_id``.
  *
  * Parameters
  * ----------
@@ -122,11 +140,11 @@ export async function listFormationAbsences(
 ): Promise<Array<{ formation_id: string; investigation_id: string }>> {
   return withClient(async (client) => {
     const res = await client.query<{ formation_id: string; investigation_id: string }>(
-      `SELECT lfa.geological_formation_id AS formation_id,
-              lfa.investigation_id
-         FROM litho_formation_absence lfa
-         JOIN litho_model lm ON lm.id = lfa.litho_model_id
-        WHERE lm.app_project_id = $1`,
+      `SELECT fa.formation_id,
+              fa.investigation_id
+         FROM formation_absence fa
+         JOIN geological_formation f ON f.id = fa.formation_id
+        WHERE f.app_project_id = $1`,
       [projectId],
     )
     return res.rows
@@ -134,14 +152,19 @@ export async function listFormationAbsences(
 }
 
 /**
- * Fetch a lens row by its instance ordinal within a litho model.
+ * Fetch a lens metadata row by its body ordinal within a lithostratigraphic
+ * model for a project.
+ *
+ * The ``litho_lens`` table is keyed by ``(model_id, formation_id, body_ordinal)``.
+ * This helper finds the first lens in the project's litho model that has the
+ * given ``body_ordinal``, regardless of which formation it belongs to.
  *
  * Parameters
  * ----------
  * projectId : string
  *   UUID of the app project.
- * ordinal : number
- *   Instance ordinal (1-based) of the lens within the litho model.
+ * bodyOrdinal : number
+ *   0-based body ordinal assigned by the correlation-graph resolver.
  *
  * Returns
  * -------
@@ -149,24 +172,23 @@ export async function listFormationAbsences(
  */
 export async function getLensByOrdinal(
   projectId: string,
-  ordinal: number,
+  bodyOrdinal: number,
 ): Promise<{ id: string; name: string | null } | null> {
   return withClient(async (client) => {
     const res = await client.query<{ id: string; name: string | null }>(
-      `SELECT li.id, li.name
-         FROM litho_instance li
-         JOIN litho_model lm ON lm.id = li.litho_model_id
-        WHERE lm.app_project_id = $1
-          AND li.instance_ordinal = $2
+      `SELECT ll.id, ll.name
+         FROM litho_lens ll
+        WHERE ll.app_project_id = $1
+          AND ll.body_ordinal = $2
         LIMIT 1`,
-      [projectId, ordinal],
+      [projectId, bodyOrdinal],
     )
     return res.rows[0] ?? null
   })
 }
 
 /**
- * Fetch all litho-model IDs for a project.
+ * Fetch all lithostratigraphic model IDs for a project.
  *
  * Parameters
  * ----------
@@ -176,12 +198,15 @@ export async function getLensByOrdinal(
  * Returns
  * -------
  * string[]
- *   Array of litho model UUIDs.
+ *   Array of geological_model UUIDs where kind = 'lithostratigraphic'.
  */
 export async function listLithoModelIds(projectId: string): Promise<string[]> {
   return withClient(async (client) => {
     const res = await client.query<{ id: string }>(
-      `SELECT id FROM litho_model WHERE app_project_id = $1`,
+      `SELECT id
+         FROM geological_model
+        WHERE app_project_id = $1
+          AND kind = 'lithostratigraphic'`,
       [projectId],
     )
     return res.rows.map((r) => r.id)
