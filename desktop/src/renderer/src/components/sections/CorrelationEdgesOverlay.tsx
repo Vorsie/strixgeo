@@ -52,8 +52,20 @@ import type { PlacedColumn } from './utils'
 const EDGE_DASH = '5 3'
 /** Dash pattern for auto-correlated edges — tighter gap signals provisional. */
 const EDGE_DASH_AUTO = '3 5'
-/** Opacity for auto-correlated edges — visually provisional. */
-const EDGE_OPACITY_AUTO = 0.4
+/**
+ * Ambient opacity for committed (manual + auto) edges — always-on at low
+ * value so the connection graph is readable without dominating the section.
+ * Debt #122: dropped from full opacity to address the "too many lines"
+ * dogfeed complaint (2026-05-24). Suggestion edges (future source) would
+ * stay prominent; current sources 'manual' and 'auto' use this path.
+ */
+const EDGE_OPACITY_AMBIENT = 0.20
+/**
+ * Hovered opacity — spikes when any chip of the same body is hovered,
+ * matching the chip-halo behaviour (debt #122). Applies to committed
+ * edges only; the chip hover already gates which body is active.
+ */
+const EDGE_OPACITY_HOVERED = 0.80
 /** Edge stroke colour (Tailwind blue-500). */
 const EDGE_COLOR = '#3b82f6'
 /** Edge stroke width in pixels. */
@@ -1108,31 +1120,30 @@ export default function CorrelationEdgesOverlay({
         </text>
       )}
 
-      {/* Correlation edge lines (debt #100 — hidden by default; revealed
-          only when the user hovers a body chip with the matching
-          ordinal). The edge-midpoint "body N" badge is gone — the chip
+      {/* Correlation edge lines (debt #122 — always-on at ambient opacity;
+          spike to hovered opacity when the user hovers a body chip with
+          the matching ordinal). Pre-Resolve edges (either endpoint's
+          ordinal null) stay ambient — no chip to hover them but the line
+          is visible as a low-opacity hint, nudging the user to run
+          Resolve. The edge-midpoint "body N" badge is gone — the chip
           on each band carries the body number on a more permanent
-          surface, and a revealed line's two endpoint chips already show
-          "#3 ↔ #3"; a third midpoint badge would be redundant. */}
+          surface. */}
       {edgeRenders.map((er, idx) => {
         const fA = formationById.get(er.edge.formation_a_id)
         const fB = formationById.get(er.edge.formation_b_id)
-        // Reveal the line iff a chip of the same body is being hovered.
-        // Pre-Resolve edges (either ordinal null) cannot be revealed
-        // since there is no chip to hover — the inspector's stale-
-        // ordinal RO-3 indicator nudges the user to run Resolve.
-        const isRevealed =
+        // Body is hovered iff a chip of the same ordinal is being hovered.
+        // Pre-Resolve edges (ordinal null on either side) are never hovered
+        // since there is no chip — they remain at ambient opacity only.
+        const isBodyHovered =
           hoveredBodyOrdinal !== null &&
           fA?.instance_ordinal === hoveredBodyOrdinal &&
           fB?.instance_ordinal === hoveredBodyOrdinal
-        if (!isRevealed) return null
+        const opacity = isBodyHovered ? EDGE_OPACITY_HOVERED : EDGE_OPACITY_AMBIENT
         return (
-          <g key={`edge-${er.edge.id}-${idx}`} data-testid={`correlation-edge-${er.edge.id}`}>
-            {/* Invisible hit rect — kept as the fallback right-click
-                surface while the line is revealed. The primary surface
-                is now the chip (body-level menu), but the line right-
-                click remains a useful per-edge "remove this one
-                correlation" path. */}
+          <g key={`edge-${er.edge.id}-${idx}`} data-testid={`correlation-edge-${er.edge.id}`} opacity={opacity}>
+            {/* Invisible hit rect — per-edge "remove this correlation"
+                right-click fallback. Pointer events are always active
+                so the user can right-click even at ambient opacity. */}
             <line
               x1={er.x1}
               y1={er.y1}
@@ -1151,8 +1162,9 @@ export default function CorrelationEdgesOverlay({
                 })
               }}
             />
-            {/* Visible dashed line — auto edges render at reduced opacity
-                with a tighter dash pattern to signal provisional status. */}
+            {/* Visible dashed line — auto edges use a tighter dash pattern
+                to signal provisional status. The opacity gate is on the
+                parent <g> (ambient vs hovered). */}
             <line
               x1={er.x1}
               y1={er.y1}
@@ -1161,7 +1173,6 @@ export default function CorrelationEdgesOverlay({
               stroke={EDGE_COLOR}
               strokeWidth={EDGE_WIDTH}
               strokeDasharray={er.edge.source === 'auto' ? EDGE_DASH_AUTO : EDGE_DASH}
-              opacity={er.edge.source === 'auto' ? EDGE_OPACITY_AUTO : undefined}
               pointerEvents="none"
             />
           </g>
