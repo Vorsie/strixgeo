@@ -988,6 +988,7 @@ async def accept_litho_suggestions(
             cpt_id=request.cpt_id,
             borehole_id=request.borehole_id,
             section_id=request.section_id,
+            defer_inference=request.defer_inference,
         )
     except ValueError as exc:
         raise HTTPException(
