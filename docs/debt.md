@@ -2673,18 +2673,6 @@ interfingering shape, multi-section aggregation) forces the geometry
 logic to grow. At that point the split pays for itself immediately.
 Filed from #101 senior-code-reviewer pass, 2026-05-24.
 
-## 125. SectionHeader companion badge: replace ↻ (U+21BB) with text label (Tier E)
-
-**What.** `SectionHeader.tsx` uses `↻` (U+21BB) as the companion-
-section badge icon. This character does not render reliably on Windows 11
-with some CJK font fallbacks; it may display as a tofu square. Replace
-with a short text label ("perp") or a simple dot (•) inside the badge.
-
-**Why deferred.** Purely cosmetic; does not affect functionality.
-
-**When to revisit.** Any UX polish pass. Half-line change.
-Filed from #101 senior-code-reviewer pass, 2026-05-24.
-
 ## 126. LithoLensOrm.name: change from VARCHAR(120) to TEXT (Tier E)
 
 **What.** `LithoLensOrm.name` is mapped as `String(120)` (PostgreSQL
