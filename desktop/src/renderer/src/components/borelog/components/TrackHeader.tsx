@@ -18,9 +18,13 @@ import { truncate } from '../utils'
  *
  * When ``onHide`` is provided, the header becomes click-to-hide: a
  * ``cursor: pointer`` style is applied and clicking the header calls
- * the handler so the parent can toggle this track off. A tooltip
- * "Hide column" makes the affordance discoverable without adding
- * visible UI that competes with the data.
+ * the handler so the parent can toggle this track off.
+ *
+ * When ``rawToken`` is provided the SVG ``<title>`` element on the
+ * rect renders the raw upstream token (e.g. DOV
+ * ``observation_type`` value) so domain experts can verify the
+ * translation without leaving the UI — required by the
+ * translate-at-boundary rule in UX conventions and CLAUDE.md.
  *
  * Parameters
  * ----------
@@ -31,13 +35,22 @@ import { truncate } from '../utils'
  * y : number
  *     Top of the header in SVG coordinates.
  * title : string
- *     Column title (e.g. "Coded lithology").
+ *     Column title (translated label, e.g. "Coded lithology").
  * subtitle : string | null
  *     Optional secondary line (e.g. author / date). Omitted when null.
+ * rawToken : string | undefined
+ *     The raw upstream token before translation (e.g. "coded_lithology").
+ *     Rendered as an SVG tooltip so domain experts can verify the
+ *     translation without leaving the UI.
  * onHide : (() => void) | undefined
  *     When provided, clicking the header calls this handler to hide the
  *     track. The header shows ``cursor: pointer`` and a "Hide column"
  *     tooltip to signal the affordance.
+ *
+ * Returns
+ * -------
+ * ReactElement
+ *     The SVG group for the track header.
  */
 export function TrackHeader({
   x,
@@ -45,6 +58,7 @@ export function TrackHeader({
   y,
   title,
   subtitle,
+  rawToken,
   onHide,
 }: {
   x: number
@@ -52,8 +66,14 @@ export function TrackHeader({
   y: number
   title: string
   subtitle: string | null
+  rawToken?: string
   onHide?: () => void
 }): ReactElement {
+  // Build the tooltip text: raw token when available (translate-at-boundary
+  // rule), overridden by "Hide column" when onHide is set (click action
+  // takes priority over the informational tooltip).
+  const tooltipText = onHide ? 'Hide column' : rawToken
+
   return (
     // The outer <g> captures the click and signals the cursor when
     // onHide is supplied. SVG does not support `cursor: pointer` on
@@ -77,7 +97,7 @@ export function TrackHeader({
         stroke="var(--borelog-track-header-border)"
         strokeWidth={0.5}
       >
-        {onHide && <title>Hide column</title>}
+        {tooltipText && <title>{tooltipText}</title>}
       </rect>
       <text x={x + 4} y={y + 14} fontSize={10} fontWeight={600} fill="var(--borelog-text-primary)">
         {truncate(title, 22)}

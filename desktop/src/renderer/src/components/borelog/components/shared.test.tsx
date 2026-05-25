@@ -112,6 +112,56 @@ describe('TrackHeader', () => {
     // Should not throw.
     expect(() => fireEvent.click(g)).not.toThrow()
   })
+
+  // Regression anchor for debt #115 sub-item 3 — raw-token tooltip.
+  it('RT1 — rawToken prop renders as SVG <title> on the rect (debt #115)', () => {
+    const { container } = render(
+      <svg>
+        <TrackHeader
+          x={0}
+          y={0}
+          width={100}
+          title="Coded lithology"
+          subtitle={null}
+          rawToken="coded_lithology"
+        />
+      </svg>,
+    )
+    // SVG <title> is the accessible tooltip mechanism; its text is the raw token.
+    const title = container.querySelector('rect > title')
+    expect(title).not.toBeNull()
+    expect(title!.textContent).toBe('coded_lithology')
+  })
+
+  it('RT2 — rawToken is overridden by "Hide column" when onHide is set (debt #115)', () => {
+    // When both rawToken and onHide are provided, the action tooltip
+    // ("Hide column") takes priority over the informational token.
+    const { container } = render(
+      <svg>
+        <TrackHeader
+          x={0}
+          y={0}
+          width={100}
+          title="Coded lithology"
+          subtitle={null}
+          rawToken="coded_lithology"
+          onHide={() => {}}
+        />
+      </svg>,
+    )
+    const title = container.querySelector('rect > title')
+    expect(title).not.toBeNull()
+    expect(title!.textContent).toBe('Hide column')
+  })
+
+  it('RT3 — no <title> element when neither rawToken nor onHide is supplied', () => {
+    const { container } = render(
+      <svg>
+        <TrackHeader x={0} y={0} width={100} title="Drill method" subtitle={null} />
+      </svg>,
+    )
+    expect(container.querySelector('rect > title')).toBeNull()
+  })
 })
 
 describe('LegendSection + LegendChip', () => {

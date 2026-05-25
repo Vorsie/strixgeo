@@ -562,6 +562,7 @@ export default function BoreholeLog({
                 width={t.width}
                 y={SVG_Y_PAD}
                 title={humanizeObservationType(t.observation.observation_type)}
+                rawToken={t.observation.observation_type}
                 subtitle={[t.observation.author, t.observation.observation_date]
                   .filter(Boolean)
                   .join(' · ')}
