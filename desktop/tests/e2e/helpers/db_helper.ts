@@ -331,3 +331,183 @@ export async function getProjectViewState(
       : ((raw as unknown) as Record<string, unknown>)
   })
 }
+
+// ---------------------------------------------------------------------------
+// Geology-stage helpers (added for #130 Geology slice)
+// ---------------------------------------------------------------------------
+
+/**
+ * Count geological formations belonging to a project.
+ *
+ * Only counts top-level geological formations (``parent_formation_id IS NULL``
+ * AND ``nad_class IS NULL``). Litho child units and geotech units share the
+ * same ``geological_formation`` table but are excluded by these filters,
+ * matching the Geology stage's definition of "a formation".
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * number
+ *   Row count.
+ */
+export async function countFormations(projectId: string): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n
+         FROM geological_formation
+        WHERE app_project_id = $1
+          AND parent_formation_id IS NULL
+          AND nad_class IS NULL`,
+      [projectId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
+
+/**
+ * Fetch all top-level geological formations for a project, ordered by
+ * ``display_order`` ascending.
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ *
+ * Returns
+ * -------
+ * Array of objects with ``id``, ``name``, ``display_order``, ``pinned_order``.
+ */
+export async function getFormationsByProject(
+  projectId: string,
+): Promise<Array<{ id: string; name: string; display_order: number; pinned_order: boolean }>> {
+  return withClient(async (client) => {
+    const res = await client.query<{
+      id: string
+      name: string
+      display_order: number
+      pinned_order: boolean
+    }>(
+      `SELECT id, name, display_order, pinned_order
+         FROM geological_formation
+        WHERE app_project_id = $1
+          AND parent_formation_id IS NULL
+          AND nad_class IS NULL
+        ORDER BY display_order ASC`,
+      [projectId],
+    )
+    return res.rows
+  })
+}
+
+/**
+ * Fetch the surface cache rows for a geological model.
+ *
+ * Each row represents one formation's cached TIN. ``has_tin`` is true when the
+ * vertices array is non-empty (i.e. the TIN was actually built — not just a
+ * placeholder row with empty geometry).
+ *
+ * Parameters
+ * ----------
+ * modelId : string
+ *   UUID of the geological model.
+ *
+ * Returns
+ * -------
+ * Array of objects with ``formation_id``, ``is_stale``, ``has_tin``.
+ */
+export async function getFormationSurfaces(
+  modelId: string,
+): Promise<Array<{ formation_id: string; is_stale: boolean; has_tin: boolean }>> {
+  return withClient(async (client) => {
+    const res = await client.query<{
+      formation_id: string
+      is_stale: boolean
+      vertices: unknown
+    }>(
+      `SELECT formation_id, is_stale, vertices
+         FROM formation_surface
+        WHERE model_id = $1`,
+      [modelId],
+    )
+    return res.rows.map((r) => ({
+      formation_id: r.formation_id,
+      is_stale: r.is_stale,
+      // vertices is a JSONB array — has_tin = array is non-empty.
+      has_tin: Array.isArray(r.vertices) ? r.vertices.length > 0 : false,
+    }))
+  })
+}
+
+/**
+ * Resolve the UUID of the geological model for a project, filtered by kind.
+ *
+ * Returns the FIRST matching model row (there should be at most one active
+ * model per kind per project in normal use).
+ *
+ * Parameters
+ * ----------
+ * projectId : string
+ *   UUID of the app project.
+ * kind : 'geological' | 'lithostratigraphic'
+ *   Model kind to filter on.
+ *
+ * Returns
+ * -------
+ * string or null
+ *   Model UUID, or null when no model of this kind exists.
+ */
+export async function getGeologicalModelId(
+  projectId: string,
+  kind: 'geological' | 'lithostratigraphic',
+): Promise<string | null> {
+  return withClient(async (client) => {
+    const res = await client.query<{ id: string }>(
+      `SELECT id
+         FROM geological_model
+        WHERE app_project_id = $1
+          AND kind = $2
+        LIMIT 1`,
+      [projectId, kind],
+    )
+    return res.rows[0]?.id ?? null
+  })
+}
+
+/**
+ * Count surface crossing issues for a model by querying the crossings
+ * validation endpoint result stored inline.
+ *
+ * Rather than maintaining a separate DB table for crossing issues (the
+ * validator computes them on demand from the cached TINs), this helper
+ * proxies the API endpoint via ``page.evaluate`` in the calling spec.
+ * This stub exists for the spec's ``beforeAll`` guard pattern; the actual
+ * count comes from the API response body in the spec.
+ *
+ * Parameters
+ * ----------
+ * modelId : string
+ *   UUID of the geological model.
+ *
+ * Returns
+ * -------
+ * number
+ *   Count of ``formation_surface`` rows where ``is_stale = true``.
+ *   A stale model cannot be validly checked for crossings; specs use
+ *   this to verify the model was rebuilt before asserting crossing counts.
+ */
+export async function countStaleSurfaces(modelId: string): Promise<number> {
+  return withClient(async (client) => {
+    const res = await client.query<{ n: string }>(
+      `SELECT COUNT(*) AS n
+         FROM formation_surface
+        WHERE model_id = $1
+          AND is_stale = true`,
+      [modelId],
+    )
+    return parseInt(res.rows[0].n, 10)
+  })
+}
