@@ -2287,40 +2287,6 @@ export default function ContactsLayer({
           data-testid={`backdrop-contact-${line.formationId}`}
         />
       ))}
-      {/* Reference-contact hit-strips (litho axis, deep-link enabled).
-          Invisible rects placed at each geological (reference) contact's
-          depth position; right-click → "Edit in Geology stage" menu item.
-          Pointer events are explicitly "all" — these override the parent
-          backdrop layer's pointer-events="none" so ONLY the strips are
-          clickable, not the surrounding backdrop area. */}
-      {referenceContactHitStrips.map(strip => (
-        <rect
-          key={strip.key}
-          x={strip.segLeftX}
-          y={strip.segY - DRAG_HIT_HALF_HEIGHT_PX}
-          width={strip.segRightX - strip.segLeftX}
-          height={DRAG_HIT_HALF_HEIGHT_PX * 2}
-          fill="transparent"
-          style={{ cursor: 'context-menu', pointerEvents: 'all' }}
-          onContextMenu={e => {
-            e.preventDefault()
-            setContactMenu({
-              clientX: e.clientX,
-              clientY: e.clientY,
-              contactId: strip.contactId,
-              formationId: strip.formationId,
-              formationName: strip.formationName,
-              anchorKind: 'borehole',
-              anchorId: '',
-              isReferenceContact: true,
-            })
-          }}
-          data-testid="ref-contact-drag-strip"
-          data-contact-id={strip.contactId}
-        >
-          <title>{strip.formationName} — right-click to edit in Geology stage</title>
-        </rect>
-      ))}
       {/* Filled coloured bands between adjacent formation tops.
           Drawn FIRST so every other section element (CPT curves,
           column glyphs, contact lines, labels) paints on top. The
@@ -2694,6 +2660,43 @@ export default function ContactsLayer({
           </g>
         )
       })}
+
+      {/* Reference-contact hit-strips (litho axis, deep-link enabled).
+          Invisible rects placed at each geological (reference) contact's
+          depth position; right-click → "Edit in Geology stage" menu item.
+          WHY rendered AFTER the active-litho layers block: SVG paint order
+          determines pointer-event priority — later elements sit on top.
+          Moving these strips here ensures right-click on a geological
+          formation band wins over any overlapping litho contact hit-strip
+          at the same depth (dogfeed 2026-05-25 Slice D fix). */}
+      {referenceContactHitStrips.map(strip => (
+        <rect
+          key={strip.key}
+          x={strip.segLeftX}
+          y={strip.segY - DRAG_HIT_HALF_HEIGHT_PX}
+          width={strip.segRightX - strip.segLeftX}
+          height={DRAG_HIT_HALF_HEIGHT_PX * 2}
+          fill="transparent"
+          style={{ cursor: 'context-menu', pointerEvents: 'all' }}
+          onContextMenu={e => {
+            e.preventDefault()
+            setContactMenu({
+              clientX: e.clientX,
+              clientY: e.clientY,
+              contactId: strip.contactId,
+              formationId: strip.formationId,
+              formationName: strip.formationName,
+              anchorKind: 'borehole',
+              anchorId: '',
+              isReferenceContact: true,
+            })
+          }}
+          data-testid="ref-contact-drag-strip"
+          data-contact-id={strip.contactId}
+        >
+          <title>{strip.formationName} — right-click to edit in Geology stage</title>
+        </rect>
+      ))}
 
       {/* Drag readout — depth + mTAW always, plus qc + Rf when the
           contact is anchored at a CPT (mirrors ContactPickBar so the
