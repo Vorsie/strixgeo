@@ -8,13 +8,16 @@
 import { useMemo, useState } from 'react'
 import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
+import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
+import { api } from '../../../api/client'
 import { useShell } from '../../ShellContext'
 import { ToolbarButton, ToolbarDropdown, PrimaryToolbarButton, SplitToolbarButton } from '../../ToolbarPrimitives'
 import Modal from '../../../components/ui/Modal'
 import Button from '../../../components/ui/Button'
 import { sectionCrsBlockReason } from '../../../utils/horizontalCrs'
 import type { SectionModelAxis } from '../../../hooks/useSections'
+import { log } from '../../../utils/log'
 
 /**
  * Section-specific verb buttons for the Sections stage toolbar.
@@ -80,6 +83,7 @@ export default function SectionsToolbar(): JSX.Element {
       handleExportSectionDxf,
       handleExportSectionPdf,
     },
+    toasts: { toast },
   } = useShell()
 
   const [creating, setCreating] = useState(false)
@@ -95,6 +99,10 @@ export default function SectionsToolbar(): JSX.Element {
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
   const [acceptingAllBulk, setAcceptingAllBulk] = useState(false)
   const [autoCorrelating, setAutoCorrelating] = useState(false)
+  // Re-correlate dialog (Slice 4 Half-A): shown when the user clicks
+  // Auto-correlate and source='auto' edges already exist.
+  const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
+  const [reCorrelateAutoEdgeCount, setReCorrelateAutoEdgeCount] = useState(0)
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
@@ -134,6 +142,73 @@ export default function SectionsToolbar(): JSX.Element {
       await handleDeleteSection(selectedSection.id)
     } finally {
       setDeleting(false)
+    }
+  }
+
+  // Re-correlate flow (Slice 4 Half-A):
+  //   1. GET the model's correlation edges.
+  //   2. Count source='auto' edges.
+  //   3. If 0 → fire handleAutoCorrelate immediately (no dialog, first-time users).
+  //   4. If >0 → open the ReCorrelateConfirmDialog.
+  async function handleAutoCorrelateWithCheck(): Promise<void> {
+    if (!project || !activeLithoModel) return
+    log.info('sections', 'autoCorrelate check start')
+    setAutoCorrelating(true)
+    let openedDialog = false
+    try {
+      const edges = await api.geology.listCorrelations(project.id, activeLithoModel.id)
+      const autoCount = edges.filter(e => e.source === 'auto').length
+      if (autoCount === 0) {
+        // No existing auto edges — fire immediately (no dialog for first-time users).
+        await handleAutoCorrelate()
+      } else {
+        // Existing auto edges found — ask the user what to do.
+        // autoCorrelating stays true while the dialog is open so the button
+        // remains disabled; the dialog close handlers clear it.
+        setReCorrelateAutoEdgeCount(autoCount)
+        setReCorrelateConfirmOpen(true)
+        openedDialog = true
+      }
+    } catch (err) {
+      log.error('sections', 'autoCorrelate pre-check failed', err)
+      toast('error', 'Auto-correlate pre-check failed — see console.')
+    } finally {
+      // Clear the busy state only when we did NOT open the dialog.
+      // The dialog close handlers (cancel/skip/reCorrelate) own the cleanup
+      // when openedDialog is true.
+      if (!openedDialog) setAutoCorrelating(false)
+    }
+  }
+
+  function handleReCorrelateCancel(): void {
+    setReCorrelateConfirmOpen(false)
+    setAutoCorrelating(false)
+  }
+
+  function handleReCorrelateSkip(): void {
+    setReCorrelateConfirmOpen(false)
+    setAutoCorrelating(false)
+  }
+
+  async function handleReCorrelateConfirm(): Promise<void> {
+    if (!project || !activeLithoModel) return
+    setReCorrelateConfirmOpen(false)
+    log.info(
+      'sections',
+      `reCorrelate: deleting ${reCorrelateAutoEdgeCount} auto edge(s) then re-running`,
+    )
+    try {
+      const del = await api.geology.deleteAutoCorrelations(project.id, activeLithoModel.id)
+      toast(
+        'success',
+        `Cleared ${del.deleted} auto edge${del.deleted === 1 ? '' : 's'}; re-running…`,
+      )
+      await handleAutoCorrelate()
+    } catch (err) {
+      log.error('sections', 'reCorrelate failed', err)
+      toast('error', 'Re-correlate failed — see console.')
+    } finally {
+      setAutoCorrelating(false)
     }
   }
 
@@ -652,14 +727,13 @@ export default function SectionsToolbar(): JSX.Element {
           {/* Auto-correlate — #127: fire the domain algorithm across the
               whole model; inserts source='auto' edges in bulk. Enabled
               iff a litho model is active; does NOT require an open
-              section (model-level operation). */}
+              section (model-level operation).
+              When auto edges already exist a confirmation dialog appears
+              (Slice 4 Half-A). */}
           <ToolbarButton
             icon={<Zap size={13} />}
             label={autoCorrelating ? 'Correlating…' : 'Auto-correlate'}
-            onClick={() => {
-              setAutoCorrelating(true)
-              void handleAutoCorrelate().finally(() => setAutoCorrelating(false))
-            }}
+            onClick={() => { void handleAutoCorrelateWithCheck() }}
             disabled={!activeLithoModel || autoCorrelating}
             busy={autoCorrelating}
             testid="litho-auto-correlate"
@@ -963,6 +1037,19 @@ export default function SectionsToolbar(): JSX.Element {
           </div>
         </div>
       </Modal>
+
+      {/* Re-correlate confirmation (Slice 4 Half-A) — shown when the user
+          clicks Auto-correlate and source='auto' edges already exist.
+          Three choices: Cancel (default focus), Skip, Re-correlate.
+          Manual edges are never deleted. */}
+      <ReCorrelateConfirmDialog
+        open={reCorrelateConfirmOpen}
+        existingAutoEdgeCount={reCorrelateAutoEdgeCount}
+        onCancel={handleReCorrelateCancel}
+        onSkip={handleReCorrelateSkip}
+        onReCorrelate={() => { void handleReCorrelateConfirm() }}
+        busy={autoCorrelating && !reCorrelateConfirmOpen}
+      />
     </div>
   )
 }
