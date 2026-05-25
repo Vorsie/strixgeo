@@ -112,12 +112,15 @@ test.describe('flow_save_project', () => {
       //    litho-segmenter prefs survive a save.
       const patchKey = 'e2e_save_test'
       const patchValue = `sentinel-${Date.now()}`
+      // The view-state endpoint body is { "patch": { <key>: <value>, ... } }.
+      // The "patch" wrapper is required — the endpoint uses ProjectViewStatePatchRequest
+      // which expects a top-level "patch" field containing the JSONB keys to merge.
       const vsRes = await page.evaluate(
         async ([base, pid, key, value]) => {
           const r = await fetch(`${base}/projects/${pid}/view-state`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ [key]: value }),
+            body: JSON.stringify({ patch: { [key]: value } }),
           })
           return { status: r.status, json: await r.json() }
         },
@@ -137,14 +140,14 @@ test.describe('flow_save_project', () => {
           await fetch(`${base}/projects/${pid}/view-state`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ [key]: null }),
+            body: JSON.stringify({ patch: { [key]: null } }),
           })
         },
         [API_BASE, FIXTURE_PROJECT_ID, patchKey],
       )
 
       // 4. Rejection path — view-state payload must be a JSON object;
-      //    sending a plain string body should produce a 422.
+      //    sending a plain string body (not wrapped in {patch:...}) produces 422.
       const badRes = await page.evaluate(
         async ([base, pid]) => {
           const r = await fetch(`${base}/projects/${pid}/view-state`, {
