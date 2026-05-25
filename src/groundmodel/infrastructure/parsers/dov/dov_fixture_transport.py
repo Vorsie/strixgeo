@@ -86,6 +86,16 @@ _DEFAULT_FIXTURE_ROOT = "desktop/tests/e2e/fixtures/dov"
 # DOV WFS endpoint (all WFS requests go here).
 _DOV_WFS_HOST = "www.dov.vlaanderen.be"
 
+# Lambert-72 bounding box of every CPT + borehole fixture in this directory.
+# A WFS request whose BBOX (or CQL_FILTER BBOX(...)) does not overlap this
+# region returns the empty fixture instead of the matched one, so rejection-
+# path tests (empty-bbox imports, North Sea bbox, etc.) get the imported=0
+# behaviour they expect.
+_FIXTURE_BBOX_L72_MIN_X = 148_900.0
+_FIXTURE_BBOX_L72_MIN_Y = 191_900.0
+_FIXTURE_BBOX_L72_MAX_X = 149_500.0
+_FIXTURE_BBOX_L72_MAX_Y = 192_300.0
+
 # Per-resource proxy URL prefixes (path-only, without host).
 _CPT_PATH_PREFIX = "/xdov/proxy/export/sondering/"
 _BORING_PATH_PREFIX = "/xdov/proxy/export/boring/"
@@ -102,6 +112,66 @@ _LAYER_TO_SLUG: dict[str, str] = {
     "dov-pub:Boringen": "boringen",
     "boringen:grondmonsters": "grondmonsters",
 }
+
+
+def _extract_bbox_l72(bbox_param: str, cql_filter: str) -> tuple[float, float, float, float] | None:
+    """Return the (min_x, min_y, max_x, max_y) of the request's L72 bbox, or None.
+
+    The CPT WFS path emits ``BBOX=x1,y1,x2,y2,EPSG:31370`` as a query param.
+    The borehole / sample / interpretation WFS paths embed the bbox inside
+    ``CQL_FILTER`` as ``BBOX(geom, x1, y1, x2, y2, 'EPSG:31370')``. Both shapes
+    are parsed here so the fixture transport can short-circuit any request
+    whose bbox does not overlap the e2e fixture region.
+
+    Parameters
+    ----------
+    bbox_param : str
+        Value of the ``BBOX`` query param, or empty string.
+    cql_filter : str
+        Value of the ``CQL_FILTER`` query param, or empty string.
+
+    Returns
+    -------
+    tuple of float or None
+        ``(min_x, min_y, max_x, max_y)`` in Lambert-72 metres, or ``None`` if
+        no bbox could be parsed from either source.
+    """
+    parts: list[str] | None = None
+    if bbox_param:
+        # ``x1,y1,x2,y2,EPSG:31370`` — drop the EPSG token if present.
+        raw = bbox_param.split(",")
+        if len(raw) >= 4:
+            parts = raw[:4]
+    if parts is None and cql_filter:
+        # ``BBOX(geom, x1, y1, x2, y2, 'EPSG:31370')`` — slice between the
+        # outermost parens.
+        open_idx = cql_filter.upper().find("BBOX(")
+        close_idx = cql_filter.find(")", open_idx) if open_idx != -1 else -1
+        if open_idx != -1 and close_idx != -1:
+            inside = cql_filter[open_idx + len("BBOX(") : close_idx]
+            tokens = [t.strip().strip("'\"") for t in inside.split(",")]
+            # Drop the first token (geometry column name) + trailing EPSG token.
+            numeric = [t for t in tokens[1:] if t and not t.startswith("EPSG")]
+            if len(numeric) >= 4:
+                parts = numeric[:4]
+    if parts is None:
+        return None
+    try:
+        x1, y1, x2, y2 = (float(p) for p in parts)
+    except ValueError:
+        return None
+    return (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+
+
+def _bbox_overlaps_fixture(bbox: tuple[float, float, float, float]) -> bool:
+    """Return True when *bbox* overlaps the fixture region in Lambert-72 metres."""
+    min_x, min_y, max_x, max_y = bbox
+    return not (
+        max_x < _FIXTURE_BBOX_L72_MIN_X
+        or min_x > _FIXTURE_BBOX_L72_MAX_X
+        or max_y < _FIXTURE_BBOX_L72_MIN_Y
+        or min_y > _FIXTURE_BBOX_L72_MAX_Y
+    )
 
 
 def _layer_slug(type_names: str, cql_filter: str) -> str:
@@ -191,11 +261,20 @@ def _build_fixture_transport(fixture_root: Path) -> httpx.MockTransport:
         if parsed.hostname == _DOV_WFS_HOST and path == "/geoserver/ows":
             type_names = _qs("typeNames")
             cql_filter = _qs("CQL_FILTER")
+            bbox_param = _qs("BBOX")
             result_type = _qs("resultType").lower()
             # outputFormat is not needed for routing — result_type determines
             # count vs features; slug routing is by typeNames + CQL_FILTER.
 
             slug = _layer_slug(type_names, cql_filter)
+
+            # If the request carries a bbox that does not overlap the fixture
+            # region, serve the empty fixture so rejection-path tests
+            # (empty-bbox / North Sea bbox) see imported=0 instead of the full
+            # matched feature list.
+            bbox = _extract_bbox_l72(bbox_param, cql_filter)
+            if bbox is not None and not _bbox_overlaps_fixture(bbox):
+                slug = "empty"
 
             if result_type == "hits":
                 # WFS count request → XML response with numberMatched.
