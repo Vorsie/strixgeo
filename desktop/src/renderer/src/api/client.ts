@@ -313,6 +313,12 @@ export interface AutoCorrelateResult {
   wedge_tips_materialised: number
 }
 
+// Slice 4 Half-A — re-correlate dialog: response from DELETE
+// /correlations/auto.  Manual edges are never touched.
+export interface DeleteAutoCorrelationsResult {
+  deleted: number
+}
+
 // Geological-model response — a project can have multiple
 // interpretation models; one is active at a time. Contacts live as
 // child rows fetched separately so the model list response stays
@@ -2164,6 +2170,31 @@ export const api = {
         `/projects/${projectId}/geology/models/${modelId}/auto-correlate`,
         {},
       ),
+
+    // --- Re-correlate (Slice 4 Half-A) ----------------------------------------
+    //
+    // Delete all source='auto' edges for the model.  Manual edges are never
+    // touched.  Idempotent: deleted=0 when no auto edges exist.  Called by
+    // the re-correlate dialog before firing autoCorrelate again.
+    //
+    // WHY not del(): the shared del() helper returns void, but this endpoint
+    // returns a JSON body (deleted count) — use a raw fetch so the caller
+    // can display "Cleared N auto edges; re-running…" in the toast.
+    deleteAutoCorrelations: async (
+      projectId: string,
+      modelId: string,
+    ): Promise<DeleteAutoCorrelationsResult> => {
+      const path = `/projects/${projectId}/geology/models/${modelId}/correlations/auto`
+      const res = await fetch(`${_base}${path}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      }
+      return res.json() as Promise<DeleteAutoCorrelationsResult>
+    },
   },
 
   // Geotechnical-unit CRUD. Two-level project scope: ``/projects/{pid}
