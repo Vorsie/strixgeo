@@ -14,8 +14,10 @@ Tests are organised around the five invariants that the engine must satisfy:
    infer the absence.
 6. **Retraction** — an existing 'inferred' row whose key is no longer
    supported by the current evidence appears in to_retract.
-7. **No contacts → no inference** — a body with no contacts produces no
-   to_write entries (empty depth range).
+7. **No contacts → collapse retracts** — a body with no contacts produces no
+   to_write entries AND retracts every existing 'inferred' row (the body
+   has lost its identity; the absences are evidence of a body that no
+   longer exists). 'manual' / 'observed' rows are preserved.
 8. **Same-code layer** — an overlapping layer whose sole code MATCHES the
    formation code does NOT trigger an absence.
 9. **Multiple absent investigations** — the engine handles a batch correctly.
@@ -413,7 +415,14 @@ def test_inferred_row_retracted_when_layer_changes_to_same_code() -> None:
 
 
 def test_no_contacts_no_inference() -> None:
-    """A body with no contacts has no depth range → engine infers nothing."""
+    """A body with no contacts and no prior absences → empty result.
+
+    The collapse-retracts contract only retracts EXISTING inferred rows; with
+    none in the input there's nothing to do. to_write stays empty (no body
+    to infer for), to_retract stays empty (nothing to retract), and
+    skipped_no_data stays empty (the engine returns early without examining
+    the corridor — there's no body to compute against).
+    """
     corridor = [(_BH_A, KIND_BOREHOLE), (_BH_B, KIND_BOREHOLE)]
     layers = [_layer(_BH_B, 2.5, 4.0, ["ZAND"])]
 
@@ -427,8 +436,66 @@ def test_no_contacts_no_inference() -> None:
     )
 
     assert result.to_write == []
-    # Both investigations are absent (no contacts) → both in skipped_no_data.
-    assert set(result.skipped_no_data) == {_BH_A, _BH_B}
+    assert result.to_retract == []
+    assert result.skipped_no_data == []
+
+
+def test_no_contacts_retracts_existing_inferred_rows() -> None:
+    """Body collapse (zero contacts) retracts every existing 'inferred' row.
+
+    Scenario: a correlation edge previously gave this body two contacts; the
+    inference engine wrote an inferred absence for an in-corridor investigation
+    that lacked the formation. The user then uncorrelates — body_contacts goes
+    to []. The pre-existing inferred row no longer has a body to reference, so
+    the engine must emit it as to_retract.
+
+    Debt #132 — pre-fix, the engine returned skipped_no_data and left the row
+    in DB forever.
+    """
+    corridor = [(_BH_A, KIND_BOREHOLE), (_BH_B, KIND_BOREHOLE)]
+    layers = [_layer(_BH_B, 2.5, 4.0, ["KLEI"])]
+    stale_absence = _absence(_BH_B, source=SOURCE_INFERRED)
+
+    result = infer_formation_absences(
+        formation_id=_FORMATION_ID,
+        formation_soil_code=_SOIL_CODE,
+        body_contacts=[],
+        corridor_investigations=corridor,
+        observation_layers=layers,
+        existing_absences=[stale_absence],
+    )
+
+    assert result.to_write == []
+    assert result.to_retract == [stale_absence.absence_id]
+    assert result.skipped_no_data == []
+
+
+def test_no_contacts_preserves_manual_and_observed_rows() -> None:
+    """Collapse retracts ONLY 'inferred' rows — 'manual' / 'observed' survive.
+
+    The user-intent-preservation guarantee (#101 Position 4 R6) must hold even
+    when the body collapses. A user who manually marked an absence does not
+    expect that record to vanish because a correlation edge elsewhere was
+    removed.
+    """
+    corridor = [(_BH_A, KIND_BOREHOLE), (_BH_B, KIND_BOREHOLE)]
+    layers = [_layer(_BH_B, 2.5, 4.0, ["KLEI"])]
+    inferred_row = _absence(_BH_A, source=SOURCE_INFERRED)
+    manual_row = _absence(_BH_A, source=SOURCE_MANUAL)
+    observed_row = _absence(_BH_B, source=SOURCE_OBSERVED)
+
+    result = infer_formation_absences(
+        formation_id=_FORMATION_ID,
+        formation_soil_code=_SOIL_CODE,
+        body_contacts=[],
+        corridor_investigations=corridor,
+        observation_layers=layers,
+        existing_absences=[inferred_row, manual_row, observed_row],
+    )
+
+    assert result.to_write == []
+    assert result.to_retract == [inferred_row.absence_id]
+    assert result.skipped_no_data == []
 
 
 # ---------------------------------------------------------------------------
