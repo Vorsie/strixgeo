@@ -1,11 +1,44 @@
-"""Pydantic schema: :class:`UpsertFormationAbsenceRequest` and response."""
+"""Pydantic schema: :class:`UpsertFormationAbsenceRequest`, response, and list item."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
+
+
+class FormationAbsenceItem(BaseModel):
+    """One row from ``GET .../formations/{formation_id}/absences``.
+
+    Attributes
+    ----------
+    id : UUID
+        Primary key of the ``FormationAbsenceOrm`` row.
+    formation_id : UUID
+        The formation this absence record belongs to.
+    investigation_id : UUID
+        The investigation that is absent.
+    investigation_kind : str
+        ``'borehole'`` or ``'cpt'``.
+    source : str
+        ``'inferred'``, ``'manual'``, or ``'observed'``.
+    created_at : datetime
+        Row creation timestamp.
+    updated_at : datetime
+        Last mutation timestamp.
+    """
+
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    formation_id: UUID
+    investigation_id: UUID
+    investigation_kind: str
+    source: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class UpsertFormationAbsenceRequest(BaseModel):
