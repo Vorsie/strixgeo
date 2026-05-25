@@ -89,9 +89,11 @@ test.describe('flow_settings_dialog', () => {
       // which Playwright cannot trigger with a page.keyboard.press on
       // the renderer — it bypasses the OS menu layer.  We therefore use
       // app.evaluate to send the IPC message through the main process.
-      await app.evaluate(({ ipcMain }) => {
+      await app.evaluate(({ BrowserWindow }) => {
         // Send the 'menu:open-settings' signal to the first BrowserWindow.
-        const { BrowserWindow } = require('electron') as typeof import('electron')
+        // app.evaluate's callback receives the Electron main-process module
+        // directly — BrowserWindow is accessible via destructuring, no
+        // require() needed (and require is not available in this context).
         const win = BrowserWindow.getAllWindows()[0]
         if (win) win.webContents.send('menu:open-settings')
       })
@@ -123,16 +125,21 @@ test.describe('flow_settings_dialog', () => {
       // 1. Patch an in-range minimum_layer_thickness_m (0.30 m) into
       //    the view_state (the exact key the frontend writes via
       //    buildLithoSegmenterPatch).
+      // The view-state endpoint body is { "patch": { <key>: <value>, ... } }.
+      // The "patch" wrapper is required — ProjectViewStatePatchRequest expects
+      // a top-level "patch" field containing the JSONB keys to merge.
       const patchRes = await page.evaluate(
         async ([base, pid]) => {
           const r = await fetch(`${base}/projects/${pid}/view-state`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              litho_segmenter: {
-                minimum_layer_thickness_m: 0.30,
-                gunsat_kNm3: 16.0,
-                dr_compression_factor: 0.675,
+              patch: {
+                litho_segmenter: {
+                  minimum_layer_thickness_m: 0.30,
+                  gunsat_kNm3: 16.0,
+                  dr_compression_factor: 0.675,
+                },
               },
             }),
           })
@@ -171,10 +178,12 @@ test.describe('flow_settings_dialog', () => {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              litho_segmenter: {
-                minimum_layer_thickness_m: 0.15,
-                gunsat_kNm3: 16.0,
-                dr_compression_factor: 0.675,
+              patch: {
+                litho_segmenter: {
+                  minimum_layer_thickness_m: 0.15,
+                  gunsat_kNm3: 16.0,
+                  dr_compression_factor: 0.675,
+                },
               },
             }),
           })
@@ -277,8 +286,10 @@ test.describe('flow_settings_dialog', () => {
       // Open the settings dialog via IPC.
       // app.evaluate runs in the main process; it has access to the
       // Electron API.  We send the same IPC signal the native menu fires.
-      await app.evaluate(({ ipcMain }) => {
-        const { BrowserWindow } = require('electron') as typeof import('electron')
+      await app.evaluate(({ BrowserWindow }) => {
+        // app.evaluate's callback receives the Electron main-process module
+        // directly — BrowserWindow is accessible via destructuring, no
+        // require() needed (and require is not available in this context).
         const win = BrowserWindow.getAllWindows()[0]
         if (win) win.webContents.send('menu:open-settings')
       })
