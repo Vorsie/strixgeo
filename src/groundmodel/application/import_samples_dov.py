@@ -327,7 +327,6 @@ class ImportSamplesDov(GroundModelLogger):
                 result.grain_sizes_skipped_already_present += 1
                 continue
             if not parse_result.grain_size.diameters_mm:
-                result.grain_sizes_skipped_no_sample += 0  # not this counter
                 # Empty curves were a parse-level error; record as failed
                 # so the API surfaces something countable.
                 result.grain_sizes_failed += 1
@@ -551,7 +550,8 @@ class ImportSamplesDov(GroundModelLogger):
                 continue
             by_sample.setdefault(row.parent_sample_permkey, {})[kind] = row
 
-        for sample_permkey, kind_to_row in by_sample.items():
+        total = len(by_sample)
+        for i, (sample_permkey, kind_to_row) in enumerate(by_sample.items(), 1):
             sample_id = permkey_to_sample_id.get(sample_permkey)
             if sample_id is None:
                 # Unreachable in practice — the WFS client filters to known
@@ -575,7 +575,7 @@ class ImportSamplesDov(GroundModelLogger):
                 self._session.add(orm)
                 result.atterberg_attached += 1
                 self.debug(
-                    f"DOV atterberg: sample '{sample_permkey}' → {orm.id} "
+                    f"DOV atterberg [{i}/{total}]: sample '{sample_permkey}' → {orm.id} "
                     f"(LL={orm.liquid_limit_pct} PL={orm.plastic_limit_pct} "
                     f"non_plastic={orm.non_plastic})"
                 )
@@ -594,7 +594,8 @@ class ImportSamplesDov(GroundModelLogger):
         existing_permkeys: set[str],
     ) -> None:
         """Persist one CaCO3ContentOrm per row whose value is in [0, 100]."""
-        for row in rows:
+        total = len(rows)
+        for i, row in enumerate(rows, 1):
             self._persist_single_value(
                 row,
                 permkey_to_sample_id,
@@ -605,6 +606,8 @@ class ImportSamplesDov(GroundModelLogger):
                 skipped_attr="caco3_skipped_already_present",
                 existing_permkeys=existing_permkeys,
                 test_label="caco3",
+                index=i,
+                total=total,
             )
 
     def _persist_organic(
@@ -615,7 +618,8 @@ class ImportSamplesDov(GroundModelLogger):
         existing_permkeys: set[str],
     ) -> None:
         """Persist one OrganicContentOrm per organic-C row whose value is in [0, 100]."""
-        for row in rows:
+        total = len(rows)
+        for i, row in enumerate(rows, 1):
             self._persist_single_value(
                 row,
                 permkey_to_sample_id,
@@ -626,6 +630,8 @@ class ImportSamplesDov(GroundModelLogger):
                 skipped_attr="organic_skipped_already_present",
                 existing_permkeys=existing_permkeys,
                 test_label="organic",
+                index=i,
+                total=total,
             )
 
     def _persist_water_content(
@@ -636,7 +642,8 @@ class ImportSamplesDov(GroundModelLogger):
         existing_permkeys: set[str],
     ) -> None:
         """Persist one WaterContentOrm per row whose value is in [0, 1000]."""
-        for row in rows:
+        total = len(rows)
+        for i, row in enumerate(rows, 1):
             self._persist_single_value(
                 row,
                 permkey_to_sample_id,
@@ -647,6 +654,8 @@ class ImportSamplesDov(GroundModelLogger):
                 skipped_attr="water_content_skipped_already_present",
                 existing_permkeys=existing_permkeys,
                 test_label="water",
+                index=i,
+                total=total,
             )
 
     def _persist_scalar_lab_tests(
@@ -727,6 +736,8 @@ class ImportSamplesDov(GroundModelLogger):
         skipped_attr: str,
         existing_permkeys: set[str],
         test_label: str,
+        index: int = 0,
+        total: int = 0,
     ) -> None:
         """Shared per-row persist for the three single-parameter scalar tests.
 
@@ -736,7 +747,10 @@ class ImportSamplesDov(GroundModelLogger):
         counter fields on the result so we re-use this for caco3 /
         organic / water_content. ``existing_permkeys`` is the
         family-specific skip-set for refresh-on-duplicate.
+        ``index`` and ``total`` are the 1-based loop position for the
+        ``[i/total]`` DoD progress prefix on the per-row DEBUG log.
         """
+        prefix = f"[{index}/{total}] " if total else ""
         if row.permkey in existing_permkeys:
             setattr(result, skipped_attr, getattr(result, skipped_attr) + 1)
             return
@@ -751,11 +765,12 @@ class ImportSamplesDov(GroundModelLogger):
                 return
             self._session.add(orm)
             setattr(result, attached_attr, getattr(result, attached_attr) + 1)
-            self.debug(f"DOV {test_label}: '{row.permkey}' → {orm.id} (sample {sample_id})")
+            self.debug(f"DOV {test_label} {prefix}'{row.permkey}' → {orm.id} (sample {sample_id})")
         except Exception as exc:
             setattr(result, failed_attr, getattr(result, failed_attr) + 1)
             self.error(
-                f"DOV {test_label}: persist failed for '{row.permkey}': {type(exc).__name__}: {exc}"
+                f"DOV {test_label} {prefix}persist failed for '{row.permkey}': "
+                f"{type(exc).__name__}: {exc}"
             )
 
 
