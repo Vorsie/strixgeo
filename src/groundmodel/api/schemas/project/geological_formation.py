@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class GeologicalFormationCreateRequest(BaseModel):
@@ -17,6 +17,34 @@ class GeologicalFormationCreateRequest(BaseModel):
     """
 
     name: str = Field(min_length=1, max_length=200)
+
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_whitespace_only(cls, v: str) -> str:
+        """Reject names that are entirely whitespace.
+
+        Parameters
+        ----------
+        v : str
+            The incoming name value (already checked for min_length=1
+            by the Field constraint, so it is at least one character).
+
+        Returns
+        -------
+        str
+            The original (un-stripped) name value when valid.
+
+        Raises
+        ------
+        ValueError
+            When the name is non-empty but consists only of whitespace.
+        """
+        # Pydantic's min_length=1 passes a single space — add an explicit
+        # strip check so whitespace-only strings are rejected with 422.
+        if not v.strip():
+            raise ValueError("name must not be whitespace-only")
+        return v
+
     color: str = Field(default="#9ca3af", max_length=20)
     code: str | None = Field(default=None, max_length=50)
     display_order: int = 0
