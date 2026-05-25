@@ -32,7 +32,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
-* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #117, #124, #125, #126
+* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #124, #125, #126
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -2496,37 +2496,6 @@ own focused pass (it is a recurring bug site).
 **When to revisit.** Add `test_rebuild_model_surfaces.py` (no-contacts,
 two-formation, one-formation-raises) opportunistically; add the exporter
 test before #52 slice B.
-
-## 117. Audit cleanup batch — logging gaps, conventions, quick fixes (Tier E)
-
-**What.** Small, mechanical fixes from the audit, grouped:
-- **Logging:** `import_samples_dov.py` `_persist_caco3` / `_persist_organic`
-  / `_persist_water_content` / `_persist_atterberg` loops have no
-  `[i/total]` progress prefix (DoD §1) — those import phases are
-  invisible in the log. `_persist_scalar_lab_tests` is the correct model.
-- **Conventions:** module-level constants live in class files —
-  `section_pdf_report_exporter.py` (6 layout constants) and
-  `litho_segmentation.py` (the `ROBERTSON_ST_TO_LITHOLOGY` /
-  `DOV_HOOFDNAAM_TO_LITHOLOGY` dicts, Phase-5 tuning targets) — move to
-  `*_constants.py` siblings.
-- Stub exporters `geostudio_exporter.py` / `dsheet_exporter.py` raise
-  `NotImplementedError` → reaches the client as a 500; the router should
-  translate to 501.
-- `import_samples_dov.py:330` — dead `result.grain_sizes_skipped_no_sample
-  += 0` no-op; delete it (the real `_failed` increment is the next line).
-- Two `eslint-disable` reason comments cross-reference another handler
-  instead of standing alone (`App.tsx:654`, `useGeologicalModel.ts:3604`)
-  — `check_eslint_reason.py` only checks for the token, so they pass CI.
-- Mid-module import block in `import_interpretations_dov.py` (wedged
-  below `_FLAG_TO_TYPE`) — move above the constant.
-- `plaxis_section_exporter.py` `# type: ignore[override]` has no inline
-  reason.
-
-**Why deferred.** All trivial; batched so they are one tidy commit pass,
-not 8 micro-commits.
-
-**When to revisit.** Any low-focus session — knock the batch out in one
-sitting.
 
 ## 118. Wire pinch-out gesture for the Litho axis (Tier G — session 2026-05-24 blocker)
 
