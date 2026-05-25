@@ -104,7 +104,7 @@ export default function WelcomeScreen({
 
   return (
     <div
-      className="flex items-center justify-center h-screen bg-gray-50"
+      className="flex items-center justify-center h-screen bg-surface-app"
       data-testid="welcome-screen"
     >
       <div className="flex flex-col gap-3 max-w-[800px]">
@@ -126,16 +126,16 @@ export default function WelcomeScreen({
         )}
         <div className="flex gap-6">
         {/* Create / Open column */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-8 w-96">
-          <h1 className="text-lg font-semibold text-gray-800 mb-1">Ground Model</h1>
-          <p className="text-sm text-gray-500 mb-6">
+        <div className="bg-surface-page border border-border-subtle rounded-lg shadow-sm p-8 w-96">
+          <h1 className="text-lg font-semibold text-text-primary mb-1">Ground Model</h1>
+          <p className="text-sm text-text-secondary mb-6">
             Open an existing project file or create a new one to start importing
             and analysing data.
           </p>
 
           <label
             htmlFor="welcome-project-name"
-            className="block text-xs font-medium text-gray-600 mb-1"
+            className="block text-xs font-medium text-text-secondary mb-1"
           >
             Project name
           </label>
@@ -149,7 +149,7 @@ export default function WelcomeScreen({
             placeholder="e.g. GEO-22/040 Brugge"
             disabled={busy}
             data-testid="welcome-project-name-input"
-            className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 disabled:bg-gray-50"
+            className="w-full border border-border-default rounded px-3 py-1.5 text-sm text-text-primary bg-surface-page placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent mb-4 disabled:bg-surface-card"
           />
 
           <Button
@@ -164,10 +164,10 @@ export default function WelcomeScreen({
           </Button>
 
           {/* Visual divider between the two entry points. */}
-          <div className="flex items-center gap-2 my-3 text-[10px] text-gray-400">
-            <span className="flex-1 border-t border-gray-200" />
+          <div className="flex items-center gap-2 my-3 text-[10px] text-text-muted">
+            <span className="flex-1 border-t border-border-subtle" />
             <span>or</span>
-            <span className="flex-1 border-t border-gray-200" />
+            <span className="flex-1 border-t border-border-subtle" />
           </div>
 
           <Button
@@ -186,10 +186,10 @@ export default function WelcomeScreen({
             entries — first-launch users shouldn't see an empty
             placeholder hugging the create card. */}
         {recent.length > 0 && (
-          <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6 w-80 flex flex-col">
+          <div className="bg-surface-page border border-border-subtle rounded-lg shadow-sm p-6 w-80 flex flex-col">
             <div className="flex items-center gap-1.5 mb-3">
-              <Clock size={13} className="text-gray-400" />
-              <h2 className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              <Clock size={13} className="text-text-muted" />
+              <h2 className="text-xs font-medium uppercase tracking-wide text-text-secondary">
                 Recent projects
               </h2>
             </div>
@@ -201,10 +201,10 @@ export default function WelcomeScreen({
                     disabled={busy}
                     title={entry.path}
                     data-testid={`welcome-recent-entry-${entry.path}`}
-                    className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed group"
+                    className="w-full text-left px-2 py-1.5 rounded hover:bg-surface-card disabled:opacity-50 disabled:cursor-not-allowed group"
                   >
-                    <div className="text-sm text-gray-800 truncate">{entry.name}</div>
-                    <div className="text-[10px] text-gray-400 truncate font-mono">
+                    <div className="text-sm text-text-primary truncate">{entry.name}</div>
+                    <div className="text-[10px] text-text-muted truncate font-mono">
                       {entry.path}
                     </div>
                   </button>

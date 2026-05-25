@@ -209,4 +209,21 @@ describe('WelcomeScreen', () => {
     // No recent column, but the create/open card still renders.
     expect(screen.queryByText(/Recent projects/i)).not.toBeInTheDocument()
   })
+
+  it('DK1 — root container uses semantic dark-mode-aware token bg-surface-app (debt #105)', () => {
+    // Regression anchor: WelcomeScreen previously used bg-gray-50 (raw palette
+    // token with no dark: variant). The semantic bg-surface-app resolves to
+    // slate-100 in light and slate-950 in dark — both themes work without
+    // extra dark: pairs.
+    const { getByTestId } = render(
+      <WelcomeScreen
+        onCreateProject={vi.fn()}
+        onOpenProject={vi.fn()}
+        onOpenRecent={vi.fn()}
+      />,
+    )
+    const root = getByTestId('welcome-screen')
+    expect(root.className).toContain('bg-surface-app')
+    expect(root.className).not.toContain('bg-gray-')
+  })
 })
