@@ -19,11 +19,29 @@ Tuning rationale (verified live 2026-05-07 onwards)
   live: turning HTTP/2 off doubles the wall-clock for a 500-CPT bbox.
 * ``max_keepalive_connections=100`` + ``max_connections=100`` — keeps the
   HTTP/2 connection warm for the duration of the import.
+
+Test-mode mock
+--------------
+When ``STRIX_DOV_FIXTURE_MODE=1`` is set, this factory returns a client
+backed by ``dov_fixture_transport._build_fixture_transport`` instead of
+the production network.  All DOV HTTP traffic (WFS + per-permkey XML
+downloads) is redirected to on-disk fixture files under
+``STRIX_DOV_FIXTURE_ROOT`` (defaults to
+``desktop/tests/e2e/fixtures/dov``).
+
+The production client path is byte-identical when the env var is absent or
+not ``"1"`` — no production behaviour change.
 """
 
 from __future__ import annotations
 
 import httpx
+
+from groundmodel.infrastructure.parsers.dov.dov_fixture_transport import (
+    _build_fixture_transport,
+    fixture_root_path,
+    is_fixture_mode,
+)
 
 
 def make_dov_async_client() -> httpx.AsyncClient:
@@ -33,7 +51,31 @@ def make_dov_async_client() -> httpx.AsyncClient:
     pool is closed when the orchestrator finishes its phases. Returning the
     raw client (not a context-managed handle) keeps ``async with`` at the
     call site for readability — every existing caller already wraps it.
+
+    In fixture mode (``STRIX_DOV_FIXTURE_MODE=1``), the client is backed by
+    an in-process ``httpx.MockTransport`` that serves requests from on-disk
+    fixture files.  All other settings (timeout, limits, follow_redirects)
+    are identical — callers see no behavioural difference.
+
+    Returns
+    -------
+    httpx.AsyncClient
+        A configured client.  In production: real network.
+        In fixture mode: fixture transport.
     """
+    if is_fixture_mode():
+        # Fixture mode: serve all DOV HTTP from on-disk files.
+        # Timeout / limits / follow_redirects are still set so the
+        # httpx client context-manager lifecycle is identical to production.
+        transport = _build_fixture_transport(fixture_root_path())
+        return httpx.AsyncClient(
+            transport=transport,
+            timeout=httpx.Timeout(60.0, connect=10.0),
+            follow_redirects=True,
+            limits=httpx.Limits(max_keepalive_connections=100, max_connections=100),
+        )
+
+    # Production path — unchanged from before this commit.
     return httpx.AsyncClient(
         timeout=httpx.Timeout(60.0, connect=10.0),
         follow_redirects=True,
