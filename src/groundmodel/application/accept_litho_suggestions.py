@@ -200,6 +200,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         cpt_id: UUID | None = None,
         borehole_id: UUID | None = None,
         section_id: UUID | None = None,
+        defer_inference: bool = False,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
 
@@ -224,6 +225,13 @@ class AcceptLithoSuggestions(GroundModelLogger):
             When provided, union all created + found contact ids into this
             section's ``seeded_formation_contact_ids`` (explicit-content
             invariant).
+        defer_inference : bool
+            When ``True``, skip the R7 inference + wedge-tip pass at the end
+            of this call.  Contact-commit and section-seed still run.  The
+            caller is responsible for calling
+            ``RecomputeAllAbsencesForModel`` once after the full batch of
+            deferred accepts.  Defaults to ``False`` (original per-accept
+            behaviour).
 
         Returns
         -------
@@ -437,7 +445,17 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # re-accepting after a re-segmentation, and the prior inference may
         # be stale.  commit=False defers the commit so all accept mutations
         # and absence deltas share one atomic transaction.
-        if created_contact_ids or found_contact_ids:
+        #
+        # defer_inference=True: skip the R7 inference + wedge-tip pass so
+        # bulk-accept loops (N anchors) do not each re-run inference across
+        # all formations.  The caller calls RecomputeAllAbsencesForModel once
+        # after the batch instead.
+        if defer_inference:
+            self.debug(
+                "AcceptLithoSuggestions: deferred inference (batch mode) — "
+                "caller must call RecomputeAllAbsencesForModel after the batch"
+            )
+        elif created_contact_ids or found_contact_ids:
             affected_formation_ids = set(created_formation_ids) | set(found_formation_ids)
             inference_uc = RecomputeFormationAbsencesForFormation(self._session)
             materialize_uc = MaterializeWedgeTipsForFormation(self._session)
