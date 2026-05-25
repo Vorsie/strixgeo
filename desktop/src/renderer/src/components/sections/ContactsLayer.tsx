@@ -61,7 +61,7 @@ import {
 import { SNAP_TOLERANCE_PX } from './cptChannels'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
-import { buildFillBand, columnsBetween, type PlacedColumn } from './utils'
+import { buildFillBand, columnMaxDepthM, columnsBetween, type PlacedColumn } from './utils'
 
 interface Props {
   contacts: readonly FormationContactResponse[]
@@ -495,15 +495,8 @@ function truncateToWidth(text: string, widthPx: number): string {
   return `${text.slice(0, Math.max(1, maxChars - 1))}…`
 }
 
-function itemBottomDepth(col: PlacedColumn): number | null {
-  // PlacedColumn is a discriminated union by ``kind`` — TypeScript
-  // narrows col.proj.item to the right shape inside each branch,
-  // no cast needed (debt #28).
-  if (col.kind === 'cpt') {
-    return col.proj.item.max_depth_m
-  }
-  return col.proj.item.total_depth_m
-}
+/** Alias kept for this module's callers — delegates to the shared helper. */
+const itemBottomDepth = columnMaxDepthM
 
 /** Find the column whose centre is closest to ``cursorSvgX``, but
  * only if within the column's half-width plus the attraction
