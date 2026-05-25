@@ -14,7 +14,13 @@
 // GD4 — GeologyInspector calls ``setGeoDeepLinkTarget(null)`` after
 //        consuming the payload so a re-mount does not re-fire the focus.
 //
-// GD1/GD2 exercise ContactsLayer (the hit-strip + menu item surface).
+// GD5 — Reference-contact hit-strips render AFTER (on top of) active
+//        litho-contact drag strips in SVG DOM order (Slice D z-order fix,
+//        dogfeed 2026-05-25).  The strips must be topmost so right-click
+//        on a geological contact position wins over any overlapping litho
+//        hit-strip at the same depth.
+//
+// GD1/GD2/GD5 exercise ContactsLayer (the hit-strip + menu item surface).
 // GD3/GD4 exercise GeologyInspector (the payload consumer + clear).
 
 import { render, cleanup, fireEvent, screen, act } from '@testing-library/react'
@@ -220,6 +226,63 @@ describe('GD2 — clicking "Edit in Geology stage" calls the callback with corre
     expect(screen.queryByText('Delete contact')).toBeNull()
     expect(screen.queryByText(/Extrapolate pinch-out/)).toBeNull()
     expect(screen.getByTestId('geo-deep-link-menu-item')).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GD5 — ref-contact strip DOM order (z-order fix, Slice D dogfeed 2026-05-25)
+// ---------------------------------------------------------------------------
+
+describe('GD5 — reference-contact strips are topmost in SVG DOM (render after active strips)', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('ref-contact-drag-strip appears after contact-drag-strip in the DOM when both exist', () => {
+    // Arrange: one active litho contact AND one reference (geological) contact
+    // at the same anchor + same depth so both strips would be placed at the
+    // same SVG Y position.  The ref strip MUST be later in DOM order so SVG's
+    // paint order (later = on top) lets it receive the right-click first.
+    const onEditInGeologyStage = vi.fn()
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const anchorId = 'borehole-1'
+    const lithoFormationId = 'litho-formation-1'
+    const geoFormationId = 'geo-formation-1'
+
+    const lithoContact = makeContact('litho-contact-1', lithoFormationId, anchorId)
+    const refContact = makeContact('ref-contact-1', geoFormationId, anchorId)
+    // Place both at depth 2 m so they map to the same segY.
+    lithoContact.depth_top_m = 2
+    refContact.depth_top_m = 2
+
+    renderContactsLayer({
+      contacts: [lithoContact],
+      formations: [makeFormation(lithoFormationId, 'Zand')],
+      placedColumns: [makePlacedColumn(anchorId)],
+      levelToScreen: (level) => (10 - level) * 20,
+      plotTop: 0,
+      plotBottom: 400,
+      referenceContacts: [refContact],
+      referenceFormations: [makeFormation(geoFormationId, 'Boom Klei')],
+      onEditInGeologyStage,
+      onDeleteContact,
+      onUpdateContactDepth,
+    })
+
+    const refStrip = document.querySelector('[data-testid="ref-contact-drag-strip"]')
+    const activeStrip = document.querySelector('[data-testid="contact-drag-strip"]')
+
+    expect(refStrip).not.toBeNull()
+    expect(activeStrip).not.toBeNull()
+
+    // DOM order check: the ref strip must come AFTER (i.e. on top of) the
+    // active strip.  Node.compareDocumentPosition returns a bitmask;
+    // DOCUMENT_POSITION_FOLLOWING (4) means `activeStrip` precedes `refStrip`
+    // in document order — which is what we want.
+    const position = activeStrip!.compareDocumentPosition(refStrip!)
+    // Bitmask bit 4 = DOCUMENT_POSITION_FOLLOWING: refStrip is after activeStrip.
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 
