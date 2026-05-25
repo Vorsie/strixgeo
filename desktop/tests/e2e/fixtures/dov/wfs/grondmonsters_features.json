@@ -1,0 +1,21 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "permkey_monster": "2024-E2E-SAMP-001",
+        "gekoppeld_aan_link": "|https://www.dov.vlaanderen.be/data/boring/2024-E2E-BH1|",
+        "monster_link": "https://www.dov.vlaanderen.be/data/monster/2024-E2E-SAMP-001",
+        "diepte_van_m": 2.0,
+        "diepte_tot_m": 2.5,
+        "monster": "N001",
+        "monstertype": "ongeroerd",
+        "monstersamenstelling": "Enkelvoudig monster",
+        "bemonsteringsinstrument": "|shelby|",
+        "bemonsteringsdatum": "2024-03-12",
+        "aantal_observaties": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ns4:dov-schema xmlns:ns4="http://kern.schemas.dov.vlaanderen.be">
+  <observatie>
+    <identificator>
+      <identificator>2024-E2E-OBS-001</identificator>
+      <toegekend_door>DOV</toegekend_door>
+    </identificator>
+    <geobserveerd_object>
+      <objecttype>monster</objecttype>
+      <naam>N001</naam>
+      <permkey>2024-E2E-SAMP-001</permkey>
+    </geobserveerd_object>
+    <diepte_van>2.000</diepte_van>
+    <diepte_tot>2.500</diepte_tot>
+    <parameter>Korrelverdeling d.m.v. zeefproef</parameter>
+    <parametergroep>Onderkenningsproeven-korrelverdeling </parametergroep>
+    <waarde_meetreeks>
+      <meetpuntparameter>Diameter</meetpuntparameter>
+      <meetpuntparameter_eenheid>mm</meetpuntparameter_eenheid>
+      <meetwaardeparameter>Fractie met grotere diameter</meetwaardeparameter>
+      <meetwaardeparameter_eenheid>%</meetwaardeparameter_eenheid>
+      <meetreekswaarde>
+        <meetwaarde_numeriek>95.0</meetwaarde_numeriek>
+        <meetpunt_numeriek>0.063</meetpunt_numeriek>
+      </meetreekswaarde>
+      <meetreekswaarde>
+        <meetwaarde_numeriek>60.0</meetwaarde_numeriek>
+        <meetpunt_numeriek>0.25</meetpunt_numeriek>
+      </meetreekswaarde>
+      <meetreekswaarde>
+        <meetwaarde_numeriek>15.0</meetwaarde_numeriek>
+        <meetpunt_numeriek>2.0</meetpunt_numeriek>
+      </meetreekswaarde>
+    </waarde_meetreeks>
+    <methode>Zeving op massa met grootte &lt;= 2mm (fijnkorrelig)</methode>
+    <fenomeentijd>2024-03-20</fenomeentijd>
+    <herkomst>LABO</herkomst>
+    <uitvoerder>
+      <organisatie><naam>E2E Test Lab</naam></organisatie>
+    </uitvoerder>
+    <behandeling>
+      <behandeling>Kalk verwijderd</behandeling>
+      <behandeling_waarde>nee</behandeling_waarde>
+    </behandeling>
+    <behandeling>
+      <behandeling>Organisch materiaal verwijderd</behandeling>
+      <behandeling_waarde>nee</behandeling_waarde>
+    </behandeling>
+  </observatie>
+</ns4:dov-schema>

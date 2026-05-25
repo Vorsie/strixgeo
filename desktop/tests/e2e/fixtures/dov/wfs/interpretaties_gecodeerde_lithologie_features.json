@@ -1,0 +1,12 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "Interpretatiefiche": "https://www.dov.vlaanderen.be/data/interpretatie/2024-E2E-INTERP-001",
+        "Proefnummer": "E2E-DOV-BH-001"
+      }
+    }
+  ]
+}

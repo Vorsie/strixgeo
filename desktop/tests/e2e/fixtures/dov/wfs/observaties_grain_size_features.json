@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "gekoppeld_aan_link": "https://www.dov.vlaanderen.be/data/monster/2024-E2E-SAMP-001",
+        "fiche": "https://www.dov.vlaanderen.be/data/observatie/2024-E2E-OBS-001",
+        "observatie_link": "https://www.dov.vlaanderen.be/data/observatie/2024-E2E-OBS-001",
+        "parametergroep": "Onderkenningsproeven-korrelverdeling ",
+        "methode": "Zeving op massa met grootte <= 2mm (fijnkorrelig)"
+      }
+    }
+  ]
+}

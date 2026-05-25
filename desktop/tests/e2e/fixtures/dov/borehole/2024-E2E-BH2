@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ns4:dov-schema xmlns:ns4="http://kern.schemas.dov.vlaanderen.be"
+                xmlns:gml="http://www.opengis.net/gml/3.2">
+  <boring>
+    <identificatie>E2E-DOV-BH-002</identificatie>
+    <dataidentifier>
+      <permkey>2024-E2E-BH2</permkey>
+      <uri>https://www.dov.vlaanderen.be/data/boring/2024-E2E-BH2</uri>
+    </dataidentifier>
+    <ligging>
+      <gml:Point srsName="urn:ogc:def:crs:EPSG::6190" srsDimension="3">
+        <gml:pos>149300.00 192150.00 3.80</gml:pos>
+      </gml:Point>
+    </ligging>
+    <gemeente>44088</gemeente>
+    <diepte_tot>8.0</diepte_tot>
+    <datum_aanvang>2024-03-11</datum_aanvang>
+    <doel>Geotechnisch onderzoek</doel>
+    <boringtype>Geotechnische boring - (dis)continue monstername</boringtype>
+    <uitvoerder><naam>E2E Boring BV</naam></uitvoerder>
+    <details>
+      <boormethode><van>0.0</van><tot>8.0</tot><methode>Droog boren</methode></boormethode>
+      <kleur><van>0.0</van><tot>8.0</tot><kleur>bruingrijs</kleur></kleur>
+      <grondwaterstand><diepte_grondwater>2.80</diepte_grondwater></grondwaterstand>
+    </details>
+  </boring>
+</ns4:dov-schema>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ns4:dov-schema xmlns:ns4="http://kern.schemas.dov.vlaanderen.be">
+  <interpretaties>
+    <gecodeerdelithologie>
+      <boring>E2E-DOV-BH-001</boring>
+      <dataidentifier>
+        <permkey>2024-E2E-INTERP-001</permkey>
+      </dataidentifier>
+      <auteur>
+        <persoon>
+          <naam>Fixture</naam>
+          <voornaam>E2E</voornaam>
+        </persoon>
+        <bedrijf-dienst>
+          <naam>E2E Test Lab</naam>
+        </bedrijf-dienst>
+      </auteur>
+      <datum>2024-03-15</datum>
+      <betrouwbaarheid>goed</betrouwbaarheid>
+      <dataleverancier><naam>E2E Test Lab</naam></dataleverancier>
+      <kwaliteit>
+        <categorie>goed</categorie>
+        <geschiktheid_boormethode>Hoog</geschiktheid_boormethode>
+      </kwaliteit>
+      <laag>
+        <van>0.0</van>
+        <tot>4.0</tot>
+        <kleur>grijsbruin</kleur>
+        <hoofdnaam>
+          <grondsoort>K</grondsoort>
+        </hoofdnaam>
+        <bijmenging>
+          <plaatselijk>false</plaatselijk>
+          <hoeveelheid>weinig</hoeveelheid>
+          <grondsoort>Z</grondsoort>
+        </bijmenging>
+      </laag>
+      <laag>
+        <van>4.0</van>
+        <tot>10.0</tot>
+        <kleur>grijs</kleur>
+        <hoofdnaam>
+          <grondsoort>Z</grondsoort>
+        </hoofdnaam>
+      </laag>
+    </gecodeerdelithologie>
+  </interpretaties>
+</ns4:dov-schema>

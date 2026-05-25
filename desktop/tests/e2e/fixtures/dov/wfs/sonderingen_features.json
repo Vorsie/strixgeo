@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "fiche": "https://www.dov.vlaanderen.be/data/sondering/2024-E2E-001",
+        "sondeernummer": "E2E-DOV-CPT-001",
+        "X_mL72": 149000.0,
+        "Y_mL72": 192000.0,
+        "Z_mTAW": 4.5
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "fiche": "https://www.dov.vlaanderen.be/data/sondering/2024-E2E-002",
+        "sondeernummer": "E2E-DOV-CPT-002",
+        "X_mL72": 149200.0,
+        "Y_mL72": 192100.0,
+        "Z_mTAW": 4.2
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "fiche": "https://www.dov.vlaanderen.be/data/sondering/2024-E2E-003",
+        "sondeernummer": "E2E-DOV-CPT-003",
+        "X_mL72": 149400.0,
+        "Y_mL72": 192200.0,
+        "Z_mTAW": 3.9
+      }
+    }
+  ]
+}

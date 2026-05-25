@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dov-schema xmlns="http://kern.schemas.dov.vlaanderen.be"
+            xmlns:gml="http://www.opengis.net/gml/3.2">
+  <sondering>
+    <sondeernummer>E2E-DOV-CPT-001</sondeernummer>
+    <datum_aanvang>2024-03-01</datum_aanvang>
+    <uitvoerder>
+      <naam>E2E Test Lab</naam>
+    </uitvoerder>
+    <ligging>
+      <gml:Point srsName="urn:ogc:def:crs:EPSG::31370" srsDimension="3">
+        <gml:pos>149000.00 192000.00 4.50</gml:pos>
+      </gml:Point>
+    </ligging>
+    <sondeonderzoek>
+      <sondeerapparaat>
+        <sondeerconus>
+          <conustype>CPTU</conustype>
+          <net_area_ratio>0.80</net_area_ratio>
+        </sondeerconus>
+      </sondeerapparaat>
+      <penetratietest>
+        <meetdata>
+          <diepte>0.02</diepte><qc>0.50</qc><fs>10</fs><u>20</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.04</diepte><qc>0.55</qc><fs>11</fs><u>22</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.06</diepte><qc>0.60</qc><fs>12</fs><u>24</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.08</diepte><qc>0.65</qc><fs>13</fs><u>26</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.10</diepte><qc>0.70</qc><fs>14</fs><u>28</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.12</diepte><qc>0.75</qc><fs>15</fs><u>30</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.14</diepte><qc>0.80</qc><fs>16</fs><u>32</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.16</diepte><qc>0.85</qc><fs>17</fs><u>34</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.18</diepte><qc>0.90</qc><fs>18</fs><u>36</u>
+        </meetdata>
+        <meetdata>
+          <diepte>0.20</diepte><qc>0.95</qc><fs>19</fs><u>38</u>
+        </meetdata>
+      </penetratietest>
+    </sondeonderzoek>
+  </sondering>
+</dov-schema>

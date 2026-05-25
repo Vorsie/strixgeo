@@ -1,0 +1,51 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "fiche": "https://www.dov.vlaanderen.be/data/boring/2024-E2E-BH1",
+        "boornummer": "E2E-DOV-BH-001",
+        "X_mL72": 149100.0,
+        "Y_mL72": 192050.0,
+        "Z_mTAW": 4.0,
+        "methode": "Gespoeld boren",
+        "gemeente": "44088",
+        "uitvoerder": "E2E Boring BV",
+        "doel": "Geotechnisch onderzoek",
+        "diepte_tot_m": 10.0,
+        "gecodeerde_lithologie": true,
+        "geotechnische_codering": false,
+        "lithologische_beschrijving": true,
+        "informele_stratigrafie": false,
+        "formele_stratigrafie": false,
+        "quartaire_stratigrafie": false,
+        "hydrogeologische_stratigrafie": false,
+        "informele_hydrostratigrafie": false
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "fiche": "https://www.dov.vlaanderen.be/data/boring/2024-E2E-BH2",
+        "boornummer": "E2E-DOV-BH-002",
+        "X_mL72": 149300.0,
+        "Y_mL72": 192150.0,
+        "Z_mTAW": 3.8,
+        "methode": "Droog boren",
+        "gemeente": "44088",
+        "uitvoerder": "E2E Boring BV",
+        "doel": "Geotechnisch onderzoek",
+        "diepte_tot_m": 8.0,
+        "gecodeerde_lithologie": false,
+        "geotechnische_codering": false,
+        "lithologische_beschrijving": true,
+        "informele_stratigrafie": false,
+        "formele_stratigrafie": false,
+        "quartaire_stratigrafie": false,
+        "hydrogeologische_stratigrafie": false,
+        "informele_hydrostratigrafie": false
+      }
+    }
+  ]
+}
