@@ -865,6 +865,85 @@ describe('CorrelationEdgesOverlay', () => {
     expect(screen.queryByText(/mark as lens/i)).toBeNull()
   })
 
+  // -------------------------------------------------------------------
+  // CE25–CE26 — #129c: rejection toasts for blocked correlate clicks.
+  // -------------------------------------------------------------------
+
+  // CE25: clicking a cross-group band (armed source on inv-1/f-a, target
+  // on inv-2 but different formation type) fires onRejectCorrelate.
+  it('CE25: clicking a cross-group band calls onRejectCorrelate with a reason', () => {
+    const onRejectCorrelate = vi.fn()
+    // f-a and f-b have different litho_main_soil_code → cross-group
+    const fA = { ...makeFormation('f-a', 'Zand', null), litho_main_soil_code: 'Z', parent_formation_id: 'pf-1' }
+    const fB = { ...makeFormation('f-b', 'Klei', null), litho_main_soil_code: 'K', parent_formation_id: 'pf-1' }
+    const gestureState: CorrelateGestureState = {
+      correlateMode: true,
+      correlationSource: { formationId: 'f-a', investigationId: 'inv-1', label: 'Zand' },
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+    }
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
+      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
+    ]
+    renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+      onRejectCorrelate,
+    })
+    const rejectRect = screen.getByTestId('correlate-reject-crossgroup-inv-2-f-b')
+    fireEvent.click(rejectRect)
+    expect(onRejectCorrelate).toHaveBeenCalledOnce()
+    expect(onRejectCorrelate.mock.calls[0][0]).toMatch(/different formation group/i)
+  })
+
+  // CE26: clicking a band on the SAME investigation as the armed source
+  // (same-investigation, self-edge blocked) fires onRejectCorrelate.
+  it('CE26: clicking a same-investigation band calls onRejectCorrelate with a reason', () => {
+    const onRejectCorrelate = vi.fn()
+    // Two formations on the same investigation inv-1.  Source is f-a; f-b
+    // is on inv-1 too — same investigationId → blocked.
+    const fA = makeFormation('f-a', 'Zand', null)
+    const fB = makeFormation('f-b', 'Klei', null)
+    const gestureState: CorrelateGestureState = {
+      correlateMode: true,
+      correlationSource: { formationId: 'f-a', investigationId: 'inv-1', label: 'Zand' },
+      onArm: vi.fn(),
+      onClearArmed: vi.fn(),
+      onExitMode: vi.fn(),
+      onCorrelate: vi.fn(),
+      onUncorrelate: vi.fn(),
+    }
+    const contacts = [
+      makeContact('c1', 'f-a', 'inv-1', 'cpt', 1.0),
+      makeContact('c2', 'f-b', 'inv-1', 'cpt', 3.0), // same inv
+    ]
+    renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA, fB],
+      placedColumns: [makeColumn('inv-1', 100, 10, 5)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      correlateGestureState: gestureState,
+      onRejectCorrelate,
+    })
+    const rejectRect = screen.getByTestId('correlate-reject-sameinv-inv-1-f-b')
+    fireEvent.click(rejectRect)
+    expect(onRejectCorrelate).toHaveBeenCalledOnce()
+    expect(onRejectCorrelate.mock.calls[0][0]).toMatch(/different investigation/i)
+  })
+
   // CE19: "Remove all correlations for this body" fires onUncorrelate
   // for every edge whose endpoints both carry the body's ordinal — not
   // just the edge under the right-clicked chip. Other bodies untouched.
