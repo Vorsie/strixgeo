@@ -95,6 +95,8 @@ interface ToolbarButtonProps {
    * in-flight affordance). Callers still own ``disabled`` + the label
    * swap; this only adds the motion docs/ux.md requires. */
   busy?: boolean
+  /** Optional data-testid passthrough for e2e harnesses. */
+  testid?: string
 }
 
 /**
@@ -118,6 +120,8 @@ interface ToolbarButtonProps {
  *     Highlights the button in red (destructive action affordance).
  * busy
  *     When true, the icon is swapped for a spinning ``RefreshCw``.
+ * testid
+ *     Optional data-testid for e2e harness targeting.
  *
  * Returns
  * -------
@@ -133,6 +137,7 @@ export function ToolbarButton({
   amber,
   danger,
   busy,
+  testid,
 }: ToolbarButtonProps): JSX.Element {
   return (
     <button
@@ -141,6 +146,7 @@ export function ToolbarButton({
       disabled={disabled}
       title={title}
       aria-busy={busy}
+      data-testid={testid}
       className={[
         'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
