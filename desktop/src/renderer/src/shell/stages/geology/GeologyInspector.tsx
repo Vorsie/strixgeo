@@ -85,7 +85,12 @@ export default function GeologyInspector(): JSX.Element {
     sections: { handleFocusContacts, sectionModelAxis },
     // manifestFormationIds is still needed by reorderFormations' inline
     // derivation (cannot read visibleFormations there — TDZ; see §8.1 Risk 3).
-    coordinator: { manifestFormationIds, sessionImportFormationIds },
+    coordinator: {
+      manifestFormationIds,
+      sessionImportFormationIds,
+      geoDeepLinkTarget,
+      setGeoDeepLinkTarget,
+    },
     undo: { push: pushUndoCommand },
     visibleBoreholes,
     overlays: { showConfidenceFade, handleSetShowConfidenceFade },
@@ -117,6 +122,34 @@ export default function GeologyInspector(): JSX.Element {
 
   // Borehole scope sub-section collapse state.
   const [scopeOpen, setScopeOpen] = useState(false)
+
+  // Deep-link focus — contactId highlighted when the user navigated here
+  // from the Sections (litho) canvas via "Edit in Geology stage".
+  // Set on mount (from geoDeepLinkTarget) and cleared immediately after
+  // the payload is consumed so a subsequent re-mount does not re-apply a
+  // stale target (GD4 contract).
+  // Feeds handleFocusContacts so the contact gets the existing amber ring
+  // (the same pulse used by the crossings banner's click intent).
+  const [deepLinkContactId, setDeepLinkContactId] = useState<string | null>(null)
+
+  // Consume the deep-link payload: forward the contactId to the section
+  // editor's focus-contacts handler, then immediately clear the payload
+  // so it is single-fire.  Runs whenever geoDeepLinkTarget changes,
+  // which is exactly once per navigation from the Sections canvas.
+  useEffect(() => {
+    if (geoDeepLinkTarget === null) return
+    const { contactId } = geoDeepLinkTarget
+    log.info('geology-inspector', `deep-link: focusing contact ${contactId}`)
+    setDeepLinkContactId(contactId)
+    handleFocusContacts([contactId])
+    // Clear the bus payload so re-mounting the inspector later does not
+    // re-apply a stale target.
+    setGeoDeepLinkTarget(null)
+    // reason: geoDeepLinkTarget is the only signal that triggers this
+    // effect; handleFocusContacts and setGeoDeepLinkTarget are stable
+    // useCallback refs and do not need to be in the dep array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geoDeepLinkTarget])
 
   // Cross-formation crossing-validator results. Gated on surface
   // freshness (debt #18): a stale cache is not validated — the hook
