@@ -630,6 +630,15 @@ export default function ContactsLayer({
      * and suppress Delete / Pinch-out (those actions belong on the
      * geological axis, not the litho view). */
     isReferenceContact?: boolean
+    /** Geological contact id for the parent geological formation of this
+     * litho contact.  Present when the right-clicked litho contact's
+     * formation has a ``parent_formation_id`` AND a matching geological
+     * contact exists at the same anchor in ``referenceContacts``.  Used
+     * to offer "Edit in Geology stage" on the litho axis even for
+     * non-topmost formation boundaries (which don't have a dedicated
+     * reference hit-strip because they are litho-litho boundaries, not
+     * geological boundaries — see Bug 1 dogfeed 2026-05-26). */
+    parentGeoContactId?: string | null
   } | null>(null)
 
   // Pending-delete confirmation state (debt #62 item 1). Set when the
@@ -2178,6 +2187,45 @@ export default function ContactsLayer({
     plotBottom,
   ])
 
+  // Geo-contact lookup index for the "Edit parent geological formation"
+  // context-menu item on litho contacts (Bug 1 dogfeed 2026-05-26).
+  //
+  // WHY: the reference hit-strips (above) only cover geological formation
+  // tops — i.e. one strip per geological formation per anchor.  A litho
+  // section typically has MANY litho contacts per anchor (one per litho
+  // unit), and most of those contacts are LITHO-LITHO boundaries within
+  // a single geological formation — they have no reference strip.  But
+  // the user still wants to right-click any litho contact and navigate
+  // to the geology stage to edit the parent formation.
+  //
+  // The index maps: anchorId → geoFormationId → geologicalContactId.
+  // Built from referenceContacts (the geological contacts forwarded on
+  // the litho axis).  O(1) lookup per litho contact right-click.
+  const refGeoContactByAnchorAndFormation = useMemo(() => {
+    const out = new Map<string, Map<string, string>>()
+    if (!referenceContacts) return out
+    for (const c of referenceContacts) {
+      const anchorId = c.borehole_id ?? c.cpt_id
+      if (!anchorId) continue
+      let inner = out.get(anchorId)
+      if (!inner) {
+        inner = new Map()
+        out.set(anchorId, inner)
+      }
+      inner.set(c.formation_id, c.id)
+    }
+    return out
+  }, [referenceContacts])
+
+  // Formation-by-id index for the same context-menu lookup.  Keyed by
+  // litho formation id; value holds ``parent_formation_id`` (null for
+  // geological / geotechnical formations that have no parent).
+  const lithoFormationById = useMemo(() => {
+    const m = new Map<string, GeologicalFormationResponse>()
+    for (const f of formations) m.set(f.id, f)
+    return m
+  }, [formations])
+
   // Return null only when there is genuinely nothing to paint —
   // EITHER backdrop source counts as "something to paint" so the
   // snap-to-contact backdrop (referenceContacts) still renders on a
@@ -2630,9 +2678,21 @@ export default function ContactsLayer({
                       : undefined
                   }
                   onContextMenu={
-                    onDeleteContact || onPinchOutContact
+                    onDeleteContact || onPinchOutContact || onEditInGeologyStage
                       ? e => {
                           e.preventDefault()
+                          // Resolve the parent geological contact id so the
+                          // menu can offer "Edit in Geology stage" for any
+                          // litho contact whose formation has a parent
+                          // geological formation (Bug 1 dogfeed 2026-05-26).
+                          const lithoFormation = lithoFormationById.get(layer.formationId)
+                          const parentFormationId = lithoFormation?.parent_formation_id ?? null
+                          const parentGeoContactId =
+                            onEditInGeologyStage && parentFormationId
+                              ? (refGeoContactByAnchorAndFormation
+                                  .get(layer.anchorId)
+                                  ?.get(parentFormationId) ?? null)
+                              : null
                           // Portal-rendered menu uses position:fixed with
                           // viewport clientX/Y so no container-rect math.
                           setContactMenu({
@@ -2643,6 +2703,7 @@ export default function ContactsLayer({
                             formationName: layer.formationName,
                             anchorKind: layer.anchorKind,
                             anchorId: layer.anchorId,
+                            parentGeoContactId,
                           })
                         }
                       : undefined
@@ -2794,11 +2855,19 @@ export default function ContactsLayer({
           // only show "Edit in Geology stage".  Delete + pinch-out
           // belong on the geological axis, not the litho view.
           onEditInGeologyStage={
-            contactMenu.isReferenceContact && onEditInGeologyStage
+            onEditInGeologyStage &&
+            (contactMenu.isReferenceContact ||
+              contactMenu.parentGeoContactId != null)
               ? () => {
-                  const { contactId, formationId } = contactMenu
+                  // Reference contact: the contactId IS the geological contact.
+                  // Litho contact with a resolved parent: use the parent geo
+                  // contact id so GeologyInspector focuses the right pick.
+                  const geoContactId = contactMenu.isReferenceContact
+                    ? contactMenu.contactId
+                    : (contactMenu.parentGeoContactId ?? contactMenu.contactId)
+                  const { formationId } = contactMenu
                   setContactMenu(null)
-                  onEditInGeologyStage(contactId, formationId)
+                  onEditInGeologyStage(geoContactId, formationId)
                 }
               : undefined
           }
