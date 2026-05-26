@@ -499,6 +499,28 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id, selectedSectionId, refetchContactEdges],
   )
 
+  // Right-click "Delete contact" gesture from the section overlay.
+  // Presents window.confirm (irreversible action), delegates to the
+  // existing handleDeleteContact from the geoModel bus (which owns
+  // the undo stack + local state patch), then refetches edge state so
+  // the FK-cascade-removed edges disappear from the section view.
+  const handleRequestDeleteContactFromSection = useCallback(
+    async (contactId: string): Promise<void> => {
+      if (!activeLithoModel) return
+      const ok = window.confirm(
+        'Delete this contact? This removes the boundary and any correlations touching it.',
+      )
+      if (!ok) return
+      await handleDeleteContact(contactId)
+      // The geoModel bus already patched lithoContacts optimistically.
+      // The FK cascade on the backend also removed correlation edges —
+      // refetch so the section view reflects the updated edge graph.
+      void refetchContactEdges()
+      void refetchLithoContacts()
+    },
+    [activeLithoModel, handleDeleteContact, refetchContactEdges, refetchLithoContacts],
+  )
+
   // Build the contactGestureState passed to SectionPanel.
   // Only wired on the litho axis; absent on the geological axis.
   const contactGestureState: ContactGestureState | undefined = useMemo(() => {
@@ -519,6 +541,7 @@ export default function SectionsCanvas(): JSX.Element {
       },
       onContactCorrelate: handleCreateContactCorrelation,
       onContactUncorrelate: handleDeleteContactCorrelation,
+      onRequestDeleteContact: handleRequestDeleteContactFromSection,
     }
   }, [
     isLitho,
@@ -527,6 +550,7 @@ export default function SectionsCanvas(): JSX.Element {
     lastTargetTestId,
     handleCreateContactCorrelation,
     handleDeleteContactCorrelation,
+    handleRequestDeleteContactFromSection,
   ])
 
   // Slice 2 (#55): axis-aware contact/formation/surface routing.
