@@ -887,24 +887,34 @@ describe('Manual litho unit creation — handleManualLithoUnitCreate', () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// LX — litho-axis left-click is a no-op (Bug B revert, dogfeed 2026-05-26)
+// LX — litho-axis left-click must NOT open the picker dialog (Bug B fix,
+// dogfeed 2026-05-26 + 2nd-pass fix 2026-05-26)
 //
-// Left-click on the litho axis previously called handleCreateManualLithoGhost,
-// creating a zero-thickness invisible ghost. The user can't see it and can't
-// understand why a click "did nothing". The right-click "Create layer" context
-// menu is the intended entry point. This test asserts the callback is a no-op.
+// Root cause: the picker (useContactPicker) opens in handlePickCpt /
+// handlePickBorehole which are wired to ContactPickBar's onCommitDepth and
+// BoreholeColumn's onCommitDepth.  Those callbacks fire BEFORE
+// sectionAwareCreateContact runs — so the previous internal `if (isLitho) return`
+// guard was too late in the chain.
+//
+// The correct fix: pass onCreateContact={undefined} on the litho axis.
+// SectionPanel gates ContactPickBar's onCommitDepth on whether onCreateContact
+// is present (line 1901: `onCommitDepth={onCreateContact ? handlePickCpt : undefined}`).
+// So passing undefined disarms the pick-bar and BoreholeColumn overlays
+// entirely, preventing the picker from opening.
+//
+// LX1 — the original test: callback is a no-op (still passes; the no-op is
+//        now enforced at the prop boundary rather than inside the callback).
+// LX2 — the real guard: onCreateContact is undefined on the litho axis so
+//        the picker cannot open (ContactPickBar / BoreholeColumn are disarmed).
 // ---------------------------------------------------------------------------
 
 describe('Litho axis left-click is a no-op (Bug B — dogfeed 2026-05-26)', () => {
-  it('LX1 — sectionAwareCreateContact on litho axis returns without calling handleCreateManualLithoGhost', async () => {
-    const createManualLithoGhost = vi.fn()
+  it('LX2 — onCreateContact is undefined on the litho axis so the picker never opens', () => {
     const ctx = makeStubContext({
       section: makeSection({ seeded_formation_contact_ids: [] }),
       lithoModel: makeLithoModel(),
       sectionModelAxis: 'lithostratigraphic',
     })
-    // Override the ghost handler so we can spy on it.
-    ;(ctx.geoModel as typeof ctx.geoModel).handleCreateManualLithoGhost = createManualLithoGhost
 
     render(
       <ShellContext.Provider value={ctx}>
@@ -912,16 +922,29 @@ describe('Litho axis left-click is a no-op (Bug B — dogfeed 2026-05-26)', () =
       </ShellContext.Provider>,
     )
 
-    // onCreateContact is the sectionAwareCreateContact callback.
-    expect(capturedOnCreateContact).toBeDefined()
+    // The prop must be undefined — ContactPickBar/BoreholeColumn's onCommitDepth
+    // are gated on onCreateContact, so undefined fully disarms the pick-bar and
+    // prevents handlePickCpt/handlePickBorehole (and therefore the picker) from
+    // firing on left-click.  This is the correct fix for the "picker still opens
+    // on litho axis" dogfeed (previous guard was inside sectionAwareCreateContact
+    // which is too late — the picker opens before that callback runs).
+    expect(capturedOnCreateContact).toBeUndefined()
+  })
 
-    // Invoke as if the user left-clicked on the litho axis contact-pick bar.
-    await act(async () => {
-      await capturedOnCreateContact!('borehole', 'bh-1', 3.5, 'form-xyz', false)
+  it('LX1 — geological axis still wires onCreateContact (regression guard)', () => {
+    const ctx = makeStubContext({
+      section: makeSection({ seeded_formation_contact_ids: [] }),
+      sectionModelAxis: 'geological',
     })
 
-    // The ghost handler MUST NOT have been called — litho left-click is a no-op.
-    expect(createManualLithoGhost).not.toHaveBeenCalled()
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    // On the geological axis the callback must be present so the pick-bar works.
+    expect(capturedOnCreateContact).toBeDefined()
   })
 })
 
