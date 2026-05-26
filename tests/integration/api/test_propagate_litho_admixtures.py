@@ -1,8 +1,8 @@
-"""HTTP-level integration tests for PATCH /correlations/admixtures.
+"""HTTP-level integration tests for PATCH /contact-correlations/admixtures.
 
 Pins the contract the frontend depends on:
 
-  PATCH .../correlations/admixtures  →  200 with updated formation list.
+  PATCH .../contact-correlations/admixtures  →  200 with updated formation list.
 
 Structural claims
 -----------------
@@ -22,12 +22,14 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
-    LithoCorrelationEdgeOrm,
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.infrastructure.db.models.project_orm import ProjectOrm
 
@@ -94,18 +96,57 @@ def _geo_formation(project_id) -> GeologicalFormationOrm:  # noqa: ANN001
     )
 
 
-def _edge(
+def _borehole(project_id, *, suffix: str, x: float = 150000.0) -> BoreholeOrm:  # noqa: ANN001
+    """Minimal borehole to anchor a formation contact."""
+    return BoreholeOrm(
+        id=uuid7(),
+        name=f"BH-{suffix}",
+        app_project_id=project_id,
+        project_id="PA",
+        test_id=f"BH-PA-{suffix}",
+        location_x=x,
+        location_y=200000.0,
+        epsg=31370,
+        total_depth_m=20.0,
+    )
+
+
+def _contact(
     model: GeologicalModelOrm,
-    fa: GeologicalFormationOrm,
-    fb: GeologicalFormationOrm,
-) -> LithoCorrelationEdgeOrm:
-    a_id, b_id = sorted([fa.id, fb.id])
-    return LithoCorrelationEdgeOrm(
+    formation: GeologicalFormationOrm,
+    borehole: BoreholeOrm,
+    *,
+    depth: float,
+) -> FormationContactOrm:
+    """A formation_contact anchored to a borehole at ``depth``."""
+    return FormationContactOrm(
         id=uuid7(),
         model_id=model.id,
-        formation_a_id=a_id,
-        formation_b_id=b_id,
+        formation_id=formation.id,
+        borehole_id=borehole.id,
+        depth_top_m=depth,
+        source="borehole_observation",
+        confidence="medium",
+    )
+
+
+def _contact_edge(
+    model: GeologicalModelOrm,
+    ca: FormationContactOrm,
+    cb: FormationContactOrm,
+    *,
+    user_approved: bool = True,
+) -> LithoContactCorrelationEdgeOrm:
+    """Contact-level correlation edge between two contacts (canonical order)."""
+    a_id = min(ca.id, cb.id)
+    b_id = max(ca.id, cb.id)
+    return LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=model.id,
+        contact_a_id=a_id,
+        contact_b_id=b_id,
         source="manual",
+        user_approved=user_approved,
     )
 
 
@@ -134,7 +175,7 @@ async def test_pa1_seed_only_no_edges(
 
     base = f"/projects/{project.id}/geology/models/{litho_model.id}"
     resp = await async_client.patch(
-        f"{base}/correlations/admixtures",
+        f"{base}/contact-correlations/admixtures",
         json={"formation_id": str(fa.id), "admixtures": _ADMIXTURES_NEW},
     )
     assert resp.status_code == 200, resp.text
@@ -153,16 +194,29 @@ async def test_pa2_two_correlated_formations(
     litho_model: GeologicalModelOrm,
     db_session: AsyncSession,
 ) -> None:
-    """PA2: Two correlated formations → both get new admixtures; component_size == 2."""
+    """PA2: Two correlated formations → both get new admixtures; component_size == 2.
+
+    Uses a user_approved=True contact-level edge between two formation_contacts
+    (one per formation, each on its own borehole) — the contact-edge graph is
+    the propagation authority since #133 Phase 3.
+    """
     fa = _litho_formation(project.id, admixtures=[])
     fb = _litho_formation(project.id, admixtures=[])
-    edge = _edge(litho_model, fa, fb)
-    db_session.add_all([fa, fb, edge])
+    bh_a = _borehole(project.id, suffix="pa2-a", x=150000.0)
+    bh_b = _borehole(project.id, suffix="pa2-b", x=150300.0)
+    db_session.add_all([fa, fb, bh_a, bh_b])
+    await db_session.flush()
+    ca = _contact(litho_model, fa, bh_a, depth=3.0)
+    cb = _contact(litho_model, fb, bh_b, depth=4.0)
+    db_session.add_all([ca, cb])
+    await db_session.flush()
+    edge = _contact_edge(litho_model, ca, cb, user_approved=True)
+    db_session.add(edge)
     await db_session.commit()
 
     base = f"/projects/{project.id}/geology/models/{litho_model.id}"
     resp = await async_client.patch(
-        f"{base}/correlations/admixtures",
+        f"{base}/contact-correlations/admixtures",
         json={"formation_id": str(fa.id), "admixtures": _ADMIXTURES_NEW},
     )
     assert resp.status_code == 200, resp.text
@@ -189,7 +243,7 @@ async def test_pa3_empty_admixtures_clears(
 
     base = f"/projects/{project.id}/geology/models/{litho_model.id}"
     resp = await async_client.patch(
-        f"{base}/correlations/admixtures",
+        f"{base}/contact-correlations/admixtures",
         json={"formation_id": str(fa.id), "admixtures": []},
     )
     assert resp.status_code == 200, resp.text
@@ -203,7 +257,7 @@ async def test_pa4_unknown_model_404(
 ) -> None:
     """PA4: Unknown model_id → 404."""
     resp = await async_client.patch(
-        f"/projects/{project.id}/geology/models/{uuid7()}/correlations/admixtures",
+        f"/projects/{project.id}/geology/models/{uuid7()}/contact-correlations/admixtures",
         json={"formation_id": str(uuid7()), "admixtures": []},
     )
     assert resp.status_code == 404, resp.text
@@ -224,7 +278,7 @@ async def test_pa5_seed_from_different_project_422(
 
     base = f"/projects/{project.id}/geology/models/{litho_model.id}"
     resp = await async_client.patch(
-        f"{base}/correlations/admixtures",
+        f"{base}/contact-correlations/admixtures",
         json={"formation_id": str(foreign.id), "admixtures": []},
     )
     assert resp.status_code == 422, resp.text
@@ -247,7 +301,7 @@ async def test_pa6_geological_model_422(
     await db_session.commit()
 
     resp = await async_client.patch(
-        f"/projects/{project.id}/geology/models/{geo.id}/correlations/admixtures",
+        f"/projects/{project.id}/geology/models/{geo.id}/contact-correlations/admixtures",
         json={"formation_id": str(fa.id), "admixtures": []},
     )
     assert resp.status_code == 422, resp.text
@@ -266,7 +320,7 @@ async def test_pa7_seed_no_litho_main_soil_code_422(
 
     base = f"/projects/{project.id}/geology/models/{litho_model.id}"
     resp = await async_client.patch(
-        f"{base}/correlations/admixtures",
+        f"{base}/contact-correlations/admixtures",
         json={"formation_id": str(geo_row.id), "admixtures": []},
     )
     assert resp.status_code == 422, resp.text

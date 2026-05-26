@@ -35,6 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
+from groundmodel.api.schemas.project.geological_formation import GeologicalFormationResponse
 from groundmodel.api.schemas.project.litho_contact_correlation.accept_schemas import (
     AcceptContactCorrelationsRequest,
     AcceptContactCorrelationsResponse,
@@ -50,6 +51,10 @@ from groundmodel.api.schemas.project.litho_contact_correlation.litho_contact_cor
     ContactCorrelationRequest,
     ContactCorrelationResponse,
 )
+from groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas import (
+    PropagateAdmixturesRequest,
+    PropagateAdmixturesResponse,
+)
 from groundmodel.application.accept_contact_correlations import AcceptContactCorrelations
 from groundmodel.application.auto_correlate_contact_edges import AutoCorrelateContactEdges
 from groundmodel.application.correlate_litho_contacts import (
@@ -57,6 +62,10 @@ from groundmodel.application.correlate_litho_contacts import (
     UncorrelateLithoContacts,
 )
 from groundmodel.application.materialise_lens_companions import MaterialiseLensCompanions
+from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdmixtures
+from groundmodel.infrastructure.db.models.geological_formation_orm import (
+    GeologicalFormationOrm,
+)
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
     LithoContactCorrelationEdgeOrm,
 )
@@ -409,4 +418,102 @@ async def materialise_lens_companions(
         skipped_no_primary=result.skipped_no_primary,
         skipped_unfinished_section=result.skipped_unfinished_section,
         errored=result.errored,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Admixture propagation (#133 Phase 3 — moved from formation-level router)
+# ---------------------------------------------------------------------------
+
+
+@router.patch(
+    "/models/{model_id}/contact-correlations/admixtures",
+    response_model=PropagateAdmixturesResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Propagate admixtures to every formation in a correlated body",
+)
+async def propagate_correlated_admixtures(
+    project_id: UUID,
+    model_id: UUID,
+    body: PropagateAdmixturesRequest,
+    session: AsyncSession = Depends(get_session),
+) -> PropagateAdmixturesResponse:
+    """Write ``litho_admixtures`` to every formation in the seed's connected component.
+
+    BFS-expands from ``body.formation_id`` over the model's contact-level
+    correlation-edge graph (the formation-level edges were retired in #133
+    Phase 3) and writes the supplied admixture list to ALL reachable
+    formations in that component (including the seed itself).
+
+    Only ``litho_admixtures`` is modified — ``litho_main_soil_code`` and
+    ``instance_ordinal`` are left untouched so no resolver re-run is needed.
+
+    If the seed formation has no correlation edges, the component is the
+    singleton ``{seed}`` and only the seed's admixtures are updated.
+
+    Parameters
+    ----------
+    project_id : UUID
+        Owning project (path param).
+    model_id : UUID
+        The lithostratigraphic model whose edge graph is traversed (path param).
+    body : PropagateAdmixturesRequest
+        Seed formation id + the new admixture list to write.
+
+    Returns
+    -------
+    PropagateAdmixturesResponse
+        Updated formation rows (post-commit refresh) and component size.
+
+    Raises
+    ------
+    404
+        When the model does not exist or does not belong to ``project_id``.
+    422
+        When the seed formation is missing / out-of-scope / not a litho unit,
+        or when the model is not of kind ``'lithostratigraphic'``.
+    """
+    repo = GeologyRepository(session)
+    await get_in_project_or_404(
+        repo.get_model(model_id),
+        project_id,
+        detail="Geological model not found",
+    )
+
+    admixtures_dicts = [
+        {"soil_code": a.soil_code, "amount": a.amount, "locally": a.locally}
+        for a in body.admixtures
+    ]
+
+    try:
+        result = await PropagateLithoAdmixtures(session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            seed_formation_id=body.formation_id,
+            admixtures=admixtures_dicts,
+        )
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(err),
+        ) from err
+
+    # Resolve parent_formation_name for each updated formation.
+    # Load all project formations so the name-map covers orphan parents too.
+    all_formations_stmt = select(GeologicalFormationOrm).where(
+        GeologicalFormationOrm.app_project_id == project_id
+    )
+    all_formations = list((await session.execute(all_formations_stmt)).scalars().all())
+    name_map: dict[UUID, str] = {f.id: f.name for f in all_formations}
+
+    enriched: list[GeologicalFormationResponse] = []
+    for f_orm in result.updated_formations:
+        resp = GeologicalFormationResponse.model_validate(f_orm)
+        if f_orm.parent_formation_id is not None:
+            resp.parent_formation_name = name_map.get(f_orm.parent_formation_id)
+        enriched.append(resp)
+
+    return PropagateAdmixturesResponse(
+        updated_formations=enriched,
+        component_size=result.component_size,
     )

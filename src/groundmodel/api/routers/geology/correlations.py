@@ -8,8 +8,10 @@ geology package __init__; paths extend to:
   DELETE /projects/{pid}/geology/models/{mid}/correlations/auto
   POST   /projects/{pid}/geology/models/{mid}/correlations/resolve
   GET    /projects/{pid}/geology/models/{mid}/correlations
-  PATCH  /projects/{pid}/geology/models/{mid}/correlations/admixtures
   POST   /projects/{pid}/geology/models/{mid}/auto-correlate   (#127)
+
+The admixture-propagation PATCH moved to the contact-correlations router
+in #133 Phase 3 (Task 12) — see contact_correlations.py.
 
 All endpoints are MODEL-level only.  They take no section_id and
 do NOT modify seeded_formation_contact_ids on any cross-section row.
@@ -22,15 +24,13 @@ Idempotency contract:
   DELETE /correlations/auto     → 200 always (count of rows deleted; 0 = nothing to delete).
   POST  /correlations/resolve   → 200 always (idempotent — no-change returns empty list).
   GET   /correlations           → 200 always (returns current edge list, possibly empty).
-  PATCH /correlations/admixtures → 200 always (returns updated formation list).
   POST  /auto-correlate         → 200 always (idempotent; 0 edges_created = nothing new).
 
 Route ordering note:
-  The static segments ``/correlations/resolve``, ``/correlations/admixtures``,
-  and ``/correlations/auto`` MUST be registered before the parameterless
-  ``/correlations`` routes so FastAPI does not misinterpret them as path
-  parameters.  The current ordering in this file ensures that: static-segment
-  routes come first.
+  The static segments ``/correlations/resolve`` and ``/correlations/auto``
+  MUST be registered before the parameterless ``/correlations`` routes so
+  FastAPI does not misinterpret them as path parameters.  The current
+  ordering in this file ensures that: static-segment routes come first.
 """
 
 from __future__ import annotations
@@ -42,7 +42,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.api.routers._helpers import get_in_project_or_404
-from groundmodel.api.schemas.project.geological_formation import GeologicalFormationResponse
 from groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas import (
     AutoCorrelateResponse,
     DeleteAutoCorrelationsResponse,
@@ -50,18 +49,12 @@ from groundmodel.api.schemas.project.litho_correlation.litho_correlation_schemas
     LithoCorrelationRequest,
     LithoCorrelationResponse,
     OrdinalUpdateItem,
-    PropagateAdmixturesRequest,
-    PropagateAdmixturesResponse,
     ResolveInstancesResponse,
 )
 from groundmodel.application.auto_correlate_litho_bodies import AutoCorrelateLithoBodies
 from groundmodel.application.correlate_litho_units import CorrelateLithoUnits
-from groundmodel.application.propagate_litho_admixtures import PropagateLithoAdmixtures
 from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.application.uncorrelate_litho_units import UncorrelateLithoUnits
-from groundmodel.infrastructure.db.models.geological_formation_orm import (
-    GeologicalFormationOrm,
-)
 from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
     LithoCorrelationEdgeOrm,
 )
@@ -367,98 +360,6 @@ async def resolve_litho_instances(
             )
             for u in result.updated
         ]
-    )
-
-
-@router.patch(
-    "/models/{model_id}/correlations/admixtures",
-    response_model=PropagateAdmixturesResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Propagate admixtures to every formation in a correlated body",
-)
-async def propagate_correlated_admixtures(
-    project_id: UUID,
-    model_id: UUID,
-    body: PropagateAdmixturesRequest,
-    session: AsyncSession = Depends(get_session),
-) -> PropagateAdmixturesResponse:
-    """Write ``litho_admixtures`` to every formation in the seed's connected component.
-
-    BFS-expands from ``body.formation_id`` over the model's correlation-edge
-    graph and writes the supplied admixture list to ALL reachable formations
-    in that component (including the seed itself).
-
-    Only ``litho_admixtures`` is modified — ``litho_main_soil_code`` and
-    ``instance_ordinal`` are left untouched so no resolver re-run is needed.
-
-    If the seed formation has no correlation edges, the component is the
-    singleton ``{seed}`` and only the seed's admixtures are updated.
-
-    Parameters
-    ----------
-    project_id : UUID
-        Owning project (path param).
-    model_id : UUID
-        The lithostratigraphic model whose edge graph is traversed (path param).
-    body : PropagateAdmixturesRequest
-        Seed formation id + the new admixture list to write.
-
-    Returns
-    -------
-    PropagateAdmixturesResponse
-        Updated formation rows (post-commit refresh) and component size.
-
-    Raises
-    ------
-    404
-        When the model does not exist or does not belong to ``project_id``.
-    422
-        When the seed formation is missing / out-of-scope / not a litho unit,
-        or when the model is not of kind ``'lithostratigraphic'``.
-    """
-    repo = GeologyRepository(session)
-    await get_in_project_or_404(
-        repo.get_model(model_id),
-        project_id,
-        detail="Geological model not found",
-    )
-
-    admixtures_dicts = [
-        {"soil_code": a.soil_code, "amount": a.amount, "locally": a.locally}
-        for a in body.admixtures
-    ]
-
-    try:
-        result = await PropagateLithoAdmixtures(session).execute(
-            project_id=project_id,
-            model_id=model_id,
-            seed_formation_id=body.formation_id,
-            admixtures=admixtures_dicts,
-        )
-    except ValueError as err:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(err),
-        ) from err
-
-    # Resolve parent_formation_name for each updated formation.
-    # Load all project formations so the name-map covers orphan parents too.
-    all_formations_stmt = select(GeologicalFormationOrm).where(
-        GeologicalFormationOrm.app_project_id == project_id
-    )
-    all_formations = list((await session.execute(all_formations_stmt)).scalars().all())
-    name_map: dict[UUID, str] = {f.id: f.name for f in all_formations}
-
-    enriched: list[GeologicalFormationResponse] = []
-    for f_orm in result.updated_formations:
-        resp = GeologicalFormationResponse.model_validate(f_orm)
-        if f_orm.parent_formation_id is not None:
-            resp.parent_formation_name = name_map.get(f_orm.parent_formation_id)
-        enriched.append(resp)
-
-    return PropagateAdmixturesResponse(
-        updated_formations=enriched,
-        component_size=result.component_size,
     )
 
 
