@@ -1,87 +1,131 @@
-# #133 Phase 2 — Auto-correlate at contact level + lens detection + lens companions
+# #133 Phase 2+3 — Contact-level correlation, lens detection, lens companions, formation-level removal
 
-**Status:** Design approved 2026-05-26. Awaiting user spec review before implementation plan.
+**Status:** Design re-approved 2026-05-26 after wide-scope expansion. Awaiting user spec review before implementation plan.
 **Owner:** RobinVorsselmans
 **Tier:** G (litho stage — before Geotech-subdivision gate)
 **Depends on:** #133 Phase 1 (shipped 2026-05-26), #135 (shipped 2026-05-26)
-**Related debt:** #131 (lens-aware ribbon — blocked; not in this slice)
+**Related debt:** #131 (lens-aware ribbon — blocked on `lens_id` FK; out of scope here)
 
 ## Goal
 
 The user has dogfed the manual #135 lens gesture and wants the system to:
 1. Propose contact-level correlation edges automatically (analogue of #127 at the formation level).
-2. Detect lens bodies from the resulting contact-edge graph using the #135 topology signature.
-3. Materialise perpendicular companion sections for the detected lenses, gated so this only happens when the user has actively finished correlating a section.
+2. Treat auto-proposed edges as *suggestions* the user reviews and accepts — never as committed truth until accepted.
+3. Detect lens bodies from the *user-approved* contact-edge graph using the #135 topology signature.
+4. Materialise perpendicular companion sections for the detected lenses, gated so this only happens when the user has actively finished correlating a section.
+5. **Clean cut the duplicate correlation system.** Remove the legacy formation-level body-click gesture, formation-level edges table, formation-level auto-correlate, and rewrite the resolver + admixture propagation to consume contact-level edges. One correlation model in the codebase, not two.
 
-The product outcome at the v1.0 commercial MVP gate (per `CLAUDE.md`) treats lenses as 3D bodies. A single section can only constrain a lens in one direction; the perpendicular companion gives the second direction. Today the topology exists but the 3D follow-on is manual per lens.
+The product outcome at the v1.0 commercial MVP gate (per `CLAUDE.md`) treats lenses as 3D bodies. A single section can only constrain a lens in one direction; the perpendicular companion gives the second direction. Today the topology exists but the 3D follow-on is manual per lens, and the system carries two parallel correlation graphs.
 
 ## Non-goals
 
-- Migrating existing formation-level edges to contact-level edges (Phase 3).
-- Removing the legacy body-click correlate gesture (Phase 3).
-- Lens-aware ribbon styling (#131 — blocked on `lens_id` FK).
-- Per-contact "intentionally orphaned" marker that would soften the strict gate (filed as Tier G follow-up).
+- Lens-aware ribbon styling (#131 — blocked on `lens_id` FK; separate slice).
+- Per-contact "intentionally orphaned" marker that would soften the strict companion gate (filed as Tier G follow-up).
+- Parameter-aware correlation scoring (Robertson Ic / Dr / NAD-based confidence) — Phase 5 follow-up. **NAD in particular cannot be a litho-stage signal**: it's assigned at the Geotech subdivision stage, downstream of the litho model. Using it here would be a circular dependency.
 - Design-ready per-lens parameters (Phase 5).
+- A backwards-compat shim for the formation-level edge table — pre-ship per CLAUDE.md, owner directive 2026-05-16. Existing dev/test DBs migrate forward via Alembic; no compat layer needed.
 
 ## Architecture overview
 
-Three layers, mirroring the #127 pattern.
-
 ```
-Domain (pure)        Application                    API
-─────────────        ───────────                    ───
-auto_correlate_      AutoCorrelateContactEdges   →  POST .../contact-correlations/auto
-  contact_edges.py    └─ calls DetectLithoLenses
-                                                   POST .../contact-correlations
-detect_lenses_       CorrelateLithoContacts       (existing, now extended)
-  from_graph.py       └─ calls DetectLithoLenses
-                                                   DELETE .../contact-correlations
-                     UncorrelateLithoContacts      (existing, now extended)
-                      └─ calls DetectLithoLenses
+Domain (pure)              Application                          API (contact-only world)
+─────────────              ───────────                          ────────────────────────
+auto_correlate_            AutoCorrelateContactEdges            POST .../contact-correlations/auto
+  contact_edges.py          (no DetectLithoLenses call —
+                             auto edges are unapproved)
+detect_lenses_             AcceptContactCorrelations            POST .../contact-correlations/accept
+  from_graph.py             ├─ flip user_approved=TRUE in scope
+                            ├─ ResolveLithoInstances
+auto_correlate_             └─ DetectLithoLenses
+  helpers.py
+  (shared MNN)             CorrelateLithoContacts               POST .../contact-correlations  (extended)
+                            ├─ insert edge (user_approved=TRUE)
+                            ├─ ResolveLithoInstances
+                            └─ DetectLithoLenses
 
-                     DetectLithoLenses           ←  shared by all three above
-                                                    materialises LithoLensOrm only
+                           UncorrelateLithoContacts             DELETE .../contact-correlations (extended)
+                            ├─ delete edge
+                            ├─ ResolveLithoInstances
+                            └─ DetectLithoLenses
 
-                     MaterialiseLensCompanions   →  POST .../lens-companions/materialise
-                      └─ loops + CreatePerpendicularCompanion (existing)
+                           DetectLithoLenses                    GET .../contact-correlations    (response carries user_approved)
+                            └─ reads user_approved=TRUE only
+
+                           MaterialiseLensCompanions            POST .../lens-companions/materialise
+                            └─ loops + CreatePerpendicularCompanion
+
+                           ResolveLithoInstances  (rewritten)   (internal — no direct endpoint after the rewrite;
+                                                                 fires automatically on every approved-edge mutation)
+
+                           PropagateCorrelatedLithoAdmixtures   PATCH .../correlations/admixtures
+                            (rewritten to derive graph           (path retained for FE compat; internals consume
+                             from contact edges)                 the derived contact-edge graph)
 ```
 
-No schema changes. `LithoContactCorrelationEdgeOrm` already exists (Phase 1). `LithoLensOrm` already exists (Position 4 / #101). `cross_section.is_lens_companion` + `companion_lens_id` already exist. `source` widens at the Pydantic Literal level from `Literal["manual"]` to `Literal["manual", "auto"]` (the column itself is already a free string).
+**Removed in this slice (formation-level world):**
+
+| Removed | What used it |
+|---|---|
+| `litho_correlation_edge` table + ORM model + repositories | All formation-level use cases below |
+| `CorrelateLithoUnits` use case + `POST /correlations` endpoint | Legacy manual gesture |
+| `UncorrelateLithoUnits` use case + `DELETE /correlations` endpoint | Legacy manual gesture |
+| `AutoCorrelateLithoBodies` (#127) use case + `POST /correlations/auto` endpoint | Formation-level Auto-correlate button |
+| `POST /correlations/resolve` endpoint (the manual Resolve trigger) | Auto-runs now on every approved-edge mutation |
+| Formation-level body-click gesture | `CorrelateGestureState` + plumbing in `SectionsCanvas` / `SectionPanel` / `CorrelationEdgesOverlay` |
+| Formation-level ribbon rendering | `CorrelationEdgesOverlay` ribbon-from-formation-edges paths |
+| `api.geology.correlate` / `uncorrelate` / `listCorrelations` (formation-level) | FE gesture handlers |
+| `api.geology.autoCorrelate` (formation-level) → renamed to `autoCorrelateContacts` | FE toolbar |
+
+The Position 4 lens body chips, `instance_ordinal` display, `body_ordinal` derivation, and `LithoLens` metadata all survive — they consume the resolver's output, not the formation-level edge table directly, so the rewrite is invisible to them.
+
+## Schema changes (one Alembic migration)
+
+1. **Add** `litho_contact_correlation_edge.user_approved BOOLEAN NOT NULL DEFAULT TRUE`. Existing Phase 1 edges (all of source='manual') default to TRUE — they're already implicitly accepted.
+2. **Drop** `litho_correlation_edge` table (ORM model + repository code go with it).
+3. **Drop** any orphan columns on `geological_formation` that only exist for formation-edge consumers (verify in implementation — likely none; `instance_ordinal` stays because it's derived by the resolver, not from edges).
+
+`source` widens on the response side from `Literal["manual"]` to `Literal["manual", "auto"]`. The manual `POST .../contact-correlations` request schema stays `Literal["manual"]` — auto-source edges land via the `/auto` endpoint, never via the manual endpoint. `source` and `user_approved` are orthogonal:
+- `source='manual', user_approved=True` — drawn by #135 gesture
+- `source='auto', user_approved=False` — proposed by auto-correlate, not yet reviewed
+- `source='auto', user_approved=True` — proposed by auto-correlate, accepted by user
+- `source='manual', user_approved=False` — does not occur (manual is implicit acceptance)
 
 ## Lens detection signal (definitive)
 
-**A lens body is detected iff: two distinct source contacts on the same investigation A both have a correlation edge to the same target contact on another investigation B.**
+**A lens body is detected iff: two distinct user-approved source contacts on the same investigation A both have a `user_approved=True` correlation edge to the same target contact on another investigation B.**
 
-That topology (the #135 pinch-out gesture) is the sole signal Phase 2 consumes. The layer between the two source contacts on A is the lens body. Other speculative signals (isolated-body, thickness-pinch heuristic) are explicitly out of scope — every materialised `LithoLensOrm` row traces back to an edge graph the user can verify.
+The #135 pinch-out topology is the sole signal. The layer between the two source contacts on A is the lens body. Auto-proposed edges (`user_approved=False`) are excluded from detection entirely — until accepted, they don't seed lens metadata.
 
-## Auto-correlate algorithm (boundary-signature aware)
+## Auto-correlate algorithm (boundary-signature aware, no dip transfer)
 
 Pure-domain `auto_correlate_contact_edges(contacts, locations, params)` in `groundmodel/domain/services/`.
 
 **Grouping key (boundary signature):** `(parent_formation_id, litho_main_soil_code, litho_below_code)`.
 
-The third element is what distinguishes Phase 2's algorithm from #127's mechanical port: a "sand-above / clay-below" boundary on column A only matches a "sand-above / clay-below" boundary on column B. Two contacts at the top of sand layers don't get correlated if one has clay below and the other has silt below — they're not the same stratigraphic horizon.
+A "sand-above / clay-below" boundary on column A only matches a "sand-above / clay-below" boundary on column B. Contacts whose above-litho matches but below-litho differs are not the same horizon and don't get correlated.
 
-`litho_below_code` is derived per contact by walking its investigation's contact stack (sort by `depth_top_m`, look up the lithology of the formation immediately deeper). **When the contact is the deepest on its column**, `litho_below_code` is `None`; null is a valid grouping value matched only against other nulls (two "top-of-the-deepest-layer" contacts can still be correlated if their above-lithology and parent formation agree).
+`litho_below_code` is derived per contact by walking its investigation's contact stack (sort by `depth_top_m`, look up the lithology of the formation immediately deeper). **When the contact is the deepest on its column**, `litho_below_code` is `None`; null is a valid grouping value matched only against other nulls.
 
-**Sweep:**
-1. Sort naming groups by median contact depth (deepest first).
-2. For each column-pair within `max_column_distance_m`, pair contacts within the active group by depth residual against a Theil-Sen dip-transferred prediction.
-3. Mutual-nearest-neighbour (MNN) disambiguation.
+**Sweep (simplified — no Theil-Sen):**
+1. Group contacts by boundary signature; sort groups by median depth (deepest first).
+2. For each column-pair within `MAX_COLUMN_DISTANCE_M`: pair contacts within the active group by absolute depth residual `|depth_A - depth_B|`. Window: `BASE_DEPTH_THRESHOLD_M + DISTANCE_FACTOR · column_distance`.
+3. Mutual-nearest-neighbour (MNN) disambiguation: `contact_A ↔ contact_B` accepted only if each is the nearest unmatched candidate of the other.
 4. Output canonical-ordered `(contact_a_id, contact_b_id)` candidate pairs.
 
-**Reused helpers:** `robust_slope_fit` (Theil-Sen) and the MNN helper from `auto_correlate.py`. The two algorithms share enough that the helpers move to `auto_correlate_helpers.py` and are imported by both — the duplication-on-second-copy rule kicks in here.
+**Honest trade-off of scrapping Theil-Sen:** in dipping strata (BE/NL typical 1–2% dip; max ~5% in steeply dipping zones), a 200m column pair sees ~4m boundary offset at 2% dip — well outside the default window. The simpler algorithm produces more false negatives in dipping zones. The Accept flow is the safety valve: missing pairs are added manually via the #135 gesture. If dogfeed confirms the false-negative rate hurts (e.g. >20% of expected pairs missed in a dipping site), the follow-up is a per-project manual dip override (single float, applied uniformly), not Theil-Sen.
 
-**Constants** reused from the existing `auto_correlate_constants.py` (no new constants module unless a default has to diverge for contact-level work):
+**Reused helpers:** MNN extracted to `auto_correlate_helpers.py`. Theil-Sen helper (`robust_slope_fit`) is removed entirely once `AutoCorrelateLithoBodies` (#127) is dropped — no other consumer.
+
+**Constants** in `auto_correlate_constants.py` (reused from #127's location, narrowed):
 - `MAX_COLUMN_DISTANCE_M = 200.0`
 - `BASE_DEPTH_THRESHOLD_M = 0.5`
-- `DISTANCE_FACTOR = 0.002` (per-metre column distance contribution to threshold)
-- `MIN_EDGES_FOR_DIP_TRANSFER = 2`
+- `DISTANCE_FACTOR = 0.002`
 - `AUTO_SOURCE = "auto"`
+- (`MIN_EDGES_FOR_DIP_TRANSFER` removed — no Theil-Sen)
 
 ## Lens detector (pure graph query)
 
-`detect_lenses_from_graph(edges, stacks)` in `groundmodel/domain/services/detect_lenses_from_graph.py`.
+`detect_lenses_from_graph(approved_edges, stacks)` in `groundmodel/domain/services/detect_lenses_from_graph.py`.
 
 ```python
 @dataclass(frozen=True)
@@ -94,14 +138,36 @@ class LensCandidate:
 ```
 
 **Algorithm:**
-1. Build adjacency: for each edge `(a, b)`, add both directions.
-2. For each contact `t` (potential target):
-   - Group `t`'s neighbours by `investigation_id`.
-   - Any group with ≥2 distinct contacts is the topology — call those contacts `s_top`, `s_bot` (depth-sorted).
+1. Build adjacency on the *approved* edges only.
+2. For each contact `t` (potential target): group `t`'s neighbours by `investigation_id`. Any group with ≥2 distinct contacts is the #135 topology — call those contacts `s_top`, `s_bot` (depth-sorted).
 3. For each `(s_top, s_bot)`: find the formation living between them in their shared investigation's contact stack. That formation is the lens body's `formation_id`.
 4. Emit a `LensCandidate` per detection.
 
-**N-way generalisation:** if a target contact has 3 source contacts on the same investigation, emit one candidate per adjacent pair (between contact 1-2, between 2-3 — stacked lenses). The frontend's #135 gesture already supports this via the stacked-click pattern (test CC7).
+**N-way generalisation:** a target contact with 3 source contacts on the same investigation yields 2 lens candidates (between 1-2 and 2-3 — stacked lenses). Matches the #135 stacked-click pattern (CC7 test).
+
+## Resolver rewrite
+
+`ResolveLithoInstances` today walks `litho_correlation_edge.formation_a_id ↔ formation_b_id`, computes connected components per naming group, assigns `instance_ordinal` 0, 1, ... per component.
+
+**New (contact-level):**
+
+1. Load all `user_approved=True` `litho_contact_correlation_edge` rows for the model.
+2. Derive formation adjacency: for each edge `(contact_a_id, contact_b_id)`, add `(formation_of(contact_a), formation_of(contact_b))` to the formation graph. (Skip self-loops where both contacts belong to the same formation.)
+3. Load all formations for the model. Group by naming group `(parent_formation_id, litho_main_soil_code)`.
+4. Per naming group: connected components on the derived graph. Formations with no edges become their own singleton component.
+5. Sort components by min-`display_order` (oldest first) so ordinals stay stable across reruns when stratigraphy is unchanged.
+6. Assign `instance_ordinal` = component index within the group; respect `instance_ordinal_locked=True` rows (they keep their existing ordinal; the resolver flows others around them).
+7. UPDATE every formation whose ordinal changed.
+
+**Idempotent.** Same input → same output. `pinned_order` (a separate flag governing `display_order` during Build's reorder-by-age pass) is unrelated to this resolver and unchanged by it.
+
+**Triggers:** auto-runs at the end of `CorrelateLithoContacts`, `UncorrelateLithoContacts`, and `AcceptContactCorrelations`. No standalone endpoint — the explicit Resolve button is removed.
+
+## Admixture propagation rewrite
+
+`PropagateCorrelatedLithoAdmixtures` today BFS-walks formation-level edges from a seed formation to identify its connected component, then writes admixture changes to every formation in the component.
+
+**New:** derive the formation graph from approved contact edges (same derivation as the resolver), then BFS from the seed formation, write admixtures to every formation in the BFS-reachable set. Same external contract (FE call unchanged); internal graph source changes.
 
 ## Application layer
 
@@ -114,17 +180,36 @@ Path: `groundmodel/application/auto_correlate_contact_edges.py`.
 2. Load all contacts for the model with their formation's `parent_formation_id` + `litho_main_soil_code`. Load `BoreholeOrm` / `CptOrm` for locations.
 3. Build per-investigation contact stacks; derive `litho_below_code` per contact.
 4. Call `auto_correlate_contact_edges(...)` → candidates.
-5. Dedupe candidates against existing edges (any source — manual takes precedence, never overwritten).
-6. Bulk insert net-new edges with `source='auto'`. Use Postgres `INSERT ... ON CONFLICT (model_id, contact_a_id, contact_b_id) DO NOTHING` to absorb concurrent-write races.
-7. Call `DetectLithoLenses.execute(prefer_section_id=None)`.
+5. Dedupe candidates against existing edges (any source, any approval state — duplicates skipped).
+6. Bulk insert net-new edges with `source='auto', user_approved=False`. Use Postgres `INSERT ... ON CONFLICT (model_id, contact_a_id, contact_b_id) DO NOTHING` to absorb concurrent-write races.
+7. **Does NOT call `ResolveLithoInstances` or `DetectLithoLenses`.** Auto edges are not approved → graph topology for resolver / lens detection is unchanged.
 8. Single commit. Return:
    ```python
    @dataclass
    class AutoCorrelateContactResult:
        edges_created: int
        edges_skipped_existing: int
+   ```
+
+### `AcceptContactCorrelations` (new)
+
+Path: `groundmodel/application/accept_contact_correlations.py`.
+
+`execute(project_id, model_id, section_id: UUID | None = None) → AcceptResult`:
+1. Scope-guard model belongs to project (and section to model if supplied).
+2. Build the candidate set: `SELECT id FROM litho_contact_correlation_edge WHERE model_id=:mid AND user_approved=FALSE`.
+3. If `section_id` is supplied: filter further to edges where *both* `contact_a_id` and `contact_b_id` are in `cross_section.seeded_formation_contact_ids` for `section_id`.
+4. `UPDATE` those rows `SET user_approved=TRUE`.
+5. Call `ResolveLithoInstances.execute(model_id=model_id)`.
+6. Call `DetectLithoLenses.execute(prefer_section_id=section_id)`.
+7. Single commit. Return:
+   ```python
+   @dataclass
+   class AcceptResult:
+       edges_accepted: int
        lenses_created: int
        lenses_removed: int
+       ordinals_changed: int
    ```
 
 ### `DetectLithoLenses`
@@ -132,40 +217,37 @@ Path: `groundmodel/application/auto_correlate_contact_edges.py`.
 Path: `groundmodel/application/detect_litho_lenses.py`.
 
 `execute(project_id, model_id, prefer_section_id: UUID | None = None) → DetectLensesResult`:
-1. Load all contact edges + per-investigation contact stacks for the model.
+1. Load all `user_approved=True` contact edges + per-investigation contact stacks for the model.
 2. Call `detect_lenses_from_graph(...)` → candidates.
-3. For each candidate, resolve `body_ordinal` from `geological_formation.instance_ordinal` for the lens body's formation. **If null, skip with WARNING log** — the resolver hasn't run yet for this body. Re-running auto-correlate (which fires the resolver) picks it up next pass.
+3. For each candidate, resolve `body_ordinal` from `geological_formation.instance_ordinal` for the lens body's formation. **If null**, skip with WARNING log — the resolver hasn't produced an ordinal yet (should not happen post-rewrite, but defensive).
 4. Resolve `primary_section_id`:
    - If `prefer_section_id` is supplied AND it contains both `target_investigation_id` and the source investigation → use it.
    - Else: query `cross_section` rows whose investigation list contains both. If multiple, pick the lowest id deterministically. If none, leave null.
 5. Upsert `LithoLensOrm(model_id, formation_id, body_ordinal, primary_section_id)`.
-6. Reconcile against existing rows: build the set of `(formation_id, body_ordinal)` tuples produced by step 2. Any `LithoLensOrm` row for this model whose `(formation_id, body_ordinal)` is **not** in that set is stale → delete. Companion sections survive with `companion_lens_id` nulled and `is_lens_companion=True` (the FK is `ON DELETE SET NULL` per the existing schema) — the user can delete them manually if no longer wanted.
+6. Reconcile: build the set of `(formation_id, body_ordinal)` tuples produced by step 2. Any `LithoLensOrm` row for this model whose `(formation_id, body_ordinal)` is **not** in that set is stale → delete. Companion sections survive with `companion_lens_id` nulled and `is_lens_companion=True` (FK is `ON DELETE SET NULL`).
 7. Single commit. Return:
    ```python
    @dataclass
    class DetectLensesResult:
        lenses_created: int
        lenses_removed: int
-       lenses_skipped_unresolved_ordinal: int
+       lenses_skipped_unresolved_ordinal: int  # diagnostic; should be 0 in normal flow
    ```
-
-**Wired into existing manual paths:**
-- `CorrelateLithoContacts.execute` calls `DetectLithoLenses.execute(prefer_section_id=request_section_id)` after its insert.
-- `UncorrelateLithoContacts.execute` calls it after its delete.
-- Both gain an optional `request_section_id` parameter that defaults to None (Phase 1 test stability preserved).
 
 ### `MaterialiseLensCompanions`
 
 Path: `groundmodel/application/materialise_lens_companions.py`.
 
+Same shape as the previous spec, with the gate hardened to user-approved edges only:
+
 `execute(project_id, model_id) → MaterialiseLensCompanionsResult`:
-1. Load all `LithoLensOrm` rows for the model that lack a companion section (`SELECT ... WHERE NOT EXISTS (SELECT 1 FROM cross_section WHERE companion_lens_id = lens.id)`).
+1. Load all `LithoLensOrm` rows for the model that lack a companion section.
 2. For each lens:
-   - If `primary_section_id` is null → increment `skipped_no_primary`, continue.
+   - If `primary_section_id` is null → `skipped_no_primary++`, continue.
    - Load the primary section's `seeded_formation_contact_ids`.
-   - **Gate:** every contact id in that set must have at least one row in `litho_contact_correlation_edge` where it appears as `contact_a_id` or `contact_b_id`. If any contact has zero edges → increment `skipped_unfinished_section`, continue.
-   - Call `CreatePerpendicularCompanion(lens_id)`. Wrap in try/except so a per-lens error doesn't abort the loop; on exception increment `errored` and continue.
-3. Return:
+   - **Gate (uses approved edges only):** every contact id in that set must appear in at least one `litho_contact_correlation_edge` row with `user_approved=TRUE`. If any contact has zero approved edges → `skipped_unfinished_section++`, continue.
+   - Call `CreatePerpendicularCompanion(lens_id)`. Try/except per-lens; on exception `errored++`.
+3. Return counts:
    ```python
    @dataclass
    class MaterialiseLensCompanionsResult:
@@ -175,150 +257,281 @@ Path: `groundmodel/application/materialise_lens_companions.py`.
        errored: int
    ```
 
-`CreatePerpendicularCompanion` commits internally per the existing implementation, so the loop accumulates partial progress. Idempotency is preserved by its own existence guard.
+### `CorrelateLithoContacts` / `UncorrelateLithoContacts` (existing, extended)
+
+- Add optional `request_section_id: UUID | None = None` parameter (passes through to detector via `prefer_section_id`).
+- After the edge mutation, call `ResolveLithoInstances.execute(model_id=model_id)` then `DetectLithoLenses.execute(prefer_section_id=request_section_id)`.
+- New manual edges insert with `user_approved=True` (matching Phase 1 semantics; the gesture itself is implicit acceptance).
+- Single transaction across edge mutation + resolver + lens detection. If any phase raises, rolls back the edge.
+
+### Removed use cases
+
+- `CorrelateLithoUnits`, `UncorrelateLithoUnits` — formation-level manual gesture had no contact-level analogue beyond what's already wired.
+- `AutoCorrelateLithoBodies` (#127) — auto-correlate is contact-level only after this slice.
+- The standalone `ResolveLithoInstances` endpoint trigger — resolver auto-runs on every approved-edge mutation.
 
 ## API
 
-### `POST /projects/{pid}/geology/models/{mid}/contact-correlations/auto` (new)
+### Contact-level (the surviving correlation API)
 
-Body: empty (or `{ dry_run?: bool }` for a future preview-only mode — out of scope for this slice but reserved in the schema). Response:
-```json
-{
-  "edges_created": 47,
-  "edges_skipped_existing": 12,
-  "lenses_created": 3,
-  "lenses_removed": 0
-}
-```
-**Errors:** 404 if model not in project. 200 on empty results.
+**`POST /projects/{pid}/geology/models/{mid}/contact-correlations/auto`** (new)
+- Body: empty.
+- Response: `{ edges_created, edges_skipped_existing }`. No lens counts (detection doesn't fire here).
+- Errors: 404 if model not in project.
 
-### `POST /projects/{pid}/geology/models/{mid}/lens-companions/materialise` (new)
+**`POST /projects/{pid}/geology/models/{mid}/contact-correlations/accept`** (new)
+- Body: `{ section_id?: UUID }`. Section-scoped if present, model-scoped otherwise.
+- Response: `{ edges_accepted, lenses_created, lenses_removed, ordinals_changed }`.
+- Errors: 404 if model not in project; 404 if section_id supplied and section not in model.
 
-Body: empty. Response:
-```json
-{
-  "companion_sections_created": 4,
-  "skipped_no_primary": 1,
-  "skipped_unfinished_section": 2,
-  "errored": 0
-}
-```
-**Errors:** 404 if model not in project. 200 on empty results.
+**`POST /projects/{pid}/geology/models/{mid}/contact-correlations`** (extended)
+- Body: existing `{ contact_a_id, contact_b_id, source: Literal["manual"] }` gains optional `request_section_id: UUID | None`. `source` stays `Literal["manual"]` on this endpoint (auto edges only land via the auto endpoint, never via the manual path).
+- Response: existing.
 
-### `POST .../contact-correlations` (existing, extended)
+**`DELETE /projects/{pid}/geology/models/{mid}/contact-correlations`** (extended)
+- Body: existing `{ contact_a_id, contact_b_id }` gains optional `request_section_id: UUID | None`.
+- Response: existing.
 
-Body gains optional `request_section_id: UUID | None = None`. Passed through to `DetectLithoLenses.execute(prefer_section_id=...)`. Backwards-compat: omitting the field preserves Phase 1 behaviour.
+**`GET /projects/{pid}/geology/models/{mid}/contact-correlations`** (extended)
+- Response: every edge gains a `user_approved: bool` field.
 
-### `DELETE .../contact-correlations` (existing, extended)
+**`POST /projects/{pid}/geology/models/{mid}/lens-companions/materialise`** (new)
+- Body: empty.
+- Response: `{ companion_sections_created, skipped_no_primary, skipped_unfinished_section, errored }`.
 
-Same extension. Field passed through to `UncorrelateLithoContacts`.
+**`PATCH /projects/{pid}/geology/models/{mid}/contact-correlations/admixtures`** (renamed from `.../correlations/admixtures`, internals rewritten)
+- Body / response unchanged. Backend now derives the propagation graph from contact edges. FE call signature in `api.geology.propagateCorrelatedLithoAdmixtures` stays the same; only the URL it hits changes.
+
+### Removed endpoints
+
+- `POST /projects/{pid}/geology/models/{mid}/correlations` (formation-level create)
+- `DELETE /projects/{pid}/geology/models/{mid}/correlations` (formation-level delete)
+- `POST /projects/{pid}/geology/models/{mid}/correlations/auto` (formation-level auto-correlate)
+- `POST /projects/{pid}/geology/models/{mid}/correlations/resolve` (manual Resolve trigger — auto-runs now)
+- `GET /projects/{pid}/geology/models/{mid}/correlations` (formation-level list)
+- `PATCH /projects/{pid}/geology/models/{mid}/correlations/admixtures` → renamed to `PATCH /projects/{pid}/geology/models/{mid}/contact-correlations/admixtures` (same handler shape, contact-derived graph internally; URL renamed for consistency now that everything correlation-related lives under `/contact-correlations`).
+
+Routes simply disappear — pre-ship backwards-compat is suspended, no 410 Gone phase needed. The `.gmproj` v3 save/restore path doesn't call any of these, so file round-trip is unaffected.
 
 ## Frontend
 
-### Auto-correlate toolbar button (extended)
+### Removed from the renderer
 
-`SectionsToolbar` already has an Auto-correlate button calling #127's formation-level endpoint. Extend its handler to also call the new `autoCorrelateContactEdges`. Run both in parallel via `Promise.allSettled` so one failing doesn't block the other.
+- `CorrelateGestureState` interface + plumbing through `SectionPanel`, `SectionsCanvas`, `CorrelationEdgesOverlay`.
+- Formation-level body-band click handlers in `CorrelationEdgesOverlay`.
+- Formation-level ribbon rendering paths in `CorrelationEdgesOverlay` (the dashed-line + body chip ribbons derived from formation edges). The Position 4 body chips that read `instance_ordinal` directly remain — they don't depend on formation edges.
+- The Resolve trigger button (was the FE counterpart to `POST /correlations/resolve`).
 
-Toast merges both results:
-> "Auto-correlate: 12 formation edges, 47 contact edges, 3 lenses detected."
+### API client (`desktop/src/renderer/src/api/client.ts`)
 
-If one path errors:
-> "Auto-correlate: 12 formation edges. Contact-level run failed — try again."
+**Removed:**
+- `api.geology.correlate` (formation-level create)
+- `api.geology.uncorrelate` (formation-level delete)
+- `api.geology.listCorrelations` (formation-level list)
+- `api.geology.autoCorrelate` (formation-level auto — rename below replaces it)
+- `api.geology.resolveLithoInstances` (manual resolve trigger)
 
-### New toolbar button "Materialise lens companions"
+**Renamed / extended:**
+- `api.geology.autoCorrelate` → `api.geology.autoCorrelateContacts`. New signature `(projectId, modelId)` → `{edges_created, edges_skipped_existing}`.
+- `api.geology.createContactCorrelation(projectId, modelId, contactAId, contactBId, requestSectionId?)`.
+- `api.geology.deleteContactCorrelation(projectId, modelId, contactAId, contactBId, requestSectionId?)`.
+- `api.geology.listContactCorrelations` — return shape gains `user_approved`.
 
-Positioned in the Sections toolbar next to (but not inside) the Build button. Single click → calls `POST .../lens-companions/materialise`. Toast:
-> "Lens companions: 4 created, 2 skipped (sections not fully correlated), 1 skipped (no primary section)."
+**New:**
+- `api.geology.acceptContactCorrelations(projectId, modelId, sectionId?)`.
+- `api.geology.materialiseLensCompanions(projectId, modelId)`.
 
-Disabled state: when the active litho model has zero `LithoLensOrm` rows. Tooltip on hover: "Detect lenses first — run Auto-correlate or use the #135 gesture."
+### Toolbar buttons (`SectionsToolbar`)
 
-### Contact-correlation API client (extended)
+| Button | Behaviour |
+|---|---|
+| **Auto-correlate** | Calls `autoCorrelateContacts`. Toast: "Auto-correlate proposed N candidate edges. Review and accept on the section." |
+| **Accept correlations** (new) | Calls `acceptContactCorrelations(sectionId=activeSection)`. Toast: "Accepted M correlations. K new lenses detected." Disabled when no unapproved edges exist for the active section. |
+| **Materialise lens companions** (new) | Calls `materialiseLensCompanions`. Toast: "Lens companions: P created, Q skipped (sections not fully correlated), R skipped (no primary section)." Disabled when zero `LithoLens` rows lack a companion (either no lenses, or every lens already has its companion). |
+| ~~Resolve~~ | Removed — resolver auto-runs. |
 
-`api.geology.createContactCorrelation(projectId, modelId, contactAId, contactBId, requestSectionId?)` — new optional arg.
-`api.geology.deleteContactCorrelation(projectId, modelId, contactAId, contactBId, requestSectionId?)` — same.
-`api.geology.autoCorrelateContactEdges(projectId, modelId)` — new.
-`api.geology.materialiseLensCompanions(projectId, modelId)` — new.
+### Edge rendering (`CorrelationEdgesOverlay`)
 
-### `SectionsCanvas` passes `requestSectionId`
+- Approved edges (`user_approved=True`): existing solid emerald style.
+- Unapproved edges (`user_approved=False`): dashed amber. Reuses the existing `CONTACT_EDGE_DASH` token, swap colour to `--amber-500` (already in the Tailwind palette per the dark-mode strategy in docs/ux.md).
+- Right-click on an unapproved edge: "Reject" (deletes the edge) only. Single-edge accept is intentionally deferred — the only V1 acceptance path is the section-scoped bulk button. Filed as out-of-scope follow-up below.
+- The #135 gesture state machine (CC1–CC7) is unchanged. Auto edges don't participate in the sticky lens-window — they're not interactable until accepted.
 
-`handleCreateContactCorrelation` and `handleDeleteContactCorrelation` pull `selectedSectionId` from context and pass it as `requestSectionId`. Maintains the existing call signatures by making the new arg optional.
+### `SectionsCanvas` data flow
 
-### Refetch shape
-
-After each call:
-- Auto-correlate: refetch `contactEdges` + `lithoLenses` + `lithoModel.formations` (instance_ordinal may have changed).
-- Materialise companions: refetch `cross_section` list + `lithoLenses`.
-- Manual #135 commit / uncommit: existing refetch of `contactEdges` + new refetch of `lithoLenses`.
+After each successful call, refetch:
+- Auto-correlate: `contactEdges`.
+- Accept correlations: `contactEdges`, `lithoLenses`, `lithoFormations` (instance_ordinal may have changed via the resolver).
+- Materialise companions: `cross_section` list, `lithoLenses`.
+- Manual #135 create/delete: existing `contactEdges` refetch + new `lithoLenses` refetch + `lithoFormations` (ordinals).
 
 ## Data flow scenarios
 
-**1. Manual #135 commits an edge** — `CorrelateLithoContacts` → insert edge → `DetectLithoLenses` with `prefer_section_id=request_section_id` → upsert `LithoLensOrm` rows. No companion section is auto-created.
+**1. Manual #135 gesture commits an edge**
+```
+SectionsCanvas.handleCreateContactCorrelation
+  → POST /contact-correlations { contact_a_id, contact_b_id, request_section_id }
+    → CorrelateLithoContacts.execute
+      → insert LithoContactCorrelationEdge (user_approved=TRUE)
+      → ResolveLithoInstances.execute(model_id)
+      → DetectLithoLenses.execute(prefer_section_id=request_section_id)
+    → single commit
+  → 201/200
+FE refetches contactEdges + lithoLenses + lithoFormations
+```
 
-**2. Auto-correlate click** — both formation-level (`#127`) and contact-level run in parallel. Contact-level: bulk insert edges with `source='auto'` → `DetectLithoLenses` → lens metadata. Merged toast.
+**2. Auto-correlate click**
+```
+SectionsToolbar.onAutoCorrelate
+  → POST /contact-correlations/auto
+    → AutoCorrelateContactEdges.execute
+      → load contacts + locations + lithology snapshot
+      → auto_correlate_contact_edges(...) → candidates
+      → bulk insert net-new edges (user_approved=FALSE)
+    → single commit
+  → toast: "Auto-correlate proposed 47 edges. Review and accept on the section."
+FE refetches contactEdges  (lithoLenses unchanged — no detection yet)
+```
 
-**3. Materialise companions click** — load eligible `LithoLensOrm` rows → per-lens gate evaluation → `CreatePerpendicularCompanion` for qualifying lenses. Idempotent.
+**3. Accept correlations click (section-scoped)**
+```
+SectionsToolbar.onAcceptCorrelations
+  → POST /contact-correlations/accept { section_id }
+    → AcceptContactCorrelations.execute
+      → UPDATE edges SET user_approved=TRUE WHERE in-scope AND user_approved=FALSE
+      → ResolveLithoInstances.execute(model_id)
+      → DetectLithoLenses.execute(prefer_section_id=section_id)
+    → single commit
+  → toast: "Accepted 12 correlations. 1 new lens detected."
+FE refetches contactEdges + lithoLenses + lithoFormations
+```
 
-**4. Contact edge deletion** — `UncorrelateLithoContacts` → delete edge → `DetectLithoLenses` → lens rows whose body is no longer lens-shaped are deleted. Companion sections survive with `companion_lens_id` nulled (per `ON DELETE SET NULL`); they remain visible in the section list as plain user sections, deletable manually.
+**4. Materialise lens companions click**
+```
+SectionsToolbar.onMaterialiseLensCompanions
+  → POST /lens-companions/materialise
+    → MaterialiseLensCompanions.execute
+      → for each LithoLensOrm without companion:
+          gate: every contact on primary section has user_approved=TRUE edge
+          if pass → CreatePerpendicularCompanion(lens_id)
+      → per-lens commits
+  → toast: "Lens companions: 4 created, 2 skipped (sections not fully correlated)."
+FE refetches cross_section list
+```
 
-**5. Build click** — unchanged. `POST /surfaces/rebuild` does TIN refresh only.
+**5. Contact edge deletion (manual #135 uncorrelate or right-click Reject)**
+```
+SectionsCanvas.handleDeleteContactCorrelation
+  → DELETE /contact-correlations { contact_a_id, contact_b_id, request_section_id }
+    → UncorrelateLithoContacts.execute
+      → delete edge (regardless of approval state)
+      → ResolveLithoInstances.execute(model_id)
+      → DetectLithoLenses.execute(prefer_section_id=request_section_id)
+    → single commit
+FE refetches contactEdges + lithoLenses + lithoFormations
+```
 
-**6. Primary section deletion** — `primary_section_id` is `ON DELETE SET NULL` (existing); the LithoLens row survives with null primary, its companion (if any) survives standalone.
+**6. Build click** — `POST /surfaces/rebuild` unchanged; TIN refresh only. Companion creation is the separate Materialise button.
+
+**7. Primary section deletion** — `primary_section_id` is `ON DELETE SET NULL`. The `LithoLens` row survives with null primary; its companion survives standalone with `is_lens_companion=True`.
 
 ## Error handling
 
 | Surface | Failure mode | Behaviour |
 |---|---|---|
 | Auto-correlate | Concurrent duplicate edge insert | `ON CONFLICT DO NOTHING`, counted as `edges_skipped_existing` |
-| Lens detection | Body's `instance_ordinal` is null | Skip with WARNING, `lenses_skipped_unresolved_ordinal++`. Edge insertion not blocked. |
+| Accept | No edges to accept | `edges_accepted=0`, downstream resolver + detection still run (idempotent), 200 response |
+| Resolver | Cycle in formation graph from contact edges | Connected-component algorithm handles cycles naturally; no special case |
+| Lens detection | `instance_ordinal` null on a body | Skip with WARNING; counted in `lenses_skipped_unresolved_ordinal` (should be 0 post-rewrite; defensive) |
 | Lens detection | Multiple candidate primary sections | Pick lowest id deterministically |
 | Materialise companions | Primary section deleted mid-loop | `CreatePerpendicularCompanion` raises ValueError → caught, `errored++` |
-| Materialise companions | Section has zero contacts | Vacuous gate pass — companion is created (no contacts to be uncorrelated) |
+| Materialise companions | Section has zero contacts | Vacuous gate pass — companion created (no contacts to be uncorrelated) |
 | All endpoints | Model not in project | 404 |
 
 **Transactional posture**
-- `CorrelateLithoContacts` + `DetectLithoLenses`: single transaction. Lens-detection raise rolls back the edge insert.
-- `AutoCorrelateContactEdges`: single transaction (bulk insert + detection atomic).
-- `MaterialiseLensCompanions`: per-lens commit (matching `CreatePerpendicularCompanion`'s existing semantics).
+- `AutoCorrelateContactEdges`: bulk insert in one transaction.
+- `AcceptContactCorrelations`: flip + resolver + detection in one transaction.
+- `CorrelateLithoContacts` + `UncorrelateLithoContacts`: edge mutation + resolver + detection in one transaction.
+- `MaterialiseLensCompanions`: per-lens commits (matching `CreatePerpendicularCompanion`'s existing semantics).
+- All resolver + detection runs are idempotent — a re-run with unchanged inputs is a no-op.
 
 **Logging (per DoD)**
-- INFO at use-case entry with key params; SUCCESS at exit with all counts.
+- INFO at use-case entry; SUCCESS at exit with all counts.
 - DEBUG per candidate / per lens / per skip-reason.
 - WARNING for null primary, missing body_ordinal, per-lens errors.
 
 ## Testing
 
 **Unit (no DB, `tests/unit/domain/services/`)**
-- `test_auto_correlate_contact_edges.py`:
-  - Happy path (3 columns × 2 boundaries, MNN converges).
+- `test_auto_correlate_contact_edges.py`
+  - Happy path: 3 columns × 2 boundaries, MNN converges. (No Theil-Sen variant — simpler suite.)
   - Boundary-signature filter rejects same-litho-above different-litho-below.
-  - Theil-Sen dip transfer applied with ≥2 prior anchors.
+  - Boundary-signature filter accepts deepest-contact null-litho-below matching null-litho-below.
   - MNN tie-breaking.
   - Distance gate.
-- `test_detect_lenses_from_graph.py`:
+- `test_detect_lenses_from_graph.py`
   - Happy path: 2 source contacts converging on 1 target → 1 lens candidate.
-  - N=3 stacked: 3 source contacts converging on 1 target → 2 lens candidates.
+  - N=3 stacked: 2 lens candidates.
   - 1-to-1 edges only → empty.
-  - Two independent lens topologies in the same model (one on column A visible from B; another on column C visible from D) → 2 candidates.
+  - Two independent lens topologies in the same model → 2 candidates.
+  - Mixed approved + unapproved edges in the input → only approved drive detection (the application layer pre-filters; the domain helper assumes filtered input).
+- `test_resolve_litho_instances_contact_based.py`
+  - Empty graph → singleton components.
+  - Chain A↔B↔C → one component, three formations get ordinal 0.
+  - Naming-group isolation: formations in different naming groups never share a component even when contact edges cross them.
+  - `instance_ordinal_locked=True` survives a re-resolve.
 
 **Integration (DB, `tests/integration/application/`)**
-- `test_auto_correlate_contact_edges.py`: end-to-end with fixture model. Edges inserted with `source='auto'`. Re-run idempotent.
-- `test_detect_litho_lenses.py`: lens row materialised by manual gesture; lens row removed when defining edge is deleted; unresolved-ordinal skip path logged but doesn't error.
-- `test_materialise_lens_companions.py`: gate-pass creates companion; gate-fail skips with `skipped_unfinished_section`; idempotent re-run; per-lens error doesn't abort loop.
+- `test_auto_correlate_contact_edges.py` — end-to-end with fixture model. Edges inserted with `source='auto', user_approved=False`. Re-run idempotent. Resolver + detection NOT triggered.
+- `test_accept_contact_correlations.py` — section-scoped accept flips only in-scope edges; model-scoped accept flips all. Resolver + detection fire. Idempotent re-run (no-op when nothing unapproved).
+- `test_detect_litho_lenses.py` — lens row materialised by approved gesture; lens row removed when defining edge deleted; unapproved edges never seed lenses.
+- `test_materialise_lens_companions.py` — gate evaluates approved edges only; gate-pass creates companion; gate-fail skips; idempotent; per-lens error doesn't abort loop.
+- `test_resolve_litho_instances_after_rewrite.py` — same behaviour as the legacy resolver test suite, against the new contact-edge consumer.
+- `test_propagate_correlated_admixtures_after_rewrite.py` — BFS traverses contact-derived graph; admixtures land on every formation in the component.
+
+**Removed tests**
+- Every test exercising `CorrelateLithoUnits`, `UncorrelateLithoUnits`, `AutoCorrelateLithoBodies`, or the formation-level edge ORM. Delete; do not stub.
 
 **E2E (Playwright, `desktop/tests/e2e/`)**
-- `auto-correlate-and-lenses.spec.ts`: seed → click Auto-correlate → lens count in inspector, no companions yet → finish correlating a section → click Materialise → companion appears in list with `is_lens_companion` styling.
+- `auto-correlate-and-lenses.spec.ts` (new):
+  1. Seed project with 3 investigations + manually-placed contacts.
+  2. Click Auto-correlate → dashed amber edges appear; no lenses in inspector.
+  3. Click Accept correlations → edges turn solid emerald; lens appears in inspector.
+  4. Click Materialise lens companions → companion section appears in list with `is_lens_companion` styling.
 
-**No new benchmark.** Per project conventions, `pytest-benchmark` covers CPU-bound per-element work. Typical model size (<1000 contacts, <500 column-pairs) puts both algorithms at low-ms — well under the threshold. Add if dogfeed shows real-project timings warrant it.
+**No new benchmark** — typical model sizes (<1000 contacts, <500 column-pairs) keep both algorithms in the low-ms range. Add if dogfeed shows real-project timings warrant it.
 
-## Out-of-scope follow-ups (file as Tier G debt after Phase 2 ships)
+## Implementation order (one PR, suggested commit sequence)
 
-- **Per-contact "intentionally orphaned" marker** — softens the strict gate. Schema: new `marked_no_correlate: bool` column on `FormationContactOrm`, small UI toggle on the contact inspector. Gate qualifies a section when every contact has either an edge OR the marker set.
-- **Lens-aware ribbon styling** (#131) — needs `lens_id` FK on `LithoContactCorrelationEdgeOrm` so the ribbon renderer can group edges by lens. Tag edges produced inside `DetectLithoLenses`'s lens-body materialisation with the lens id once the FK exists.
-- **Phase 3** — migrate formation-level edges to contact-level; remove legacy body-click correlate gesture; deprecate formation-level endpoints.
+One PR, committed in slices the pre-commit hook can validate independently. Each commit is conventional-format, one logical change. The ordering is load-bearing: consumers must be removed before their data substrate.
+
+1. `feat(schema): add user_approved column to litho_contact_correlation_edge` — Alembic migration (additive).
+2. `feat(domain): auto_correlate_contact_edges algorithm (no Theil-Sen)` — pure domain.
+3. `feat(domain): detect_lenses_from_graph` — pure domain.
+4. `refactor(application): rewrite ResolveLithoInstances to consume contact edges` — switch over the resolver; extensive test sweep. From this commit forward, no production code path needs the formation-level edge table for ordinal computation.
+5. `refactor(application): rewrite PropagateCorrelatedLithoAdmixtures to derive graph from contact edges` — second consumer migrated. After this commit, only the deleted-in-step-7 use cases still touch the formation-level table.
+6. `feat(application): AutoCorrelateContactEdges + DetectLithoLenses + AcceptContactCorrelations + MaterialiseLensCompanions use cases + wire into CorrelateLithoContacts/Uncorrelate` — new contact-level orchestration. (Single commit if the use cases are small; split if any one grows.)
+7. `chore(application): delete AutoCorrelateLithoBodies + CorrelateLithoUnits + UncorrelateLithoUnits + their tests + formation-level endpoints` — last code references to the formation-level edge ORM. After this commit, only the ORM definition + repository file reference the table.
+8. `feat(api): contact-correlations/auto + /accept + lens-companions/materialise endpoints; user_approved in GET response; admixtures URL rename`.
+9. `feat(api-client): wire new endpoints + remove formation-level methods + update admixtures URL`.
+10. `feat(sections): Accept correlations + Materialise lens companions toolbar buttons + edge styling for user_approved`.
+11. `refactor(sections): remove CorrelateGestureState + formation-level ribbon rendering + Resolve button`.
+12. `chore(schema): drop litho_correlation_edge table + ORM model + repository` — runs once all references are gone (steps 4, 5, 7).
+13. `docs(debt): mark #133 Phase 2+3 shipped`.
+
+The critical sequence is **4 → 5 → 7 → 12**: resolver migrates first, admixture propagation migrates second, formation-level use cases delete third, table drops last. Reversing any pair breaks the build.
+
+## Out-of-scope follow-ups (file as Tier G debt after this PR ships)
+
+- **Per-contact "intentionally orphaned" marker** — softens the strict companion-creation gate. New `marked_no_correlate: bool` column on `FormationContactOrm`; small UI to toggle; gate qualifies when every contact has an edge OR the marker. Pick up if dogfeed surfaces the friction.
+- **Lens-aware ribbon styling** (#131) — needs `lens_id` FK on `LithoContactCorrelationEdgeOrm`; tag edges produced inside `DetectLithoLenses` so the renderer can group by lens.
+- **Per-project dip override** — single float (% dip), applied uniformly when computing the depth window in auto-correlate. The Theil-Sen replacement if dogfeed shows the simpler algorithm leaves too many gaps in dipping zones.
+- **Parameter-aware correlation scoring** — Robertson Ic / Dr / NAD class once available at the relevant stage. Phase 5.
+- **Single-edge accept from the right-click menu** — extend the accept endpoint to take an optional `edge_ids: UUID[]` parameter; surface "Accept this one" in the right-click menu alongside "Reject".
 
 ## Backwards compatibility
 
-Backwards-compat is currently SUSPENDED (per CLAUDE.md, owner directive 2026-05-16) until first external distribution. This slice doesn't break `.gmproj` v3 anyway — no schema changes, only additive request fields with optional defaults. The re-arm trigger handles compat re-instatement when the first paid build ships.
+Backwards-compat is SUSPENDED pre-ship (owner directive 2026-05-16 in CLAUDE.md). This slice exercises that suspension: schema change is non-additive (drops a table), API surface is non-additive (removes endpoints). Re-arm fires at first external distribution; the contact-level world becomes the v1.0 baseline at that point.
 
 ## Open questions resolved during brainstorming
 
@@ -326,9 +539,14 @@ Backwards-compat is currently SUSPENDED (per CLAUDE.md, owner directive 2026-05-
 |---|---|
 | Scope: which Phase 2 pieces in this slice? | Both auto-correlate + lens detection. |
 | Lens-detection signal? | #135 topology only. |
-| Auto-correlate algorithm? | Approach B — boundary-signature aware (above + below lithology must match). |
-| Should companion sections auto-create? | Yes, but gated. |
-| What gates companion creation? | "Every contact on the primary section has at least one outbound edge." |
-| Where does companion creation run? | Separate toolbar button, not folded into Build. |
-| If primary section can't be resolved? | Skip the companion silently; lens metadata still created. |
-| Orphan-contact marker? | Out of scope; file as Tier G follow-up. |
+| Auto-correlate algorithm? | Boundary-signature aware (above + below lithology must match). |
+| Theil-Sen dip transfer? | Scrapped. Simpler depth-window matching; Accept flow + manual #135 catch the false negatives. Per-project dip override is the follow-up if needed. |
+| `source` vs `user_approved`? | Both fields, orthogonal. `source` = provenance, `user_approved` = state. |
+| Auto-correlate triggers lens detection? | No. Auto edges are unapproved → not in the graph the detector reads. |
+| Accept correlations scope? | Section-scoped by default. Optional `section_id` parameter on the endpoint allows model-scoped if omitted. |
+| Lens calculator trigger? | Fires on: manual #135 create/delete + Accept correlations. Not on auto-correlate batch. |
+| Companion creation gate? | Every contact on primary section has a `user_approved=TRUE` outbound edge. |
+| Companion creation trigger? | Separate toolbar button — not folded into Build. |
+| NAD-based scoring? | Out of scope. Circular dependency (NAD is geotech-downstream). |
+| Remove formation-level body-click gesture? | Yes, plus the full Phase 3 cut: drop the edge table, rewrite the resolver to consume contact edges, drop formation-level use cases / endpoints / FE. |
+| One PR or two? | One PR, Phase 2+3 combined. Commits sliced per file/use case. |
