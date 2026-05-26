@@ -243,13 +243,23 @@ export function absorbLithoLayer(
 /**
  * Resolve the effective depth for one edge of a layer, applying any
  * existing edit over the raw suggestion value.
+ *
+ * Returns ``null`` when ``idx`` is out of bounds for the ghost's
+ * suggestions array. Callers MUST handle the null case — a stale idx
+ * crossing this boundary used to crash with
+ * ``Cannot read properties of undefined (reading 'depth_top_m')``
+ * right after Suggest-all replaced the anchor's suggestions while a
+ * deferred edit still carried the pre-replace idx (dogfeed
+ * 2026-05-26).
  */
 function effectiveEdge(
   ghost: BulkAnchorGhost,
   idx: number,
   edge: 'depth_top_m' | 'depth_base_m',
-): number {
-  return ghost.edits.get(idx)?.[edge] ?? ghost.suggestions[idx][edge]
+): number | null {
+  const suggestion = ghost.suggestions[idx]
+  if (suggestion === undefined) return null
+  return ghost.edits.get(idx)?.[edge] ?? suggestion[edge]
 }
 
 /**
@@ -298,14 +308,40 @@ export function applyCrossMergeOnDrag(
   idx: number,
   edit: LithoSuggestionEdit,
 ): BulkAnchorGhost {
+  // Guard against invalid invocations (dogfeed 2026-05-26). Three
+  // failure modes the prior wiring let through silently and that
+  // crashed effectiveEdge inside Suggest-all's setState reducer:
+  //   1. ``idx`` is out of bounds for the current suggestions array
+  //      (stale idx survived a Suggest-all that replaced the anchor's
+  //      suggestions list with a shorter / different one).
+  //   2. ``edit`` carries no depth field at all (composition-only
+  //      paste from the Alt-drag cross-column gesture). Cross-merge
+  //      has nothing to detect — but the edit still has to land in
+  //      the edits Map so the composition override is recorded.
+  //   3. ``edit`` carries a depth field equal to the current
+  //      effective depth (no-op depth change). No cross can happen;
+  //      fall through to the simple merge so we don't waste cycles
+  //      on the neighbour scan.
+  if (ghost.suggestions[idx] === undefined) return ghost
   // Resolve pre-edit effective depths so we can detect direction.
-  const preTop = effectiveEdge(ghost, idx, 'depth_top_m')
-  const preBase = effectiveEdge(ghost, idx, 'depth_base_m')
+  // Both calls are guaranteed non-null by the bounds check above.
+  const preTop = effectiveEdge(ghost, idx, 'depth_top_m') as number
+  const preBase = effectiveEdge(ghost, idx, 'depth_base_m') as number
   const newTop = edit.depth_top_m ?? preTop
   const newBase = edit.depth_base_m ?? preBase
 
   const topDragged = edit.depth_top_m !== undefined && newTop !== preTop
   const baseDragged = edit.depth_base_m !== undefined && newBase !== preBase
+
+  // Composition-only or no-op depth edit — skip the neighbour scan
+  // and just merge the edit into the edits Map. This preserves the
+  // Alt-drag cross-column paste path (composition without depth).
+  if (!topDragged && !baseDragged) {
+    const nextEdits = new Map(ghost.edits)
+    const prior = nextEdits.get(idx) ?? {}
+    nextEdits.set(idx, { ...prior, ...edit })
+    return { ...ghost, edits: nextEdits }
+  }
 
   if (topDragged && newTop < preTop) {
     // TOP dragged UP — check the nearest pending neighbour above.
@@ -313,7 +349,9 @@ export function applyCrossMergeOnDrag(
       if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
       if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
       // Pending neighbour found — check whether the new top crossed its base.
+      // i is in [0, suggestions.length) so the null branch is unreachable.
       const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
+      if (neighbourBase === null) break
       if (newTop <= neighbourBase) {
         // Cross detected: absorb the neighbour upward.
         console.debug('[ghost-cross-merge]', {
@@ -342,7 +380,9 @@ export function applyCrossMergeOnDrag(
       if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
       if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
       // Pending neighbour found — check whether the new base crossed its top.
+      // i is in [0, suggestions.length) so the null branch is unreachable.
       const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
+      if (neighbourTop === null) break
       if (newBase >= neighbourTop) {
         // Cross detected: absorb the neighbour downward.
         console.debug('[ghost-cross-merge]', {
