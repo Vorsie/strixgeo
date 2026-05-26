@@ -3151,7 +3151,26 @@ user-visible bug.
 anchors for the empty-body-contacts safety net. The Phase-5 retraction
 remains the open work.
 
-## 133. Boundary-to-boundary correlation (contact-level edges — replaces formation-level model)
+## 133. Boundary-to-boundary correlation — RESOLVED 2026-05-26
+
+**Shipped.** Phase 2+3 combined in a single PR. Contact-level
+auto-correlate with boundary-signature filter (no Theil-Sen) +
+``user_approved`` column + ``AcceptContactCorrelations`` use case +
+``DetectLithoLenses`` (consumes #135 topology, ``user_approved=True``
+only) + ``MaterialiseLensCompanions`` (section-scoped gate: every
+contact on primary section has an approved outbound edge).
+``ResolveLithoInstances`` + ``PropagateLithoAdmixtures`` rewritten to
+derive the formation graph from contact edges. ``litho_correlation_edge``
+table dropped; formation-level use cases, endpoints, body-click gesture,
+ribbon rendering, and Resolve button all removed in the same PR.
+NAD-based scoring deferred (Phase 5 — circular dependency at litho
+stage).
+
+(Original filing kept below for design rationale + history.)
+
+---
+
+## 133 (filing). Boundary-to-boundary correlation (contact-level edges — replaces formation-level model)
 
 **What.** The current correlation model connects two FORMATIONS
 (``litho_correlation_edge.formation_a_id`` / ``formation_b_id``). The
