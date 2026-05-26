@@ -55,6 +55,22 @@ class AcceptLithoSuggestionsRequest(BaseModel):
             "Default False preserves the original per-accept behaviour."
         ),
     )
+    create_formation_only: bool = Field(
+        default=False,
+        description=(
+            "When True, find-or-create the litho formation(s) for each suggestion "
+            "but do NOT create any contact row and do NOT seed "
+            "``seeded_formation_contact_ids`` on the section. "
+            "``depth_top_m`` / ``depth_base_m`` are used only for parent-formation "
+            "inference (TIN sampling at the anchor's x/y + the suggestion's depth). "
+            "Returns ``created_formation_ids`` / ``found_formation_ids`` as usual; "
+            "``created_contact_ids`` and ``found_contact_ids`` are always empty. "
+            "Use case: 'Add new unit' ghost flow — create the formation row before "
+            "the user drags the ghost, so the normal ghost-accept can find it by its "
+            "find-or-create key (Bug 2 dogfeed 2026-05-26). "
+            "Default False preserves the original per-accept behaviour."
+        ),
+    )
 
     @model_validator(mode="after")
     def _exactly_one_anchor(self) -> AcceptLithoSuggestionsRequest:
