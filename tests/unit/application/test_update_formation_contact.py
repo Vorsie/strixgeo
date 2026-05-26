@@ -51,7 +51,17 @@ async def test_returns_none_when_row_vanished_pre_update() -> None:
 @pytest.mark.asyncio
 async def test_within_formation_edit_flips_one_pair() -> None:
     """A depth-only edit flips just the contact's own (model, formation)."""
-    pre = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
+    # borehole_id=None + cpt_id=None → synthetic contact; cross-merge skipped
+    # (no anchor filter). depth_top_m is included so is_depth_only is True
+    # but the anchor guard short-circuits before querying peers.
+    pre = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=F_OLD,
+        id=CONTACT,
+        depth_top_m=5.0,
+        borehole_id=None,
+        cpt_id=None,
+    )
     updated = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
     session = AsyncMock()
     session.get = AsyncMock(return_value=pre)
@@ -84,7 +94,15 @@ async def test_reanchor_to_new_formation_flips_both_pairs() -> None:
 @pytest.mark.asyncio
 async def test_returns_none_when_row_vanished_mid_update() -> None:
     """Row gone mid-update (repo returns None) → None, no stale flip."""
-    pre = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
+    # Synthetic anchor so cross-merge is skipped and we reach the repo call.
+    pre = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=F_OLD,
+        id=CONTACT,
+        depth_top_m=5.0,
+        borehole_id=None,
+        cpt_id=None,
+    )
     session = AsyncMock()
     session.get = AsyncMock(return_value=pre)
     uc = _use_case(session)
