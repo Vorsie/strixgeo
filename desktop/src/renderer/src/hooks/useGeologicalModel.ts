@@ -37,7 +37,7 @@ import type {
 import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/acceptLithoSummary'
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
-import { absorbLithoLayer, mergeLithoLayers } from '../utils/lithoLayerMerge'
+import { absorbLithoLayer, applyCrossMergeOnDrag, mergeLithoLayers } from '../utils/lithoLayerMerge'
 import { insertManualGhostLayer } from '../utils/insertManualGhostLayer'
 import { extendGhostToNearest } from '../utils/extendGhostToNearest'
 import type { UndoCommand } from './useUndoStack'
@@ -3148,11 +3148,14 @@ export function useGeologicalModel({
         if (focusedId === null) return prev
         const existing = prev.get(focusedId)
         if (!existing) return prev
-        const nextEdits = new Map(existing.edits)
-        const prior = nextEdits.get(idx) ?? {}
-        nextEdits.set(idx, { ...prior, ...edit })
+        // applyCrossMergeOnDrag detects whether the depth edit crossed a
+        // pending neighbour's boundary (plain-drag cross-merge — no Shift
+        // required). When a cross occurred it returns absorbLithoLayer's
+        // result (neighbour removed, dragger extended); when not, it
+        // returns a plain depth-edit ghost identical to the prior merge.
+        const updated = applyCrossMergeOnDrag(existing, idx, edit)
         const next = new Map(prev)
-        next.set(focusedId, { ...existing, edits: nextEdits })
+        next.set(focusedId, updated)
         return next
       })
     },
@@ -3411,11 +3414,12 @@ export function useGeologicalModel({
       setGhostsByAnchor(prev => {
         const existing = prev.get(anchorId)
         if (!existing) return prev
-        const nextEdits = new Map(existing.edits)
-        const prior = nextEdits.get(idx) ?? {}
-        nextEdits.set(idx, { ...prior, ...edit })
+        // Same cross-merge logic as the focused-anchor path — plain drag
+        // on a bulk-suggest ghost also auto-absorbs on release when the
+        // dragged edge crosses a pending neighbour's boundary.
+        const updated = applyCrossMergeOnDrag(existing, idx, edit)
         const next = new Map(prev)
-        next.set(anchorId, { ...existing, edits: nextEdits })
+        next.set(anchorId, updated)
         return next
       })
     },
