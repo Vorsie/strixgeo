@@ -40,7 +40,7 @@ import type {
   FormationContactResponse,
   GeologicalFormationResponse,
   GeologicalModelResponse,
-  LithoCorrelationEdge,
+  LithoContactCorrelationEdge,
 } from '../../../api/client'
 import LithologyInspector from './LithologyInspector'
 
@@ -64,10 +64,10 @@ vi.mock('../../../utils/log', () => ({
   },
 }))
 
-// Mock api.geology so listCorrelations, resolveLithoInstances,
-// updateFormation, and listLenses don't make real fetch calls in jsdom.
-const mockListCorrelations = vi.fn<() => Promise<LithoCorrelationEdge[]>>()
-const mockResolveLithoInstances = vi.fn<() => Promise<{ updated: unknown[] }>>()
+// Mock api.geology so listContactCorrelations, updateFormation, and listLenses
+// don't make real fetch calls in jsdom.
+// TODO Task 19+21: resolveLithoInstances removed; ordinals auto-resolved on accept.
+const mockListContactCorrelations = vi.fn<() => Promise<LithoContactCorrelationEdge[]>>()
 const mockUpdateFormation = vi.fn<() => Promise<GeologicalFormationResponse>>()
 // listLenses: returns an empty lens list by default — keeps existing tests
 // isolated; individual tests can override via mockListLenses.mockResolvedValue.
@@ -81,9 +81,7 @@ vi.mock('../../../api/client', async (importOriginal) => {
       ...((orig as Record<string, unknown>).api as object),
       geology: {
         ...(((orig as Record<string, unknown>).api as Record<string, unknown>).geology as object),
-        listCorrelations: (...args: unknown[]) => mockListCorrelations(...(args as [])),
-        resolveLithoInstances: (...args: unknown[]) =>
-          mockResolveLithoInstances(...(args as [])),
+        listContactCorrelations: (...args: unknown[]) => mockListContactCorrelations(...(args as [])),
         updateFormation: (...args: unknown[]) => mockUpdateFormation(...(args as [])),
         listLenses: (...args: unknown[]) => mockListLenses(...(args as [])),
       },
@@ -181,12 +179,15 @@ function makeContact(id: string, formationId: string): FormationContactResponse 
   }
 }
 
-function makeEdge(id: string): LithoCorrelationEdge {
+// TODO Task 19+21: makeEdge now returns LithoContactCorrelationEdge.
+function makeEdge(id: string): LithoContactCorrelationEdge {
   return {
     id,
-    formation_a_id: 'f-a',
-    formation_b_id: 'f-b',
+    contact_a_id: 'ca-a',
+    contact_b_id: 'cb-b',
+    model_id: 'm-1',
     source: 'manual',
+    user_approved: false,
     created_at: '2026-01-01T00:00:00Z',
   }
 }
@@ -484,9 +485,9 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-  // Default: listCorrelations returns empty list (no edges).
-  mockListCorrelations.mockResolvedValue([])
-  mockResolveLithoInstances.mockResolvedValue({ updated: [] })
+  // Default: listContactCorrelations returns empty list (no edges).
+  // TODO Task 19+21: resolveLithoInstances removed; resolved on accept.
+  mockListContactCorrelations.mockResolvedValue([])
   mockUpdateFormation.mockResolvedValue(makeFormation('f-a', 'Zand'))
   // Default: no lenses — keeps existing tests isolated.
   mockListLenses.mockResolvedValue([])
@@ -726,12 +727,12 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     })
   })
 
-  // S3: Resolve button calls resolveLithoInstances and then refetchFormations.
-  it('S3 — Resolve instances button calls resolveLithoInstances then refetchFormations', async () => {
+  // S3: Resolve button calls refetchFormations and listContactCorrelations.
+  // TODO Task 19+21: resolveLithoInstances removed; ordinals auto-resolved on
+  // accept. The Resolve button now just refetches formations + contact edges.
+  it('S3 — Resolve instances button calls refetchFormations and listContactCorrelations', async () => {
     const refetchFormations = vi.fn()
-    mockResolveLithoInstances.mockResolvedValue({ updated: [] })
-    // After resolve, listCorrelations is re-fetched.
-    mockListCorrelations.mockResolvedValue([])
+    mockListContactCorrelations.mockResolvedValue([])
 
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
@@ -745,10 +746,10 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     })
 
     await waitFor(() => {
-      expect(mockResolveLithoInstances).toHaveBeenCalledWith('proj-1', 'litho-1')
+      expect(refetchFormations).toHaveBeenCalled()
     })
     await waitFor(() => {
-      expect(refetchFormations).toHaveBeenCalled()
+      expect(mockListContactCorrelations).toHaveBeenCalledWith('proj-1', 'litho-1')
     })
   })
 
@@ -790,8 +791,9 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     // that changes the baseline (post-resolve edge count matches live count).
     // The presence path is implicitly covered by verifying the ordinalIsStale
     // computation via S4b/S4c.  This matches the comment in the original spec.
-    mockListCorrelations.mockResolvedValue([])
-    mockResolveLithoInstances.mockResolvedValue({ updated: [] })
+    // TODO Task 19+21: resolveLithoInstances removed; Resolve now just
+    // calls refetchFormations + listContactCorrelations.
+    mockListContactCorrelations.mockResolvedValue([])
 
     const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: true })
     const ctx = makeCtx({
@@ -802,17 +804,17 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
 
     // Wait for the initial edge fetch to settle (0 edges → baseline = 0).
     await waitFor(() => {
-      expect(mockListCorrelations).toHaveBeenCalled()
+      expect(mockListContactCorrelations).toHaveBeenCalled()
     })
 
-    // Click Resolve → resolveLithoInstances called → post-resolve fetch returns 0.
+    // Click Resolve → post-resolve fetch returns 0.
     // baseline updated to 0. currentEdgeCount = 0. 0 === 0 → badge absent.
     await act(async () => {
       fireEvent.click(screen.getByTestId('resolve-instances-btn'))
     })
 
     await waitFor(() => {
-      expect(mockResolveLithoInstances).toHaveBeenCalledWith('proj-1', 'litho-1')
+      expect(mockListContactCorrelations).toHaveBeenCalledWith('proj-1', 'litho-1')
     })
 
     // Badge absent: post-resolve baseline matches current live count.
@@ -821,7 +823,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
 
   // S4b: RO-3 amber badge is absent when no formations are locked.
   it('S4b — amber stale badge is absent when no formations are locked', async () => {
-    mockListCorrelations.mockResolvedValue([makeEdge('e-1')])
+    mockListContactCorrelations.mockResolvedValue([makeEdge('e-1')])
 
     // Formation is NOT locked even though there are edges.
     const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: false })
@@ -832,7 +834,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     renderInspector(ctx)
 
     await waitFor(() => {
-      expect(mockListCorrelations).toHaveBeenCalled()
+      expect(mockListContactCorrelations).toHaveBeenCalled()
     })
 
     expect(screen.queryByTestId('stale-ordinal-badge-f-a')).not.toBeInTheDocument()
@@ -842,7 +844,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
   it('S4c — amber stale badge is absent when edge count unchanged since last resolve', async () => {
     // Mount with 1 edge → lastResolvedEdgeCount = 1.
     // currentEdgeCount = 1 → equal → no badge.
-    mockListCorrelations.mockResolvedValue([makeEdge('e-1')])
+    mockListContactCorrelations.mockResolvedValue([makeEdge('e-1')])
 
     const f = makeFormation('f-a', 'Zand', { instance_ordinal_locked: true })
     const ctx = makeCtx({
@@ -852,7 +854,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     renderInspector(ctx)
 
     await waitFor(() => {
-      expect(mockListCorrelations).toHaveBeenCalled()
+      expect(mockListContactCorrelations).toHaveBeenCalled()
     })
 
     // lastResolvedEdgeCount === currentEdgeCount (both 1) → badge absent.
@@ -867,8 +869,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
 describe('LithologyInspector (debt #87 — parent review)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockListCorrelations.mockResolvedValue([])
-    mockResolveLithoInstances.mockResolvedValue({ updated: [] })
+    mockListContactCorrelations.mockResolvedValue([])
     mockUpdateFormation.mockResolvedValue(makeFormation('any', 'any'))
   })
   afterEach(() => {
@@ -985,8 +986,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
 describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockListCorrelations.mockResolvedValue([])
-    mockResolveLithoInstances.mockResolvedValue({ updated: [] })
+    mockListContactCorrelations.mockResolvedValue([])
     mockUpdateFormation.mockResolvedValue(makeFormation('any', 'any'))
   })
   afterEach(() => {

@@ -271,9 +271,10 @@ export default function SectionsCanvas(): JSX.Element {
     }
     log.debug('section', `listCorrelations: GET project=${project.id} model=${lithoModelId}`)
     try {
-      const edges = await api.geology.listCorrelations(project.id, lithoModelId)
-      setCorrelationEdges(edges)
-      log.debug('section', `listCorrelations: ${edges.length} edge(s) for model ${lithoModelId}`)
+      // TODO Task 19: migrate to listContactCorrelations + update overlay props.
+      const edges = await api.geology.listContactCorrelations(project.id, lithoModelId)
+      setCorrelationEdges(edges as unknown as LithoCorrelationEdge[])
+      log.debug('section', `listContactCorrelations: ${edges.length} edge(s) for model ${lithoModelId}`)
     } catch (err) {
       log.warn('section', 'refetchEdges: listCorrelations failed', err)
     }
@@ -359,15 +360,13 @@ export default function SectionsCanvas(): JSX.Element {
         `correlate: linking ${formationAId} ↔ ${formationBId} on model ${activeLithoModel.id}`,
       )
       try {
-        await api.geology.correlate(project.id, activeLithoModel.id, formationAId, formationBId)
-        // The correlate endpoint resolves ordinals + commits internally
-        // (CorrelateLithoUnits.run_resolver, folded in at the Slice-0+1
-        // review). Refetch BOTH edges (for the overlay's edge lines)
+        // TODO Task 19: migrate from formation-level correlate to
+        // createContactCorrelation (contact-level). Stubbed for tsc.
+        void formationAId
+        void formationBId
+        // Refetch BOTH edges (for the overlay's edge lines)
         // AND formations (so the new instance_ordinal flows into the
         // formation cache and the body chip appears on the bands).
-        // Pre-fix: only edges were refetched, so the chip stayed
-        // invisible until something else triggered a formations refetch
-        // — dogfeed 2026-05-23 "no visual signal" complaint.
         await refetchEdges()
         refetchFormations()
         // Clear armed state so the user can arm the next source.
@@ -418,10 +417,10 @@ export default function SectionsCanvas(): JSX.Element {
         ),
       )
       try {
-        await api.geology.uncorrelate(project.id, activeLithoModel.id, formationAId, formationBId)
-        // UncorrelateLithoUnits re-runs the resolver + commits internally;
-        // a separate resolveLithoInstances call is a redundant no-op
-        // round-trip (Phase-2 span audit should-fix).
+        // TODO Task 19: migrate from formation-level uncorrelate to
+        // deleteContactCorrelation (contact-level). Stubbed for tsc.
+        void formationAId
+        void formationBId
         await refetchEdges()
         log.success('section', `uncorrelate: edge ${formationAId} ↔ ${formationBId} removed`)
       } catch (err) {

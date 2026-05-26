@@ -2464,12 +2464,12 @@ export function useGeologicalModel({
     if (!project || !model) return
     log.info('geology', `autoCorrelate entry model=${model.id}`)
     try {
-      const result = await api.geology.autoCorrelate(project.id, model.id)
+      // TODO Task 19: migrate to autoCorrelateContacts (contact-level).
+      const result = await api.geology.autoCorrelateContacts(project.id, model.id)
       log.success(
         'geology',
         `autoCorrelate ok edges_created=${result.edges_created} ` +
-          `skipped=${result.edges_skipped_existing} ` +
-          `recomputed=${result.formations_recomputed}`,
+          `skipped=${result.edges_skipped_existing}`,
       )
       // Refetch so correlation overlay + ordinal badges update.
       refetchFormations()
@@ -2487,7 +2487,8 @@ export function useGeologicalModel({
         toast(
           'success',
           `Auto-correlate: ${result.edges_created} edge${result.edges_created === 1 ? '' : 's'} created, ` +
-            `${result.formations_recomputed} formation${result.formations_recomputed === 1 ? '' : 's'} updated.`,
+            // TODO Task 19: formations_recomputed removed from autoCorrelateContacts response.
+          `${result.edges_skipped_existing} edge(s) already existed.`,
         )
       }
     } catch (err) {
@@ -4173,7 +4174,8 @@ export function useGeologicalModel({
       // correlation graph stays up-to-date without a manual button press.
       // Non-fatal: a failure here does not roll back the accepted contacts.
       try {
-        const acResult = await api.geology.autoCorrelate(project.id, model.id)
+        // TODO Task 19: migrate to autoCorrelateContacts (contact-level).
+        const acResult = await api.geology.autoCorrelateContacts(project.id, model.id)
         log.info(
           'geology',
           `acceptAllBulkLitho auto-correlate ok edges_created=${acResult.edges_created} skipped=${acResult.edges_skipped_existing}`,

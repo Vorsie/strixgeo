@@ -156,8 +156,9 @@ export default function SectionsToolbar(): JSX.Element {
     setAutoCorrelating(true)
     let openedDialog = false
     try {
-      const edges = await api.geology.listCorrelations(project.id, activeLithoModel.id)
-      const autoCount = edges.filter(e => e.source === 'auto').length
+      // TODO Task 19: migrate to listContactCorrelations (contact-level).
+      const edges = await api.geology.listContactCorrelations(project.id, activeLithoModel.id)
+      const autoCount = edges.filter((e: { source: string }) => e.source === 'auto').length
       if (autoCount === 0) {
         // No existing auto edges — fire immediately (no dialog for first-time users).
         await handleAutoCorrelate()

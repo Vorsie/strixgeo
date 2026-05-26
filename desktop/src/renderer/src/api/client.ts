@@ -312,6 +312,7 @@ export interface LithoContactCorrelationEdge {
   contact_b_id: string
   model_id: string
   source: string
+  user_approved: boolean
   created_at: string
 }
 
@@ -1975,82 +1976,6 @@ export const api = {
         {},
       ),
 
-    // --- Litho correlation (Phase-2 Slice 3) ----------------------------
-    //
-    // MODEL-level only — no section_id, no seeded_formation_contact_ids.
-    // The #57/applyUpdatedSection trap structurally cannot recur here.
-
-    // Re-run the connected-component ordinal resolver for a model.
-    // Idempotent: returns empty ``updated`` when nothing changed.
-    // Call after any edge mutation (correlate / uncorrelate) to keep
-    // the LithologyInspector ordinal display in sync.
-    resolveLithoInstances: (
-      projectId: string,
-      modelId: string,
-    ): Promise<ResolveInstancesResponse> =>
-      post(
-        `/projects/${projectId}/geology/models/${modelId}/correlations/resolve`,
-        {},
-      ),
-
-    // List all correlation edges for the model, ordered by creation
-    // time.  Consumed by the inspector stale-badge (hash the edge set
-    // to detect structural changes since the last explicit resolve) and
-    // by Slice 4 canvas edge rendering.
-    listCorrelations: (
-      projectId: string,
-      modelId: string,
-    ): Promise<LithoCorrelationEdge[]> =>
-      get(`/projects/${projectId}/geology/models/${modelId}/correlations`),
-
-    // --- Slice 4: on-section connect gesture ----------------------------
-    //
-    // Create an undirected correlation edge between two litho formations.
-    // Returns 201 on creation, 200 when the edge already existed
-    // (idempotent). The response includes the edge id for optimistic UI.
-    correlate: (
-      projectId: string,
-      modelId: string,
-      formationAId: string,
-      formationBId: string,
-    ): Promise<{ edge_id: string; was_created: boolean }> =>
-      post(`/projects/${projectId}/geology/models/${modelId}/correlations`, {
-        formation_a_id: formationAId,
-        formation_b_id: formationBId,
-        // MUST be exactly 'manual' — the request schema is
-        // Literal["manual"] (hardened in the Slice-1 review to bar
-        // premature/typo'd provenance tokens). 'manual_connect' here
-        // 422'd EVERY correlate call; the integration tests missed it
-        // because they omit source and rely on the Pydantic default.
-        source: 'manual',
-      }),
-
-    // Remove the edge between two formations (DELETE with JSON body).
-    // Returns 204 regardless of whether an edge existed.
-    // WHY not del(): the shared del() helper takes no body. The backend
-    // DELETE /correlations accepts a LithoCorrelationRequest body to
-    // identify which edge to remove — use a raw fetch so the body is sent.
-    uncorrelate: async (
-      projectId: string,
-      modelId: string,
-      formationAId: string,
-      formationBId: string,
-    ): Promise<void> => {
-      const path = `/projects/${projectId}/geology/models/${modelId}/correlations`
-      const res = await fetch(`${_base}${path}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          formation_a_id: formationAId,
-          formation_b_id: formationBId,
-        }),
-      })
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}))
-        throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
-      }
-    },
-
     // --- Contact-level correlation edges (#133 Phase 1, #135 lens) ----
     //
     // Boundary-to-boundary edges between two FormationContact rows.  Shared
@@ -2070,11 +1995,13 @@ export const api = {
       modelId: string,
       contactAId: string,
       contactBId: string,
+      requestSectionId?: string | null,
     ): Promise<{ edge_id: string; was_created: boolean }> =>
       post(`/projects/${projectId}/geology/models/${modelId}/contact-correlations`, {
         contact_a_id: contactAId,
         contact_b_id: contactBId,
         source: 'manual',
+        request_section_id: requestSectionId ?? null,
       }),
 
     // DELETE with JSON body — same shape as the formation-level uncorrelate.
@@ -2084,6 +2011,7 @@ export const api = {
       modelId: string,
       contactAId: string,
       contactBId: string,
+      requestSectionId?: string | null,
     ): Promise<void> => {
       const path = `/projects/${projectId}/geology/models/${modelId}/contact-correlations`
       const res = await fetch(`${_base}${path}`, {
@@ -2092,6 +2020,7 @@ export const api = {
         body: JSON.stringify({
           contact_a_id: contactAId,
           contact_b_id: contactBId,
+          request_section_id: requestSectionId ?? null,
         }),
       })
       if (!res.ok) {
@@ -2113,7 +2042,7 @@ export const api = {
       admixtures: Array<{ soil_code: string; amount: string; locally: boolean }>,
     ): Promise<{ updated_formations: GeologicalFormationResponse[]; component_size: number }> =>
       patch(
-        `/projects/${projectId}/geology/models/${modelId}/correlations/admixtures`,
+        `/projects/${projectId}/geology/models/${modelId}/contact-correlations/admixtures`,
         { formation_id: formationId, admixtures },
       ),
 
@@ -2220,18 +2149,56 @@ export const api = {
         {},
       ),
 
-    // --- Auto-correlate (#127) -----------------------------------------------
+    // --- Auto-correlate contacts (#133 Phase 2) --------------------------------
     //
-    // Run the bottom-up dip-transfer algorithm across the whole model.
-    // Inserts net-new edges with source='auto', runs the ordinal resolver
-    // once, and triggers absence inference per touched formation — all in
-    // one transaction.  Idempotent: edges_created=0 means nothing new.
-    autoCorrelate: (
+    // Run the contact-level bottom-up dip-transfer algorithm across the whole
+    // model.  Inserts net-new contact-level edges with source='auto'.
+    // Idempotent: edges_created=0 means nothing new.
+    autoCorrelateContacts: (
       projectId: string,
       modelId: string,
-    ): Promise<AutoCorrelateResult> =>
+    ): Promise<{ edges_created: number; edges_skipped_existing: number }> =>
       post(
-        `/projects/${projectId}/geology/models/${modelId}/auto-correlate`,
+        `/projects/${projectId}/geology/models/${modelId}/contact-correlations/auto`,
+        {},
+      ),
+
+    // --- Accept correlations (#133 Phase 2) ------------------------------------
+    //
+    // Mark all pending contact-level edges as user_approved=True, commit lens
+    // bodies, and recompute ordinals.  Scoped to a single section when
+    // sectionId is provided; model-wide when null.
+    acceptContactCorrelations: (
+      projectId: string,
+      modelId: string,
+      sectionId?: string | null,
+    ): Promise<{
+      edges_accepted: number
+      lenses_created: number
+      lenses_removed: number
+      ordinals_changed: number
+    }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/contact-correlations/accept`,
+        { section_id: sectionId ?? null },
+      ),
+
+    // --- Materialise lens companion sections (#133 Phase 3) -------------------
+    //
+    // For every LithoLens without a companion section, gate on all contacts
+    // in its primary section having at least one approved edge, then create
+    // a perpendicular companion section.
+    materialiseLensCompanions: (
+      projectId: string,
+      modelId: string,
+    ): Promise<{
+      companion_sections_created: number
+      skipped_no_primary: number
+      skipped_unfinished_section: number
+      errored: number
+    }> =>
+      post(
+        `/projects/${projectId}/geology/models/${modelId}/lens-companions/materialise`,
         {},
       ),
 
@@ -2239,7 +2206,7 @@ export const api = {
     //
     // Delete all source='auto' edges for the model.  Manual edges are never
     // touched.  Idempotent: deleted=0 when no auto edges exist.  Called by
-    // the re-correlate dialog before firing autoCorrelate again.
+    // the re-correlate dialog before firing autoCorrelateContacts again.
     //
     // WHY not del(): the shared del() helper returns void, but this endpoint
     // returns a JSON body (deleted count) — use a raw fetch so the caller
@@ -2248,7 +2215,7 @@ export const api = {
       projectId: string,
       modelId: string,
     ): Promise<DeleteAutoCorrelationsResult> => {
-      const path = `/projects/${projectId}/geology/models/${modelId}/correlations/auto`
+      const path = `/projects/${projectId}/geology/models/${modelId}/contact-correlations/auto`
       const res = await fetch(`${_base}${path}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },

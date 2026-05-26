@@ -41,7 +41,7 @@ import { api } from '../../../api/client'
 import type {
   FormationContactResponse,
   GeologicalFormationResponse,
-  LithoCorrelationEdge,
+  LithoContactCorrelationEdge,
   LithoLensListItem,
 } from '../../../api/client'
 import Button from '../../../components/ui/Button'
@@ -101,7 +101,8 @@ export default function LithologyInspector(): JSX.Element {
 
   // Phase-2 Slice 2: correlation edge state for RO-3 stale-ordinal badge.
   // Fetched when the active litho model changes; refreshed after Resolve.
-  const [correlationEdges, setCorrelationEdges] = useState<LithoCorrelationEdge[]>([])
+  // TODO Task 19+21: fully migrate to contact-level correlation.
+  const [correlationEdges, setCorrelationEdges] = useState<LithoContactCorrelationEdge[]>([])
   // The edge count at the time of the most recent explicit Resolve call
   // (or at mount — treated as a resolved baseline). Used to detect whether
   // the edge set changed since the locked ordinals were last confirmed.
@@ -124,7 +125,8 @@ export default function LithologyInspector(): JSX.Element {
     const pid = project.id
     const mid = activeLithoModel.id
     log.debug('[LithologyInspector] fetching correlations for model', mid)
-    void api.geology.listCorrelations(pid, mid).then(edges => {
+    // TODO Task 19+21: migrate to listContactCorrelations (contact-level).
+    void api.geology.listContactCorrelations(pid, mid).then(edges => {
       setCorrelationEdges(edges)
       // Treat the initial load as the resolved baseline only if it has
       // not been set yet (i.e. this is the first fetch for this model).
@@ -168,17 +170,14 @@ export default function LithologyInspector(): JSX.Element {
     log.info('[LithologyInspector] resolving litho instances for model', mid)
     setResolving(true)
     try {
-      const result = await api.geology.resolveLithoInstances(pid, mid)
-      log.info(
-        '[LithologyInspector] resolve complete:',
-        result.updated.length,
-        'formation(s) updated',
-      )
+      // TODO Task 19+21: resolveLithoInstances is removed; ordinals
+      // are now resolved server-side on accept. Replace this handler
+      // with acceptContactCorrelations when Task 19 ships.
+      log.info('[LithologyInspector] resolve: ordinals now auto-resolved on accept')
       // Refetch formations so ordinal badges update.
       refetchFormations()
-      // Refetch edges; update the resolved-count baseline so amber
-      // badges clear on locked formations that are now in sync.
-      const edges = await api.geology.listCorrelations(pid, mid)
+      // Refetch contact-level edges; update the resolved-count baseline.
+      const edges = await api.geology.listContactCorrelations(pid, mid)
       setCorrelationEdges(edges)
       lastResolvedEdgeCountRef.current = edges.length
       setLastResolvedEdgeCount(edges.length)

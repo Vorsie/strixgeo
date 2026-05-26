@@ -32,7 +32,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import { api } from '../../../api/client'
-import type { GeologicalModelResponse, LithoCorrelationEdge } from '../../../api/client'
+import type {
+  GeologicalModelResponse,
+  LithoContactCorrelationEdge,
+} from '../../../api/client'
 import SectionsToolbar from './SectionsToolbar'
 
 // ---------------------------------------------------------------------------
@@ -53,13 +56,13 @@ vi.mock('../../../api/client', async () => {
         validateCrossings: vi.fn().mockResolvedValue({ model_id: '', issues: [] }),
         // Default: empty list → ACW1 branch (no dialog). ACW tests override
         // with .mockResolvedValueOnce() via the imported api object.
-        listCorrelations: vi.fn().mockResolvedValue([]),
+        // TODO Task 19: renamed from listCorrelations to listContactCorrelations.
+        listContactCorrelations: vi.fn().mockResolvedValue([]),
         deleteAutoCorrelations: vi.fn().mockResolvedValue({ deleted: 0 }),
-        autoCorrelate: vi.fn().mockResolvedValue({
+        // TODO Task 19: renamed from autoCorrelate to autoCorrelateContacts.
+        autoCorrelateContacts: vi.fn().mockResolvedValue({
           edges_created: 0,
           edges_skipped_existing: 0,
-          formations_recomputed: 0,
-          wedge_tips_materialised: 0,
         }),
       },
       virtueleBoring: {
@@ -101,12 +104,15 @@ function makeLithoModel(): GeologicalModelResponse {
   }
 }
 
-function makeAutoEdge(id: string): LithoCorrelationEdge {
+// TODO Task 19: makeAutoEdge now returns LithoContactCorrelationEdge.
+function makeAutoEdge(id: string): LithoContactCorrelationEdge {
   return {
     id,
-    formation_a_id: 'fa-1',
-    formation_b_id: 'fb-1',
+    contact_a_id: 'ca-1',
+    contact_b_id: 'cb-1',
+    model_id: 'm-1',
     source: 'auto',
+    user_approved: false,
     created_at: '2026-01-01T00:00:00Z',
   }
 }
@@ -529,7 +535,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
 
   it('ACW1: 0 auto edges → fires handleAutoCorrelate immediately, no dialog', async () => {
     // listCorrelations returns [] → autoCount = 0 → immediate fire.
-    vi.mocked(api.geology.listCorrelations).mockResolvedValueOnce([])
+    vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([])
     const handleAutoCorrelate = vi.fn().mockResolvedValue(undefined)
 
     renderWith(
@@ -551,14 +557,17 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
 
   it('ACW1b: manual-only edges (source=manual) are NOT counted as auto edges', async () => {
     // A manual edge must not trigger the dialog — only source='auto' counts.
-    const manualEdge: LithoCorrelationEdge = {
+    // TODO Task 19: updated to LithoContactCorrelationEdge.
+    const manualEdge: LithoContactCorrelationEdge = {
       id: 'edge-manual-1',
-      formation_a_id: 'fa-1',
-      formation_b_id: 'fb-1',
+      contact_a_id: 'ca-1',
+      contact_b_id: 'cb-1',
+      model_id: 'm-1',
       source: 'manual',
+      user_approved: false,
       created_at: '2026-01-01T00:00:00Z',
     }
-    vi.mocked(api.geology.listCorrelations).mockResolvedValueOnce([manualEdge])
+    vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([manualEdge])
     const handleAutoCorrelate = vi.fn().mockResolvedValue(undefined)
 
     renderWith(
@@ -580,7 +589,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
 
   it('ACW2: N>0 auto edges → dialog opens, handleAutoCorrelate NOT yet called', async () => {
     // listCorrelations returns 3 auto edges → autoCount = 3 → dialog opens.
-    vi.mocked(api.geology.listCorrelations).mockResolvedValueOnce([
+    vi.mocked(api.geology.listContactCorrelations).mockResolvedValueOnce([
       makeAutoEdge('edge-auto-1'),
       makeAutoEdge('edge-auto-2'),
       makeAutoEdge('edge-auto-3'),
@@ -609,7 +618,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
 
   it('ACW3: listCorrelations error → toast error, no dialog, handleAutoCorrelate not called', async () => {
     // Pre-check fails → toast error, clean up, no dialog.
-    vi.mocked(api.geology.listCorrelations).mockRejectedValueOnce(new Error('network failure'))
+    vi.mocked(api.geology.listContactCorrelations).mockRejectedValueOnce(new Error('network failure'))
     const handleAutoCorrelate = vi.fn()
     const toast = vi.fn()
 
