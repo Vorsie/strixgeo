@@ -544,13 +544,13 @@ export default function SectionsCanvas(): JSX.Element {
   // two gesture modes are independent.
   const [armedContactId, setArmedContactId] = useState<string | null>(null)
 
-  // Contact-correlate mode flag — true when the toolbar has switched
-  // to "Boundary" sub-mode.  Not yet wired to the toolbar (Phase 2);
-  // for now this is always false in production and the mode is only
-  // exercisable by tests / dev builds.  TODO(#133 Phase 2): wire to toolbar.
-  const [contactCorrelateMode, setContactCorrelateMode] = useState(false)
-  // Expose setter for tests and the future toolbar wire.
-  void setContactCorrelateMode
+  // Contact-correlate mode flag — owner directive 2026-05-26: default ON
+  // whenever the toolbar's correlate mode is active. The boundary-to-boundary
+  // gesture is the new standard (debt #133). The legacy body-click gesture
+  // still works alongside it; the Phase 3 removal of the body-click surface
+  // is tracked in #133. No separate toolbar toggle for now — the two gestures
+  // coexist while we dogfeed which one users reach for naturally.
+  const contactCorrelateMode = correlateMode
 
   const refetchContactEdges = useCallback(async () => {
     if (lithoModelId === null) {
