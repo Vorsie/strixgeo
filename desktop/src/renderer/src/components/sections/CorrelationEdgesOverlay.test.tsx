@@ -23,7 +23,11 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import CorrelationEdgesOverlay, { buildBandMap, computeRibbonPoints } from './CorrelationEdgesOverlay'
-import type { CorrelateGestureState, RibbonColumn } from './CorrelationEdgesOverlay'
+import type {
+  ContactGestureState,
+  CorrelateGestureState,
+  RibbonColumn,
+} from './CorrelationEdgesOverlay'
 import type {
   FormationContactResponse,
   GeologicalFormationResponse,
@@ -1421,5 +1425,189 @@ describe('CorrelationEdgesOverlay — CM correlate-mode ghost-merge regression',
     ).not.toThrow()
     // No arm rects — no contacts to build bands from.
     expect(screen.queryAllByTestId(/correlate-arm-/)).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Contact-correlate gesture (#133 Phase 1 + #135 lens-pinch-out)
+// ---------------------------------------------------------------------------
+
+function makeContactGestureState(
+  overrides: Partial<ContactGestureState> = {},
+): ContactGestureState {
+  return {
+    contactCorrelateMode: true,
+    armedContactId: null,
+    lastTargetTestId: null,
+    onArmContact: vi.fn(),
+    onClearArmedContact: vi.fn(),
+    onContactCorrelate: vi.fn().mockResolvedValue(undefined),
+    onContactUncorrelate: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  }
+}
+
+describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', () => {
+  // Two columns on different investigations, one contact each.
+  const fA = makeFormation('f-a', 'Zand', 1)
+  const baseContacts = [
+    makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+    makeContact('cb1', 'f-a', 'inv-B', 'cpt', 2.0),
+    makeContact('cb2', 'f-a', 'inv-B', 'cpt', 5.0),
+    makeContact('cc', 'f-a', 'inv-C', 'cpt', 2.0),
+  ]
+  const baseColumns = [
+    makeColumn('inv-A', 100, 10, 5),
+    makeColumn('inv-B', 200, 10, 20),
+    makeColumn('inv-C', 300, 10, 35),
+  ]
+
+  it('CC1: clicking with nothing armed → onArmContact', () => {
+    const gesture = makeContactGestureState()
+    renderOverlay({
+      edges: [],
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-ca'))
+    expect(gesture.onArmContact).toHaveBeenCalledWith('ca')
+    expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
+  })
+
+  it('CC2: clicking armed source again → onClearArmedContact', () => {
+    const gesture = makeContactGestureState({ armedContactId: 'ca' })
+    renderOverlay({
+      edges: [],
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-ca'))
+    expect(gesture.onClearArmedContact).toHaveBeenCalled()
+    expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
+  })
+
+  it('CC3: first edge — armed source, no sticky → onContactCorrelate fires', () => {
+    const gesture = makeContactGestureState({
+      armedContactId: 'ca',
+      lastTargetTestId: null,
+    })
+    renderOverlay({
+      edges: [],
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-cb1'))
+    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb1')
+    expect(gesture.onArmContact).not.toHaveBeenCalled()
+  })
+
+  it('CC4 (#135 lens): armed source + sticky target test, second click on same test → onContactCorrelate', () => {
+    // After committing ca↔cb1, sticky = inv-B.  Clicking cb2 (also on inv-B)
+    // must fire a SECOND correlation from the still-armed source — the
+    // lens-pinch-out gesture.
+    const gesture = makeContactGestureState({
+      armedContactId: 'ca',
+      lastTargetTestId: 'inv-B',
+    })
+    renderOverlay({
+      edges: [],
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-cb2'))
+    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb2')
+    expect(gesture.onArmContact).not.toHaveBeenCalled()
+    expect(gesture.onClearArmedContact).not.toHaveBeenCalled()
+  })
+
+  it('CC5: armed + sticky, click on contact in source own test → re-arm (no correlate)', () => {
+    // Armed = ca (on inv-A), sticky target test = inv-B.  Clicking another
+    // contact on inv-A is interpreted as "actually I meant this one as
+    // source" → re-arm, do not auto-fire a same-investigation correlation
+    // that the server would reject anyway.
+    const caAlt = makeContact('ca-alt', 'f-a', 'inv-A', 'cpt', 6.0)
+    const gesture = makeContactGestureState({
+      armedContactId: 'ca',
+      lastTargetTestId: 'inv-B',
+    })
+    renderOverlay({
+      edges: [],
+      contacts: [...baseContacts, caAlt],
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-ca-alt'))
+    expect(gesture.onArmContact).toHaveBeenCalledWith('ca-alt')
+    expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
+  })
+
+  it('CC6 (#135 conservative): armed + sticky, click on contact in a THIRD test → re-arm (no auto-fire)', () => {
+    // Armed = ca (inv-A), sticky target = inv-B.  Clicking cc on inv-C is
+    // NOT the lens gesture — the conservative choice is to clear sticky and
+    // re-arm to cc rather than silently fire ca↔cc across a third test.
+    const gesture = makeContactGestureState({
+      armedContactId: 'ca',
+      lastTargetTestId: 'inv-B',
+    })
+    renderOverlay({
+      edges: [],
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-cc'))
+    expect(gesture.onArmContact).toHaveBeenCalledWith('cc')
+    expect(gesture.onContactCorrelate).not.toHaveBeenCalled()
+  })
+
+  it('CC7 (#135 stacked): a third click on the same target test chains another lens edge', () => {
+    // Armed = ca, sticky = inv-B.  Clicking yet another contact on inv-B
+    // fires another correlation.  The gesture generalises to N≥2 clicks
+    // for stacked-lens topology.
+    const cb3 = makeContact('cb3', 'f-a', 'inv-B', 'cpt', 8.0)
+    const gesture = makeContactGestureState({
+      armedContactId: 'ca',
+      lastTargetTestId: 'inv-B',
+    })
+    renderOverlay({
+      edges: [],
+      contacts: [...baseContacts, cb3],
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.click(screen.getByTestId('contact-hit-cb3'))
+    expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb3')
   })
 })
