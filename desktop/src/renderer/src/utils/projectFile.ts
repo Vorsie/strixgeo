@@ -70,6 +70,8 @@ export interface ProjectFileV3 {
    * Absent in files saved before Phase 2 shipped — normalised to [] on parse.
    */
   litho_correlation_edges: Record<string, unknown>[]
+  // Contact-level correlation edges (#133 Phase 2+3).
+  litho_contact_correlation_edges: Record<string, unknown>[]
   /**
    * Litho lens metadata rows (Position 4).
    * Absent in files saved before this field shipped — normalised to [] on parse.
@@ -110,6 +112,7 @@ export function buildProjectFile(
     cross_sections: bundle.cross_sections ?? [],
     investigation_reviews: bundle.investigation_reviews ?? [],
     litho_correlation_edges: bundle.litho_correlation_edges ?? [],
+    litho_contact_correlation_edges: bundle.litho_contact_correlation_edges ?? [],
     litho_lenses: bundle.litho_lenses ?? [],
     formation_absences: bundle.formation_absences ?? [],
     // WHY parameter-not-bundle: the bundle response comes from GET /bundle
@@ -150,6 +153,9 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   if (candidate.litho_correlation_edges === undefined) {
     candidate.litho_correlation_edges = []
   }
+  if (candidate.litho_contact_correlation_edges === undefined) {
+    candidate.litho_contact_correlation_edges = []
+  }
   if (candidate.litho_lenses === undefined) {
     candidate.litho_lenses = []
   }
@@ -187,6 +193,8 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     // Additive fields — tolerate absence in older files; normalised to []
     // in parseProjectFile.
     (v.litho_correlation_edges === undefined || Array.isArray(v.litho_correlation_edges)) &&
+    (v.litho_contact_correlation_edges === undefined ||
+      Array.isArray(v.litho_contact_correlation_edges)) &&
     (v.litho_lenses === undefined || Array.isArray(v.litho_lenses)) &&
     (v.formation_absences === undefined || Array.isArray(v.formation_absences)) &&
     // ``stratigraphy_lumping`` is additive (2026-05-17). Tolerate absent
