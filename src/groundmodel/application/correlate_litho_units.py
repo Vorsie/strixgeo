@@ -35,6 +35,9 @@ from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
     LithoCorrelationEdgeOrm,
 )
@@ -276,20 +279,82 @@ class CorrelateLithoUnits(GroundModelLogger):
             self.warning(f"run_resolver: model {model_id} gone — skipping")
             return []
 
-        contacted = select(FormationContactOrm.formation_id).where(
+        # Load all user-approved contact edges for this model.  These are the
+        # authority for the correlation graph since Phase-3 of #133: formation-
+        # level LithoCorrelationEdgeOrm rows are no longer read here (they
+        # remain for the formation-level correlate/uncorrelate gesture surface
+        # but the resolver now derives topology from boundary-to-boundary edges).
+        contact_edges_stmt = select(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == model_id,
+            LithoContactCorrelationEdgeOrm.user_approved.is_(True),
+        )
+        contact_edge_rows = list((await self._session.execute(contact_edges_stmt)).scalars().all())
+        self.debug(
+            f"run_resolver: {len(contact_edge_rows)} user-approved contact edge(s) for model {model_id}"
+        )
+
+        # Build contact_id → formation_id map from all contacts in this model.
+        # This lets us derive formation-level CorrelationEdge objects without a
+        # per-edge join (one GROUP BY query covers all contacts, O(contacts) not
+        # O(edges × contacts)).
+        contacts_stmt = select(FormationContactOrm.id, FormationContactOrm.formation_id).where(
             FormationContactOrm.model_id == model_id
         )
-        edge_a = select(LithoCorrelationEdgeOrm.formation_a_id).where(
-            LithoCorrelationEdgeOrm.model_id == model_id
+        formation_by_contact: dict[UUID, UUID] = dict(
+            (await self._session.execute(contacts_stmt)).all()
         )
-        edge_b = select(LithoCorrelationEdgeOrm.formation_b_id).where(
-            LithoCorrelationEdgeOrm.model_id == model_id
+
+        # Derive formation-to-formation CorrelationEdge objects from contact edges.
+        # Skip self-loops (both contacts map to the same formation) and orphans
+        # (a contact_id not found in formation_by_contact, e.g. a contact deleted
+        # after the edge was created — the DB CASCADE removes the edge too, so
+        # this guard is belt-and-suspenders for in-flight state only).
+        edges: list[CorrelationEdge] = []
+        skipped_orphan = 0
+        skipped_self_loop = 0
+        for ce in contact_edge_rows:
+            fa = formation_by_contact.get(ce.contact_a_id)
+            fb = formation_by_contact.get(ce.contact_b_id)
+            if fa is None or fb is None:
+                skipped_orphan += 1
+                self.debug(
+                    f"run_resolver: skipping orphan contact edge {ce.id} "
+                    f"(contact_a formation={fa}, contact_b formation={fb})"
+                )
+                continue
+            if fa == fb:
+                # Both contacts belong to the same formation — a self-loop at
+                # the formation level.  Same-borehole contacts anchored to the
+                # same formation at different depths produce this; they are not
+                # a correlation between two distinct bodies.
+                skipped_self_loop += 1
+                self.debug(
+                    f"run_resolver: skipping self-loop contact edge {ce.id} "
+                    f"(both contacts map to formation {fa})"
+                )
+                continue
+            edges.append(CorrelationEdge(formation_a_id=fa, formation_b_id=fb))
+
+        if skipped_orphan or skipped_self_loop:
+            self.warning(
+                f"run_resolver: skipped {skipped_orphan} orphan + {skipped_self_loop} "
+                f"self-loop contact edge(s) for model {model_id}"
+            )
+
+        # Load all formations that participate in this model — every formation
+        # that has at least one FormationContact in this model.  contact-level
+        # edge endpoints always have a contact row (FK enforced by the DB), so
+        # `contacted_fids` already covers all formation ids that appear in the
+        # approved edge set — no additional union needed.  This scoping prevents
+        # sibling litho models from cross-contaminating ordinal sequences (review B1).
+        # parent_formation_id IS NOT NULL restricts to litho-level units.
+        contacted_fids = select(FormationContactOrm.formation_id).where(
+            FormationContactOrm.model_id == model_id
         )
-        reachable = contacted.union(edge_a, edge_b)
         formations_stmt = select(GeologicalFormationOrm).where(
             GeologicalFormationOrm.app_project_id == model.app_project_id,
             GeologicalFormationOrm.parent_formation_id.is_not(None),
-            GeologicalFormationOrm.id.in_(reachable),
+            GeologicalFormationOrm.id.in_(contacted_fids),
         )
         formations_rows = list((await self._session.execute(formations_stmt)).scalars().all())
 
@@ -320,19 +385,7 @@ class CorrelateLithoUnits(GroundModelLogger):
             for f in formations_rows
         ]
 
-        edges_stmt = select(LithoCorrelationEdgeOrm).where(
-            LithoCorrelationEdgeOrm.model_id == model_id
-        )
-        edge_rows = list((await self._session.execute(edges_stmt)).scalars().all())
-        edges: list[CorrelationEdge] = [
-            CorrelationEdge(
-                formation_a_id=e.formation_a_id,
-                formation_b_id=e.formation_b_id,
-            )
-            for e in edge_rows
-        ]
-
-        self.debug(f"run_resolver: {len(nodes)} formation node(s), {len(edges)} edge(s)")
+        self.debug(f"run_resolver: {len(nodes)} formation node(s), {len(edges)} derived edge(s)")
 
         result = resolve_litho_instances(formations=nodes, edges=edges)
 
