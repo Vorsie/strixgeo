@@ -3280,7 +3280,47 @@ geotech subdivision work begins (which is downstream of the litho
 geometry and would inherit the slivers).
 Filed from dogfeed session 2026-05-26.
 
-## 135. Two correlation edges from one contact for lens topology (Tier G — gesture extension)
+## 135. Two correlation edges from one contact for lens topology — RESOLVED 2026-05-26
+
+**Shipped.** Lens-aware contact-correlate state machine in
+``CorrelationEdgesOverlay`` driven by a new ``lastTargetTestId`` field on
+``ContactGestureState``. After the first successful correlation the
+source stays armed and the target investigation id is remembered; a
+subsequent click on a *different* contact in the *same* target
+investigation fires a second edge from the same source — the
+lens-pinch-out gesture. Generalises to N≥2 clicks (stacked lenses).
+
+Conservative branches: clicking another contact in the source's own
+investigation re-arms to it (server would reject same-investigation
+self-edges anyway); clicking a contact in a *third* investigation
+clears sticky and re-arms instead of silently firing across an unrelated
+test.
+
+Schema unchanged — the canonical-ordered unique constraint on the
+``(model_id, contact_a_id, contact_b_id)`` triple already permits two
+distinct pairs that share an endpoint. Renderer unchanged — one line
+per edge, no dedupe, so two edges A→B1 and A→B2 paint as a fork from
+A's screen position.
+
+**Adjacent fix.** Phase 1's ``api.geology.listContactCorrelations`` /
+``createContactCorrelation`` / ``deleteContactCorrelation`` were
+referenced from ``SectionsCanvas`` but had never been wired up in
+``client.ts`` — the gesture has been silently failing through the
+catch-block since Phase 1 shipped (the backend router, use case,
+schemas, repo, and renderer all exist). The three thin wrappers + the
+``LithoContactCorrelationEdge`` TS type were added in this commit
+alongside the gesture state machine. Without them the lens-pinch-out
+gesture would have had nothing to write either.
+
+Tests: ``CorrelationEdgesOverlay.test.tsx`` CC1–CC7 pin the seven branch
+paths of the state machine (idle-arm, disarm, first-edge, lens,
+source-test re-arm, third-test re-arm, stacked-lens).
+
+(Original filing kept below for design rationale + history.)
+
+---
+
+## 135 (filing). Two correlation edges from one contact for lens topology (Tier G — gesture extension)
 
 **What.** Extend the boundary-to-boundary correlate gesture (debt #133)
 so the user can draw both a TOP edge and a BOTTOM edge originating from
