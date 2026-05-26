@@ -361,27 +361,27 @@ export function applyCrossMergeOnDrag(
   }
 
   if (topDragged && newTop < preTop) {
-    // TOP dragged UP — check the nearest pending neighbour above.
+    // TOP dragged UP — absorb the neighbour above ONLY when the new top
+    // has fully crossed the neighbour's FAR edge (its depth_top_m). Using
+    // the neighbour's NEAR edge (depth_base_m) would fire absorb on every
+    // upward drag because the shared boundary makes near-edge==preTop,
+    // so the comparison ``newTop < preTop && newTop <= near`` always holds
+    // (dogfeed 2026-05-26 — "release to collapse" means crossing the
+    // NEXT boundary above, not just nudging into the neighbour's range).
     for (let i = idx - 1; i >= 0; i--) {
       if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
       if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
-      // Pending neighbour found — check whether the new top crossed its base.
-      // i is in [0, suggestions.length) so the null branch is unreachable.
-      const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
-      if (neighbourBase === null) break
-      if (newTop <= neighbourBase) {
-        // Cross detected: absorb the neighbour upward.
+      const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
+      if (neighbourTop === null) break
+      if (newTop <= neighbourTop) {
         console.debug('[ghost-cross-merge]', {
           action: 'absorb-up',
           draggerIdx: idx,
           neighbourIdx: i,
           preTop,
           newTop,
-          neighbourBase,
+          neighbourTop,
         })
-        // Stage the new edit on the dragger BEFORE calling absorbLithoLayer
-        // so the helper reads the post-drag top when it extends to the
-        // neighbour's outer edge.
         const withEdit = new Map(ghost.edits)
         withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
         return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'up')
@@ -391,24 +391,23 @@ export function applyCrossMergeOnDrag(
   }
 
   if (baseDragged && newBase > preBase) {
-    // BASE dragged DOWN — check the nearest pending neighbour below.
+    // BASE dragged DOWN — mirror of top-up: absorb the neighbour below
+    // ONLY when the new base has fully crossed the neighbour's FAR edge
+    // (its depth_base_m). Using the near edge would absorb on any drag.
     const total = ghost.suggestions.length
     for (let i = idx + 1; i < total; i++) {
       if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
       if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
-      // Pending neighbour found — check whether the new base crossed its top.
-      // i is in [0, suggestions.length) so the null branch is unreachable.
-      const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
-      if (neighbourTop === null) break
-      if (newBase >= neighbourTop) {
-        // Cross detected: absorb the neighbour downward.
+      const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
+      if (neighbourBase === null) break
+      if (newBase >= neighbourBase) {
         console.debug('[ghost-cross-merge]', {
           action: 'absorb-down',
           draggerIdx: idx,
           neighbourIdx: i,
           preBase,
           newBase,
-          neighbourTop,
+          neighbourBase,
         })
         const withEdit = new Map(ghost.edits)
         withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
