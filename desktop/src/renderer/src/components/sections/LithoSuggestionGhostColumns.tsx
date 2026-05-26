@@ -1947,6 +1947,15 @@ function LithoSuggestionLayer({
   const height = baseY - topY
   if (height <= 0.5) return null
 
+  // Sentinel ghost: a near-zero-thickness layer (< 6 px) that has not yet
+  // been extended to a real range via "Extend to nearest contacts".  Render
+  // it as a dashed outline marker only — no fill — so it is visually distinct
+  // from a real layer band.  The user "Extends" the ghost first, at which
+  // point height grows and the normal fill path takes over.
+  // Threshold is pixel-based (not metre-based) so it adapts to zoom level
+  // rather than hardcoding a depth interpretation.
+  const isSentinel = height < 6
+
   const fill = lithoFill(layer.suggested_lithology)
   // Rich Dutch label includes the admixture qualifier (e.g.
   // "Zwak siltig zand" instead of plain "Zand"). Mirrors the
@@ -2001,7 +2010,8 @@ function LithoSuggestionLayer({
     `${labelText}${nadNote}: ${layer.depth_top_m.toFixed(2)} → ${layer.depth_base_m.toFixed(2)} m` +
     ` [${layer.confidence}${qcNote}${drNote}]${parentNote}${straddleNote}${statusNote}`
 
-  const maxLines = maxLinesForHeight(height, LABEL_FONT_SIZE)
+  // Sentinel ghosts have no room for a label; suppress to avoid clipping.
+  const maxLines = isSentinel ? 0 : maxLinesForHeight(height, LABEL_FONT_SIZE)
   const lines = maxLines > 0
     ? wrapLabelToLines(labelText, maxCharsForWidth(width, LABEL_FONT_SIZE), maxLines)
     : []
@@ -2068,13 +2078,17 @@ function LithoSuggestionLayer({
         x={left}
         y={topY}
         width={width}
-        height={height}
-        fill={fill}
-        fillOpacity={opacity}
-        stroke={effectiveStroke}
-        strokeOpacity={accepted ? 0.9 : 0.7}
-        strokeWidth={effectiveStrokeWidth}
-        strokeDasharray={strokeDasharray}
+        // Sentinel ghosts render at a minimum visible height (4 px) so the
+        // dashed outline marker is always grab-able. Real ghosts use the
+        // computed height unchanged.
+        height={isSentinel ? Math.max(height, 4) : height}
+        // Sentinel: transparent interior (dashed outline marker, not a layer).
+        fill={isSentinel ? 'transparent' : fill}
+        fillOpacity={isSentinel ? 0 : opacity}
+        stroke={isSentinel ? fill : effectiveStroke}
+        strokeOpacity={isSentinel ? 0.8 : accepted ? 0.9 : 0.7}
+        strokeWidth={isSentinel ? 1.5 : effectiveStrokeWidth}
+        strokeDasharray={isSentinel ? '4 2' : strokeDasharray}
         // Accepted / rejected layers let clicks pass through to the
         // ContactPickBar underneath so the user can place a NEW
         // contact at a different depth without first dismissing the
