@@ -1679,6 +1679,9 @@ export const api = {
       // The generic patch<T> helper unconditionally calls res.json() which
       // throws a SyntaxError on an empty body — handle 204 explicitly here
       // so callers can detect absorption and prune local state.
+      // Diagnostic: drag-up cross-merge regression repro (2026-05-26) —
+      // logs the PATCH body and HTTP status on every drag commit.
+      console.debug('[api.updateContact] →', { contactId, modelId, patch: body })
       const res = await fetch(
         `${_base}/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`,
         {
@@ -1687,6 +1690,7 @@ export const api = {
           body: JSON.stringify(body),
         },
       )
+      console.debug('[api.updateContact] ←', { contactId, status: res.status })
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}))
         throw new Error(detail.detail ?? `PATCH contacts/${contactId} → ${res.status}`)
