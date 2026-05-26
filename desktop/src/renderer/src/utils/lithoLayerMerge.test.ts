@@ -329,4 +329,78 @@ describe('applyCrossMergeOnDrag', () => {
     // Edit stored at the dragger idx.
     expect(result.edits.get(2)?.depth_top_m).toBe(1.5)
   })
+
+  // Dogfeed 2026-05-26: defensive-guard pins. Before these guards a
+  // stale idx surviving a Suggest-all rebuild crashed the function
+  // inside the reducer with "Cannot read properties of undefined
+  // (reading 'depth_top_m')". The guards return the ghost unchanged
+  // OR fall through to the simple merge so the reducer never throws.
+
+  it('CM5 — out-of-bounds idx returns ghost unchanged, no crash', () => {
+    // Simulates the post-Suggest-all crash: Suggest-all replaced the
+    // anchor's suggestions with a shorter list, but a queued
+    // handleEditBulkLitho updater still carries the pre-replace idx.
+    const g = ghost([L(0, 2), L(2, 4)])
+    const result = applyCrossMergeOnDrag(g, 5, { depth_top_m: 1.5 })
+    // No mutation: same suggestions, no edit stored.
+    expect(result).toBe(g)
+  })
+
+  it('CM6 — empty edit returns ghost with no-op edits merge, no crash', () => {
+    // The reducer must not throw on an empty edit. The simple-merge
+    // fallback writes an empty edits entry for the idx — harmless
+    // and matches the prior (pre-cross-merge) behaviour.
+    const g = ghost([L(0, 2), L(2, 4)])
+    const result = applyCrossMergeOnDrag(g, 0, {})
+    expect(result.suggestions).toHaveLength(2)
+    // No structural change.
+    expect(result.suggestions).toEqual(g.suggestions)
+  })
+
+  it('CM7 — composition-only edit (no depth fields) merges without scanning neighbours', () => {
+    // Alt-drag cross-column paste sends suggested_lithology +
+    // suggested_admixtures with no depth field. Cross-merge must NOT
+    // crash and must persist the composition override in the edits Map.
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)])
+    const result = applyCrossMergeOnDrag(g, 1, {
+      suggested_lithology: 'KLEI',
+      suggested_admixtures: [],
+    })
+    // Same structure — no absorb fired.
+    expect(result.suggestions).toHaveLength(3)
+    expect(result.edits.get(1)?.suggested_lithology).toBe('KLEI')
+    expect(result.edits.get(1)?.depth_top_m).toBeUndefined()
+  })
+
+  it('CM8 — no-op depth edit (matches pre-edit effective depth) falls through to simple merge', () => {
+    // edit.depth_top_m equals the current effective top — no drag
+    // direction can be detected. Should not fire the neighbour scan
+    // (which would also be a no-op, but skipping the scan is correct
+    // and matches the prior simple-merge code path).
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)])
+    const result = applyCrossMergeOnDrag(g, 1, { depth_top_m: 2 })
+    expect(result.suggestions).toHaveLength(3)
+    // Edit stored at idx 1 with the no-op depth.
+    expect(result.edits.get(1)?.depth_top_m).toBe(2)
+  })
+
+  it('CM9 — post-Suggest-all state shape: stale idx targets shorter suggestions list', () => {
+    // Models the exact crash scenario from the runtime report:
+    //   1. Suggest-all completes; anchor's suggestions list has 2 layers.
+    //   2. A queued updater (from Alt-drag paste before the replace)
+    //      fires with idx=4 carrying a composition-only edit.
+    //   3. The reducer must not crash.
+    const afterSuggestAll = ghost([L(0, 1.5), L(1.5, 3)])
+    expect(() =>
+      applyCrossMergeOnDrag(afterSuggestAll, 4, {
+        suggested_lithology: 'ZAND',
+        suggested_admixtures: [],
+      }),
+    ).not.toThrow()
+    const result = applyCrossMergeOnDrag(afterSuggestAll, 4, {
+      suggested_lithology: 'ZAND',
+      suggested_admixtures: [],
+    })
+    expect(result).toBe(afterSuggestAll)
+  })
 })
