@@ -38,6 +38,8 @@ import { formatAcceptParentSummary, formatStraddleSummary } from '../utils/accep
 import { insertLithoLayer } from '../utils/lithoLayerInsert'
 import { splitLithoLayer } from '../utils/lithoLayerSplit'
 import { absorbLithoLayer, mergeLithoLayers } from '../utils/lithoLayerMerge'
+import { insertManualGhostLayer } from '../utils/insertManualGhostLayer'
+import { extendGhostToNearest } from '../utils/extendGhostToNearest'
 import type { UndoCommand } from './useUndoStack'
 import type { StratigraphyLumping } from '../utils/projectFile'
 import { isLithoUnit } from '../utils/formationKind'
@@ -461,6 +463,59 @@ export interface UseGeologicalModelResult {
     draggerIdx: number,
     direction: 'up' | 'down',
   ) => void
+  /**
+   * Left-click on the LITHO axis creates a zero-thickness ghost layer
+   * at ``depth_m`` instead of a committed contact.  The ghost is appended
+   * to ``ghostsByAnchor[anchorId]`` (creating the entry when absent) and
+   * ``focusedSuggestAnchorId`` is set so the overlay renders immediately.
+   *
+   * The user extends the sentinel to a real range via the "Extend to
+   * nearest contacts" right-click menu item.  The ghost is then accepted
+   * via the standard Accept flow — no separate commit path needed.
+   *
+   * Parameters
+   * ----------
+   * anchorKind
+   *     ``'cpt'`` or ``'borehole'``.
+   * anchorId
+   *     Id of the investigation.
+   * surfaceElevationM
+   *     Surface elevation in mTAW for the investigation.
+   * depth_m
+   *     Click depth below surface in metres.
+   * formationId
+   *     Formation chosen in the picker — used to look up
+   *     ``litho_main_soil_code`` and ``litho_admixtures`` from the active
+   *     litho formation list.
+   */
+  handleCreateManualLithoGhost: (
+    anchorKind: 'cpt' | 'borehole',
+    anchorId: string,
+    surfaceElevationM: number | null,
+    depth_m: number,
+    formationId: string,
+  ) => void
+  /**
+   * Extend ghost layer at ``(anchorId, idx)`` to span between the
+   * nearest committed litho contacts above and below its midpoint.
+   * Returns ``{ ok: true }`` on success or ``{ ok: false, reason }``
+   * when the extension would overlap another ghost suggestion.
+   *
+   * Parameters
+   * ----------
+   * anchorId
+   *     Anchor whose ghost is being extended.
+   * idx
+   *     Index of the ghost layer to extend.
+   * investigationMaxDepthM
+   *     Maximum depth of the investigation — used as fallback bottom
+   *     when no committed contact exists below.
+   */
+  handleExtendLithoGhostToNearestContacts: (
+    anchorId: string,
+    idx: number,
+    investigationMaxDepthM: number,
+  ) => { ok: boolean; reason?: string }
   /** Clear ALL bulk ghosts (used by the toolbar Clear button + on suggest-all). */
   clearBulkLithoGhosts: () => void
   /**
@@ -3353,6 +3408,121 @@ export function useGeologicalModel({
     [],
   )
 
+  // Left-click on the LITHO axis creates a zero-thickness ghost layer
+  // instead of a committed contact.  The pure helper insertManualGhostLayer
+  // does the array build/sort; this callback plugs it into setGhostsByAnchor
+  // and sets the focused anchor so the overlay renders immediately.
+  //
+  // The picker returns a formation_id; we need its litho_main_soil_code +
+  // litho_admixtures.  Both live in the ``formations`` state atom that is
+  // always populated before the picker can open (the picker only offers
+  // litho formations from the active model).  If the formation is not
+  // found (race with a concurrent delete) the ghost is still created with
+  // an empty lithology string — the user can edit via the composition
+  // editor before accepting.
+  const handleCreateManualLithoGhost = useCallback(
+    (
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      surfaceElevationM: number | null,
+      depth_m: number,
+      formationId: string,
+    ): void => {
+      // Resolve lithology from the active formation list.
+      const formation = formations.find(f => f.id === formationId)
+      const lithology = formation?.litho_main_soil_code ?? ''
+      const admixtures: readonly { soil_code: string; amount: string; locally: boolean }[] =
+        formation?.litho_admixtures?.map(a => ({
+          soil_code: a.soil_code,
+          amount: a.amount,
+          locally: a.locally,
+        })) ?? []
+
+      log.debug(
+        'geology',
+        `handleCreateManualLithoGhost anchor=${anchorId} depth=${depth_m.toFixed(3)}m litho=${lithology || '(not found)'}`,
+      )
+
+      setGhostsByAnchor(prev => {
+        const existing = prev.get(anchorId)
+        const updated = insertManualGhostLayer(
+          existing,
+          anchorKind,
+          surfaceElevationM,
+          depth_m,
+          lithology,
+          admixtures,
+        )
+        const next = new Map(prev)
+        next.set(anchorId, updated)
+        return next
+      })
+      // Show the ghost immediately by focusing this anchor.
+      setFocusedSuggestAnchorId(anchorId)
+
+      log.success(
+        'geology',
+        `handleCreateManualLithoGhost placed ghost at depth=${depth_m.toFixed(3)}m anchor=${anchorId}`,
+      )
+    },
+    // reason: formations identity changes when server sync completes;
+    // we must read the latest list to look up litho_main_soil_code.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [formations],
+  )
+
+  // Extend ghost layer at (anchorId, idx) to the nearest committed litho
+  // contacts above and below its midpoint.  Delegates to the pure helper
+  // extendGhostToNearest; returns ok/reason so the caller can toast on
+  // overlap.  Synchronous — no network call.
+  const handleExtendLithoGhostToNearestContacts = useCallback(
+    (
+      anchorId: string,
+      idx: number,
+      investigationMaxDepthM: number,
+    ): { ok: boolean; reason?: string } => {
+      const ghost = ghostsByAnchor.get(anchorId)
+      if (!ghost) return { ok: false, reason: 'No ghost found for this investigation.' }
+
+      // Collect committed contacts for this anchor.
+      const contactsOnAnchor = lithoContacts.filter(c =>
+        ghost.kind === 'cpt' ? c.cpt_id === anchorId : c.borehole_id === anchorId,
+      )
+
+      const result = extendGhostToNearest(
+        ghost,
+        idx,
+        contactsOnAnchor,
+        investigationMaxDepthM,
+      )
+
+      if (!result.ok) {
+        log.debug(
+          'geology',
+          `handleExtendLithoGhostToNearestContacts overlap: anchor=${anchorId} idx=${idx} reason="${result.reason}"`,
+        )
+        return { ok: false, reason: result.reason }
+      }
+
+      setGhostsByAnchor(prev => {
+        const next = new Map(prev)
+        next.set(anchorId, result.next)
+        return next
+      })
+
+      log.success(
+        'geology',
+        `handleExtendLithoGhostToNearestContacts ok anchor=${anchorId} idx=${idx}`,
+      )
+      return { ok: true }
+    },
+    // reason: ghostsByAnchor and lithoContacts change by reference on mutations;
+    // listing them keeps the callback fresh without identity churn on renders
+    // that don't touch these atoms.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ghostsByAnchor, lithoContacts],
+  )
+
   // B-1 (senior-review, data-integrity): a ghost overlay left showing
   // when the active litho model SWITCHES would accept onto the new
   // model (activeLithoModelRef points at the new one) while the
@@ -4569,6 +4739,8 @@ export function useGeologicalModel({
     handleSplitLithoLayer,
     handleMergeLithoLayers,
     handleAbsorbLithoLayer,
+    handleCreateManualLithoGhost,
+    handleExtendLithoGhostToNearestContacts,
     clearBulkLithoGhosts,
     handleStripLithoAdmixtures,
     handleReseedLithoAdmixtures,
