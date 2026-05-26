@@ -5,11 +5,13 @@ application layer. The scope check (contact belongs to the URL
 model AND the model belongs to the URL project) lives in the
 router; this layer trusts the call and just drops the row.
 
-Contacts are leaves in the geological-model tree, so no
-cascade-aware orchestration is needed today. If a future
-"undo last pick" feature lands, it extends this use case (e.g.
-emit a soft-delete row, or stash the contact's serialised form in
-the editor's transient state).
+When the deleted contact belonged to a lithostratigraphic model,
+the FK cascade removes any ``LithoContactCorrelationEdge`` rows that
+referenced it.  To keep instance ordinals and lens metadata consistent
+with the updated edge graph the use case runs ``ResolveLithoInstances``
+and ``DetectLithoLenses`` (commit=False) before the single commit that
+covers all mutations.  Non-litho models skip both passes (no correlation
+edges exist for geological contacts).
 """
 
 from __future__ import annotations
@@ -18,8 +20,15 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from groundmodel.application.detect_litho_lenses import DetectLithoLenses
+from groundmodel.application.resolve_litho_instances_use_case import (
+    ResolveLithoInstances,
+)
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
+)
+from groundmodel.infrastructure.db.models.geological_model_orm import (
+    GeologicalModelOrm,
 )
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
@@ -28,7 +37,13 @@ from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
 
 class DeleteFormationContact(GroundModelLogger):
-    """Drop one formation-contact row and commit."""
+    """Drop one formation-contact row and commit.
+
+    For lithostratigraphic contacts, also re-runs the instance resolver
+    and lens detector so that the correlation graph stays consistent
+    after the FK cascade removes any edges that referenced the deleted
+    contact.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialise with an active ``AsyncSession``."""
@@ -36,17 +51,35 @@ class DeleteFormationContact(GroundModelLogger):
         self._session = session
         self._repo = GeologyRepository(session)
 
-    async def execute(self, contact_id: UUID) -> bool:
-        """Delete ``contact_id``.
+    async def execute(
+        self,
+        contact_id: UUID,
+        *,
+        project_id: UUID,
+        model_id: UUID,
+    ) -> bool:
+        """Delete ``contact_id`` and reconcile the correlation graph.
+
+        Parameters
+        ----------
+        contact_id : UUID
+            Primary key of the ``FormationContact`` row to remove.
+        project_id : UUID
+            Project scope — passed to ``DetectLithoLenses`` which loads
+            cross-section rows filtered by project.
+        model_id : UUID
+            Geological model that owns the contact — used to determine
+            whether to run the litho cascade and to scope the resolver +
+            detector to the right model.
 
         Returns
         -------
         bool
-            ``True`` when a row was removed, ``False`` when the row
-            was already gone (idempotent). The router treats both
-            outcomes as 204.
+            ``True`` when a row was removed, ``False`` when the row was
+            already gone (idempotent). The router treats both outcomes
+            as 204.
         """
-        self.info(f"Deleting formation contact: {contact_id}")
+        self.info(f"Deleting formation contact: {contact_id} (model={model_id})")
         # Capture the (model, formation) before the delete so we know
         # which surface row to flip stale. No row → no flip needed
         # (the surface either doesn't exist or already has no source).
@@ -55,6 +88,28 @@ class DeleteFormationContact(GroundModelLogger):
         if ok and pre is not None:
             # On-click build pivot: mark stale rather than recompute.
             await self._repo.mark_surfaces_stale([(pre.model_id, pre.formation_id)])
+
+        # Litho-only cascade: the FK delete above removes any
+        # LithoContactCorrelationEdge rows that referenced this contact.
+        # Re-run the resolver + lens detector so instance_ordinal values
+        # and LithoLens rows stay consistent with the updated edge graph.
+        # Geological contacts have no correlation edges — skip the cascade.
+        if ok:
+            geo_model = await self._session.get(GeologicalModelOrm, model_id)
+            if geo_model is not None and geo_model.kind == "lithostratigraphic":
+                self.debug(
+                    f"litho contact deleted — running resolver + lens detector for model={model_id}"
+                )
+                await ResolveLithoInstances(self._session).execute(
+                    model_id=model_id,
+                    commit=False,
+                )
+                await DetectLithoLenses(self._session).execute(
+                    project_id=project_id,
+                    model_id=model_id,
+                    prefer_section_id=None,
+                )
+
         await self._session.commit()
         if ok:
             self.success(f"Formation contact deleted: {contact_id}")
