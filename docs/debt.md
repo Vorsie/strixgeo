@@ -3182,6 +3182,9 @@ endpoints + manual gesture + basic renderer support.
   line becomes the hit target instead of the body band).
 - Renderer: point-to-point lines between correlated contacts alongside
   the existing body-level ribbons.
+- ``contactCorrelateMode`` standard-on whenever the toolbar's correlate
+  mode is active (owner directive 2026-05-26). Both gestures coexist;
+  Phase 3 removes the legacy body-click surface.
 - Old formation-level endpoints + edge table retained; NOT migrated.
 
 **Phase 2 (next slice, after dogfeed proves Phase 1):**
