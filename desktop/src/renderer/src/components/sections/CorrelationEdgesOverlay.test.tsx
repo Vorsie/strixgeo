@@ -753,4 +753,41 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
     fireEvent.click(screen.getByTestId('contact-hit-cb3'))
     expect(gesture.onContactCorrelate).toHaveBeenCalledWith('ca', 'cb3')
   })
+
+  it('CC10: right-click on contact hit-rect fires onRequestDeleteContact with the contact id', () => {
+    // Confirms that the context-menu gesture on the hit-rect calls the
+    // optional onRequestDeleteContact callback — the caller (SectionsCanvas)
+    // owns the confirm dialog + DELETE round-trip.
+    const onRequestDeleteContact = vi.fn()
+    const gesture = makeContactGestureState({ onRequestDeleteContact })
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    fireEvent.contextMenu(screen.getByTestId('contact-hit-ca'))
+    expect(onRequestDeleteContact).toHaveBeenCalledWith('ca')
+    expect(onRequestDeleteContact).toHaveBeenCalledTimes(1)
+  })
+
+  it('CC10b: right-click without onRequestDeleteContact prop does not throw', () => {
+    // When the caller omits onRequestDeleteContact the context-menu is a
+    // no-op — no error surfaced to the user.
+    const gesture = makeContactGestureState()
+    // gesture has no onRequestDeleteContact → optional-chain is exercised
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactGestureState: gesture,
+    })
+    expect(() => fireEvent.contextMenu(screen.getByTestId('contact-hit-ca'))).not.toThrow()
+  })
 })

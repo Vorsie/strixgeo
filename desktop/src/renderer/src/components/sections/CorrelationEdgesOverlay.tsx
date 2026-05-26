@@ -108,6 +108,13 @@ export interface ContactGestureState {
   onClearArmedContact: () => void
   /** Fired when a valid target contact is clicked — POST contact edge. */
   onContactCorrelate: (contactAId: string, contactBId: string) => Promise<void>
+  /**
+   * Fired when the user right-clicks a contact hit-rect — caller presents
+   * a confirmation dialog and calls DELETE on the contact.  Optional so
+   * callers that only need the arm/correlate path (e.g. tests) don't have
+   * to stub it.
+   */
+  onRequestDeleteContact?: (contactId: string) => void
 }
 
 interface Props {
@@ -620,6 +627,7 @@ export default function CorrelationEdgesOverlay({
     onArmContact,
     onClearArmedContact,
     onContactCorrelate,
+    onRequestDeleteContact,
   } = contactGestureState ?? {
     contactCorrelateMode: false,
     armedContactId: null,
@@ -627,6 +635,7 @@ export default function CorrelationEdgesOverlay({
     onArmContact: (_: string) => {},
     onClearArmedContact: () => {},
     onContactCorrelate: async (_a: string, _b: string) => {},
+    onRequestDeleteContact: undefined,
   }
 
   // Per-band chip data (debt #100). One chip per (investigation × formation)
@@ -860,6 +869,10 @@ export default function CorrelationEdgesOverlay({
                   strokeWidth={isArmed ? 1 : 0}
                   strokeDasharray="3 2"
                   style={{ cursor: 'crosshair', pointerEvents: 'all' }}
+                  onContextMenu={e => {
+                    e.preventDefault()
+                    onRequestDeleteContact?.(c.id)
+                  }}
                   onClick={() => {
                     // Lens-aware state machine (debt #135).  After the first
                     // successful correlation in an arm-cycle the source stays
