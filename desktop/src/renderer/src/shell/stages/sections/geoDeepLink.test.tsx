@@ -287,6 +287,152 @@ describe('GD5 — reference-contact strips are topmost in SVG DOM (render after 
 })
 
 // ---------------------------------------------------------------------------
+// GD6 — "Edit in Geology stage" on litho contact when parent geo contact exists
+//
+// Regression for dogfeed Bug 1 (2026-05-26): right-clicking a NON-TOPMOST
+// litho contact (i.e. a litho-litho boundary within a geological formation)
+// must also show "Edit in Geology stage" when the litho formation has a
+// parent_formation_id AND a matching geological contact at the same anchor
+// exists in referenceContacts.  Before the fix only the topmost boundary
+// (which had a dedicated reference hit-strip) offered the item; lower
+// boundaries silently had no geological context menu.
+// ---------------------------------------------------------------------------
+
+describe('GD6 — litho contact right-click shows geo-deep-link when parent geo contact exists', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('shows "Edit in Geology stage" for a litho contact whose formation has a parent', () => {
+    const onEditInGeologyStage = vi.fn()
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const anchorId = 'borehole-1'
+
+    // Litho formation with a parent geological formation.
+    const lithoFormationId = 'litho-formation-1'
+    const geoFormationId = 'geo-formation-1'
+    const geoContactId = 'geo-contact-1'
+    const lithoContactId = 'litho-contact-1'
+
+    const lithoFormation: GeologicalFormationResponse = {
+      ...makeFormation(lithoFormationId, 'ZAND'),
+      parent_formation_id: geoFormationId,
+    }
+
+    // Active litho contact at 3 m depth.
+    const lithoContact = makeContact(lithoContactId, lithoFormationId, anchorId)
+    lithoContact.depth_top_m = 3
+
+    // Reference geological contact at 1 m (topmost geo boundary) — different
+    // depth so it is a truly separate strip.  The litho contact at 3 m is
+    // BELOW this geological boundary, making it a litho-litho boundary.
+    const geoContact = makeContact(geoContactId, geoFormationId, anchorId)
+    geoContact.depth_top_m = 1
+
+    const geoFormation = makeFormation(geoFormationId, 'Quaternary')
+
+    renderContactsLayer({
+      contacts: [lithoContact],
+      formations: [lithoFormation],
+      placedColumns: [makePlacedColumn(anchorId)],
+      levelToScreen: (level) => (10 - level) * 20,
+      plotTop: 0,
+      plotBottom: 400,
+      referenceContacts: [geoContact],
+      referenceFormations: [geoFormation],
+      onEditInGeologyStage,
+      onDeleteContact,
+      onUpdateContactDepth,
+    })
+
+    // The litho contact drag-strip is present.
+    const activeStrip = document.querySelector('[data-testid="contact-drag-strip"]')
+    expect(activeStrip).not.toBeNull()
+
+    // Right-click the litho contact strip → menu must include the geo deep-link item.
+    fireEvent.contextMenu(activeStrip!)
+    const menuItem = screen.getByTestId('geo-deep-link-menu-item')
+    expect(menuItem).toBeTruthy()
+    expect(menuItem.textContent).toBe('Edit in Geology stage')
+  })
+
+  it('calls onEditInGeologyStage with the parent geo contact id (not the litho contact id)', () => {
+    const onEditInGeologyStage = vi.fn()
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const anchorId = 'borehole-1'
+
+    const lithoFormationId = 'litho-f-1'
+    const geoFormationId = 'geo-f-1'
+    const geoContactId = 'geo-c-1'
+    const lithoContactId = 'litho-c-1'
+
+    const lithoFormation: GeologicalFormationResponse = {
+      ...makeFormation(lithoFormationId, 'KLEI'),
+      parent_formation_id: geoFormationId,
+    }
+
+    const lithoContact = makeContact(lithoContactId, lithoFormationId, anchorId)
+    lithoContact.depth_top_m = 5
+
+    const geoContact = makeContact(geoContactId, geoFormationId, anchorId)
+    geoContact.depth_top_m = 2
+
+    renderContactsLayer({
+      contacts: [lithoContact],
+      formations: [lithoFormation],
+      placedColumns: [makePlacedColumn(anchorId)],
+      levelToScreen: (level) => (10 - level) * 20,
+      plotTop: 0,
+      plotBottom: 400,
+      referenceContacts: [geoContact],
+      referenceFormations: [makeFormation(geoFormationId, 'Quaternary')],
+      onEditInGeologyStage,
+      onDeleteContact,
+      onUpdateContactDepth,
+    })
+
+    const activeStrip = document.querySelector('[data-testid="contact-drag-strip"]')!
+    fireEvent.contextMenu(activeStrip)
+    const menuItem = screen.getByTestId('geo-deep-link-menu-item')
+    fireEvent.click(menuItem)
+
+    // The callback must receive the PARENT geological contact id, not the litho contact id.
+    expect(onEditInGeologyStage).toHaveBeenCalledTimes(1)
+    expect(onEditInGeologyStage).toHaveBeenCalledWith(geoContactId, lithoFormationId)
+  })
+
+  it('does NOT show geo-deep-link for a litho contact with no parent formation', () => {
+    const onEditInGeologyStage = vi.fn()
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const anchorId = 'borehole-1'
+
+    // Litho formation WITHOUT a parent.
+    const lithoFormationId = 'litho-f-orphan'
+    const lithoContact = makeContact('litho-c-orphan', lithoFormationId, anchorId)
+    lithoContact.depth_top_m = 3
+
+    renderContactsLayer({
+      contacts: [lithoContact],
+      formations: [makeFormation(lithoFormationId, 'GRIND')], // parent_formation_id is null
+      placedColumns: [makePlacedColumn(anchorId)],
+      levelToScreen: (level) => (10 - level) * 20,
+      plotTop: 0,
+      plotBottom: 400,
+      onEditInGeologyStage,
+      onDeleteContact,
+      onUpdateContactDepth,
+    })
+
+    const activeStrip = document.querySelector('[data-testid="contact-drag-strip"]')!
+    fireEvent.contextMenu(activeStrip)
+    expect(screen.queryByTestId('geo-deep-link-menu-item')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // GD3 / GD4  — GeologyInspector payload consumer + clear
 // ---------------------------------------------------------------------------
 
