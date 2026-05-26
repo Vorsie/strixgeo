@@ -5,7 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -111,6 +119,17 @@ class LithoContactCorrelationEdgeOrm(Base):
         nullable=False,
         default="manual",
         server_default="manual",
+    )
+
+    # User-approved flag — distinguishes auto-proposed edges (False) from
+    # manual #135 gestures and accepted auto edges (True).  The lens detector
+    # filters to user_approved=True only; auto edges are speculative until
+    # the user clicks "Accept correlations" on the section.  Default TRUE so
+    # all existing Phase 1 manual edges migrate forward as approved.
+    user_approved: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="true",
     )
 
     created_at: Mapped[datetime] = mapped_column(
