@@ -106,6 +106,25 @@ export interface LithoSuggestionEdit {
     amount: string
     locally: boolean
   }[]
+  /**
+   * Internal marker set by the shared-boundary propagation path in
+   * ``LithoSuggestionGhostColumns.handleUp``. When true,
+   * ``applyCrossMergeOnDrag`` skips the cross-merge neighbour scan and
+   * performs a plain depth merge only.
+   *
+   * The double-absorb bug (2026-05-26): dragging a shared boundary calls
+   * ``onEdit`` twice — once for the canonical dragger (primary, with cross-
+   * merge) and once for the partner layer (secondary, shared-boundary
+   * propagation only). Without this flag, the secondary call also ran the
+   * cross-merge scan on the post-primary ghost, where the primary had
+   * already set the dragger's base to ``final``. The secondary then saw
+   * ``newTop <= dragger.updatedBase`` and absorbed the dragger — wrong
+   * direction, double absorb. The flag confines cross-merge to the primary
+   * call only.
+   *
+   * Never persisted to the server; stripped by the accept path.
+   */
+  _propagateOnly?: boolean
 }
 
 /**
