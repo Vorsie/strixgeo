@@ -2,7 +2,8 @@
 
 Deletes, in a single transaction, all of:
   1. ``FormationContact`` rows for the model.
-  2. ``LithoCorrelationEdge`` rows for the model.
+  2. ``LithoContactCorrelationEdge`` rows for the model (contact-level
+     boundary-to-boundary edges, #133 Phase 1+).
   3. ``FormationSurface`` rows for the model.
   4. Litho ``GeologicalFormation`` rows (``litho_main_soil_code IS NOT
      NULL``) anywhere in the project that have no remaining contacts in
@@ -18,17 +19,16 @@ remain untouched.  After a successful clear the model is ready for a fresh
 
 FK-cascade notes
 ----------------
-* ``litho_correlation_edge.model_id`` → ``geological_model`` ON DELETE CASCADE.
-  Deleting a model also drops all its edges; but here we are KEEPING the model
-  and deleting content only, so we run a targeted bulk DELETE first.
-* ``litho_correlation_edge.formation_a_id`` / ``formation_b_id`` →
-  ``geological_formation`` ON DELETE CASCADE.  Deleting a formation would
-  cascade to its edges.  However, by the time we reach step 4 (formation
-  deletes), step 2 has already removed the model's edges — so the FK cascade
-  on those edge rows is a no-op (they are gone).  This ordering makes step 4
-  FK-safe regardless of whether other models' edges point at the same formation
-  (the orphan guard in step 4 prevents deleting a shared formation, so their
-  edges are never touched).
+* ``litho_contact_correlation_edge.model_id`` → ``geological_model``
+  ON DELETE CASCADE. Deleting a model also drops all its edges; but here we
+  are KEEPING the model and deleting content only, so we run a targeted bulk
+  DELETE first.
+* ``litho_contact_correlation_edge.contact_a_id`` / ``contact_b_id`` →
+  ``formation_contact`` ON DELETE CASCADE.  The step-2 contact bulk-DELETE
+  would cascade to these edges anyway; we still issue the explicit edge
+  delete first to keep the row-count returned in
+  :class:`ClearLithoModelResult` accurate (a CASCADE delete does not
+  contribute to the outer statement's ``rowcount``).
 """
 
 from __future__ import annotations
@@ -48,8 +48,8 @@ from groundmodel.infrastructure.db.models.formation_surface_orm import (
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
-from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
-    LithoCorrelationEdgeOrm,
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -63,7 +63,7 @@ class ClearLithoModelResult:
     contacts : int
         Number of ``FormationContact`` rows deleted.
     edges : int
-        Number of ``LithoCorrelationEdge`` rows deleted.
+        Number of ``LithoContactCorrelationEdge`` rows deleted.
     surfaces : int
         Number of ``FormationSurface`` rows deleted.
     formations : int
@@ -101,8 +101,13 @@ class ClearLithoModel(GroundModelLogger):
            scoped: a model whose contacts were already wiped still has
            orphan litho units to remove, and there is no contact link left
            to reach them through.
-        2. Bulk-DELETE all ``FormationContact`` rows for ``model_id``.
-        3. Bulk-DELETE all ``LithoCorrelationEdge`` rows for ``model_id``.
+        2. Bulk-DELETE all ``LithoContactCorrelationEdge`` rows for
+           ``model_id``.  Done BEFORE the contact delete so the explicit
+           statement's ``rowcount`` reflects the actual edge count — a
+           subsequent contact-delete would otherwise CASCADE these rows
+           out invisibly (CASCADE deletes do not roll into the parent
+           statement's ``rowcount``).
+        3. Bulk-DELETE all ``FormationContact`` rows for ``model_id``.
         4. Bulk-DELETE all ``FormationSurface`` rows for ``model_id``.
         5. For each candidate formation from step 1: delete if and only if
            no contact in ANY model references it (orphan-safe — a litho
@@ -140,17 +145,24 @@ class ClearLithoModel(GroundModelLogger):
         )
         self.debug(f"clear_litho_model candidate_fids={len(candidate_fids)} model_id={model_id}")
 
-        # Step 2 — bulk-delete contacts
+        # Step 2 — bulk-delete contact-correlation edges for this model.
+        # Done BEFORE the contact delete: FormationContact rows are the FK
+        # parents of LithoContactCorrelationEdge.contact_a_id/contact_b_id
+        # (ON DELETE CASCADE), so a contact-first order would silently
+        # cascade-delete these edges and the explicit edge DELETE's rowcount
+        # would be 0.  Edges-first preserves an accurate count.
+        edges_result = await self._session.execute(
+            delete(LithoContactCorrelationEdgeOrm).where(
+                LithoContactCorrelationEdgeOrm.model_id == model_id
+            )
+        )
+        n_edges: int = edges_result.rowcount or 0
+
+        # Step 3 — bulk-delete contacts
         contacts_result = await self._session.execute(
             delete(FormationContactOrm).where(FormationContactOrm.model_id == model_id)
         )
         n_contacts: int = contacts_result.rowcount or 0
-
-        # Step 3 — bulk-delete correlation edges for this model
-        edges_result = await self._session.execute(
-            delete(LithoCorrelationEdgeOrm).where(LithoCorrelationEdgeOrm.model_id == model_id)
-        )
-        n_edges: int = edges_result.rowcount or 0
 
         # Step 4 — bulk-delete formation surfaces for this model
         surfaces_result = await self._session.execute(
