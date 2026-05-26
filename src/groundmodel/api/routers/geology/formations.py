@@ -156,12 +156,24 @@ async def create_formation(
 ) -> GeologicalFormationResponse:
     """Create a new formation under the given project.
 
+    Also supports creating a lithostratigraphic child formation without a
+    contact — the caller supplies ``parent_formation_id``,
+    ``litho_main_soil_code``, and optionally ``litho_admixtures``.  This
+    path was added for the "Add new unit" ghost flow (Bug 2 dogfeed
+    2026-05-26): the FE creates the formation row first, then calls the
+    manual ghost handler so the user can drag the contact into place via
+    the normal ghost-extend-accept flow.  No 0.01 m sentinel contact is
+    created.
+
     Parameters
     ----------
     project_id : UUID
         Project scope — the new formation is owned by this project.
     request : GeologicalFormationCreateRequest
-        Creation body; only ``name`` is required.
+        Creation body; only ``name`` is required.  For litho units,
+        supply ``parent_formation_id`` + ``litho_main_soil_code`` (and
+        optionally ``litho_admixtures``) so the find-or-create key in
+        AcceptLithoSuggestions matches on re-use.
     session : AsyncSession
         DB session provided by DI.
 
@@ -181,6 +193,9 @@ async def create_formation(
         description=request.description,
         lithology=request.lithology,
         nad_class=request.nad_class,
+        parent_formation_id=request.parent_formation_id,
+        litho_main_soil_code=request.litho_main_soil_code,
+        litho_admixtures=request.litho_admixtures,
     )
     await session.commit()
     await session.refresh(formation)
