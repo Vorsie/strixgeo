@@ -10,10 +10,12 @@ behavioural contract on its own so the contact-level algorithm
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from uuid import UUID
 
 from groundmodel.domain.services.auto_correlate_helpers import (
     _CandidatePair,
+    _mnn_by_id,
     _mutual_nearest_neighbour,
     mutual_nearest_neighbour,
 )
@@ -112,3 +114,43 @@ def test_mnn_picks_best_when_multiple_competing() -> None:
 def test_mnn_public_alias_matches_private() -> None:
     """``mutual_nearest_neighbour`` is the public alias for ``_mutual_nearest_neighbour``."""
     assert mutual_nearest_neighbour is _mutual_nearest_neighbour
+
+
+@dataclass(frozen=True)
+class _GenericItem:
+    """Tiny stand-in dataclass for exercising ``_mnn_by_id`` directly.
+
+    The generic core does not know about ``_CandidatePair``; this test
+    fixture confirms that any (id_a, id_b, residual) projection works.
+    """
+
+    left: UUID
+    right: UUID
+    score: float
+
+
+def test_mnn_by_id_works_on_custom_dataclass() -> None:
+    """``_mnn_by_id`` operates on any item type given key + residual callables.
+
+    Setup: three items between two pairs of ids.  Item ``c1`` has the
+    lowest residual and ties up (L1, R1) mutually.  ``c2`` competes for
+    R1 from a different left endpoint but loses on residual; it should
+    be dropped.  ``c3`` is the unique candidate for (L2, R2) and
+    survives trivially.
+    """
+    l1 = _make_uuid(101)
+    l2 = _make_uuid(102)
+    r1 = _make_uuid(201)
+    r2 = _make_uuid(202)
+    c1 = _GenericItem(left=l1, right=r1, score=0.1)
+    c2 = _GenericItem(left=l2, right=r1, score=0.5)  # loses to c1 on R1
+    c3 = _GenericItem(left=l2, right=r2, score=0.2)
+
+    result = _mnn_by_id(
+        [c1, c2, c3],
+        key_a=lambda it: it.left,
+        key_b=lambda it: it.right,
+        residual=lambda it: it.score,
+    )
+
+    assert result == [c1, c3]
