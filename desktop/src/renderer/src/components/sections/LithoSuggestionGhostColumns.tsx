@@ -993,17 +993,28 @@ export default function LithoSuggestionGhostColumns({
       // contacts and mutating their stored top/base via the edits map
       // distorts the green-tick ghost rect without changing the actual
       // contact in the DB.
+      // Predict whether the primary onEdit will trigger a cross-merge
+      // absorb inside the parent reducer's applyCrossMergeOnDrag. If it
+      // will, two follow-up emissions become incorrect and MUST be
+      // suppressed (dogfeed 2026-05-26 — bottom layer turning into the
+      // dragger's lithology after a drag-up):
+      //   1. The secondary onEdit on the partner — its ``visible`` index
+      //      was computed pre-absorb; the helper shifts indices down by
+      //      one when it removes the partner. The old index now points
+      //      at the dragger itself, so the secondary would corrupt the
+      //      dragger's opposite edge.
+      //   2. The chain onMergeLayers — same stale-index problem. The
+      //      chain entry was the partner's pre-absorb idx; post-absorb
+      //      that idx points at the layer BELOW the dragger (drag-up)
+      //      or ABOVE (drag-down), so onMergeLayers(min(drag.idx, i))
+      //      would silently merge an untouched neighbour into the
+      //      dragger. The parent's helper already handles the absorb
+      //      atomically; emitting onMergeLayers on top of it is the
+      //      double-merge that surfaced the user's bug.
+      let partnerWillBeAbsorbed = false
       if (drag.edge === 'top') {
-        // Predict whether the primary onEdit will trigger an absorb-up.
-        // If it will, the partner above is about to be removed and indices
-        // will shift down by 1 — the OLD ``visible`` index would then point
-        // at the dragger (post-shift), and the secondary edit would corrupt
-        // the dragger's depth_base_m. Skip the secondary in that case.
-        // (Without this predicate the user sees "the layer below also got
-        // absorbed" — the dragger's base collapses onto its new top
-        // because the secondary writes to the wrong layer; dogfeed 2026-05-26.)
         const visible = nearestVisibleIndexAbove(drag.idx, rejectedIndices)
-        const partnerWillBeAbsorbed = (() => {
+        partnerWillBeAbsorbed = (() => {
           if (visible === null) return false
           if (acceptedIndices.has(visible)) return false
           const partner = suggestions[visible]
@@ -1019,11 +1030,8 @@ export default function LithoSuggestionGhostColumns({
           onEdit(visible, { depth_base_m: final, _propagateOnly: true })
         }
       } else {
-        // Mirror of the top branch — predict absorb-down before firing the
-        // secondary. Without the predicate the dragger's depth_top_m would
-        // be corrupted by the stale ``visible`` index post-shift.
         const visible = nearestVisibleIndexBelow(drag.idx, suggestions.length, rejectedIndices)
-        const partnerWillBeAbsorbed = (() => {
+        partnerWillBeAbsorbed = (() => {
           if (visible === null) return false
           if (acceptedIndices.has(visible)) return false
           const partner = suggestions[visible]
@@ -1054,6 +1062,14 @@ export default function LithoSuggestionGhostColumns({
       //     onMergeLayers is not wired (backwards-compat for callers that
       //     haven't opted in).
       for (const i of chain) {
+        // Skip the chain entry when the cross-merge helper will absorb
+        // the partner — the chain's idx was computed BEFORE the helper's
+        // index-shift, so firing onMergeLayers now would target the
+        // wrong layer post-shift (the layer below the dragger on
+        // drag-up; the layer above on drag-down). Self-collapse
+        // (i === drag.idx) is unaffected — it uses the dragger's own idx
+        // and the helper doesn't touch it.
+        if (partnerWillBeAbsorbed && i !== drag.idx) continue
         if (i !== drag.idx && onMergeLayers !== undefined) {
           // upperIdx is the smaller index — the surviving layer.
           onMergeLayers(Math.min(drag.idx, i))
