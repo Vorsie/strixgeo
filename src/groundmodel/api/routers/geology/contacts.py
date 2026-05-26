@@ -271,10 +271,16 @@ async def update_contact(
         project_id,
         detail="Contact not found",
     )
-    updated = await UpdateFormationContact(session).execute(
-        contact_id, request.model_dump(exclude_unset=True)
-    )
+    use_case = UpdateFormationContact(session)
+    updated = await use_case.execute(contact_id, request.model_dump(exclude_unset=True))
     if updated is None:
+        if use_case.absorbed:
+            # Drag-down cross-merge: the dragger was absorbed by the
+            # formation above. Return 204 No Content — the frontend
+            # refetches contacts on any non-error response to this endpoint.
+            from fastapi import Response
+
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
         # TOCTOU race — row vanished between scope-check and update.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
     return updated
