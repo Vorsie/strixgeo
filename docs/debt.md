@@ -3209,5 +3209,50 @@ endpoints + manual gesture + basic renderer support.
 confirms the boundary-click gesture is usable. Phase 3: before first
 external/paid distribution (backwards-compat re-arm trigger).
 
+## 134. Snap litho contacts to nearby geological contacts (Tier G — sliver prevention)
+
+**What.** When a litho contact is created, accepted, or moved on an
+investigation, check for a geological contact on the SAME investigation
+within ``±20 cm`` (configurable later) of the litho contact's depth. If
+one is found, snap the litho contact's ``depth_top_m`` to the geological
+contact's depth so they share a horizon exactly.
+
+**Why this matters.** Without snapping, a litho contact at ``7.50 m`` and a
+geological contact at ``7.62 m`` on the same investigation produce a
+``12 cm`` sliver layer between them — geologically meaningless, but it
+becomes a real unit in the exported model (separate band in the section
+view, separate row in Plaxis / DXF exports, separate target for geotech
+subdivision). The user can manually drag them flush but it's tedious to
+do per-contact across N investigations after every Suggest pass.
+
+**Where it fires.**
+- ``accept_litho_suggestions.py`` — the bulk + single accept paths. Before
+  inserting the new ``formation_contact``, query for a sibling geological
+  contact within tolerance; if present, set ``depth_top_m`` to the
+  geological depth.
+- ``update_formation_contact.py`` — when a litho contact is dragged, the
+  PATCH handler should also snap.
+- Frontend visual cue: when the dragger is within the snap zone of a
+  geological contact, render a snap indicator (similar to Slice 3's
+  collapse snap; different colour) so the user knows snapping will fire.
+
+**Why deferred.** Real friction in dogfeed but not blocking the litho
+stage's core function. Needs a small design call on:
+- Snap tolerance default (20 cm proposed) — should it be configurable
+  per-project in the litho segmenter prefs alongside min-thickness?
+- Snap direction: does the litho contact always move to the geological,
+  or could it work the other way (snap the geological to the litho when
+  the litho is the user's more recent edit)? Default: always litho → geo
+  since geological is the substrate.
+- Conflict resolution when TWO geological contacts fall within tolerance
+  of a single litho contact (e.g. very thin geological unit). Default:
+  snap to the nearer; if equidistant, snap to the deeper.
+
+**When to revisit.** Next dogfeed pass that reports sliver layers
+producing wrong unit counts in the Plaxis/DXF exports, OR before the
+geotech subdivision work begins (which is downstream of the litho
+geometry and would inherit the slivers).
+Filed from dogfeed session 2026-05-26.
+
 ## (end)
 
