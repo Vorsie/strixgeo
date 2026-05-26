@@ -464,6 +464,8 @@ export interface LithoSuggestionGhostColumnsProps {
     depth_base_m?: number
     suggested_lithology?: string
     suggested_admixtures?: readonly { soil_code: string; amount: string; locally: boolean }[]
+    /** Internal marker — see ``LithoSuggestionEdit._propagateOnly``. */
+    _propagateOnly?: boolean
   }) => void
   /**
    * Debt #86: copy composition to a different anchor (cross-column
@@ -994,14 +996,21 @@ export default function LithoSuggestionGhostColumns({
       if (drag.edge === 'top') {
         if (onEdit) onEdit(drag.idx, { depth_top_m: final })
         const visible = nearestVisibleIndexAbove(drag.idx, rejectedIndices)
+        // Secondary shared-boundary call. Marked _propagateOnly so
+        // applyCrossMergeOnDrag skips the cross-merge scan: the primary
+        // call above already handled any absorb atomically. Without the
+        // flag the secondary would see the primary's just-updated depth
+        // as a cross boundary and absorb the dragger — the double-absorb
+        // bug (dogfeed 2026-05-26).
         if (visible !== null && !acceptedIndices.has(visible) && onEdit) {
-          onEdit(visible, { depth_base_m: final })
+          onEdit(visible, { depth_base_m: final, _propagateOnly: true })
         }
       } else {
         if (onEdit) onEdit(drag.idx, { depth_base_m: final })
         const visible = nearestVisibleIndexBelow(drag.idx, suggestions.length, rejectedIndices)
+        // Mirror of the top-drag secondary — _propagateOnly for the same reason.
         if (visible !== null && !acceptedIndices.has(visible) && onEdit) {
-          onEdit(visible, { depth_top_m: final })
+          onEdit(visible, { depth_top_m: final, _propagateOnly: true })
         }
       }
       // Resolve each chain entry. Two cases:
