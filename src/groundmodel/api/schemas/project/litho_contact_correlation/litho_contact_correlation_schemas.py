@@ -1,4 +1,4 @@
-"""Request / response schemas for litho contact-correlation endpoints (#133 Phase 1).
+"""Request / response schemas for litho contact-correlation endpoints (#133 Phase 1+2).
 
 Endpoints served:
   POST   /projects/{pid}/geology/models/{mid}/contact-correlations
@@ -31,11 +31,18 @@ class ContactCorrelationRequest(BaseModel):
     source : Literal["manual"]
         Provenance token.  Only 'manual' is accepted in Phase 1; 'auto'
         is reserved for Phase 2 auto-correlate.
+    request_section_id : UUID | None
+        The section the user was viewing when they drew (or removed) the
+        edge.  Forwarded to the lens detector as ``prefer_section_id`` so
+        the ``LithoLensOrm.primary_section_id`` is set to the user's
+        active view.  ``None`` is safe — the detector falls back to the
+        lowest-id section containing both anchor investigations.
     """
 
     contact_a_id: UUID
     contact_b_id: UUID
     source: Literal["manual"] = "manual"
+    request_section_id: UUID | None = None
 
     @model_validator(mode="after")
     def _no_self_loop(self) -> ContactCorrelationRequest:
@@ -88,6 +95,10 @@ class ContactCorrelationEdgeListItem(BaseModel):
         The lithostratigraphic model.
     source : str
         Provenance token.
+    user_approved : bool
+        ``True`` when the edge has been explicitly approved by the user
+        (manual gestures + accepted auto edges).  ``False`` for
+        auto-proposed edges that are still pending acceptance.
     created_at : datetime
         Row creation timestamp.
     """
@@ -99,4 +110,5 @@ class ContactCorrelationEdgeListItem(BaseModel):
     contact_b_id: UUID
     model_id: UUID
     source: str
+    user_approved: bool
     created_at: datetime
