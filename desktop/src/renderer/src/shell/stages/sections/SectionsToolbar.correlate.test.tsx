@@ -64,6 +64,12 @@ vi.mock('../../../api/client', async () => {
           edges_created: 0,
           edges_skipped_existing: 0,
         }),
+        acceptContactCorrelations: vi.fn().mockResolvedValue({
+          edges_accepted: 0,
+          lenses_created: 0,
+          lenses_removed: 0,
+          ordinals_changed: 0,
+        }),
       },
       virtueleBoring: {
         getModels: vi.fn().mockResolvedValue([]),
@@ -640,6 +646,102 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
     expect(screen.queryByTestId('re-correlate-confirm-dialog')).toBeNull()
     expect(handleAutoCorrelate).not.toHaveBeenCalled()
     // Button should return to enabled state (autoCorrelating cleared in finally).
+    expect(btn).not.toBeDisabled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests — Accept correlations button (S5 — Task 19)
+//
+// handleAcceptCorrelations (litho-accept-correlations):
+//   S5-1  Button present when axis=lithostratigraphic + model + section.
+//   S5-2  Button disabled when no active litho model.
+//   S5-3  Button disabled when no section selected.
+//   S5-4  Clicking the button calls acceptContactCorrelations with
+//         (projectId, modelId, sectionId) and toasts on success.
+//   S5-5  API error → toasts an error, button re-enables.
+// ---------------------------------------------------------------------------
+
+describe('SectionsToolbar Accept correlations button (Task 19)', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => cleanup())
+
+  it('S5-1: Accept correlations button is present on litho axis with model + section', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+      }),
+    )
+    expect(screen.getByTestId('litho-accept-correlations')).not.toBeNull()
+  })
+
+  it('S5-2: Accept correlations button disabled when no litho model', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: null,
+        selectedSectionId: 'sec-1',
+      }),
+    )
+    expect(screen.getByTestId('litho-accept-correlations')).toBeDisabled()
+  })
+
+  it('S5-3: Accept correlations button disabled when no section selected', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: null,
+      }),
+    )
+    expect(screen.getByTestId('litho-accept-correlations')).toBeDisabled()
+  })
+
+  it('S5-4: clicking Accept calls acceptContactCorrelations(projectId, modelId, sectionId) and toasts success', async () => {
+    vi.mocked(api.geology.acceptContactCorrelations).mockResolvedValueOnce({
+      edges_accepted: 3,
+      lenses_created: 1,
+      lenses_removed: 0,
+      ordinals_changed: 2,
+    })
+    const toast = vi.fn()
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        toast,
+      }),
+    )
+
+    const btn = screen.getByTestId('litho-accept-correlations')
+    await act(async () => { fireEvent.click(btn) })
+
+    expect(api.geology.acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'model-litho-1', 'sec-1')
+    expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('3'))
+    expect(btn).not.toBeDisabled()
+  })
+
+  it('S5-5: API error → toasts error, button re-enables', async () => {
+    vi.mocked(api.geology.acceptContactCorrelations).mockRejectedValueOnce(new Error('server error'))
+    const toast = vi.fn()
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        toast,
+      }),
+    )
+
+    const btn = screen.getByTestId('litho-accept-correlations')
+    await act(async () => { fireEvent.click(btn) })
+
+    expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Accept failed'))
     expect(btn).not.toBeDisabled()
   })
 })

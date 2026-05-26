@@ -5,8 +5,8 @@
 // Sections stage.  All handlers are sourced from useShell() — no props accepted
 // (matches the StageDescriptor.ToolbarComponent contract).
 
-import { useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
@@ -99,6 +99,7 @@ export default function SectionsToolbar(): JSX.Element {
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
   const [acceptingAllBulk, setAcceptingAllBulk] = useState(false)
   const [autoCorrelating, setAutoCorrelating] = useState(false)
+  const [acceptingCorrelations, setAcceptingCorrelations] = useState(false)
   // Re-correlate dialog (Slice 4 Half-A): shown when the user clicks
   // Auto-correlate and source='auto' edges already exist.
   const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
@@ -212,6 +213,39 @@ export default function SectionsToolbar(): JSX.Element {
       setAutoCorrelating(false)
     }
   }
+
+  // Accept correlations (#133 Task 19): approve all unapproved contact-level
+  // correlation edges in the active section, commit lens bodies, recompute
+  // ordinals.  Scoped to the active section so only the engineer's current
+  // working section is affected.  SectionsCanvas refreshes contact edges on
+  // the next axis / section switch; contact edges are also re-fetched
+  // automatically when the section re-mounts.
+  const handleAcceptCorrelations = useCallback(async (): Promise<void> => {
+    if (!activeLithoModel || !selectedSectionId || acceptingCorrelations) return
+    log.info('sections', `acceptCorrelations: section=${selectedSectionId} model=${activeLithoModel.id}`)
+    setAcceptingCorrelations(true)
+    try {
+      const result = await api.geology.acceptContactCorrelations(
+        project.id,
+        activeLithoModel.id,
+        selectedSectionId,
+      )
+      log.success(
+        'sections',
+        `acceptCorrelations: ${result.edges_accepted} accepted, ${result.lenses_created} lenses created`,
+      )
+      toast(
+        'success',
+        `Accepted ${result.edges_accepted} correlation${result.edges_accepted === 1 ? '' : 's'}. ` +
+          `${result.lenses_created} new lens${result.lenses_created === 1 ? '' : 'es'}.`,
+      )
+    } catch (err) {
+      log.error('sections', 'acceptCorrelations: failed', err)
+      toast('error', 'Accept failed — try again.')
+    } finally {
+      setAcceptingCorrelations(false)
+    }
+  }, [activeLithoModel, selectedSectionId, acceptingCorrelations, project.id, toast])
 
   async function handleExportDxf(): Promise<void> {
     // Axis-aware: use the active model for the chosen axis.
@@ -744,6 +778,29 @@ export default function SectionsToolbar(): JSX.Element {
                 : autoCorrelating
                   ? 'Running auto-correlate…'
                   : 'Auto-correlate: run the bottom-up dip-transfer algorithm across the whole model — inserts edges between matching litho units at neighbouring investigations'
+            }
+          />
+          {/* Accept correlations (#133 Task 19) — approve all unapproved
+              contact-level edges in the active section, commit lens bodies,
+              recompute ordinals.  Enabled iff a litho model is active AND a
+              section is selected; the section scopes the accept to the
+              engineer's current view.  Unapproved edges render dashed amber;
+              after accept they turn solid emerald. */}
+          <ToolbarButton
+            icon={<CheckCheck size={13} />}
+            label={acceptingCorrelations ? 'Accepting…' : 'Accept correlations'}
+            onClick={() => { void handleAcceptCorrelations() }}
+            disabled={!activeLithoModel || !hasSection || acceptingCorrelations}
+            busy={acceptingCorrelations}
+            testid="litho-accept-correlations"
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : !hasSection
+                  ? 'Open a cross-section to accept correlations'
+                  : acceptingCorrelations
+                    ? 'Accepting correlations…'
+                    : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals'
             }
           />
           {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
