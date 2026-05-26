@@ -994,22 +994,47 @@ export default function LithoSuggestionGhostColumns({
       // distorts the green-tick ghost rect without changing the actual
       // contact in the DB.
       if (drag.edge === 'top') {
-        if (onEdit) onEdit(drag.idx, { depth_top_m: final })
+        // Predict whether the primary onEdit will trigger an absorb-up.
+        // If it will, the partner above is about to be removed and indices
+        // will shift down by 1 — the OLD ``visible`` index would then point
+        // at the dragger (post-shift), and the secondary edit would corrupt
+        // the dragger's depth_base_m. Skip the secondary in that case.
+        // (Without this predicate the user sees "the layer below also got
+        // absorbed" — the dragger's base collapses onto its new top
+        // because the secondary writes to the wrong layer; dogfeed 2026-05-26.)
         const visible = nearestVisibleIndexAbove(drag.idx, rejectedIndices)
-        // Secondary shared-boundary call. Marked _propagateOnly so
-        // applyCrossMergeOnDrag skips the cross-merge scan: the primary
-        // call above already handled any absorb atomically. Without the
-        // flag the secondary would see the primary's just-updated depth
-        // as a cross boundary and absorb the dragger — the double-absorb
-        // bug (dogfeed 2026-05-26).
-        if (visible !== null && !acceptedIndices.has(visible) && onEdit) {
+        const partnerWillBeAbsorbed = (() => {
+          if (visible === null) return false
+          if (acceptedIndices.has(visible)) return false
+          const partner = suggestions[visible]
+          if (partner === undefined) return false
+          // Mirror of applyCrossMergeOnDrag: absorb fires when the new
+          // top crosses the partner's FAR edge (its depth_top_m), not the
+          // shared near edge.
+          const partnerTop = edits?.get(visible)?.depth_top_m ?? partner.depth_top_m
+          return final <= partnerTop
+        })()
+        if (onEdit) onEdit(drag.idx, { depth_top_m: final })
+        if (!partnerWillBeAbsorbed && visible !== null && !acceptedIndices.has(visible) && onEdit) {
           onEdit(visible, { depth_base_m: final, _propagateOnly: true })
         }
       } else {
-        if (onEdit) onEdit(drag.idx, { depth_base_m: final })
+        // Mirror of the top branch — predict absorb-down before firing the
+        // secondary. Without the predicate the dragger's depth_top_m would
+        // be corrupted by the stale ``visible`` index post-shift.
         const visible = nearestVisibleIndexBelow(drag.idx, suggestions.length, rejectedIndices)
-        // Mirror of the top-drag secondary — _propagateOnly for the same reason.
-        if (visible !== null && !acceptedIndices.has(visible) && onEdit) {
+        const partnerWillBeAbsorbed = (() => {
+          if (visible === null) return false
+          if (acceptedIndices.has(visible)) return false
+          const partner = suggestions[visible]
+          if (partner === undefined) return false
+          // Mirror of applyCrossMergeOnDrag: absorb fires when the new
+          // base crosses the partner's FAR edge (its depth_base_m).
+          const partnerBase = edits?.get(visible)?.depth_base_m ?? partner.depth_base_m
+          return final >= partnerBase
+        })()
+        if (onEdit) onEdit(drag.idx, { depth_base_m: final })
+        if (!partnerWillBeAbsorbed && visible !== null && !acceptedIndices.has(visible) && onEdit) {
           onEdit(visible, { depth_top_m: final, _propagateOnly: true })
         }
       }
