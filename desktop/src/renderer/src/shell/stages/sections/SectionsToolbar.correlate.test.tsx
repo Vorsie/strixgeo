@@ -70,6 +70,12 @@ vi.mock('../../../api/client', async () => {
           lenses_removed: 0,
           ordinals_changed: 0,
         }),
+        materialiseLensCompanions: vi.fn().mockResolvedValue({
+          companion_sections_created: 0,
+          skipped_no_primary: 0,
+          skipped_unfinished_section: 0,
+          errored: 0,
+        }),
       },
       virtueleBoring: {
         getModels: vi.fn().mockResolvedValue([]),
@@ -743,5 +749,99 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
 
     expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Accept failed'))
     expect(btn).not.toBeDisabled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tests — Materialise lens companions button (M1 — Task 20)
+//
+// handleMaterialiseLensCompanions (litho-materialise-lens-companions):
+//   M1-1  Button present + enabled on litho axis with model + section.
+//   M1-2  Clicking calls materialiseLensCompanions(projectId, modelId) and
+//         toasts the four-counter breakdown on success.
+//   M1-3  API error → toasts an error, button re-enables.
+//   M1-4  Button disabled when no section selected (mirrors the Accept
+//         button's pragmatic gate — see SectionsToolbar comment).
+// ---------------------------------------------------------------------------
+
+describe('SectionsToolbar Materialise lens companions button (Task 20)', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(() => cleanup())
+
+  it('M1-1: button is present and enabled with litho model + section', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+      }),
+    )
+    const btn = screen.getByTestId('litho-materialise-lens-companions')
+    expect(btn).not.toBeNull()
+    expect(btn).not.toBeDisabled()
+  })
+
+  it('M1-2: click calls materialiseLensCompanions(projectId, modelId) and toasts counter breakdown', async () => {
+    vi.mocked(api.geology.materialiseLensCompanions).mockResolvedValueOnce({
+      companion_sections_created: 3,
+      skipped_no_primary: 1,
+      skipped_unfinished_section: 2,
+      errored: 0,
+    })
+    const toast = vi.fn()
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        toast,
+      }),
+    )
+
+    const btn = screen.getByTestId('litho-materialise-lens-companions')
+    await act(async () => { fireEvent.click(btn) })
+
+    expect(api.geology.materialiseLensCompanions).toHaveBeenCalledWith('proj-1', 'model-litho-1')
+    // Toast carries all three displayed counters.
+    expect(toast).toHaveBeenCalledTimes(1)
+    const [level, message] = toast.mock.calls[0] as [string, string]
+    expect(level).toBe('success')
+    expect(message).toContain('3')
+    expect(message).toContain('2')
+    expect(message).toContain('1')
+    expect(message).toMatch(/created/i)
+    expect(btn).not.toBeDisabled()
+  })
+
+  it('M1-3: API error → toasts error, button re-enables', async () => {
+    vi.mocked(api.geology.materialiseLensCompanions).mockRejectedValueOnce(new Error('server error'))
+    const toast = vi.fn()
+
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        toast,
+      }),
+    )
+
+    const btn = screen.getByTestId('litho-materialise-lens-companions')
+    await act(async () => { fireEvent.click(btn) })
+
+    expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Materialise lens companions failed'))
+    expect(btn).not.toBeDisabled()
+  })
+
+  it('M1-4: button disabled when no section selected', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: null,
+      }),
+    )
+    expect(screen.getByTestId('litho-materialise-lens-companions')).toBeDisabled()
   })
 })

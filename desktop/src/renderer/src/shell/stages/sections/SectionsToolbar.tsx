@@ -6,7 +6,7 @@
 // (matches the StageDescriptor.ToolbarComponent contract).
 
 import { useCallback, useMemo, useState } from 'react'
-import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck } from 'lucide-react'
+import { Trash2, FileOutput, FileText, Cpu, Sparkles, Eraser, Plus, GitMerge, Undo2, FlaskConical, Zap, CheckCheck, Layers } from 'lucide-react'
 import ReportMetadataDialog from '../../../components/sections/ReportMetadataDialog'
 import ReCorrelateConfirmDialog from '../../../components/ReCorrelateConfirmDialog'
 
@@ -100,6 +100,11 @@ export default function SectionsToolbar(): JSX.Element {
   const [acceptingAllBulk, setAcceptingAllBulk] = useState(false)
   const [autoCorrelating, setAutoCorrelating] = useState(false)
   const [acceptingCorrelations, setAcceptingCorrelations] = useState(false)
+  // Materialise lens companions (#133 Task 20) — busy flag for the toolbar
+  // button.  Per-click flow: for every LithoLens without a companion section,
+  // gate on "all contacts in its primary section have ≥1 approved edge" and
+  // create a perpendicular companion section.
+  const [materialisingCompanions, setMaterialisingCompanions] = useState(false)
   // Re-correlate dialog (Slice 4 Half-A): shown when the user clicks
   // Auto-correlate and source='auto' edges already exist.
   const [reCorrelateConfirmOpen, setReCorrelateConfirmOpen] = useState(false)
@@ -246,6 +251,46 @@ export default function SectionsToolbar(): JSX.Element {
       setAcceptingCorrelations(false)
     }
   }, [activeLithoModel, selectedSectionId, acceptingCorrelations, project.id, toast])
+
+  // Materialise lens companions (#133 Task 20): for every LithoLens without
+  // a companion section, gate on all contacts in its primary section having
+  // ≥1 approved edge, then create a perpendicular companion section.  This
+  // is a model-level operation (no section scope) — the server iterates all
+  // lenses in the active litho model.
+  //
+  // ``SectionsToolbar`` does not currently expose ``refetchLithoLenses`` /
+  // ``refetchCrossSections`` through ``useShell`` — the next focus/route
+  // change refreshes the section list naturally.  When the plumbing lands
+  // we'll thread the refetch calls here; the toast keeps the user informed
+  // in the meantime so the missing refresh isn't load-bearing.
+  const handleMaterialiseLensCompanions = useCallback(async (): Promise<void> => {
+    if (!activeLithoModel || materialisingCompanions) return
+    log.info('sections', `materialiseLensCompanions: model=${activeLithoModel.id}`)
+    setMaterialisingCompanions(true)
+    try {
+      const result = await api.geology.materialiseLensCompanions(
+        project.id,
+        activeLithoModel.id,
+      )
+      log.success(
+        'sections',
+        `materialiseLensCompanions: ${result.companion_sections_created} created, ` +
+          `${result.skipped_unfinished_section} unfinished, ` +
+          `${result.skipped_no_primary} no-primary, ${result.errored} errored`,
+      )
+      toast(
+        'success',
+        `Lens companions: ${result.companion_sections_created} created, ` +
+          `${result.skipped_unfinished_section} skipped (sections not fully correlated), ` +
+          `${result.skipped_no_primary} skipped (no primary section).`,
+      )
+    } catch (err) {
+      log.error('sections', 'materialiseLensCompanions: failed', err)
+      toast('error', 'Materialise lens companions failed — try again.')
+    } finally {
+      setMaterialisingCompanions(false)
+    }
+  }, [activeLithoModel, materialisingCompanions, project.id, toast])
 
   async function handleExportDxf(): Promise<void> {
     // Axis-aware: use the active model for the chosen axis.
@@ -801,6 +846,32 @@ export default function SectionsToolbar(): JSX.Element {
                   : acceptingCorrelations
                     ? 'Accepting correlations…'
                     : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals'
+            }
+          />
+          {/* Materialise lens companions (#133 Task 20) — model-level
+              operation that creates perpendicular companion sections for
+              every LithoLens whose primary section is fully correlated.
+              Ideally disabled when zero lenses are missing companions, but
+              ``SectionsToolbar`` does not have direct access to
+              ``lithoLenses`` + ``crossSections``; pragmatic gate mirrors
+              the Accept button (model + section).  The server returns
+              counters either way; toast shows "0 created" when nothing
+              applies. */}
+          <ToolbarButton
+            icon={<Layers size={13} />}
+            label={materialisingCompanions ? 'Materialising…' : 'Materialise lens companions'}
+            onClick={() => { void handleMaterialiseLensCompanions() }}
+            disabled={!activeLithoModel || !hasSection || materialisingCompanions}
+            busy={materialisingCompanions}
+            testid="litho-materialise-lens-companions"
+            title={
+              !activeLithoModel
+                ? 'Create a lithostratigraphic model first'
+                : !hasSection
+                  ? 'Open a cross-section to materialise lens companions'
+                  : materialisingCompanions
+                    ? 'Materialising lens companions…'
+                    : 'Create perpendicular companion sections for every LithoLens whose primary section is fully correlated'
             }
           />
           {/* Admixtures dropdown (dogfeed 2026-05-22) — strip / reseed
