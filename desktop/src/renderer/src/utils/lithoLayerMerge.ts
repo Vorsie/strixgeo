@@ -323,6 +323,23 @@ export function applyCrossMergeOnDrag(
   //      fall through to the simple merge so we don't waste cycles
   //      on the neighbour scan.
   if (ghost.suggestions[idx] === undefined) return ghost
+  // Shared-boundary propagation path (double-absorb fix, dogfeed 2026-05-26).
+  // When ``handleUp`` fires the secondary ``onEdit`` for the partner of the
+  // dragged layer (shared-boundary commit), it marks the edit with
+  // ``_propagateOnly: true``. In that case the cross-merge neighbour scan
+  // must NOT run: the primary ``onEdit`` on the dragger already handled any
+  // cross-merge atomically; running a second scan on the post-primary ghost
+  // would see the dragger's updated depth as a cross boundary and absorb it
+  // in the wrong direction — the double-absorb bug. Fall through to the plain
+  // merge to store only the propagated depth.
+  if (edit._propagateOnly) {
+    const nextEdits = new Map(ghost.edits)
+    const prior = nextEdits.get(idx) ?? {}
+    // Strip _propagateOnly so it doesn't accumulate in the stored edits Map.
+    const { _propagateOnly: _, ...cleanEdit } = edit
+    nextEdits.set(idx, { ...prior, ...cleanEdit })
+    return { ...ghost, edits: nextEdits }
+  }
   // Resolve pre-edit effective depths so we can detect direction.
   // Both calls are guaranteed non-null by the bounds check above.
   const preTop = effectiveEdge(ghost, idx, 'depth_top_m') as number
