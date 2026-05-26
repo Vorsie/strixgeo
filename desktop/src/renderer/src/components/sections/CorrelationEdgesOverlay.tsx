@@ -176,6 +176,15 @@ export interface ContactGestureState {
   contactCorrelateMode: boolean
   /** Id of the currently armed source contact, null when nothing armed. */
   armedContactId: string | null
+  /**
+   * Investigation id of the most recent successful target while the same
+   * source is still armed.  ``null`` when no edge has committed yet in the
+   * current arm-cycle (or the source was just freshly armed).  Drives the
+   * lens-pinch-out gesture (debt #135): a second click on a different
+   * contact in the same target investigation fires a second correlation
+   * from the still-armed source instead of clearing.
+   */
+  lastTargetTestId: string | null
   /** Arm a source contact by id. */
   onArmContact: (contactId: string) => void
   /** Clear armed state (stay in mode). */
@@ -894,6 +903,7 @@ export default function CorrelationEdgesOverlay({
   const {
     contactCorrelateMode,
     armedContactId,
+    lastTargetTestId,
     onArmContact,
     onClearArmedContact,
     onContactCorrelate,
@@ -901,6 +911,7 @@ export default function CorrelationEdgesOverlay({
   } = contactGestureState ?? {
     contactCorrelateMode: false,
     armedContactId: null,
+    lastTargetTestId: null,
     onArmContact: (_: string) => {},
     onClearArmedContact: () => {},
     onContactCorrelate: async (_a: string, _b: string) => {},
@@ -1851,16 +1862,59 @@ export default function CorrelationEdgesOverlay({
                   strokeDasharray="3 2"
                   style={{ cursor: 'crosshair', pointerEvents: 'all' }}
                   onClick={() => {
+                    // Lens-aware state machine (debt #135).  After the first
+                    // successful correlation in an arm-cycle the source stays
+                    // armed and ``lastTargetTestId`` carries the target's
+                    // investigation.  A subsequent click on a different
+                    // contact in the SAME target investigation fires a second
+                    // edge from the same source — the lens-pinch-out gesture.
+                    // Clicks elsewhere clear the sticky state instead of
+                    // auto-firing across unrelated tests.
                     if (isArmed) {
-                      // Click on the armed source → clear the arm
+                      // a) Click on the armed source → disarm everything.
                       onClearArmedContact()
-                    } else if (armedContactId !== null) {
-                      // A different contact is armed → fire correlation
-                      void onContactCorrelate(armedContactId, c.id)
-                    } else {
-                      // Nothing armed → arm this contact
-                      onArmContact(c.id)
+                      return
                     }
+                    if (armedContactId === null) {
+                      // b) Nothing armed → arm this contact.
+                      onArmContact(c.id)
+                      return
+                    }
+                    // Source is armed and the click is on some other contact.
+                    const clickedTestId = anchorId(c)
+                    const armedContact = contacts.find(x => x.id === armedContactId)
+                    const armedTestId = armedContact ? anchorId(armedContact) : null
+                    if (armedTestId !== null && clickedTestId === armedTestId) {
+                      // c) Click in the source's own investigation → re-arm
+                      //    to this contact (start a new gesture from here).
+                      //    Also clears the sticky lens window.
+                      onArmContact(c.id)
+                      return
+                    }
+                    if (
+                      lastTargetTestId !== null &&
+                      clickedTestId !== null &&
+                      clickedTestId === lastTargetTestId
+                    ) {
+                      // d) Lens-pinch-out: another click in the same target
+                      //    investigation while the source is still armed.
+                      //    Generalises to N≥2 clicks (stacked lenses).
+                      void onContactCorrelate(armedContactId, c.id)
+                      return
+                    }
+                    if (lastTargetTestId === null) {
+                      // e) First edge of this arm-cycle → fire correlation.
+                      //    SectionsCanvas will keep the source armed and
+                      //    record ``lastTargetTestId`` on success.
+                      void onContactCorrelate(armedContactId, c.id)
+                      return
+                    }
+                    // f) Click in some third investigation (neither source's
+                    //    nor the last-target's) → conservative: do NOT
+                    //    auto-fire across an unrelated test.  Clear sticky
+                    //    + re-arm to this contact so the user can start a
+                    //    fresh gesture from here.
+                    onArmContact(c.id)
                   }}
                 />
               </g>
