@@ -6,14 +6,23 @@ flagged stale; the PRE-update formation is *also* flagged only when
 the patch moved the contact to a different formation within the same
 model (a re-anchor — the old surface just lost a contact).
 
+Also covers cross-merge direction logic (Bug C regression suite):
+
+* Drag UP   (new_depth < old_depth) — dragger survives; all peers in
+  [new_depth, old_depth) are deleted.
+* Drag DOWN (new_depth > old_depth) — formation above absorbs dragger;
+  all peers in (old_depth, new_depth] are deleted AND dragger is deleted;
+  execute returns None with absorbed=True.
+
 Session mocked at the ``get`` / ``commit`` / ``refresh`` boundary;
-repo swapped for an ``AsyncMock``.
+repo swapped for an ``AsyncMock``.  The cross-merge path also mocks
+``session.execute`` to return a controlled peer list without a DB.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -113,3 +122,185 @@ async def test_returns_none_when_row_vanished_mid_update() -> None:
     assert result is None
     uc._repo.mark_surfaces_stale.assert_not_awaited()
     session.commit.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Cross-merge direction tests (Bug C regression suite, dogfeed 2026-05-26).
+#
+# These lock the drag-UP / drag-DOWN branching logic in execute() so that a
+# future refactor cannot silently invert the winner without failing tests.
+# ---------------------------------------------------------------------------
+
+
+def _make_peer_session(pre: SimpleNamespace, peers: list[SimpleNamespace]) -> AsyncMock:
+    """Build an AsyncMock session where execute().scalars().all() returns peers.
+
+    Parameters
+    ----------
+    pre : SimpleNamespace
+        The contact row returned by session.get (the dragger).
+    peers : list[SimpleNamespace]
+        Peer contacts returned by the scalar query.
+
+    Returns
+    -------
+    AsyncMock
+        Configured session mock.
+    """
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=pre)
+
+    # session.execute() returns an object whose .scalars().all() returns peers.
+    scalars_result = MagicMock()
+    scalars_result.all.return_value = peers
+    execute_result = MagicMock()
+    execute_result.scalars.return_value = scalars_result
+    session.execute = AsyncMock(return_value=execute_result)
+
+    # session.get for the model (litho cascade check) must return a geological model
+    # so the litho cascade is skipped — we only want to test direction logic here.
+    geo_model = SimpleNamespace(kind="geological", app_project_id=uuid4())
+
+    # Make session.get return `pre` for the contact id and `geo_model` for the
+    # model id.  Use a side_effect that dispatches by positional arg.
+    async def _get_dispatch(cls, pk, **_kwargs):  # type: ignore[override]
+        # cls is the ORM class, pk is the primary key.
+        from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+        from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+
+        if cls is FormationContactOrm:
+            return pre
+        if cls is GeologicalModelOrm:
+            return geo_model
+        return None
+
+    session.get = _get_dispatch  # type: ignore[assignment]
+    return session
+
+
+@pytest.mark.asyncio
+async def test_drag_up_dragger_wins_crossed_peer_deleted() -> None:
+    """Drag UP: new_depth < old_depth → dragger survives; crossed peer deleted.
+
+    Scenario (Bug C regression):
+      - SAND dragger at depth 10m is dragged UP to 2m.
+      - SILT peer at depth 5m sits in [2, 10) → must be deleted.
+      - Dragger is NOT deleted (absorbed=False).
+      - update_contact is called with the new depth.
+    """
+    bh_id = uuid4()
+    silt_id = uuid4()
+    updated_contact = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
+
+    pre = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=F_OLD,
+        id=CONTACT,
+        depth_top_m=10.0,  # SAND dragger at 10m
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    silt_peer = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=uuid4(),
+        id=silt_id,
+        depth_top_m=5.0,  # SILT peer at 5m — sits in [2, 10)
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    session = _make_peer_session(pre, [silt_peer])
+    uc = _use_case(session)
+    uc._repo.update_contact = AsyncMock(return_value=updated_contact)
+
+    result = await uc.execute(CONTACT, {"depth_top_m": 2.0})
+
+    # Dragger survives with the new depth.
+    assert result is updated_contact
+    assert uc.absorbed is False
+    # SILT peer was deleted.
+    session.delete.assert_awaited_once_with(silt_peer)
+    # update_contact was called for the dragger (normal update path).
+    uc._repo.update_contact.assert_awaited_once()
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_drag_down_formation_above_wins_dragger_absorbed() -> None:
+    """Drag DOWN: new_depth > old_depth → formation above absorbs dragger.
+
+    Scenario:
+      - SILT dragger at depth 5m is dragged DOWN to 12m.
+      - SAND peer at depth 10m sits in (5, 12] → must be deleted.
+      - Dragger itself is also deleted (absorbed=True).
+      - execute returns None.
+    """
+    bh_id = uuid4()
+    sand_id = uuid4()
+
+    pre = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=F_OLD,
+        id=CONTACT,
+        depth_top_m=5.0,  # SILT dragger at 5m
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    sand_peer = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=uuid4(),
+        id=sand_id,
+        depth_top_m=10.0,  # SAND peer at 10m — sits in (5, 12]
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    session = _make_peer_session(pre, [sand_peer])
+    uc = _use_case(session)
+    # update_contact must NOT be called on the absorbed path.
+
+    result = await uc.execute(CONTACT, {"depth_top_m": 12.0})
+
+    # Formation above absorbed the dragger → None returned.
+    assert result is None
+    assert uc.absorbed is True
+    # Both the peer AND the dragger were deleted.
+    deleted_ids = {call.args[0].id for call in session.delete.call_args_list}
+    assert sand_id in deleted_ids
+    assert CONTACT in deleted_ids
+    # update_contact must NOT have been called.
+    uc._repo.update_contact.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_drag_up_no_peers_in_range_no_deletion() -> None:
+    """Drag UP with no peers in range: dragger moves, nothing deleted."""
+    bh_id = uuid4()
+    updated_contact = SimpleNamespace(model_id=MODEL, formation_id=F_OLD)
+
+    pre = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=F_OLD,
+        id=CONTACT,
+        depth_top_m=10.0,
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    # Peer ABOVE the new depth (0.5m) — not in [2, 10) so must NOT be deleted.
+    peer_above = SimpleNamespace(
+        model_id=MODEL,
+        formation_id=uuid4(),
+        id=uuid4(),
+        depth_top_m=0.5,
+        borehole_id=bh_id,
+        cpt_id=None,
+    )
+    session = _make_peer_session(pre, [peer_above])
+    uc = _use_case(session)
+    uc._repo.update_contact = AsyncMock(return_value=updated_contact)
+
+    result = await uc.execute(CONTACT, {"depth_top_m": 2.0})
+
+    assert result is updated_contact
+    assert uc.absorbed is False
+    # No peer was in the crossed range — no delete call.
+    session.delete.assert_not_awaited()
+    uc._repo.update_contact.assert_awaited_once()
