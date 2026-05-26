@@ -603,6 +603,7 @@ export default function SectionsCanvas(): JSX.Element {
           activeLithoModel.id,
           contactAId,
           contactBId,
+          selectedSectionId,
         )
         await refetchContactEdges()
         // Lens-aware gesture (debt #135): keep ``armedContactId`` set after
@@ -628,7 +629,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast('error', 'Could not create the boundary correlation — try again.')
       }
     },
-    [activeLithoModel, project.id, refetchContactEdges, toast, lithoContacts],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts],
   )
 
   const handleDeleteContactCorrelation = useCallback(
@@ -654,6 +655,7 @@ export default function SectionsCanvas(): JSX.Element {
           activeLithoModel.id,
           contactAId,
           contactBId,
+          selectedSectionId,
         )
         await refetchContactEdges()
         log.success(
@@ -669,7 +671,7 @@ export default function SectionsCanvas(): JSX.Element {
         await refetchContactEdges()
       }
     },
-    [activeLithoModel, project.id, refetchContactEdges],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges],
   )
 
   // Build the contactGestureState passed to SectionPanel.
