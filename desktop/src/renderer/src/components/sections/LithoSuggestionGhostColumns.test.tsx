@@ -659,11 +659,14 @@ describe('LithoSuggestionGhostColumns', () => {
     // Auto-reject the absorbed neighbour (layer 1).
     expect(onReject).toHaveBeenCalledTimes(1)
     expect(onReject).toHaveBeenCalledWith(1)
-    // Shared-boundary commit at layer 1's FAR edge (depth 4).
+    // Primary commit extends layer 0's base to layer 1's FAR edge (depth 4).
+    // Secondary onEdit on layer 1 is SKIPPED (dogfeed 2026-05-26: setting
+    // depth_top_m on a layer that is being auto-rejected is pointless and
+    // produced a stale-index double-merge bug).
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
-    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(4, 5)
+    expect(layer1Edit).toBeUndefined()
   })
 
   it('G33 — top-drag past pending neighbour absorbs the neighbour on snap (auto-reject)', () => {
@@ -684,11 +687,12 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(screen.queryByTestId('merge-confirm-title')).toBeNull()
     expect(onReject).toHaveBeenCalledTimes(1)
     expect(onReject).toHaveBeenCalledWith(0)
-    // Shared-boundary commit at layer 0's FAR edge (depth 0 = ground).
+    // Primary commit extends layer 1's top to layer 0's FAR edge (depth 0 =
+    // ground). Secondary onEdit on layer 0 is SKIPPED (dogfeed 2026-05-26).
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(0, 5)
-    expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(0, 5)
+    expect(layer0Edit).toBeUndefined()
   })
 
   // G33b — dogfeed 2026-05-23: dragging a boundary AT (not past) the
@@ -2007,12 +2011,13 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.mouseUp(document)
     // Pre-fix: cascade chain absorbed layers 1+2, bound at layer 2's
     // base = 6, both rejected on snap-and-merge. Now: drag stops at
-    // layer 1's FAR edge (= 4). Layer 2 untouched.
+    // layer 1's FAR edge (= 4). Layer 2 untouched. Secondary onEdit on
+    // layer 1 is SKIPPED because absorb is predicted (dogfeed 2026-05-26).
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     const layer2Edit = onEdit.mock.calls.find(([idx]) => idx === 2)
     expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
-    expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(4, 5)
+    expect(layer1Edit).toBeUndefined()
     expect(layer2Edit).toBeUndefined()
   })
 
