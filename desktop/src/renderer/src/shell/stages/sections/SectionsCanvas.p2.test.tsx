@@ -886,6 +886,45 @@ describe('Manual litho unit creation — handleManualLithoUnitCreate', () => {
 // Re-enable this test when Task 19 wires createContactCorrelation.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// LX — litho-axis left-click is a no-op (Bug B revert, dogfeed 2026-05-26)
+//
+// Left-click on the litho axis previously called handleCreateManualLithoGhost,
+// creating a zero-thickness invisible ghost. The user can't see it and can't
+// understand why a click "did nothing". The right-click "Create layer" context
+// menu is the intended entry point. This test asserts the callback is a no-op.
+// ---------------------------------------------------------------------------
+
+describe('Litho axis left-click is a no-op (Bug B — dogfeed 2026-05-26)', () => {
+  it('LX1 — sectionAwareCreateContact on litho axis returns without calling handleCreateManualLithoGhost', async () => {
+    const createManualLithoGhost = vi.fn()
+    const ctx = makeStubContext({
+      section: makeSection({ seeded_formation_contact_ids: [] }),
+      lithoModel: makeLithoModel(),
+      sectionModelAxis: 'lithostratigraphic',
+    })
+    // Override the ghost handler so we can spy on it.
+    ;(ctx.geoModel as typeof ctx.geoModel).handleCreateManualLithoGhost = createManualLithoGhost
+
+    render(
+      <ShellContext.Provider value={ctx}>
+        <SectionsCanvas />
+      </ShellContext.Provider>,
+    )
+
+    // onCreateContact is the sectionAwareCreateContact callback.
+    expect(capturedOnCreateContact).toBeDefined()
+
+    // Invoke as if the user left-clicked on the litho axis contact-pick bar.
+    await act(async () => {
+      await capturedOnCreateContact!('borehole', 'bh-1', 3.5, 'form-xyz', false)
+    })
+
+    // The ghost handler MUST NOT have been called — litho left-click is a no-op.
+    expect(createManualLithoGhost).not.toHaveBeenCalled()
+  })
+})
+
 describe('handleCorrelate — armed source persists on failure (review S5)', () => {
   it.skip('S5 — failed POST does NOT clear the armed source and toasts an error [Task 19]', async () => {
     mockCorrelate.mockRejectedValue(new Error('422 cross-group race'))
