@@ -3280,5 +3280,72 @@ geotech subdivision work begins (which is downstream of the litho
 geometry and would inherit the slivers).
 Filed from dogfeed session 2026-05-26.
 
+## 135. Two correlation edges from one contact for lens topology (Tier G — gesture extension)
+
+**What.** Extend the boundary-to-boundary correlate gesture (debt #133)
+so the user can draw both a TOP edge and a BOTTOM edge originating from
+the SAME contact. Use case: lens pinch-out terminus on the receiving
+column — the lens's top and bottom contacts on column A both converge to
+a single contact (or location) on column B where the lens disappears to
+zero thickness.
+
+Concretely the user wants this gesture sequence to be expressible:
+
+1. Click the lens's TOP contact on column A
+2. Click the corresponding TOP boundary on column B (likely the same
+   formation top at column B's lens-free depth)
+3. Click the lens's BOTTOM contact on column A
+4. Click the SAME contact on column B (the pinch point — lens has zero
+   thickness here, both arms terminate at one boundary)
+
+Result: two ``litho_contact_correlation_edge`` rows sharing a
+``contact_b_id``. The renderer draws both lines from column A's two
+contacts converging at column B's single contact — the classic
+pinch-out wedge geometry.
+
+**What probably needs to happen.**
+
+* **Schema**: already supports it. The unique constraint is on the
+  canonical-ordered ``(model_id, min(a, b), max(a, b))`` pair — two
+  different rows ``(A5, B)`` and ``(A7, B)`` are distinct pairs because
+  ``A5 != A7``. No schema change needed.
+* **Gesture state machine**: today's contact-correlate flow likely
+  resets the "first pick" state after each edge commits. That's fine for
+  independent edges; for lens topology the user wants to immediately
+  start a SECOND edge that re-uses one endpoint. Either:
+  - The state machine stays one-edge-at-a-time and the user just clicks
+    twice more for the second edge (re-picking the shared contact). Two
+    extra clicks but no UI changes required.
+  - OR: add a "compose lens" mode — after committing one edge, hold a
+    modifier (Shift?) on the next click to keep the previous contact
+    armed as one end of a new edge. Faster but extra UX surface.
+  Default: ship the simple shape (two clicks per edge, no modifier).
+  Revisit if dogfeed shows the click cost is friction.
+* **Renderer**: confirm `CorrelationEdgesOverlay` doesn't dedupe or
+  consolidate edges that share an endpoint. Each edge should render as
+  its own line. If the basic ribbon helper from #121 merges shared-
+  endpoint pairs, the lens wedge won't render — must keep them
+  visually distinct OR add explicit pinch-out wedge rendering at the
+  shared endpoint (which is closer to #131's deferred lens-aware
+  ribbon work).
+* **Lens detection (Phase 2 of #133)**: when the lens-detection use
+  case lands, the "two edges from A converging to one contact on B"
+  pattern is the structural signature it should look for. Phase 2 reads
+  this topology and creates the lens entity.
+
+**Why deferred.** Phase 1 of #133 shipped the manual contact-correlate
+gesture with a one-edge-at-a-time state machine. The above gesture works
+TODAY in principle (the user can click 4 times to make 2 edges sharing
+one endpoint), but the UX hasn't been verified against the renderer
+and the lens-detection consumer isn't built yet. Worth a focused slice
+once the user has dogfed Phase 1 enough to know which UX shape
+(simple-two-clicks vs Shift-compose) feels right.
+
+**When to revisit.** Alongside #133 Phase 2 (auto-correlate at contact
+level + lens detection). The lens-detection work needs this gesture
+shape to work so the user can express the lens topology that
+auto-correlate is expected to also produce.
+Filed from dogfeed session 2026-05-26.
+
 ## (end)
 
