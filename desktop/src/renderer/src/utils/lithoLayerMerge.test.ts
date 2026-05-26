@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { LithoLayerSuggestion } from '../api/client'
 import type { BulkAnchorGhost } from '../hooks/useGeologicalModel'
-import { absorbLithoLayer, canMergeAt, mergeLithoLayers } from './lithoLayerMerge'
+import { absorbLithoLayer, applyCrossMergeOnDrag, canMergeAt, mergeLithoLayers } from './lithoLayerMerge'
 
 function L(top: number, base: number, overrides?: Partial<LithoLayerSuggestion>): LithoLayerSuggestion {
   return {
@@ -271,5 +271,62 @@ describe('absorbLithoLayer (dogfeed 2026-05-25)', () => {
     expect(next.edits.get(0)?.suggested_lithology).toBe('KLEI')
     expect(next.edits.get(0)?.depth_top_m).toBe(0.5)
     expect(next.edits.get(0)?.depth_base_m).toBe(4)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// applyCrossMergeOnDrag — plain-drag cross-merge (no Shift required)
+// ---------------------------------------------------------------------------
+// CM: cross-merge test ids.
+
+describe('applyCrossMergeOnDrag', () => {
+  it('CM1 — TOP dragged UP past neighbour base → neighbour deleted, dragger top extended', () => {
+    // Three layers: 0→2, 2→4, 4→6.
+    // Drag layer 2 (idx=1) TOP from 2 to 1.5 — crosses neighbour 0 whose base is 2.
+    // (new top 1.5 <= neighbourBase 2 → absorb-up)
+    // After absorb: layer count = 2; dragger's top extends to neighbour's top (0).
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)])
+    const result = applyCrossMergeOnDrag(g, 1, { depth_top_m: 1.5 })
+    // Neighbour (idx 0) absorbed → 2 layers remain.
+    expect(result.suggestions).toHaveLength(2)
+    // Dragger (was idx 1, now idx 0 after absorb-up) has top extended to 0.
+    expect(result.edits.get(0)?.depth_top_m).toBe(0)
+    // Original bottom layer (was idx 2) now at idx 1 — unchanged.
+    expect(result.suggestions[1].depth_top_m).toBe(4)
+  })
+
+  it('CM2 — BASE dragged DOWN past neighbour top → neighbour deleted, dragger base extended', () => {
+    // Three layers: 0→2, 2→4, 4→6.
+    // Drag layer 0 (idx=0) BASE from 2 to 4.5 — crosses neighbour 1 whose top is 2.
+    // (new base 4.5 >= neighbourTop 2 → absorb-down)
+    // After absorb: 2 layers; dragger base extended to neighbour base (4).
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)])
+    const result = applyCrossMergeOnDrag(g, 0, { depth_base_m: 4.5 })
+    expect(result.suggestions).toHaveLength(2)
+    // Dragger stays at idx 0; its base extended to absorbed layer's effective base (4).
+    expect(result.edits.get(0)?.depth_base_m).toBe(4)
+    // Third layer (was idx 2) shifts to idx 1.
+    expect(result.suggestions[1].depth_top_m).toBe(4)
+  })
+
+  it('CM3 — drag within own range → plain depth edit, no deletion', () => {
+    // Layer 1 (2→4) top dragged slightly up to 2.5 — does NOT cross neighbour 0 base (2).
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)])
+    const result = applyCrossMergeOnDrag(g, 1, { depth_top_m: 2.5 })
+    // No structural change — still 3 layers.
+    expect(result.suggestions).toHaveLength(3)
+    // Simple edit stored at idx 1.
+    expect(result.edits.get(1)?.depth_top_m).toBe(2.5)
+  })
+
+  it('CM4 — accepted neighbour above is a hard barrier, no absorb', () => {
+    // Layer 1 (2→4) accepted; layer 2 (4→6) top dragged to 1.5 — would cross accepted idx 1.
+    // Accepted layers are frozen; no absorb should fire.
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)], { accepted: new Set([1]) })
+    const result = applyCrossMergeOnDrag(g, 2, { depth_top_m: 1.5 })
+    // Accepted barrier prevents absorb — still 3 layers.
+    expect(result.suggestions).toHaveLength(3)
+    // Edit stored at the dragger idx.
+    expect(result.edits.get(2)?.depth_top_m).toBe(1.5)
   })
 })
