@@ -220,6 +220,14 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_FORMATION_ABSENCES_PER_BUNDLE,
     )
+    # Contact-level correlation edges (#133 Phase 2+3).  Additive — absent
+    # in bundles saved before this field shipped; default_factory=list so
+    # older files open cleanly.  Restore order: after formation_contact rows
+    # (both contact_a_id and contact_b_id FK into formation_contact).
+    litho_contact_correlation_edges: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
+    )
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — absent in bundles saved before this field existed.
     # On restore: stored as bundle metadata only; NEVER re-applied
@@ -251,6 +259,9 @@ class ProjectBundleResponse(BaseModel):
     litho_lenses: list[dict[str, Any]] = Field(default_factory=list)
     # Absence records scoped to a formation (Position 4).  Additive.
     formation_absences: list[dict[str, Any]] = Field(default_factory=list)
+    # Contact-level correlation edges (#133 Phase 2+3).  Additive — absent
+    # in bundles saved before this field shipped.
+    litho_contact_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
     # Manual lumping map from the last Fill-from-boreholes confirm.
     # Nullable — bundles saved before this field existed carry null.
     stratigraphy_lumping: StratigraphyLumping | None = None
