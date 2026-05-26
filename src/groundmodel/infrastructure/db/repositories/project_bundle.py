@@ -63,6 +63,9 @@ from groundmodel.infrastructure.db.models.geotechnical_unit_orm import Geotechni
 from groundmodel.infrastructure.db.models.investigation_review_orm import (
     InvestigationReviewOrm,
 )
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
+)
 from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
     LithoCorrelationEdgeOrm,
 )
@@ -354,6 +357,18 @@ async def _build_project_bundle_impl(
         )
         .where(GeologicalFormationOrm.app_project_id == project.id)
     )
+    # Contact-level correlation edges (#133 Phase 2+3).  Scoped through
+    # geological_model — the edge table has no direct app_project_id column.
+    # Both contact FK endpoints are owned by the same model so model_id is
+    # the correct scope anchor.
+    contact_edges_stmt = (
+        select(LithoContactCorrelationEdgeOrm)
+        .join(
+            GeologicalModelOrm,
+            LithoContactCorrelationEdgeOrm.model_id == GeologicalModelOrm.id,
+        )
+        .where(GeologicalModelOrm.app_project_id == project.id)
+    )
 
     cpts = (await session.execute(cpts_stmt)).scalars().all()
     boreholes = (await session.execute(boreholes_stmt)).scalars().all()
@@ -365,6 +380,7 @@ async def _build_project_bundle_impl(
     edges = (await session.execute(edges_stmt)).scalars().all()
     lenses = (await session.execute(lenses_stmt)).scalars().all()
     absences = (await session.execute(absences_stmt)).scalars().all()
+    contact_edges = (await session.execute(contact_edges_stmt)).scalars().all()
 
     # v3 bundle. Every per-project decision rides along — the .gmproj
     # is the user's anchor, the DB is just a cache.
@@ -388,12 +404,20 @@ async def _build_project_bundle_impl(
         # open cleanly via the schema's default_factory=list.
         "litho_lenses": [_column_to_json(lens, _SKIP_COLUMNS) for lens in lenses],
         "formation_absences": [_column_to_json(a, _SKIP_COLUMNS) for a in absences],
+        # Contact-level correlation edges (#133 Phase 2+3). Each row carries
+        # (model_id, contact_a_id, contact_b_id, source, user_approved).
+        # Additive field: bundles saved before this field existed open cleanly
+        # via the schema's default_factory=list.
+        "litho_contact_correlation_edges": [
+            _column_to_json(ce, _SKIP_COLUMNS) for ce in contact_edges
+        ],
     }
     logger.info(
         f"bundled project {project.id}: {len(cpts)} CPTs + {len(boreholes)} boreholes "
         f"+ {len(formations)} formations + {len(units)} geotech units "
         f"+ {len(models)} models + {len(sections)} sections "
         f"+ {len(reviews)} reviews + {len(edges)} litho correlation edges "
+        f"+ {len(contact_edges)} litho contact correlation edges "
         f"+ {len(lenses)} litho lenses + {len(absences)} formation absences"
     )
     return bundle
@@ -565,6 +589,7 @@ async def _restore_project_bundle_impl(
     litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
     litho_lenses_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
+    litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
     *,
     logger: GroundModelLogger,
 ) -> ProjectOrm:
@@ -597,6 +622,7 @@ async def _restore_project_bundle_impl(
     litho_correlation_edges_payload = litho_correlation_edges_payload or []
     litho_lenses_payload = litho_lenses_payload or []
     formation_absences_payload = formation_absences_payload or []
+    litho_contact_correlation_edges_payload = litho_contact_correlation_edges_payload or []
     # ---- Project shell ---------------------------------------------------
     result = await session.execute(select(ProjectOrm).where(ProjectOrm.id == project_id))
     project = result.scalar_one_or_none()
@@ -1237,6 +1263,118 @@ async def _restore_project_bundle_impl(
             f"formation absence(s) (formation not in project or missing formation_id)"
         )
 
+    # ---- Litho contact correlation edges (#133 Phase 2+3) -------------------
+    # Restored AFTER geological_models + formation_contacts exist.  Both
+    # contact_a_id and contact_b_id FK into formation_contact; model_id FK
+    # into geological_model.  ``valid_model_ids_for_edges`` was built during
+    # the litho-correlation-edges restore section above.
+    #
+    # Build the set of formation_contact ids that now exist for this project.
+    # Contacts are nested under models in the bundle, so the authoritative set
+    # is: DB contacts for the project's models UNION contacts carried in the
+    # models payload (just inserted above, not yet flushed).
+    valid_contact_ids: set[UUID] = set(
+        (
+            await session.execute(
+                select(FormationContactOrm.id)
+                .join(GeologicalModelOrm, FormationContactOrm.model_id == GeologicalModelOrm.id)
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Also include contacts that were queued for insert in this transaction
+    # (not yet flushed) — their ids live in the restored model.contacts lists.
+    for m_payload in geological_models_payload:
+        for c in m_payload.get("contacts") or []:
+            c_id_raw = c.get("id")
+            if c_id_raw is not None:
+                valid_contact_ids.add(UUID(c_id_raw) if isinstance(c_id_raw, str) else c_id_raw)
+
+    existing_contact_edge_ids = set(
+        (
+            await session.execute(
+                select(LithoContactCorrelationEdgeOrm.id)
+                .join(
+                    GeologicalModelOrm,
+                    LithoContactCorrelationEdgeOrm.model_id == GeologicalModelOrm.id,
+                )
+                .where(GeologicalModelOrm.app_project_id == project_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    new_contact_edges = 0
+    skipped_contact_edges = 0
+    dropped_contact_edges = 0
+    total_contact_edges = len(litho_contact_correlation_edges_payload)
+    logger.info(
+        f"restore_project_bundle({project_id}): restoring "
+        f"{total_contact_edges} litho contact correlation edge(s)"
+    )
+    for i, ce_payload in enumerate(litho_contact_correlation_edges_payload, start=1):
+        ce_id_raw = ce_payload.get("id")
+        if ce_id_raw is None:
+            logger.debug(
+                f"[{i}/{total_contact_edges}] litho contact edge skipped — payload has no id"
+            )
+            skipped_contact_edges += 1
+            continue
+        ce_id = UUID(ce_id_raw) if isinstance(ce_id_raw, str) else ce_id_raw
+        if ce_id in existing_contact_edge_ids:
+            logger.debug(
+                f"[{i}/{total_contact_edges}] litho contact edge {ce_id} already present — skipped"
+            )
+            skipped_contact_edges += 1
+            continue
+        # Bundle-injection guard: model must belong to this project.
+        model_id_raw = ce_payload.get("model_id")
+        if model_id_raw is None:
+            logger.warning(
+                f"[{i}/{total_contact_edges}] litho contact edge {ce_id} has no model_id — dropped"
+            )
+            dropped_contact_edges += 1
+            continue
+        ce_model_id = UUID(model_id_raw) if isinstance(model_id_raw, str) else model_id_raw
+        if ce_model_id not in valid_model_ids_for_edges:
+            logger.warning(
+                f"[{i}/{total_contact_edges}] litho contact edge {ce_id} → model "
+                f"{ce_model_id} not in this project — dropped (bundle-injection guard)"
+            )
+            dropped_contact_edges += 1
+            continue
+        # Contact FK guard: both endpoints must be formation_contact rows
+        # belonging to this project's models.
+        ca_raw = ce_payload.get("contact_a_id")
+        cb_raw = ce_payload.get("contact_b_id")
+        if ca_raw is None or cb_raw is None:
+            logger.warning(
+                f"[{i}/{total_contact_edges}] litho contact edge {ce_id} "
+                f"missing contact endpoint(s) — dropped"
+            )
+            dropped_contact_edges += 1
+            continue
+        ca_id = UUID(ca_raw) if isinstance(ca_raw, str) else ca_raw
+        cb_id = UUID(cb_raw) if isinstance(cb_raw, str) else cb_raw
+        if ca_id not in valid_contact_ids or cb_id not in valid_contact_ids:
+            logger.warning(
+                f"[{i}/{total_contact_edges}] litho contact edge {ce_id}: contact "
+                f"endpoint(s) not present in this project — dropped (dangling FK)"
+            )
+            dropped_contact_edges += 1
+            continue
+        kwargs = _apply_json_to_kwargs(LithoContactCorrelationEdgeOrm, ce_payload)
+        session.add(LithoContactCorrelationEdgeOrm(**kwargs))
+        new_contact_edges += 1
+        logger.debug(f"[{i}/{total_contact_edges}] litho contact edge {ce_id} queued for insert")
+    if dropped_contact_edges:
+        logger.warning(
+            f"restore_project_bundle({project_id}): dropped {dropped_contact_edges} "
+            f"litho contact correlation edge(s) (model/contact not in project or missing FK)"
+        )
+
     await session.flush()
     logger.info(
         f"restore_project_bundle({project_id}): "
@@ -1246,6 +1384,8 @@ async def _restore_project_bundle_impl(
         f"+{new_sections} sections, "
         f"+{new_reviews} reviews ({dropped_reviews} dropped as orphan), "
         f"+{new_edges} litho edges ({skipped_edges} skipped, {dropped_edges} dropped), "
+        f"+{new_contact_edges} litho contact edges "
+        f"({skipped_contact_edges} skipped, {dropped_contact_edges} dropped), "
         f"+{new_lenses} lenses ({skipped_lenses} skipped, {dropped_lenses} dropped), "
         f"+{new_absences} formation absences "
         f"({skipped_absences} skipped, {dropped_absences} dropped)"
@@ -1301,6 +1441,7 @@ class ProjectBundleService(GroundModelLogger):
         litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
         litho_lenses_payload: list[dict[str, Any]] | None = None,
         formation_absences_payload: list[dict[str, Any]] | None = None,
+        litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
     ) -> ProjectOrm:
         """Idempotently materialise the project tree from a bundle.
 
@@ -1321,6 +1462,7 @@ class ProjectBundleService(GroundModelLogger):
             litho_correlation_edges_payload,
             litho_lenses_payload,
             formation_absences_payload,
+            litho_contact_correlation_edges_payload,
             logger=self,
         )
 
@@ -1351,6 +1493,7 @@ async def restore_project_bundle(
     litho_correlation_edges_payload: list[dict[str, Any]] | None = None,
     litho_lenses_payload: list[dict[str, Any]] | None = None,
     formation_absences_payload: list[dict[str, Any]] | None = None,
+    litho_contact_correlation_edges_payload: list[dict[str, Any]] | None = None,
 ) -> ProjectOrm:
     """Backwards-compat wrapper — see ``ProjectBundleService.restore``."""
     return await ProjectBundleService(session).restore(
@@ -1366,4 +1509,5 @@ async def restore_project_bundle(
         litho_correlation_edges_payload,
         litho_lenses_payload,
         formation_absences_payload,
+        litho_contact_correlation_edges_payload,
     )
