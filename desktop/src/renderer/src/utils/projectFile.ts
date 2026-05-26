@@ -65,11 +65,6 @@ export interface ProjectFileV3 {
   geological_models: Record<string, unknown>[]
   cross_sections: Record<string, unknown>[]
   investigation_reviews: Record<string, unknown>[]
-  /**
-   * Litho correlation edges (Phase 2).
-   * Absent in files saved before Phase 2 shipped — normalised to [] on parse.
-   */
-  litho_correlation_edges: Record<string, unknown>[]
   // Contact-level correlation edges (#133 Phase 2+3).
   litho_contact_correlation_edges: Record<string, unknown>[]
   /**
@@ -111,7 +106,6 @@ export function buildProjectFile(
     geological_models: bundle.geological_models ?? [],
     cross_sections: bundle.cross_sections ?? [],
     investigation_reviews: bundle.investigation_reviews ?? [],
-    litho_correlation_edges: bundle.litho_correlation_edges ?? [],
     litho_contact_correlation_edges: bundle.litho_contact_correlation_edges ?? [],
     litho_lenses: bundle.litho_lenses ?? [],
     formation_absences: bundle.formation_absences ?? [],
@@ -149,9 +143,6 @@ export function parseProjectFile(raw: string): ProjectFileV3 | null {
   // these keys and crash downstream array consumers.
   if (candidate.geotechnical_units === undefined) {
     candidate.geotechnical_units = []
-  }
-  if (candidate.litho_correlation_edges === undefined) {
-    candidate.litho_correlation_edges = []
   }
   if (candidate.litho_contact_correlation_edges === undefined) {
     candidate.litho_contact_correlation_edges = []
@@ -192,7 +183,6 @@ function isProjectFileV3(value: unknown): value is ProjectFileV3 {
     Array.isArray(v.investigation_reviews) &&
     // Additive fields — tolerate absence in older files; normalised to []
     // in parseProjectFile.
-    (v.litho_correlation_edges === undefined || Array.isArray(v.litho_correlation_edges)) &&
     (v.litho_contact_correlation_edges === undefined ||
       Array.isArray(v.litho_contact_correlation_edges)) &&
     (v.litho_lenses === undefined || Array.isArray(v.litho_lenses)) &&

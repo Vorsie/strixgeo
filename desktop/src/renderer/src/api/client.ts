@@ -120,8 +120,6 @@ export interface ProjectBundleResponse {
   geological_models: Record<string, unknown>[]
   cross_sections: Record<string, unknown>[]
   investigation_reviews: Record<string, unknown>[]
-  /** Litho correlation edges (Phase 2). Absent in older bundles. */
-  litho_correlation_edges?: Record<string, unknown>[]
   /** Contact-level correlation edges (#133 Phase 2+3). Absent in older bundles. */
   litho_contact_correlation_edges?: Record<string, unknown>[]
   /** Litho lens metadata rows (Position 4). Absent in older bundles. */
