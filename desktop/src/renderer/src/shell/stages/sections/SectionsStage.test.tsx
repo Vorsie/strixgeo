@@ -217,6 +217,8 @@ function makeStubContext(): ShellContextValue {
     lithoStaleTinSessionCount: 0,
       handleRebuildLithoSurfaces: noopAsync,
       handleAutoCorrelate: noopAsync,
+      handleCreateManualLithoGhost: vi.fn(),
+      handleExtendLithoGhostToNearestContacts: vi.fn(() => ({ ok: true })),
     },
     sections: {
       sections: [],

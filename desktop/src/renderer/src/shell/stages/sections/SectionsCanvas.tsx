@@ -101,6 +101,8 @@ export default function SectionsCanvas(): JSX.Element {
       handleSplitLithoLayer,
       handleMergeLithoLayers,
       handleAbsorbLithoLayer,
+      handleCreateManualLithoGhost,
+      handleExtendLithoGhostToNearestContacts,
       clearBulkLithoGhosts,
       pinchOutPreview,
       pinchOutLoading,
@@ -769,6 +771,8 @@ export default function SectionsCanvas(): JSX.Element {
   const axisFormations = isLitho ? lithoFormations : formations
   const axisSurfacesByFormationId = isLitho ? lithoSurfacesByFormationId : surfacesByFormationId
   const axisExcludedBoreholeIds = activeAxisModel?.excluded_borehole_ids ?? []
+  // Litho axis left-click creates a ghost layer, not a committed contact.
+  // The geological axis keeps the original committed-contact flow unchanged.
   const axisCreateContact = isLitho ? handleCreateLithoContact : handleCreateContact
   const axisCreateFormation = isLitho ? handleInlineLithoCreateFormation : handleInlineCreateFormation
 
@@ -850,6 +854,18 @@ export default function SectionsCanvas(): JSX.Element {
       snapped: boolean,
     ): Promise<void> => {
       if (selectedSection === null) return
+
+      // Litho axis left-click: create a ghost layer instead of a committed
+      // contact.  Ghost acceptance happens later via the standard Accept flow.
+      // Section seeding happens at accept time via acceptLithoSuggestions which
+      // already carries the section_id — no seeding here.
+      if (isLitho) {
+        const cpt = visibleCpts.find(c => c.id === anchorId)
+        const surfaceElevationM = cpt?.elevation_m ?? visibleBoreholes.find(b => b.id === anchorId)?.elevation_m ?? null
+        handleCreateManualLithoGhost(anchorKind, anchorId, surfaceElevationM, depth_m, formationId)
+        return
+      }
+
       // Pass the section id so the backend seeds seeded_formation_contact_ids
       // (P2-E). Without this the create succeeds but the P2-F filter below
       // hides the new contact — the root cause of the "draw/copy does
@@ -878,7 +894,11 @@ export default function SectionsCanvas(): JSX.Element {
         log.warn('section', 'sectionAwareCreateContact: section refresh after draw failed', err)
       }
     },
-    [selectedSection, axisCreateContact, project.id, applyUpdatedSection],
+    // reason: visibleCpts/visibleBoreholes are stable arrays during a session;
+    // isLitho and handleCreateManualLithoGhost are listed so the callback
+    // refreshes when the axis switches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedSection, axisCreateContact, project.id, applyUpdatedSection, isLitho, handleCreateManualLithoGhost, visibleCpts, visibleBoreholes],
   )
 
   // P2-H (batch) — section-aware contact COPY (drag-to-next-test: one-by-one,
@@ -1198,6 +1218,15 @@ export default function SectionsCanvas(): JSX.Element {
         if (focusedSuggestAnchorId === null) return
         handleAbsorbLithoLayer(focusedSuggestAnchorId, draggerIdx, direction)
       },
+      // Extend a manual ghost sentinel to the nearest committed contacts.
+      onExtendToNearest: (idx: number) => {
+        if (focusedSuggestAnchorId === null) return { ok: false, reason: 'No focused anchor.' }
+        const cpt = visibleCpts.find(c => c.id === focusedSuggestAnchorId)
+        const bh = cpt === undefined ? visibleBoreholes.find(b => b.id === focusedSuggestAnchorId) : undefined
+        const maxDepthM =
+          cpt?.max_depth_m ?? bh?.total_depth_m ?? 30
+        return handleExtendLithoGhostToNearestContacts(focusedSuggestAnchorId, idx, maxDepthM)
+      },
     }
   }, [
     isLitho,
@@ -1213,6 +1242,9 @@ export default function SectionsCanvas(): JSX.Element {
     handleSplitLithoLayer,
     handleMergeLithoLayers,
     handleAbsorbLithoLayer,
+    handleExtendLithoGhostToNearestContacts,
+    visibleCpts,
+    visibleBoreholes,
   ])
 
   // Bulk-suggest bundle (debt #73 / Phase 3) — passed to SectionPanel
@@ -1258,6 +1290,13 @@ export default function SectionsCanvas(): JSX.Element {
       onMergeLayers: handleMergeLithoLayers,
       // Dogfeed 2026-05-25: bulk variant takes (anchorId, draggerIdx, direction).
       onAbsorbLayer: handleAbsorbLithoLayer,
+      // Extend a manual ghost sentinel — bulk variant takes (anchorId, idx).
+      onExtendToNearest: (anchorId: string, idx: number) => {
+        const cpt = visibleCpts.find(c => c.id === anchorId)
+        const bh = cpt === undefined ? visibleBoreholes.find(b => b.id === anchorId) : undefined
+        const maxDepthM = cpt?.max_depth_m ?? bh?.total_depth_m ?? 30
+        return handleExtendLithoGhostToNearestContacts(anchorId, idx, maxDepthM)
+      },
     }
   }, [
     isLitho,
@@ -1270,6 +1309,9 @@ export default function SectionsCanvas(): JSX.Element {
     handleSplitLithoLayer,
     handleMergeLithoLayers,
     handleAbsorbLithoLayer,
+    handleExtendLithoGhostToNearestContacts,
+    visibleCpts,
+    visibleBoreholes,
   ])
 
   // Pinch-out ghost state — wired on whichever axis is active. Backend

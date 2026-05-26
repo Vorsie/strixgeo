@@ -399,6 +399,10 @@ interface Props {
     onMergeLayers?: (upperIdx: number) => void
     /** Dogfeed 2026-05-25: Shift+drag absorb — dragger absorbs neighbour. */
     onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
+    /** Extend a ghost sentinel to the nearest committed contacts.
+     *  Returns ``{ ok: true }`` on success or ``{ ok: false, reason }``
+     *  on overlap — caller is expected to surface the reason to the user. */
+    onExtendToNearest?: (idx: number) => { ok: boolean; reason?: string }
   }
   /**
    * Multi-anchor ghost state (debt #73 / Phase 3). Map<anchorId, BulkAnchorGhost>
@@ -455,6 +459,9 @@ interface Props {
     onMergeLayers?: (anchorId: string, upperIdx: number) => void
     /** Dogfeed 2026-05-25: bulk variant of absorb — takes the anchorId. */
     onAbsorbLayer?: (anchorId: string, draggerIdx: number, direction: 'up' | 'down') => void
+    /** Extend a bulk ghost sentinel to the nearest committed contacts.
+     *  Takes the anchorId; returns ok/reason. */
+    onExtendToNearest?: (anchorId: string, idx: number) => { ok: boolean; reason?: string }
   }
   /**
    * Pinch-out ghost-preview state (ghost-UX slice).  When present, a
@@ -2040,6 +2047,7 @@ export default function SectionPanel({
                 onSplitLayer={lithoGhostState.onSplitLayer}
                 onMergeLayers={lithoGhostState.onMergeLayers}
                 onAbsorbLayer={lithoGhostState.onAbsorbLayer}
+                onExtendToNearest={lithoGhostState.onExtendToNearest}
                 // Per-CPT depth series for the drag readout (qc + Rf).
                 // ``cptPlots`` is already loaded by useSectionData for the
                 // CPT data columns; reuse here so the readout doesn't
@@ -2125,6 +2133,13 @@ export default function SectionPanel({
                               draggerIdx,
                               direction,
                             )
+                          }
+                        : undefined
+                    }
+                    onExtendToNearest={
+                      bulkLithoGhostState.onExtendToNearest !== undefined
+                        ? idx => {
+                            return bulkLithoGhostState.onExtendToNearest!(anchorId, idx)
                           }
                         : undefined
                     }

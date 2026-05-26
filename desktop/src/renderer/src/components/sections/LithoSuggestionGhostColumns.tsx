@@ -532,6 +532,14 @@ export interface LithoSuggestionGhostColumnsProps {
    */
   onAbsorbLayer?: (draggerIdx: number, direction: 'up' | 'down') => void
   /**
+   * "Extend to nearest contacts" right-click gesture on a pending ghost
+   * layer.  Fired when the user picks the menu item; returns
+   * ``{ ok: true }`` on success or ``{ ok: false, reason }`` on overlap.
+   * When absent the menu item is not rendered (zero regression for callers
+   * that haven't opted in).
+   */
+  onExtendToNearest?: (idx: number) => { ok: boolean; reason?: string }
+  /**
    * Optional CPT depth-series for the dragged investigation. When the
    * investigation is a CPT and this map carries an entry for its id,
    * the live drag readout shows ``qc`` (MPa) and ``Rf`` (%) at the
@@ -611,6 +619,7 @@ export default function LithoSuggestionGhostColumns({
   onSplitLayer,
   onMergeLayers,
   onAbsorbLayer,
+  onExtendToNearest,
   cptPlotByAnchorId,
 }: LithoSuggestionGhostColumnsProps): JSX.Element | null {
   // Live drag preview state. Set on mousedown on an edge handle;
@@ -1695,6 +1704,29 @@ export default function LithoSuggestionGhostColumns({
               }}
             >
               Split layer
+            </button>
+          )}
+          {/* Extend a manual-ghost sentinel to the nearest committed contacts.
+              Only offered when the caller has wired onExtendToNearest
+              (litho-axis only; geological axis doesn't use ghosts). */}
+          {onExtendToNearest && (
+            <button
+              type="button"
+              className="block w-full text-left px-3 py-1.5 hover:bg-surface-page text-text-primary"
+              data-testid="litho-context-extend"
+              onClick={() => {
+                const result = onExtendToNearest(contextMenu.idx)
+                setContextMenu(null)
+                if (!result.ok && result.reason) {
+                  // No toast infrastructure at this component level —
+                  // surface as a browser alert so the user is not silently
+                  // stuck.  The caller (SectionsCanvas) can upgrade this
+                  // to a toast in a follow-up if desired.
+                  alert(result.reason)
+                }
+              }}
+            >
+              Extend to nearest contacts
             </button>
           )}
           <button
