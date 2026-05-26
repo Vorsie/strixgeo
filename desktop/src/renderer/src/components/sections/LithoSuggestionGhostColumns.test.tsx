@@ -2015,4 +2015,41 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(4, 5)
     expect(layer2Edit).toBeUndefined()
   })
+
+  // G-SENTINEL-1: a near-zero-thickness ghost (< 6 px rendered height) must
+  // render WITHOUT a fill (transparent interior) and WITH a dashed stroke.
+  // This is Bug 3: a 0.01 m sentinel ghost at typical zoom was rendering as a
+  // coloured sliver indistinguishable from a real layer band.
+  //
+  // levelToScreen maps level → 500 - level * 100, so 100 px/m.
+  // depth_top = 0.0 m → level 5.0 → y = 0; depth_base = 0.01 m → level 4.99 → y = 1.
+  // height = 1 px < 6 px threshold → sentinel branch.
+  it('G-SENTINEL-1 — zero-thickness ghost renders with no fill and dashed outline', () => {
+    const { container } = renderGhost([
+      makeSuggestion({ depth_top_m: 0, depth_base_m: 0.01, suggested_lithology: 'ZAND' }),
+    ])
+    const rect = container.querySelector('rect')
+    expect(rect).not.toBeNull()
+    // Sentinel: fill must be transparent (no solid color).
+    expect(rect!.getAttribute('fill')).toBe('transparent')
+    // Sentinel: must have a dashed stroke so it reads as a "marker" not a "layer".
+    expect(rect!.getAttribute('stroke-dasharray')).toBeTruthy()
+    // Sentinel: fillOpacity must be 0.
+    expect(Number(rect!.getAttribute('fill-opacity'))).toBe(0)
+  })
+
+  // G-SENTINEL-2: a normal-thickness ghost (>= 6 px rendered height) must
+  // render WITH a solid fill — confirming the sentinel path is gated correctly.
+  it('G-SENTINEL-2 — normal-thickness ghost renders with solid fill', () => {
+    // depth_base - depth_top = 1 m → 100 px > 6 px threshold.
+    const { container } = renderGhost([
+      makeSuggestion({ depth_top_m: 0, depth_base_m: 1, suggested_lithology: 'KLEI' }),
+    ])
+    const rect = container.querySelector('rect')
+    expect(rect).not.toBeNull()
+    // Normal layer: fill must NOT be transparent.
+    expect(rect!.getAttribute('fill')).not.toBe('transparent')
+    const fillOpacity = Number(rect!.getAttribute('fill-opacity'))
+    expect(fillOpacity).toBeGreaterThan(0)
+  })
 })
