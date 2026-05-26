@@ -13,6 +13,8 @@
 //   CE24 Regression — "Mark as lens" text is never present in body context menu.
 //   CE-B1..B3  buildBandMap geometry anchors (debt #120 regression).
 //   CC1..CC9  Contact-correlate gesture (#133 Phase 1 + #135 lens-pinch-out).
+//   CC10..CC10b  Delete-contact right-click gesture.
+//   CC11..CC12  Drag-to-retarget unapproved edge (#133 Phase 2+3 Task 26).
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -22,6 +24,7 @@ import type { ContactGestureState } from './CorrelationEdgesOverlay'
 import type {
   FormationContactResponse,
   GeologicalFormationResponse,
+  LithoContactCorrelationEdge,
 } from '../../api/client'
 import type { PlacedColumn } from './utils'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
@@ -789,5 +792,70 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       contactGestureState: gesture,
     })
     expect(() => fireEvent.contextMenu(screen.getByTestId('contact-hit-ca'))).not.toThrow()
+  })
+
+  // CC11: unapproved edge renders both grab handles when onUnapprovedDragStart is provided.
+  it('CC11: unapproved edge renders both grab handles', () => {
+    const edge: LithoContactCorrelationEdge = {
+      id: 'e-unapproved',
+      contact_a_id: 'ca',
+      contact_b_id: 'cb1',
+      model_id: 'm1',
+      source: 'auto',
+      user_approved: false,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactEdges: [edge],
+      onUnapprovedDragStart: vi.fn(),
+    })
+    expect(screen.getByTestId('unapproved-handle-a-e-unapproved')).not.toBeNull()
+    expect(screen.getByTestId('unapproved-handle-b-e-unapproved')).not.toBeNull()
+  })
+
+  // CC12: mousedown on a grab handle fires onUnapprovedDragStart with
+  // (event, edge, 'a' | 'b') and does NOT fire for approved edges.
+  it('CC12: mousedown on grab handle fires onUnapprovedDragStart(e, edge, handle)', () => {
+    const onUnapprovedDragStart = vi.fn()
+    const edge: LithoContactCorrelationEdge = {
+      id: 'e-unapproved-2',
+      contact_a_id: 'ca',
+      contact_b_id: 'cb1',
+      model_id: 'm1',
+      source: 'auto',
+      user_approved: false,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      contacts: baseContacts,
+      formations: [fA],
+      placedColumns: baseColumns,
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactEdges: [edge],
+      onUnapprovedDragStart,
+    })
+    fireEvent.mouseDown(screen.getByTestId('unapproved-handle-a-e-unapproved-2'))
+    expect(onUnapprovedDragStart).toHaveBeenCalledOnce()
+    const [_e, calledEdge, calledHandle] = onUnapprovedDragStart.mock.calls[0] as [
+      React.MouseEvent,
+      LithoContactCorrelationEdge,
+      'a' | 'b',
+    ]
+    expect(calledEdge.id).toBe('e-unapproved-2')
+    expect(calledHandle).toBe('a')
+
+    // Mousedown on the 'b' handle fires with handle='b'.
+    onUnapprovedDragStart.mockClear()
+    fireEvent.mouseDown(screen.getByTestId('unapproved-handle-b-e-unapproved-2'))
+    expect(onUnapprovedDragStart).toHaveBeenCalledOnce()
+    expect(onUnapprovedDragStart.mock.calls[0][2]).toBe('b')
   })
 })

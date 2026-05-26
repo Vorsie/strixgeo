@@ -25,7 +25,7 @@
  * the section overlay.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   FormationContactResponse,
   GeologicalFormationResponse,
@@ -77,6 +77,9 @@ const CHIP_INSET = 2
 const CHIP_MIN_BAND_HEIGHT = CHIP_HEIGHT + 2 * CHIP_INSET
 /** Halo stroke width (the "this body is hovered" ring). */
 const CHIP_HALO_WIDTH = 2
+/** Size of the drag-grab handles rendered at each endpoint of an
+ *  unapproved edge so the user can re-target it (#133 Phase 2+3). */
+const DRAG_HANDLE_SIZE = 8
 
 // ---------------------------------------------------------------------------
 // Types
@@ -172,6 +175,40 @@ interface Props {
    * Absent / undefined = read-only (contact edges visible, no gesture UI).
    */
   contactGestureState?: ContactGestureState
+  /**
+   * Fired when the user starts dragging a grab handle on an unapproved edge
+   * (#133 Phase 2+3 Task 26).
+   *
+   * Parameters
+   * ----------
+   * e
+   *     The originating mousedown event.
+   * edge
+   *     The unapproved edge whose endpoint handle was grabbed.
+   * handle
+   *     Which endpoint: ``'a'`` = contact_a end, ``'b'`` = contact_b end.
+   */
+  onUnapprovedDragStart?: (
+    e: React.MouseEvent,
+    edge: LithoContactCorrelationEdge,
+    handle: 'a' | 'b',
+  ) => void
+  /**
+   * Live drag state set by the caller (SectionsCanvas) during a
+   * drag-to-retarget gesture (#133 Phase 2+3 Task 26).
+   *
+   * When present, the overlay draws a dashed amber ghost line from the
+   * anchor endpoint (``anchorContactId``) to the current cursor viewport
+   * coordinates so the user has visual feedback while dragging.
+   */
+  unapprovedEdgeDrag?: {
+    /** Contact id of the endpoint that is NOT being dragged (the anchor). */
+    anchorContactId: string
+    /** Current cursor X in **viewport** coords (from mousemove clientX). */
+    cursorViewportX: number
+    /** Current cursor Y in **viewport** coords (from mousemove clientY). */
+    cursorViewportY: number
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +583,11 @@ function BodyContextMenu({
  *     Contact-level correlation edges (#133 Phase 1); absent = no contact overlay.
  * contactGestureState
  *     Boundary-click gesture state; absent = read-only (edges visible, no gesture UI).
+ * onUnapprovedDragStart
+ *     Fired on mousedown of a grab handle on an unapproved edge (#133 Task 26).
+ *     Absent = no handles rendered (read-only).
+ * unapprovedEdgeDrag
+ *     Live drag state while the user is mid-drag; drives the ghost line preview.
  *
  * Returns
  * -------
@@ -564,7 +606,13 @@ export default function CorrelationEdgesOverlay({
   onPropagateAdmixtures,
   contactEdges,
   contactGestureState,
+  onUnapprovedDragStart,
+  unapprovedEdgeDrag,
 }: Props): JSX.Element {
+  /** Ref on the root <g> so we can convert viewport coords to SVG-local
+   *  coords for the drag ghost line by reading ownerSVGElement.getBoundingClientRect(). */
+  const rootGRef = useRef<SVGGElement>(null)
+
   /** Body-level context menu (debt #100) — opened by right-clicking a
    *  body chip. */
   const [bodyContextMenu, setBodyContextMenu] = useState<BodyContextMenuState | null>(null)
@@ -704,8 +752,34 @@ export default function CorrelationEdgesOverlay({
     setBodyContextMenu(null)
   }, [])
 
+  // Compute drag ghost anchor + cursor positions in SVG-local coords.
+  // The SVG has no viewBox scaling — viewport px and SVG px are 1:1 after
+  // subtracting the SVG element's bounding rect top-left.
+  const dragGhost = useMemo(() => {
+    if (!unapprovedEdgeDrag) return null
+    const anchorPt = contactScreenMap.get(unapprovedEdgeDrag.anchorContactId)
+    if (!anchorPt) return null
+    // Convert viewport cursor to SVG-local by reading ownerSVGElement rect.
+    const svgRect = rootGRef.current?.ownerSVGElement?.getBoundingClientRect()
+    const svgLeft = svgRect?.left ?? 0
+    const svgTop = svgRect?.top ?? 0
+    return {
+      x1: anchorPt.x,
+      y1: anchorPt.topY,
+      x2: unapprovedEdgeDrag.cursorViewportX - svgLeft,
+      y2: unapprovedEdgeDrag.cursorViewportY - svgTop,
+    }
+  // re-compute whenever cursor moves (viewport coords change) or anchor map changes
+  // reason: unapprovedEdgeDrag is the live drag cursor object that updates on every
+  //   mousemove; contactScreenMap captures the anchor's SVG position which is stable
+  //   during a drag. Including rootGRef would add no value (refs are mutable, not
+  //   reactive) but omitting it is safe — the SVG rect only changes on window resize.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unapprovedEdgeDrag, contactScreenMap])
+
   return (
     <g
+      ref={rootGRef}
       data-testid="correlation-edges-overlay"
       style={{ pointerEvents: 'none' }}
     >
@@ -794,27 +868,65 @@ export default function CorrelationEdgesOverlay({
           nudgedX at its band topY to contact_b's equivalent.
           Absent when ``contactEdges`` is undefined (no regression). */}
       {contactEdges && contactEdges.length > 0 && (
-        <g data-testid="contact-edges-overlay" pointerEvents="none">
+        <g data-testid="contact-edges-overlay">
           {contactEdges.map(ce => {
             const ptA = contactScreenMap.get(ce.contact_a_id)
             const ptB = contactScreenMap.get(ce.contact_b_id)
             if (!ptA || !ptB) return null
             const approved = ce.user_approved
+            const hs = DRAG_HANDLE_SIZE
             return (
-              <line
-                key={`contact-edge-${ce.id}`}
-                data-testid={`contact-edge-${ce.id}`}
-                data-approved={approved ? 'true' : 'false'}
-                x1={ptA.x}
-                y1={ptA.topY}
-                x2={ptB.x}
-                y2={ptB.topY}
-                stroke={approved ? CONTACT_EDGE_COLOR : UNAPPROVED_EDGE_COLOR}
-                strokeWidth={CONTACT_EDGE_WIDTH}
-                strokeDasharray={approved ? CONTACT_EDGE_DASH : UNAPPROVED_EDGE_DASH}
-                opacity={CONTACT_EDGE_OPACITY}
-                pointerEvents="none"
-              />
+              <g key={`contact-edge-${ce.id}`} pointerEvents="none">
+                <line
+                  data-testid={`contact-edge-${ce.id}`}
+                  data-approved={approved ? 'true' : 'false'}
+                  x1={ptA.x}
+                  y1={ptA.topY}
+                  x2={ptB.x}
+                  y2={ptB.topY}
+                  stroke={approved ? CONTACT_EDGE_COLOR : UNAPPROVED_EDGE_COLOR}
+                  strokeWidth={CONTACT_EDGE_WIDTH}
+                  strokeDasharray={approved ? CONTACT_EDGE_DASH : UNAPPROVED_EDGE_DASH}
+                  opacity={CONTACT_EDGE_OPACITY}
+                  pointerEvents="none"
+                />
+                {/* Grab handles — only on unapproved edges, visible + interactive
+                    so the user can drag an endpoint to a different contact. */}
+                {!approved && onUnapprovedDragStart && (
+                  <>
+                    <rect
+                      data-testid={`unapproved-handle-a-${ce.id}`}
+                      x={ptA.x - hs / 2}
+                      y={ptA.topY - hs / 2}
+                      width={hs}
+                      height={hs}
+                      rx={2}
+                      fill={UNAPPROVED_EDGE_COLOR}
+                      opacity={0.85}
+                      style={{ cursor: 'grab', pointerEvents: 'auto' }}
+                      onMouseDown={e => {
+                        e.stopPropagation()
+                        onUnapprovedDragStart(e, ce, 'a')
+                      }}
+                    />
+                    <rect
+                      data-testid={`unapproved-handle-b-${ce.id}`}
+                      x={ptB.x - hs / 2}
+                      y={ptB.topY - hs / 2}
+                      width={hs}
+                      height={hs}
+                      rx={2}
+                      fill={UNAPPROVED_EDGE_COLOR}
+                      opacity={0.85}
+                      style={{ cursor: 'grab', pointerEvents: 'auto' }}
+                      onMouseDown={e => {
+                        e.stopPropagation()
+                        onUnapprovedDragStart(e, ce, 'b')
+                      }}
+                    />
+                  </>
+                )}
+              </g>
             )
           })}
         </g>
@@ -951,6 +1063,25 @@ export default function CorrelationEdgesOverlay({
               : undefined
           }
           onClose={() => setBodyContextMenu(null)}
+        />
+      )}
+
+      {/* Drag-to-retarget ghost line (#133 Phase 2+3 Task 26).
+          Rendered as a dashed amber line from the anchor endpoint to the
+          cursor while the user is mid-drag.  pointerEvents=none so it
+          does not interfere with the drop hit-test. */}
+      {dragGhost && (
+        <line
+          data-testid="unapproved-drag-ghost"
+          x1={dragGhost.x1}
+          y1={dragGhost.y1}
+          x2={dragGhost.x2}
+          y2={dragGhost.y2}
+          stroke={UNAPPROVED_EDGE_COLOR}
+          strokeWidth={CONTACT_EDGE_WIDTH}
+          strokeDasharray={UNAPPROVED_EDGE_DASH}
+          opacity={0.75}
+          pointerEvents="none"
         />
       )}
 

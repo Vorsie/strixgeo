@@ -553,6 +553,211 @@ export default function SectionsCanvas(): JSX.Element {
     handleRequestDeleteContactFromSection,
   ])
 
+  // -----------------------------------------------------------------------
+  // Drag-to-retarget unapproved edge (#133 Phase 2+3 Task 26).
+  //
+  // The user mousedowns on a grab handle (unapproved edge endpoint), drags
+  // to a different contact hit-rect on the section, and releases.  On drop:
+  //   1. DELETE the original edge (old contact pair).
+  //   2. POST a new edge (anchor contact + new drop-target contact).
+  //   3. Refetch contact edges so the section reflects the re-targeted edge.
+  //
+  // The new edge uses source='manual' which the server sets to user_approved=True
+  // by default — Option Y: re-targeting an auto suggestion is itself a form
+  // of user blessing, so the resulting edge is treated as approved.  This is
+  // simpler than adding a user_approved field to the create API and avoids
+  // threading an extra backend change through the path.
+  //
+  // Coordinate system: viewport coords are stored in state; the overlay
+  // converts them to SVG-local by reading ownerSVGElement.getBoundingClientRect().
+  // -----------------------------------------------------------------------
+
+  interface EdgeDragState {
+    /** The edge being re-targeted. */
+    edge: LithoContactCorrelationEdge
+    /** Which endpoint is being dragged: 'a' or 'b'. */
+    handle: 'a' | 'b'
+    /** Contact id of the NON-dragged endpoint (the stable anchor). */
+    anchorContactId: string
+    /** Contact id of the endpoint being dragged (used to detect drop-on-self). */
+    draggedContactId: string
+    /** Investigation id of the anchor contact (used to reject same-investigation drops). */
+    anchorInvestigationId: string | null
+    /** Current cursor X in viewport coords (updated on mousemove). */
+    cursorViewportX: number
+    /** Current cursor Y in viewport coords (updated on mousemove). */
+    cursorViewportY: number
+  }
+
+  const [edgeDrag, setEdgeDrag] = useState<EdgeDragState | null>(null)
+
+  const handleUnapprovedDragStart = useCallback(
+    (
+      e: React.MouseEvent,
+      edge: LithoContactCorrelationEdge,
+      handle: 'a' | 'b',
+    ): void => {
+      e.preventDefault()
+      const draggedContactId = handle === 'a' ? edge.contact_a_id : edge.contact_b_id
+      const anchorContactId = handle === 'a' ? edge.contact_b_id : edge.contact_a_id
+      // Resolve anchor investigation id to block same-investigation drops.
+      const anchorContact = lithoContacts.find(c => c.id === anchorContactId)
+      const anchorInvestigationId = anchorContact?.cpt_id ?? anchorContact?.borehole_id ?? null
+      log.debug(
+        'section',
+        `edgeDrag: start edge=${edge.id} handle=${handle} dragged=${draggedContactId} anchor=${anchorContactId}`,
+      )
+      setEdgeDrag({
+        edge,
+        handle,
+        anchorContactId,
+        draggedContactId,
+        anchorInvestigationId,
+        cursorViewportX: e.clientX,
+        cursorViewportY: e.clientY,
+      })
+    },
+    [lithoContacts],
+  )
+
+  // Window-level mousemove + mouseup that drive the drag and commit the drop.
+  useEffect(() => {
+    if (edgeDrag === null) return
+
+    function handleMouseMove(e: MouseEvent): void {
+      setEdgeDrag(prev =>
+        prev === null
+          ? null
+          : { ...prev, cursorViewportX: e.clientX, cursorViewportY: e.clientY },
+      )
+    }
+
+    async function handleMouseUp(e: MouseEvent): Promise<void> {
+      if (edgeDrag === null) {
+        setEdgeDrag(null)
+        return
+      }
+      // Hit-test the drop target via document.elementFromPoint (viewport coords).
+      const dropEl = document.elementFromPoint(e.clientX, e.clientY)
+      // Walk up the DOM to find the nearest element carrying data-contact-id.
+      let el: Element | null = dropEl
+      let dropContactId: string | null = null
+      while (el !== null) {
+        const cid = el.getAttribute('data-contact-id')
+        if (cid) {
+          dropContactId = cid
+          break
+        }
+        el = el.parentElement
+      }
+
+      // Validate the drop target.
+      if (dropContactId === null) {
+        // Dropped on empty space — cancel.
+        log.debug('section', 'edgeDrag: drop on empty space — cancelled')
+        setEdgeDrag(null)
+        return
+      }
+      if (dropContactId === edgeDrag.anchorContactId) {
+        // Dropped on the anchor endpoint — no-op.
+        log.debug('section', 'edgeDrag: drop on anchor — cancelled')
+        setEdgeDrag(null)
+        return
+      }
+      if (dropContactId === edgeDrag.draggedContactId) {
+        // Dropped back on the same contact — no-op.
+        log.debug('section', 'edgeDrag: drop on same contact — cancelled')
+        setEdgeDrag(null)
+        return
+      }
+      // Reject same-investigation: the server rejects this too, but fail early.
+      const dropContact = lithoContacts.find(c => c.id === dropContactId)
+      const dropInvestigationId = dropContact?.cpt_id ?? dropContact?.borehole_id ?? null
+      if (
+        edgeDrag.anchorInvestigationId !== null &&
+        dropInvestigationId !== null &&
+        dropInvestigationId === edgeDrag.anchorInvestigationId
+      ) {
+        log.debug(
+          'section',
+          `edgeDrag: drop on same investigation as anchor (${edgeDrag.anchorInvestigationId}) — rejected`,
+        )
+        setEdgeDrag(null)
+        return
+      }
+
+      if (!activeLithoModel) {
+        setEdgeDrag(null)
+        return
+      }
+
+      log.info(
+        'section',
+        `edgeDrag: retarget edge=${edgeDrag.edge.id} ` +
+          `${edgeDrag.draggedContactId} → ${dropContactId} (anchor=${edgeDrag.anchorContactId})`,
+      )
+
+      // Clear drag state immediately so the UI feels responsive.
+      const capturedDrag = edgeDrag
+      setEdgeDrag(null)
+
+      try {
+        // 1. Delete the original edge.
+        await api.geology.deleteContactCorrelation(
+          project.id,
+          capturedDrag.edge.model_id,
+          capturedDrag.edge.contact_a_id,
+          capturedDrag.edge.contact_b_id,
+          selectedSectionId,
+        )
+        // 2. Create the replacement edge (anchor + new target).
+        //    source='manual' → server defaults user_approved=True (Option Y).
+        await api.geology.createContactCorrelation(
+          project.id,
+          capturedDrag.edge.model_id,
+          capturedDrag.anchorContactId,
+          dropContactId,
+          selectedSectionId,
+        )
+        // 3. Refetch so the section reflects the re-targeted edge.
+        await refetchContactEdges()
+        log.success(
+          'section',
+          `edgeDrag: edge retargeted to ${capturedDrag.anchorContactId} ↔ ${dropContactId}`,
+        )
+        toast('success', 'Edge retargeted.')
+      } catch (err) {
+        log.warn('section', 'edgeDrag: retarget failed', err)
+        toast('error', 'Could not retarget the edge — try again.')
+        // Restore edges from server on failure.
+        void refetchContactEdges()
+      }
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+    // reason: edgeDrag is the live drag object that drives both handlers;
+    //   lithoContacts, activeLithoModel, project.id, selectedSectionId, and the
+    //   api/log/toast refs are all stable or captured in the same closure.
+    //   The cleanup fn removes both listeners with the SAME named function
+    //   references captured in this closure, which is correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edgeDrag])
+
+  // The overlay prop: only populated on the litho axis while a drag is active.
+  const unapprovedEdgeDrag = useMemo(() => {
+    if (!isLitho || edgeDrag === null) return undefined
+    return {
+      anchorContactId: edgeDrag.anchorContactId,
+      cursorViewportX: edgeDrag.cursorViewportX,
+      cursorViewportY: edgeDrag.cursorViewportY,
+    }
+  }, [isLitho, edgeDrag])
+
   // Slice 2 (#55): axis-aware contact/formation/surface routing.
   // SectionPanel and ContactsLayer are UNCHANGED — the prop boundary absorbs
   // the switch. Geological is the default and existing behaviour is identical.
@@ -1291,6 +1496,8 @@ export default function SectionsCanvas(): JSX.Element {
           // and absent on the geological axis — zero regression.
           contactEdges={isLitho ? contactCorrelationEdges : undefined}
           contactGestureState={contactGestureState}
+          onUnapprovedDragStart={isLitho ? handleUnapprovedDragStart : undefined}
+          unapprovedEdgeDrag={unapprovedEdgeDrag}
           pulsingFormationIds={pulsingFormationIds}
           onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on

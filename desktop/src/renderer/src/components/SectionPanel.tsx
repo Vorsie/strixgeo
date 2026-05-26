@@ -577,6 +577,26 @@ interface Props {
    * Absent / undefined = read-only (contact edges visible, no gesture UI).
    */
   contactGestureState?: ContactGestureState
+  /**
+   * Fired when the user mousedowns on an unapproved edge's grab handle to
+   * start a drag-to-retarget gesture (#133 Phase 2+3 Task 26).
+   * Forwarded verbatim to ``CorrelationEdgesOverlay``.
+   * Absent = no grab handles rendered.
+   */
+  onUnapprovedDragStart?: (
+    e: React.MouseEvent,
+    edge: LithoContactCorrelationEdge,
+    handle: 'a' | 'b',
+  ) => void
+  /**
+   * Live drag state while the user is mid drag-to-retarget (#133 Task 26).
+   * Forwarded verbatim to ``CorrelationEdgesOverlay`` for ghost-line rendering.
+   */
+  unapprovedEdgeDrag?: {
+    anchorContactId: string
+    cursorViewportX: number
+    cursorViewportY: number
+  }
 }
 
 export default function SectionPanel({
@@ -627,6 +647,8 @@ export default function SectionPanel({
   onEditInGeologyStage,
   contactEdges,
   contactGestureState,
+  onUnapprovedDragStart,
+  unapprovedEdgeDrag,
 }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const size = useElementSize(containerRef)
@@ -2154,6 +2176,8 @@ export default function SectionPanel({
                 onPropagateAdmixtures={onPropagateAdmixtures}
                 contactEdges={contactEdges}
                 contactGestureState={contactGestureState}
+                onUnapprovedDragStart={onUnapprovedDragStart}
+                unapprovedEdgeDrag={unapprovedEdgeDrag}
               />
             )}
 
