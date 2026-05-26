@@ -83,8 +83,9 @@ class ResolveLithoInstances(GroundModelLogger):
         self,
         *,
         model_id: UUID,
+        commit: bool = True,
     ) -> ResolveResult:
-        """Run the resolver and commit ordinal updates for ``model_id``.
+        """Run the resolver and (optionally) commit ordinal updates for ``model_id``.
 
         Parameters
         ----------
@@ -92,6 +93,13 @@ class ResolveLithoInstances(GroundModelLogger):
             The lithostratigraphic model whose formations are resolved.
             The caller (API handler) must have already verified the model
             belongs to the request's project.
+        commit : bool
+            When ``True`` (default), commits the session after writing
+            ordinals — appropriate for the explicit-resolve API path.
+            When ``False``, only flushes; the caller owns the commit
+            boundary.  Pass ``False`` when calling from inside
+            ``CorrelateLithoContacts`` or ``UncorrelateLithoContacts``
+            so all mutations in a single request land in one transaction.
 
         Returns
         -------
@@ -114,8 +122,11 @@ class ResolveLithoInstances(GroundModelLogger):
         helper = CorrelateLithoUnits(self._session)
         raw_updates = await helper.run_resolver(model_id)
 
-        # Commit the writes made by run_resolver.
-        await self._session.commit()
+        # Commit or flush depending on whether the caller owns the transaction.
+        if commit:
+            await self._session.commit()
+        else:
+            await self._session.flush()
 
         # run_resolver returns list[{"formation_id": str, "new_ordinal": int}].
         # The old_ordinal is not tracked at that level (it compares against the

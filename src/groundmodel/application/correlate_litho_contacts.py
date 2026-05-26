@@ -20,6 +20,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid6 import uuid7
 
+from groundmodel.application.detect_litho_lenses import DetectLithoLenses
+from groundmodel.application.resolve_litho_instances_use_case import ResolveLithoInstances
 from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
@@ -72,6 +74,7 @@ class CorrelateLithoContacts(GroundModelLogger):
         contact_a_id: UUID,
         contact_b_id: UUID,
         source: str = "manual",
+        request_section_id: UUID | None = None,
     ) -> ContactCorrelateResult:
         """Insert a contact-level edge and return the result.
 
@@ -89,6 +92,12 @@ class CorrelateLithoContacts(GroundModelLogger):
             The other endpoint.
         source : str
             Provenance token.  Defaults to ``'manual'``.
+        request_section_id : UUID | None
+            The section the user was viewing when they drew the edge.
+            Forwarded to ``DetectLithoLenses`` as ``prefer_section_id``
+            so the lens row's ``primary_section_id`` is set correctly.
+            ``None`` is safe — the detector falls back to the lowest-id
+            section containing both anchor investigations.
 
         Returns
         -------
@@ -170,18 +179,34 @@ class CorrelateLithoContacts(GroundModelLogger):
             return ContactCorrelateResult(edge=existing, was_created=False)
 
         # ------------------------------------------------------------------ #
-        # 7. Insert the new edge and commit.                                   #
+        # 7. Insert the new edge, run resolver + lens detection, then commit.  #
         # ------------------------------------------------------------------ #
+        # Manual gestures are implicitly user-approved — set the flag
+        # explicitly so auto-proposed edges (user_approved=False) stay
+        # invisible to the lens detector even if the server_default changes.
         edge = LithoContactCorrelationEdgeOrm(
             id=uuid7(),
             model_id=model_id,
             contact_a_id=a_id,
             contact_b_id=b_id,
             source=source,
+            user_approved=True,
         )
         self._session.add(edge)
         await self._session.flush()
         self.debug(f"CorrelateLithoContacts: edge inserted {edge.id}")
+
+        # Approved-edge mutations trigger the resolver + lens detection in the
+        # same transaction so instance_ordinal + LithoLensOrm rows stay in sync.
+        await ResolveLithoInstances(self._session).execute(
+            model_id=model_id,
+            commit=False,  # caller owns the transaction boundary
+        )
+        await DetectLithoLenses(self._session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            prefer_section_id=request_section_id,
+        )
 
         await self._session.commit()
         await self._session.refresh(edge)
@@ -210,6 +235,7 @@ class UncorrelateLithoContacts(GroundModelLogger):
         model_id: UUID,
         contact_a_id: UUID,
         contact_b_id: UUID,
+        request_section_id: UUID | None = None,
     ) -> None:
         """Delete the contact-level edge between two contacts.
 
@@ -223,6 +249,10 @@ class UncorrelateLithoContacts(GroundModelLogger):
             One endpoint (order does not matter — canonical ordering applied).
         contact_b_id : UUID
             The other endpoint.
+        request_section_id : UUID | None
+            The section the user was viewing when they removed the edge.
+            Forwarded to ``DetectLithoLenses`` as ``prefer_section_id``
+            so primary-section resolution stays stable even on deletion.
 
         Returns
         -------
@@ -252,6 +282,7 @@ class UncorrelateLithoContacts(GroundModelLogger):
         )
         existing = (await self._session.execute(stmt)).scalar_one_or_none()
         if existing is None:
+            # Topology is unchanged — resolver + detector are not needed.
             self.debug(
                 f"UncorrelateLithoContacts: edge not found — no-op "
                 f"(contact_a={a_id} contact_b={b_id})"
@@ -260,6 +291,21 @@ class UncorrelateLithoContacts(GroundModelLogger):
             return
 
         await self._session.delete(existing)
+        await self._session.flush()
+        self.debug(f"UncorrelateLithoContacts: edge {existing.id} deleted from session")
+
+        # Topology changed — re-run resolver + lens detection in the same
+        # transaction so stale LithoLensOrm rows are removed atomically.
+        await ResolveLithoInstances(self._session).execute(
+            model_id=model_id,
+            commit=False,  # caller owns the transaction boundary
+        )
+        await DetectLithoLenses(self._session).execute(
+            project_id=project_id,
+            model_id=model_id,
+            prefer_section_id=request_section_id,
+        )
+
         await self._session.commit()
         self.success(
             f"UncorrelateLithoContacts: deleted edge {existing.id} "
