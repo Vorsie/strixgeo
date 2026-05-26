@@ -14,7 +14,6 @@ from fastapi import APIRouter
 from . import (
     contact_correlations,
     contacts,
-    correlations,
     exports,
     formations,
     lenses,
@@ -28,6 +27,5 @@ router.include_router(models.router)
 router.include_router(contacts.router)
 router.include_router(surfaces.router)
 router.include_router(exports.router)
-router.include_router(correlations.router)
 router.include_router(contact_correlations.router)
 router.include_router(lenses.router)
