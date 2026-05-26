@@ -403,4 +403,59 @@ describe('applyCrossMergeOnDrag', () => {
     })
     expect(result).toBe(afterSuggestAll)
   })
+
+  // CM10 / CM11 — double-absorb regression (dogfeed 2026-05-26).
+  //
+  // Root cause: ``handleUp`` in LithoSuggestionGhostColumns fires TWO
+  // ``onEdit`` calls for a shared-boundary drag — one for the dragger
+  // (primary, with cross-merge) and one for the partner (secondary,
+  // shared-boundary propagation). The secondary call ran
+  // ``applyCrossMergeOnDrag`` on the post-primary ghost, where the
+  // primary had already set the dragger's base to ``final``. The
+  // secondary then saw ``newTop <= dragger.updatedBase`` and absorbed
+  // the dragger — wrong direction, double absorb.
+  //
+  // Fix: ``handleUp`` marks the secondary edit with
+  // ``_propagateOnly: true``; ``applyCrossMergeOnDrag`` skips the
+  // neighbour scan for propagate-only edits and performs a plain
+  // depth merge only.
+  //
+  // These tests exercise the pure-helper half: a _propagateOnly edit
+  // must never trigger absorb regardless of the depth values.
+
+  it('CM10 — _propagateOnly edit: no absorb even when depth crosses neighbour boundary', () => {
+    // Simulates the secondary shared-boundary call after a base-drag
+    // UP gesture. The primary already updated layer 1's base to 1 (via
+    // its own applyCrossMergeOnDrag call). The secondary fires
+    // onEdit(2, { depth_top_m: 1, _propagateOnly: true }). From layer
+    // 2's perspective newTop=1 < preTop=4 AND neighbourBase=1 —
+    // without the fix this absorbs layer 1. With the fix: plain merge.
+    const g = ghost(
+      [L(0, 2), L(2, 4), L(4, 6)],
+      // Simulate primary already having updated layer 1's base to 1.
+      { edits: new Map([[1, { depth_base_m: 1 }]]) },
+    )
+    const result = applyCrossMergeOnDrag(g, 2, { depth_top_m: 1, _propagateOnly: true })
+    // No absorption — still 3 layers.
+    expect(result.suggestions).toHaveLength(3)
+    // The propagated depth is stored as a plain edit on idx 2.
+    expect(result.edits.get(2)?.depth_top_m).toBe(1)
+    // The _propagateOnly flag is stripped from the stored edit.
+    expect(result.edits.get(2)?._propagateOnly).toBeUndefined()
+  })
+
+  it('CM11 — _propagateOnly edit: mirrors CM10 for a top-drag DOWN propagation', () => {
+    // Symmetric case: primary dragged layer 1's top DOWN to 5 (past layer
+    // 2's territory). Secondary fires onEdit(0, { depth_base_m: 5,
+    // _propagateOnly: true }). Without the fix: layer 0's base going past
+    // layer 1's updated top (5) would absorb layer 1. With the fix: plain.
+    const g = ghost(
+      [L(0, 2), L(2, 4), L(4, 6)],
+      { edits: new Map([[1, { depth_top_m: 5 }]]) },
+    )
+    const result = applyCrossMergeOnDrag(g, 0, { depth_base_m: 5, _propagateOnly: true })
+    expect(result.suggestions).toHaveLength(3)
+    expect(result.edits.get(0)?.depth_base_m).toBe(5)
+    expect(result.edits.get(0)?._propagateOnly).toBeUndefined()
+  })
 })
