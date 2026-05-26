@@ -1040,6 +1040,69 @@ describe('CorrelationEdgesOverlay', () => {
     expect(onRejectCorrelate.mock.calls[0][0]).toMatch(/different investigation/i)
   })
 
+  // CC8: approved contact edge renders with data-approved="true".
+  // Approved edges draw solid emerald; this test pins the attribute only —
+  // the visual difference (stroke colour) is verified by the colour constants.
+  it('CC8: approved contact edge renders with data-approved="true"', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'e1',
+      contact_a_id: 'ca',
+      contact_b_id: 'cb',
+      model_id: 'm1',
+      source: 'manual',
+      user_approved: true,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactEdges: [edge],
+    })
+    const line = screen.getByTestId('contact-edge-e1')
+    expect(line.getAttribute('data-approved')).toBe('true')
+  })
+
+  // CC9: unapproved contact edge renders with data-approved="false".
+  // Unapproved edges draw dashed amber; this test pins the attribute.
+  it('CC9: unapproved contact edge renders with data-approved="false"', () => {
+    const fA = makeFormation('f-a', 'Zand', 1)
+    const contacts = [
+      makeContact('ca', 'f-a', 'inv-A', 'cpt', 2.0),
+      makeContact('cb', 'f-a', 'inv-B', 'cpt', 2.0),
+    ]
+    const edge = {
+      id: 'e2',
+      contact_a_id: 'ca',
+      contact_b_id: 'cb',
+      model_id: 'm1',
+      source: 'auto',
+      user_approved: false,
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    renderOverlay({
+      edges: [],
+      contacts,
+      formations: [fA],
+      placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
+      levelToScreen: makeLevelToScreen(),
+      plotTop: 20,
+      plotBottom: 200,
+      contactEdges: [edge],
+    })
+    const line = screen.getByTestId('contact-edge-e2')
+    expect(line.getAttribute('data-approved')).toBe('false')
+  })
+
   // CE19: "Remove all correlations for this body" fires onUncorrelate
   // for every edge whose endpoints both carry the body's ordinal — not
   // just the edge under the right-clicked chip. Other bodies untouched.

@@ -64,6 +64,12 @@ const CONTACT_EDGE_WIDTH = 1.8
 const CONTACT_EDGE_DASH = 'none'
 /** Ambient opacity for contact-level edges (same policy as body edges). */
 const CONTACT_EDGE_OPACITY = 0.65
+/** Stroke colour for unapproved (pending) contact-level edges — amber-500.
+ *  Distinct from the solid emerald of approved edges so the user can see
+ *  at a glance which edges still need to be accepted. */
+const UNAPPROVED_EDGE_COLOR = '#f59e0b'
+/** Dash pattern for unapproved edges — dashed to signal provisional state. */
+const UNAPPROVED_EDGE_DASH = '4 4'
 /** Hit target height around each contact top-boundary line (±px), used
  *  as the clickable rect height when contactCorrelateMode is active. */
 const CONTACT_HIT_HEIGHT = 12
@@ -1793,17 +1799,19 @@ export default function CorrelationEdgesOverlay({
             const ptA = contactScreenMap.get(ce.contact_a_id)
             const ptB = contactScreenMap.get(ce.contact_b_id)
             if (!ptA || !ptB) return null
+            const approved = ce.user_approved
             return (
               <line
                 key={`contact-edge-${ce.id}`}
                 data-testid={`contact-edge-${ce.id}`}
+                data-approved={approved ? 'true' : 'false'}
                 x1={ptA.x}
                 y1={ptA.topY}
                 x2={ptB.x}
                 y2={ptB.topY}
-                stroke={CONTACT_EDGE_COLOR}
+                stroke={approved ? CONTACT_EDGE_COLOR : UNAPPROVED_EDGE_COLOR}
                 strokeWidth={CONTACT_EDGE_WIDTH}
-                strokeDasharray={CONTACT_EDGE_DASH}
+                strokeDasharray={approved ? CONTACT_EDGE_DASH : UNAPPROVED_EDGE_DASH}
                 opacity={CONTACT_EDGE_OPACITY}
                 pointerEvents="none"
               />
