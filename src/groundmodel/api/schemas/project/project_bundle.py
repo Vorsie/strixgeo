@@ -192,15 +192,6 @@ class ProjectBundleRequest(BaseModel):
         default_factory=list,
         max_length=_MAX_INVESTIGATION_REVIEWS_PER_BUNDLE,
     )
-    # Litho correlation edges — Phase-2 (model-level, NOT section-level).
-    # Additive field: absence of this key in an older bundle restores
-    # cleanly via default_factory=list (no format_version bump required;
-    # backwards-compat is SUSPENDED pre-ship per project_backwards_compat_suspended.md,
-    # but keeping the field additive-optional is the post-ship-safe pattern).
-    litho_correlation_edges: list[dict[str, Any]] = Field(
-        default_factory=list,
-        max_length=_MAX_LITHO_CORRELATION_EDGES_PER_BUNDLE,
-    )
     # Litho lens metadata rows (Position 4).  Each row carries
     # app_project_id + model_id + formation_id + body_ordinal.  Restore
     # order: models first, then lenses (model_id FK-respecting).
@@ -251,9 +242,6 @@ class ProjectBundleResponse(BaseModel):
     geological_models: list[dict[str, Any]] = Field(default_factory=list)
     cross_sections: list[dict[str, Any]] = Field(default_factory=list)
     investigation_reviews: list[dict[str, Any]] = Field(default_factory=list)
-    # Litho correlation edges (Phase-2).  Absent in bundles saved before
-    # Phase 2 shipped — default_factory=list so older files open cleanly.
-    litho_correlation_edges: list[dict[str, Any]] = Field(default_factory=list)
     # Litho lens metadata rows (Position 4).  Additive — absent in bundles
     # saved before this field existed.
     litho_lenses: list[dict[str, Any]] = Field(default_factory=list)

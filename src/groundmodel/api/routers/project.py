@@ -261,7 +261,6 @@ async def restore_project(
             request.cross_sections,
             request.investigation_reviews,
             geotechnical_units_payload=request.geotechnical_units,
-            litho_correlation_edges_payload=request.litho_correlation_edges,
             litho_lenses_payload=request.litho_lenses,
             formation_absences_payload=request.formation_absences,
             litho_contact_correlation_edges_payload=request.litho_contact_correlation_edges,
