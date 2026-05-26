@@ -1,37 +1,27 @@
-// Unit tests for CorrelationEdgesOverlay (Slice 4, #55).
+// Unit tests for CorrelationEdgesOverlay (#133 Phase 1 + #135 + Phase 2+3).
 //
 // Claims pinned here:
-//   CE1  No edges rendered when edges array is empty.
-//   CE2  One edge between two columns renders: a line and a badge.
-//   CE3  Badge shows "body N" when instance_ordinal is set on a formation.
-//   CE4  Badge shows "?" (amber) when instance_ordinal is null.
-//   CE5  Dangling edge suppressed: when only one formation's column is on
-//        the section, the edge line is NOT rendered (both x1/x2 required).
-//   CE6  True-spacing warning label renders when correlateMode is true
-//        and adjacent columns are < 1 m apart (along distance).
-//   CE7  Arm source: in correlate mode with no source armed, clicking a
-//        band rect calls onArm with the correct formationId + investigationId.
-//   CE8  Valid target: when source is armed, clicking a different column's
-//        band rect calls onCorrelate(sourceFormationId, targetFormationId).
-//   CE9  Esc on the document while correlationSource is armed calls onClearArmed
-//        (tested indirectly — the Esc peel lives in SectionPanel.test).
-//
-// Note: the Esc peel order (L1=clearArmed, L2=exitMode) is tested in
-//       SectionPanel because it lives in SectionPanel's keydown handler.
+//   CE1  No lines rendered when contacts and contactEdges are both empty.
+//   CE3  Badge shows "#N" when instance_ordinal is set on a formation.
+//   CE4  No chip when instance_ordinal is null (pre-Resolve state).
+//   CE14 Right-click body chip opens body context menu (edit admixtures + remove all).
+//   CE15 Chip menu "Edit admixtures for this body" opens the admixture editor.
+//   CE20 Bands of pulsing formations render an amber pulse stroke.
+//   CE21 No pulse rects when pulsingFormationIds is empty / absent.
+//   CE22 Right-click on body chip → "Inspect lens body…" appears and calls onInspectLensBody.
+//   CE23 "Inspect lens body…" absent when onInspectLensBody prop is not provided.
+//   CE24 Regression — "Mark as lens" text is never present in body context menu.
+//   CE-B1..B3  buildBandMap geometry anchors (debt #120 regression).
+//   CC1..CC9  Contact-correlate gesture (#133 Phase 1 + #135 lens-pinch-out).
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import CorrelationEdgesOverlay, { buildBandMap, computeRibbonPoints } from './CorrelationEdgesOverlay'
-import type {
-  ContactGestureState,
-  CorrelateGestureState,
-  RibbonColumn,
-} from './CorrelationEdgesOverlay'
+import CorrelationEdgesOverlay, { buildBandMap } from './CorrelationEdgesOverlay'
+import type { ContactGestureState } from './CorrelationEdgesOverlay'
 import type {
   FormationContactResponse,
   GeologicalFormationResponse,
-  LithoCorrelationEdge,
 } from '../../api/client'
 import type { PlacedColumn } from './utils'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
@@ -42,20 +32,6 @@ afterEach(() => cleanup())
 // ---------------------------------------------------------------------------
 // Fixture factories
 // ---------------------------------------------------------------------------
-
-function makeEdge(
-  aId: string,
-  bId: string,
-  id = 'edge-1',
-): LithoCorrelationEdge {
-  return {
-    id,
-    formation_a_id: aId,
-    formation_b_id: bId,
-    source: 'manual_connect',
-    created_at: '2026-01-01T00:00:00Z',
-  }
-}
 
 function makeFormation(
   id: string,
@@ -176,9 +152,8 @@ function renderOverlay(
 // ---------------------------------------------------------------------------
 
 describe('CorrelationEdgesOverlay', () => {
-  it('CE1: renders nothing when edges array is empty', () => {
+  it('CE1: renders nothing when contacts and contactEdges are both empty', () => {
     const { container } = renderOverlay({
-      edges: [],
       contacts: [],
       formations: [],
       placedColumns: [],
@@ -192,41 +167,6 @@ describe('CorrelationEdgesOverlay', () => {
     expect(overlay!.querySelectorAll('line')).toHaveLength(0)
   })
 
-  // CE2 — debts #121/#122: resolved edges render as ribbon polygons (not
-  // dashed lines) at ambient opacity (0.20). Chips are always-on per
-  // band.  The ribbon is keyed by body ordinal rather than edge id.
-  it('CE2: resolved edges render as ribbon at ambient opacity; chips are present per band', () => {
-    const fA = makeFormation('f-a', 'Zand', 1)
-    const fB = makeFormation('f-b', 'Klei', 1)
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-    ]
-    const columns = [
-      makeColumn('inv-1', 100, 10, 5),
-      makeColumn('inv-2', 200, 10, 20),
-    ]
-    const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b', 'edge-1')],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(10, 20, 10),
-      plotTop: 20,
-      plotBottom: 200,
-    })
-    // Chips render on every band with a non-null ordinal.
-    expect(screen.getByTestId('body-chip-inv-1-f-a')).not.toBeNull()
-    expect(screen.getByTestId('body-chip-inv-2-f-b')).not.toBeNull()
-    // Ribbon (not dashed line) renders at rest — keyed by ordinal.
-    const ribbonGroup = container.querySelector('[data-testid="correlation-ribbon-1"]')
-    expect(ribbonGroup).not.toBeNull()
-    // The group carries the ambient opacity attribute.
-    expect(ribbonGroup!.getAttribute('opacity')).toBe('0.2')
-    // No per-edge dashed-line element for resolved edges.
-    expect(container.querySelector('[data-testid="correlation-edge-edge-1"]')).toBeNull()
-  })
-
   it('CE3: chip shows "#N" when instance_ordinal is set', () => {
     const fA = makeFormation('f-a', 'Zand', 1)
     const fB = makeFormation('f-b', 'Klei', 1)
@@ -235,7 +175,6 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
     renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
@@ -256,7 +195,6 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
     const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
@@ -270,305 +208,13 @@ describe('CorrelationEdgesOverlay', () => {
     expect(container.querySelector('[data-testid^="body-chip-"]')).toBeNull()
   })
 
-  it('CE5: dangling edge suppressed when only one formation has a column', () => {
-    // f-b has no contact on any column → no line rendered
-    const fA = makeFormation('f-a', 'Zand', 1)
-    const fB = makeFormation('f-b', 'Klei', 1)
-    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-    })
-    const overlay = container.querySelector('[data-testid="correlation-edges-overlay"]')!
-    const lines = overlay.querySelectorAll('line')
-    // No edge lines — no badge either
-    expect(lines).toHaveLength(0)
-    expect(screen.queryByText(/body/)).toBeNull()
-  })
-
-  it('CE6: true-spacing warning renders when correlateMode and adjacent columns are < 1 m apart', () => {
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-    }
-    // Two columns 0.5 m apart (along = 5 and 5.5)
-    const columns = [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 5.5)]
-    renderOverlay({
-      edges: [],
-      contacts: [],
-      formations: [],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    expect(screen.getByText(/true spacing.*< 1 m/i)).not.toBeNull()
-  })
-
-  it('CE7: clicking a band rect in correlate mode (no source) calls onArm', () => {
-    const onArm = vi.fn()
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: null,
-      onArm,
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-    }
-    const fA = makeFormation('f-a', 'Zand', null)
-    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    // Find the arm click rect by data-testid
-    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
-    fireEvent.click(armRect)
-    expect(onArm).toHaveBeenCalledWith(
-      expect.objectContaining({ formationId: 'f-a', investigationId: 'inv-1' }),
-    )
-  })
-
-  it('CE8: clicking valid target band rect calls onCorrelate', async () => {
-    const onCorrelate = vi.fn().mockResolvedValue(undefined)
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: { formationId: 'f-a', investigationId: 'inv-1', label: 'Zand' },
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate,
-      onUncorrelate: vi.fn(),
-    }
-    const fA = makeFormation('f-a', 'Zand', null)
-    const fB = makeFormation('f-b', 'Klei', null)
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-    ]
-    const columns = [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)]
-    renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    // Find the valid target rect for inv-2/f-b by data-testid
-    const targetRect = screen.getByTestId('correlate-target-inv-2-f-b')
-    fireEvent.click(targetRect)
-    expect(onCorrelate).toHaveBeenCalledWith('f-a', 'f-b')
-  })
-
   // -------------------------------------------------------------------
-  // Drag-arm gesture (debt #78) — drag-inside-correlate-mode.
-  // -------------------------------------------------------------------
-
-  it('CE9: mousedown on un-armed band fires onArm and shows preview line', () => {
-    const onArm = vi.fn()
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: null,
-      onArm,
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-    }
-    const fA = makeFormation('f-a', 'Zand', null)
-    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    const { container } = renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
-    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 0 })
-    expect(onArm).toHaveBeenCalledWith(
-      expect.objectContaining({ formationId: 'f-a', investigationId: 'inv-1' }),
-    )
-    // Preview line renders while drag is in flight.
-    expect(container.querySelector('[data-testid="correlate-drag-preview"]')).not.toBeNull()
-  })
-
-  it('CE10: mouseup over another band fires onCorrelate with source + target ids', () => {
-    const onCorrelate = vi.fn().mockResolvedValue(undefined)
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate,
-      onUncorrelate: vi.fn(),
-    }
-    const fA = makeFormation('f-a', 'Zand', null)
-    const fB = makeFormation('f-b', 'Zand', null) // same parent/litho → valid target
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-    ]
-    const columns = [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)]
-    renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
-    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 0 })
-    // Stub elementsFromPoint to return a fake element carrying the
-    // target band's data attrs. jsdom doesn't implement layout, so
-    // the real call returns []; stubbing isolates the handler logic.
-    const fakeTarget = document.createElement('div')
-    fakeTarget.setAttribute('data-correlate-investigation-id', 'inv-2')
-    fakeTarget.setAttribute('data-correlate-formation-id', 'f-b')
-    const original = document.elementsFromPoint
-    document.elementsFromPoint = vi.fn().mockReturnValue([fakeTarget as unknown as Element])
-    fireEvent.mouseUp(document, { clientX: 200, clientY: 50 })
-    expect(onCorrelate).toHaveBeenCalledWith('f-a', 'f-b')
-    document.elementsFromPoint = original
-  })
-
-  it('CE11: mouseup over the same band does NOT fire onCorrelate', () => {
-    const onCorrelate = vi.fn().mockResolvedValue(undefined)
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate,
-      onUncorrelate: vi.fn(),
-    }
-    const fA = makeFormation('f-a', 'Zand', null)
-    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
-    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 0 })
-    const sameTarget = document.createElement('div')
-    sameTarget.setAttribute('data-correlate-investigation-id', 'inv-1')
-    sameTarget.setAttribute('data-correlate-formation-id', 'f-a')
-    const original = document.elementsFromPoint
-    document.elementsFromPoint = vi.fn().mockReturnValue([sameTarget as unknown as Element])
-    fireEvent.mouseUp(document, { clientX: 100, clientY: 50 })
-    expect(onCorrelate).not.toHaveBeenCalled()
-    document.elementsFromPoint = original
-  })
-
-  it('CE12: mouseup on empty space does NOT fire onCorrelate', () => {
-    const onCorrelate = vi.fn().mockResolvedValue(undefined)
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate,
-      onUncorrelate: vi.fn(),
-    }
-    const fA = makeFormation('f-a', 'Zand', null)
-    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
-    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 0 })
-    const original = document.elementsFromPoint
-    document.elementsFromPoint = vi.fn().mockReturnValue([])
-    fireEvent.mouseUp(document, { clientX: 500, clientY: 500 })
-    expect(onCorrelate).not.toHaveBeenCalled()
-    document.elementsFromPoint = original
-  })
-
-  it('CE13: right-mousedown does NOT open a drag (button !== 0)', () => {
-    const onArm = vi.fn()
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: null,
-      onArm,
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-    }
-    const fA = makeFormation('f-a', 'Zand', null)
-    const contacts = [makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0)]
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    const { container } = renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    const armRect = screen.getByTestId('correlate-arm-inv-1-f-a')
-    fireEvent.mouseDown(armRect, { clientX: 100, clientY: 50, button: 2 })
-    expect(onArm).not.toHaveBeenCalled()
-    expect(container.querySelector('[data-testid="correlate-drag-preview"]')).toBeNull()
-  })
-
-  // -------------------------------------------------------------------
-  // Context-menu admixture propagation (new items CE14–CE15)
+  // Context-menu admixture propagation (CE14–CE15)
   // -------------------------------------------------------------------
 
   // CE14 — debt #100: right-click on a body chip opens the body-level
-  // context menu (replaces the right-click-on-edge-line surface, which
-  // is now hidden by default + only the per-edge fallback).
+  // context menu. onPropagateAdmixtures is now a direct prop (not nested
+  // inside a gesture state).
   it('CE14: right-click body chip opens body context menu (edit admixtures + remove all)', () => {
     const fA = {
       ...makeFormation('f-a', 'Zand', 1),
@@ -580,25 +226,14 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
-    const gestureState: CorrelateGestureState = {
-      correlateMode: false,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-      onPropagateAdmixtures: vi.fn(),
-    }
     renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
       levelToScreen: makeLevelToScreen(),
       plotTop: 20,
       plotBottom: 200,
-      correlateGestureState: gestureState,
+      onPropagateAdmixtures: vi.fn(),
     })
     const chip = screen.getByTestId('body-chip-inv-1-f-a')
     fireEvent.contextMenu(chip)
@@ -619,25 +254,14 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
-    const gestureState: CorrelateGestureState = {
-      correlateMode: false,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-      onPropagateAdmixtures,
-    }
     renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
       levelToScreen: makeLevelToScreen(),
       plotTop: 20,
       plotBottom: 200,
-      correlateGestureState: gestureState,
+      onPropagateAdmixtures,
     })
     const chip = screen.getByTestId('body-chip-inv-1-f-a')
     fireEvent.contextMenu(chip)
@@ -645,156 +269,6 @@ describe('CorrelationEdgesOverlay', () => {
     // after open — `selector: 'button'` disambiguates).
     fireEvent.click(screen.getByText(/Edit admixtures for this body/i, { selector: 'button' }))
     expect(screen.getByText(/Edit admixtures for this body/i, { selector: 'h2' })).not.toBeNull()
-  })
-
-  // -------------------------------------------------------------------
-  // CE16–CE19 — debt #100: hover-to-reveal + body-level remove-all.
-  // -------------------------------------------------------------------
-
-  // CE16: both ribbons render at ambient opacity at rest (debt #121/#122).
-  // Hovering a chip for body-1 spikes that body's ribbon to 0.80;
-  // body-2's ribbon stays at ambient (0.20). Ribbons are keyed by ordinal.
-  it('CE16: hovering a chip spikes that body\'s ribbon opacity; other-body ribbons stay ambient', () => {
-    const fA1 = makeFormation('f-a1', 'Zand', 1)
-    const fA2 = makeFormation('f-a2', 'Zand', 1) // same body
-    const fB1 = makeFormation('f-b1', 'Klei', 2) // different body
-    const fB2 = makeFormation('f-b2', 'Klei', 2)
-    const contacts = [
-      makeContact('c1', 'f-a1', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-a2', 'inv-2', 'cpt', 2.0),
-      makeContact('c3', 'f-b1', 'inv-1', 'cpt', 5.0),
-      makeContact('c4', 'f-b2', 'inv-2', 'cpt', 5.0),
-    ]
-    const { container } = renderOverlay({
-      edges: [makeEdge('f-a1', 'f-a2', 'edge-A'), makeEdge('f-b1', 'f-b2', 'edge-B')],
-      contacts,
-      formations: [fA1, fA2, fB1, fB2],
-      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-    })
-    // Both ribbons are present at rest.
-    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="correlation-ribbon-2"]')).not.toBeNull()
-    // Both at ambient opacity.
-    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')!.getAttribute('opacity')).toBe('0.2')
-    expect(container.querySelector('[data-testid="correlation-ribbon-2"]')!.getAttribute('opacity')).toBe('0.2')
-    // Hover a body-1 chip → body-1 ribbon spikes; body-2 stays ambient.
-    fireEvent.mouseEnter(screen.getByTestId('body-chip-inv-1-f-a1'))
-    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')!.getAttribute('opacity')).toBe('0.8')
-    expect(container.querySelector('[data-testid="correlation-ribbon-2"]')!.getAttribute('opacity')).toBe('0.2')
-  })
-
-  // CE17: mouseleave from the chip returns the ribbon to ambient opacity (0.20).
-  // Ribbon remains present — always-on per debt #122.
-  it('CE17: mouseleave returns the body\'s ribbon to ambient opacity', () => {
-    const fA = makeFormation('f-a', 'Zand', 1)
-    const fB = makeFormation('f-b', 'Zand', 1)
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-    ]
-    const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b', 'edge-1')],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-    })
-    const chip = screen.getByTestId('body-chip-inv-1-f-a')
-    // Hover spikes the ribbon.
-    fireEvent.mouseEnter(chip)
-    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')!.getAttribute('opacity')).toBe('0.8')
-    // Leave returns to ambient — ribbon still present.
-    fireEvent.mouseLeave(chip)
-    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="correlation-ribbon-1"]')!.getAttribute('opacity')).toBe('0.2')
-  })
-
-  // -------------------------------------------------------------------
-  // CE-O1..CE-O3 — debt #122: opacity fade for committed edges.
-  // -------------------------------------------------------------------
-
-  // CE-O1: a resolved committed edge renders as a ribbon at ambient opacity 0.20.
-  // The ribbon is keyed by body ordinal, not edge id.
-  it('CE-O1: resolved committed edge renders as ribbon at ambient opacity 0.20', () => {
-    const fA = makeFormation('f-a', 'Zand', 1)
-    const fB = makeFormation('f-b', 'Klei', 1)
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-    ]
-    const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b', 'edge-1')],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-    })
-    const ribbonGroup = container.querySelector('[data-testid="correlation-ribbon-1"]')
-    expect(ribbonGroup).not.toBeNull()
-    expect(ribbonGroup!.getAttribute('opacity')).toBe('0.2')
-  })
-
-  // CE-O2: hovering a chip of body ordinal 1 spikes the ribbon to 0.80.
-  it('CE-O2: ribbon with matching body hover renders at spiked opacity 0.80', () => {
-    const fA = makeFormation('f-a', 'Zand', 1)
-    const fB = makeFormation('f-b', 'Klei', 1)
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-    ]
-    const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b', 'edge-1')],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-    })
-    // Hover a chip of body ordinal 1 to spike the ribbon.
-    fireEvent.mouseEnter(screen.getByTestId('body-chip-inv-1-f-a'))
-    const ribbonGroup = container.querySelector('[data-testid="correlation-ribbon-1"]')
-    expect(ribbonGroup!.getAttribute('opacity')).toBe('0.8')
-  })
-
-  // CE-O3: a pre-Resolve edge (ordinal null on either endpoint) renders as
-  // a dashed line at ambient opacity — the ribbon path only fires for
-  // resolved bodies. Regression: auto-source dashed-line edges are NOT
-  // the 'ribbon' element but the 'correlation-edge' element.
-  it('CE-O3: pre-Resolve edge (null ordinal) renders as dashed line, not ribbon', () => {
-    // Both formations have ordinal null — pre-Resolve state.
-    const fA = makeFormation('f-a', 'Zand', null)
-    const fB = makeFormation('f-b', 'Klei', null)
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-    ]
-    const autoEdge: LithoCorrelationEdge = {
-      ...makeEdge('f-a', 'f-b', 'edge-pre-resolve'),
-      source: 'auto',
-    }
-    const { container } = renderOverlay({
-      edges: [autoEdge],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-    })
-    // Dashed line present (pre-Resolve path).
-    const edgeGroup = container.querySelector('[data-testid="correlation-edge-edge-pre-resolve"]')
-    expect(edgeGroup).not.toBeNull()
-    expect(edgeGroup!.getAttribute('opacity')).toBe('0.2')
-    // No ribbon for pre-Resolve bodies.
-    expect(container.querySelector('[data-testid^="correlation-ribbon-"]')).toBeNull()
   })
 
   // CE20 — debt #100-followup 2026-05-23: when ``pulsingFormationIds``
@@ -811,7 +285,6 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
     const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
@@ -834,7 +307,6 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
     const { container } = renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
@@ -860,25 +332,13 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
-    const gestureState: CorrelateGestureState = {
-      correlateMode: false,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-      onPropagateAdmixtures: vi.fn(),
-    }
     renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
       levelToScreen: makeLevelToScreen(),
       plotTop: 20,
       plotBottom: 200,
-      correlateGestureState: gestureState,
       onInspectLensBody,
     })
     fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a'))
@@ -900,25 +360,13 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
-    const gestureState: CorrelateGestureState = {
-      correlateMode: false,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-      onPropagateAdmixtures: vi.fn(),
-    }
     renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
       levelToScreen: makeLevelToScreen(),
       plotTop: 20,
       plotBottom: 200,
-      correlateGestureState: gestureState,
       // onInspectLensBody intentionally absent
     })
     fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a'))
@@ -935,109 +383,18 @@ describe('CorrelationEdgesOverlay', () => {
       makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
       makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
     ]
-    const gestureState: CorrelateGestureState = {
-      correlateMode: false,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-      onPropagateAdmixtures: vi.fn(),
-    }
     renderOverlay({
-      edges: [makeEdge('f-a', 'f-b')],
       contacts,
       formations: [fA, fB],
       placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
       levelToScreen: makeLevelToScreen(),
       plotTop: 20,
       plotBottom: 200,
-      correlateGestureState: gestureState,
     })
     fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a'))
     // "Mark as lens" (any capitalisation) must be absent — the item was
     // removed in the #101 R5 refactor and must not come back.
     expect(screen.queryByText(/mark as lens/i)).toBeNull()
-  })
-
-  // -------------------------------------------------------------------
-  // CE25–CE26 — #129c: rejection toasts for blocked correlate clicks.
-  // -------------------------------------------------------------------
-
-  // CE25: clicking a cross-group band (armed source on inv-1/f-a, target
-  // on inv-2 but different formation type) fires onRejectCorrelate.
-  it('CE25: clicking a cross-group band calls onRejectCorrelate with a reason', () => {
-    const onRejectCorrelate = vi.fn()
-    // f-a and f-b have different litho_main_soil_code → cross-group
-    const fA = { ...makeFormation('f-a', 'Zand', null), litho_main_soil_code: 'Z', parent_formation_id: 'pf-1' }
-    const fB = { ...makeFormation('f-b', 'Klei', null), litho_main_soil_code: 'K', parent_formation_id: 'pf-1' }
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: { formationId: 'f-a', investigationId: 'inv-1', label: 'Zand' },
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-    }
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-    ]
-    renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: [makeColumn('inv-1', 100, 10, 5), makeColumn('inv-2', 200, 10, 20)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-      onRejectCorrelate,
-    })
-    const rejectRect = screen.getByTestId('correlate-reject-crossgroup-inv-2-f-b')
-    fireEvent.click(rejectRect)
-    expect(onRejectCorrelate).toHaveBeenCalledOnce()
-    expect(onRejectCorrelate.mock.calls[0][0]).toMatch(/different formation group/i)
-  })
-
-  // CE26: clicking a band on the SAME investigation as the armed source
-  // (same-investigation, self-edge blocked) fires onRejectCorrelate.
-  it('CE26: clicking a same-investigation band calls onRejectCorrelate with a reason', () => {
-    const onRejectCorrelate = vi.fn()
-    // Two formations on the same investigation inv-1.  Source is f-a; f-b
-    // is on inv-1 too — same investigationId → blocked.
-    const fA = makeFormation('f-a', 'Zand', null)
-    const fB = makeFormation('f-b', 'Klei', null)
-    const gestureState: CorrelateGestureState = {
-      correlateMode: true,
-      correlationSource: { formationId: 'f-a', investigationId: 'inv-1', label: 'Zand' },
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate: vi.fn(),
-    }
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 1.0),
-      makeContact('c2', 'f-b', 'inv-1', 'cpt', 3.0), // same inv
-    ]
-    renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA, fB],
-      placedColumns: [makeColumn('inv-1', 100, 10, 5)],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-      onRejectCorrelate,
-    })
-    const rejectRect = screen.getByTestId('correlate-reject-sameinv-inv-1-f-b')
-    fireEvent.click(rejectRect)
-    expect(onRejectCorrelate).toHaveBeenCalledOnce()
-    expect(onRejectCorrelate.mock.calls[0][0]).toMatch(/different investigation/i)
   })
 
   // CC8: approved contact edge renders with data-approved="true".
@@ -1059,7 +416,6 @@ describe('CorrelationEdgesOverlay', () => {
       created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
-      edges: [],
       contacts,
       formations: [fA],
       placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
@@ -1090,7 +446,6 @@ describe('CorrelationEdgesOverlay', () => {
       created_at: '2026-01-01T00:00:00Z',
     }
     renderOverlay({
-      edges: [],
       contacts,
       formations: [fA],
       placedColumns: [makeColumn('inv-A', 100, 10, 5), makeColumn('inv-B', 200, 10, 20)],
@@ -1101,63 +456,6 @@ describe('CorrelationEdgesOverlay', () => {
     })
     const line = screen.getByTestId('contact-edge-e2')
     expect(line.getAttribute('data-approved')).toBe('false')
-  })
-
-  // CE19: "Remove all correlations for this body" fires onUncorrelate
-  // for every edge whose endpoints both carry the body's ordinal — not
-  // just the edge under the right-clicked chip. Other bodies untouched.
-  it('CE19: chip menu Remove-all fires onUncorrelate per body edge', async () => {
-    // Note: the handler is async and serialises N onUncorrelate calls
-    // with await between iterations. The test awaits via waitFor so the
-    // microtask queue drains before the assertion.
-    const onUncorrelate = vi.fn().mockResolvedValue(undefined)
-    const fA1 = makeFormation('f-a1', 'Zand', 1)
-    const fA2 = makeFormation('f-a2', 'Zand', 1)
-    const fA3 = makeFormation('f-a3', 'Zand', 1) // 3-node body — 2 edges
-    const fB1 = makeFormation('f-b1', 'Klei', 2)
-    const fB2 = makeFormation('f-b2', 'Klei', 2)
-    const contacts = [
-      makeContact('c1', 'f-a1', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-a2', 'inv-2', 'cpt', 2.0),
-      makeContact('c3', 'f-a3', 'inv-3', 'cpt', 2.0),
-      makeContact('c4', 'f-b1', 'inv-1', 'cpt', 5.0),
-      makeContact('c5', 'f-b2', 'inv-2', 'cpt', 5.0),
-    ]
-    const gestureState: CorrelateGestureState = {
-      correlateMode: false,
-      correlationSource: null,
-      onArm: vi.fn(),
-      onClearArmed: vi.fn(),
-      onExitMode: vi.fn(),
-      onCorrelate: vi.fn(),
-      onUncorrelate,
-      onPropagateAdmixtures: vi.fn(),
-    }
-    renderOverlay({
-      edges: [
-        makeEdge('f-a1', 'f-a2', 'edge-A12'),
-        makeEdge('f-a2', 'f-a3', 'edge-A23'),
-        makeEdge('f-b1', 'f-b2', 'edge-B'),
-      ],
-      contacts,
-      formations: [fA1, fA2, fA3, fB1, fB2],
-      placedColumns: [
-        makeColumn('inv-1', 100, 10, 5),
-        makeColumn('inv-2', 200, 10, 20),
-        makeColumn('inv-3', 300, 10, 40),
-      ],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: gestureState,
-    })
-    fireEvent.contextMenu(screen.getByTestId('body-chip-inv-1-f-a1'))
-    fireEvent.click(screen.getByText(/Remove all correlations for this body/i))
-    // The body's two edges are both removed; body-2's edge is not.
-    await vi.waitFor(() => expect(onUncorrelate).toHaveBeenCalledTimes(2))
-    const calls = onUncorrelate.mock.calls.map(c => [c[0], c[1]].sort())
-    expect(calls).toContainEqual(['f-a1', 'f-a2'].sort())
-    expect(calls).toContainEqual(['f-a2', 'f-a3'].sort())
   })
 })
 
@@ -1282,216 +580,6 @@ describe('buildBandMap', () => {
 })
 
 // ---------------------------------------------------------------------------
-// computeRibbonPoints unit tests — debt #121 ribbon geometry anchors
-// ---------------------------------------------------------------------------
-//
-// CE-R1  Two-column ribbon returns a valid 4-corner polygon string with the
-//        expected top-left, top-right, bottom-right, bottom-left vertices.
-// CE-R2  Three-column ribbon is ONE continuous polygon (6 corners), NOT two
-//        separate quads (8 corners) — the ribbon spans all columns without
-//        interior seams.
-// CE-R3  Single-column input returns an empty string — there is no adjacent
-//        column to connect to.
-// CE-R4  Integration: a same-body edge pair across 3 columns produces a
-//        single ``correlation-ribbon-{ordinal}`` element, not two separate
-//        per-edge dashed lines — the ribbon-grouping logic fires correctly.
-
-describe('computeRibbonPoints', () => {
-  it('CE-R1: two-column ribbon returns 4 corners in correct order', () => {
-    const cols: RibbonColumn[] = [
-      { x: 100, topY: 20, botY: 60 },
-      { x: 200, topY: 25, botY: 65 },
-    ]
-    const pts = computeRibbonPoints(cols)
-    // Expected: top edge left→right, then bottom edge right→left.
-    // "100.00,20.00 200.00,25.00 200.00,65.00 100.00,60.00"
-    expect(pts).toBe('100.00,20.00 200.00,25.00 200.00,65.00 100.00,60.00')
-  })
-
-  it('CE-R2: three-column ribbon returns 6 corners (one continuous polygon)', () => {
-    const cols: RibbonColumn[] = [
-      { x: 100, topY: 20, botY: 60 },
-      { x: 150, topY: 22, botY: 62 },
-      { x: 200, topY: 25, botY: 65 },
-    ]
-    const pts = computeRibbonPoints(cols)
-    const ptsList = pts.split(' ')
-    // 6 corners: 3 top (L→R) + 3 bottom (R→L).
-    expect(ptsList).toHaveLength(6)
-    // First top-left corner.
-    expect(ptsList[0]).toBe('100.00,20.00')
-    // Last bottom-left corner (reversed bottom edge ends at leftmost column).
-    expect(ptsList[5]).toBe('100.00,60.00')
-  })
-
-  it('CE-R3: single-column input returns empty string — nothing to connect', () => {
-    const cols: RibbonColumn[] = [
-      { x: 100, topY: 20, botY: 60 },
-    ]
-    expect(computeRibbonPoints(cols)).toBe('')
-  })
-})
-
-describe('computeRibbonPoints integration — CE-R4', () => {
-  // CE-R4: a same-body edge pair across 3 columns (A↔B edge + B↔C edge)
-  // produces a SINGLE ribbon element keyed by ordinal, not two per-edge
-  // dashed lines. The ribbon-grouping logic in ribbonRenders folds all
-  // edges of the same body into one render item.
-  it('CE-R4: three-column body produces one ribbon, not two dashed lines', () => {
-    const fA = makeFormation('f-a', 'Zand', 1)
-    const fB = makeFormation('f-b', 'Zand', 1)
-    const fC = makeFormation('f-c', 'Zand', 1)
-    const contacts = [
-      makeContact('c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('c2', 'f-b', 'inv-2', 'cpt', 2.0),
-      makeContact('c3', 'f-c', 'inv-3', 'cpt', 2.0),
-    ]
-    const { container } = renderOverlay({
-      edges: [
-        makeEdge('f-a', 'f-b', 'edge-AB'),
-        makeEdge('f-b', 'f-c', 'edge-BC'),
-      ],
-      contacts,
-      formations: [fA, fB, fC],
-      placedColumns: [
-        makeColumn('inv-1', 100, 10, 5),
-        makeColumn('inv-2', 200, 10, 20),
-        makeColumn('inv-3', 300, 10, 40),
-      ],
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-    })
-    // Exactly one ribbon for body ordinal 1.
-    const ribbons = container.querySelectorAll('[data-testid="correlation-ribbon-1"]')
-    expect(ribbons).toHaveLength(1)
-    // No per-edge dashed lines for resolved edges.
-    expect(container.querySelector('[data-testid="correlation-edge-edge-AB"]')).toBeNull()
-    expect(container.querySelector('[data-testid="correlation-edge-edge-BC"]')).toBeNull()
-    // The ribbon's polygon should have 6 corners (3 columns × 2 = top+bottom).
-    const polygon = ribbons[0].querySelector('polygon')
-    expect(polygon).not.toBeNull()
-    const pts = polygon!.getAttribute('points')!.trim().split(' ')
-    // Ribbon polygon: 3 top + 3 bottom = 6 corners.
-    expect(pts).toHaveLength(6)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// CM1–CM2 — dogfeed 2026-05-25: correlate gesture rects must not appear at
-// pre-merge ghost depths (stale DB contacts shadowed by pending ghost layers).
-// ---------------------------------------------------------------------------
-//
-// Root cause: the backend Phase 1 limitation keeps old committed contacts
-// when suggestions are re-run with merge_same_lithology=True.  CorrelationEdgesOverlay
-// builds gesture rects from whatever contacts prop it receives.  SectionPanel
-// now filters contacts through correlateContacts (a useMemo) before passing them
-// to the overlay — contacts at depths covered by PENDING ghost layers are omitted.
-//
-// The overlay tests here verify the downstream effect: when the shadowed contact
-// is absent from the contacts prop, no arm/target rect is rendered at that depth.
-//
-// CM1  Merged ghost scenario: 4 pre-merge sub-contacts passed to the overlay in
-//      correlate mode → 4 arm rects present (baseline).  Then the same overlay is
-//      rendered with only the merged contact (1 contact) → only 1 arm rect at the
-//      merged top depth; the 3 stale sub-contact rects are absent.
-//
-// CM2  Defensive no-crash: overlay receives an empty contacts array in correlate
-//      mode → no arm rects, no crash, no uncaught exception.
-
-describe('CorrelationEdgesOverlay — CM correlate-mode ghost-merge regression', () => {
-  const makeGestureState = (): CorrelateGestureState => ({
-    correlateMode: true,
-    correlationSource: null,
-    onArm: vi.fn(),
-    onClearArmed: vi.fn(),
-    onExitMode: vi.fn(),
-    onCorrelate: vi.fn(),
-    onUncorrelate: vi.fn(),
-  })
-
-  it('CM1: pre-merge — 4 sub-contacts produce 4 arm rects (baseline check)', () => {
-    const fA = makeFormation('f-a', 'Zand', null)
-    // 4 stale sub-contacts at depths 2 / 4 / 6 / 8 — what the DB holds
-    // after a prior suggest+accept with 4 sand layers.
-    const contacts = [
-      makeContact('sub-c1', 'f-a', 'inv-1', 'cpt', 2.0),
-      makeContact('sub-c2', 'f-a', 'inv-1', 'cpt', 4.0),
-      makeContact('sub-c3', 'f-a', 'inv-1', 'cpt', 6.0),
-      makeContact('sub-c4', 'f-a', 'inv-1', 'cpt', 8.0),
-    ]
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    renderOverlay({
-      edges: [],
-      contacts,
-      formations: [fA],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: makeGestureState(),
-    })
-    // All 4 contacts produce arm rects — one per contact band.
-    expect(screen.getByTestId('correlate-arm-inv-1-f-a')).not.toBeNull()
-    // 4 contacts on the same (investigation, formation) → buildBandMap
-    // collapses to ONE band per formation per investigation (topmost contact).
-    // The overlay emits one arm rect per (invId, formationId) band — not per contact.
-    // So 1 arm rect, not 4. This matches the actual render and confirms the
-    // test baseline.
-    expect(screen.getAllByTestId('correlate-arm-inv-1-f-a')).toHaveLength(1)
-  })
-
-  it('CM1: post-merge — contacts filtered to merged contact only → 1 arm rect, no stale sub-rects', () => {
-    const fA = makeFormation('f-a', 'Zand', null)
-    // After SectionPanel.correlateContacts filters out the 3 stale sub-contacts,
-    // only the merged top contact at depth 2 is passed to the overlay.
-    const filteredContacts = [makeContact('merged-c', 'f-a', 'inv-1', 'cpt', 2.0)]
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    renderOverlay({
-      edges: [],
-      contacts: filteredContacts,
-      formations: [fA],
-      placedColumns: columns,
-      levelToScreen: makeLevelToScreen(),
-      plotTop: 20,
-      plotBottom: 200,
-      correlateGestureState: makeGestureState(),
-    })
-    // One arm rect for the merged band — depths 4/6/8 are absent from contacts.
-    expect(screen.getAllByTestId('correlate-arm-inv-1-f-a')).toHaveLength(1)
-    // No stale sub-depth rects at depth 4/6/8 — they have different testid
-    // patterns only if formation ids differ.  Since all contacts shared f-a,
-    // the overlay collapses to a single (inv-1, f-a) band regardless of how many
-    // contacts are at that (invId, formationId) pair.  The critical assertion is:
-    // the number of arm rects is still 1 (not 0, not 4) — the valid merged contact
-    // is clickable and the three stale sub-contacts produce no additional rects.
-    expect(screen.queryAllByTestId(/correlate-arm-inv-1/)).toHaveLength(1)
-  })
-
-  it('CM2: empty contacts in correlate mode → no arm rects, no crash', () => {
-    // Defensive: if all contacts for a column are shadowed by pending ghost layers,
-    // the filtered contacts array is empty.  The overlay must render cleanly with
-    // zero gesture rects and must not throw.
-    const fA = makeFormation('f-a', 'Zand', null)
-    const columns = [makeColumn('inv-1', 100, 10, 5)]
-    expect(() =>
-      renderOverlay({
-        edges: [],
-        contacts: [],  // fully filtered — all contacts are ghost-shadowed
-        formations: [fA],
-        placedColumns: columns,
-        levelToScreen: makeLevelToScreen(),
-        plotTop: 20,
-        plotBottom: 200,
-        correlateGestureState: makeGestureState(),
-      }),
-    ).not.toThrow()
-    // No arm rects — no contacts to build bands from.
-    expect(screen.queryAllByTestId(/correlate-arm-/)).toHaveLength(0)
-  })
-})
-
-// ---------------------------------------------------------------------------
 // Contact-correlate gesture (#133 Phase 1 + #135 lens-pinch-out)
 // ---------------------------------------------------------------------------
 
@@ -1505,7 +593,6 @@ function makeContactGestureState(
     onArmContact: vi.fn(),
     onClearArmedContact: vi.fn(),
     onContactCorrelate: vi.fn().mockResolvedValue(undefined),
-    onContactUncorrelate: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
@@ -1528,7 +615,6 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
   it('CC1: clicking with nothing armed → onArmContact', () => {
     const gesture = makeContactGestureState()
     renderOverlay({
-      edges: [],
       contacts: baseContacts,
       formations: [fA],
       placedColumns: baseColumns,
@@ -1545,7 +631,6 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
   it('CC2: clicking armed source again → onClearArmedContact', () => {
     const gesture = makeContactGestureState({ armedContactId: 'ca' })
     renderOverlay({
-      edges: [],
       contacts: baseContacts,
       formations: [fA],
       placedColumns: baseColumns,
@@ -1565,7 +650,6 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       lastTargetTestId: null,
     })
     renderOverlay({
-      edges: [],
       contacts: baseContacts,
       formations: [fA],
       placedColumns: baseColumns,
@@ -1588,7 +672,6 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       lastTargetTestId: 'inv-B',
     })
     renderOverlay({
-      edges: [],
       contacts: baseContacts,
       formations: [fA],
       placedColumns: baseColumns,
@@ -1614,7 +697,6 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       lastTargetTestId: 'inv-B',
     })
     renderOverlay({
-      edges: [],
       contacts: [...baseContacts, caAlt],
       formations: [fA],
       placedColumns: baseColumns,
@@ -1637,7 +719,6 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       lastTargetTestId: 'inv-B',
     })
     renderOverlay({
-      edges: [],
       contacts: baseContacts,
       formations: [fA],
       placedColumns: baseColumns,
@@ -1661,7 +742,6 @@ describe('CorrelationEdgesOverlay — contact-correlate gesture (#133 + #135)', 
       lastTargetTestId: 'inv-B',
     })
     renderOverlay({
-      edges: [],
       contacts: [...baseContacts, cb3],
       formations: [fA],
       placedColumns: baseColumns,
