@@ -1,4 +1,4 @@
-import { app, BrowserWindow, crashReporter, ipcMain, dialog, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, Menu, session, shell } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import {
@@ -695,19 +695,6 @@ if (process.env.STRIX_DISABLE_GPU === '1') {
   // eslint-disable-next-line no-console
   console.warn('[main] STRIX_DISABLE_GPU=1 — hardware acceleration disabled')
 }
-
-// Initialise Crashpad BEFORE app.whenReady() so the crashpad_handler
-// process is connected when renderer/utility processes spawn. Without
-// this, Electron's renderer prints the cosmetic
-// ``crashpad_client_win.cc:867] not connected`` error on every dev-build
-// boot. We collect crashes locally (no upload) — telemetry is a Tier B
-// debt item (#16) gated on the commercial release window.
-crashReporter.start({
-  productName: 'Strix',
-  companyName: 'Strix',
-  submitURL: '',
-  uploadToServer: false,
-})
 
 app.whenReady().then(() => {
   // Pre-authorise every path in the recent-projects list — without
