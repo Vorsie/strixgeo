@@ -1870,4 +1870,128 @@ describe('ContactsLayer', () => {
     )
     expect(container.querySelectorAll('[data-testid^="backdrop-surface-"]').length).toBe(0)
   })
+
+  // ---------------------------------------------------------------------------
+  // Bug A — right-click on backdrop contact polyline opens geology menu
+  // via nearest-column proximity (dogfeed 2026-05-26)
+  // ---------------------------------------------------------------------------
+
+  it('BA1 — right-click on backdrop contact polyline hit-path opens context menu; clicking "Edit in Geology stage" fires onEditInGeologyStage with nearest-column contact id', () => {
+    // Setup: two reference contacts on two borehole columns.
+    // Left column (bh-1, nudgedX=20): geological contact c-geo-left for formation geo-f.
+    // Right column (bh-2, nudgedX=80): geological contact c-geo-right for formation geo-f.
+    // Right-click near the left column (clientX=25, svgLeft=0 in jsdom → clickX=25).
+    // Distance to bh-1=5, distance to bh-2=55 → nearest = bh-1 → c-geo-left.
+    const geoFormation = makeFormation({ id: 'geo-f', color: '#00ff00', display_order: 0 })
+    const leftRefContact = makeContact({
+      id: 'c-geo-left',
+      borehole_id: 'bh-1',
+      cpt_id: null,
+      model_id: 'geo-model',
+      formation_id: 'geo-f',
+      depth_top_m: 3,
+    })
+    const rightRefContact = makeContact({
+      id: 'c-geo-right',
+      borehole_id: 'bh-2',
+      cpt_id: null,
+      model_id: 'geo-model',
+      formation_id: 'geo-f',
+      depth_top_m: 3,
+    })
+
+    const onEditInGeologyStage = vi.fn()
+
+    const { container } = render(
+      <svg>
+        <ContactsLayer
+          // Active litho contacts (non-empty so the layer renders).
+          contacts={[makeContact({ id: 'c-litho', borehole_id: 'bh-1', formation_id: 'f-1', depth_top_m: 1 })]}
+          formations={[makeFormation({ id: 'f-1' })]}
+          placedColumns={[
+            makeBoreholePlaced('bh-1', 20),
+            makeBoreholePlaced('bh-2', 80),
+          ]}
+          levelToScreen={flipped}
+          plotTop={0}
+          plotBottom={50}
+          referenceFormations={[geoFormation]}
+          referenceContacts={[leftRefContact, rightRefContact]}
+          onEditInGeologyStage={onEditInGeologyStage}
+        />
+      </svg>,
+    )
+
+    // The backdrop contact polyline hit-path: transparent stroke, no data-testid.
+    const allPaths = Array.from(container.querySelectorAll('path'))
+    const hitPaths = allPaths.filter(
+      p =>
+        p.getAttribute('stroke') === 'transparent' &&
+        !p.getAttribute('data-testid'),
+    )
+    expect(hitPaths.length).toBe(1)
+
+    // Right-click fires the onContextMenu handler which sets contactMenu state
+    // and renders the portal context menu in document.body.
+    act(() => {
+      hitPaths[0].dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, clientX: 25, clientY: 15 }),
+      )
+    })
+
+    // The context menu should now be in the portal (document.body).
+    const menu = document.body.querySelector('[data-testid="contact-context-menu"]')
+    expect(menu).not.toBeNull()
+
+    // Click "Edit in Geology stage" menu item.
+    const editBtn = Array.from(menu!.querySelectorAll('button')).find(
+      b => b.textContent?.includes('Edit in Geology'),
+    )
+    expect(editBtn).not.toBeNull()
+    act(() => {
+      fireEvent.click(editBtn!)
+    })
+
+    // onEditInGeologyStage must have been called with the nearest-column contact.
+    expect(onEditInGeologyStage).toHaveBeenCalledTimes(1)
+    expect(onEditInGeologyStage).toHaveBeenCalledWith('c-geo-left', 'geo-f')
+  })
+
+  it('BA2 — backdrop contact polyline hit-path NOT rendered when onEditInGeologyStage is absent', () => {
+    // Without the deep-link prop, the hit-path must not be added — avoids
+    // confusing pointer-events on the geological axis.
+    const geoFormation = makeFormation({ id: 'geo-f', color: '#00ff00', display_order: 0 })
+    const refContact = makeContact({
+      id: 'c-geo',
+      borehole_id: 'bh-1',
+      model_id: 'geo-model',
+      formation_id: 'geo-f',
+      depth_top_m: 3,
+    })
+
+    const { container } = render(
+      <svg>
+        <ContactsLayer
+          contacts={[makeContact({ id: 'c-litho', borehole_id: 'bh-1', formation_id: 'f-1', depth_top_m: 1 })]}
+          formations={[makeFormation({ id: 'f-1' })]}
+          placedColumns={[makeBoreholePlaced('bh-1', 50)]}
+          levelToScreen={flipped}
+          plotTop={0}
+          plotBottom={50}
+          referenceFormations={[geoFormation]}
+          referenceContacts={[refContact]}
+          // onEditInGeologyStage intentionally absent
+        />
+      </svg>,
+    )
+
+    const allPaths = Array.from(container.querySelectorAll('path'))
+    const hitPaths = allPaths.filter(
+      p =>
+        p.getAttribute('stroke') === 'transparent' &&
+        !p.getAttribute('data-testid'),
+    )
+    // No hit-path without the deep-link prop.
+    expect(hitPaths.length).toBe(0)
+  })
 })
