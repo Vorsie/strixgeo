@@ -2322,18 +2322,81 @@ export default function ContactsLayer({
           AFTER the TIN-slice backdrop above so the contact-anchored
           line wins where they overlap. Solid stroke + higher opacity
           than the TIN backdrop because the contact picks are the
-          user's intent — they're authoritative truth. */}
+          user's intent — they're authoritative truth.
+
+          Bug A fix (dogfeed 2026-05-26): when ``onEditInGeologyStage``
+          is wired (litho axis), each backdrop line also carries a fat
+          transparent hit-path (strokeWidth=10, pointerEvents="stroke")
+          so right-clicking anywhere on or near the line — including in
+          the gutters between columns — opens the geology contact menu.
+          The nearest column by horizontal distance resolves which
+          geological contact to navigate to; ties break in favour of the
+          left-most anchor (stable, deterministic). */}
       {backdropContactPolylines.map(line => (
-        <path
-          key={`backdrop-contact-${line.formationId}`}
-          d={line.d}
-          stroke={line.color}
-          strokeWidth={1.25}
-          strokeOpacity={0.55}
-          fill="none"
-          pointerEvents="none"
-          data-testid={`backdrop-contact-${line.formationId}`}
-        />
+        <g key={`backdrop-contact-${line.formationId}`}>
+          {/* Visible line — thin, subordinate opacity, non-interactive. */}
+          <path
+            d={line.d}
+            stroke={line.color}
+            strokeWidth={1.25}
+            strokeOpacity={0.55}
+            fill="none"
+            pointerEvents="none"
+            data-testid={`backdrop-contact-${line.formationId}`}
+          />
+          {/* Fat invisible hit-path — absorbs right-clicks anywhere along
+              the backdrop line (including the gutter between columns)
+              when the geology deep-link is wired.  ``pointerEvents="stroke"``
+              keeps the fill area non-interactive so only clicks near the
+              stroke register.  Left-clicks are not intercepted (no
+              onClick) so pan + marquee gestures pass through unchanged. */}
+          {onEditInGeologyStage && (
+            <path
+              d={line.d}
+              stroke="transparent"
+              strokeWidth={10}
+              fill="none"
+              style={{ cursor: 'context-menu' }}
+              pointerEvents="stroke"
+              onContextMenu={e => {
+                e.preventDefault()
+                // Resolve nearest column by horizontal SVG-coord distance.
+                // SVG coordinates: clientX minus the SVG element's left edge.
+                const svgEl = (e.target as Element).closest('svg')
+                const svgLeft = svgEl?.getBoundingClientRect().left ?? 0
+                const clickX = e.clientX - svgLeft
+                let nearestAnchorId: string | null = null
+                let nearestDist = Infinity
+                for (const col of placedColumns) {
+                  const dist = Math.abs(col.nudgedX - clickX)
+                  if (dist < nearestDist) {
+                    nearestDist = dist
+                    nearestAnchorId = (col.proj.item as { id: string }).id
+                  }
+                }
+                if (!nearestAnchorId) return
+                // Look up the geological contact for this formation + anchor.
+                const geoContactId = refGeoContactByAnchorAndFormation
+                  .get(nearestAnchorId)
+                  ?.get(line.formationId) ?? null
+                if (!geoContactId) return
+                // Find formation name for the context menu header.
+                const refFormation = referenceFormations?.find(f => f.id === line.formationId)
+                const formationName = refFormation?.name ?? refFormation?.regional_ref ?? line.formationId
+                setContactMenu({
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                  contactId: geoContactId,
+                  formationId: line.formationId,
+                  formationName,
+                  anchorKind: 'borehole',
+                  anchorId: nearestAnchorId,
+                  isReferenceContact: true,
+                })
+              }}
+            />
+          )}
+        </g>
       ))}
       {/* Filled coloured bands between adjacent formation tops.
           Drawn FIRST so every other section element (CPT curves,
