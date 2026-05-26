@@ -11,6 +11,29 @@ together (one with the new value, the other set to null) and the
 schema's XOR validator enforces invariant safety. The repository's
 ``update_contact`` already setattrs whatever keys the patch dict
 carries, so anchor changes flow through without a use-case change.
+
+Cross-merge behaviour (drag-to-boundary)
+-----------------------------------------
+When ``depth_top_m`` is the only field in the patch, the use case
+detects contacts on the *same anchor* (same ``model_id`` + same
+``borehole_id`` or ``cpt_id``) that the dragger has crossed and
+removes them:
+
+* **Drag UP** (``new_depth < old_depth``): the dragger survives.
+  Peer contacts in ``[new_depth, old_depth)`` are deleted.
+* **Drag DOWN** (``new_depth > old_depth``): the formation above the
+  dragger absorbs it. Peer contacts in ``(old_depth, new_depth]`` are
+  deleted. If any such peers exist the dragger itself is also deleted
+  and ``execute`` returns ``None`` (the router maps this to 200 with
+  ``absorbed=True``).
+
+Cross-merge is skipped when the patch also touches ``formation_id``,
+``borehole_id``, or ``cpt_id`` — those are re-anchor / formation-swap
+operations with different semantics.
+
+For lithostratigraphic models, any cross-merge that deletes contacts
+triggers ``ResolveLithoInstances`` + ``DetectLithoLenses`` before
+commit to keep ordinals and lens metadata consistent.
 """
 
 from __future__ import annotations
@@ -18,11 +41,13 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from groundmodel.infrastructure.db.models.formation_contact_orm import (
     FormationContactOrm,
 )
+from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
 from groundmodel.infrastructure.db.repositories.geology_repository import (
     GeologyRepository,
 )
@@ -45,6 +70,13 @@ class UpdateFormationContact(GroundModelLogger):
     ) -> FormationContactOrm | None:
         """Apply ``patch`` to ``contact_id``.
 
+        When ``depth_top_m`` is the only changing field and the dragger
+        crosses peer contacts on the same anchor, the crossed contacts
+        are deleted atomically.  On drag-down with crossings the dragger
+        itself is absorbed and ``None`` is returned.  The router maps
+        ``None`` with a cross-merge origin to 200 + ``absorbed=True``
+        rather than the normal 404 path.
+
         Parameters
         ----------
         contact_id : UUID
@@ -56,25 +88,144 @@ class UpdateFormationContact(GroundModelLogger):
         Returns
         -------
         FormationContactOrm | None
-            The refreshed row, or ``None`` when the row vanished
-            between the router's scope check and this call (TOCTOU
-            race). The router maps ``None`` to a 404.
+            The refreshed row after a normal update, or ``None`` when:
+
+            * the row vanished between the router's scope check and this
+              call (TOCTOU race) — router maps to 404; or
+            * a drag-down cross-merge absorbed the dragger — the router
+              maps this to 200 with ``absorbed=True``.
+
+        Notes
+        -----
+        The caller distinguishes the two ``None`` origins via the
+        ``absorbed`` attribute injected onto the use-case instance after
+        ``execute`` returns (``True`` on absorption, ``False`` on TOCTOU).
         """
         self.info(f"Updating formation contact: {contact_id} ({len(patch)} field(s))")
-        # Capture the pre-update (model, formation) so we know whether
-        # the patch crossed formations — re-anchor mutations need to
-        # mark BOTH the old and new formation surfaces stale. Within-
-        # formation edits only mark one.
+        # Initialise the absorption sentinel so the router can inspect it
+        # even when execute returns a non-None ORM row.
+        self.absorbed = False
+
+        # Capture the pre-update state.  The post-update formation IS
+        # always affected; the pre-update formation is also affected
+        # when the patch flipped formation_id (that surface just lost
+        # a contact).
         pre = await self._session.get(FormationContactOrm, contact_id)
         if pre is None:
             self.warning(f"Formation contact vanished pre-update: {contact_id}")
             return None
+
         old_model_id = pre.model_id
         old_formation_id = pre.formation_id
+
+        # ------------------------------------------------------------------ #
+        # Cross-merge: depth-only patches that cross peer contacts on the    #
+        # same anchor are resolved by deleting the crossed contacts.          #
+        # Re-anchor patches (borehole_id / cpt_id / formation_id changing)   #
+        # skip this block entirely.                                            #
+        # ------------------------------------------------------------------ #
+        patch_keys = set(patch.keys())
+        is_depth_only = "depth_top_m" in patch_keys and not patch_keys & {
+            "formation_id",
+            "borehole_id",
+            "cpt_id",
+        }
+
+        deleted_any = False  # True when any peer was deleted by cross-merge.
+
+        if is_depth_only and patch["depth_top_m"] != pre.depth_top_m:
+            old_depth = pre.depth_top_m
+            new_depth = float(patch["depth_top_m"])
+
+            # Build the anchor filter for peer contacts on the same column.
+            if pre.borehole_id is not None:
+                anchor_filter = FormationContactOrm.borehole_id == pre.borehole_id
+            elif pre.cpt_id is not None:
+                anchor_filter = FormationContactOrm.cpt_id == pre.cpt_id
+            else:
+                # Synthetic contact — no physical peers to cross.
+                anchor_filter = None
+
+            if anchor_filter is not None:
+                peers_stmt = select(FormationContactOrm).where(
+                    FormationContactOrm.model_id == pre.model_id,
+                    FormationContactOrm.id != pre.id,
+                    anchor_filter,
+                )
+                peers = (await self._session.execute(peers_stmt)).scalars().all()
+
+                if new_depth < old_depth:
+                    # Drag UP — dragger wins; delete everything crossed.
+                    crossed = [c for c in peers if new_depth <= c.depth_top_m < old_depth]
+                    for c in crossed:
+                        self.info(
+                            f"Cross-merge UP: deleting contact {c.id} "
+                            f"at {c.depth_top_m}m (dragger {contact_id} "
+                            f"moved from {old_depth}m to {new_depth}m)"
+                        )
+                        await self._session.delete(c)
+                    if crossed:
+                        deleted_any = True
+                else:
+                    # Drag DOWN — formation above absorbs; dragger dies if
+                    # any peer was crossed.
+                    crossed = [c for c in peers if old_depth < c.depth_top_m <= new_depth]
+                    if crossed:
+                        for c in crossed:
+                            self.info(
+                                f"Cross-merge DOWN: deleting contact {c.id} at {c.depth_top_m}m"
+                            )
+                            await self._session.delete(c)
+                        self.info(
+                            f"Cross-merge DOWN: deleting dragger {contact_id} "
+                            f"(formation above absorbs; moved from {old_depth}m to {new_depth}m)"
+                        )
+                        await self._session.delete(pre)
+                        deleted_any = True
+                        self.absorbed = True
+
+        # ------------------------------------------------------------------ #
+        # Litho cascade (resolver + lens detection) when contacts were        #
+        # deleted.  Runs before commit so it is part of the same transaction. #
+        # ------------------------------------------------------------------ #
+        if deleted_any:
+            model = await self._session.get(GeologicalModelOrm, old_model_id)
+            if model is not None and model.kind == "lithostratigraphic":
+                # Import lazily to avoid circular-import at module load (both
+                # use cases import from groundmodel.application).
+                from groundmodel.application.detect_litho_lenses import DetectLithoLenses
+                from groundmodel.application.resolve_litho_instances_use_case import (
+                    ResolveLithoInstances,
+                )
+
+                await ResolveLithoInstances(self._session).execute(
+                    model_id=old_model_id, commit=False
+                )
+                await DetectLithoLenses(self._session).execute(
+                    project_id=model.app_project_id,
+                    model_id=old_model_id,
+                    prefer_section_id=None,
+                )
+
+        # ------------------------------------------------------------------ #
+        # Absorbed path: dragger row is gone; commit + return None.           #
+        # ------------------------------------------------------------------ #
+        if self.absorbed:
+            await self._repo.mark_surfaces_stale([(old_model_id, old_formation_id)])
+            await self._session.commit()
+            self.success(
+                f"Formation contact {contact_id} absorbed by formation above (drag-down cross)"
+            )
+            return None
+
+        # ------------------------------------------------------------------ #
+        # Normal update path.                                                  #
+        # ------------------------------------------------------------------ #
         updated = await self._repo.update_contact(contact_id, patch)
         if updated is None:
             self.warning(f"Formation contact vanished mid-update: {contact_id}")
             return None
+
         # On-click build pivot: mark stale rather than recompute. The
         # post-update formation is always affected; the pre-update
         # formation is also affected when the patch flipped formation_id
