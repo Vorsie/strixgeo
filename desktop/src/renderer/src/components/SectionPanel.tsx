@@ -41,7 +41,6 @@ import type {
   GeologicalFormationCreatePayload,
   GeologicalFormationResponse,
   LithoContactCorrelationEdge,
-  LithoCorrelationEdge,
   LithoLayerSuggestion,
   VirtueleBoringInvestigationPrediction,
 } from '../api/client'
@@ -73,7 +72,6 @@ import DemSurfaceLine from './sections/DemSurfaceLine'
 import InvestigationColumns from './sections/InvestigationColumns'
 import CorrelationEdgesOverlay, {
   type ContactGestureState,
-  type CorrelateGestureState,
 } from './sections/CorrelationEdgesOverlay'
 import LithoSuggestionGhostColumns from './sections/LithoSuggestionGhostColumns'
 import PinchOutGhostOverlay, {
@@ -514,26 +512,6 @@ interface Props {
     onDismiss: () => void
   }
   /**
-   * Litho correlation edges for the active model (Slice 4).
-   *
-   * When present on the litho axis, renders always-on dashed blue lines
-   * connecting the vertical midpoints of correlated formation bands across
-   * investigation columns, with body-N badges at each edge midpoint.
-   * Absent / undefined = no overlay (zero regression on the geological axis
-   * or when the model has no correlations).
-   */
-  correlationEdges?: readonly LithoCorrelationEdge[]
-  /**
-   * Gesture state for the two-step correlate connect interaction (Slice 4).
-   *
-   * When present and ``correlateMode`` is true, invisible click-capture rects
-   * render over every unit band.  First click arms the source; second click on
-   * a valid target fires ``onCorrelate``.  Right-clicking a rendered edge
-   * surfaces a one-item "Remove correlation" context menu.
-   * Absent / undefined = read-only (edges visible, no click interaction).
-   */
-  correlateGestureState?: CorrelateGestureState
-  /**
    * Callback from SectionsCanvas — fired when the user picks
    * "Inspect lens body…" from a body chip's context menu (#101 Blocker 1).
    * Opens ``InspectLensBodyPanel`` at the SectionsCanvas level.
@@ -555,15 +533,6 @@ interface Props {
     }) => void
   }
   /**
-   * Count of investigations on this section that still have UNACCEPTED
-   * litho ghost suggestions (dogfeed 2026-05-23). When > 0 in correlate
-   * mode, the panel surfaces a reminder banner — the correlate gesture
-   * operates on COMMITTED bands only, and clicking a ghost band in
-   * correlate mode silently does nothing, which confused the user.
-   * Optional so the test-render path can mount without the count.
-   */
-  pendingGhostInvestigationCount?: number
-  /**
    * Formation ids whose committed bands should pulse amber briefly —
    * the "your correlation succeeded" cue. Set transiently after a
    * successful correlate; cleared by the caller after PULSE_MS.
@@ -571,12 +540,14 @@ interface Props {
    */
   pulsingFormationIds?: ReadonlySet<string>
   /**
-   * Fired when the user clicks a band that cannot be correlated to the
-   * armed source — cross-group (different formation type) or same-
-   * investigation (self-edge blocked).  Carries a human-readable reason
-   * for a toast.  Passed through to CorrelationEdgesOverlay. Optional.
+   * Fired when the user saves from "Edit admixtures for this body" in the
+   * body chip context menu.  Propagated to CorrelationEdgesOverlay.
+   * Optional so callers that don't need the admixture path skip it.
    */
-  onRejectCorrelate?: (reason: string) => void
+  onPropagateAdmixtures?: (
+    seedFormationId: string,
+    admixtures: import('./interpretation/LithoGhostCompositionEditor').GhostAdmixtureItem[],
+  ) => Promise<void>
   /**
    * Geology-stage deep-link callback (litho axis only).
    *
@@ -645,12 +616,9 @@ export default function SectionPanel({
   lithoGhostState,
   bulkLithoGhostState,
   pinchOutGhostState,
-  correlationEdges,
-  correlateGestureState,
   onInspectLensBody,
-  onRejectCorrelate,
+  onPropagateAdmixtures,
   undoStack,
-  pendingGhostInvestigationCount = 0,
   pulsingFormationIds,
   axisMode = 'geological',
   onManualLithoUnitCreate,
@@ -835,14 +803,6 @@ export default function SectionPanel({
     const dy = Math.abs(e.clientY - rect.top - start.py)
     if (dx < 3 && dy < 3) {
       setSelectionResetCounter(c => c + 1)
-      // Slice 4 (review B2): a background click while armed clears the
-      // correlation source but stays in correlate mode (spec: "background
-      // click clears source, stays in mode"). Band clicks are captured by
-      // the overlay's per-band rects and never reach here, so this only
-      // fires for the true background (gaps / margin / ruler).
-      if (correlateGestureState?.correlationSource != null) {
-        correlateGestureState.onClearArmed()
-      }
     }
   }
 
@@ -1380,12 +1340,6 @@ export default function SectionPanel({
       }
       if (contextMenu !== null) {
         dismissContextMenu()
-      } else if (correlateGestureState?.correlationSource !== null && correlateGestureState?.correlationSource !== undefined) {
-        // L1: clear armed source, stay in correlate mode
-        correlateGestureState.onClearArmed()
-      } else if (correlateGestureState?.correlateMode) {
-        // L2: exit correlate mode entirely
-        correlateGestureState.onExitMode()
       } else if (focusedColumn !== null) {
         exitFocus()
       } else if (onClose) {
@@ -1398,7 +1352,7 @@ export default function SectionPanel({
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [contextMenu, focusedColumn, exitFocus, dismissContextMenu, correlateGestureState, onClose])
+  }, [contextMenu, focusedColumn, exitFocus, dismissContextMenu, onClose])
 
   // Per-borehole snap candidates for the contact-drag interaction.
   // Empty when snap is off — ContactsLayer treats absent entries as
@@ -1563,7 +1517,7 @@ export default function SectionPanel({
   // a different shape. Only PENDING layers shadow contacts — accepted layers ARE
   // the committed contacts (correct DB state); rejected layers are dismissed.
   const correlateContacts = useMemo((): readonly FormationContactResponse[] => {
-    if (!correlateGestureState?.correlateMode || !contacts) return contacts ?? []
+    if (!contactGestureState?.contactCorrelateMode || !contacts) return contacts ?? []
 
     // Build combined investigation → ghost map (focused anchor + bulk anchors).
     type GhostEntry = {
@@ -1610,7 +1564,7 @@ export default function SectionPanel({
       })
       return !isShadowed
     })
-  }, [contacts, correlateGestureState, lithoGhostState, bulkLithoGhostState])
+  }, [contacts, contactGestureState, lithoGhostState, bulkLithoGhostState])
 
   // ---- Render --------------------------------------------------------
 
@@ -2179,26 +2133,25 @@ export default function SectionPanel({
               />
             )}
 
-            {/* Litho correlation edges + gesture overlay (Slice 4, #55).
-                Renders always on the litho axis when edges are provided;
-                pointerEvents=none at the group level so the dashes never
-                intercept non-gesture clicks. The component enables its own
-                pointer-events only for gesture rects when correlateMode is
-                active. Absent on the geological axis (correlationEdges
-                undefined → component not mounted). */}
-            {correlationEdges !== undefined && (
+            {/* Litho correlation overlay: body chips, contact-level edges,
+                and contact gesture hit-targets (#133 Phase 1 + #135).
+                Mounted on the litho axis only (axisMode ===
+                'lithostratigraphic'); absent on the geological axis so the
+                overlay never intercepts geological-axis interactions.
+                pointerEvents=none at the group level — the component
+                enables pointer-events only for gesture rects when
+                contactCorrelateMode is active. */}
+            {axisMode === 'lithostratigraphic' && (
               <CorrelationEdgesOverlay
-                edges={correlationEdges}
                 contacts={correlateContacts}
                 formations={formations}
                 placedColumns={visibleColumns}
                 levelToScreen={levelToScreen}
                 plotTop={MARGIN.top}
                 plotBottom={MARGIN.top + plotHeight}
-                correlateGestureState={correlateGestureState}
                 pulsingFormationIds={pulsingFormationIds}
                 onInspectLensBody={onInspectLensBody}
-                onRejectCorrelate={onRejectCorrelate}
+                onPropagateAdmixtures={onPropagateAdmixtures}
                 contactEdges={contactEdges}
                 contactGestureState={contactGestureState}
               />
@@ -2295,55 +2248,6 @@ export default function SectionPanel({
             </button>
           </div>
         )}
-        {/* Correlate-mode hint pill (debt #100). Explains the gesture +
-            its purpose the moment the user enters mode — the previous
-            mode affordance was just a toolbar toggle with no inline
-            explanation ("I still don't know how the Correlate tool
-            works" — owner dogfeed 2026-05-22). Stacks below the focus
-            pill when both are visible (rare). Esc-to-exit is already
-            wired in SectionPanel's keydown handler (the L2 peel). */}
-        {correlateGestureState?.correlateMode && (
-          <div
-            data-testid="correlate-mode-hint"
-            className={`absolute ${focusedColumn !== null ? 'top-12' : 'top-2'} left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-blue-600 text-white text-xs px-3 py-1.5 rounded-full shadow max-w-md`}
-          >
-            <span>
-              <strong>Correlate:</strong> click a unit on one column, then the
-              same unit on another, to mark them as the same body.
-            </span>
-            <button
-              type="button"
-              className="hover:text-blue-200 flex-shrink-0"
-              onClick={() => correlateGestureState.onExitMode()}
-              title="Exit correlate mode (Esc)"
-              aria-label="Exit correlate mode"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-        {/* Accept-first reminder (dogfeed 2026-05-23). The correlate
-            gesture operates on COMMITTED bands only — ghosts are pre-
-            commit and the click silently does nothing, which caused
-            the "correlate is not working" confusion. When the user
-            enters correlate mode with pending ghosts on this section,
-            surface a second amber pill below the correlate hint. */}
-        {correlateGestureState?.correlateMode &&
-          pendingGhostInvestigationCount > 0 && (
-            <div
-              data-testid="correlate-accept-first-hint"
-              className={`absolute ${focusedColumn !== null ? 'top-24' : 'top-12'} left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-amber-500 text-white text-xs px-3 py-1.5 rounded-full shadow max-w-md`}
-              role="status"
-            >
-              <span>
-                {pendingGhostInvestigationCount} investigation
-                {pendingGhostInvestigationCount === 1 ? '' : 's'} still ha
-                {pendingGhostInvestigationCount === 1 ? 's' : 've'} pending
-                suggestions — accept those first to correlate them. The
-                correlate gesture only works on committed bands.
-              </span>
-            </div>
-          )}
         {/* Seed hint — never-seeded section is the common case after
             the P2 explicit-content gate: nothing appears on a section
             without the user clicking a button on that section. Show a

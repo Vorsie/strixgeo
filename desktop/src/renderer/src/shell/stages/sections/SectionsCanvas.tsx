@@ -28,12 +28,10 @@ import { api } from '../../../api/client'
 import type {
   AdmixtureItem,
   LithoContactCorrelationEdge,
-  LithoCorrelationEdge,
   LithoLensListItem,
 } from '../../../api/client'
 import type {
   ContactGestureState,
-  CorrelateGestureState,
 } from '../../../components/sections/CorrelationEdgesOverlay'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
@@ -248,89 +246,19 @@ export default function SectionsCanvas(): JSX.Element {
   // Axis flag — defined early so both Slice 2 and Slice 4 blocks can use it.
   const isLitho = sectionModelAxis === 'lithostratigraphic'
 
-  // Slice 4 (#55): litho correlation edges — fetch + gesture callbacks.
-  //
-  // Edges are MODEL-level only (no section_id) and must be fetched fresh
-  // after every edge mutation (correlate / uncorrelate) to keep ordinals
-  // in sync with the inspector stale badge. The effect re-runs whenever
-  // the active litho model or selected section changes — model changes swap
-  // the edge set; section changes can expose different visible formations.
-  const [correlationEdges, setCorrelationEdges] = useState<LithoCorrelationEdge[]>([])
-
-  // Key the fetch on the model ID, not the model object (review S2): the
-  // object re-identifies on unrelated mutations (e.g. a formation rename
-  // rebuilds it), which would churn refetchEdges + the whole gesture-state
-  // chain AND leave the effect (keyed on the id) out of sync — stale edges
-  // after a same-id rebuild. The primitive id is the true identity.
+  // Key the fetch on the model ID, not the model object: the object
+  // re-identifies on unrelated mutations (e.g. a formation rename rebuilds
+  // it), which would churn the contact-edge refetch unnecessarily.
   const lithoModelId = activeLithoModel?.id ?? null
 
-  const refetchEdges = useCallback(async () => {
-    if (lithoModelId === null) {
-      setCorrelationEdges([])
-      return
-    }
-    log.debug('section', `listCorrelations: GET project=${project.id} model=${lithoModelId}`)
-    try {
-      // TODO Task 19: migrate to listContactCorrelations + update overlay props.
-      const edges = await api.geology.listContactCorrelations(project.id, lithoModelId)
-      setCorrelationEdges(edges as unknown as LithoCorrelationEdge[])
-      log.debug('section', `listContactCorrelations: ${edges.length} edge(s) for model ${lithoModelId}`)
-    } catch (err) {
-      log.warn('section', 'refetchEdges: listCorrelations failed', err)
-    }
-  }, [lithoModelId, project.id])
-
-  useEffect(() => {
-    if (!isLitho) {
-      setCorrelationEdges([])
-      return
-    }
-    void refetchEdges()
-    // reason: isLitho + activeLithoModel + selectedSectionId are the axes
-    // that change when the user switches model or section; refetchEdges
-    // already captures project.id + activeLithoModel.id via closure.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLitho, activeLithoModel?.id, selectedSectionId])
-
-  // Transient pulse state — set on a successful correlate, cleared
+  // Transient pulse state — set on a successful contact correlate, cleared
   // after PULSE_MS so the two correlated bands flash amber briefly.
-  // The pulse is the "your correlation succeeded" signal that #100
-  // shipped without (the chip + line only appear after Resolve runs
-  // server-side AND formations refetch; the pulse is the immediate
-  // acknowledgement on the bands themselves). Dogfeed 2026-05-23:
-  // "we need like a visual signal that a correlation succeeded".
+  // The pulse is the "your correlation succeeded" UX signal (dogfeed 2026-05-23).
   const PULSE_MS = 900
   const [pulsingFormationIds, setPulsingFormationIds] = useState<
     ReadonlySet<string>
   >(new Set())
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Count of investigations on this section with at least one TRULY-
-  // PENDING ghost suggestion (dogfeed 2026-05-23 "we need to add a
-  // reminder to accept lithologies before correlating"; counter fix
-  // 2026-05-23 same-day: the original predicate `accepted.size <
-  // suggestions.length` counted REJECTED layers as pending, so the
-  // banner kept showing "N still pending" after Accept all (bulk) for
-  // every anchor where the user had rejected one or more layers).
-  //
-  // "Truly pending" = at least one suggestion that is neither accepted
-  // NOR rejected. Anchors where every layer has been decided on (some
-  // accepted, some rejected, mixed) no longer trigger the nag.
-  const pendingGhostInvestigationCount = useMemo(() => {
-    let n = 0
-    for (const ghost of ghostsByAnchor.values()) {
-      if (ghost.suggestions.length === 0) continue
-      let hasUndecided = false
-      for (let i = 0; i < ghost.suggestions.length; i++) {
-        if (!ghost.accepted.has(i) && !ghost.rejected.has(i)) {
-          hasUndecided = true
-          break
-        }
-      }
-      if (hasUndecided) n += 1
-    }
-    return n
-  }, [ghostsByAnchor])
 
   const triggerCorrelationPulse = useCallback(
     (formationAId: string, formationBId: string): void => {
@@ -351,85 +279,6 @@ export default function SectionsCanvas(): JSX.Element {
       if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current)
     }
   }, [])
-
-  const handleCorrelate = useCallback(
-    async (formationAId: string, formationBId: string): Promise<void> => {
-      if (!activeLithoModel) return
-      log.info(
-        'section',
-        `correlate: linking ${formationAId} ↔ ${formationBId} on model ${activeLithoModel.id}`,
-      )
-      try {
-        // TODO Task 19: migrate from formation-level correlate to
-        // createContactCorrelation (contact-level). Stubbed for tsc.
-        void formationAId
-        void formationBId
-        // Refetch BOTH edges (for the overlay's edge lines)
-        // AND formations (so the new instance_ordinal flows into the
-        // formation cache and the body chip appears on the bands).
-        await refetchEdges()
-        refetchFormations()
-        // Clear armed state so the user can arm the next source.
-        clearCorrelationSource()
-        // Two-track success signal (dogfeed 2026-05-23):
-        // 1. Toast — immediate acknowledgement.
-        // 2. Amber pulse on both bands — visual on the surface the
-        //    user just operated on.
-        toast('success', 'Correlation added.')
-        triggerCorrelationPulse(formationAId, formationBId)
-        log.success('section', `correlate: edge ${formationAId} ↔ ${formationBId} created`)
-      } catch (err) {
-        log.warn('section', 'handleCorrelate: POST failed', err)
-        // The armed source is deliberately NOT cleared (review spec: stay
-        // armed so the user can retry / pick a different target). Surface
-        // the failure — silence on a failed POST is worse than a toast
-        // (review S1; the cross-group case is pre-empted client-side so
-        // this is a genuine 422 race or a network error).
-        toast('error', 'Could not create the correlation — try again.')
-      }
-    },
-    [
-      activeLithoModel,
-      project.id,
-      refetchEdges,
-      refetchFormations,
-      clearCorrelationSource,
-      toast,
-      triggerCorrelationPulse,
-    ],
-  )
-
-  const handleUncorrelate = useCallback(
-    async (formationAId: string, formationBId: string): Promise<void> => {
-      if (!activeLithoModel) return
-      log.info(
-        'section',
-        `uncorrelate: removing ${formationAId} ↔ ${formationBId} on model ${activeLithoModel.id}`,
-      )
-      // Optimistic removal from local state before the DELETE resolves
-      setCorrelationEdges(prev =>
-        prev.filter(
-          e =>
-            !(
-              (e.formation_a_id === formationAId && e.formation_b_id === formationBId) ||
-              (e.formation_a_id === formationBId && e.formation_b_id === formationAId)
-            ),
-        ),
-      )
-      try {
-        // TODO Task 19: migrate from formation-level uncorrelate to
-        // deleteContactCorrelation (contact-level). Stubbed for tsc.
-        void formationAId
-        void formationBId
-        await refetchEdges()
-        log.success('section', `uncorrelate: edge ${formationAId} ↔ ${formationBId} removed`)
-      } catch (err) {
-        log.warn('section', 'handleUncorrelate: DELETE failed — rolling back optimistic removal', err)
-        await refetchEdges()
-      }
-    },
-    [activeLithoModel, project.id, refetchEdges],
-  )
 
   const handlePropagateAdmixtures = useCallback(
     async (
@@ -461,7 +310,7 @@ export default function SectionsCanvas(): JSX.Element {
             `${result.component_size === 1 ? '' : 's'}.`,
         )
       } catch (err) {
-        // A save action must not fail silently — mirror handleCorrelate.
+        // Surface the failure — silence on a failed PATCH is worse than a toast.
         log.warn('section', 'handlePropagateAdmixtures: PATCH failed', err)
         toast('error', 'Could not update the body’s admixtures — try again.')
       }
@@ -502,45 +351,17 @@ export default function SectionsCanvas(): JSX.Element {
     [activeLithoModel, project.id],
   )
 
-  // Build the correlateGestureState passed to SectionPanel.
-  // Only wired on the litho axis; absent on the geological axis.
-  const correlateGestureState: CorrelateGestureState | undefined = useMemo(() => {
-    if (!isLitho) return undefined
-    return {
-      correlateMode,
-      correlationSource,
-      onArm: armCorrelationSource,
-      onClearArmed: clearCorrelationSource,
-      onExitMode: exitCorrelateMode,
-      onCorrelate: handleCorrelate,
-      onUncorrelate: handleUncorrelate,
-      onPropagateAdmixtures: handlePropagateAdmixtures,
-    }
-  }, [
-    isLitho,
-    correlateMode,
-    correlationSource,
-    armCorrelationSource,
-    clearCorrelationSource,
-    exitCorrelateMode,
-    handleCorrelate,
-    handleUncorrelate,
-    handlePropagateAdmixtures,
-  ])
-
-  // #133 Phase 1: contact-level correlation edges.
+  // #133 Phase 1 + Phase 2+3: contact-level correlation edges.
   //
-  // Separate state + separate refetch from the formation-level edges above
-  // so the two layers are independently maintained.  Contact edges are
-  // also MODEL-level (no section_id) and fetched fresh after each mutation.
+  // MODEL-level (no section_id) and fetched fresh after each mutation.
+  // The formation-level edge layer (Slice 4) was removed in Task 21 (#133
+  // Phase 2+3); these contact edges are the sole correlation surface now.
   const [contactCorrelationEdges, setContactCorrelationEdges] = useState<
     LithoContactCorrelationEdge[]
   >([])
 
   // Armed contact id — the source boundary the user clicked first.
-  // Null = nothing armed (idle).  Lives here alongside the formation-level
-  // correlationSource (owned by the ShellContext's sections slice) so the
-  // two gesture modes are independent.
+  // Null = nothing armed (idle).
   const [armedContactId, setArmedContactId] = useState<string | null>(null)
   // Sticky lens-window (debt #135): investigation id of the most recent
   // successful target while the same source is still armed.  Null when no
@@ -550,12 +371,9 @@ export default function SectionsCanvas(): JSX.Element {
   // source is disarmed or re-armed.
   const [lastTargetTestId, setLastTargetTestId] = useState<string | null>(null)
 
-  // Contact-correlate mode flag — owner directive 2026-05-26: default ON
-  // whenever the toolbar's correlate mode is active. The boundary-to-boundary
-  // gesture is the new standard (debt #133). The legacy body-click gesture
-  // still works alongside it; the Phase 3 removal of the body-click surface
-  // is tracked in #133. No separate toolbar toggle for now — the two gestures
-  // coexist while we dogfeed which one users reach for naturally.
+  // Contact-correlate mode flag — mirrors the toolbar's correlate mode.
+  // The boundary-to-boundary gesture is the sole correlate surface (#133
+  // Phase 2+3); the formation-level body-click surface was removed in Task 21.
   const contactCorrelateMode = correlateMode
 
   const refetchContactEdges = useCallback(async () => {
@@ -585,8 +403,9 @@ export default function SectionsCanvas(): JSX.Element {
       return
     }
     void refetchContactEdges()
-    // reason: same axis as the formation-level refetchEdges above — isLitho +
-    // activeLithoModel.id + selectedSectionId drive the re-fetch.
+    // reason: isLitho + activeLithoModel.id + selectedSectionId are the three
+    // axes that require a re-fetch; refetchContactEdges captures project.id +
+    // lithoModelId in its closure so they don't need to be listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLitho, activeLithoModel?.id, selectedSectionId])
 
@@ -612,9 +431,15 @@ export default function SectionsCanvas(): JSX.Element {
         // the same investigation fires a second edge from the same source —
         // the lens-pinch-out topology.  The click handler in
         // CorrelationEdgesOverlay reads ``lastTargetTestId`` to decide.
+        const contactA = lithoContacts.find(c => c.id === contactAId)
         const targetContact = lithoContacts.find(c => c.id === contactBId)
         const targetTestId = targetContact?.cpt_id ?? targetContact?.borehole_id ?? null
         setLastTargetTestId(targetTestId)
+        // Amber pulse on both correlated bands — the immediate "your gesture
+        // worked" cue before formations refetch (dogfeed 2026-05-23 #100).
+        if (contactA?.formation_id && targetContact?.formation_id) {
+          triggerCorrelationPulse(contactA.formation_id, targetContact.formation_id)
+        }
         toast('success', 'Boundary correlation added.')
         log.success(
           'section',
@@ -629,7 +454,7 @@ export default function SectionsCanvas(): JSX.Element {
         toast('error', 'Could not create the boundary correlation — try again.')
       }
     },
-    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts],
+    [activeLithoModel, project.id, selectedSectionId, refetchContactEdges, toast, lithoContacts, triggerCorrelationPulse],
   )
 
   const handleDeleteContactCorrelation = useCallback(
@@ -1436,30 +1261,19 @@ export default function SectionsCanvas(): JSX.Element {
           axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
           onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
           activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
-          // Slice 4 (#55): correlation edges + gesture state, litho axis only.
-          // On the geological axis both props are undefined → CorrelationEdgesOverlay
-          // is not mounted (no regression, no stale edge data).
-          correlationEdges={isLitho ? correlationEdges : undefined}
-          correlateGestureState={correlateGestureState}
-          // #133 Phase 1: contact-level correlation edges + gesture state,
-          // litho axis only.  contactCorrelateMode is currently always false
-          // (no toolbar toggle yet; Phase 2 wires that); the edges are
-          // always fetched and rendered so existing edges from the API are
-          // visible even before the gesture mode is exposed in the UI.
+          // #133 Phase 1 + Phase 2+3: contact-level correlation edges + gesture
+          // state, litho axis only.  CorrelationEdgesOverlay is mounted on the
+          // litho axis (SectionPanel gates on axisMode === 'lithostratigraphic')
+          // and absent on the geological axis — zero regression.
           contactEdges={isLitho ? contactCorrelationEdges : undefined}
           contactGestureState={contactGestureState}
-          pendingGhostInvestigationCount={
-            isLitho ? pendingGhostInvestigationCount : 0
-          }
           pulsingFormationIds={pulsingFormationIds}
+          onPropagateAdmixtures={isLitho ? handlePropagateAdmixtures : undefined}
           // Inspect-lens-body panel (#101 Blocker 1): litho axis only; absent on
           // geological axis (no correlation bodies exist there).
           onInspectLensBody={
             isLitho ? (fid, ord) => void handleOpenInspectLensBody(fid, ord) : undefined
           }
-          // Rejection toasts for blocked correlate clicks (#129c): cross-group
-          // and same-investigation bands surface a warning so the user knows why.
-          onRejectCorrelate={isLitho ? (reason) => toast('warning', reason) : undefined}
           // Geology-stage deep-link (litho axis only, dogfeed 2026-05-25).
           // Right-click on a reference (geological backdrop) contact strip →
           // "Edit in Geology stage" → sets geoDeepLinkTarget on the coordinator.
