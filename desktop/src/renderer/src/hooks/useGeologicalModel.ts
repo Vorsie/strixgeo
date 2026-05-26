@@ -1097,6 +1097,21 @@ export function useGeologicalModel({
       })
   }, [project, activeGeologicalModel])
 
+  // Refetch geological contacts for the active geological model.
+  // Needed after a drag-down cross-merge on the geological axis — the BE
+  // atomically deleted the dragger + crossed peers, so local state is stale.
+  // Uses activeGeologicalModelRef so the dep array stays stable.
+  const refetchContacts = useCallback(() => {
+    const model = activeGeologicalModelRef.current
+    if (!project || !model) return
+    void api.geology
+      .listContacts(project.id, model.id)
+      .then(setContacts)
+      .catch(err => {
+        log.warn('geology', 'listContacts refetch failed', err)
+      })
+  }, [project])
+
   // Refetch litho contacts for the active litho model. Called after
   // handleCreateLithoContact / inline-create mutations (optimistic update
   // + explicit refetch pattern — same as the geological set uses implicitly
@@ -1329,7 +1344,46 @@ export function useGeologicalModel({
             confidence: snapped ? 'high' : 'medium',
           },
         )
-        applyPatch(prev => prev.map(c => (c.id === contactId ? updated : c)))
+
+        // null = drag-down cross-merge: dragger was absorbed by the formation
+        // above.  The BE deleted the dragger + all crossed contacts in one
+        // atomic transaction.  We don't know which peer IDs were deleted, so
+        // we do a full refetch rather than optimistic filtering — the refetch
+        // is cheap (one GET for the model's contacts) and is the only way to
+        // keep local state consistent with DB truth after a multi-delete.
+        if (updated === null) {
+          log.success(
+            'geology',
+            `updateContactDepth absorbed id=${contactId} (drag-down cross-merge) — refetching`,
+          )
+          if (lithoContacts.some(c => c.id === contactId)) {
+            refetchLithoContacts()
+          } else {
+            refetchContacts()
+          }
+          return
+        }
+
+        // After a drag-up cross-merge the BE silently deleted peer contacts
+        // in [new_depth, old_depth) on the same anchor.  The 200 response
+        // carries only the updated dragger — it gives us no list of deleted
+        // ids.  Prune them client-side: any peer contact on the same anchor
+        // whose depth falls in the crossed half-open interval is gone on the
+        // BE, so remove it from local state to keep the visual in sync.
+        const oldDepth = previous.depth_top_m
+        const anchorKey = previous.borehole_id ?? previous.cpt_id ?? null
+        applyPatch(prev => {
+          const mapped = prev.map(c => (c.id === contactId ? updated : c))
+          if (newDepthM >= oldDepth || anchorKey === null) return mapped
+          // Drag-up: remove peers whose depth is in [newDepthM, oldDepth).
+          return mapped.filter(c => {
+            if (c.id === contactId) return true
+            const sameAnchor =
+              anchorKey === (c.borehole_id ?? c.cpt_id ?? null)
+            if (!sameAnchor) return true
+            return !(c.depth_top_m >= newDepthM && c.depth_top_m < oldDepth)
+          })
+        })
         log.success(
           'geology',
           `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m source=${updated.source}`,
@@ -1361,9 +1415,11 @@ export function useGeologicalModel({
               contactId,
               beforePayload,
             )
-            applyPatch(prev =>
-              prev.map(c => (c.id === contactId ? reverted : c)),
-            )
+            if (reverted !== null) {
+              applyPatch(prev =>
+                prev.map(c => (c.id === contactId ? reverted : c)),
+              )
+            }
           },
           reapply: async () => {
             const reapplied = await api.geology.updateContact(
@@ -1372,9 +1428,11 @@ export function useGeologicalModel({
               contactId,
               afterPayload,
             )
-            applyPatch(prev =>
-              prev.map(c => (c.id === contactId ? reapplied : c)),
-            )
+            if (reapplied !== null) {
+              applyPatch(prev =>
+                prev.map(c => (c.id === contactId ? reapplied : c)),
+              )
+            }
           },
         })
       } catch (err) {
@@ -1382,7 +1440,7 @@ export function useGeologicalModel({
         toast('error', 'Could not update the contact depth.')
       }
     },
-    [project, contacts, lithoContacts, pushUndo],
+    [project, contacts, lithoContacts, pushUndo, refetchContacts, refetchLithoContacts],
   )
 
   // Create a formation contact at a specific depth on a specific
@@ -1600,6 +1658,16 @@ export function useGeologicalModel({
                   confidence: payload.confidence,
                 },
               )
+              // null = absorbed by drag-down cross-merge; cannot happen on a
+              // plain depth PATCH without a cross-merge, but guard defensively.
+              if (after === null) {
+                failed += 1
+                log.warn(
+                  'geology',
+                  `batchCreateContacts PATCH-on-409 returned absorbed for ${err.existingContactId} — skipping`,
+                )
+                continue
+              }
               patched.push({ kind: 'patched', before, after })
               idIndex.set(after.id, after)
             } catch (patchErr) {
@@ -1681,6 +1749,7 @@ export function useGeologicalModel({
                   confidence: p.before.confidence,
                 })
                 .then(reverted => {
+                  if (reverted === null) return
                   setContacts(prev =>
                     prev.map(c => (c.id === reverted.id ? reverted : c)),
                   )
@@ -1718,6 +1787,7 @@ export function useGeologicalModel({
                   confidence: p.after.confidence,
                 })
                 .then(reapplied => {
+                  if (reapplied === null) return
                   setContacts(prev =>
                     prev.map(c => (c.id === reapplied.id ? reapplied : c)),
                   )
