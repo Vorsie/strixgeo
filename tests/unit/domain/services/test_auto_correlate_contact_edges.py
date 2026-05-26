@@ -27,6 +27,10 @@ def _uid(n: int) -> UUID:
     return UUID(int=n)
 
 
+# Test convenience: formation_id defaults to the same UUID seed as
+# contact_id when caller doesn't care.  The algorithm only reads
+# formation_id transitively via parent_formation_id grouping, so
+# the value is irrelevant in most tests.
 def _make_contact(
     cid: int,
     inv_id: int,
@@ -72,13 +76,10 @@ def _make_contact(
 
 
 def test_happy_path_three_columns_two_boundaries_each() -> None:
-    """3 columns × 2 boundary groups produce ≥4 mutual correlation candidates.
-
-    Each of the 2 boundary signatures (ZAND→KLEI at ~5 m, KLEI→SILT at
-    ~10 m) appears at all 3 columns.  MNN across 3 column-pairs per
-    group produces between 4 and 6 surviving pairs depending on
-    tie-breaking dynamics; we assert ≥ 4 (the spanning tree) and that
-    both groups are represented in the result.
+    """Three columns at distance 50 m apart, each with a sand-on-clay
+    boundary at ~5 m and a clay-on-silt boundary at ~10 m.  MNN produces
+    the spanning-tree pairing per group: A↔B and B↔C (not A↔C, because
+    A↔B and B↔C each win MNN over A↔C).  Two groups × two pairs = 4.
     """
     contacts = [
         _make_contact(1, 10, 5.0, 99, "ZAND", "KLEI"),
@@ -94,10 +95,19 @@ def test_happy_path_three_columns_two_boundaries_each() -> None:
         InvestigationLocation(_uid(12), 100.0, 0.0),
     ]
     result = auto_correlate_contact_edges(contacts, locations)
-    assert len(result) >= 4
-    contact_ids = {c.contact_a_id for c in result} | {c.contact_b_id for c in result}
-    assert _uid(1) in contact_ids or _uid(3) in contact_ids or _uid(5) in contact_ids
-    assert _uid(2) in contact_ids or _uid(4) in contact_ids or _uid(6) in contact_ids
+    # MNN keeps the two adjacent-column pairings per group, not the
+    # diagonal A↔C (which has a larger residual).
+    pairs = {(c.contact_a_id, c.contact_b_id) for c in result}
+    # Group sand/clay: contacts 1, 3, 5 — MNN keeps 1↔3 and 3↔5
+    assert (_uid(1), _uid(3)) in pairs
+    assert (_uid(3), _uid(5)) in pairs
+    # Group clay/silt: contacts 2, 4, 6 — MNN keeps 2↔4 and 4↔6
+    assert (_uid(2), _uid(4)) in pairs
+    assert (_uid(4), _uid(6)) in pairs
+    # No diagonals — 1↔5 and 2↔6 should NOT survive MNN.
+    assert (_uid(1), _uid(5)) not in pairs
+    assert (_uid(2), _uid(6)) not in pairs
+    assert len(result) == 4
 
 
 def test_boundary_signature_filter_rejects_different_below_litho() -> None:

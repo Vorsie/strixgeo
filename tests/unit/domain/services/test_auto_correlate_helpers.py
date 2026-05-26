@@ -129,6 +129,38 @@ class _GenericItem:
     score: float
 
 
+def test_mnn_by_id_breaks_ties_by_opposite_key() -> None:
+    """When two items have identical residuals competing for the same
+    endpoint, _mnn_by_id keeps the one whose OPPOSITE key has the
+    lower UUID — deterministic tie-break, not insertion order.
+    """
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class _Item:
+        a: UUID
+        b: UUID
+        r: float
+
+    a = UUID(int=10)
+    b_high = UUID(int=20)
+    b_low = UUID(int=5)
+    # Both target ``a`` from different ``b``s at identical residual 0.5.
+    items = [
+        _Item(a=a, b=b_high, r=0.5),
+        _Item(a=a, b=b_low, r=0.5),
+    ]
+    survivors = _mnn_by_id(
+        items,
+        key_a=lambda x: x.a,
+        key_b=lambda x: x.b,
+        residual=lambda x: x.r,
+    )
+    # The min-b-UUID side wins on equal residuals.
+    assert len(survivors) == 1
+    assert survivors[0].b == b_low
+
+
 def test_mnn_by_id_works_on_custom_dataclass() -> None:
     """``_mnn_by_id`` operates on any item type given key + residual callables.
 
