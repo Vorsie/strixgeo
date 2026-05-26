@@ -855,16 +855,14 @@ export default function SectionsCanvas(): JSX.Element {
     ): Promise<void> => {
       if (selectedSection === null) return
 
-      // Litho axis left-click: create a ghost layer instead of a committed
-      // contact.  Ghost acceptance happens later via the standard Accept flow.
-      // Section seeding happens at accept time via acceptLithoSuggestions which
-      // already carries the section_id — no seeding here.
-      if (isLitho) {
-        const cpt = visibleCpts.find(c => c.id === anchorId)
-        const surfaceElevationM = cpt?.elevation_m ?? visibleBoreholes.find(b => b.id === anchorId)?.elevation_m ?? null
-        handleCreateManualLithoGhost(anchorKind, anchorId, surfaceElevationM, depth_m, formationId)
-        return
-      }
+      // Litho axis left-click: no-op.  The ghost-creation flow (manual insert)
+      // is triggered exclusively by the right-click "Create layer" context-menu
+      // item in LithoSuggestionGhostColumns.  Left-click on the contact-pick bar
+      // was wired to create a ghost (2026-05-19), but the ghost renders as a
+      // zero-thickness, outline-only band that the user cannot see, making the
+      // gesture invisible and confusing.  The right-click path already covers
+      // the intent; this branch is deleted (dogfeed 2026-05-26).
+      if (isLitho) return
 
       // Pass the section id so the backend seeds seeded_formation_contact_ids
       // (P2-E). Without this the create succeeds but the P2-F filter below
@@ -894,11 +892,13 @@ export default function SectionsCanvas(): JSX.Element {
         log.warn('section', 'sectionAwareCreateContact: section refresh after draw failed', err)
       }
     },
-    // reason: visibleCpts/visibleBoreholes are stable arrays during a session;
-    // isLitho and handleCreateManualLithoGhost are listed so the callback
-    // refreshes when the axis switches.
+    // reason: isLitho is listed so the early-return branch refreshes when the
+    // axis switches; visibleCpts/visibleBoreholes are stable arrays during a
+    // session but listed for completeness.  handleCreateManualLithoGhost is no
+    // longer called here (left-click on the litho axis is a no-op per the
+    // 2026-05-26 dogfeed revert above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selectedSection, axisCreateContact, project.id, applyUpdatedSection, isLitho, handleCreateManualLithoGhost, visibleCpts, visibleBoreholes],
+    [selectedSection, axisCreateContact, project.id, applyUpdatedSection, isLitho],
   )
 
   // P2-H (batch) — section-aware contact COPY (drag-to-next-test: one-by-one,
