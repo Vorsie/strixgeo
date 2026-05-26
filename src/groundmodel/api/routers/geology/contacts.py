@@ -302,7 +302,11 @@ async def delete_contact(
         project_id,
         detail="Contact not found",
     )
-    await DeleteFormationContact(session).execute(contact_id)
+    await DeleteFormationContact(session).execute(
+        contact_id,
+        project_id=project_id,
+        model_id=model_id,
+    )
 
 
 @router.put(
