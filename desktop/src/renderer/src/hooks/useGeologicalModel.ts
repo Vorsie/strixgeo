@@ -1331,9 +1331,22 @@ export function useGeologicalModel({
           lithoContacts.find(c => c.id === contactId)
         if (!previous) return
         const modelId = previous.model_id
-        const applyPatch = lithoContacts.some(c => c.id === contactId)
-          ? setLithoContacts
-          : setContacts
+        const isLitho = lithoContacts.some(c => c.id === contactId)
+        const applyPatch = isLitho ? setLithoContacts : setContacts
+        // Diagnostic: drag-up cross-merge regression repro (2026-05-26).
+        // Records the FE→BE handoff so the user can see exactly what
+        // depth+axis the hook dispatched on a buggy drag.
+        console.debug('[handleUpdateContactDepth]', {
+          contactId,
+          modelId,
+          previousDepthM: previous.depth_top_m,
+          newDepthM,
+          delta: previous.depth_top_m - newDepthM,
+          direction: newDepthM < previous.depth_top_m ? 'UP' : 'DOWN',
+          snapped,
+          axis: isLitho ? 'litho' : 'geological',
+          refetchPath: isLitho ? 'refetchLithoContacts' : 'refetchContacts',
+        })
         const updated = await api.geology.updateContact(
           project.id,
           modelId,
@@ -1356,7 +1369,11 @@ export function useGeologicalModel({
             'geology',
             `updateContactDepth absorbed id=${contactId} (drag-down cross-merge) — refetching`,
           )
-          if (lithoContacts.some(c => c.id === contactId)) {
+          console.debug('[handleUpdateContactDepth] absorbed-204', {
+            contactId,
+            axis: isLitho ? 'litho' : 'geological',
+          })
+          if (isLitho) {
             refetchLithoContacts()
           } else {
             refetchContacts()
@@ -1375,8 +1392,15 @@ export function useGeologicalModel({
         // above). Aligning drag-up to the same refetch path eliminates the
         // optimistic-prune bug at the cost of ~50 ms extra latency per commit
         // — negligible compared to the drag gesture duration.
-        const isLithoContact = lithoContacts.some(c => c.id === contactId)
-        if (isLithoContact) {
+        console.debug('[handleUpdateContactDepth] ok-200', {
+          contactId,
+          returnedId: updated.id,
+          returnedDepthM: updated.depth_top_m,
+          returnedFormationId: updated.formation_id,
+          returnedSource: updated.source,
+          axis: isLitho ? 'litho' : 'geological',
+        })
+        if (isLitho) {
           refetchLithoContacts()
         } else {
           refetchContacts()
