@@ -25,6 +25,8 @@ subdivision is built on top of it. Priority order:
 * **#122** — correlation edge opacity fade + body-hover spike (polish — after #121)
 * **#123** — clay→silt correlation suggestion bug (needs owner reproduction)
 * **#99** — drag-clamp through rejected layers (awaiting owner reproduction — code investigated, G34b passes)
+* **#138** — drag-lock after litho merge (needs owner reproduction — filed 2026-05-26)
+* **#139** — correlate mode unclickable when 0 contacts on section (UX hint — filed 2026-05-26)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
@@ -32,7 +34,7 @@ subdivision is built on top of it. Priority order:
 
 * **B. Commercial launch gates + pre-distribution hardening:** #2, #3, #4, #5, #6, #7, #47, #112, #113
 * **D. Phase-4 export step + post-launch / Phase 5:** #104, #105, #13, #106, #107, #108, #109, #110, #111, #116, #44, #52, #56, #60, #11, #100b, #101, #70, #71, #79, #93, #95
-* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #124, #125, #126
+* **E. Lower technical debt:** #16, #17, #22, #27, #41, #62, #64, #65, #68, #82, #114, #124, #125, #126, #137
 
 *(Tiers A "Phase 4 engineering blockers" and C "current work" are
 retired into this structure — the remaining Phase-4 work is the
@@ -3428,6 +3430,103 @@ be suppressed. Filed to handle cleanly rather than rush.
 session reports that precise litho boundary alignment is blocking geotech unit
 delimitation. The snap infrastructure is already in place; this is an extension
 to an existing source set.
+Filed from dogfeed session 2026-05-26.
+
+## 137. Section wheel zoom anchors to the right of the cursor in litho mode (Tier E — UX bug)
+
+**What.** In the Sections stage with ``axisMode === 'lithostratigraphic'``,
+ctrl+wheel / wheel zoom (``SectionPanel.handleWheel``) anchors the zoom to
+a screen point to the right of the cursor instead of the cursor itself.
+The same handler works correctly in geological-axis mode. The bug was
+present in geology mode previously and got fixed; the litho-axis variant
+slipped through.
+
+**Why deferred.** Root cause is likely in
+``SectionPanel.tsx`` line 845: ``containerRef.current?.querySelector('svg')``
+returns the FIRST ``<svg>`` descendant. If a child component renders a
+nested ``<svg>`` BEFORE the main section svg in document order (a
+portal, foreignObject, or a per-column inline svg), ``rect.left`` from
+that wrong svg is smaller than the main svg's left edge, so
+``px = clientX - rect.left`` over-estimates and ``worldX`` lands further
+right than the cursor — exactly the "zooms to the right" symptom.
+Needs an in-app DOM probe to identify the stray svg, then a stable
+selector (e.g. ``[data-section-svg]`` on the main svg) plus the
+``querySelector`` change. Hasn't been verified by repro yet.
+
+**When to revisit.** Whenever the section wheel-zoom interaction is
+next touched, OR when a second dogfeed report confirms it. Cheap once
+the stray svg is identified.
+Filed from dogfeed session 2026-05-26.
+
+## 138. Drag-lock after litho merge — handle becomes immovable (Tier G — needs repro)
+
+**What.** After merging two same-lithology layers on a litho ghost
+column, the surviving layer's boundary handle sometimes refuses to
+move — neither up nor down. The user reports this is intermittent
+("sometimes it is impossible to drag a boundary up or down (possible
+after merging)").
+
+**Why deferred.** The DR1 / DR2 regression tests
+(``LithoSuggestionGhostColumns.test.tsx``) cover the basic "merged
+layer still draggable" path and pass. The repro must be a specific
+state where ``computeDragBounds`` returns ``boundsAboveM ===
+boundsBelowM`` for the survivor, which would clamp the cursor at the
+current depth and visually look like the handle is frozen. Candidate
+paths:
+
+* Zero-thickness rejected stub from a prior merge sitting between
+  the survivor and its true neighbour. ``findVisibleNeighbourAbove/
+  Below`` skips ``rejected`` indices but reads the underlying
+  ``suggestions[i]`` depths; a stub with ``depth_top_m === depth_base_m
+  === survivor.depth_base_m`` would collapse the bound.
+* Stale entry in the ``edits`` Map referencing the absorbed (now-gone)
+  layer's old idx after a helper-driven absorb shifted indices. The
+  partner predicate gate (G33c, shipped 2026-05-26) prevents the
+  chain emission but does NOT scrub the post-shift edits Map.
+
+Need an exact dogfeed repro to pick the path:
+1. Suggest all on a CPT.
+2. Pick two adjacent same-lithology layers and merge them via
+   right-click "Merge layers" OR drag-to-collapse.
+3. Try to drag the merged layer's base. Note: does the handle's
+   cursor change? Is the snap indicator stuck? Capture the React
+   DevTools state for ``ghostsByAnchor`` so the ``edits`` Map and
+   ``rejected`` Set are visible.
+
+**When to revisit.** When the user can provide the deterministic
+repro above. The fix is small (skip zero-thickness rejecteds in the
+bounds walk, OR scrub the edits Map on absorb) but the right one
+depends on which path the repro exposes.
+Filed from dogfeed session 2026-05-26.
+
+## 139. Correlate mode unclickable when section has 0 accepted litho contacts (Tier G — UX hint)
+
+**What.** Entering "Correlate · click 2 bands" mode on a section with
+zero accepted litho contacts (or zero contacts in the active
+lithostratigraphic model) produces no interaction surface — the
+dotted lines the user sees are ghost-suggestion outlines, NOT
+clickable contact hit-rects. ``CorrelationEdgesOverlay`` only renders
+gesture rects when ``contactCorrelateMode`` is true AND the
+``contacts`` array is non-empty (line 944-1066). Without contacts the
+overlay paints nothing clickable, leaving the user stuck in
+correlate mode with no feedback.
+
+The Auto-correlate path handles this correctly today with the toast
+"no correlatable units found — accept litho suggestions first". The
+gap is the MANUAL correlate-mode path which silently does nothing.
+
+**Why deferred.** Cheapest fix is a hint pill (in the existing
+``CanvasHints`` component) that fires when
+``contactCorrelateMode === true && contacts.length === 0``, with copy
+matching the Auto-correlate toast: "Accept litho suggestions to
+enable correlation. Currently 0 accepted contacts on this section."
+A second improvement: dim/disable the Correlate toolbar button when
+``activeLithoModel`` has 0 contacts on this section, with a tooltip
+explaining why. Both are pure presentation changes; no backend.
+
+**When to revisit.** Before any second dogfeed session — confused
+the user immediately on first encounter, so it's a discoverability
+blocker for the correlate gesture surface.
 Filed from dogfeed session 2026-05-26.
 
 ## (end)
