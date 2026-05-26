@@ -212,6 +212,12 @@ export interface GeologicalFormationCreatePayload {
   description?: string | null
   lithology?: string | null
   nad_class?: number | null
+  // Litho-unit fields — supply these when creating a lithostratigraphic
+  // child formation without a contact ("Add new unit" ghost flow, Bug 2
+  // dogfeed 2026-05-26).  Omitted for geological-formation creation.
+  parent_formation_id?: string | null
+  litho_main_soil_code?: string | null
+  litho_admixtures?: AdmixtureItem[] | null
 }
 
 export interface GeologicalFormationUpdatePayload {
@@ -489,6 +495,15 @@ export interface AcceptLithoSuggestionsRequest {
   // inference runs once for the whole batch instead of N × formations.
   // Default false preserves the original per-accept behaviour.
   defer_inference?: boolean
+  // When true, find-or-create the litho formation(s) for each suggestion
+  // but do NOT create any contact row and do NOT seed
+  // seeded_formation_contact_ids on the section. depth_top_m /
+  // depth_base_m are still used for parent-formation inference (TIN
+  // sampling). The caller MUST NOT call applyUpdatedSection (updated_section
+  // will be null). Use case: "Add new unit" ghost flow — pre-create the
+  // formation so the ghost-accept finds it by key rather than duplicating
+  // it (Bug 2 dogfeed 2026-05-26). Default false.
+  create_formation_only?: boolean
 }
 
 export interface AcceptLithoSuggestionsResponse {
