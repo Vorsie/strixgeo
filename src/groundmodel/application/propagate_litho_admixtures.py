@@ -25,12 +25,13 @@ from groundmodel.domain.services.resolve_litho_instances import (
     CorrelationEdge,
     connected_formation_ids,
 )
+from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
 from groundmodel.infrastructure.db.models.geological_formation_orm import (
     GeologicalFormationOrm,
 )
 from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
-from groundmodel.infrastructure.db.models.litho_correlation_edge_orm import (
-    LithoCorrelationEdgeOrm,
+from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+    LithoContactCorrelationEdgeOrm,
 )
 from groundmodel.shared.logging.ground_model_logger import GroundModelLogger
 
@@ -139,21 +140,62 @@ class PropagateLithoAdmixtures(GroundModelLogger):
             )
 
         # ------------------------------------------------------------------ #
-        # 3. Load all correlation edges for this model.                        #
+        # 3. Derive formation-level edges from user-approved contact edges.    #
+        # Formation-level LithoCorrelationEdgeOrm rows are no longer the      #
+        # authority for the propagation graph since #133 Phase 3: contact     #
+        # edges are the boundary-to-boundary ground truth.                     #
         # ------------------------------------------------------------------ #
-        edges_stmt = select(LithoCorrelationEdgeOrm).where(
-            LithoCorrelationEdgeOrm.model_id == model_id
+        contact_edges_stmt = select(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == model_id,
+            LithoContactCorrelationEdgeOrm.user_approved.is_(True),
         )
-        edge_rows = list((await self._session.execute(edges_stmt)).scalars().all())
-        edges: list[CorrelationEdge] = [
-            CorrelationEdge(
-                formation_a_id=e.formation_a_id,
-                formation_b_id=e.formation_b_id,
-            )
-            for e in edge_rows
-        ]
+        contact_edge_rows = list((await self._session.execute(contact_edges_stmt)).scalars().all())
         self.debug(
-            f"PropagateLithoAdmixtures: loaded {len(edge_rows)} edge(s) for model {model_id}"
+            f"PropagateLithoAdmixtures: {len(contact_edge_rows)} user-approved "
+            f"contact edge(s) for model {model_id}"
+        )
+
+        # Build contact_id → formation_id map (one query covers all contacts).
+        contacts_stmt = select(FormationContactOrm.id, FormationContactOrm.formation_id).where(
+            FormationContactOrm.model_id == model_id
+        )
+        formation_by_contact: dict[UUID, UUID] = dict(
+            (await self._session.execute(contacts_stmt)).all()
+        )
+
+        # Derive formation-to-formation CorrelationEdge objects, skipping
+        # self-loops (both contacts in same formation) and orphans (contact
+        # deleted after edge was created — DB CASCADE handles it, but guarded
+        # here for in-flight state).
+        edges: list[CorrelationEdge] = []
+        skipped_orphan = 0
+        skipped_self_loop = 0
+        for ce in contact_edge_rows:
+            fa = formation_by_contact.get(ce.contact_a_id)
+            fb = formation_by_contact.get(ce.contact_b_id)
+            if fa is None or fb is None:
+                skipped_orphan += 1
+                self.debug(
+                    f"PropagateLithoAdmixtures: skipping orphan contact edge {ce.id} "
+                    f"(contact_a formation={fa}, contact_b formation={fb})"
+                )
+                continue
+            if fa == fb:
+                skipped_self_loop += 1
+                self.debug(
+                    f"PropagateLithoAdmixtures: skipping self-loop contact edge {ce.id} "
+                    f"(both contacts map to formation {fa})"
+                )
+                continue
+            edges.append(CorrelationEdge(formation_a_id=fa, formation_b_id=fb))
+
+        if skipped_orphan or skipped_self_loop:
+            self.warning(
+                f"PropagateLithoAdmixtures: skipped {skipped_orphan} orphan + "
+                f"{skipped_self_loop} self-loop contact edge(s) for model {model_id}"
+            )
+        self.debug(
+            f"PropagateLithoAdmixtures: {len(edges)} derived formation edge(s) for model {model_id}"
         )
 
         # ------------------------------------------------------------------ #

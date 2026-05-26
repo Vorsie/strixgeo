@@ -12,12 +12,16 @@ P7  Empty admixtures list → clears admixtures on every formation in the compon
 P8  Commit is called once after the flush (single transaction).
 
 No DB or network I/O — session and all DB objects are Mocks.
+
+The use case now issues three execute() calls in order:
+  1. contact_edges_stmt  → scalars().all() → list[LithoContactCorrelationEdgeOrm]
+  2. contacts_stmt       → .all()          → list[(contact_id, formation_id)]
+  3. formations_stmt     → scalars().all() → list[GeologicalFormationOrm]
 """
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
@@ -30,6 +34,11 @@ _FA = UUID("aaaaaaaa-0000-0000-0000-000000000000")
 _FB = UUID("bbbbbbbb-0000-0000-0000-000000000000")
 _FC = UUID("cccccccc-0000-0000-0000-000000000000")
 
+# Contact ids — one per formation for simplicity.
+_CA = UUID("aaaaaaaa-cccc-0000-0000-000000000000")
+_CB = UUID("bbbbbbbb-cccc-0000-0000-000000000000")
+_CC = UUID("cccccccc-cccc-0000-0000-000000000000")
+
 _ADMIXTURES = [{"soil_code": "KL", "amount": "M", "locally": False}]
 
 
@@ -39,6 +48,7 @@ _ADMIXTURES = [{"soil_code": "KL", "amount": "M", "locally": False}]
 
 
 def _make_model(kind: str = "lithostratigraphic", project_id: UUID = _PROJECT) -> MagicMock:
+    """Return a mock GeologicalModelOrm."""
     m = MagicMock()
     m.app_project_id = project_id
     m.kind = kind
@@ -46,6 +56,7 @@ def _make_model(kind: str = "lithostratigraphic", project_id: UUID = _PROJECT) -
 
 
 def _make_formation(fid: UUID, project_id: UUID = _PROJECT, soil: str = "ZAND") -> MagicMock:
+    """Return a mock GeologicalFormationOrm."""
     f = MagicMock()
     f.id = fid
     f.app_project_id = project_id
@@ -54,10 +65,11 @@ def _make_formation(fid: UUID, project_id: UUID = _PROJECT, soil: str = "ZAND") 
     return f
 
 
-def _make_edge(a: UUID, b: UUID) -> MagicMock:
+def _make_contact_edge(contact_a: UUID, contact_b: UUID) -> MagicMock:
+    """Return a mock LithoContactCorrelationEdgeOrm (contact-level edge)."""
     e = MagicMock()
-    e.formation_a_id = a
-    e.formation_b_id = b
+    e.contact_a_id = contact_a
+    e.contact_b_id = contact_b
     return e
 
 
@@ -68,23 +80,42 @@ def _scalar_list_result(values: list) -> MagicMock:
     return r
 
 
+def _tuple_list_result(pairs: list[tuple]) -> MagicMock:
+    """Mock for session.execute() returning .all() → list of (id, formation_id) tuples."""
+    r = MagicMock()
+    r.all.return_value = pairs
+    return r
+
+
 def _make_session(
     model: object,
     seed_formation: object,
-    edge_rows: list,
+    contact_edge_rows: list,
+    contact_map_pairs: list[tuple],
     formation_rows: list,
 ) -> AsyncMock:
-    """Build an AsyncMock session that returns the supplied objects in order."""
+    """Build an AsyncMock session that returns the supplied objects in the correct call order.
+
+    Parameters
+    ----------
+    model : object
+        Mock GeologicalModelOrm returned by session.get() first call.
+    seed_formation : object
+        Mock GeologicalFormationOrm returned by session.get() second call.
+    contact_edge_rows : list
+        Mock LithoContactCorrelationEdgeOrm rows for the contact-edge query.
+    contact_map_pairs : list[tuple]
+        (contact_id, formation_id) pairs for the contact→formation map query.
+    formation_rows : list
+        Mock GeologicalFormationOrm rows for the component formation query.
+    """
     session = AsyncMock()
-
-    # session.get(ModelCls, pk) — first call = model, second call = seed.
     session.get = AsyncMock(side_effect=[model, seed_formation])
-
-    # session.execute() — first call = edges query, second call = formations query.
     session.execute = AsyncMock(
         side_effect=[
-            _scalar_list_result(edge_rows),
-            _scalar_list_result(formation_rows),
+            _scalar_list_result(contact_edge_rows),  # call 1: contact_edges_stmt
+            _tuple_list_result(contact_map_pairs),  # call 2: contacts_stmt (map)
+            _scalar_list_result(formation_rows),  # call 3: formations_stmt
         ]
     )
     session.flush = AsyncMock()
@@ -104,12 +135,13 @@ def _use_case(session: AsyncMock) -> PropagateLithoAdmixtures:
 
 @pytest.mark.asyncio
 async def test_p1_seed_only_no_edges() -> None:
-    """P1: No edges → component = {seed}; only the seed is updated."""
+    """P1: No contact edges → component = {seed}; only the seed is updated."""
     seed = _make_formation(_FA)
     session = _make_session(
         model=_make_model(),
         seed_formation=seed,
-        edge_rows=[],
+        contact_edge_rows=[],
+        contact_map_pairs=[(_CA, _FA)],
         formation_rows=[seed],
     )
     result = await _use_case(session).execute(
@@ -128,14 +160,19 @@ async def test_p1_seed_only_no_edges() -> None:
 
 @pytest.mark.asyncio
 async def test_p2_linear_chain_three_formations() -> None:
-    """P2: A-B-C chain — all three get the new admixtures."""
+    """P2: A-B-C chain via contact edges — all three get the new admixtures."""
     fa = _make_formation(_FA)
     fb = _make_formation(_FB)
     fc = _make_formation(_FC)
+    # Contact edges: CA↔CB (links FA↔FB) and CB↔CC (links FB↔FC).
     session = _make_session(
         model=_make_model(),
         seed_formation=fa,
-        edge_rows=[_make_edge(_FA, _FB), _make_edge(_FB, _FC)],
+        contact_edge_rows=[
+            _make_contact_edge(_CA, _CB),
+            _make_contact_edge(_CB, _CC),
+        ],
+        contact_map_pairs=[(_CA, _FA), (_CB, _FB), (_CC, _FC)],
         formation_rows=[fa, fb, fc],
     )
     result = await _use_case(session).execute(
@@ -218,7 +255,8 @@ async def test_p7_empty_admixtures_clears() -> None:
     session = _make_session(
         model=_make_model(),
         seed_formation=seed,
-        edge_rows=[],
+        contact_edge_rows=[],
+        contact_map_pairs=[(_CA, _FA)],
         formation_rows=[seed],
     )
     result = await _use_case(session).execute(
@@ -239,7 +277,8 @@ async def test_p8_single_commit_called_once() -> None:
     session = _make_session(
         model=_make_model(),
         seed_formation=fa,
-        edge_rows=[_make_edge(_FA, _FB)],
+        contact_edge_rows=[_make_contact_edge(_CA, _CB)],
+        contact_map_pairs=[(_CA, _FA), (_CB, _FB)],
         formation_rows=[fa, fb],
     )
     await _use_case(session).execute(
