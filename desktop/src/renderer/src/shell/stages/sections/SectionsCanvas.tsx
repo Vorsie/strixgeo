@@ -1382,7 +1382,15 @@ export default function SectionsCanvas(): JSX.Element {
           focusedContactIds={focusedContactIds}
           excludedBoreholeIds={axisExcludedBoreholeIds}
           showConfidenceFade={showConfidenceFade}
-          onCreateContact={sectionAwareCreateContact}
+          // On the litho axis, left-click must never open the formation
+          // picker — the right-click ghost flow is the intended entry point
+          // (dogfeed 2026-05-26). Passing undefined here prevents
+          // ContactPickBar's onCommitDepth and BoreholeColumn's onCommitDepth
+          // from firing handlePickCpt/handlePickBorehole, which is where the
+          // picker dialog opens in useContactPicker — BEFORE the internal
+          // sectionAwareCreateContact early-return guard even runs. The previous
+          // guard was too late in the callback chain.
+          onCreateContact={isLitho ? undefined : sectionAwareCreateContact}
           onUpdateContactDepth={handleUpdateContactDepth}
           onDeleteContact={handleDeleteContact}
           onBatchUpdateContacts={handleBatchUpdateContacts}
