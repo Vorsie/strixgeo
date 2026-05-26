@@ -995,15 +995,20 @@ export default function SectionsCanvas(): JSX.Element {
         parent_formation_id: null
         spans_boundary: false
       }
-      // Sentinel: a single 0.01 m suggestion whose only purpose is to create
-      // (or find) the formation with the correct litho_main_soil_code +
-      // litho_admixtures.  The resulting committed contact is invisible at
-      // normal zoom (Bug 3 guard: height ≤ 0.5 px → not rendered) and is
-      // superseded by the ghost placed below.
+      // create_formation_only=true: create (or find) the formation row for
+      // this soil code + admixtures WITHOUT creating any contact row. The
+      // depth_top_m / depth_base_m are still used for parent-formation
+      // inference (TIN sampling at the anchor's x/y). No section seeding
+      // occurs so updated_section is always null here — do NOT call
+      // applyUpdatedSection. The ghost-extend-accept call that follows
+      // (handleCreateManualLithoGhost → user drags → ghost-accept) creates
+      // the actual contact at the dragged depth. The find-or-create key
+      // guarantees the ghost-accept finds the same formation rather than
+      // duplicating it (Bug 2 dogfeed 2026-05-26).
       const suggestionsOut: ManualSuggestion[] = [
         {
           depth_top_m: depthM,
-          depth_base_m: depthM + 0.01,
+          depth_base_m: depthM + 0.01, // sentinel extent — only depth_top_m matters for TIN inference
           suggested_lithology: mainCode,
           suggested_nad_class: null,
           mean_qc_mpa: null,
@@ -1017,8 +1022,8 @@ export default function SectionsCanvas(): JSX.Element {
       ]
       const payload = {
         [anchorKind === 'cpt' ? 'cpt_id' : 'borehole_id']: anchorId,
-        section_id: selectedSection.id,
         suggestions: suggestionsOut,
+        create_formation_only: true,
       }
 
       log.debug(
@@ -1034,15 +1039,9 @@ export default function SectionsCanvas(): JSX.Element {
           payload,
         )
 
-        // #57 invariant: forward updated_section.
-        if (result.updated_section) {
-          applyUpdatedSection(result.updated_section)
-        } else {
-          log.warn(
-            'section',
-            'handleManualLithoUnitCreate: no updated_section in response — seeded set may be stale',
-          )
-        }
+        // No applyUpdatedSection here: create_formation_only=true means no
+        // contact was created → updated_section is always null → the seeded
+        // set is unchanged. The ghost-accept that follows seeds the contact.
 
         const formationId =
           result.created_formation_ids[0] ?? result.found_formation_ids[0] ?? null
@@ -1058,9 +1057,8 @@ export default function SectionsCanvas(): JSX.Element {
         // is available in the ghost overlay's formation lookup.
         refetchFormations()
 
-        // Place a ghost at the click depth so the user enters the
-        // ghost-extend-accept flow.  The ghost supersedes the committed 0.01 m
-        // sentinel contact visually (Bug 3 guard hides near-zero-height bands).
+        // Place a ghost at the click depth — the user drags it to the desired
+        // depth, then accepts; that ghost-accept creates the real contact.
         const cpt = visibleCpts.find(c => c.id === anchorId)
         const surfaceElevationM =
           cpt?.elevation_m ??
