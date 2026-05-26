@@ -1435,3 +1435,215 @@ async def test_bundle_carries_formation_absences(db_session: AsyncSession) -> No
         )
     )
     assert count_twice == 2, f"Second restore must not duplicate rows; got {count_twice}"
+
+
+# ---------------------------------------------------------------------------
+# Contact-level correlation edges round-trip (#133 Phase 2+3)
+# ---------------------------------------------------------------------------
+
+
+async def test_bundle_roundtrip_includes_contact_correlation_edges(
+    db_session: AsyncSession,
+) -> None:
+    """litho_contact_correlation_edges survive build → wipe → restore.
+
+    A project with one litho model, two contacts on that model, and one
+    LithoContactCorrelationEdge (user_approved=True) is bundled then
+    restored onto a clean DB.  The edge row must come back with the same
+    id, contact endpoints, and user_approved flag.  A second restore is
+    idempotent (no duplicate row).  A contact-edge whose model_id points
+    outside the project is silently dropped (bundle-injection guard).
+    """
+    from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm as _BH
+    from groundmodel.infrastructure.db.models.formation_contact_orm import FormationContactOrm
+    from groundmodel.infrastructure.db.models.geological_formation_orm import (
+        GeologicalFormationOrm,
+    )
+    from groundmodel.infrastructure.db.models.geological_model_orm import GeologicalModelOrm
+    from groundmodel.infrastructure.db.models.litho_contact_correlation_edge_orm import (
+        LithoContactCorrelationEdgeOrm,
+    )
+
+    source = await _make_source_project(db_session)
+    # Use the borehole created by the helper as the investigation anchor.
+    bh = (await db_session.execute(select(_BH).where(_BH.app_project_id == source.id))).scalar_one()
+
+    formation = GeologicalFormationOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="ZAND unit",
+        color="#e8d44a",
+        display_order=0,
+        litho_main_soil_code="ZAND",
+    )
+    model = GeologicalModelOrm(
+        id=uuid7(),
+        app_project_id=source.id,
+        name="Litho model",
+        kind="lithostratigraphic",
+        is_active=True,
+        excluded_borehole_ids=[],
+    )
+    db_session.add_all([formation, model])
+    await db_session.flush()
+
+    # Two contacts at different depths on the same borehole — canonical
+    # ordering (a_id < b_id) is enforced by the CHECK constraint.
+    contact_a = FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=1.0,
+        source="manual_pick",
+        confidence="high",
+    )
+    contact_b = FormationContactOrm(
+        id=uuid7(),
+        model_id=model.id,
+        formation_id=formation.id,
+        borehole_id=bh.id,
+        depth_top_m=3.0,
+        source="manual_pick",
+        confidence="high",
+    )
+    db_session.add_all([contact_a, contact_b])
+    await db_session.flush()
+
+    # Canonical ordering: a_id < b_id (CHECK constraint).
+    a_id, b_id = sorted([contact_a.id, contact_b.id])
+    edge = LithoContactCorrelationEdgeOrm(
+        id=uuid7(),
+        model_id=model.id,
+        contact_a_id=a_id,
+        contact_b_id=b_id,
+        source="manual",
+        user_approved=True,
+    )
+    db_session.add(edge)
+    await db_session.commit()
+    original_edge_id = edge.id
+
+    # ---- Build: the edge is in the bundle --------------------------------
+    bundle = await build_project_bundle(db_session, source)
+    assert "litho_contact_correlation_edges" in bundle, (
+        "bundle must carry litho_contact_correlation_edges key"
+    )
+    assert len(bundle["litho_contact_correlation_edges"]) == 1
+    bundled = bundle["litho_contact_correlation_edges"][0]
+    assert bundled["contact_a_id"] == str(a_id)
+    assert bundled["contact_b_id"] == str(b_id)
+    assert bundled["user_approved"] is True
+
+    # ---- Wipe (simulate fresh DB on a new device) ------------------------
+    await db_session.execute(
+        delete(LithoContactCorrelationEdgeOrm).where(
+            LithoContactCorrelationEdgeOrm.model_id == model.id
+        )
+    )
+    from groundmodel.infrastructure.db.models.formation_contact_orm import (
+        FormationContactOrm as _FC,
+    )
+
+    await db_session.execute(delete(_FC).where(_FC.model_id == model.id))
+    await db_session.execute(
+        delete(GeologicalModelOrm).where(GeologicalModelOrm.app_project_id == source.id)
+    )
+    await db_session.execute(
+        delete(GeologicalFormationOrm).where(GeologicalFormationOrm.app_project_id == source.id)
+    )
+    await db_session.execute(delete(CptOrm).where(CptOrm.app_project_id == source.id))
+    await db_session.execute(delete(BoreholeOrm).where(BoreholeOrm.app_project_id == source.id))
+    await db_session.delete(source)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    # ---- Restore ---------------------------------------------------------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        litho_contact_correlation_edges_payload=bundle["litho_contact_correlation_edges"],
+    )
+    await db_session.commit()
+
+    edges_after = list(
+        (
+            await db_session.execute(
+                select(LithoContactCorrelationEdgeOrm).where(
+                    LithoContactCorrelationEdgeOrm.model_id == model.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(edges_after) == 1
+    assert edges_after[0].id == original_edge_id
+    assert edges_after[0].contact_a_id == a_id
+    assert edges_after[0].contact_b_id == b_id
+    assert edges_after[0].user_approved is True
+
+    # ---- Second restore is idempotent ------------------------------------
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        litho_contact_correlation_edges_payload=bundle["litho_contact_correlation_edges"],
+    )
+    await db_session.commit()
+    count_twice = len(
+        list(
+            (
+                await db_session.execute(
+                    select(LithoContactCorrelationEdgeOrm).where(
+                        LithoContactCorrelationEdgeOrm.model_id == model.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    )
+    assert count_twice == 1, "second restore must not duplicate the contact edge"
+
+    # ---- Injection guard: alien model_id is dropped silently -------------
+    alien = dict(bundle["litho_contact_correlation_edges"][0])
+    alien["id"] = str(uuid7())
+    alien["model_id"] = str(uuid7())  # model that does not exist in this project
+    await restore_project_bundle(
+        db_session,
+        source.id,
+        bundle["project"],
+        bundle["cpts"],
+        bundle["boreholes"],
+        bundle["geological_formations"],
+        bundle["geological_models"],
+        litho_contact_correlation_edges_payload=[
+            bundle["litho_contact_correlation_edges"][0],
+            alien,
+        ],
+    )
+    await db_session.commit()
+    count_guarded = len(
+        list(
+            (
+                await db_session.execute(
+                    select(LithoContactCorrelationEdgeOrm).where(
+                        LithoContactCorrelationEdgeOrm.model_id == model.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    )
+    assert count_guarded == 1, "alien-model_id edge must be dropped, not restored"
