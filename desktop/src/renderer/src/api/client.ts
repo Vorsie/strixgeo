@@ -1654,16 +1654,31 @@ export const api = {
       return res.json()
     },
 
-    updateContact: (
+    updateContact: async (
       projectId: string,
       modelId: string,
       contactId: string,
       body: FormationContactUpdatePayload,
-    ): Promise<FormationContactResponse> =>
-      patch(
-        `/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`,
-        body,
-      ),
+    ): Promise<FormationContactResponse | null> => {
+      // 204 No Content = drag-down cross-merge absorbed the dragger.
+      // The generic patch<T> helper unconditionally calls res.json() which
+      // throws a SyntaxError on an empty body — handle 204 explicitly here
+      // so callers can detect absorption and prune local state.
+      const res = await fetch(
+        `${_base}/projects/${projectId}/geology/models/${modelId}/contacts/${contactId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      )
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `PATCH contacts/${contactId} → ${res.status}`)
+      }
+      if (res.status === 204) return null
+      return res.json()
+    },
 
     deleteContact: (
       projectId: string,
