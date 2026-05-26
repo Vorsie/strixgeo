@@ -3406,5 +3406,29 @@ shape to work so the user can express the lens topology that
 auto-correlate is expected to also produce.
 Filed from dogfeed session 2026-05-26.
 
+## 136. Manual contact drag does not snap to committed contacts on same anchor (Tier G)
+
+**What.** When the user drags a manual litho contact (ghost or committed band)
+on the section, the snap-depth candidates in ``SectionPanel.tsx`` are sourced
+from ``snapDepthsByAnchorId``, which currently only populates from borehole
+stratigraphy depths (iterating ``boreholeDetails`` at lines ~1409–1417). Committed
+``FormationContact`` rows at the same anchor are not included. Result: the drag
+does not snap to the top/bottom of neighbouring committed contacts, making precise
+boundary alignment tedious (the user must eyeball pixel-exact depth or type it in).
+
+**Why deferred.** ``snapDepthsByAnchorId`` merges snap-sources into a flat set per
+anchor. Extending it to committed contacts requires grouping ``axisContacts`` (the
+contacts array already in scope) by anchor id and inserting their ``depth_top_m``
+values into the snap set. Not a one-liner — needs a second memo, a loop, and a
+merge with the existing borehole-stratigraphy depths. The interaction is also
+non-trivial: snapping to a contact the user is actively dragging (self-snap) must
+be suppressed. Filed to handle cleanly rather than rush.
+
+**When to revisit.** Before the Geotech subdivision stage, or when a dogfeed
+session reports that precise litho boundary alignment is blocking geotech unit
+delimitation. The snap infrastructure is already in place; this is an extension
+to an existing source set.
+Filed from dogfeed session 2026-05-26.
+
 ## (end)
 
