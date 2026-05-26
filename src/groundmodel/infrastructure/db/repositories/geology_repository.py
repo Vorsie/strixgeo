@@ -71,8 +71,50 @@ class GeologyRepository(GroundModelLogger):
         description: str | None = None,
         lithology: str | None = None,
         nad_class: int | None = None,
+        parent_formation_id: UUID | None = None,
+        litho_main_soil_code: str | None = None,
+        litho_admixtures: list[dict] | None = None,
     ) -> GeologicalFormationOrm:
-        """Insert a new formation row under the given project."""
+        """Insert a new formation row under the given project.
+
+        Parameters
+        ----------
+        app_project_id : UUID
+            Project scope — the formation is owned by this project.
+        name : str
+            Human-readable formation name (required, non-empty).
+        color : str
+            Hex colour for the formation band.
+        code : str | None
+            Optional short code (e.g. "Bk" for Boom Klei).
+        display_order : int
+            Stratigraphic sort key (0 = oldest).
+        regional_ref : str | None
+            Optional reference to a regional catalogue entry.
+        description : str | None
+            Free-text description.
+        lithology : str | None
+            Main soil code when this is a lithostratigraphic unit.
+        nad_class : int | None
+            Belgian NAD packing class (1–31) for geotechnical units.
+        parent_formation_id : UUID | None
+            Links a lithostratigraphic child unit to its parent
+            geological formation.  Absent for geological formations.
+        litho_main_soil_code : str | None
+            Robertson-SBT primary soil code (e.g. "ZAND", "KLEI").
+            Set when creating a litho unit without a contact — the
+            find-or-create key in AcceptLithoSuggestions also uses this
+            field. Absent for geological formations.
+        litho_admixtures : list[dict] | None
+            JSONB-serialised admixture list from AdmixtureItem.  Each
+            entry is ``{"soil_code": str, "amount": str, "locally": bool}``.
+            Absent for geological formations.
+
+        Returns
+        -------
+        GeologicalFormationOrm
+            The newly inserted and flushed formation row.
+        """
         formation = GeologicalFormationOrm(
             id=uuid7(),
             app_project_id=app_project_id,
@@ -84,6 +126,9 @@ class GeologyRepository(GroundModelLogger):
             description=description,
             lithology=lithology,
             nad_class=nad_class,
+            parent_formation_id=parent_formation_id,
+            litho_main_soil_code=litho_main_soil_code,
+            litho_admixtures=litho_admixtures,
         )
         self._session.add(formation)
         await self._session.flush()
