@@ -776,23 +776,24 @@ describe('Axis mode — geology axis keeps FormationPickerDialog', () => {
 })
 
 // ---------------------------------------------------------------------------
-// M1 / M2 — manual litho unit creation (#57 applyUpdatedSection invariant)
+// M1 / M2 — manual litho unit creation (create_formation_only flow)
+// Bug 2 dogfeed 2026-05-26: the handler sends create_formation_only=true
+// so no contact is committed (= no orphan on dismiss). The ghost-accept
+// that follows creates the actual contact and seeds the section.
 // ---------------------------------------------------------------------------
 
 describe('Manual litho unit creation — handleManualLithoUnitCreate', () => {
-  it('M1: new unit → acceptLithoSuggestions called, updated_section forwarded to applyUpdatedSection', async () => {
-    // Regression net for the #57 class: onManualLithoUnitCreate MUST call
-    // acceptLithoSuggestions and, when the response carries updated_section,
-    // MUST forward it to applyUpdatedSection so the explicit-content filter
-    // sees the new contact immediately without a refetch.
-    const updatedSection = makeSection({
-      seeded_formation_contact_ids: ['contact-manual-1'],
-    })
+  it('M1: new unit → acceptLithoSuggestions called with create_formation_only=true, NO applyUpdatedSection', async () => {
+    // Regression net for Bug 2: onManualLithoUnitCreate MUST call
+    // acceptLithoSuggestions with create_formation_only=true. Because no contact
+    // is created, updated_section is null and applyUpdatedSection MUST NOT be
+    // called. The caller returns the formationId so the ghost-accept flow can
+    // proceed.
     mockAcceptLithoSuggestions.mockResolvedValue({
-      updated_section: updatedSection,
+      updated_section: null, // create_formation_only → no contact → no section seed
       created_formation_ids: ['form-new-1'],
       found_formation_ids: [],
-      created_contact_ids: ['contact-manual-1'],
+      created_contact_ids: [],
       found_contact_ids: [],
     })
 
@@ -817,40 +818,39 @@ describe('Manual litho unit creation — handleManualLithoUnitCreate', () => {
       capturedOnManualLithoUnitCreate!('ZAND', [], 'borehole', 'bh-1', 5.5),
     )
 
-    // (a) acceptLithoSuggestions was called with a synthetic one-item suggestion.
+    // (a) acceptLithoSuggestions called with create_formation_only=true,
+    //     NO section_id (seeding skipped on BE side too).
     expect(mockAcceptLithoSuggestions).toHaveBeenCalledTimes(1)
     const [, , payload] = mockAcceptLithoSuggestions.mock.calls[0]
     expect(payload.borehole_id).toBe('bh-1')
-    expect(payload.section_id).toBe('sec-1')
+    expect(payload.section_id).toBeUndefined()
+    expect(payload.create_formation_only).toBe(true)
     expect(payload.suggestions).toHaveLength(1)
     expect(payload.suggestions[0].suggested_lithology).toBe('ZAND')
     expect(payload.suggestions[0].source).toBe('manual_pick')
-    // depth_base = depth_top + 0.01 (sentinel)
+    // depth_base = depth_top + 0.01 (sentinel extent for TIN inference only)
     expect(payload.suggestions[0].depth_base_m).toBeCloseTo(5.51)
 
-    // (b) updated_section forwarded — the #57 invariant.
-    expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
+    // (b) applyUpdatedSection MUST NOT be called — no contact was created.
+    expect(applyUpdatedSection).not.toHaveBeenCalled()
 
-    // (c) formationId returned so SectionPanel's useContactPicker can chain.
+    // (c) formationId returned so the ghost-accept flow can chain.
     expect(result).toEqual({ formationId: 'form-new-1' })
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
-  it('M2: idempotent re-create (found not created) still calls applyUpdatedSection, returns formationId', async () => {
-    // When the unit already exists (found_formation_ids has the id, created=[]
-    // e.g. user re-picks the same composition), acceptLithoSuggestions returns
-    // updated_section and the found id. The handler MUST still call
-    // applyUpdatedSection (the contact may be newly seeded for this section
-    // even if the formation already existed) and MUST return the found formationId.
-    const updatedSection = makeSection({
-      seeded_formation_contact_ids: ['contact-existing-1'],
-    })
+  it('M2: idempotent re-create (formation already exists) → create_formation_only=true, NO applyUpdatedSection, returns formationId', async () => {
+    // When the unit already exists (found_formation_ids has the id, created=[]),
+    // e.g. user re-picks the same composition, acceptLithoSuggestions returns the
+    // found formation. With create_formation_only=true, updated_section is still
+    // null and applyUpdatedSection MUST NOT be called. formationId comes from
+    // found_formation_ids[0].
     mockAcceptLithoSuggestions.mockResolvedValue({
-      updated_section: updatedSection,
+      updated_section: null,
       created_formation_ids: [],
       found_formation_ids: ['form-existing-x'],
       created_contact_ids: [],
-      found_contact_ids: ['contact-existing-1'],
+      found_contact_ids: [],
     })
 
     const applyUpdatedSection = vi.fn()
@@ -872,8 +872,8 @@ describe('Manual litho unit creation — handleManualLithoUnitCreate', () => {
       capturedOnManualLithoUnitCreate!('KLEI', [], 'cpt', 'cpt-7', 3.0),
     )
 
-    // applyUpdatedSection must be called even for the idempotent path.
-    expect(applyUpdatedSection).toHaveBeenCalledWith(updatedSection)
+    // applyUpdatedSection MUST NOT be called — create_formation_only has no contact.
+    expect(applyUpdatedSection).not.toHaveBeenCalled()
     // formationId comes from found_formation_ids[0] when created_formation_ids is empty.
     expect(result).toEqual({ formationId: 'form-existing-x' })
     expect(consoleErrorSpy).not.toHaveBeenCalled()
