@@ -60,6 +60,18 @@ class GeologicalFormationCreateRequest(BaseModel):
     # free-text here so the schema doesn't gate ahead of the codelist.
     lithology: str | None = Field(default=None, max_length=20)
     nad_class: int | None = Field(default=None, ge=1, le=31)
+    # Litho-unit fields — only set when creating a lithostratigraphic
+    # child formation (Bug 2 dogfeed 2026-05-26: "Add new unit" must be
+    # able to create the formation row WITHOUT an accompanying contact).
+    # ``parent_formation_id`` links this unit to its geological parent
+    # formation.  ``litho_main_soil_code`` is the primary Robertson-SBT
+    # code (e.g. "ZAND", "KLEI").  ``litho_admixtures`` is the JSONB
+    # array serialised from ``AdmixtureItem`` on the client side.
+    # All three are optional so the endpoint remains fully backwards-
+    # compatible for geological formation creation (where they are absent).
+    parent_formation_id: UUID | None = None
+    litho_main_soil_code: str | None = Field(default=None, max_length=20)
+    litho_admixtures: list[dict] | None = None
 
 
 class GeologicalFormationUpdateRequest(BaseModel):
