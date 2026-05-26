@@ -543,6 +543,13 @@ export default function SectionsCanvas(): JSX.Element {
   // correlationSource (owned by the ShellContext's sections slice) so the
   // two gesture modes are independent.
   const [armedContactId, setArmedContactId] = useState<string | null>(null)
+  // Sticky lens-window (debt #135): investigation id of the most recent
+  // successful target while the same source is still armed.  Null when no
+  // edge has committed yet in the current arm-cycle.  A subsequent click on
+  // a different contact in this investigation fires another edge from the
+  // still-armed source — the lens-pinch-out gesture.  Cleared whenever the
+  // source is disarmed or re-armed.
+  const [lastTargetTestId, setLastTargetTestId] = useState<string | null>(null)
 
   // Contact-correlate mode flag — owner directive 2026-05-26: default ON
   // whenever the toolbar's correlate mode is active. The boundary-to-boundary
@@ -599,18 +606,30 @@ export default function SectionsCanvas(): JSX.Element {
           contactBId,
         )
         await refetchContactEdges()
-        setArmedContactId(null)
+        // Lens-aware gesture (debt #135): keep ``armedContactId`` set after
+        // a successful correlation and record the target's investigation in
+        // ``lastTargetTestId``.  A subsequent click on another contact in
+        // the same investigation fires a second edge from the same source —
+        // the lens-pinch-out topology.  The click handler in
+        // CorrelationEdgesOverlay reads ``lastTargetTestId`` to decide.
+        const targetContact = lithoContacts.find(c => c.id === contactBId)
+        const targetTestId = targetContact?.cpt_id ?? targetContact?.borehole_id ?? null
+        setLastTargetTestId(targetTestId)
         toast('success', 'Boundary correlation added.')
         log.success(
           'section',
-          `contact-correlate: edge ${contactAId} ↔ ${contactBId} created`,
+          `contact-correlate: edge ${contactAId} ↔ ${contactBId} created` +
+            (targetTestId ? ` (sticky target=${targetTestId})` : ''),
         )
       } catch (err) {
         log.warn('section', 'handleCreateContactCorrelation: POST failed', err)
+        // Reset the gesture so the user starts cleanly on the next click.
+        setArmedContactId(null)
+        setLastTargetTestId(null)
         toast('error', 'Could not create the boundary correlation — try again.')
       }
     },
-    [activeLithoModel, project.id, refetchContactEdges, toast],
+    [activeLithoModel, project.id, refetchContactEdges, toast, lithoContacts],
   )
 
   const handleDeleteContactCorrelation = useCallback(
@@ -661,8 +680,17 @@ export default function SectionsCanvas(): JSX.Element {
     return {
       contactCorrelateMode,
       armedContactId,
-      onArmContact: (id: string) => setArmedContactId(id),
-      onClearArmedContact: () => setArmedContactId(null),
+      lastTargetTestId,
+      // Arming a (new) source always resets the sticky lens window —
+      // a fresh source starts a fresh arm-cycle (debt #135).
+      onArmContact: (id: string) => {
+        setArmedContactId(id)
+        setLastTargetTestId(null)
+      },
+      onClearArmedContact: () => {
+        setArmedContactId(null)
+        setLastTargetTestId(null)
+      },
       onContactCorrelate: handleCreateContactCorrelation,
       onContactUncorrelate: handleDeleteContactCorrelation,
     }
@@ -670,6 +698,7 @@ export default function SectionsCanvas(): JSX.Element {
     isLitho,
     contactCorrelateMode,
     armedContactId,
+    lastTargetTestId,
     handleCreateContactCorrelation,
     handleDeleteContactCorrelation,
   ])
