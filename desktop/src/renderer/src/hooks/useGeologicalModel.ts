@@ -1364,29 +1364,26 @@ export function useGeologicalModel({
           return
         }
 
-        // After a drag-up cross-merge the BE silently deleted peer contacts
-        // in [new_depth, old_depth) on the same anchor.  The 200 response
-        // carries only the updated dragger — it gives us no list of deleted
-        // ids.  Prune them client-side: any peer contact on the same anchor
-        // whose depth falls in the crossed half-open interval is gone on the
-        // BE, so remove it from local state to keep the visual in sync.
-        const oldDepth = previous.depth_top_m
-        const anchorKey = previous.borehole_id ?? previous.cpt_id ?? null
-        applyPatch(prev => {
-          const mapped = prev.map(c => (c.id === contactId ? updated : c))
-          if (newDepthM >= oldDepth || anchorKey === null) return mapped
-          // Drag-up: remove peers whose depth is in [newDepthM, oldDepth).
-          return mapped.filter(c => {
-            if (c.id === contactId) return true
-            const sameAnchor =
-              anchorKey === (c.borehole_id ?? c.cpt_id ?? null)
-            if (!sameAnchor) return true
-            return !(c.depth_top_m >= newDepthM && c.depth_top_m < oldDepth)
-          })
-        })
+        // Full refetch on every successful drag commit (200 response).
+        //
+        // Previous approach: optimistic client-side prune of peers in
+        // [newDepthM, oldDepthM) for drag-up cross-merges. That prune was
+        // buggy: when contacts span multiple formations the half-open interval
+        // condition sometimes missed peers, leaving ghost bands in the section
+        // view even though the BE had already deleted them (dogfeed 2026-05-26).
+        // Drag-down already did a full refetch (null response → 204 branch
+        // above). Aligning drag-up to the same refetch path eliminates the
+        // optimistic-prune bug at the cost of ~50 ms extra latency per commit
+        // — negligible compared to the drag gesture duration.
+        const isLithoContact = lithoContacts.some(c => c.id === contactId)
+        if (isLithoContact) {
+          refetchLithoContacts()
+        } else {
+          refetchContacts()
+        }
         log.success(
           'geology',
-          `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m source=${updated.source}`,
+          `updateContactDepth ok id=${contactId} depth=${updated.depth_top_m.toFixed(3)}m source=${updated.source} — refetching`,
         )
         // Undo: PATCH the contact back to its pre-drag state.
         const projectId = project.id
