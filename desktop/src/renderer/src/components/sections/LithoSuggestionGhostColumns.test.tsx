@@ -637,15 +637,16 @@ describe('LithoSuggestionGhostColumns', () => {
   // affordance + an undo path. Multi-layer cascade (3+ same-parent)
   // is still gone — exactly one neighbour absorbed per gesture.
 
-  it('G32 — base-drag past pending neighbour absorbs the neighbour on snap (auto-reject)', () => {
+  it('G32 — base-drag past pending neighbour: primary onEdit commits at far edge, secondary + chain skipped', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
+    const onMergeLayers = vi.fn()
     const { container } = renderGhost(
       [
         makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
         makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
       ],
-      { onEdit, onReject },
+      { onEdit, onReject, onMergeLayers },
     )
     const baseHandle = container.querySelector('[data-testid="litho-drag-base-0"]')
     fireEvent.mouseDown(baseHandle!, { clientY: 200 })
@@ -656,28 +657,31 @@ describe('LithoSuggestionGhostColumns', () => {
     fireEvent.mouseUp(document)
     // No dialog (merge-confirm is gone).
     expect(screen.queryByTestId('merge-confirm-title')).toBeNull()
-    // Auto-reject the absorbed neighbour (layer 1).
-    expect(onReject).toHaveBeenCalledTimes(1)
-    expect(onReject).toHaveBeenCalledWith(1)
-    // Primary commit extends layer 0's base to layer 1's FAR edge (depth 4).
-    // Secondary onEdit on layer 1 is SKIPPED (dogfeed 2026-05-26: setting
-    // depth_top_m on a layer that is being auto-rejected is pointless and
-    // produced a stale-index double-merge bug).
+    // Primary commit extends layer 0's base to layer 1's FAR edge (depth 4)
+    // — the helper's absorb condition. Parent's applyCrossMergeOnDrag
+    // reducer handles the actual absorb atomically.
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     expect(layer0Edit?.[1].depth_base_m).toBeCloseTo(4, 5)
+    // Secondary onEdit on layer 1 is SKIPPED — its index would be stale
+    // post-absorb. Chain emissions (onReject / onMergeLayers) are SKIPPED
+    // for the same reason. The parent's helper is the single source of
+    // truth for the absorb (dogfeed 2026-05-26).
     expect(layer1Edit).toBeUndefined()
+    expect(onReject).not.toHaveBeenCalled()
+    expect(onMergeLayers).not.toHaveBeenCalled()
   })
 
-  it('G33 — top-drag past pending neighbour absorbs the neighbour on snap (auto-reject)', () => {
+  it('G33 — top-drag past pending neighbour: primary onEdit commits at far edge, secondary + chain skipped', () => {
     const onEdit = vi.fn()
     const onReject = vi.fn()
+    const onMergeLayers = vi.fn()
     const { container } = renderGhost(
       [
         makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),
         makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),
       ],
-      { onEdit, onReject },
+      { onEdit, onReject, onMergeLayers },
     )
     const topHandle = container.querySelector('[data-testid="litho-drag-top-1"]')
     fireEvent.mouseDown(topHandle!, { clientY: 200 })
@@ -685,14 +689,15 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
     expect(screen.queryByTestId('merge-confirm-title')).toBeNull()
-    expect(onReject).toHaveBeenCalledTimes(1)
-    expect(onReject).toHaveBeenCalledWith(0)
-    // Primary commit extends layer 1's top to layer 0's FAR edge (depth 0 =
-    // ground). Secondary onEdit on layer 0 is SKIPPED (dogfeed 2026-05-26).
+    // Primary commit extends layer 1's top to layer 0's FAR edge
+    // (depth 0 = ground) — the helper's absorb condition.
     const layer1Edit = onEdit.mock.calls.find(([idx]) => idx === 1)
     const layer0Edit = onEdit.mock.calls.find(([idx]) => idx === 0)
     expect(layer1Edit?.[1].depth_top_m).toBeCloseTo(0, 5)
+    // Secondary + chain skipped — parent's helper handles absorb.
     expect(layer0Edit).toBeUndefined()
+    expect(onReject).not.toHaveBeenCalled()
+    expect(onMergeLayers).not.toHaveBeenCalled()
   })
 
   // G33b — dogfeed 2026-05-23: dragging a boundary AT (not past) the
@@ -723,6 +728,60 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(onReject).not.toHaveBeenCalled()
     // Shared-boundary commit still fires: layer 1 top → 0, layer 0 base → 0.
     expect(onEdit).toHaveBeenCalledWith(1, { depth_top_m: 0 })
+  })
+
+  // G33c — dogfeed 2026-05-26: dragging the top of a layer UP past the
+  // partner-above's FAR edge must absorb the partner above ONLY. The layer
+  // BELOW the dragger must remain completely untouched.
+  //
+  // User's exact words: "the bottom clay layer i don't touch when i drag
+  // up still getting a reassignment of lithology". Repro: 4-layer stack,
+  // drag the third layer's top up past the second's far edge — the fourth
+  // (bottom) layer gets merged into the third because:
+  //   - The parent reducer's applyCrossMergeOnDrag runs first and absorbs
+  //     the partner above (correct), shifting all indices down by 1.
+  //   - The component THEN emits onMergeLayers(min(drag.idx, chain[0]))
+  //     from the snap-overshoot chain. The chain entry was computed
+  //     PRE-absorb so the now-stale index points at the layer below the
+  //     dragger in the post-absorb state — merging it into the dragger.
+  //
+  // Behaviour rule: when the cross-merge helper will absorb the partner
+  // (final depth crosses the partner's far edge), the component MUST NOT
+  // also emit onMergeLayers — the absorb is already handled atomically
+  // inside the parent reducer.
+  it('G33c — drag top UP past partner far edge does NOT emit onMergeLayers (layer below stays untouched)', () => {
+    const onEdit = vi.fn()
+    const onMergeLayers = vi.fn()
+    const onReject = vi.fn()
+    const { container } = renderGhost(
+      [
+        makeSuggestion({ depth_top_m: 0, depth_base_m: 2 }),  // A
+        makeSuggestion({ depth_top_m: 2, depth_base_m: 4 }),  // B = partner above dragger
+        makeSuggestion({ depth_top_m: 4, depth_base_m: 6 }),  // C = dragger
+        makeSuggestion({ depth_top_m: 6, depth_base_m: 8 }),  // D = layer below (must not be touched)
+      ],
+      { onEdit, onMergeLayers, onReject },
+    )
+    // Top of layer C (idx=2) sits at depth 4 → clientY = 400 (100 px/m).
+    // Drag UP to clientY = 100 → cursor at depth 1, well past B's far
+    // edge (B.depth_top_m = 2). Hard clamp + snap pull ``final`` back to
+    // B's far edge (= boundsAboveM = 2), the deliberate-overshoot
+    // signal. partnerWillBeAbsorbed predicate sees ``final 2 <= B.top 2``
+    // → helper will absorb B; chain + secondary skipped.
+    const topHandle = container.querySelector('[data-testid="litho-drag-top-2"]')
+    fireEvent.mouseDown(topHandle!, { clientY: 400 })
+    fireEvent.mouseMove(document, { clientY: 100 })
+    fireEvent.mouseUp(document)
+    // Primary onEdit fires on the dragger with the snapped new top depth.
+    const draggerEdit = onEdit.mock.calls.find(([idx]) => idx === 2)
+    expect(draggerEdit).toBeDefined()
+    expect(draggerEdit![1].depth_top_m).toBeCloseTo(2, 5)
+    // onMergeLayers must NOT fire — the parent reducer's
+    // applyCrossMergeOnDrag handles the absorb atomically.
+    expect(onMergeLayers).not.toHaveBeenCalled()
+    // Sanity: layer D (idx=3) MUST NOT receive any edit.
+    const layerDEdit = onEdit.mock.calls.find(([idx]) => idx === 3)
+    expect(layerDEdit).toBeUndefined()
   })
 
   // G39 — dogfeed 2026-05-25: snap indicator must vanish after mouseUp
@@ -1769,15 +1828,19 @@ describe('LithoSuggestionGhostColumns', () => {
       ],
       { onEdit, onReject, onMergeLayers },
     )
-    // Step 1: drag layer 0's base to layer 1's far edge (snap + merge).
+    // Step 1: drag layer 0's base to layer 1's far edge (snap + helper absorb).
     const baseHandle0 = container.querySelector('[data-testid="litho-drag-base-0"]')!
     fireEvent.mouseDown(baseHandle0, { clientY: 200 })
     fireEvent.mouseMove(document, { clientY: 700 }) // overshoot layer-1 base (4 m)
     expect(container.querySelector('[data-testid="litho-snap-indicator"]')).not.toBeNull()
     fireEvent.mouseUp(document)
-    // Verify onMergeLayers fired (not onReject) — the fix.
-    expect(onMergeLayers).toHaveBeenCalledTimes(1)
-    expect(onMergeLayers.mock.calls[0][0]).toBe(0) // upperIdx = min(0,1) = 0
+    // Primary onEdit emits the depth at layer-1's FAR edge; the parent's
+    // applyCrossMergeOnDrag reducer handles the absorb. Chain emissions
+    // are SKIPPED so the parent isn't told to double-merge (dogfeed
+    // 2026-05-26 — they were operating on stale indices).
+    const baseEdit = onEdit.mock.calls.find(([idx]) => idx === 0)
+    expect(baseEdit?.[1].depth_base_m).toBeCloseTo(4, 5)
+    expect(onMergeLayers).not.toHaveBeenCalled()
     expect(onReject).not.toHaveBeenCalled()
     // Step 2: simulate parent applying the merge — shrink suggestions by
     // removing layer 1, extend layer 0's base to 4.
