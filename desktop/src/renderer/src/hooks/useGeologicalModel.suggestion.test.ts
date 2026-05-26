@@ -944,6 +944,64 @@ describe('useGeologicalModel suggestion state machine (slice 3, #55)', () => {
     expect(result.current.ghostsByAnchor.size).toBe(0)
   })
 
+  it('S14 — handleUpdateContactDepth does a full refetch on every successful 200 commit (drag-up fix)', async () => {
+    // Bug C fix (dogfeed 2026-05-26): the previous implementation pruned peers
+    // client-side on drag-up (optimistic filter over [newDepthM, oldDepthM)).
+    // That prune was buggy when contacts from different formations occupied the
+    // pruning window — the BE may have deleted them but the client couldn't tell.
+    // Fix: always refetch after a 200 response, both for drag-up and drag-down.
+    // This test verifies that listContacts is called after a successful 200 PATCH,
+    // regardless of direction (drag-up path: newDepthM < oldDepthM).
+    const originalContact = makeContact('c-geo', 'f-geo')
+    originalContact.model_id = 'geo-model-1'
+    originalContact.borehole_id = 'bh-1'
+    originalContact.cpt_id = null
+    originalContact.depth_top_m = 5.0  // original depth
+
+    const updatedContact = { ...originalContact, depth_top_m: 2.0 }  // drag UP
+
+    // Bootstrap: the hook calls listContacts once for the geological model and
+    // once for the litho model.  The contact must ONLY appear in the geological
+    // model's list so the hook routes the refetch to refetchContacts (not
+    // refetchLithoContacts).  Use a per-argument mock to differentiate.
+    geoApi.listContacts.mockImplementation(
+      (_projectId: string, modelId: string) =>
+        modelId === 'geo-model-1'
+          ? Promise.resolve([originalContact])
+          : Promise.resolve([]),
+    )
+
+    // updateContact returns 200 (not null) — the dragger survives as a committed contact.
+    geoApi.updateContact.mockResolvedValueOnce(updatedContact)
+
+    const { args } = makeArgs()
+    const { result } = renderHook(() => useGeologicalModel(args))
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    // Snapshot the call count BEFORE the drag commit so we can assert
+    // exactly one MORE call was made (the refetch). This avoids coupling
+    // the assertion to the number of bootstrap calls (which varies
+    // across hook init phases and other effects in the describe block).
+    const callsBefore = geoApi.listContacts.mock.calls.length
+
+    // Drive the drag commit: move from 5.0 m to 2.0 m (drag UP — crosses the
+    // interval [2.0, 5.0) where the BE may have deleted peers).
+    await act(async () => {
+      await result.current.handleUpdateContactDepth('c-geo', 2.0, false)
+    })
+
+    // At least one more listContacts call must have fired (the refetch).
+    const callsAfter = geoApi.listContacts.mock.calls.length
+    expect(callsAfter).toBeGreaterThan(callsBefore)
+
+    // The refetch call must target the geological model (geo-model-1), NOT the
+    // litho model — the contact's own model_id is used.
+    const refetchCall = geoApi.listContacts.mock.calls[callsBefore]
+    expect(refetchCall[1]).toBe('geo-model-1')
+  })
+
   it("S13 — handleDeleteContact routes the DELETE to the contact's own model", async () => {
     // Regression: the contact-edit handlers (delete / depth / batch)
     // were hard-wired to the geological model, so deleting a litho
