@@ -3228,25 +3228,51 @@ do per-contact across N investigations after every Suggest pass.
 **Where it fires.**
 - ``accept_litho_suggestions.py`` — the bulk + single accept paths. Before
   inserting the new ``formation_contact``, query for a sibling geological
-  contact within tolerance; if present, set ``depth_top_m`` to the
-  geological depth.
+  contact within tolerance; if present, the user is prompted (see Design
+  decisions below) to decide direction.
 - ``update_formation_contact.py`` — when a litho contact is dragged, the
-  PATCH handler should also snap.
+  PATCH handler runs the same snap check + prompt.
 - Frontend visual cue: when the dragger is within the snap zone of a
   geological contact, render a snap indicator (similar to Slice 3's
-  collapse snap; different colour) so the user knows snapping will fire.
+  collapse snap; different colour) so the user knows the prompt will fire
+  on release.
 
-**Why deferred.** Real friction in dogfeed but not blocking the litho
-stage's core function. Needs a small design call on:
-- Snap tolerance default (20 cm proposed) — should it be configurable
-  per-project in the litho segmenter prefs alongside min-thickness?
-- Snap direction: does the litho contact always move to the geological,
-  or could it work the other way (snap the geological to the litho when
-  the litho is the user's more recent edit)? Default: always litho → geo
-  since geological is the substrate.
-- Conflict resolution when TWO geological contacts fall within tolerance
-  of a single litho contact (e.g. very thin geological unit). Default:
-  snap to the nearer; if equidistant, snap to the deeper.
+**Design decisions (owner-confirmed 2026-05-26).**
+
+* **Tolerance: configurable per-project.** Add ``litho_snap_tolerance_m``
+  to ``view_state.litho_segmenter`` alongside ``minimum_layer_thickness_m``
+  and ``merge_same_lithology``. Settings dialog exposes a number input.
+  Default 0.20 m.
+
+* **Snap direction: user-prompted (not automatic).** When the snap zone is
+  triggered, open a small modal:
+  - "Snap this litho contact to the geological contact at ``<depth>`` m"
+    (default-focus, cheaper path — only the litho contact moves)
+  - "Move the geological contact to ``<litho depth>`` m" (heavier — the
+    geological model is mutated)
+  - "Cancel — keep them separate"
+  Esc fires Cancel. Default focus on the litho→geological option since it
+  is the cheaper / safer outcome.
+
+* **If user picks 'move geological': cascade automatically.** A geological
+  contact move invalidates the geological model's TIN surfaces and the
+  litho stage's sync-from-stratigraphy state. After the PATCH:
+  1. Mark affected ``formation_surface`` rows ``is_stale=True`` (already
+     happens via existing trigger on contact update).
+  2. Automatically run ``POST /geology/models/{mid}/surfaces/rebuild`` so
+     the user doesn't see stale dashed surfaces.
+  3. Trigger ``SyncGeologicalModel`` (or equivalent — the "Sync geology"
+     toolbar action's use case) on any affected litho models so the
+     downstream litho geometry re-anchors to the new geological surface.
+  Show a single progress toast covering both steps so the user understands
+  what's happening; if rebuild fails the snap is rolled back transactionally.
+
+* **Conflict resolution when TWO geological contacts within tolerance.**
+  The prompt lists BOTH options with their depths and the nearer one
+  default-focused. If equidistant, the deeper one is offered first
+  (matches the geological superposition convention — newer/shallower
+  surfaces are typically the ones the user is actively editing, so the
+  deeper one is the "established" anchor).
 
 **When to revisit.** Next dogfeed pass that reports sliver layers
 producing wrong unit counts in the Plaxis/DXF exports, OR before the
