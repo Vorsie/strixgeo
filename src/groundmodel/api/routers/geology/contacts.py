@@ -920,6 +920,13 @@ async def accept_litho_suggestions(
     appear on the section immediately (explicit-content invariant). The caller
     must forward ``updated_section`` via ``applyUpdatedSection``.
 
+    When ``create_formation_only=True``, only the litho formation row(s) are
+    created (same find-or-create key + parent-inference logic); no contact
+    rows are created and the section seed is skipped. Use case: the "Add new
+    unit" ghost flow — pre-create the formation before the user drags the
+    ghost so the ghost-accept finds the formation by its key rather than
+    creating a duplicate (Bug 2 dogfeed 2026-05-26).
+
     Parameters
     ----------
     project_id : UUID
@@ -1001,6 +1008,7 @@ async def accept_litho_suggestions(
             borehole_id=request.borehole_id,
             section_id=request.section_id,
             defer_inference=request.defer_inference,
+            create_formation_only=request.create_formation_only,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -1009,8 +1017,10 @@ async def accept_litho_suggestions(
         ) from exc
 
     # Explicit-content invariant: seed section after the use case committed.
+    # Skipped when create_formation_only=True — no contacts were created so
+    # there is nothing to add to seeded_formation_contact_ids.
     updated_section_response = None
-    if request.section_id is not None:
+    if request.section_id is not None and not request.create_formation_only:
         all_contact_ids = set(result.created_contact_ids) | set(result.found_contact_ids)
         updated = await CrossSectionRepository(session).union_seeded_contact_ids(
             request.section_id,
