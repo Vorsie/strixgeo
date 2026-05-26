@@ -1748,6 +1748,10 @@ export default function ContactsLayer({
           }
         }
         if (creates.length > 0) {
+          console.debug('[drag-commit] shift-paint-through', {
+            count: creates.length,
+            stampColumns: stamps.length,
+          })
           void onBatchCreateContacts(creates)
         }
         return
@@ -1755,6 +1759,19 @@ export default function ContactsLayer({
 
       if (single && noAnchorChange) {
         if (!onUpdateContactDepth) return
+        // Diagnostic: drag-up cross-merge regression repro (2026-05-26).
+        // Captures original vs new depth + direction at the FE commit
+        // boundary so the user can paste a console dump showing exactly
+        // what FE sent on a buggy drag.
+        const original = final.contactsInDrag.find(c => c.contactId === final.contactId)?.originalDepthM
+        console.debug('[drag-commit] single-no-anchor', {
+          contactId: final.contactId,
+          originalDepthM: original,
+          newDepthM: final.currentDepthM,
+          delta: (original ?? 0) - final.currentDepthM,
+          direction: final.currentDepthM < (original ?? 0) ? 'UP' : 'DOWN',
+          snapped: final.currentSnapped,
+        })
         void onUpdateContactDepth(
           final.contactId,
           final.currentDepthM,
@@ -1780,6 +1797,12 @@ export default function ContactsLayer({
                 ? 'high'
                 : 'medium',
           }))
+        console.debug('[drag-commit] batch-same-column', {
+          deltaM,
+          direction: deltaM < 0 ? 'UP' : 'DOWN',
+          count: updates.length,
+          updates: updates.map(u => ({ id: u.contact_id, depth: u.depth_top_m })),
+        })
         void onBatchUpdateContacts(updates)
         return
       }
@@ -1809,6 +1832,13 @@ export default function ContactsLayer({
                 ? 'high'
                 : 'medium',
           }))
+        console.debug('[drag-commit] cross-column-alt-move', {
+          deltaM,
+          direction: deltaM < 0 ? 'UP' : 'DOWN',
+          count: updates.length,
+          newAnchorBoreholeId,
+          newAnchorCptId,
+        })
         void onBatchUpdateContacts(updates)
         return
       }
@@ -1845,6 +1875,13 @@ export default function ContactsLayer({
             ? 'high'
             : 'medium',
       }))
+      console.debug('[drag-commit] cross-column-copy', {
+        deltaM,
+        direction: deltaM < 0 ? 'UP' : 'DOWN',
+        count: creates.length,
+        newAnchorBoreholeId,
+        newAnchorCptId,
+      })
       void onBatchCreateContacts(creates)
     }
     document.addEventListener('mousemove', handleMove)
