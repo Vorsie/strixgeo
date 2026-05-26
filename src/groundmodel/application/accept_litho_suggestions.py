@@ -201,6 +201,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         borehole_id: UUID | None = None,
         section_id: UUID | None = None,
         defer_inference: bool = False,
+        create_formation_only: bool = False,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
 
@@ -224,7 +225,8 @@ class AcceptLithoSuggestions(GroundModelLogger):
         section_id : UUID | None
             When provided, union all created + found contact ids into this
             section's ``seeded_formation_contact_ids`` (explicit-content
-            invariant).
+            invariant).  Ignored when ``create_formation_only=True`` because
+            no contacts are created.
         defer_inference : bool
             When ``True``, skip the R7 inference + wedge-tip pass at the end
             of this call.  Contact-commit and section-seed still run.  The
@@ -232,6 +234,22 @@ class AcceptLithoSuggestions(GroundModelLogger):
             ``RecomputeAllAbsencesForModel`` once after the full batch of
             deferred accepts.  Defaults to ``False`` (original per-accept
             behaviour).
+        create_formation_only : bool
+            When ``True``, find-or-create the litho formation row(s) for each
+            suggestion (same parent-inference + find-or-create key logic as the
+            normal path) but do NOT create any ``FormationContact`` row and do
+            NOT seed ``seeded_formation_contact_ids`` on the section.
+            ``depth_top_m`` / ``depth_base_m`` are still used for parent-
+            formation inference (TIN sampling at the anchor's x/y + depth).
+            Returns the formation ids; ``created_contact_ids`` and
+            ``found_contact_ids`` are always empty.
+
+            Use case: the "Add new unit" ghost flow — create the formation
+            before the user drags the ghost, so the normal ghost-accept
+            (``create_formation_only=False``) finds it by the find-or-create
+            key rather than creating a duplicate (Bug 2 dogfeed 2026-05-26).
+
+            Default ``False`` preserves the original per-accept behaviour.
 
         Returns
         -------
@@ -252,6 +270,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
             f"AcceptLithoSuggestions.execute: litho_model={litho_model_id}, "
             f"{'cpt' if cpt_id else 'borehole'}={cpt_id or borehole_id}, "
             f"{len(suggestions)} suggestion(s)"
+            + (" [create_formation_only]" if create_formation_only else "")
         )
 
         # --- Load litho model + resolve parent geology model id -------------
@@ -395,25 +414,31 @@ class AcceptLithoSuggestions(GroundModelLogger):
                         f"{sug.suggested_lithology} parent={interval_parent_fid}"
                     )
 
-                # Find-or-create the contact.
-                # Thread sug.source directly so manual_pick payloads stamp
-                # 'manual_pick' and the bulk-segmenter paths keep their own
-                # source strings ('cpt_robertson_2015' / 'borehole_observation').
-                contact_id, was_created = await self._find_or_create_contact(
-                    litho_model_id=litho_model_id,
-                    formation_id=formation.id,
-                    depth_top_m=interval_top,
-                    borehole_id=borehole_id,
-                    cpt_id=cpt_id,
-                    confidence=sug.confidence.value.lower(),
-                    source=sug.source,
-                )
-                if was_created:
-                    created_contact_ids.append(contact_id)
-                else:
-                    found_contact_ids.append(contact_id)
+                # Find-or-create the contact — skipped when create_formation_only=True
+                # (Bug 2 dogfeed 2026-05-26: "Add new unit" ghost flow needs the
+                # formation row without any committed contact; the ghost-accept
+                # call creates the contact when the user drags + accepts).
+                if not create_formation_only:
+                    # Thread sug.source directly so manual_pick payloads stamp
+                    # 'manual_pick' and the bulk-segmenter paths keep their own
+                    # source strings ('cpt_robertson_2015' / 'borehole_observation').
+                    contact_id, was_created = await self._find_or_create_contact(
+                        litho_model_id=litho_model_id,
+                        formation_id=formation.id,
+                        depth_top_m=interval_top,
+                        borehole_id=borehole_id,
+                        cpt_id=cpt_id,
+                        confidence=sug.confidence.value.lower(),
+                        source=sug.source,
+                    )
+                    if was_created:
+                        created_contact_ids.append(contact_id)
+                    else:
+                        found_contact_ids.append(contact_id)
 
         # Stale-flag surfaces for affected (litho_model, formation) pairs.
+        # Skipped when create_formation_only=True — no contacts were created
+        # so no surface geometry changed.
         if created_contact_ids:
             all_formation_ids = set(created_formation_ids) | set(found_formation_ids)
             await self._repo.mark_surfaces_stale(
@@ -435,7 +460,11 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # too conservative and leave a stale rank. When batch-accept
         # lands, widen to `if created_formation_ids or created_contact_ids:`
         # (any new contact may change the min-depth ranking).
-        if created_formation_ids:
+        #
+        # create_formation_only: new formation rows without contacts — their
+        # final depth is unknown until the ghost-accept, so ordering is
+        # deferred to that step.
+        if created_formation_ids and not create_formation_only:
             await self._recompute_litho_display_orders(litho_model_id=litho_model_id)
 
         # Trigger inference engine for every formation that received a new
@@ -450,10 +479,22 @@ class AcceptLithoSuggestions(GroundModelLogger):
         # bulk-accept loops (N anchors) do not each re-run inference across
         # all formations.  The caller calls RecomputeAllAbsencesForModel once
         # after the batch instead.
-        if defer_inference:
+        #
+        # create_formation_only=True: no contacts were created so inference
+        # has no new data to process; skip unconditionally.
+        if create_formation_only or defer_inference:
             self.debug(
-                "AcceptLithoSuggestions: deferred inference (batch mode) — "
-                "caller must call RecomputeAllAbsencesForModel after the batch"
+                "AcceptLithoSuggestions: skipping inference — "
+                + (
+                    "create_formation_only mode"
+                    if create_formation_only
+                    else "deferred inference (batch mode)"
+                )
+                + (
+                    " — caller must call RecomputeAllAbsencesForModel after the batch"
+                    if defer_inference
+                    else ""
+                )
             )
         elif created_contact_ids or found_contact_ids:
             affected_formation_ids = set(created_formation_ids) | set(found_formation_ids)
