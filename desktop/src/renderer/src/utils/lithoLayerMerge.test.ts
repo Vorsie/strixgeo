@@ -280,19 +280,34 @@ describe('absorbLithoLayer (dogfeed 2026-05-25)', () => {
 // CM: cross-merge test ids.
 
 describe('applyCrossMergeOnDrag', () => {
-  it('CM1 — TOP dragged UP past neighbour base → neighbour deleted, dragger top extended', () => {
+  it('CM1 — TOP dragged UP past neighbour FAR edge → neighbour deleted, dragger top extended', () => {
     // Three layers: 0→2, 2→4, 4→6.
-    // Drag layer 2 (idx=1) TOP from 2 to 1.5 — crosses neighbour 0 whose base is 2.
-    // (new top 1.5 <= neighbourBase 2 → absorb-up)
-    // After absorb: layer count = 2; dragger's top extends to neighbour's top (0).
+    // Drag layer 2 (idx=1) TOP from 2 to 0 — crosses neighbour 0's FAR
+    // edge (its depth_top_m = 0). Absorb-up semantics: a drag only collapses
+    // a neighbour when the new edge has fully traversed the neighbour
+    // (release-to-collapse, not near-edge nudge — dogfeed 2026-05-26).
     const g = ghost([L(0, 2), L(2, 4), L(4, 6)])
-    const result = applyCrossMergeOnDrag(g, 1, { depth_top_m: 1.5 })
+    const result = applyCrossMergeOnDrag(g, 1, { depth_top_m: 0 })
     // Neighbour (idx 0) absorbed → 2 layers remain.
     expect(result.suggestions).toHaveLength(2)
     // Dragger (was idx 1, now idx 0 after absorb-up) has top extended to 0.
     expect(result.edits.get(0)?.depth_top_m).toBe(0)
     // Original bottom layer (was idx 2) now at idx 1 — unchanged.
     expect(result.suggestions[1].depth_top_m).toBe(4)
+  })
+
+  it('CM1b — TOP nudged into neighbour but not past its far edge → no absorb, plain edit', () => {
+    // Three layers: 0→2, 2→4, 4→6.
+    // Drag layer 2 (idx=1) TOP from 2 to 1.5 — crosses neighbour 0's near
+    // edge (base=2) but NOT its far edge (top=0). Under the old (buggy)
+    // near-edge semantic this absorbed neighbour 0; under the new
+    // far-edge semantic it's just a partial overlap resize.
+    const g = ghost([L(0, 2), L(2, 4), L(4, 6)])
+    const result = applyCrossMergeOnDrag(g, 1, { depth_top_m: 1.5 })
+    // No absorb — still 3 layers.
+    expect(result.suggestions).toHaveLength(3)
+    // Edit recorded at idx 1.
+    expect(result.edits.get(1)?.depth_top_m).toBe(1.5)
   })
 
   it('CM2 — BASE dragged DOWN past neighbour top → neighbour deleted, dragger base extended', () => {
