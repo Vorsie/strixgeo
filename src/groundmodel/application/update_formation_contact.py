@@ -154,9 +154,31 @@ class UpdateFormationContact(GroundModelLogger):
                 )
                 peers = (await self._session.execute(peers_stmt)).scalars().all()
 
+                # Diagnostic: drag-up cross-merge regression repro
+                # (2026-05-26). Records the BE's view of direction and
+                # crossed-peer count BEFORE any deletion fires, so the
+                # branch taken is visible without scraping the INFO
+                # cross-merge lines below.
+                if new_depth < old_depth:
+                    _crossed_preview = [c for c in peers if new_depth <= c.depth_top_m < old_depth]
+                    _direction = "UP"
+                    _branch = "UP" if _crossed_preview else "UP-no-cross"
+                else:
+                    _crossed_preview = [c for c in peers if old_depth < c.depth_top_m <= new_depth]
+                    _direction = "DOWN"
+                    _branch = "DOWN-with-cross" if _crossed_preview else "DOWN-no-cross"
+                self.debug(
+                    "cross-merge decision: "
+                    f"old_depth={old_depth}m new_depth={new_depth}m "
+                    f"direction={_direction} peers_count={len(peers)} "
+                    f"crossed_count={len(_crossed_preview)} "
+                    f"branch_taken={_branch}"
+                )
+
                 if new_depth < old_depth:
                     # Drag UP — dragger wins; delete everything crossed.
                     crossed = [c for c in peers if new_depth <= c.depth_top_m < old_depth]
+                    _peer_deleted_count = 0
                     for c in crossed:
                         self.info(
                             f"Cross-merge UP: deleting contact {c.id} "
@@ -164,18 +186,24 @@ class UpdateFormationContact(GroundModelLogger):
                             f"moved from {old_depth}m to {new_depth}m)"
                         )
                         await self._session.delete(c)
+                        _peer_deleted_count += 1
                     if crossed:
                         deleted_any = True
+                    self.debug(
+                        f"cross-merge UP delete-loop done: deleted={_peer_deleted_count} peers"
+                    )
                 else:
                     # Drag DOWN — formation above absorbs; dragger dies if
                     # any peer was crossed.
                     crossed = [c for c in peers if old_depth < c.depth_top_m <= new_depth]
+                    _peer_deleted_count = 0
                     if crossed:
                         for c in crossed:
                             self.info(
                                 f"Cross-merge DOWN: deleting contact {c.id} at {c.depth_top_m}m"
                             )
                             await self._session.delete(c)
+                            _peer_deleted_count += 1
                         self.info(
                             f"Cross-merge DOWN: deleting dragger {contact_id} "
                             f"(formation above absorbs; moved from {old_depth}m to {new_depth}m)"
@@ -183,6 +211,11 @@ class UpdateFormationContact(GroundModelLogger):
                         await self._session.delete(pre)
                         deleted_any = True
                         self.absorbed = True
+                    self.debug(
+                        f"cross-merge DOWN delete-loop done: "
+                        f"deleted={_peer_deleted_count} peers, "
+                        f"absorbed_dragger={self.absorbed}"
+                    )
 
         # ------------------------------------------------------------------ #
         # Litho cascade (resolver + lens detection) when contacts were        #
@@ -237,4 +270,14 @@ class UpdateFormationContact(GroundModelLogger):
         await self._session.commit()
         await self._session.refresh(updated)
         self.success(f"Formation contact updated: {contact_id}")
+        # Diagnostic: drag-up cross-merge regression repro (2026-05-26).
+        # Records the exact response shape the FE will see so we can
+        # confirm BE truth vs FE-rendered state on a buggy drag.
+        # Defensive getattr — unit-test stubs may omit fields, and a
+        # diagnostic log must never crash the use case.
+        self.debug(
+            f"response shape: id={getattr(updated, 'id', '?')} "
+            f"depth_top_m={getattr(updated, 'depth_top_m', '?')} "
+            f"formation_id={getattr(updated, 'formation_id', '?')}"
+        )
         return updated
