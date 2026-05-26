@@ -17,17 +17,18 @@ def _uid(n: int) -> UUID:
 
 
 def test_happy_path_single_lens() -> None:
-    """Column A has contacts c1 (sand top) at 2 m, c2 (clay top) at 5 m,
-    c3 (deepest) at 8 m → silt body between c1 and c2 is the lens.
-    Column B has contact c10 at 3 m.  Both c1↔c10 and c2↔c10 are approved.
-    Lens detector should emit ONE candidate: silt body on A between c1 and c2."""
+    """Column A has contacts c1 (sand top) at 2 m, c2 (silt top) at 5 m,
+    c3 (clay top) at 8 m → silt body between c2 and c3 is the lens.
+    Column B has contact c10 at 3 m.  Both c2↔c10 and c3↔c10 are approved
+    — the silt body on A pinches out to a single sand-clay boundary on B.
+    Lens detector should emit ONE candidate: silt body on A between c2 and c3."""
     stacks = [
         ContactStack(
             investigation_id=_uid(100),
             entries=(
                 ContactStackEntry(_uid(1), _uid(1000), 2.0),  # sand top
-                ContactStackEntry(_uid(2), _uid(1001), 5.0),  # silt body (lens)
-                ContactStackEntry(_uid(3), _uid(1002), 8.0),  # clay
+                ContactStackEntry(_uid(2), _uid(1001), 5.0),  # silt body (lens) — top
+                ContactStackEntry(_uid(3), _uid(1002), 8.0),  # clay top
             ),
         ),
         ContactStack(
@@ -38,18 +39,18 @@ def test_happy_path_single_lens() -> None:
         ),
     ]
     edges = [
-        ContactEdge(_uid(1), _uid(10)),
-        ContactEdge(_uid(2), _uid(10)),
+        ContactEdge(_uid(2), _uid(10)),  # silt-top boundary on A ↔ sand-clay on B
+        ContactEdge(_uid(3), _uid(10)),  # silt-base = clay-top on A ↔ same B
     ]
     result = detect_lenses_from_graph(edges, stacks)
     assert len(result) == 1
     lens = result[0]
-    assert lens.contact_above_id == _uid(1)
-    assert lens.contact_below_id == _uid(2)
+    assert lens.contact_above_id == _uid(2)
+    assert lens.contact_below_id == _uid(3)
     assert lens.target_contact_id == _uid(10)
     assert lens.target_investigation_id == _uid(200)
     assert lens.source_investigation_id == _uid(100)
-    assert lens.formation_id == _uid(1001)  # the silt body
+    assert lens.formation_id == _uid(1001)  # silt — the formation whose top is c2
 
 
 def test_one_to_one_edges_no_lens() -> None:

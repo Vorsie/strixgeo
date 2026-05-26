@@ -124,19 +124,19 @@ def detect_lenses_from_graph(
             source_neigh.sort()  # by depth ascending
             # Adjacent pairs: (i, i+1) — yields N-1 stacked lens candidates.
             for k in range(len(source_neigh) - 1):
-                _, cid_above, _ = source_neigh[k]
-                _, cid_below, fid_below = source_neigh[k + 1]
+                _, cid_above, fid_above = source_neigh[k]
+                _, cid_below, _ = source_neigh[k + 1]
 
                 # The lens body is the formation living between these two
-                # contacts on the source investigation.  Convention: a
-                # FormationContact's ``formation_id`` is the formation ABOVE
-                # the contact (the contact terminates that formation at its
-                # bottom).  The body between ``cid_above`` and ``cid_below``
-                # therefore carries ``cid_below``'s ``formation_id`` —
-                # ``cid_below`` is the bottom of the body.
+                # contacts on the source investigation.  Strix convention:
+                # ``FormationContact.formation_id`` is the formation whose
+                # TOP is this contact — that formation extends DOWN from
+                # ``depth_top_m`` until the next deeper contact.  The body
+                # between ``cid_above`` and ``cid_below`` therefore carries
+                # ``cid_above``'s ``formation_id``.
                 out.append(
                     LensCandidate(
-                        formation_id=fid_below,
+                        formation_id=fid_above,
                         contact_above_id=cid_above,
                         contact_below_id=cid_below,
                         source_investigation_id=source_inv_id,
