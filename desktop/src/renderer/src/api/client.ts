@@ -300,6 +300,19 @@ export interface LithoCorrelationEdge {
   created_at: string
 }
 
+// Contact-level correlation edge (#133 Phase 1).  Distinct from
+// LithoCorrelationEdge — this connects two specific FormationContact rows
+// (boundary-to-boundary), not two formations as a whole.  Shared endpoints
+// between rows are permitted (#135 lens-pinch-out topology).
+export interface LithoContactCorrelationEdge {
+  id: string
+  contact_a_id: string
+  contact_b_id: string
+  model_id: string
+  source: string
+  created_at: string
+}
+
 // Phase-2 Slice 3: response from POST /correlations/resolve.
 export interface ResolveInstancesResponse {
   updated: Array<{ formation_id: string; new_ordinal: number }>
@@ -2028,6 +2041,55 @@ export const api = {
         body: JSON.stringify({
           formation_a_id: formationAId,
           formation_b_id: formationBId,
+        }),
+      })
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new Error(detail.detail ?? `DELETE ${path} → ${res.status}`)
+      }
+    },
+
+    // --- Contact-level correlation edges (#133 Phase 1, #135 lens) ----
+    //
+    // Boundary-to-boundary edges between two FormationContact rows.  Shared
+    // endpoints across rows are permitted — the canonical-ordered unique
+    // is on the pair, not on either endpoint individually.  That's what
+    // makes #135's lens-pinch-out topology expressible (two edges from one
+    // source contact converging on two distinct contacts in the same target
+    // investigation).
+    listContactCorrelations: (
+      projectId: string,
+      modelId: string,
+    ): Promise<LithoContactCorrelationEdge[]> =>
+      get(`/projects/${projectId}/geology/models/${modelId}/contact-correlations`),
+
+    createContactCorrelation: (
+      projectId: string,
+      modelId: string,
+      contactAId: string,
+      contactBId: string,
+    ): Promise<{ edge_id: string; was_created: boolean }> =>
+      post(`/projects/${projectId}/geology/models/${modelId}/contact-correlations`, {
+        contact_a_id: contactAId,
+        contact_b_id: contactBId,
+        source: 'manual',
+      }),
+
+    // DELETE with JSON body — same shape as the formation-level uncorrelate.
+    // The shared del() helper does not pass a body, so we use a raw fetch.
+    deleteContactCorrelation: async (
+      projectId: string,
+      modelId: string,
+      contactAId: string,
+      contactBId: string,
+    ): Promise<void> => {
+      const path = `/projects/${projectId}/geology/models/${modelId}/contact-correlations`
+      const res = await fetch(`${_base}${path}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact_a_id: contactAId,
+          contact_b_id: contactBId,
         }),
       })
       if (!res.ok) {
