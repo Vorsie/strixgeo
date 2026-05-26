@@ -1,16 +1,22 @@
 // Pure helpers for litho ghost layer structural edits:
 //
-//   canMergeAt      — predicate: boundary is same-lithology pending pair
-//   mergeLithoLayers — debt #102: merge two adjacent same-lithology layers
-//   absorbLithoLayer — dogfeed 2026-05-25: shift+drag absorb gesture:
-//                      dragger's depth_top/depth_base extends to absorb the
-//                      neighbour in the given direction; neighbour is removed;
-//                      dragger's composition wins.
+//   canMergeAt            — predicate: boundary is same-lithology pending pair
+//   mergeLithoLayers      — debt #102: merge two adjacent same-lithology layers
+//   absorbLithoLayer      — dogfeed 2026-05-25: shift+drag absorb gesture:
+//                           dragger's depth_top/depth_base extends to absorb the
+//                           neighbour in the given direction; neighbour is removed;
+//                           dragger's composition wins.
+//   applyCrossMergeOnDrag — plain-drag cross-merge: detects whether a mouseup
+//                           depth-edit crossed a pending neighbour's boundary
+//                           and, if so, calls absorbLithoLayer automatically.
+//                           No Shift required — fires on release when a cross
+//                           actually happened.
 //
 // All functions are kept module-level + pure (no I/O, no logging, no class
 // state) so the index-shift math has a tight unit test surface without
 // rendering. The hook wrappers (handleMergeLithoLayers,
-// handleAbsorbLithoLayer) apply the transforms inside setGhostsByAnchor.
+// handleAbsorbLithoLayer, handleEditLithoSuggestion, handleEditBulkLitho)
+// apply the transforms inside setGhostsByAnchor.
 
 import type { LithoLayerSuggestion } from '../api/client'
 import type { BulkAnchorGhost, LithoSuggestionEdit } from '../hooks/useGeologicalModel'
@@ -228,4 +234,136 @@ export function absorbLithoLayer(
     rejected: newRejected,
     edits: newEdits,
   }
+}
+
+// ---------------------------------------------------------------------------
+// applyCrossMergeOnDrag
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the effective depth for one edge of a layer, applying any
+ * existing edit over the raw suggestion value.
+ */
+function effectiveEdge(
+  ghost: BulkAnchorGhost,
+  idx: number,
+  edge: 'depth_top_m' | 'depth_base_m',
+): number {
+  return ghost.edits.get(idx)?.[edge] ?? ghost.suggestions[idx][edge]
+}
+
+/**
+ * Apply a depth-edit to one ghost layer and detect whether the edit
+ * crossed a pending neighbour's boundary.  When a cross is detected,
+ * the neighbour is absorbed via ``absorbLithoLayer`` so the ghost stack
+ * collapses in one atomic step — identical to the Shift+drag absorb
+ * gesture but triggered automatically on plain drag release.
+ *
+ * Only pending (not accepted, not rejected) neighbours are eligible for
+ * absorption.  Accepted layers are frozen committed contacts; rejected
+ * layers are skipped (treated as gaps, not barriers).  A layer that
+ * collapses onto its own opposite edge (self-collapse) is handled by the
+ * existing snap-to-collapse path in the component and is NOT re-handled here.
+ *
+ * Cross detection:
+ *   - TOP boundary dragged UP (new top < old top):
+ *       Cross when new top is at or above the effective base of the
+ *       nearest pending neighbour ABOVE.
+ *   - BASE boundary dragged DOWN (new base > old base):
+ *       Cross when new base is at or below the effective top of the
+ *       nearest pending neighbour BELOW.
+ *   - No cross → returns a plain depth-edit ghost (no layer removed).
+ *
+ * Parameters
+ * ----------
+ * ghost
+ *     The anchor's current ghost state (BEFORE the new edit is applied).
+ * idx
+ *     Index of the layer whose edge was dragged.
+ * edit
+ *     The committed depth edit from the drag mouseup (``depth_top_m``
+ *     and / or ``depth_base_m``).  Composition edits pass through
+ *     unchanged; this function only acts on depth changes.
+ *
+ * Returns
+ * -------
+ * BulkAnchorGhost
+ *     Updated ghost.  When no cross occurred: the edit is merged into
+ *     the edits Map exactly as before.  When a cross occurred:
+ *     ``absorbLithoLayer`` result with the crossed neighbour removed and
+ *     the dragger's depth extended to the neighbour's outer edge.
+ */
+export function applyCrossMergeOnDrag(
+  ghost: BulkAnchorGhost,
+  idx: number,
+  edit: LithoSuggestionEdit,
+): BulkAnchorGhost {
+  // Resolve pre-edit effective depths so we can detect direction.
+  const preTop = effectiveEdge(ghost, idx, 'depth_top_m')
+  const preBase = effectiveEdge(ghost, idx, 'depth_base_m')
+  const newTop = edit.depth_top_m ?? preTop
+  const newBase = edit.depth_base_m ?? preBase
+
+  const topDragged = edit.depth_top_m !== undefined && newTop !== preTop
+  const baseDragged = edit.depth_base_m !== undefined && newBase !== preBase
+
+  if (topDragged && newTop < preTop) {
+    // TOP dragged UP — check the nearest pending neighbour above.
+    for (let i = idx - 1; i >= 0; i--) {
+      if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
+      if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
+      // Pending neighbour found — check whether the new top crossed its base.
+      const neighbourBase = effectiveEdge(ghost, i, 'depth_base_m')
+      if (newTop <= neighbourBase) {
+        // Cross detected: absorb the neighbour upward.
+        console.debug('[ghost-cross-merge]', {
+          action: 'absorb-up',
+          draggerIdx: idx,
+          neighbourIdx: i,
+          preTop,
+          newTop,
+          neighbourBase,
+        })
+        // Stage the new edit on the dragger BEFORE calling absorbLithoLayer
+        // so the helper reads the post-drag top when it extends to the
+        // neighbour's outer edge.
+        const withEdit = new Map(ghost.edits)
+        withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
+        return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'up')
+      }
+      break // Only the immediately adjacent pending neighbour.
+    }
+  }
+
+  if (baseDragged && newBase > preBase) {
+    // BASE dragged DOWN — check the nearest pending neighbour below.
+    const total = ghost.suggestions.length
+    for (let i = idx + 1; i < total; i++) {
+      if (ghost.rejected.has(i)) continue // rejected = skip (treat as gap)
+      if (ghost.accepted.has(i)) break    // accepted = hard barrier, stop
+      // Pending neighbour found — check whether the new base crossed its top.
+      const neighbourTop = effectiveEdge(ghost, i, 'depth_top_m')
+      if (newBase >= neighbourTop) {
+        // Cross detected: absorb the neighbour downward.
+        console.debug('[ghost-cross-merge]', {
+          action: 'absorb-down',
+          draggerIdx: idx,
+          neighbourIdx: i,
+          preBase,
+          newBase,
+          neighbourTop,
+        })
+        const withEdit = new Map(ghost.edits)
+        withEdit.set(idx, { ...(ghost.edits.get(idx) ?? {}), ...edit })
+        return absorbLithoLayer({ ...ghost, edits: withEdit }, idx, 'down')
+      }
+      break // Only the immediately adjacent pending neighbour.
+    }
+  }
+
+  // No cross — plain depth edit, merge into the edits Map as before.
+  const nextEdits = new Map(ghost.edits)
+  const prior = nextEdits.get(idx) ?? {}
+  nextEdits.set(idx, { ...prior, ...edit })
+  return { ...ghost, edits: nextEdits }
 }
