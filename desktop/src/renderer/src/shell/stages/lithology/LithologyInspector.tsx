@@ -260,6 +260,21 @@ export default function LithologyInspector(): JSX.Element {
     [lithoFormations, currentEdgeCount, lastResolvedEdgeCount],
   )
 
+  // Debt #147 follow-up (2026-05-27): the roster reflects the ACTIVE
+  // MODEL, not the project-wide vocabulary.  ``lithoFormations`` is
+  // derived from the project's ``formations`` list (debt #89) and so
+  // includes every litho row in the project — including units used
+  // only by sibling/old models.  After deleting model A + creating
+  // empty model B the pill correctly read "0 contacts, 0 units" yet
+  // the roster still listed A's ~30 formations.  Filter to formations
+  // that have at least one contact in this model so the two surfaces
+  // tell the same story.  The Clear pill still uses the raw
+  // ``lithoFormations`` so orphan-vocabulary recovery stays reachable.
+  const lithoFormationsInModel = useMemo(() => {
+    const usedIds = new Set(lithoContacts.map(c => c.formation_id))
+    return lithoFormations.filter(f => usedIds.has(f.id))
+  }, [lithoFormations, lithoContacts])
+
   // Position 4: per-formation lens count map for the roster badges.
   const lensCountByFormationId = useMemo(() => {
     const out = new Map<string, number>()
@@ -410,17 +425,17 @@ export default function LithologyInspector(): JSX.Element {
               a parent are shown under an "Unassigned" group at the bottom.
               Formations are project-scoped shared vocabulary; CRUD stays in
               GeologyInspector. */}
-          {lithoFormations.length === 0 ? (
+          {lithoFormationsInModel.length === 0 ? (
             <EmptyState
               icon={<Layers3 />}
-              title="No litho formations yet"
-              hint="Accept CPT suggestions or draw contacts on a section — each accepted layer creates a formation here."
+              title="No litho units in this model yet"
+              hint="Accept CPT suggestions or draw contacts on a section — each accepted layer adds a unit here."
               compact
             />
           ) : (
             <LithoFormationRoster
               geoFormations={formations}
-              lithoFormations={lithoFormations}
+              lithoFormations={lithoFormationsInModel}
               lithoContacts={lithoContacts}
               ordinalIsStale={ordinalIsStale}
               lensCountByFormationId={lensCountByFormationId}
