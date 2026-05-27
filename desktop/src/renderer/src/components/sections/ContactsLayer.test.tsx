@@ -1928,15 +1928,19 @@ describe('ContactsLayer', () => {
     expect(screen.queryByTestId('delete-contact-confirm-dialog')).not.toBeNull()
   })
 
-  it('LB3: right-click on empty column space opens the "Add new suggestion" menu', () => {
-    // The per-column right-click-capture rect spans the full column
-    // even where no committed contact lives.  Clicking outside a band
-    // opens the menu in "add" mode.
+  // Debt #151 dogfeed refinement 2026-05-27: the "Add" gesture moved
+  // from a right-click on empty column space to a LEFT-click on a
+  // litho band.  Empty-space right-click no longer renders a menu.
+  it('LB5: left-click on a litho band opens the picker at the click depth', () => {
     const onRequestAddLithoSuggestion = vi.fn()
     const contacts = [
       makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
     ]
-    const formations = [makeFormation({ id: 'f-sand', name: 'SAND' })]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
     const { container } = renderLayer(
       contacts,
       formations,
@@ -1944,37 +1948,87 @@ describe('ContactsLayer', () => {
       undefined,
       { perColumnBandsFromContacts: true, onRequestAddLithoSuggestion },
     )
-    const capture = container.querySelector(
-      '[data-testid="per-column-rclick-capture-bh-1"]',
+    const band = container.querySelector(
+      '[data-testid^="per-column-litho-band-"]',
     )!
-    // jsdom returns {top: 0, ...} for getBoundingClientRect; with
-    // surface at svg-Y=10 (flipped(10) = 20-10 = 10), clientY=25
-    // maps to depth = (25 - 10) / 1 = 15 m below surface.
-    fireEvent.contextMenu(capture, { clientX: 100, clientY: 25 })
-    const menu = screen.queryByTestId('litho-band-context-menu')
-    expect(menu).not.toBeNull()
-    expect(menu).toHaveTextContent(/add new suggestion/i)
-    fireEvent.click(screen.getByTestId('litho-band-add'))
+    // surface at svg-Y=10 (flipped(10) = 20-10 = 10), pxPerMetre=1.
+    // clientY=15 → depth = (15-10)/1 = 5 m.
+    fireEvent.click(band, { clientY: 15 })
     expect(onRequestAddLithoSuggestion).toHaveBeenCalledTimes(1)
-    // Anchor kind + id + name forwarded; depth derived from clientY.
-    const [kind, id, , name, elevation] = onRequestAddLithoSuggestion.mock.calls[0]
+    const [kind, id, depth, name] = onRequestAddLithoSuggestion.mock.calls[0]
     expect(kind).toBe('borehole')
     expect(id).toBe('bh-1')
     expect(name).toBe('bh-1')
-    expect(elevation).toBe(10)
+    expect(depth).toBeCloseTo(5, 5)
   })
 
-  it('LB4: right-click capture rect is absent on the geological axis (prop off)', () => {
+  // Debt #151 dogfeed refinement 2026-05-27: after deleting a contact
+  // between two same-lithology neighbours, the user is offered a
+  // follow-up merge to remove the now-redundant boundary below.
+  it('MP1: delete between same-lithology neighbours opens the merge popup', () => {
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand-a' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 3, formation_id: 'f-clay' }),
+      makeContact({ id: 'c-3', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-sand-b' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand-a', name: 'SAND-a', litho_main_soil_code: 'ZAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY', litho_main_soil_code: 'KLEI' }),
+      makeFormation({ id: 'f-sand-b', name: 'SAND-b', litho_main_soil_code: 'ZAND' }),
+    ]
     const { container } = renderLayer(
-      [],
-      [],
+      contacts,
+      formations,
       [makeBoreholePlaced('bh-1', 100)],
       undefined,
-      // perColumnBandsFromContacts omitted → false → no capture rect.
+      { perColumnBandsFromContacts: true, onDeleteContact },
     )
-    expect(
-      container.querySelector('[data-testid="per-column-rclick-capture-bh-1"]'),
-    ).toBeNull()
+    // Find the CLAY band's rect (top contact is c-2) and right-click → Remove → confirm.
+    const claybBand = container.querySelector(
+      '[data-testid="per-column-litho-band-bh-1-c-2"]',
+    )!
+    fireEvent.contextMenu(claybBand, { clientX: 100, clientY: 30 })
+    fireEvent.click(screen.getByTestId('litho-band-remove'))
+    fireEvent.click(screen.getByTestId('delete-contact-confirm'))
+    // First delete fires immediately; merge popup appears because the
+    // contacts on either side of c-2 share litho code ZAND.
+    expect(onDeleteContact).toHaveBeenCalledTimes(1)
+    expect(onDeleteContact.mock.calls[0][0]).toBe('c-2')
+    expect(screen.queryByTestId('litho-merge-confirm-dialog')).not.toBeNull()
+  })
+
+  it('MP2: confirming merge fires a SECOND delete on the redundant below-neighbour', () => {
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand-a' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 3, formation_id: 'f-clay' }),
+      makeContact({ id: 'c-3', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-sand-b' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand-a', name: 'SAND-a', litho_main_soil_code: 'ZAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY', litho_main_soil_code: 'KLEI' }),
+      makeFormation({ id: 'f-sand-b', name: 'SAND-b', litho_main_soil_code: 'ZAND' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, onDeleteContact },
+    )
+    const claybBand = container.querySelector(
+      '[data-testid="per-column-litho-band-bh-1-c-2"]',
+    )!
+    fireEvent.contextMenu(claybBand, { clientX: 100, clientY: 30 })
+    fireEvent.click(screen.getByTestId('litho-band-remove'))
+    fireEvent.click(screen.getByTestId('delete-contact-confirm'))
+    fireEvent.click(screen.getByTestId('litho-merge-confirm'))
+    expect(onDeleteContact).toHaveBeenCalledTimes(2)
+    // The second call deletes c-3 (the redundant below-neighbour that
+    // mirrors c-1's lithology); collapsing the boundary leaves one
+    // continuous SAND band from c-1 down to test bottom.
+    expect(onDeleteContact.mock.calls[1][0]).toBe('c-3')
   })
 
   // Debt #152 — litho-axis contact drag must clamp at 10 cm from
