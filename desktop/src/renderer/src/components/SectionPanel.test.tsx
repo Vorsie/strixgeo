@@ -485,6 +485,45 @@ describe('SectionPanel — gesture hint pill', () => {
     render(<SectionPanel section={makeSection()} zEpsg={5710} />)
     expect(screen.queryByTestId('litho-gesture-hint')).toBeNull()
   })
+
+  // Debt #139 — entering correlate mode on a section with zero
+  // correlatable contacts leaves the user stranded (no hit-rects,
+  // no feedback).  CanvasHints surfaces a discoverability pill so
+  // the gesture failure mode is explained rather than silent.
+  it('CH-CR1: renders the correlate-blocked hint when correlate mode is on with 0 contacts', () => {
+    const contactGestureState = {
+      contactCorrelateMode: true,
+      armedContactId: null,
+      lastTargetTestId: null,
+      onArmContact: vi.fn(),
+      onClearArmedContact: vi.fn(),
+      onContactCorrelate: vi.fn(),
+    }
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        axisMode="lithostratigraphic"
+        contacts={[]}
+        contactGestureState={contactGestureState}
+      />,
+    )
+    const hint = screen.getByTestId('correlate-blocked-hint')
+    expect(hint).toBeInTheDocument()
+    expect(hint).toHaveTextContent(/accept litho suggestions/i)
+  })
+
+  it('CH-CR2: omits the correlate-blocked hint when correlate mode is off', () => {
+    render(
+      <SectionPanel
+        section={makeSection()}
+        zEpsg={5710}
+        axisMode="lithostratigraphic"
+        contacts={[]}
+      />,
+    )
+    expect(screen.queryByTestId('correlate-blocked-hint')).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------
