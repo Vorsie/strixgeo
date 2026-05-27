@@ -2310,7 +2310,13 @@ export default function SectionPanel({
             />
           </div>
         )}
-        <CanvasHints axisMode={axisMode} />
+        <CanvasHints
+          axisMode={axisMode}
+          correlateBlocked={
+            contactGestureState?.contactCorrelateMode === true
+            && correlateContacts.length === 0
+          }
+        />
       </div>
 
       <SectionScrubBar
@@ -2434,8 +2440,14 @@ export default function SectionPanel({
  */
 function CanvasHints({
   axisMode,
+  correlateBlocked = false,
 }: {
   axisMode: 'geological' | 'lithostratigraphic'
+  /** Debt #139 — user has entered correlate mode on a section with zero
+   *  litho contacts.  The CorrelationEdgesOverlay paints no hit-rects in
+   *  this state, leaving the user with no clickable surface.  Surface a
+   *  hint line so the failure mode is discoverable instead of silent. */
+  correlateBlocked?: boolean
 }): JSX.Element {
   return (
     // SVG can't use Tailwind dark: variants; the hint pill's background and
@@ -2455,6 +2467,11 @@ function CanvasHints({
         <div data-testid="litho-gesture-hint">
           Litho layer: double-click to accept · Alt+drag to copy composition ·
           Shift+drag past neighbour midpoint to absorb · right-click for more
+        </div>
+      )}
+      {correlateBlocked && (
+        <div data-testid="correlate-blocked-hint" style={{ color: 'var(--section-hint-emphasis, #fbbf24)' }}>
+          Accept litho suggestions to enable correlation — 0 accepted contacts on this section.
         </div>
       )}
     </div>
