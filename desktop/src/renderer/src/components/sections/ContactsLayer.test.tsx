@@ -11,7 +11,7 @@ import type {
   FormationSurfaceResponse,
   GeologicalFormationResponse,
 } from '../../api/client'
-import type { ContactCopyPayload } from './ContactsLayer'
+import type { ContactCopyPayload, SnapCandidate } from './ContactsLayer'
 import type { ProjectedInvestigation } from '../../utils/sectionProjection'
 import ContactsLayer from './ContactsLayer'
 import type { PlacedColumn } from './utils'
@@ -120,7 +120,7 @@ function renderLayer(
     onBatchCreateContacts?: (
       creates: readonly ContactCopyPayload[],
     ) => Promise<void>
-    snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
+    snapDepthsByAnchorId?: ReadonlyMap<string, readonly SnapCandidate[]>
     surfacesByFormationId?: ReadonlyMap<string, FormationSurfaceResponse>
     sectionLine?: { startX: number; startY: number; endX: number; endY: number }
     alongMToScreenX?: (alongM: number) => number
@@ -435,8 +435,8 @@ describe('ContactsLayer', () => {
     const contacts = [
       makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
     ]
-    const snapDepthsByAnchorId = new Map<string, readonly number[]>([
-      ['bh-1', [10]],
+    const snapDepthsByAnchorId = new Map<string, readonly SnapCandidate[]>([
+      ['bh-1', [{ depth: 10 }]],
     ])
     const { container } = renderLayer(
       contacts,
@@ -457,6 +457,95 @@ describe('ContactsLayer', () => {
     })
     expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
     expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(10, 5)
+  })
+
+  // Debt #136 — manual contact drag should snap to OTHER committed
+  // contacts on the same anchor.  Before the fix snap-depth candidates
+  // were sourced from borehole stratigraphy only, so dragging onto a
+  // neighbouring committed contact's depth never engaged the snap.
+  it('S-SC1: drag snaps to a committed contact on the same anchor', () => {
+    // pxPerMetre = 1.  Dragging contact c-1 from depth=3 down by 5 px
+    // (raw depth = 8).  Committed contact c-2 sits at depth=10 → 2 m
+    // (= 2 px) away from the raw drag depth, inside SNAP_TOLERANCE_PX=8.
+    // Commit should land on 10.
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 10 }),
+    ]
+    const snapDepthsByAnchorId = new Map<string, readonly SnapCandidate[]>([
+      // Tagged with contactId so the snap fn can exclude the dragger
+      // from its own candidate set (see S-SC2).
+      [
+        'bh-1',
+        [
+          { depth: 3, contactId: 'c-1' },
+          { depth: 10, contactId: 'c-2' },
+        ],
+      ],
+    ])
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth, snapDepthsByAnchorId },
+    )
+    // Grab the strip belonging to c-1 (the contact at depth=3) — there
+    // are now two strips, one per contact.
+    const stripC1 = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-1"]',
+    )!
+    expect(stripC1).not.toBeNull()
+    fireEvent.mouseDown(stripC1, { clientY: 0, button: 0 })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 5, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(10, 5)
+  })
+
+  it('S-SC2: drag does NOT self-snap to the dragged contact own depth', () => {
+    // Dragging c-1 (depth=3) by 4 px → raw depth = 7.  c-1's own depth (3)
+    // is 4 m away → 4 px → INSIDE snap tolerance, so without suppression
+    // the snap would pull it back to 3 (no-op) and the user could not
+    // budge the contact off its starting depth.  The fix excludes the
+    // dragger's own id from the candidate list.
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 3 }),
+    ]
+    const snapDepthsByAnchorId = new Map<string, readonly SnapCandidate[]>([
+      ['bh-1', [{ depth: 3, contactId: 'c-1' }]],
+    ])
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth, snapDepthsByAnchorId },
+    )
+    const stripC1 = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-1"]',
+    )!
+    fireEvent.mouseDown(stripC1, { clientY: 0, button: 0 })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 4, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    // Commit should land on the RAW depth (7), not the dragger's own
+    // pre-drag depth (3).
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(7, 5)
   })
 
   it('renders no drag hit-strip when the anchor borehole has null elevation (debt #31)', () => {
