@@ -26,7 +26,7 @@ subdivision is built on top of it. Priority order:
 * **#123** — clay→silt correlation suggestion bug (needs owner reproduction)
 * **#99** — drag-clamp through rejected layers (awaiting owner reproduction — code investigated, G34b passes)
 * **#138** — drag-lock after litho merge (needs owner reproduction — filed 2026-05-26)
-* **#139** — correlate mode unclickable when 0 contacts on section (UX hint — filed 2026-05-26)
+* **#139** — RESOLVED 2026-05-27 (CanvasHints correlate-blocked pill + toolbar gate)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
@@ -3497,36 +3497,6 @@ Need an exact dogfeed repro to pick the path:
 repro above. The fix is small (skip zero-thickness rejecteds in the
 bounds walk, OR scrub the edits Map on absorb) but the right one
 depends on which path the repro exposes.
-Filed from dogfeed session 2026-05-26.
-
-## 139. Correlate mode unclickable when section has 0 accepted litho contacts (Tier G — UX hint)
-
-**What.** Entering "Correlate · click 2 bands" mode on a section with
-zero accepted litho contacts (or zero contacts in the active
-lithostratigraphic model) produces no interaction surface — the
-dotted lines the user sees are ghost-suggestion outlines, NOT
-clickable contact hit-rects. ``CorrelationEdgesOverlay`` only renders
-gesture rects when ``contactCorrelateMode`` is true AND the
-``contacts`` array is non-empty (line 944-1066). Without contacts the
-overlay paints nothing clickable, leaving the user stuck in
-correlate mode with no feedback.
-
-The Auto-correlate path handles this correctly today with the toast
-"no correlatable units found — accept litho suggestions first". The
-gap is the MANUAL correlate-mode path which silently does nothing.
-
-**Why deferred.** Cheapest fix is a hint pill (in the existing
-``CanvasHints`` component) that fires when
-``contactCorrelateMode === true && contacts.length === 0``, with copy
-matching the Auto-correlate toast: "Accept litho suggestions to
-enable correlation. Currently 0 accepted contacts on this section."
-A second improvement: dim/disable the Correlate toolbar button when
-``activeLithoModel`` has 0 contacts on this section, with a tooltip
-explaining why. Both are pure presentation changes; no backend.
-
-**When to revisit.** Before any second dogfeed session — confused
-the user immediately on first encounter, so it's a discoverability
-blocker for the correlate gesture surface.
 Filed from dogfeed session 2026-05-26.
 
 ## (end)
