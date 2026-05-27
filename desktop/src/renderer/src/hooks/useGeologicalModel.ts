@@ -1050,6 +1050,18 @@ export function useGeologicalModel({
       setLithoSurfacesByFormationId(new Map())
       return
     }
+    // Debt #147 — clear stale state IMMEDIATELY when activeLithoModel
+    // changes (e.g. delete model + create new in quick succession),
+    // BEFORE the new fetch resolves.  Without this the inspector and
+    // the section view render the previous model's contacts during
+    // the fetch window — the user's "delete + new → 823 contacts
+    // reappear" report (filed dogfeed 2026-05-27).  The active model
+    // changing from A→B means A's contacts are no longer relevant,
+    // period; we should never show them under a different model's
+    // header.  The new fetch then populates with B's actual contents
+    // (typically 0 for a freshly-created model).
+    setLithoContacts([])
+    setLithoSurfacesByFormationId(new Map())
     let cancelled = false
     const projectId = project.id
     const modelId = activeLithoModel.id
