@@ -30,7 +30,7 @@
  * connect/correlate gesture, .gmproj correlation round-trip, search/filter.
  */
 
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 
 import type { AdmixtureItem, GeologicalFormationResponse } from '../../api/client'
@@ -159,6 +159,15 @@ export interface LithoCompositionPickerProps {
    * and surfaced directly in the "Existing units" group headings.
    */
   parentFormationName: string | null
+  /** Filter the "Existing units" tab to litho units whose
+   *  ``parent_formation_id`` matches this id.  When non-null, only
+   *  litho units within the geological formation at the click depth
+   *  appear in the list — owner directive 2026-05-27 dogfeed
+   *  refinement ("can you make the picker so that it only suggest
+   *  litho's in the geological unit in which we're clicking?").
+   *  When ``null`` (no geological formation resolved at the click,
+   *  or geological backdrop absent), the unfiltered roster shows. */
+  parentFormationId?: string | null
   /** Existing-unit path — called with the formation id the user picked. */
   onSelect: (formationId: string) => Promise<void> | void
   /**
@@ -202,10 +211,19 @@ export default function LithoCompositionPickerDialog({
   geoFormations,
   anchor,
   parentFormationName,
+  parentFormationId = null,
   onSelect,
   onCreateLithoUnit,
   onCancel,
 }: LithoCompositionPickerProps): JSX.Element | null {
+  // Debt #151 dogfeed refinement 2026-05-27 — filter to litho units
+  // within the geological formation at the click depth.  Non-null
+  // ``parentFormationId`` narrows the roster; null falls back to the
+  // full list (e.g. no geological backdrop loaded).
+  const filteredLithoFormations = useMemo(() => {
+    if (parentFormationId === null) return lithoFormations
+    return lithoFormations.filter(f => f.parent_formation_id === parentFormationId)
+  }, [lithoFormations, parentFormationId])
   type Tab = 'existing' | 'new'
   const [activeTab, setActiveTab] = useState<Tab>('existing')
 
@@ -311,7 +329,7 @@ export default function LithoCompositionPickerDialog({
   }
 
   const busy = busyId !== null || creating
-  const groups = groupByParent(lithoFormations, geoFormations)
+  const groups = groupByParent(filteredLithoFormations, geoFormations)
 
   return (
     <Modal
@@ -379,10 +397,11 @@ export default function LithoCompositionPickerDialog({
         {/* ---------------------------------------------------------------- */}
         {activeTab === 'existing' && (
           <div className="max-h-72 overflow-y-auto -mx-2 px-2">
-            {lithoFormations.length === 0 ? (
+            {filteredLithoFormations.length === 0 ? (
               <p className="text-xs text-text-muted italic px-1 py-3">
-                No litho units in this model yet — use the "New unit" tab to create
-                the first one.
+                {parentFormationId !== null && lithoFormations.length > 0
+                  ? 'No litho units in this geological formation yet — use the "New unit" tab to create one.'
+                  : 'No litho units in this model yet — use the "New unit" tab to create the first one.'}
               </p>
             ) : (
               <div className="flex flex-col gap-3">
