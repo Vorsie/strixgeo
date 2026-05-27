@@ -1215,6 +1215,39 @@ export default function SectionsCanvas(): JSX.Element {
     ],
   )
 
+  // Debt #151 dogfeed refinement 2026-05-27 — Existing Units tab of
+  // ``LithoCompositionPickerDialog`` on the litho axis.  Looks up the
+  // picked formation by id and reuses ``handleManualLithoUnitCreate``
+  // with its litho code + admixtures; the backend's find-or-create
+  // returns the same formation row (no duplicate), and a ghost lands
+  // at the click depth.
+  const handleLithoExistingUnitPick = useCallback(
+    async (
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      depthM: number,
+      formationId: string,
+    ): Promise<void> => {
+      const formation = lithoFormations.find(f => f.id === formationId)
+      if (!formation?.litho_main_soil_code) {
+        log.warn(
+          'section',
+          `handleLithoExistingUnitPick: formation ${formationId} missing litho_main_soil_code`,
+        )
+        return
+      }
+      const admixtures = (formation.litho_admixtures ?? []) as AdmixtureItem[]
+      await handleManualLithoUnitCreate(
+        formation.litho_main_soil_code,
+        admixtures,
+        anchorKind,
+        anchorId,
+        depthM,
+      )
+    },
+    [lithoFormations, handleManualLithoUnitCreate],
+  )
+
   // Build the lithoGhostState bundle passed to SectionPanel.
   // Only populated on the litho axis when suggestions are loaded for an
   // investigation — zero regression on the geological axis. Reads the
@@ -1591,6 +1624,7 @@ export default function SectionsCanvas(): JSX.Element {
           // section is on the lithostratigraphic axis.
           axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
           onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
+          onLithoExistingUnitPick={isLitho ? handleLithoExistingUnitPick : undefined}
           activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
           // #133 Phase 1 + Phase 2+3: contact-level correlation edges + gesture
           // state, litho axis only.  CorrelationEdgesOverlay is mounted on the
