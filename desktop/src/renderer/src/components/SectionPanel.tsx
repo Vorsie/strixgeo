@@ -262,6 +262,14 @@ interface Props {
    */
   axisMode?: 'geological' | 'lithostratigraphic'
   /**
+   * Inclusive snap tolerance (m) for the litho↔geological drag-
+   * indicator (debt #134-B).  Threaded straight to ContactsLayer.
+   * Only meaningful on the litho axis; the geological axis ignores
+   * it.  When ``undefined`` on the litho axis the in-flight badge
+   * is suppressed (still post-release behaviour via SectionsCanvas).
+   */
+  geoSnapToleranceM?: number
+  /**
    * Litho axis: fired when the user picks a composition in the "New
    * unit" tab of ``LithoCompositionPickerDialog``.  The caller posts
    * the synthetic accept-litho-suggestions payload and returns the
@@ -663,6 +671,7 @@ export default function SectionPanel({
   undoStack,
   pulsingFormationIds,
   axisMode = 'geological',
+  geoSnapToleranceM,
   onManualLithoUnitCreate,
   onLithoExistingUnitPick,
   showConfidenceFade = true,
@@ -2085,6 +2094,15 @@ export default function SectionPanel({
               // and stays unclamped (prop undefined).
               contactDragClampMinThicknessM={
                 axisMode === 'lithostratigraphic' ? 0.1 : undefined
+              }
+              // Debt #134-B — pre-release "↦ snap on release" hint in
+              // the drag readout.  Only meaningful on the litho axis;
+              // ContactsLayer also guards on ``referenceContacts``
+              // being non-empty, so passing the tolerance unconditionally
+              // on the litho axis is safe.  The caller (SectionsCanvas)
+              // is expected to pass ``geoSnapToleranceM`` through.
+              geoSnapToleranceM={
+                axisMode === 'lithostratigraphic' ? geoSnapToleranceM : undefined
               }
               // Debt #151 — right-click on empty litho column → "Add
               // new suggestion" routes through the existing picker
