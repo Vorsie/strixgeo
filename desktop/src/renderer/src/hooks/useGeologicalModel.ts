@@ -3842,6 +3842,58 @@ export function useGeologicalModel({
         `acceptLithoSuggestion idx=${idx} lithology=${layer.suggested_lithology} depth=${layer.depth_top_m.toFixed(2)}m sectionId=${sectionId ?? 'none'}`,
       )
       try {
+        // Debt #151 dogfeed refinement 2026-05-27: "thick" manual
+        // insertion (depth_base_m - depth_top_m > 0.05) needs a
+        // SECOND contact at depth_base_m to restore the surrounding
+        // band's formation underneath the new ghost.  Without this
+        // the new top contact silently absorbs the rest of the band
+        // (everything below depth_top_m down to the next existing
+        // contact takes the new formation_id — the user reported
+        // "it absorbs the already accept litho beneath it").
+        //
+        // Strategy: snapshot the SURROUNDING formation BEFORE the
+        // accept fires (using current ``lithoContacts`` + ``formations``).
+        // The surrounding formation = the formation_id of the deepest
+        // existing contact whose ``depth_top_m <= layer.depth_top_m``
+        // on this anchor.  After the main accept succeeds, fire a
+        // SECOND accept with a sentinel-thin restoration suggestion
+        // at depth_base_m carrying that formation's litho code +
+        // admixtures (find-or-create returns the same formation row;
+        // we just need the new boundary contact).
+        const thickness = layer.depth_base_m - layer.depth_top_m
+        let restorationSpec: {
+          lithology: string
+          admixtures: typeof layer.suggested_admixtures
+          depthM: number
+        } | null = null
+        if (thickness > 0.05) {
+          const peers = lithoContacts
+            .filter(c => (c.borehole_id ?? c.cpt_id) === anchorId)
+            .slice()
+            .sort((a, b) => a.depth_top_m - b.depth_top_m)
+          let surroundingContact: typeof peers[number] | null = null
+          for (const c of peers) {
+            if (c.depth_top_m <= layer.depth_top_m) surroundingContact = c
+            else break
+          }
+          if (surroundingContact !== null) {
+            const surroundingFormation = formations.find(
+              f => f.id === surroundingContact?.formation_id,
+            )
+            if (surroundingFormation?.litho_main_soil_code != null) {
+              restorationSpec = {
+                lithology: surroundingFormation.litho_main_soil_code,
+                admixtures: (surroundingFormation.litho_admixtures ?? []).map(a => ({
+                  soil_code: a.soil_code,
+                  amount: a.amount,
+                  locally: a.locally,
+                })),
+                depthM: layer.depth_base_m,
+              }
+            }
+          }
+        }
+
         const body = {
           ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
           section_id: sectionId ?? null,
@@ -3856,6 +3908,43 @@ export function useGeologicalModel({
           'geology',
           `acceptLithoSuggestion ok idx=${idx} created=${result.created_formation_ids.length} found=${result.found_formation_ids.length} contacts=${result.created_contact_ids.length + result.found_contact_ids.length} straddle=${result.straddle_split_count}`,
         )
+
+        // Fire the restoration accept if needed.  Non-fatal: a
+        // failure leaves the user with the absorption symptom but
+        // doesn't lose the primary accept.  Logged at warn so the
+        // user can see why a missing restoration happened.
+        if (restorationSpec !== null) {
+          try {
+            const restorationLayer = {
+              depth_top_m: restorationSpec.depthM,
+              depth_base_m: restorationSpec.depthM + 0.01,
+              suggested_lithology: restorationSpec.lithology,
+              suggested_admixtures: restorationSpec.admixtures,
+              suggested_nad_class: null,
+              mean_qc_mpa: null,
+              dr_pct: null,
+              confidence: 'medium' as const,
+              source: 'manual_pick' as const,
+              parent_formation_id: null,
+              spans_boundary: false,
+            }
+            await api.geology.acceptLithoSuggestions(project.id, model.id, {
+              ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
+              section_id: sectionId ?? null,
+              suggestions: [restorationLayer],
+            })
+            log.success(
+              'geology',
+              `acceptLithoSuggestion restoration ok at depth=${restorationSpec.depthM.toFixed(2)}m lithology=${restorationSpec.lithology}`,
+            )
+          } catch (err) {
+            log.warn(
+              'geology',
+              `acceptLithoSuggestion restoration failed — the new layer's bottom boundary is missing`,
+              err,
+            )
+          }
+        }
         // Debt #87: surface a warning toast when any created unit needs
         // engineer review (TIN-extrapolated parent or fully unassigned).
         const summary = formatAcceptParentSummary(result)
