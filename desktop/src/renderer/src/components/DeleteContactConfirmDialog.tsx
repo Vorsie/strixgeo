@@ -51,6 +51,7 @@ export default function DeleteContactConfirmDialog({
       labelledBy="delete-contact-confirm-title"
       busy={busy}
       cardClassName="w-96"
+      testid="delete-contact-confirm-dialog"
     >
       <div className="p-5">
         <h2
