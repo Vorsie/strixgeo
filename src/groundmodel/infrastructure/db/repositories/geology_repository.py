@@ -286,7 +286,25 @@ class GeologyRepository(GroundModelLogger):
         The caller (creation endpoint) is responsible for enforcing the
         ``REQUIRED_PARENT_KIND`` invariant before calling this — the
         repository persists what it is given.
+
+        When ``is_active=True`` the same-kind same-project siblings are
+        cleared first so the "one active per kind" invariant
+        (``set_active_model`` enforces this on the activate path) also
+        holds on the create path.  Without this two models could end up
+        both flagged active, and the desktop client's
+        ``find(m => m.is_active && m.kind === ...)`` picks the
+        alphabetically-first one — silently hiding the freshly-created
+        one from the dropdown (owner dogfeed 2026-05-27 #147 follow-up:
+        "i can only have one active litho model? making new
+        overwrites?").
         """
+        if is_active:
+            await self._session.execute(
+                update(GeologicalModelOrm)
+                .where(GeologicalModelOrm.app_project_id == app_project_id)
+                .where(GeologicalModelOrm.kind == kind)
+                .values(is_active=False)
+            )
         model = GeologicalModelOrm(
             id=uuid7(),
             app_project_id=app_project_id,
