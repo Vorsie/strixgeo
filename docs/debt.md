@@ -28,7 +28,7 @@ subdivision is built on top of it. Priority order:
 * **#138** — drag-lock after litho merge (needs owner reproduction — filed 2026-05-26)
 * **#139** — RESOLVED 2026-05-27 (CanvasHints correlate-blocked pill + toolbar gate)
 * **#140** — Accept-all-bulk silently auto-correlates → surprises user with amber edges (filed dogfeed 2026-05-27; needs design decision)
-* **#141** — combine 3 correlation toolbar buttons into a grouped/dropdown affordance (UX polish — filed dogfeed 2026-05-27)
+* **#141** — RESOLVED 2026-05-27 (SplitToolbarButton — Correlate as primary verb, Auto-correlate + Accept correlations under the caret; amber-tint mode-on signal preserved on the primary)
 * **#142** — RESOLVED 2026-05-27 (accepted ghost hidden + pending wears hatching overlay)
 * **#143** — accepted litho contacts have low visibility on the litho axis (polish — filed dogfeed 2026-05-27)
 * **#144** — Accept-all (litho) writes directly to DB — needs to flow through the dirty/manual-save model (filed dogfeed 2026-05-27)
@@ -3529,26 +3529,50 @@ is itself worth a look in the same pass.
 is small (lines to remove vs lines to add).
 Filed from dogfeed session 2026-05-27.
 
-## 141. Combine three correlation toolbar buttons into a grouped affordance (Tier G — UX polish)
+## 141. Combine three correlation toolbar buttons into a grouped affordance (Tier G — UX polish) — RESOLVED 2026-05-27
 
 **What.** The Correlate / Auto-correlate / Accept-correlations
-buttons sit as three separate ``ToolbarButton`` instances in
+buttons sat as three separate ``ToolbarButton`` instances in
 ``SectionsToolbar``.  They share a precondition (``sectionHasLithoContacts``
-+ ``activeLithoModel`` + ``hasSection``, post-#139-follow-up) and
-form a workflow (manual or auto correlate → approve).  Dogfeed
-2026-05-27: "maybe combine these 3 buttons in a dropdownish menu".
++ ``activeLithoModel`` + ``hasSection``) and form a workflow
+(manual or auto correlate → approve).  Owner dogfeed 2026-05-27:
+"maybe combine these 3 buttons in a dropdownish menu".
 
-**Why deferred.** UX polish, not a correctness bug.  Need to decide
-between (a) ``SplitToolbarButton`` (primary action + chevron-menu
-for the other two), (b) ``ToolbarDropdown`` for all three under a
-single "Correlations" label, or (c) a tight cluster with shared
-hover-state.  Each of the three already has its own gating + busy
-state — the visual grouping affects ``ToolbarPrimitives`` and the
-existing test layout (CT1-CT11 + ACW1-ACW3 + S5-* assume separate
-buttons by testid).
+**Resolution.** Picked option (a) from the original three: one
+``SplitToolbarButton`` with Correlate as the primary verb (single
+click toggles correlate mode) and Auto-correlate + Accept
+correlations as caret items.  Reasoning:
 
-**When to revisit.** Next UX polish pass on the Sections toolbar.
-Filed from dogfeed session 2026-05-27.
+* The Correlate mode toggle has a visible active state (amber tint)
+  that benefits from being permanently on screen; hiding it inside
+  a dropdown would lose that signal.
+* Auto-correlate and Accept correlations are one-shot async verbs
+  — fine to live behind one extra click.
+* The shape preserves the existing CT4/CT5 single-click ergonomics
+  on the mode toggle.
+
+Two small extensions to ``SplitToolbarButton``:
+
+* New ``amber`` prop mirrors ``ToolbarButton``'s amber tint for
+  the mode-on affordance on the primary half.
+* The primary-acts-as-caret fallback (dogfeed 2026-05-23) now
+  requires at least one menu item to be enabled — previously
+  ``items.length > 0`` was enough, which would have made the
+  Correlate primary appear clickable even when all three verbs
+  share the same disabled gate.  When every item is disabled
+  together (the #141 case) the button is now truly disabled.
+
+**Tests.** CT1-CT11 + ACW1-ACW3 + S5-* adapted: ``openCorrelateCaret``
+helper opens the dropdown before the test queries the Auto-correlate
+/ Accept correlations items by testid.  CT5/CT8 switched to the
+``correlate-mode`` testid to disambiguate the regex collision with
+the caret's aria-label.  Two post-flight tests (S5-5, ACW3) re-open
+the caret after the in-flight ``finally`` clears so the menu re-
+renders with the up-to-date enabled state.
+
+**Files.** ``ToolbarPrimitives.tsx`` (amber + smarter fallback);
+``SectionsToolbar.tsx`` (collapse); ``SectionsToolbar.correlate.test.tsx``
+(adapt 12 test sites + new helper).
 
 ## 143. Accepted litho contacts have low visibility on the litho axis (Tier E — polish)
 
