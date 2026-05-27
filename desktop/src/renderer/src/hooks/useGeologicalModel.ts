@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, DuplicateContactError } from '../api/client'
 import type {
+  AcceptLithoSuggestionsResponse,
   CrossSectionResponse,
   FormationContactBatchUpdateEntry,
   FormationContactResponse,
@@ -578,7 +579,7 @@ export interface UseGeologicalModelResult {
     idx: number,
     sectionId?: string | null,
     onSectionUpdated?: (s: CrossSectionResponse) => void,
-  ) => Promise<void>
+  ) => Promise<AcceptLithoSuggestionsResponse | null>
   /**
    * Accept ALL non-rejected suggestion layers in one bulk endpoint call.
    * Idempotent — already-committed layers are found and re-used by the
@@ -3864,17 +3865,17 @@ export function useGeologicalModel({
       idx: number,
       sectionId?: string | null,
       onSectionUpdated?: (s: CrossSectionResponse) => void,
-    ): Promise<void> => {
+    ): Promise<AcceptLithoSuggestionsResponse | null> => {
       const model = activeLithoModelRef.current
       const layers = lithoSuggestions
-      if (!project || !model || idx < 0 || idx >= layers.length) return
+      if (!project || !model || idx < 0 || idx >= layers.length) return null
       // Apply user edits (drag-resized depths) before sending. effectiveLayer
       // has the user's modified top/base; the original is still in layers[idx]
       // for the future ML training log (#4).
       const layer = effectiveLithoSuggestionAt(idx) ?? layers[idx]
       const anchorKind = lithoSuggestionAnchorKind
       const anchorId = lithoSuggestionInvestigationId
-      if (!anchorKind || !anchorId) return
+      if (!anchorKind || !anchorId) return null
       log.debug(
         'geology',
         `acceptLithoSuggestion idx=${idx} lithology=${layer.suggested_lithology} depth=${layer.depth_top_m.toFixed(2)}m sectionId=${sectionId ?? 'none'}`,
@@ -3960,9 +3961,18 @@ export function useGeologicalModel({
           ],
           onSectionUpdated ?? null,
         )
+        // Debt #134-C — return the API result so the caller (the
+        // SectionsCanvas wrapper) can run the post-accept litho-geo
+        // snap check: scan the new contact ids against the geological
+        // backdrop on the same investigation and open the snap dialog
+        // if any landed within tolerance.  Pre-#134-C the handler
+        // returned void; consumers that ignore the return value are
+        // unaffected.
+        return result
       } catch (err) {
         log.error('geology', `acceptLithoSuggestion failed idx=${idx}`, err)
         toast('error', 'Could not accept the litho suggestion.')
+        return null
       }
     },
     // reason: lithoSuggestions / lithoSuggestionAnchorKind / lithoSuggestionInvestigationId
