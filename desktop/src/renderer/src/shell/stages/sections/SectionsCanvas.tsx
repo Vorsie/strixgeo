@@ -1258,8 +1258,14 @@ export default function SectionsCanvas(): JSX.Element {
         }
 
         // Refresh formations + litho contacts so the new contacts
-        // land in local state.
+        // land in local state — without this the
+        // ``sectionContacts = axisContacts.filter(c => seeded.has(c.id))``
+        // intersection in SectionsCanvas still has the OLD
+        // ``lithoContacts`` and renders nothing for the new contact
+        // (owner dogfeed 2026-05-27: "dialog box, select a unit but
+        // nothing is being rendered").
         refetchFormations()
+        refetchLithoContacts()
 
         log.success(
           'section',
@@ -1277,6 +1283,7 @@ export default function SectionsCanvas(): JSX.Element {
       project.id,
       applyUpdatedSection,
       refetchFormations,
+      refetchLithoContacts,
       lithoContacts,
       formations,
       lithoFormations,
