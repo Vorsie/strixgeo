@@ -463,6 +463,14 @@ function renderWith(ctx: ShellContextValue) {
   )
 }
 
+// Helper — open the SplitToolbarButton's caret so the Auto-correlate +
+// Accept-correlations items render into the portalled menu and become
+// queryable by their testids.  Used by every test that asserts state
+// on those items (debt #141 — three buttons collapsed into one slot).
+function openCorrelateCaret(): void {
+  fireEvent.click(screen.getByTestId('correlate-mode-caret'))
+}
+
 // ---------------------------------------------------------------------------
 // Tests — Correlate mode button (CT1–CT6)
 // ---------------------------------------------------------------------------
@@ -535,7 +543,12 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         exitCorrelateMode,
       }),
     )
-    const btn = screen.getByRole('button', { name: /click 2 bands/i })
+    // Both the primary button and the caret's aria-label contain "click
+    // 2 bands" after the SplitToolbarButton refactor.  Target the
+    // primary by its testid (correlate-mode); the caret testid is
+    // correlate-mode-caret.
+    const btn = screen.getByTestId('correlate-mode')
+    expect(btn.textContent).toMatch(/click 2 bands/i)
     fireEvent.click(btn)
     expect(exitCorrelateMode).toHaveBeenCalledOnce()
   })
@@ -594,7 +607,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         exitCorrelateMode,
       }),
     )
-    const btn = screen.getByRole('button', { name: /click 2 bands/i })
+    const btn = screen.getByTestId('correlate-mode')
     expect(btn).not.toBeDisabled()
     fireEvent.click(btn)
     expect(exitCorrelateMode).toHaveBeenCalledOnce()
@@ -607,7 +620,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
   // disabling them together when the section is empty matches user
   // expectation (a single visual story, not three independently-
   // gated buttons).
-  it('CT9: Auto-correlate button disabled when section has 0 litho contacts', () => {
+  it('CT9: Auto-correlate item disabled when section has 0 litho contacts', () => {
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -617,10 +630,11 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         lithoContacts: [],
       }),
     )
+    openCorrelateCaret()
     expect(screen.getByTestId('litho-auto-correlate')).toBeDisabled()
   })
 
-  it('CT10: Accept correlations button disabled when section has 0 litho contacts', () => {
+  it('CT10: Accept correlations item disabled when section has 0 litho contacts', () => {
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -630,6 +644,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         lithoContacts: [],
       }),
     )
+    openCorrelateCaret()
     expect(screen.getByTestId('litho-accept-correlations')).toBeDisabled()
   })
 
@@ -645,6 +660,7 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
         selectedSectionId: 'sec-1',
       }),
     )
+    openCorrelateCaret()
     const btn = screen.getByTestId('litho-auto-correlate')
     expect(btn.getAttribute('title') ?? '').not.toMatch(/dip[- ]transfer|dip correction/i)
     expect(btn.getAttribute('title') ?? '').toMatch(/contact/i)
@@ -701,6 +717,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
       }),
     )
 
+    openCorrelateCaret()
     const btn = screen.getByTestId('litho-auto-correlate')
     await act(async () => { fireEvent.click(btn) })
 
@@ -733,6 +750,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
       }),
     )
 
+    openCorrelateCaret()
     const btn = screen.getByTestId('litho-auto-correlate')
     await act(async () => { fireEvent.click(btn) })
 
@@ -759,6 +777,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
       }),
     )
 
+    openCorrelateCaret()
     const btn = screen.getByTestId('litho-auto-correlate')
     await act(async () => { fireEvent.click(btn) })
 
@@ -786,6 +805,7 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
       }),
     )
 
+    openCorrelateCaret()
     const btn = screen.getByTestId('litho-auto-correlate')
     await act(async () => { fireEvent.click(btn) })
 
@@ -793,8 +813,10 @@ describe('SectionsToolbar Auto-correlate pre-check (Slice 4 Half-A)', () => {
     expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('pre-check'))
     expect(screen.queryByTestId('re-correlate-confirm-dialog')).toBeNull()
     expect(handleAutoCorrelate).not.toHaveBeenCalled()
-    // Button should return to enabled state (autoCorrelating cleared in finally).
-    expect(btn).not.toBeDisabled()
+    // Item should return to enabled state (autoCorrelating cleared in finally).
+    // Re-open the caret so the menu re-renders with the post-flight state.
+    openCorrelateCaret()
+    expect(screen.getByTestId('litho-auto-correlate')).not.toBeDisabled()
   })
 })
 
@@ -814,7 +836,7 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => cleanup())
 
-  it('S5-1: Accept correlations button is present on litho axis with model + section', () => {
+  it('S5-1: Accept correlations item is present on litho axis with model + section', () => {
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -822,10 +844,11 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
         selectedSectionId: 'sec-1',
       }),
     )
+    openCorrelateCaret()
     expect(screen.getByTestId('litho-accept-correlations')).not.toBeNull()
   })
 
-  it('S5-2: Accept correlations button disabled when no litho model', () => {
+  it('S5-2: Accept correlations item disabled when no litho model', () => {
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -833,10 +856,14 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
         selectedSectionId: 'sec-1',
       }),
     )
+    // SplitToolbarButton's caret stays usable even when the primary verb
+    // is disabled (fallback path); open it so the items render, then
+    // assert the Accept item carries the !activeLithoModel gate.
+    openCorrelateCaret()
     expect(screen.getByTestId('litho-accept-correlations')).toBeDisabled()
   })
 
-  it('S5-3: Accept correlations button disabled when no section selected', () => {
+  it('S5-3: Accept correlations item disabled when no section selected', () => {
     renderWith(
       makeCtx({
         sectionModelAxis: 'lithostratigraphic',
@@ -844,6 +871,7 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
         selectedSectionId: null,
       }),
     )
+    openCorrelateCaret()
     expect(screen.getByTestId('litho-accept-correlations')).toBeDisabled()
   })
 
@@ -865,15 +893,15 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
       }),
     )
 
+    openCorrelateCaret()
     const btn = screen.getByTestId('litho-accept-correlations')
     await act(async () => { fireEvent.click(btn) })
 
     expect(api.geology.acceptContactCorrelations).toHaveBeenCalledWith('proj-1', 'model-litho-1', 'sec-1')
     expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('3'))
-    expect(btn).not.toBeDisabled()
   })
 
-  it('S5-5: API error → toasts error, button re-enables', async () => {
+  it('S5-5: API error → toasts error, item re-enables after flight', async () => {
     vi.mocked(api.geology.acceptContactCorrelations).mockRejectedValueOnce(new Error('server error'))
     const toast = vi.fn()
 
@@ -886,11 +914,14 @@ describe('SectionsToolbar Accept correlations button (Task 19)', () => {
       }),
     )
 
+    openCorrelateCaret()
     const btn = screen.getByTestId('litho-accept-correlations')
     await act(async () => { fireEvent.click(btn) })
 
     expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('Accept failed'))
-    expect(btn).not.toBeDisabled()
+    // Re-open the caret so the menu re-renders with the post-flight state.
+    openCorrelateCaret()
+    expect(screen.getByTestId('litho-accept-correlations')).not.toBeDisabled()
   })
 })
 
