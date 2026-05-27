@@ -1009,7 +1009,6 @@ async def accept_litho_suggestions(
             section_id=request.section_id,
             defer_inference=request.defer_inference,
             create_formation_only=request.create_formation_only,
-            merge_same_lithology=request.merge_same_lithology,
         )
     except ValueError as exc:
         raise HTTPException(

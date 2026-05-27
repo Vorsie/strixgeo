@@ -71,24 +71,6 @@ class AcceptLithoSuggestionsRequest(BaseModel):
             "Default False preserves the original per-accept behaviour."
         ),
     )
-    merge_same_lithology: bool = Field(
-        default=True,
-        description=(
-            "When True (default), run ``merge_adjacent_same_lithology`` on the "
-            "input suggestions before the find-or-create loop, mirroring the "
-            "segmenter's final pass.  Catches pending ghosts that drifted from "
-            "the merged shape because of user editing (split / insert / "
-            "absorb) between Suggest and Accept — without this two stacked "
-            "SAND ghosts could end up as two stacked SAND contacts even when "
-            "the project's merge-same-lithology toggle is on.  When False the "
-            "input is honoured verbatim: two adjacent SAND ghosts produce two "
-            "adjacent SAND contacts (the user split them on purpose and the "
-            "same-litho merge is opt-out).  The frontend forwards the same "
-            "value the user picked in Settings → 'Merge same-lithology "
-            "layers' so the Suggest and Accept halves of the flow share one "
-            "rule (#149 fix, owner directive 2026-05-27)."
-        ),
-    )
 
     @model_validator(mode="after")
     def _exactly_one_anchor(self) -> AcceptLithoSuggestionsRequest:
