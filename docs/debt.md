@@ -36,7 +36,8 @@ subdivision is built on top of it. Priority order:
 * **#146** — remaining grey surfaces (labels, contact strip lines, legend, Geology3DViewer, exports) still pull formation.color (filed dogfeed 2026-05-27)
 * **#147** — RESOLVED 2026-05-27 (immediate-clear of lithoContacts on model switch + pill unit count scoped to this-model contacts + refetch formations on model delete)
 * **#148** — RESOLVED 2026-05-27 (inspector pill + roster are now model-scoped via #147 follow-up; the "1 unit retained" symptom can no longer render. Toast wording is accurate after the same fix)
-* **#149** — RESOLVED 2026-05-27 (re-run merge_adjacent_same_lithology on input at accept-time, gated on the project toggle; segmenter and accept now share one rule)
+* **#149** — RESOLVED 2026-05-27 v2 (verbatim copy at accept-time — no merge, no split; the original framing was misleading and the first fix was reverted same day per owner directive "just copy the suggestion when user clicks accept all"). See [[feedback-litho-accept-verbatim-copy]]
+* **#153** — accept-all-bulk wall-clock is 5–10 s on the oudenaarde-shape project; per-investigation HTTP loop with N×project_formations SELECT + N×commit. Profile before optimising (combined endpoint vs caching vs parallel) (filed dogfeed 2026-05-27)
 * **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
 * **#151** — RESOLVED 2026-05-27 (right-click menu on litho band → Remove; on empty space → Add new suggestion)
 * **#152** — RESOLVED 2026-05-27 (hard 10 cm clamp + near-cursor popup on litho contact drag)
@@ -3695,38 +3696,89 @@ correct all along; the bug was on the consumer side.
 **No code change for #148 specifically.**  Symptom can no longer
 render after the #147 follow-up landed.
 
-## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G) — RESOLVED 2026-05-27
+## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G) — RESOLVED 2026-05-27 v2
 
-**What.** Owner dogfeed 2026-05-27: after Accept-all (or autofill),
-adjacent committed contacts of the same lithology appeared
-stacked.  Example: two SAND units atop each other on a borehole
-column.  Suggestion-level same-lithology merge (#119) worked on
-pending ghosts but the accept path bypassed the rule.
+**What.** Owner dogfeed 2026-05-27 originally framed this as "the
+accept path creates duplicate adjacent same-litho contacts that
+the suggestion-level merge would have collapsed."  On re-dogfeed
+later the same day (image #22 → image #23) the owner clarified:
+the user had explicitly split a merged SAND into two adjacent
+SAND ghosts via the Split-layer gesture, and the FIRST fix
+(accept-time ``merge_adjacent_same_lithology``) silently undid
+that intent — collapsing back to one big SAND on Accept.
 
-**Resolution.** ``AcceptLithoSuggestions.execute`` gained an
-opt-out ``merge_same_lithology`` flag (default True, mirroring the
-segmenter).  When True, it runs ``merge_adjacent_same_lithology``
-on the input list before the find-or-create loop — catching the
-case where post-Suggest user edits (split / insert / absorb)
-broke the merged shape.  Each of the four accept handlers in
-``useGeologicalModel.ts`` (single, accept-all-focused, bulk-one-
-anchor, bulk-all-anchors) forwards
-``readLithoSegmenterPrefs(project.view_state).mergeSameLithology``
-so the Suggest and Accept halves of the flow share one toggle.
+**Resolution (v2 — supersedes v1).**
+``AcceptLithoSuggestions.execute`` is a verbatim copy of the
+suggestion shape.  ``merge_adjacent_same_lithology`` belongs to
+Suggest-time only.  N suggestions in → N contacts out (plus
+straddle splits, unchanged).  The owner directive: "if I have
+2 sand layers on top of each other in the suggestions, they
+should stay on the accepted — can't we just copy the suggestion
+when user clicks accept all?"
 
-**Per owner directive 2026-05-27:** "do it like for the
-suggestion — 2 separate sand layers stay separate, 1 big sand
-layer (after consciously merging) can't revert to 2 again."  Two
-adjacent same-litho ghosts now collapse to one contact when the
-toggle is on; with the toggle off they stay as two contacts (the
-user split them on purpose and the same-litho merge is opt-out).
-The straddle-split path is unchanged — a single suggestion that
-crosses a geology boundary still produces two contacts under
-different parent_fids.
+**Diff from v1 (reverted same day):** removed the
+``merge_same_lithology`` parameter from
+``AcceptLithoSuggestions.execute``, the
+``AcceptLithoSuggestionsRequest`` schema, and the four
+frontend accept handlers in ``useGeologicalModel.ts``.  The
+import of ``merge_adjacent_same_lithology`` from
+``litho_segmentation.py`` is also gone.
 
-**Tests.** M1 (merge on collapses), M2 (merge off preserves), M3
-(non-adjacent SAND/CLAY/SAND stays as three) in
+**Tests.** AC1 (two adjacent SAND ghosts → 2 contacts), AC2
+(one merged SAND ghost → 1 contact), AC3 (SAND/KLEI/SAND
+triple → 3 contacts) in
 ``tests/unit/application/test_accept_litho_suggestions.py``.
+Together they pin the verbatim-copy contract — accept neither
+merges nor splits the input shape.
+
+**Lesson.** The pending-ghost view IS the user's intent.  Any
+accept-time reshape silently undoes user editing
+(split / insert / absorb).  Filed as a feedback memory
+([[feedback-litho-accept-verbatim-copy]]) so this doesn't
+re-recur.
+
+## 153. Accept-all-bulk wall-clock is 5–10 s on oudenaarde-shape projects (Tier G)
+
+**What.** Owner dogfeed 2026-05-27: clicking Accept-all-bulk on
+the oudenaarde project takes 5–10 seconds before the section
+view refreshes.  The handler loops over N investigations in the
+section corridor, fires one ``POST .../accept-litho-suggestions``
+per anchor with ``defer_inference=true``, then calls one
+``recompute-all-absences`` after the loop.
+
+Per-call work that scales with N:
+* ``GeologyRepository.list_formations(project_id)`` — SELECTs
+  every formation in the project (geological + litho).  Runs
+  once per anchor; identical results across the loop.  Likely
+  the heaviest repeated query on a long-running project.
+* Per-suggestion existing-contact SELECT (idempotency check).
+* INSERT contact + INSERT formation (when new).
+* ``_recompute_litho_display_orders`` (3 SELECTs + UPDATE).
+* Single commit (fsync).
+
+**Why deferred.** Three credible fix shapes, each with cost:
+
+* **A. New endpoint** — batch all (anchor, suggestions, section_id)
+  tuples into one ``POST .../accept-litho-suggestions-bulk``.
+  One transaction, one ``list_formations`` SELECT shared across
+  anchors.  Biggest win, biggest refactor (new use-case shape,
+  new schema, new frontend wiring).
+* **B. Frontend parallel calls** — replace the serial loop with
+  ``Promise.all``.  Cheap to write but UNSAFE: parallel accepts
+  with the same litho composition would race on find-or-create
+  and produce duplicate formation rows.  Needs an atomic upsert
+  on ``GeologicalFormation`` first.
+* **C. Profile first** — instrument the per-phase wall clock on
+  one accept call (project_formations SELECT vs commit vs
+  recompute) so we know which bottleneck to attack.  Cheap;
+  blocks the others.
+
+**When to revisit.** After (C) — a 30-minute profiling pass on
+the oudenaarde project to identify the bottleneck.  Don't pick
+between (A) and (B) by guessing; the right answer depends on
+whether the cost is HTTP round-trip, SELECT, or commit.
+
+Filed from dogfeed session 2026-05-27.
 
 ## 150. Correlation suggestions render in mixed grey + orange (Tier E)
 
