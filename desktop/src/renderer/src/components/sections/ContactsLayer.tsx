@@ -270,6 +270,19 @@ interface Props {
    *  element (contact lines, traces, labels) so the user reads
    *  "colour fill = lithology, line = boundary". */
   perColumnBandsFromContacts?: boolean
+  /** Pending-ghost depth ranges per anchor.  When a litho suggestion
+   *  ghost is pending at a depth covered by an accepted band, the
+   *  band's per-column rect is SPLIT around the ghost so the ghost
+   *  is visible (and clickable on its own drag handles) instead of
+   *  being obscured by the same-anchor accepted band below.  Owner
+   *  directive 2026-05-27 dogfeed refinement: "you must split the
+   *  accepted litho ofcourse and the entry point of the suggestion
+   *  and ofcourse the new suggestion/acception contacts must be
+   *  draggable". */
+  pendingGhostRangesByAnchorId?: ReadonlyMap<
+    string,
+    readonly { depth_top_m: number; depth_base_m: number }[]
+  >
   /** Minimum thickness (in metres) the drag will preserve from peer
    *  contacts on the same anchor.  When set, a contact drag clamps at
    *  ``next.depth_top_m - minThickness`` (below-bound) and
@@ -672,6 +685,7 @@ export default function ContactsLayer({
   referenceContacts,
   bandFillOpacity = 0.18,
   perColumnBandsFromContacts = false,
+  pendingGhostRangesByAnchorId,
   contactDragClampMinThicknessM,
   onRequestAddLithoSuggestion,
   sectionLine,
@@ -724,16 +738,33 @@ export default function ContactsLayer({
     formationName: string
   } | null>(null)
 
-  // Debt #151 — right-click on a litho band opens the Remove menu.
-  // (Dogfeed refinement 2026-05-27: the "Add" gesture moved to a
-  // LEFT-click on the band itself; the empty-space capture rect was
-  // removed.  Single mode now.)
-  const [lithoBandMenu, setLithoBandMenu] = useState<{
-    clientX: number
-    clientY: number
-    contactId: string
-    formationName: string
-  } | null>(null)
+  // Debt #151 — litho-axis right-click menu.  Two modes share one
+  // surface: ``remove`` (right-click on an accepted band) carries the
+  // band's contact id; ``add`` (right-click on empty column space —
+  // the fallback when the user deleted enough units that no band
+  // remains, owner directive 2026-05-27 dogfeed refinement) carries
+  // the click depth + anchor info.  Insert is ALSO available via
+  // left-click on a band (separate gesture, no menu).
+  const [lithoBandMenu, setLithoBandMenu] = useState<
+    | {
+        clientX: number
+        clientY: number
+        mode: 'remove'
+        contactId: string
+        formationName: string
+      }
+    | {
+        clientX: number
+        clientY: number
+        mode: 'add'
+        anchorKind: 'cpt' | 'borehole'
+        anchorId: string
+        anchorName: string
+        elevationM: number
+        depth_m: number
+      }
+    | null
+  >(null)
 
   // Debt #151 dogfeed refinement 2026-05-27 — merge popup.  After a
   // delete removes a contact between two same-lithology neighbours,
@@ -1506,6 +1537,35 @@ export default function ContactsLayer({
     // keep their stored ``color``.
     const colorById = new Map(formations.map(f => [f.id, lithoFormationColor(f)]))
     const nameById = new Map(formations.map(f => [f.id, f.name]))
+    // Subtract pending-ghost depth ranges from a band's [top, base]
+    // interval, producing zero or more sub-bands (debt #151 dogfeed
+    // refinement 2026-05-27 — split the accepted band where a ghost
+    // is being inserted so the ghost is visible on top).
+    const subtractGhosts = (
+      bandTopM: number,
+      bandBaseM: number,
+      holes: readonly { depth_top_m: number; depth_base_m: number }[],
+    ): Array<{ topM: number; baseM: number }> => {
+      let pieces: Array<{ topM: number; baseM: number }> = [
+        { topM: bandTopM, baseM: bandBaseM },
+      ]
+      for (const hole of holes) {
+        pieces = pieces.flatMap(p => {
+          if (hole.depth_base_m <= p.topM || hole.depth_top_m >= p.baseM) {
+            return [p]
+          }
+          const out: Array<{ topM: number; baseM: number }> = []
+          if (hole.depth_top_m > p.topM) {
+            out.push({ topM: p.topM, baseM: hole.depth_top_m })
+          }
+          if (hole.depth_base_m < p.baseM) {
+            out.push({ topM: hole.depth_base_m, baseM: p.baseM })
+          }
+          return out
+        })
+      }
+      return pieces
+    }
     const out: LithoBand[] = []
     for (const col of placedColumns) {
       const item = col.proj.item as { id: string; name: string; elevation_m: number | null }
@@ -1517,6 +1577,7 @@ export default function ContactsLayer({
         .slice()
         .sort((a, b) => a.depth_top_m - b.depth_top_m)
       if (colContacts.length === 0) continue
+      const ghostHoles = pendingGhostRangesByAnchorId?.get(anchorId) ?? []
       const halfW = col.width / 2
       const x = col.nudgedX - halfW
       const surfaceY = levelToScreen(surfaceLevel)
@@ -1536,22 +1597,26 @@ export default function ContactsLayer({
         const bot = colContacts[i + 1]
         const color = colorById.get(top.formation_id)
         if (!color) continue
-        const yTop = levelToScreen(surfaceLevel - top.depth_top_m)
-        const yBot = levelToScreen(surfaceLevel - bot.depth_top_m)
-        const yMin = Math.min(yTop, yBot)
-        const height = Math.abs(yBot - yTop)
-        if (height <= 0) continue
-        out.push({
-          key: `${anchorId}-${top.id}`,
-          x,
-          y: yMin,
-          width: col.width,
-          height,
-          color,
-          contactId: top.id,
-          formationName: nameById.get(top.formation_id) ?? '',
-          ...anchorMeta,
-        })
+        const pieces = subtractGhosts(top.depth_top_m, bot.depth_top_m, ghostHoles)
+        for (let pi = 0; pi < pieces.length; pi++) {
+          const piece = pieces[pi]
+          const yTop = levelToScreen(surfaceLevel - piece.topM)
+          const yBot = levelToScreen(surfaceLevel - piece.baseM)
+          const yMin = Math.min(yTop, yBot)
+          const height = Math.abs(yBot - yTop)
+          if (height <= 0) continue
+          out.push({
+            key: `${anchorId}-${top.id}${pieces.length > 1 ? `-p${pi}` : ''}`,
+            x,
+            y: yMin,
+            width: col.width,
+            height,
+            color,
+            contactId: top.id,
+            formationName: nameById.get(top.formation_id) ?? '',
+            ...anchorMeta,
+          })
+        }
       }
       // Dogfeed 2026-05-27: the deepest contact's formation continues
       // from its ``depth_top_m`` down to the investigation's test
@@ -1565,13 +1630,16 @@ export default function ContactsLayer({
           ? col.proj.item.max_depth_m
           : (col.proj.item as { total_depth_m: number | null }).total_depth_m
       if (lastColor && testBottomM !== null && testBottomM > last.depth_top_m) {
-        const yTop = levelToScreen(surfaceLevel - last.depth_top_m)
-        const yBot = levelToScreen(surfaceLevel - testBottomM)
-        const yMin = Math.min(yTop, yBot)
-        const height = Math.abs(yBot - yTop)
-        if (height > 0) {
+        const pieces = subtractGhosts(last.depth_top_m, testBottomM, ghostHoles)
+        for (let pi = 0; pi < pieces.length; pi++) {
+          const piece = pieces[pi]
+          const yTop = levelToScreen(surfaceLevel - piece.topM)
+          const yBot = levelToScreen(surfaceLevel - piece.baseM)
+          const yMin = Math.min(yTop, yBot)
+          const height = Math.abs(yBot - yTop)
+          if (height <= 0) continue
           out.push({
-            key: `${anchorId}-${last.id}-bottom`,
+            key: `${anchorId}-${last.id}-bottom${pieces.length > 1 ? `-p${pi}` : ''}`,
             x,
             y: yMin,
             width: col.width,
@@ -1585,7 +1653,7 @@ export default function ContactsLayer({
       }
     }
     return out
-  }, [perColumnBandsFromContacts, contacts, formations, placedColumns, levelToScreen])
+  }, [perColumnBandsFromContacts, contacts, formations, placedColumns, levelToScreen, pendingGhostRangesByAnchorId])
 
   const formationFillBands = useMemo(() => {
     if (polylines.length === 0) {
@@ -2712,15 +2780,66 @@ export default function ContactsLayer({
           )}
         </g>
       ))}
+      {/* Debt #151 — per-column right-click capture rect (litho axis
+          only).  Spans the full plot area BEHIND the litho bands so
+          the band's own contextmenu handler fires first when the
+          click lands on a band; right-clicks on empty space fall
+          through to this rect's contextmenu in ``add`` mode.  This
+          is the fallback when the user has deleted enough units that
+          no band remains on the column (owner directive 2026-05-27
+          dogfeed refinement).  Insert via LEFT-click on a band stays
+          as the primary entry — this is just the no-band escape. */}
+      {perColumnBandsFromContacts
+        && placedColumns.map(col => {
+          const item = col.proj.item as {
+            id: string
+            name: string
+            elevation_m: number | null
+          }
+          if (item.elevation_m === null) return null
+          const surface = surfaceYForColumn(col, levelToScreen)
+          if (surface.surfaceElevationM === null || surface.pxPerMetre === 0) return null
+          const halfW = col.width / 2
+          return (
+            <rect
+              key={`pc-rclick-${item.id}`}
+              data-testid={`per-column-rclick-capture-${item.id}`}
+              x={col.nudgedX - halfW}
+              y={plotTop}
+              width={col.width}
+              height={plotBottom - plotTop}
+              fill="transparent"
+              pointerEvents="all"
+              onContextMenu={e => {
+                e.preventDefault()
+                e.stopPropagation()
+                const rect = e.currentTarget.getBoundingClientRect()
+                const svgY = plotTop + (e.clientY - rect.top)
+                const depth = (svgY - surface.surfaceY) / surface.pxPerMetre
+                if (depth < 0) return
+                setLithoBandMenu({
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                  mode: 'add',
+                  anchorKind: col.kind,
+                  anchorId: item.id,
+                  anchorName: item.name,
+                  elevationM: item.elevation_m as number,
+                  depth_m: depth,
+                })
+              }}
+            />
+          )
+        })}
       {/* Debt #142 follow-up — per-column litho bands.  Drawn even
           earlier than the cross-column formationFillBands so on the
           litho axis the user reads a per-column lithology stack
           underneath everything else.
-          Debt #151 dogfeed refinement 2026-05-27: bands are now the
-          single click surface for Add — LEFT-click opens the picker
-          at the click depth (replaces the prior empty-space right-
-          click capture rect).  Right-click still opens the remove
-          menu.  Empty-space gestures are gone. */}
+          Debt #151 dogfeed refinement 2026-05-27: bands are the
+          PRIMARY click surface for Add — LEFT-click opens the picker
+          at the click depth.  Right-click still opens the remove
+          menu.  Empty-space right-click also opens an Add menu as a
+          fallback (via the capture rect rendered above this block). */}
       {perColumnLithoBands.map(band => (
         <rect
           key={`pc-litho-${band.key}`}
@@ -2740,6 +2859,7 @@ export default function ContactsLayer({
             setLithoBandMenu({
               clientX: e.clientX,
               clientY: e.clientY,
+              mode: 'remove',
               contactId: band.contactId,
               formationName: band.formationName,
             })
@@ -3313,30 +3433,62 @@ export default function ContactsLayer({
               minWidth: 200,
             }}
           >
-            <button
-              type="button"
-              data-testid="litho-band-remove"
-              onClick={() => {
-                setDeletePending({
-                  contactId: lithoBandMenu.contactId,
-                  formationName: lithoBandMenu.formationName,
-                })
-                setLithoBandMenu(null)
-              }}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '6px 12px',
-                textAlign: 'left',
-                fontSize: 12,
-                color: 'var(--color-text-danger, #f87171)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              Remove this litho unit
-            </button>
+            {lithoBandMenu.mode === 'remove' ? (
+              <button
+                type="button"
+                data-testid="litho-band-remove"
+                onClick={() => {
+                  if (lithoBandMenu.mode !== 'remove') return
+                  setDeletePending({
+                    contactId: lithoBandMenu.contactId,
+                    formationName: lithoBandMenu.formationName,
+                  })
+                  setLithoBandMenu(null)
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '6px 12px',
+                  textAlign: 'left',
+                  fontSize: 12,
+                  color: 'var(--color-text-danger, #f87171)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Remove this litho unit
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="litho-band-add"
+                onClick={() => {
+                  if (lithoBandMenu.mode !== 'add') return
+                  onRequestAddLithoSuggestion?.(
+                    lithoBandMenu.anchorKind,
+                    lithoBandMenu.anchorId,
+                    lithoBandMenu.depth_m,
+                    lithoBandMenu.anchorName,
+                    lithoBandMenu.elevationM,
+                  )
+                  setLithoBandMenu(null)
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '6px 12px',
+                  textAlign: 'left',
+                  fontSize: 12,
+                  color: 'var(--color-text-primary, #e2e8f0)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Add new suggestion here
+              </button>
+            )}
           </div>
         </>,
         document.body,
