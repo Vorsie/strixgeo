@@ -57,6 +57,7 @@ import ContactPickBar from './sections/ContactPickBar'
 import ContactsLayer, {
   type ContactCopyPayload,
   type MarqueeState,
+  type SnapCandidate,
 } from './sections/ContactsLayer'
 import { lookupCptValueAtDepth } from './sections/cptInterpolation'
 import { useColumnContextMenu } from './sections/useColumnContextMenu'
@@ -1406,15 +1407,41 @@ export default function SectionPanel({
     [cptPlots],
   )
 
+  // Debt #136 — snap candidates now combine borehole stratigraphy (the
+  // original source) with the section's committed contacts on the same
+  // anchor.  Tagging each contact-sourced candidate with its contactId
+  // lets ContactsLayer's drag handler exclude the dragger's own row, so
+  // a small drag doesn't pull back to its starting depth (self-snap
+  // suppression).  Both sources gate on ``snapToStratigraphy``: one
+  // toggle covers all snap behaviour, matching the user mental model of
+  // "do I want snap or not".
   const snapDepthsByAnchorId = useMemo(() => {
-    const out = new Map<string, readonly number[]>()
-    if (!snapToStratigraphy || boreholeDetails === null) return out
-    for (const [id, detail] of boreholeDetails) {
-      const depths = collectSnapDepths(detail)
-      if (depths.length > 0) out.set(id, depths)
+    const out = new Map<string, readonly SnapCandidate[]>()
+    if (!snapToStratigraphy) return out
+    const acc = new Map<string, SnapCandidate[]>()
+    if (boreholeDetails !== null) {
+      for (const [id, detail] of boreholeDetails) {
+        const stratDepths = collectSnapDepths(detail)
+        if (stratDepths.length > 0) {
+          acc.set(
+            id,
+            stratDepths.map(d => ({ depth: d })),
+          )
+        }
+      }
     }
+    if (contacts) {
+      for (const c of contacts) {
+        const anchorId = c.borehole_id ?? c.cpt_id
+        if (!anchorId) continue
+        const list = acc.get(anchorId) ?? []
+        list.push({ depth: c.depth_top_m, contactId: c.id })
+        acc.set(anchorId, list)
+      }
+    }
+    for (const [k, v] of acc) out.set(k, v)
     return out
-  }, [snapToStratigraphy, boreholeDetails])
+  }, [snapToStratigraphy, boreholeDetails, contacts])
 
   // Collision-aware gridline labels: a CPT only shows its per-CPT
   // gridline value labels ("2", "10 MPa", "2 %", "4 %") when its
