@@ -27,6 +27,10 @@ subdivision is built on top of it. Priority order:
 * **#99** — drag-clamp through rejected layers (awaiting owner reproduction — code investigated, G34b passes)
 * **#138** — drag-lock after litho merge (needs owner reproduction — filed 2026-05-26)
 * **#139** — RESOLVED 2026-05-27 (CanvasHints correlate-blocked pill + toolbar gate)
+* **#140** — Accept-all-bulk silently auto-correlates → surprises user with amber edges (filed dogfeed 2026-05-27; needs design decision)
+* **#141** — combine 3 correlation toolbar buttons into a grouped/dropdown affordance (UX polish — filed dogfeed 2026-05-27)
+* **#142** — accepted litho-ghost renders at OLD suggestion depth after committed contact is dragged (filed dogfeed 2026-05-27)
+* **#143** — accepted litho contacts have low visibility on the litho axis (polish — filed dogfeed 2026-05-27)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
@@ -3454,6 +3458,111 @@ repro above. The fix is small (skip zero-thickness rejecteds in the
 bounds walk, OR scrub the edits Map on absorb) but the right one
 depends on which path the repro exposes.
 Filed from dogfeed session 2026-05-26.
+
+## 140. Accept-all-bulk silently auto-correlates → surprises user with amber edges (Tier G)
+
+**What.** ``useGeologicalModel.handleAcceptAllBulkLitho`` (line 4457-
+4469) fires ``api.geology.autoCorrelateContacts`` automatically after
+every bulk-accept of litho suggestions.  This creates ``source='auto'``
+edges with ``user_approved=false``, which render as amber-dashed
+correlation lines in ``CorrelationEdgesOverlay``.  Owner dogfeed
+2026-05-27: "I didn't press autocorrelate however?" — the user does
+not associate the post-Accept-all amber lines with their Accept-all
+gesture.
+
+**Why deferred.** Two design directions, owner decision needed:
+* **(a) Remove the auto-trigger.** Require an explicit Auto-correlate
+  click.  Cleaner mental model but loses the "correlations stay
+  fresh after every accept" property.
+* **(b) Keep the auto-trigger, surface it.**  Add a follow-up toast
+  ("Accept-all triggered auto-correlate — N edges created, click
+  Accept correlations to approve") so the user attributes the
+  amber lines to the right gesture.  Or add a settings toggle to
+  disable the auto-trigger per project.
+
+The single-Accept path (handleAcceptLithoSuggestion) does NOT have
+the auto-trigger today — only the bulk path does.  That asymmetry
+is itself worth a look in the same pass.
+
+**When to revisit.** When the owner picks (a) vs (b).  Either fix
+is small (lines to remove vs lines to add).
+Filed from dogfeed session 2026-05-27.
+
+## 141. Combine three correlation toolbar buttons into a grouped affordance (Tier G — UX polish)
+
+**What.** The Correlate / Auto-correlate / Accept-correlations
+buttons sit as three separate ``ToolbarButton`` instances in
+``SectionsToolbar``.  They share a precondition (``sectionHasLithoContacts``
++ ``activeLithoModel`` + ``hasSection``, post-#139-follow-up) and
+form a workflow (manual or auto correlate → approve).  Dogfeed
+2026-05-27: "maybe combine these 3 buttons in a dropdownish menu".
+
+**Why deferred.** UX polish, not a correctness bug.  Need to decide
+between (a) ``SplitToolbarButton`` (primary action + chevron-menu
+for the other two), (b) ``ToolbarDropdown`` for all three under a
+single "Correlations" label, or (c) a tight cluster with shared
+hover-state.  Each of the three already has its own gating + busy
+state — the visual grouping affects ``ToolbarPrimitives`` and the
+existing test layout (CT1-CT11 + ACW1-ACW3 + S5-* assume separate
+buttons by testid).
+
+**When to revisit.** Next UX polish pass on the Sections toolbar.
+Filed from dogfeed session 2026-05-27.
+
+## 142. Accepted litho-ghost renders at OLD suggestion depth after committed contact is dragged (Tier G)
+
+**What.** Once a litho suggestion is accepted, a committed
+``FormationContact`` is created at the suggested depth.  The
+``LithoSuggestionGhostColumns`` overlay keeps rendering the ACCEPTED
+ghost layer rect + ✓ tick at the suggestion's *raw* ``depth_top_m``,
+even after the user drags the committed contact to a new depth.
+Result: two visual markers — one stuck at the original suggestion
+depth (ghost ✓ tick + frozen rect), one at the dragged depth (the
+real committed contact).  Owner dogfeed 2026-05-27: "when I move
+one, the original accepted contact stays on top and it doesn't
+rerender".
+
+**Why deferred.** ``LithoSuggestionGhostColumns.tsx`` line 1342+
+renders accepted indices with ``dragHandlesEnabled=false`` but does
+NOT skip the rect itself.  Line 2271-2283 paints the ✓ tick at
+``topY = levelToScreen(surfaceElevationM - suggestion.depth_top_m)``
+— always the raw suggestion depth.  Two fix paths:
+
+* **(a) Skip the rect entirely for accepted indices.**  The
+  committed contact is the source of truth post-accept; the ghost
+  has served its purpose.  Simpler but loses the "this was
+  suggested at depth X" visual cue.
+* **(b) Sync the accepted-ghost depth to the committed contact's
+  current depth.**  Needs a stable link from ghost-index ↔
+  committed-contact-id so the renderer can look up the live depth.
+
+The label-suppression comment at line 2285-2288 ("Suppressed once
+the layer is accepted: the committed contact band underneath now
+carries the real label") already acknowledges the dual-render
+problem — they hid the LABEL but left the rect + ✓.  Path (a) is
+the natural completion of that prior decision.
+
+**When to revisit.** Before next dogfeed session — first-pass user
+encounter mistakes the stuck ghost for an un-deleted duplicate.
+Filed from dogfeed session 2026-05-27.
+
+## 143. Accepted litho contacts have low visibility on the litho axis (Tier E — polish)
+
+**What.** Owner dogfeed 2026-05-27: "the accepted litho contacts are
+a bit hard to see".  On the litho axis the committed-contact strip
+(painted by ``ContactsLayer``) blends into the litho-unit band
+fills, so the contact handle is easy to miss.
+
+**Why deferred.** Needs a colour/contrast audit against the full
+litho-unit fill palette (lithology + admixture combinations) and a
+dark-mode check.  Likely fixes: bump ``strokeWidth`` on the contact
+strip, add a contrast halo, or introduce a dedicated litho-contact
+colour token.  Not a one-liner — multiple visual surfaces need to
+agree on the new contrast level so the contact is legible on every
+formation colour.
+
+**When to revisit.** Next visual polish pass.
+Filed from dogfeed session 2026-05-27.
 
 ## (end)
 
