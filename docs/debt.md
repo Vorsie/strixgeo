@@ -33,6 +33,11 @@ subdivision is built on top of it. Priority order:
 * **#143** — accepted litho contacts have low visibility on the litho axis (polish — filed dogfeed 2026-05-27)
 * **#144** — Accept-all (litho) writes directly to DB — needs to flow through the dirty/manual-save model (filed dogfeed 2026-05-27)
 * **#145** — backend litho-formation create stamps grey placeholder color — should use LITHOLOGY_COLORS at create time (filed dogfeed 2026-05-27)
+* **#146** — remaining grey surfaces (labels, contact strip lines, legend, Geology3DViewer, exports) still pull formation.color (filed dogfeed 2026-05-27)
+* **#147** — delete litho model via trash icon + create new → all 823 contacts reappear in the new empty model (filed dogfeed 2026-05-27, needs repro)
+* **#148** — Clear button leaves one unit behind + misleading "Litho model already empty" toast (filed dogfeed 2026-05-27)
+* **#149** — duplicate adjacent same-lithology committed contacts post-Accept-all (suggestion-level merge works; accepted ones don't dedupe) (filed dogfeed 2026-05-27)
+* **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
@@ -3628,6 +3633,133 @@ backend correction needs:
 **When to revisit.** Bundles for a real customer or an export that
 consumes ``color`` directly.  Until then the frontend override
 keeps the visual correct.
+Filed from dogfeed session 2026-05-27.
+
+## 146. Remaining grey surfaces post-#145 frontend override (Tier E)
+
+**What.** ``lithoFormationColor`` is applied at the LithologyInspector
+chip + the ContactsLayer per-column band, but every OTHER read-side
+surface still pulls ``formation.color`` directly and shows grey for
+litho units:
+
+* Section text labels (SAND / SILT / CLAY rendered inside band rects).
+* Contact line strips on the section (the boundary itself reads grey;
+  the user explicitly suggested black would read better).
+* Future legend (not yet built — user predicted "will prolly be so
+  in the legend too once i make the model").
+* Geology3DViewer / litho 3D viewer formation colours.
+* Export pipeline (DXF, Plaxis colour attributes).
+
+**Why deferred.** Each consumer needs its own one-line override
+(``lithoFormationColor(formation)`` instead of ``formation.color``).
+Quick to do, but each surface needs a visual sanity check + a test
+pin.  Backend fix (#145) eventually obsoletes all of them.
+
+**When to revisit.** Sweep alongside #143 (accepted-contact visibility)
+on the next polish pass.
+Filed from dogfeed session 2026-05-27.
+
+## 147. Delete litho model + create new → old contacts reappear (Tier G — needs repro)
+
+**What.** Owner dogfeed 2026-05-27:
+
+> "when i create new stratigraphic model after delete through
+> garbage bin icon, all contacts reappear, (Lithology model
+> new New)"
+
+Repro path (per the screenshot):
+1. In the Build-litho stage, open a litho model that has 823
+   committed contacts across 30 units.
+2. Click the trash-icon "Delete model" button → confirm.
+3. Click "+ New" → the new model shows 823 contacts, 30 units
+   instead of 0/0.
+
+**Why deferred.** Three plausible causes:
+* The DELETE only sets ``is_active=false`` (or similar) on the
+  old model and leaves the contact rows alone; the new model
+  somehow inherits them (e.g. ``parent_geological_model_id``
+  matches and the bus refetch picks up the orphaned contacts).
+* The frontend bus state isn't cleared between
+  ``handleDeleteLithoModel`` and ``handleCreateLithoModel``;
+  ``lithoContacts`` stays populated from the old model.
+* The backend's create path silently copies contacts from the
+  previous active litho model.
+
+Need an inspect-network + DB-row snapshot to pick which.
+
+**When to revisit.** Anytime — this is a data-correctness bug that
+makes the "Delete + New" gesture nonsensical.  Likely a fast fix
+once the cause is identified.
+Filed from dogfeed session 2026-05-27.
+
+## 148. Clear button leaves one unit + misleading toast (Tier G)
+
+**What.** Owner dogfeed 2026-05-27 (screenshot): after clicking
+the "Clear" button on a litho model, the inspector reads
+``0 contacts, 1 unit`` and a toast fires "Litho model already
+empty."  Two issues:
+* Clear apparently wipes contacts but leaves one unit (CLAY in
+  the screenshot) behind.
+* The "already empty" toast is misleading — the model wasn't
+  empty (had contacts before the click); it just isn't empty
+  now either (1 unit remains).
+
+**Why deferred.** Two design questions:
+* Should Clear wipe units too, or contacts only?  If
+  units-only-when-orphaned, the leftover unit might be retained
+  intentionally (e.g. unit referenced elsewhere); the toast
+  should explain.
+* The toast wording needs to match the gesture's outcome — either
+  "Cleared N contacts (1 unit retained — referenced elsewhere)"
+  or "Model wiped".
+
+**When to revisit.** Next session — small UX correction, two
+toast strings + maybe a Clear behaviour decision.
+Filed from dogfeed session 2026-05-27.
+
+## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G)
+
+**What.** Owner dogfeed 2026-05-27: after Accept-all (or autofill),
+adjacent committed contacts of the same lithology appear stacked.
+Example: two SAND units atop each other on a borehole column
+(visible in image #11).  Suggestion-level same-lithology merge
+(debt #119) works — pending ghosts dedupe correctly — but the
+ACCEPT path creates a separate ``FormationContact`` per suggestion
+without checking if its lithology matches the next-deeper accepted
+contact's.
+
+**Why deferred.** Two fix paths:
+* **At accept time**: ``accept_litho_suggestions.py`` could
+  collapse adjacent same-formation suggestions into a single
+  contact before the find-or-create loop.  Cleanest.
+* **At display time**: render adjacent same-lithology contacts
+  as a single visual band.  Doesn't fix the DB count.
+
+Likely (a) is right — the suggestion-level merge respects the
+``merge_same_lithology`` toggle and the accept path should match.
+Owner directive 2026-05-25 made merge ON by default for
+suggestions; the same default should propagate to accept.
+
+**When to revisit.** Soon — every Accept-all session produces
+these duplicates and the user has to manually delete one of each.
+Filed from dogfeed session 2026-05-27.
+
+## 150. Correlation suggestions render in mixed grey + orange (Tier E)
+
+**What.** Owner dogfeed 2026-05-27: "correlation suggestions are
+grey or orange (weird)".  ``CorrelationEdgesOverlay`` uses
+``CONTACT_EDGE_COLOR`` (approved) vs ``UNAPPROVED_EDGE_COLOR=#f59e0b``
+(amber).  The mix reads as visual inconsistency when the user
+sees BOTH colours on the same section.
+
+**Why deferred.** Design question: is the colour difference
+load-bearing (does it carry information the user needs to read
+at a glance)?  If yes, the contrast should be sharper (orange vs
+emerald, not orange vs grey).  If no, both should be the same
+colour.
+
+**When to revisit.** Same UX polish pass as #141 (correlation
+toolbar dropdown).
 Filed from dogfeed session 2026-05-27.
 
 ## (end)
