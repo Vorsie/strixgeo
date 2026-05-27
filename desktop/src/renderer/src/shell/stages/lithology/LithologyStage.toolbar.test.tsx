@@ -247,7 +247,7 @@ function makeCtx(overrides: {
       refetchLithoContacts: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,
-      handleAcceptLithoSuggestion: noopAsync,
+      handleAcceptLithoSuggestion: () => Promise.resolve(null),
       handleAcceptAllLithoSuggestions: noopAsync,
       handleRejectLithoSuggestion: vi.fn(),
       handleUnrejectLithoSuggestion: vi.fn(),

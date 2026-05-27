@@ -199,7 +199,7 @@ function makeStubContext(): ShellContextValue {
       refetchLithoContacts: () => {},
       lithoSuggesting: false,
       handleSuggestLitho: noopAsync,
-      handleAcceptLithoSuggestion: noopAsync,
+      handleAcceptLithoSuggestion: noopAsyncNull,
       handleAcceptAllLithoSuggestions: noopAsync,
       handleRejectLithoSuggestion: vi.fn(),
       handleUnrejectLithoSuggestion: vi.fn(),
