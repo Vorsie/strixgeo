@@ -22,8 +22,10 @@ import type { BulkAnchorGhost } from '../hooks/useGeologicalModel'
  *
  * The new layer always has:
  *   - ``depth_top_m = depth_m``
- *   - ``depth_base_m = depth_m + 0.01`` (smallest meaningful sentinel —
- *     the user extends it via "Extend to nearest contacts")
+ *   - ``depth_base_m = depth_m + 0.20`` (20 cm visible band — owner
+ *     directive 2026-05-27 dogfeed refinement: "inserts a 20 cm
+ *     band").  Was 0.01 sentinel; the new value is user-visible AND
+ *     gives the drag handles enough separation to grab independently.
  *   - ``source = 'manual_pick'``
  *   - ``confidence = 'medium'``
  *
@@ -65,7 +67,7 @@ export function insertManualGhostLayer(
 ): BulkAnchorGhost {
   const newLayer: LithoLayerSuggestion = {
     depth_top_m: depth_m,
-    depth_base_m: depth_m + 0.01,
+    depth_base_m: depth_m + 0.2,
     suggested_lithology: lithology,
     suggested_admixtures: admixtures.map(a => ({ ...a })),
     suggested_nad_class: null,
