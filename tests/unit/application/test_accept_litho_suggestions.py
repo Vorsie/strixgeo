@@ -1218,60 +1218,31 @@ async def test_bi2_defer_inference_false_keeps_r7_hook() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #149 — same-lithology merge on the accept path
+# #149 — Accept is a verbatim copy of the suggestion shape
 #
-# Owner directive 2026-05-27: "do it like for the suggestion — 2 separate
-# sand layers stay separate, 1 big sand layer (after consciously merging)
-# can't revert to 2 again."
+# Owner directive 2026-05-27 (v2, superseding the original): "if I have
+# 2 sand layers on top of each other in the suggestions, they should
+# stay on the accepted — can't we just copy the suggestion when user
+# clicks accept all?"
 #
-# The segmenter applies merge_adjacent_same_lithology at suggest time but
-# the user can edit pending ghosts (split / insert / absorb) before Accept
-# fires, so the input to Accept may have drifted from the merged shape.
-# Re-running the merge on input mirrors the segmenter rule so the two
-# halves of the Suggest→Accept flow share one invariant.
+# The merge_adjacent_same_lithology pass belongs to suggestion-time
+# (segmenter) — running it here would silently undo any post-Suggest
+# user editing (split / insert / absorb).  Accept must produce
+# len(suggestions) contacts (plus straddle splits where applicable).
+# Whatever shape the user has in the ghost view IS the spec.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_m1_merge_on_collapses_adjacent_same_lithology() -> None:
-    """Two adjacent SAND ghosts with merge=True → one merged contact (#149)."""
-    # Two adjacent ZAND suggestions [0–2] + [2–4] that should collapse to
-    # one ZAND segment [0–4] under merge_adjacent_same_lithology.
-    # After the merge, one suggestion → one find-or-create check → one contact.
-    session = _make_session(
-        surface_rows=[],
-        geo_contacts_at_inv=[],
-        existing_contact_ids=[None],  # one find-or-create, one create
-    )
-    uc = _use_case(session)
+async def test_ac1_two_adjacent_sand_ghosts_produce_two_contacts() -> None:
+    """Two adjacent SAND ghosts → TWO contacts (#149 — verbatim copy).
 
-    suggestions = [
-        _make_suggestion(0.0, 2.0, "ZAND"),
-        _make_suggestion(2.0, 4.0, "ZAND"),
-    ]
-    result = await uc.execute(
-        project_id=PROJECT_ID,
-        litho_model_id=LITHO_MODEL_ID,
-        suggestions=suggestions,
-        borehole_id=BOREHOLE_ID,
-        merge_same_lithology=True,  # explicit default
-    )
-
-    # Exactly one contact — the merge collapsed the input from 2 → 1.
-    assert len(result.created_contact_ids) == 1
-    # Exactly one formation created — same composition signature on both
-    # halves (empty admixtures) maps to one formation row.
-    assert len(result.created_formation_ids) == 1
-    session.commit.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_m2_merge_off_preserves_two_adjacent_sand_ghosts() -> None:
-    """Two adjacent SAND ghosts with merge=False → two contacts (#149)."""
-    # Same input as M1 but merge_same_lithology=False — the input is
-    # honoured verbatim and the find-or-create loop fires twice.
-    # Both halves share the same composition signature → same formation
-    # row found-or-created on the second pass.
+    Pin the verbatim-copy contract: the segmenter's same-litho merge
+    belongs to Suggest-time only.  If two adjacent SAND ghosts arrive
+    at Accept (toggle off at Suggest, or post-Suggest user editing),
+    the accept path must NOT re-collapse them — that would silently
+    undo the user's split/insert/absorb intent.
+    """
     session = _make_session(
         surface_rows=[],
         geo_contacts_at_inv=[],
@@ -1289,7 +1260,6 @@ async def test_m2_merge_off_preserves_two_adjacent_sand_ghosts() -> None:
         litho_model_id=LITHO_MODEL_ID,
         suggestions=suggestions,
         borehole_id=BOREHOLE_ID,
-        merge_same_lithology=False,
     )
 
     # Two contacts — input was honoured verbatim, no merge.
@@ -1297,24 +1267,52 @@ async def test_m2_merge_off_preserves_two_adjacent_sand_ghosts() -> None:
     # One formation — both halves share lithology + admixture signature
     # so the second pass finds the formation created on the first.
     assert len(result.created_formation_ids) == 1
+    session.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_m3_merge_on_leaves_non_adjacent_sandwich_alone() -> None:
-    """SAND / KLEI / SAND non-adjacent → 3 contacts even with merge=True (#149).
+async def test_ac2_single_merged_ghost_produces_single_contact() -> None:
+    """A single merged SAND ghost → ONE contact (#149 — verbatim copy).
 
-    The two SAND segments are separated by a KLEI layer so they are NOT
-    adjacent and merge_adjacent_same_lithology leaves them alone.  Verifies
-    the merge does not over-collapse — the adjacency gate is load-bearing.
+    The dual of AC1: if Suggest-time produced a single merged ZAND
+    segment (the segmenter's default with merge_same_lithology=true),
+    Accept produces one contact — not two.  The accept path neither
+    splits nor merges; it copies.
     """
     session = _make_session(
         surface_rows=[],
         geo_contacts_at_inv=[],
-        # Three suggestions → three find-or-create checks.
+        existing_contact_ids=[None],
+    )
+    uc = _use_case(session)
+
+    # One ZAND segment spanning 0–4 m — what a Suggest-time merge would
+    # have produced from the AC1 inputs.
+    suggestions = [_make_suggestion(0.0, 4.0, "ZAND")]
+    result = await uc.execute(
+        project_id=PROJECT_ID,
+        litho_model_id=LITHO_MODEL_ID,
+        suggestions=suggestions,
+        borehole_id=BOREHOLE_ID,
+    )
+
+    assert len(result.created_contact_ids) == 1
+    assert len(result.created_formation_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_ac3_non_adjacent_same_litho_stays_separate() -> None:
+    """SAND / KLEI / SAND non-adjacent → 3 contacts (#149 — verbatim copy).
+
+    Regression net for the verbatim-copy rule on a mixed triple: the
+    two SANDs sandwich a KLEI so they are not adjacent.  Accept produces
+    three contacts and two formation rows (the two SANDs share
+    composition → same formation).
+    """
+    session = _make_session(
+        surface_rows=[],
+        geo_contacts_at_inv=[],
         existing_contact_ids=[None, None, None],
-        # Two distinct lithologies × admixture-sig → two formation rows
-        # created, with the third suggestion (SAND again) finding the
-        # first one by its composition key.
         inference_formation_count=2,
     )
     uc = _use_case(session)
@@ -1329,10 +1327,7 @@ async def test_m3_merge_on_leaves_non_adjacent_sandwich_alone() -> None:
         litho_model_id=LITHO_MODEL_ID,
         suggestions=suggestions,
         borehole_id=BOREHOLE_ID,
-        merge_same_lithology=True,
     )
 
-    # Three contacts — the SANDs are non-adjacent so the merge does not fire.
     assert len(result.created_contact_ids) == 3
-    # Two formations — the two SANDs share composition → same formation row.
     assert len(result.created_formation_ids) == 2
