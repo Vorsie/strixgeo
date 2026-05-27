@@ -2004,12 +2004,20 @@ export default function SectionPanel({
               // Debt #142 follow-up — the post-accept hide of litho
               // suggestion ghosts removed the bold colour fill the user
               // previously read as "this band is a SAND / SILT / CLAY
-              // unit".  Bump the formation-fill-band opacity on the
-              // litho axis so the lithology colours stand on their own
-              // against the underlying CPT trace.  Geological axis
-              // keeps the original 0.18 (light backdrop where bands
-              // would otherwise compete with contact lines + labels).
+              // unit".  Bump the band opacity on the litho axis so
+              // lithology colours stand on their own against the
+              // underlying CPT trace.  Geological axis keeps the
+              // original 0.18 (light backdrop where bands would
+              // otherwise compete with contact lines + labels).
               bandFillOpacity={axisMode === 'lithostratigraphic' ? 0.55 : 0.18}
+              // Cross-column TIN-derived formationFillBands need a
+              // built litho surface to produce geometry; on a typical
+              // litho-axis CPT column with no surface the band cell is
+              // empty.  perColumnBandsFromContacts paints a coloured
+              // rect between adjacent committed contacts on every
+              // column directly — independent of any TIN — so the
+              // user always sees the lithology stack.
+              perColumnBandsFromContacts={axisMode === 'lithostratigraphic'}
               excludedBoreholeIds={
                 excludedBoreholeIds === undefined
                   ? undefined
