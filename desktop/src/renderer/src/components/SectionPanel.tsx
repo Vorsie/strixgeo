@@ -2528,6 +2528,26 @@ export default function SectionPanel({
           // Always pass null so the no-context warning renders; the backend still
           // assigns the correct parent (owner decision: allow with warning).
           parentFormationName={null}
+          // Debt #151 dogfeed refinement 2026-05-27 — filter the
+          // Existing Units roster to litho units within the geological
+          // formation at the click depth.  Derive the parent formation
+          // id by finding the deepest geological contact on the anchor
+          // whose ``depth_top_m <= pickContext.depth_m``.
+          parentFormationId={(() => {
+            if (!pickContext) return null
+            const anchor = pickContext.anchorId
+            const onAnchor = (referenceContacts ?? [])
+              .filter(c => (c.borehole_id ?? c.cpt_id) === anchor)
+              .slice()
+              .sort((a, b) => a.depth_top_m - b.depth_top_m)
+            if (onAnchor.length === 0) return null
+            let chosen: typeof onAnchor[number] | null = null
+            for (const c of onAnchor) {
+              if (c.depth_top_m <= pickContext.depth_m) chosen = c
+              else break
+            }
+            return chosen?.formation_id ?? null
+          })()}
           // Debt #151 dogfeed refinement 2026-05-27 — route Existing
           // Units click through ``onLithoExistingUnitPick`` (which
           // creates a ghost from the existing formation's litho code +
