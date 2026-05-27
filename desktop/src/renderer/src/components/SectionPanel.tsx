@@ -2018,6 +2018,13 @@ export default function SectionPanel({
               // column directly — independent of any TIN — so the
               // user always sees the lithology stack.
               perColumnBandsFromContacts={axisMode === 'lithostratigraphic'}
+              // Debt #152 — hard floor of 10 cm between adjacent litho
+              // contacts now that cross-merge is off (commit 9d4a01db).
+              // Geological axis keeps its cross-merge absorb gesture
+              // and stays unclamped (prop undefined).
+              contactDragClampMinThicknessM={
+                axisMode === 'lithostratigraphic' ? 0.1 : undefined
+              }
               excludedBoreholeIds={
                 excludedBoreholeIds === undefined
                   ? undefined
