@@ -36,7 +36,7 @@ subdivision is built on top of it. Priority order:
 * **#146** — remaining grey surfaces (labels, contact strip lines, legend, Geology3DViewer, exports) still pull formation.color (filed dogfeed 2026-05-27)
 * **#147** — RESOLVED 2026-05-27 (immediate-clear of lithoContacts on model switch + pill unit count scoped to this-model contacts + refetch formations on model delete)
 * **#148** — RESOLVED 2026-05-27 (inspector pill + roster are now model-scoped via #147 follow-up; the "1 unit retained" symptom can no longer render. Toast wording is accurate after the same fix)
-* **#149** — duplicate adjacent same-lithology committed contacts post-Accept-all (suggestion-level merge works; accepted ones don't dedupe) (filed dogfeed 2026-05-27)
+* **#149** — RESOLVED 2026-05-27 (re-run merge_adjacent_same_lithology on input at accept-time, gated on the project toggle; segmenter and accept now share one rule)
 * **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
 * **#151** — RESOLVED 2026-05-27 (right-click menu on litho band → Remove; on empty space → Add new suggestion)
 * **#152** — RESOLVED 2026-05-27 (hard 10 cm clamp + near-cursor popup on litho contact drag)
@@ -3695,32 +3695,38 @@ correct all along; the bug was on the consumer side.
 **No code change for #148 specifically.**  Symptom can no longer
 render after the #147 follow-up landed.
 
-## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G)
+## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G) — RESOLVED 2026-05-27
 
 **What.** Owner dogfeed 2026-05-27: after Accept-all (or autofill),
-adjacent committed contacts of the same lithology appear stacked.
-Example: two SAND units atop each other on a borehole column
-(visible in image #11).  Suggestion-level same-lithology merge
-(debt #119) works — pending ghosts dedupe correctly — but the
-ACCEPT path creates a separate ``FormationContact`` per suggestion
-without checking if its lithology matches the next-deeper accepted
-contact's.
+adjacent committed contacts of the same lithology appeared
+stacked.  Example: two SAND units atop each other on a borehole
+column.  Suggestion-level same-lithology merge (#119) worked on
+pending ghosts but the accept path bypassed the rule.
 
-**Why deferred.** Two fix paths:
-* **At accept time**: ``accept_litho_suggestions.py`` could
-  collapse adjacent same-formation suggestions into a single
-  contact before the find-or-create loop.  Cleanest.
-* **At display time**: render adjacent same-lithology contacts
-  as a single visual band.  Doesn't fix the DB count.
+**Resolution.** ``AcceptLithoSuggestions.execute`` gained an
+opt-out ``merge_same_lithology`` flag (default True, mirroring the
+segmenter).  When True, it runs ``merge_adjacent_same_lithology``
+on the input list before the find-or-create loop — catching the
+case where post-Suggest user edits (split / insert / absorb)
+broke the merged shape.  Each of the four accept handlers in
+``useGeologicalModel.ts`` (single, accept-all-focused, bulk-one-
+anchor, bulk-all-anchors) forwards
+``readLithoSegmenterPrefs(project.view_state).mergeSameLithology``
+so the Suggest and Accept halves of the flow share one toggle.
 
-Likely (a) is right — the suggestion-level merge respects the
-``merge_same_lithology`` toggle and the accept path should match.
-Owner directive 2026-05-25 made merge ON by default for
-suggestions; the same default should propagate to accept.
+**Per owner directive 2026-05-27:** "do it like for the
+suggestion — 2 separate sand layers stay separate, 1 big sand
+layer (after consciously merging) can't revert to 2 again."  Two
+adjacent same-litho ghosts now collapse to one contact when the
+toggle is on; with the toggle off they stay as two contacts (the
+user split them on purpose and the same-litho merge is opt-out).
+The straddle-split path is unchanged — a single suggestion that
+crosses a geology boundary still produces two contacts under
+different parent_fids.
 
-**When to revisit.** Soon — every Accept-all session produces
-these duplicates and the user has to manually delete one of each.
-Filed from dogfeed session 2026-05-27.
+**Tests.** M1 (merge on collapses), M2 (merge off preserves), M3
+(non-adjacent SAND/CLAY/SAND stays as three) in
+``tests/unit/application/test_accept_litho_suggestions.py``.
 
 ## 150. Correlation suggestions render in mixed grey + orange (Tier E)
 
