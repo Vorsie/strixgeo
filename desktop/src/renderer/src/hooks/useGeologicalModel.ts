@@ -2989,6 +2989,17 @@ export function useGeologicalModel({
       try {
         await api.geology.deleteModel(project.id, modelId)
         await refreshModels()
+        // Debt #147 follow-up — the backend delete cascade removes
+        // every litho formation that had a contact ONLY in this model
+        // (per the model-aware vocabulary rule in
+        // ``GeologyRepository.delete_model``).  The frontend
+        // ``formations`` list is project-scoped and isn't auto-
+        // refreshed by ``refreshModels``, so the deleted litho units
+        // would linger in ``lithoFormations`` → the LithologyInspector
+        // INSTANCES section keeps showing the OLD 69 unit rows under
+        // a freshly-created new model.  Refetch formations so the
+        // local vocabulary reflects what's actually in the DB.
+        refetchFormations()
         log.success('geology', `deleted litho model ${modelId}`)
       } catch (err) {
         log.error('geology', `handleDeleteLithoModel failed ${modelId}`, err)
@@ -3002,7 +3013,7 @@ export function useGeologicalModel({
         throw err
       }
     },
-    [project, refreshModels, toast],
+    [project, refreshModels, refetchFormations, toast],
   )
 
   // Slice 2, #55: create a formation contact on the LITHO model.
