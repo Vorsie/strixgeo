@@ -34,7 +34,7 @@ subdivision is built on top of it. Priority order:
 * **#144** — Accept-all (litho) writes directly to DB — needs to flow through the dirty/manual-save model (filed dogfeed 2026-05-27)
 * **#145** — backend litho-formation create stamps grey placeholder color — should use LITHOLOGY_COLORS at create time (filed dogfeed 2026-05-27)
 * **#146** — remaining grey surfaces (labels, contact strip lines, legend, Geology3DViewer, exports) still pull formation.color (filed dogfeed 2026-05-27)
-* **#147** — RESOLVED 2026-05-27 (immediate-clear of lithoContacts on model switch + pill unit count scoped to this-model contacts)
+* **#147** — RESOLVED 2026-05-27 (immediate-clear of lithoContacts on model switch + pill unit count scoped to this-model contacts + refetch formations on model delete)
 * **#148** — Clear button leaves one unit behind + misleading "Litho model already empty" toast (filed dogfeed 2026-05-27)
 * **#149** — duplicate adjacent same-lithology committed contacts post-Accept-all (suggestion-level merge works; accepted ones don't dedupe) (filed dogfeed 2026-05-27)
 * **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
@@ -3676,22 +3676,35 @@ Repro path (per the screenshot):
 3. Click "+ New" → the new model shows 823 contacts, 30 units
    instead of 0/0.
 
-**Resolved 2026-05-27.** Root cause was the second candidate
-(frontend state not cleared on model switch).  The
-``[project, activeLithoModel]`` effect in ``useGeologicalModel``
-only cleared ``lithoContacts`` when the active model went to
-``null``; a direct A → B transition left the old contacts in
-state for the duration of the new fetch window — and could leave
-them indefinitely on a slow/failed refetch.  Fix is a synchronous
-``setLithoContacts([])`` + ``setLithoSurfacesByFormationId(new Map())``
-at the top of the effect, before the async fetch fires (commit
-d05100cf).  The inspector pill's unit count was also re-scoped:
-``new Set(lithoContacts.map(c => c.formation_id)).size`` (this
-model's contacts) instead of ``lithoFormations.length`` (the
-project-scoped vocabulary that survived the delete cascade)
-(commit c8f34319).  Backend delete cascades (model_id CASCADE on
-FormationContactOrm + ORM ``cascade="all, delete-orphan"``) were
-correct already — confirmed by reading the schema.
+**Resolved 2026-05-27.** Three coupled fixes:
+
+1. The ``[project, activeLithoModel]`` effect in
+   ``useGeologicalModel`` only cleared ``lithoContacts`` when the
+   active model went to ``null``; A → B direct transitions left
+   stale contacts during the new fetch window (and could leave
+   them indefinitely on a slow/failed refetch).  Now a synchronous
+   ``setLithoContacts([])`` + ``setLithoSurfacesByFormationId(new Map())``
+   at the top of the effect (commit d05100cf).
+
+2. The inspector pill's unit count was reading
+   ``lithoFormations.length`` (project-scoped vocabulary, includes
+   formations that survived the delete cascade).  Re-scoped to
+   ``new Set(lithoContacts.map(c => c.formation_id)).size`` so a
+   freshly-created empty model shows "0 contacts, 0 units"
+   (commit c8f34319).
+
+3. ``handleDeleteLithoModel`` refreshed the models list but NOT
+   the formations list.  The backend deletes litho formations
+   exclusive to the deleted model, but the frontend's
+   ``formations`` state stayed stale → LithologyInspector's
+   INSTANCES section kept rendering the 69 deleted units under
+   the new model.  Added ``refetchFormations()`` after
+   ``refreshModels()`` in the delete handler (commit c1ff322f).
+
+Backend delete cascades (model_id CASCADE on FormationContactOrm
++ ORM ``cascade="all, delete-orphan"`` + the model-aware vocabulary
+rule in ``GeologyRepository.delete_model``) were correct already —
+confirmed by reading the schema.
 
 ## 148. Clear button leaves one unit + misleading toast (Tier G)
 
