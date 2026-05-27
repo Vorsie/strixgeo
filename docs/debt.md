@@ -39,7 +39,7 @@ subdivision is built on top of it. Priority order:
 * **#149** — duplicate adjacent same-lithology committed contacts post-Accept-all (suggestion-level merge works; accepted ones don't dedupe) (filed dogfeed 2026-05-27)
 * **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
 * **#151** — right-click verbs on litho column (Remove accepted, Add new suggestion) — gesture surface for the post-cross-merge-disable era (filed dogfeed 2026-05-27)
-* **#152** — clamp litho contact drag at adjacent contacts — prevent zero-thickness slivers now that cross-merge is off on litho (filed dogfeed 2026-05-27)
+* **#152** — RESOLVED 2026-05-27 (hard 10 cm clamp + near-cursor popup on litho contact drag)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
@@ -3803,35 +3803,6 @@ pending ghost layer, empty space) and the menu must branch correctly.
 **When to revisit.** Pair with #149 (duplicate-same-lithology
 auto-merge on accept) — once accept-path merge is the default, the
 need for Remove-accepted is reduced; Add-suggestion is independent.
-Filed from dogfeed session 2026-05-27.
-
-## 152. Clamp litho contact drag at adjacent contacts (Tier G — companion to cross-merge disable)
-
-**What.** Cross-merge on litho contacts is now disabled (commit
-9d4a01db, 2026-05-27 owner directive).  A litho boundary drag now
-commits freely past any peer without auto-deleting it — but that
-leaves the door open to producing two contacts at near-same depth
-(zero-thickness or inverted units in the DB), which corrupts the
-litho geometry.
-
-Owner directive in the same message: "u can play around with the
-boundaries a bit though" — read as: small in-slot adjustments OK,
-crossing into adjacent territory NOT OK.
-
-**Why deferred.** Adopt ``computeDragBounds``-style clamp logic
-from ``LithoSuggestionGhostColumns`` for the litho contact drag in
-``ContactsLayer``: walk neighbouring committed contacts on the same
-anchor, clamp the drag at the nearer peer's ``depth_top_m`` (the
-neighbour's near edge, not far — the user explicitly wants no
-crossing).  The ghost code has the helper functions
-(``findVisibleNeighbourAbove/Below``); adapt for the committed
-contact context.
-
-**When to revisit.** When dogfeed reports zero-thickness slivers
-or inverted units from a runaway drag, OR proactively before the
-right-click "Remove accepted" verb (#151) ships — once removal is
-explicit, the clamp keeps the drag well-behaved between explicit
-add/remove gestures.
 Filed from dogfeed session 2026-05-27.
 
 ## (end)
