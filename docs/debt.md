@@ -32,6 +32,7 @@ subdivision is built on top of it. Priority order:
 * **#142** — RESOLVED 2026-05-27 (accepted ghost hidden + pending wears hatching overlay)
 * **#143** — accepted litho contacts have low visibility on the litho axis (polish — filed dogfeed 2026-05-27)
 * **#144** — Accept-all (litho) writes directly to DB — needs to flow through the dirty/manual-save model (filed dogfeed 2026-05-27)
+* **#145** — backend litho-formation create stamps grey placeholder color — should use LITHOLOGY_COLORS at create time (filed dogfeed 2026-05-27)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
@@ -3598,6 +3599,35 @@ every layer.
 Likely a multi-session feature.  Pair with #142's path-B follow-
 through so the staged accept + the ghost-follows-contact-depth
 visual stay aligned.
+Filed from dogfeed session 2026-05-27.
+
+## 145. Backend litho-formation create stamps grey placeholder color (Tier E)
+
+**What.** ``accept_litho_suggestions.py:978`` creates new
+``GeologicalFormationOrm`` rows with ``color="#9ca3af"`` (neutral
+grey) and a comment ``# Phase 2 assigns per lithology`` that never
+landed.  Result: every litho formation stored in the DB carries the
+placeholder grey instead of the lithology-specific colour
+(``ZAND="#fbbf24"``, ``KLEI="#6b7280"``, ``SILT="#84cc16"``, etc.).
+The frontend now overrides at render time via the LITHOLOGY_COLORS
+lookup (commit 0cf4d005, debt #142 follow-up), but the DB row is
+still wrong — visible to any consumer that pulls ``color`` directly
+(exports, future external tools, the .gmproj bundle).
+
+**Why deferred.** The frontend override is the user-facing fix; the
+backend correction needs:
+* Update ``_create_litho_formation`` to compute
+  ``color=LITHOLOGY_COLORS[litho_main_soil_code]`` at create
+  (lookup ported to ``litho_constants.py`` on the Python side or
+  read from a shared JSON).
+* A backfill migration that updates existing rows where
+  ``color='#9ca3af'`` and ``litho_main_soil_code`` is set.
+* Drop the stale ``lithoConstants.ts`` comment claiming the
+  backend already sets the colour at create.
+
+**When to revisit.** Bundles for a real customer or an export that
+consumes ``color`` directly.  Until then the frontend override
+keeps the visual correct.
 Filed from dogfeed session 2026-05-27.
 
 ## (end)
