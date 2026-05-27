@@ -38,6 +38,8 @@ subdivision is built on top of it. Priority order:
 * **#148** — Clear button leaves one unit behind + misleading "Litho model already empty" toast (filed dogfeed 2026-05-27)
 * **#149** — duplicate adjacent same-lithology committed contacts post-Accept-all (suggestion-level merge works; accepted ones don't dedupe) (filed dogfeed 2026-05-27)
 * **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
+* **#151** — right-click verbs on litho column (Remove accepted, Add new suggestion) — gesture surface for the post-cross-merge-disable era (filed dogfeed 2026-05-27)
+* **#152** — clamp litho contact drag at adjacent contacts — prevent zero-thickness slivers now that cross-merge is off on litho (filed dogfeed 2026-05-27)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
@@ -3760,6 +3762,76 @@ colour.
 
 **When to revisit.** Same UX polish pass as #141 (correlation
 toolbar dropdown).
+Filed from dogfeed session 2026-05-27.
+
+## 151. Right-click verbs on litho column — Remove accepted + Add new suggestion (Tier G)
+
+**What.** Owner directive 2026-05-27, in the same breath as the
+cross-merge disable: "add a remove accepted litho and an add new
+suggestion litho to right button. add new suggestion can only be
+used when there is no litho present, this litho can then be
+accepted".
+
+Two new right-click menu items on the litho column:
+
+* **Remove accepted litho** — right-click a committed litho contact
+  → menu item "Remove" → confirm dialog → DELETE the contact.  The
+  existing ``ContactsLayer.onDeleteContact`` callback path can serve
+  as the call; the gap is a menu surface that opens on right-click
+  of an accepted litho band (today nothing handles this gesture
+  cleanly).
+* **Add new suggestion** — right-click on EMPTY column space (no
+  committed contact, no pending ghost layer) → menu item "Add
+  suggestion" → opens the existing ``LithoCompositionPickerDialog``
+  (Phase-1.5 manual unit creation flow) → creates a pending ghost
+  the user can then accept normally.  Gate the menu item on
+  "no litho present at the right-click depth" so the user can't
+  layer suggestions on top of existing contacts.
+
+**Why deferred.** Three components touched:
+* New context menu surface bound to the litho column's empty area
+  + an accepted-litho hit area.
+* ``Add suggestion`` reuses ``handleManualLithoUnitCreate`` (already
+  wired for the dialog), so the backend/state plumbing exists.
+* ``Remove accepted`` reuses ``handleDeleteContact``; needs a
+  confirm-dialog wrapper.
+
+The gesture surface design needs care: the right-click on a litho
+column has multiple potential targets (committed contact band,
+pending ghost layer, empty space) and the menu must branch correctly.
+
+**When to revisit.** Pair with #149 (duplicate-same-lithology
+auto-merge on accept) — once accept-path merge is the default, the
+need for Remove-accepted is reduced; Add-suggestion is independent.
+Filed from dogfeed session 2026-05-27.
+
+## 152. Clamp litho contact drag at adjacent contacts (Tier G — companion to cross-merge disable)
+
+**What.** Cross-merge on litho contacts is now disabled (commit
+9d4a01db, 2026-05-27 owner directive).  A litho boundary drag now
+commits freely past any peer without auto-deleting it — but that
+leaves the door open to producing two contacts at near-same depth
+(zero-thickness or inverted units in the DB), which corrupts the
+litho geometry.
+
+Owner directive in the same message: "u can play around with the
+boundaries a bit though" — read as: small in-slot adjustments OK,
+crossing into adjacent territory NOT OK.
+
+**Why deferred.** Adopt ``computeDragBounds``-style clamp logic
+from ``LithoSuggestionGhostColumns`` for the litho contact drag in
+``ContactsLayer``: walk neighbouring committed contacts on the same
+anchor, clamp the drag at the nearer peer's ``depth_top_m`` (the
+neighbour's near edge, not far — the user explicitly wants no
+crossing).  The ghost code has the helper functions
+(``findVisibleNeighbourAbove/Below``); adapt for the committed
+contact context.
+
+**When to revisit.** When dogfeed reports zero-thickness slivers
+or inverted units from a runaway drag, OR proactively before the
+right-click "Remove accepted" verb (#151) ships — once removal is
+explicit, the clamp keeps the drag well-behaved between explicit
+add/remove gestures.
 Filed from dogfeed session 2026-05-27.
 
 ## (end)
