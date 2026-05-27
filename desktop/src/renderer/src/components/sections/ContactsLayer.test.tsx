@@ -131,6 +131,13 @@ function renderLayer(
     bandFillOpacity?: number
     perColumnBandsFromContacts?: boolean
     contactDragClampMinThicknessM?: number
+    onRequestAddLithoSuggestion?: (
+      anchorKind: 'cpt' | 'borehole',
+      anchorId: string,
+      depth_m: number,
+      anchorName: string,
+      elevationM: number,
+    ) => void
   } = {},
 ) {
   return render(
@@ -158,6 +165,7 @@ function renderLayer(
         bandFillOpacity={extras.bandFillOpacity}
         perColumnBandsFromContacts={extras.perColumnBandsFromContacts}
         contactDragClampMinThicknessM={extras.contactDragClampMinThicknessM}
+        onRequestAddLithoSuggestion={extras.onRequestAddLithoSuggestion}
       />
     </svg>,
   )
@@ -1863,6 +1871,110 @@ describe('ContactsLayer', () => {
     expect(
       container.querySelectorAll('[data-testid^="per-column-litho-band-"]').length,
     ).toBe(0)
+  })
+
+  // Debt #151 — right-click verbs on the litho column: "Remove" on
+  // a band, "Add new suggestion" on empty area.  Both halves share
+  // the same context menu surface; only the visible item changes.
+  it('LB1: right-click on a per-column litho band opens the "Remove" menu', () => {
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true },
+    )
+    const band = container.querySelector(
+      '[data-testid^="per-column-litho-band-"]',
+    )!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+    const menu = screen.queryByTestId('litho-band-context-menu')
+    expect(menu).not.toBeNull()
+    expect(menu).toHaveTextContent(/remove/i)
+  })
+
+  it('LB2: clicking "Remove" opens the existing delete-contact confirm dialog', () => {
+    const onDeleteContact = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+      makeContact({ id: 'c-2', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-clay' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND' }),
+      makeFormation({ id: 'f-clay', name: 'CLAY' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, onDeleteContact },
+    )
+    const band = container.querySelector(
+      '[data-testid^="per-column-litho-band-"]',
+    )!
+    fireEvent.contextMenu(band, { clientX: 100, clientY: 30 })
+    fireEvent.click(screen.getByTestId('litho-band-remove'))
+    // Existing delete-contact-confirm dialog opens; its primary action
+    // calls onDeleteContact with the band's contact id.
+    expect(screen.queryByTestId('delete-contact-confirm-dialog')).not.toBeNull()
+  })
+
+  it('LB3: right-click on empty column space opens the "Add new suggestion" menu', () => {
+    // The per-column right-click-capture rect spans the full column
+    // even where no committed contact lives.  Clicking outside a band
+    // opens the menu in "add" mode.
+    const onRequestAddLithoSuggestion = vi.fn()
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 1, formation_id: 'f-sand' }),
+    ]
+    const formations = [makeFormation({ id: 'f-sand', name: 'SAND' })]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { perColumnBandsFromContacts: true, onRequestAddLithoSuggestion },
+    )
+    const capture = container.querySelector(
+      '[data-testid="per-column-rclick-capture-bh-1"]',
+    )!
+    // jsdom returns {top: 0, ...} for getBoundingClientRect; with
+    // surface at svg-Y=10 (flipped(10) = 20-10 = 10), clientY=25
+    // maps to depth = (25 - 10) / 1 = 15 m below surface.
+    fireEvent.contextMenu(capture, { clientX: 100, clientY: 25 })
+    const menu = screen.queryByTestId('litho-band-context-menu')
+    expect(menu).not.toBeNull()
+    expect(menu).toHaveTextContent(/add new suggestion/i)
+    fireEvent.click(screen.getByTestId('litho-band-add'))
+    expect(onRequestAddLithoSuggestion).toHaveBeenCalledTimes(1)
+    // Anchor kind + id + name forwarded; depth derived from clientY.
+    const [kind, id, , name, elevation] = onRequestAddLithoSuggestion.mock.calls[0]
+    expect(kind).toBe('borehole')
+    expect(id).toBe('bh-1')
+    expect(name).toBe('bh-1')
+    expect(elevation).toBe(10)
+  })
+
+  it('LB4: right-click capture rect is absent on the geological axis (prop off)', () => {
+    const { container } = renderLayer(
+      [],
+      [],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      // perColumnBandsFromContacts omitted → false → no capture rect.
+    )
+    expect(
+      container.querySelector('[data-testid="per-column-rclick-capture-bh-1"]'),
+    ).toBeNull()
   })
 
   // Debt #152 — litho-axis contact drag must clamp at 10 cm from
