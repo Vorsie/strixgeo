@@ -838,15 +838,27 @@ export default function SectionsToolbar(): JSX.Element {
             icon={<Zap size={13} />}
             label={autoCorrelating ? 'Correlating…' : 'Auto-correlate'}
             onClick={() => { void handleAutoCorrelateWithCheck() }}
-            disabled={!activeLithoModel || autoCorrelating}
+            // Debt #139 dogfeed follow-up — same gate as the Correlate +
+            // Accept-correlations verbs: no clickable hit-rects to
+            // generate edges between when the section has no contacts.
+            // Engineer's mental scope is "this section", so a single
+            // visual gate across all three correlation verbs reads
+            // cleaner than three independently-gated buttons.
+            disabled={
+              !activeLithoModel
+              || autoCorrelating
+              || !sectionHasLithoContacts
+            }
             busy={autoCorrelating}
             testid="litho-auto-correlate"
             title={
               !activeLithoModel
                 ? 'Create a lithostratigraphic model first'
-                : autoCorrelating
-                  ? 'Running auto-correlate…'
-                  : 'Auto-correlate: run the bottom-up dip-transfer algorithm across the whole model — inserts edges between matching litho units at neighbouring investigations'
+                : !sectionHasLithoContacts
+                  ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+                  : autoCorrelating
+                    ? 'Running auto-correlate…'
+                    : 'Auto-correlate: match contacts at neighbouring investigations within a depth + distance tolerance — inserts unapproved edges across the whole model. Use "Accept correlations" to approve.'
             }
           />
           {/* Accept correlations (#133 Task 19) — approve all unapproved
@@ -859,7 +871,15 @@ export default function SectionsToolbar(): JSX.Element {
             icon={<CheckCheck size={13} />}
             label={acceptingCorrelations ? 'Accepting…' : 'Accept correlations'}
             onClick={() => { void handleAcceptCorrelations() }}
-            disabled={!activeLithoModel || !hasSection || acceptingCorrelations}
+            // Debt #139 dogfeed follow-up — share the Correlate gate so
+            // the three correlation verbs dim together when there's
+            // nothing on the section to correlate / approve.
+            disabled={
+              !activeLithoModel
+              || !hasSection
+              || acceptingCorrelations
+              || !sectionHasLithoContacts
+            }
             busy={acceptingCorrelations}
             testid="litho-accept-correlations"
             title={
@@ -867,9 +887,11 @@ export default function SectionsToolbar(): JSX.Element {
                 ? 'Create a lithostratigraphic model first'
                 : !hasSection
                   ? 'Open a cross-section to accept correlations'
-                  : acceptingCorrelations
-                    ? 'Accepting correlations…'
-                    : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals'
+                  : !sectionHasLithoContacts
+                    ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+                    : acceptingCorrelations
+                      ? 'Accepting correlations…'
+                      : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals'
             }
           />
           {/* Materialise lens companions (#133 Task 20) — model-level
