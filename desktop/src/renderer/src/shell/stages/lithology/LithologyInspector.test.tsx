@@ -593,7 +593,14 @@ describe('LithologyInspector (Slice C, #55)', () => {
       activeLithoModel: makeLithoModel(),
       formations: [kwartair, tertiair], // deliberately out of order
       lithoFormations: [lithoT1, lithoT2, lithoK1, lithoU],
-      lithoContacts: [],
+      // Debt #147 follow-up: roster only renders formations with at
+      // least one contact in the active model.
+      lithoContacts: [
+        makeContact('c-t1', 'lf-t1'),
+        makeContact('c-t2', 'lf-t2'),
+        makeContact('c-k1', 'lf-k1'),
+        makeContact('c-u', 'lf-u'),
+      ],
     })
     renderInspector(ctx)
 
@@ -642,7 +649,7 @@ describe('LithologyInspector (Slice 5 / debt #67 — parent_formation_name)', ()
       activeLithoModel: makeLithoModel(),
       formations: [geoParent],
       lithoFormations: [lithoWithResolvedName],
-      lithoContacts: [],
+      lithoContacts: [makeContact('c1', 'lf-1')],
     })
     renderInspector(ctx)
 
@@ -664,7 +671,7 @@ describe('LithologyInspector (Slice 5 / debt #67 — parent_formation_name)', ()
       activeLithoModel: makeLithoModel(),
       formations: [geoParent],
       lithoFormations: [lithoNoResolvedName],
-      lithoContacts: [],
+      lithoContacts: [makeContact('c1', 'lf-2')],
     })
     renderInspector(ctx)
 
@@ -684,6 +691,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoFormations: [f],
+      lithoContacts: [makeContact('c1', 'f-a')],
     })
     renderInspector(ctx)
 
@@ -695,6 +703,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoFormations: [f],
+      lithoContacts: [makeContact('c1', 'f-a')],
     })
     renderInspector(ctx)
 
@@ -708,6 +717,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoFormations: [f],
+      lithoContacts: [makeContact('c1', 'f-a')],
       refetchFormations,
     })
     renderInspector(ctx)
@@ -801,6 +811,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoFormations: [f],
+      lithoContacts: [makeContact('c1', 'f-a')],
     })
     renderInspector(ctx)
 
@@ -832,6 +843,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoFormations: [f],
+      lithoContacts: [makeContact('c1', 'f-a')],
     })
     renderInspector(ctx)
 
@@ -852,6 +864,7 @@ describe('LithologyInspector (Phase-2 Slice 2 — ordinal + lock + RO-3)', () =>
     const ctx = makeCtx({
       activeLithoModel: makeLithoModel(),
       lithoFormations: [f],
+      lithoContacts: [makeContact('c1', 'f-a')],
     })
     renderInspector(ctx)
 
@@ -890,6 +903,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
       activeLithoModel: makeLithoModel(),
       formations: [parent, litho],
       lithoFormations: [litho],
+      lithoContacts: [makeContact('c1', 'lit-a')],
     })
     renderInspector(ctx)
     await waitFor(() => {
@@ -910,6 +924,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
       activeLithoModel: makeLithoModel(),
       formations: [parent, litho],
       lithoFormations: [litho],
+      lithoContacts: [makeContact('c1', 'lit-a')],
     })
     renderInspector(ctx)
     await waitFor(() => {
@@ -931,6 +946,7 @@ describe('LithologyInspector (debt #87 — parent review)', () => {
       activeLithoModel: makeLithoModel(),
       formations: [parent, litho],
       lithoFormations: [litho],
+      lithoContacts: [makeContact('c1', 'lit-a')],
     })
     renderInspector(ctx)
     fireEvent.click(await screen.findByTestId('parent-review-lit-a'))
@@ -1087,6 +1103,47 @@ describe('LithologyInspector (debt #94 — wipe committed contacts)', () => {
     expect(wipeSpy).not.toHaveBeenCalled()
     // Dialog dismissed.
     expect(screen.queryByTestId('wipe-litho-contacts-confirm-btn')).not.toBeInTheDocument()
+  })
+
+  // CM1 (debt #147 follow-up, 2026-05-27): roster is empty when the
+  // active model has no contacts, even if the project's litho
+  // vocabulary still carries formation rows from a sibling/old
+  // model.  The Clear-pill stays visible (orphan-recovery affordance)
+  // but the roster honours the "0 contacts, 0 units" pill exactly.
+  it('CM1 — roster is empty when active model has 0 contacts even if lithoFormations is populated', () => {
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [
+        makeFormation('orphan-1', 'Old Zand'),
+        makeFormation('orphan-2', 'Old Klei'),
+      ],
+      lithoContacts: [],
+    })
+    renderInspector(ctx)
+
+    // No formation rows.
+    expect(screen.queryByTestId('litho-formation-row-orphan-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('litho-formation-row-orphan-2')).not.toBeInTheDocument()
+    // Empty-state message visible instead.
+    expect(screen.getByText(/no litho units in this model yet/i)).toBeInTheDocument()
+    // Clear pill still reachable so orphans can be wiped.
+    expect(screen.getByTestId('litho-committed-pill')).toBeInTheDocument()
+  })
+
+  // CM2: roster shows ONLY formations with at least one contact in
+  // the active model, even if other formations exist in the project.
+  it('CM2 — roster filters lithoFormations down to those referenced by contacts', () => {
+    const used = makeFormation('used', 'Used Zand')
+    const orphan = makeFormation('orphan', 'Orphan Klei')
+    const ctx = makeCtx({
+      activeLithoModel: makeLithoModel(),
+      lithoFormations: [used, orphan],
+      lithoContacts: [makeContact('c1', 'used')],
+    })
+    renderInspector(ctx)
+
+    expect(screen.getByTestId('litho-formation-row-used')).toBeInTheDocument()
+    expect(screen.queryByTestId('litho-formation-row-orphan')).not.toBeInTheDocument()
   })
 
   // W6: confirming the dialog calls handleClearLithoModel.
