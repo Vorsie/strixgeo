@@ -248,6 +248,16 @@ interface Props {
    * before — zero regression on the geological axis or pre-Sync state.
    */
   referenceContacts?: readonly FormationContactResponse[]
+  /** Opacity of the filled formation-fill bands between adjacent
+   *  contact polylines.  Defaults to 0.18 — the right value on the
+   *  geological axis where the bands sit on top of a clean canvas and
+   *  too much saturation competes with the contact lines + labels.
+   *  Callers on the litho axis pass a higher value (~0.55) because
+   *  the post-#142 hide of accepted ghosts removed the bold colour
+   *  fill the user previously read as "this is a SAND / SILT / CLAY
+   *  unit" — the formation fill is now the only colour cue and needs
+   *  to be visible against CPT traces. */
+  bandFillOpacity?: number
   /** Contact ids to visually highlight with a transient ring +
    * pulse — driven by the crossings-banner click intent (debt #9).
    * Each matching contact in the per-column layer band gets an
@@ -616,6 +626,7 @@ export default function ContactsLayer({
   referenceFormations,
   referenceSurfacesByFormationId,
   referenceContacts,
+  bandFillOpacity = 0.18,
   sectionLine,
   alongMToScreenX,
   plotLeft,
@@ -2471,7 +2482,7 @@ export default function ContactsLayer({
           key={`fill-${band.formationId}`}
           d={band.d}
           fill={band.color}
-          fillOpacity={band.isStale ? 0.08 : 0.18}
+          fillOpacity={band.isStale ? 0.08 : bandFillOpacity}
           stroke="none"
           pointerEvents="none"
           data-testid={`formation-fill-${band.formationId}`}
