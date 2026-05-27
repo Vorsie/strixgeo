@@ -128,6 +128,7 @@ function renderLayer(
     plotRight?: number
     referenceFormations?: readonly GeologicalFormationResponse[]
     referenceContacts?: readonly FormationContactResponse[]
+    bandFillOpacity?: number
   } = {},
 ) {
   return render(
@@ -152,6 +153,7 @@ function renderLayer(
         plotRight={extras.plotRight}
         referenceFormations={extras.referenceFormations}
         referenceContacts={extras.referenceContacts}
+        bandFillOpacity={extras.bandFillOpacity}
       />
     </svg>,
   )
@@ -1800,6 +1802,30 @@ describe('ContactsLayer', () => {
     const band = container.querySelector('[data-testid="formation-fill-f"]')
     expect(band).not.toBeNull()
     expect(band!.getAttribute('fill-opacity')).toBe('0.18')
+  })
+
+  it('honours bandFillOpacity prop — caller can boost the fill (debt #142 follow-up)', () => {
+    // Dogfeed 2026-05-27: post-#142 the accepted ghost no longer
+    // provides the bold colour fill between committed contacts on a
+    // CPT column.  SectionPanel passes a higher opacity on the litho
+    // axis so the lithology colours remain visible against the CPT
+    // trace.  Default 0.18 stays for the geological axis (light
+    // backdrop, doesn't compete with curves).
+    const { container } = renderLayer(
+      fillContacts,
+      [fillFormation],
+      fillPlaced,
+      undefined,
+      {
+        surfacesByFormationId: new Map([['f', makeFillSurface(false)]]),
+        sectionLine: { startX: -10, startY: 0, endX: 110, endY: 0 },
+        alongMToScreenX: along => along + 10,
+        bandFillOpacity: 0.55,
+      },
+    )
+    const band = container.querySelector('[data-testid="formation-fill-f"]')
+    expect(band).not.toBeNull()
+    expect(band!.getAttribute('fill-opacity')).toBe('0.55')
   })
 
   it('emits a faded fill band at opacity 0.08 when the surface is stale', () => {
