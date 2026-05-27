@@ -302,19 +302,42 @@ describe('LithoSuggestionGhostColumns', () => {
     expect(edit.depth_base_m).toBeUndefined()
   })
 
-  it('G14 — accepted layer rect has pointerEvents=none so clicks pass through', () => {
-    // Pins the dogfeed 2026-05-20 bug: existing accepted litho was
-    // capturing left-clicks the user intended for the underlying
-    // ContactPickBar (place a new contact). Accepted/rejected layers
-    // are now click-through to let the underlying bar receive the
-    // event. The rect's style.pointerEvents must be 'none' to enable
-    // SVG event pass-through.
+  it('G14 — accepted ghost layer is not rendered (debt #142)', () => {
+    // Pins the dogfeed 2026-05-27 follow-up to the earlier 2026-05-20
+    // pointer-events fix.  Once accepted, the committed FormationContact
+    // takes over as the source of truth; the ghost rect previously
+    // stayed at the raw suggestion depth and read as a phantom contact
+    // after the committed one was dragged.  Hiding the layer entirely
+    // makes the committed contact stand alone AND preserves the
+    // original click-through property (no rect = nothing to intercept
+    // clicks aimed at the underlying ContactPickBar).
     const { container } = renderGhost([makeSuggestion()], {
       acceptedIndices: new Set([0]),
     })
-    const rect = container.querySelector('rect')
-    expect(rect).not.toBeNull()
-    expect((rect as SVGRectElement).style.pointerEvents).toBe('none')
+    // The accepted layer's rect, drag handles, and tick are all gone.
+    // The pattern <defs> remains (cheap) and the column header text
+    // also renders.  Use the anchor-id stamp to detect the layer rect.
+    expect(
+      container.querySelector('rect[data-litho-anchor-id]'),
+    ).toBeNull()
+    expect(container.querySelector('[data-testid="litho-pending-hatch-0"]')).toBeNull()
+  })
+
+  it('G14b — pending ghost layer wears the hatching overlay (debt #142)', () => {
+    const { container } = renderGhost([makeSuggestion()], {
+      // No acceptedIndices / rejectedIndices → pending.
+    })
+    expect(container.querySelector('[data-testid="litho-pending-hatch-0"]')).not.toBeNull()
+  })
+
+  it('G14c — rejected ghost layer is rendered but without the hatching overlay (debt #142)', () => {
+    const { container } = renderGhost([makeSuggestion()], {
+      rejectedIndices: new Set([0]),
+    })
+    // The frozen rect stays so the ↻-restore affordance is visible.
+    expect(container.querySelector('rect')).not.toBeNull()
+    // Hatching is reserved for pending state.
+    expect(container.querySelector('[data-testid="litho-pending-hatch-0"]')).toBeNull()
   })
 
   it('G16 — shared boundary: dragging interior layer top fires onEdit on BOTH dragged + above', () => {
