@@ -173,8 +173,14 @@ interface Props {
    * to mirror BoreholeColumn's snap-to-stratigraphy behaviour: when a
    * borehole anchor has candidates here, the dragged depth snaps to
    * the nearest one within ``SNAP_TOLERANCE_PX``. Empty map / absent
-   * entry → free drag. */
-  snapDepthsByAnchorId?: ReadonlyMap<string, readonly number[]>
+   * entry → free drag.
+   *
+   * Each candidate is ``{ depth, contactId? }`` so the snap fn can
+   * exclude the dragged contact's own depth from its candidate set
+   * (debt #136 self-snap suppression — otherwise small drags pull
+   * back to the start and the user cannot budge the contact). Pure
+   * stratigraphy depths leave ``contactId`` undefined. */
+  snapDepthsByAnchorId?: ReadonlyMap<string, readonly SnapCandidate[]>
   /** Looks up qc + Rf at a given depth for a CPT anchor. Used to
    * decorate the drag readout with the same depth-series values
    * ContactPickBar surfaces on hover — engineers want to see what
@@ -403,6 +409,16 @@ interface DragContact {
  * ``FormationContactCreatePayload`` minus the formation_id-required
  * field. Caller (App.tsx) translates to N parallel POSTs and patches
  * local contacts state with the returned rows. */
+/** One candidate depth in the snap set for an anchor.  ``contactId``
+ *  carries the originating contact id (when the candidate came from a
+ *  committed contact rather than borehole stratigraphy) so the drag
+ *  interaction can suppress self-snap by excluding the dragged
+ *  contact's own row from its candidate list (debt #136). */
+export interface SnapCandidate {
+  depth: number
+  contactId?: string
+}
+
 export interface ContactCopyPayload {
   formation_id: string
   depth_top_m: number
@@ -1531,6 +1547,7 @@ export default function ContactsLayer({
       rawDepth: number,
       anchorId: string,
       pxPerMetre: number,
+      excludeContactId?: string,
     ): { depth: number; snapped: boolean } => {
       if (pxPerMetre === 0) return { depth: rawDepth, snapped: false }
       const candidates = snapDepthsByAnchorId?.get(anchorId)
@@ -1541,10 +1558,14 @@ export default function ContactsLayer({
       let bestPxDistance = SNAP_TOLERANCE_PX + 1
       let bestSnapped = false
       for (const cand of candidates) {
-        const px = Math.abs((cand - rawDepth) * pxPerMetre)
+        // Debt #136 — skip the dragged contact's own row so a small drag
+        // doesn't pull back to its starting depth.  Stratigraphy depths
+        // carry no contactId and always participate.
+        if (excludeContactId !== undefined && cand.contactId === excludeContactId) continue
+        const px = Math.abs((cand.depth - rawDepth) * pxPerMetre)
         if (px <= SNAP_TOLERANCE_PX && px < bestPxDistance) {
           bestPxDistance = px
-          bestDepth = cand
+          bestDepth = cand.depth
           bestSnapped = true
         }
       }
@@ -1662,7 +1683,12 @@ export default function ContactsLayer({
       const draggedSegY = d.startSegY + (e.clientY - d.startClientY)
       const rawDepth = (draggedSegY - surfaceY) / pxPerMetre
       const clamped = Math.max(0, rawDepth)
-      const { depth, snapped } = snapDepth(clamped, depthAnchorId, pxPerMetre)
+      // Pass d.contactId so the snap fn can suppress self-snap on the
+      // dragger's own depth (debt #136).  On a cross-column drag
+      // (depthAnchorId !== d.anchorId) the dragger's id won't appear
+      // in the target's candidate list anyway, so the exclusion is a
+      // safe no-op there.
+      const { depth, snapped } = snapDepth(clamped, depthAnchorId, pxPerMetre, d.contactId)
       setDrag(prev =>
         prev === null
           ? null
