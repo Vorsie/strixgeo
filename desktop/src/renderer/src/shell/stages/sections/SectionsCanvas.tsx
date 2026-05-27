@@ -35,6 +35,7 @@ import type {
 } from '../../../components/sections/CorrelationEdgesOverlay'
 import LithoGeoSnapDialog from '../../../components/LithoGeoSnapDialog'
 import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
+import { readLithoSegmenterPrefs } from '../../../utils/lithoSegmenterPrefs'
 import type { FormationContactResponse } from '../../../api/client'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
@@ -952,24 +953,78 @@ export default function SectionsCanvas(): JSX.Element {
   // class bug, recurred 3×.  The raw handler accepts an optional onSectionUpdated
   // callback; we wire it here at the SectionsCanvas boundary where both
   // selectedSection and applyUpdatedSection are in scope.
-  const sectionAwareAcceptLithoSuggestion = useCallback(
-    async (idx: number): Promise<void> => {
-      await handleAcceptLithoSuggestion(idx, selectedSection?.id ?? null, applyUpdatedSection)
-    },
-    [handleAcceptLithoSuggestion, selectedSection, applyUpdatedSection],
-  )
-
   // ── Debt #134 — litho ↔ geological snap prompt ──────────────────────
   //
   // When a litho-contact drag commits within tolerance of a geological
-  // contact on the same investigation, a 3-option prompt opens so the
-  // user picks the direction of the snap (snap litho, move geo with a
-  // rebuild cascade, or keep them separate).
+  // contact on the same investigation (or the post-accept check #134-C
+  // lands a brand-new contact in the same zone), a 3-option prompt
+  // opens so the user picks the direction of the snap (snap litho,
+  // move geo with a rebuild cascade, or keep them separate).
   //
-  // Tolerance is hard-coded at 0.20 m for the MVP slice; the configurable
-  // ``view_state.litho_segmenter.litho_snap_tolerance_m`` settings field
-  // is filed as deferred work in the closing commit.
-  const LITHO_GEO_SNAP_TOLERANCE_M = 0.2
+  // Tolerance is per-project (debt #134-A): reads from
+  // ``view_state.litho_segmenter.litho_snap_tolerance_m`` with a 0.20 m
+  // default that matches the original MVP.  Settings → Litho segmenter
+  // exposes the field.
+  const lithoSnapToleranceM = useMemo(
+    () => readLithoSegmenterPrefs(project?.view_state ?? null).lithoSnapToleranceM,
+    [project?.view_state],
+  )
+
+  const sectionAwareAcceptLithoSuggestion = useCallback(
+    async (idx: number): Promise<void> => {
+      const result = await handleAcceptLithoSuggestion(
+        idx,
+        selectedSection?.id ?? null,
+        applyUpdatedSection,
+      )
+      // Debt #134-C — post-accept litho-geo snap check.  Only the
+      // single-suggestion path is wired here; accept-all-focused +
+      // bulk paths are tracked under follow-up work (see debt entry).
+      //
+      // Read the depth the user actually accepted (after any drag-
+      // resize edits) from the focused-anchor ghost entry — same
+      // source the handler uses internally, so the two are guaranteed
+      // to agree on what was sent.
+      if (result === null || !isLitho) return
+      if (focusedSuggestAnchorId === null) return
+      const entry = ghostsByAnchor.get(focusedSuggestAnchorId)
+      if (!entry || idx < 0 || idx >= entry.suggestions.length) return
+      const raw = entry.suggestions[idx]
+      const edit = entry.edits.get(idx)
+      const acceptedTopM = edit?.depth_top_m ?? raw.depth_top_m
+      const candidates = findGeoSnapCandidates(
+        acceptedTopM,
+        focusedSuggestAnchorId,
+        contacts,
+        lithoSnapToleranceM,
+      )
+      if (candidates.length === 0) return
+      // ``result.created_contact_ids[0]`` is the upper-half contact for
+      // the only accepted suggestion (the find-or-create loop creates
+      // the upper interval first; the lower-half on a straddle follows
+      // immediately after).  If nothing was actually created (idempotent
+      // re-accept of an already-committed layer), there is no contact
+      // to retarget — silently skip the prompt.
+      const newContactId = result.created_contact_ids[0]
+      if (!newContactId) return
+      setLithoGeoSnapPrompt({
+        lithoContactId: newContactId,
+        rawDepthM: acceptedTopM,
+        candidates,
+      })
+    },
+    [
+      handleAcceptLithoSuggestion,
+      selectedSection,
+      applyUpdatedSection,
+      isLitho,
+      focusedSuggestAnchorId,
+      ghostsByAnchor,
+      contacts,
+      lithoSnapToleranceM,
+    ],
+  )
+
   const [lithoGeoSnapPrompt, setLithoGeoSnapPrompt] = useState<{
     lithoContactId: string
     rawDepthM: number
@@ -995,7 +1050,7 @@ export default function SectionsCanvas(): JSX.Element {
         newDepthM,
         anchorId,
         contacts,
-        LITHO_GEO_SNAP_TOLERANCE_M,
+        lithoSnapToleranceM,
       )
       if (candidates.length === 0) return
       setLithoGeoSnapPrompt({
@@ -1004,7 +1059,7 @@ export default function SectionsCanvas(): JSX.Element {
         candidates,
       })
     },
-    [handleUpdateContactDepth, isLitho, lithoContacts, contacts],
+    [handleUpdateContactDepth, isLitho, lithoContacts, contacts, lithoSnapToleranceM],
   )
 
   const handleSnapLithoToGeo = useCallback(
@@ -1698,6 +1753,12 @@ export default function SectionsCanvas(): JSX.Element {
           // is shown instead of the geological FormationPicker when the
           // section is on the lithostratigraphic axis.
           axisMode={isLitho ? 'lithostratigraphic' : 'geological'}
+          // Debt #134-B — drag-readout "↦ snap on release" hint.  Pure
+          // pre-release telegraph for the same prompt the post-release
+          // wrapper above (handleLithoSnapAwareUpdateContactDepth)
+          // fires.  Wired only on the litho axis; ContactsLayer also
+          // guards on a non-empty referenceContacts set.
+          geoSnapToleranceM={isLitho ? lithoSnapToleranceM : undefined}
           onManualLithoUnitCreate={isLitho ? handleManualLithoUnitCreate : undefined}
           onLithoExistingUnitPick={isLitho ? handleLithoExistingUnitPick : undefined}
           activeLithoModelId={isLitho ? (activeLithoModel?.id ?? null) : null}
