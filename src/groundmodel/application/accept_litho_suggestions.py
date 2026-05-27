@@ -24,22 +24,29 @@ identical units that differ only in local/global presence stay in the same
 bucket by owner decision).  Signature = ``"|".join(sorted([a.canonical_key()
 for a in admixtures]))`` — empty string when no admixtures.
 
-STRADDLE SPLIT
---------------
-A suggestion whose depth interval [top, base] crosses a parent geological-
-formation boundary is SPLIT into two contacts: one for the upper parent
-formation, one for the lower.  The split elevation is the boundary depth at the
-investigation's (x, y) — sampled via ``evaluate_tin_at`` on the geology TIN
-cached for each geological formation.  When the TIN is stale or absent the
-boundary is approximated by sorting existing contacts on the investigation by
-depth and picking the one that falls inside [top, base] — a WARNING is logged
-(debt #68).
+VERBATIM COPY (owner directive 2026-05-27, #149 v3)
+----------------------------------------------------
+Every ghost in the input becomes EXACTLY one ``FormationContact``.
+The use case neither splits a ghost (the legacy straddle-split was
+retired because it surfaced as "double SAND units" after Accept —
+one merged SAND ghost crossing a geo boundary produced two stacked
+SAND units in the inspector) nor merges adjacent same-litho ghosts
+(that's the segmenter's job at Suggest-time).  The pending-ghost
+view IS the user's intent; accept copies it verbatim.
+
+A ghost's ``parent_formation_id`` is the geo formation at the
+ghost's TOP depth.  If the engineer wants a ghost split at a geo
+boundary, they do it manually with the Split-layer gesture before
+accepting.  ``straddle_split_count`` and
+``stale_tin_fallback_count`` on :class:`AcceptLithoResult` are
+kept for backwards compat with API consumers but are always 0
+under the new rule.
 
 NON-NEGOTIABLE TRAP (recurred 3 × in prior builds)
 ---------------------------------------------------
-Every created AND found contact id — including BOTH halves of a straddle split
-— MUST be unioned into the section's ``seeded_formation_contact_ids`` before
-this use case returns.  The caller must forward ``applyUpdatedSection``
+Every created AND found contact id MUST be unioned into the
+section's ``seeded_formation_contact_ids`` before this use case
+returns.  The caller must forward ``applyUpdatedSection``
 (explicit-content invariant).
 """
 
@@ -667,164 +674,103 @@ class AcceptLithoSuggestions(GroundModelLogger):
         inv_elevation_m: float | None,
         suggestion_index: int,
     ) -> _StraddleResult:
-        """Determine whether a suggestion straddles a geology boundary.
+        """Resolve the parent geology formation for a single ghost.
 
-        Returns a :class:`_StraddleResult` whose ``intervals`` list contains:
-        * One entry ``(depth_top_m, parent_formation_id)`` for a non-straddle.
-        * Two entries for a straddle — upper half + lower half — each with its
-          own ``parent_formation_id``.
+        Owner directive 2026-05-27 (#149 v3): ``AcceptLithoSuggestions``
+        is a strict 1:1 copy of the suggestion shape — N ghosts in, N
+        contacts out.  The legacy STRADDLE SPLIT behaviour (a ghost
+        crossing a geology boundary was split into two contacts under
+        two different parent_fids) is retired because it surfaced as
+        "double SAND units" after Accept-litho — the engineer drew or
+        accepted ONE merged SAND ghost and got two stacked SAND units
+        in the inspector.
 
-        When no parent geology surfaces exist, returns a single-interval result
-        with ``parent_formation_id=None``.
+        New rule: every ghost becomes ONE contact whose
+        ``parent_formation_id`` is the geology formation at the ghost's
+        TOP depth.  If the engineer wants a split at a geology boundary
+        they can do it manually with the Split-layer gesture before
+        accepting.
+
+        The method name is kept for git-history continuity; rename in a
+        follow-up cleanup is fine.
 
         Parameters
         ----------
         suggestion : LithoLayerSuggestion
             The suggestion to evaluate.
         geology_surfaces : dict[UUID, FormationSurfaceOrm]
-            Cached TIN surfaces keyed by geology formation id.
+            Cached TIN surfaces keyed by geology formation id.  Used
+            only for the TIN-extrapolation fallback when no geology
+            contact at this investigation covers the ghost's top depth.
         geology_contacts_at_inv : list[tuple[float, UUID]]
-            Depth-ordered contacts from the parent geology model at this
-            investigation (used as stale-TIN fallback).
+            Depth-ordered contacts from the parent geology model at
+            this investigation.  The shallowest contact at-or-above the
+            ghost's top depth supplies the parent_fid.
         inv_x, inv_y : float
-            Investigation location for TIN sampling.
+            Investigation location for TIN extrapolation.
+        inv_elevation_m : float | None
+            Investigation surface elevation.  Required for TIN
+            extrapolation (depth → absolute z conversion).
         suggestion_index : int
             0-based index within the suggestions list (for logging).
 
         Returns
         -------
         _StraddleResult
+            Always a single-interval result.  ``stale_tin_fallback_count``
+            is always 0 because no boundary-precision fallback fires
+            on the no-split path.
         """
         top = suggestion.depth_top_m
-        base = suggestion.depth_base_m
 
         if not geology_surfaces and not geology_contacts_at_inv:
             # No geology context AT ALL — single interval, no parent. TIN
             # extrapolation is impossible here (no surfaces to sample) so
-            # the suggestion is destined for the orphan bucket.  The
-            # surfaces-exist-but-no-contacts-here case takes the "no
-            # boundaries" exit below; it CAN extrapolate.
+            # the suggestion is destined for the orphan bucket.
             return _StraddleResult(
                 intervals=[(top, None)],
                 stale_tin_fallback_count=0,
             )
 
-        # Build a list of (boundary_depth, upper_fid, lower_fid) from TINs.
-        # A boundary at depth D means: suggestion [top, D] → upper_fid,
-        # suggestion [D, base] → lower_fid.
-        boundaries: list[tuple[float, UUID | None, UUID | None]] = []
-        stale_fallbacks = 0
-
-        # Sort geology contacts by depth to establish formation order at inv.
-        # Each contact is "formation X tops at depth D" — sorted ascending we
-        # get the stratigraphic column for this investigation.
+        # Sort geology contacts by depth to establish formation order at
+        # the investigation.  Each contact is "formation X tops at depth
+        # D" — ascending depth = stratigraphic column from young to old.
         contacts_sorted = sorted(geology_contacts_at_inv, key=lambda c: c[0])
 
-        # For each consecutive pair of geology contacts, their boundary falls
-        # at the upper contact's depth (that is where the younger formation
-        # ends and the older one begins, from depth perspective).
-        # But we want the boundary DEPTH that falls WITHIN [top, base].
-        # Boundary is the depth at which a lower (older) formation begins,
-        # i.e. the depth_top_m of the LOWER formation's contact.
-        for i in range(len(contacts_sorted) - 1):
-            upper_depth, upper_fid = contacts_sorted[i]
-            lower_depth, lower_fid = contacts_sorted[i + 1]
-            # The boundary is at lower_depth (the lower formation tops here).
-            boundary_candidate = lower_depth
-            if top < boundary_candidate < base:
-                # Try TIN evaluation for the precise elevation-depth; fall back
-                # to depth ordering (debt #68).
-                tin_ok = False
-                if upper_fid in geology_surfaces:
-                    surf_orm = geology_surfaces[upper_fid]
-                    if not surf_orm.is_stale and surf_orm.vertices:
-                        tin = _tin_from_surface_orm(surf_orm)
-                        if tin is not None:
-                            tin_ok = True
-                            # TIN gives elevation above datum; we need depth.
-                            # Surface elevation is in absolute TAW metres;
-                            # depth = inv_elevation - surface_elev.  We only
-                            # need the RELATIVE boundary position within [top,
-                            # base] to decide which parent formation each half
-                            # belongs to.  The depth from the contact already
-                            # provides that; TIN just gives a more precise split
-                            # when the surface dips across the investigation.
-                            _ = evaluate_tin_at(tin, inv_x, inv_y)
-                            # Use the TIN-based value only when it falls within
-                            # [top, base]; otherwise keep the contact depth.
-                            # At Phase 1, depth-ordering is good enough for the
-                            # parent-formation assignment; the TIN tells us the
-                            # formation surface elevation, not the split depth in
-                            # depth coordinates directly. Keep depth-based for now
-                            # and log if the TIN was available.
-                            self.trace(
-                                f"[{suggestion_index + 1}] TIN surface available for "
-                                f"formation {upper_fid} — using contact-depth boundary "
-                                f"{boundary_candidate:.2f}m (TIN provides absolute elevation; "
-                                "depth-coord split is exact here)"
-                            )
-
-                if not tin_ok:
-                    stale_fallbacks += 1
-                    self.warning(
-                        f"[{suggestion_index + 1}] Straddle at depth {boundary_candidate:.2f}m: "
-                        f"TIN for geology formation {upper_fid} is stale or absent — "
-                        "falling back to contact-depth boundary (debt #68). "
-                        "Rebuild the geology model to improve straddle precision."
-                    )
-
-                boundaries.append((boundary_candidate, upper_fid, lower_fid))
-
-        if not boundaries:
-            # No boundary within [top, base] — determine parent from which
-            # geology formation contains this depth range.
-            parent_fid = self._parent_fid_for_depth(top, contacts_sorted)
-            extrapolated = False
-            if parent_fid is None and geology_surfaces and inv_elevation_m is not None:
-                # Debt #87: contact-based lookup failed (no contacts at this
-                # investigation, OR suggestion top sits above the shallowest
-                # contact) but geology TINs exist — extrapolate.  Convert
-                # depth-below-ground to absolute z and ask which formation's
-                # TIN surface lies just above z at (inv_x, inv_y).
-                target_z = inv_elevation_m - top
-                parent_fid = self._extrapolate_parent_from_tins(
-                    target_z=target_z,
-                    geology_surfaces=geology_surfaces,
-                    inv_x=inv_x,
-                    inv_y=inv_y,
-                    suggestion_index=suggestion_index,
-                )
-                if parent_fid is not None:
-                    extrapolated = True
-                    self.info(
-                        f"[{suggestion_index + 1}] TIN-extrapolated parent: "
-                        f"depth_top={top:.2f}m → abs_z={target_z:.2f}m → "
-                        f"formation {parent_fid} (engineer should confirm)"
-                    )
-                else:
-                    self.warning(
-                        f"[{suggestion_index + 1}] Could not extrapolate parent: "
-                        f"depth_top={top:.2f}m abs_z={target_z:.2f}m sits above all "
-                        "geology TIN surfaces at this (x, y) or outside every TIN "
-                        "footprint — accepting as orphan (parent_formation_id NULL)"
-                    )
-            return _StraddleResult(
-                intervals=[(top, parent_fid)],
-                stale_tin_fallback_count=stale_fallbacks,
-                extrapolated=extrapolated,
+        # Parent for the ghost = geo formation that contains the ghost's
+        # TOP depth.  Contact-based lookup first; TIN extrapolation as
+        # the debt #87 fallback when no contact at this investigation
+        # covers ``top`` (e.g. the ghost sits above the shallowest
+        # geology contact here).
+        parent_fid = self._parent_fid_for_depth(top, contacts_sorted)
+        extrapolated = False
+        if parent_fid is None and geology_surfaces and inv_elevation_m is not None:
+            target_z = inv_elevation_m - top
+            parent_fid = self._extrapolate_parent_from_tins(
+                target_z=target_z,
+                geology_surfaces=geology_surfaces,
+                inv_x=inv_x,
+                inv_y=inv_y,
+                suggestion_index=suggestion_index,
             )
-
-        # There is at least one boundary in [top, base] — take the first one
-        # (Phase 1: one straddle boundary per suggestion).
-        boundary_depth, upper_fid, lower_fid = boundaries[0]
-        self.info(
-            f"[{suggestion_index + 1}] Straddle: suggestion [{top:.2f}, {base:.2f}]m "
-            f"crosses geology boundary at {boundary_depth:.2f}m — "
-            f"splitting into upper (parent={upper_fid}) + lower (parent={lower_fid})"
-        )
+            if parent_fid is not None:
+                extrapolated = True
+                self.info(
+                    f"[{suggestion_index + 1}] TIN-extrapolated parent: "
+                    f"depth_top={top:.2f}m → abs_z={target_z:.2f}m → "
+                    f"formation {parent_fid} (engineer should confirm)"
+                )
+            else:
+                self.warning(
+                    f"[{suggestion_index + 1}] Could not extrapolate parent: "
+                    f"depth_top={top:.2f}m abs_z={target_z:.2f}m sits above all "
+                    "geology TIN surfaces at this (x, y) or outside every TIN "
+                    "footprint — accepting as orphan (parent_formation_id NULL)"
+                )
         return _StraddleResult(
-            intervals=[(top, upper_fid), (boundary_depth, lower_fid)],
-            stale_tin_fallback_count=stale_fallbacks,
+            intervals=[(top, parent_fid)],
+            stale_tin_fallback_count=0,
+            extrapolated=extrapolated,
         )
 
     @staticmethod
