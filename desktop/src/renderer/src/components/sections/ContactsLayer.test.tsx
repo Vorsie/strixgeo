@@ -1830,11 +1830,17 @@ describe('ContactsLayer', () => {
       undefined,
       { perColumnBandsFromContacts: true },
     )
-    // One band per adjacent-contact pair (here: 1 pair → 1 band).
+    // Two bands: one between c-1 and c-2 (SAND), one below c-2
+    // extending to total_depth_m=30 (CLAY).  The bottom-extension
+    // band was added in the 2026-05-27 dogfeed follow-up — without
+    // it the deepest litho unit had no rect ("bottom layer not
+    // rendered").
     const bands = container.querySelectorAll('[data-testid^="per-column-litho-band-"]')
-    expect(bands.length).toBe(1)
-    // The shallower contact's formation defines the band colour.
+    expect(bands.length).toBe(2)
+    // First band: shallower contact's formation (SAND).
     expect(bands[0].getAttribute('fill')).toBe('#fbbf24')
+    // Bottom-extension band uses the LAST contact's formation (CLAY).
+    expect(bands[1].getAttribute('fill')).toBe('#64748b')
   })
 
   it('PC2: per-column bands are absent when the prop is off (default)', () => {
@@ -1855,6 +1861,33 @@ describe('ContactsLayer', () => {
     expect(
       container.querySelectorAll('[data-testid^="per-column-litho-band-"]').length,
     ).toBe(0)
+  })
+
+  it('PC4: per-column bands extend below the deepest contact to test bottom (#142 follow-up)', () => {
+    // Dogfeed 2026-05-27: "bottom layer not rendered" — the deepest
+    // litho unit had no rect because the previous loop only painted
+    // BETWEEN adjacent contacts.  The last contact's formation
+    // continues to ``total_depth_m`` (borehole) / ``max_depth_m``
+    // (CPT); this test pins that.
+    const contacts = [
+      makeContact({ id: 'c-1', borehole_id: 'bh-1', depth_top_m: 5, formation_id: 'f-sand' }),
+    ]
+    const formations = [
+      makeFormation({ id: 'f-sand', name: 'SAND', color: '#fbbf24' }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      formations,
+      [makeBoreholePlaced('bh-1', 100)], // total_depth_m=30 in fixture
+      undefined,
+      { perColumnBandsFromContacts: true },
+    )
+    const bands = container.querySelectorAll('[data-testid^="per-column-litho-band-"]')
+    // Only one contact → no between-contact band, just the
+    // bottom-extension band from depth 5 → 30.
+    expect(bands.length).toBe(1)
+    expect(bands[0].getAttribute('data-testid')).toMatch(/-bottom$/)
+    expect(bands[0].getAttribute('fill')).toBe('#fbbf24')
   })
 
   it('PC3b: per-column bands prefer LITHOLOGY_COLORS via litho_main_soil_code (#142 follow-up)', () => {
