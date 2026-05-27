@@ -3230,76 +3230,56 @@ endpoints + manual gesture + basic renderer support.
 confirms the boundary-click gesture is usable. Phase 3: before first
 external/paid distribution (backwards-compat re-arm trigger).
 
-## 134. Snap litho contacts to nearby geological contacts (Tier G — sliver prevention)
+## 134-A. Litho-geo snap tolerance configurable per-project (Tier G — deferred from #134)
 
-**What.** When a litho contact is created, accepted, or moved on an
-investigation, check for a geological contact on the SAME investigation
-within ``±20 cm`` (configurable later) of the litho contact's depth. If
-one is found, snap the litho contact's ``depth_top_m`` to the geological
-contact's depth so they share a horizon exactly.
+**What.** Move the ``LITHO_GEO_SNAP_TOLERANCE_M`` constant in
+``SectionsCanvas.tsx`` onto ``view_state.litho_segmenter.litho_snap_tolerance_m``
+(default 0.20 m) and add a number input to the litho-segmenter
+settings dialog next to ``minimum_layer_thickness_m`` and
+``merge_same_lithology``.
 
-**Why this matters.** Without snapping, a litho contact at ``7.50 m`` and a
-geological contact at ``7.62 m`` on the same investigation produce a
-``12 cm`` sliver layer between them — geologically meaningless, but it
-becomes a real unit in the exported model (separate band in the section
-view, separate row in Plaxis / DXF exports, separate target for geotech
-subdivision). The user can manually drag them flush but it's tedious to
-do per-contact across N investigations after every Suggest pass.
+**Why deferred.** Owner approved a drag-path MVP scope on
+2026-05-27 with the tolerance hard-coded.  The configurable field
+needs plumbing in client.ts (request/response types), the
+useGeologicalModel PATCH path that already writes the litho_segmenter
+bag, and the settings UI.
 
-**Where it fires.**
-- ``accept_litho_suggestions.py`` — the bulk + single accept paths. Before
-  inserting the new ``formation_contact``, query for a sibling geological
-  contact within tolerance; if present, the user is prompted (see Design
-  decisions below) to decide direction.
-- ``update_formation_contact.py`` — when a litho contact is dragged, the
-  PATCH handler runs the same snap check + prompt.
-- Frontend visual cue: when the dragger is within the snap zone of a
-  geological contact, render a snap indicator (similar to Slice 3's
-  collapse snap; different colour) so the user knows the prompt will fire
-  on release.
+**When to revisit.** Next dogfeed session that calls out the
+20 cm tolerance as too tight or too loose.
 
-**Design decisions (owner-confirmed 2026-05-26).**
+## 134-B. Litho-geo snap visual indicator on the dragger (Tier G — deferred from #134)
 
-* **Tolerance: configurable per-project.** Add ``litho_snap_tolerance_m``
-  to ``view_state.litho_segmenter`` alongside ``minimum_layer_thickness_m``
-  and ``merge_same_lithology``. Settings dialog exposes a number input.
-  Default 0.20 m.
+**What.** While a litho contact is being dragged, render a visual
+snap-zone indicator (similar to Slice 3's collapse-snap glyph but
+in a distinct colour) when the cursor lands within ±tolerance of any
+geological contact on the same investigation.  Telegraphs "the
+prompt will fire on release" so the user knows the gesture is
+about to engage a confirmation flow.
 
-* **Snap direction: user-prompted (not automatic).** When the snap zone is
-  triggered, open a small modal:
-  - "Snap this litho contact to the geological contact at ``<depth>`` m"
-    (default-focus, cheaper path — only the litho contact moves)
-  - "Move the geological contact to ``<litho depth>`` m" (heavier — the
-    geological model is mutated)
-  - "Cancel — keep them separate"
-  Esc fires Cancel. Default focus on the litho→geological option since it
-  is the cheaper / safer outcome.
+**Why deferred.** MVP shipped the post-release prompt; the pre-
+release telegraph is polish.  Needs the per-frame snap-zone check
+in ContactsLayer's drag handler + a new svg glyph next to the drag
+readout.
 
-* **If user picks 'move geological': cascade automatically.** A geological
-  contact move invalidates the geological model's TIN surfaces and the
-  litho stage's sync-from-stratigraphy state. After the PATCH:
-  1. Mark affected ``formation_surface`` rows ``is_stale=True`` (already
-     happens via existing trigger on contact update).
-  2. Automatically run ``POST /geology/models/{mid}/surfaces/rebuild`` so
-     the user doesn't see stale dashed surfaces.
-  3. Trigger ``SyncGeologicalModel`` (or equivalent — the "Sync geology"
-     toolbar action's use case) on any affected litho models so the
-     downstream litho geometry re-anchors to the new geological surface.
-  Show a single progress toast covering both steps so the user understands
-  what's happening; if rebuild fails the snap is rolled back transactionally.
+**When to revisit.** When a dogfeed reports the prompt feels
+surprising (no pre-release hint).
 
-* **Conflict resolution when TWO geological contacts within tolerance.**
-  The prompt lists BOTH options with their depths and the nearer one
-  default-focused. If equidistant, the deeper one is offered first
-  (matches the geological superposition convention — newer/shallower
-  surfaces are typically the ones the user is actively editing, so the
-  deeper one is the "established" anchor).
+## 134-C. Litho-geo snap on the accept-litho-suggestions paths (Tier G — deferred from #134)
 
-**When to revisit.** Next dogfeed pass that reports sliver layers
-producing wrong unit counts in the Plaxis/DXF exports, OR before the
-geotech subdivision work begins (which is downstream of the litho
-geometry and would inherit the slivers).
-Filed from dogfeed session 2026-05-26.
+**What.** Extend the snap-prompt to fire when a litho suggestion
+is accepted (single accept + bulk Accept-all) — not only when an
+already-committed litho contact is dragged.  The original #134
+spec listed both triggers; the MVP only covered drag.
+
+**Why deferred.** The accept paths run server-side
+(``accept_litho_suggestions.py``) and would need a richer response
+shape (return per-accept snap candidates so the client can prompt
+post-accept) OR a pre-accept client-side check that intercepts the
+gesture before it reaches the server.  Either approach is a wider
+change than the drag-path wrapper that landed.
+
+**When to revisit.** When dogfeed shows users still producing
+slivers post-Accept-all despite the drag-path prompt working.
 
 ## 135. Two correlation edges from one contact for lens topology — RESOLVED 2026-05-26
 
