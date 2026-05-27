@@ -31,6 +31,7 @@ subdivision is built on top of it. Priority order:
 * **#141** — combine 3 correlation toolbar buttons into a grouped/dropdown affordance (UX polish — filed dogfeed 2026-05-27)
 * **#142** — RESOLVED 2026-05-27 (accepted ghost hidden + pending wears hatching overlay)
 * **#143** — accepted litho contacts have low visibility on the litho axis (polish — filed dogfeed 2026-05-27)
+* **#144** — Accept-all (litho) writes directly to DB — needs to flow through the dirty/manual-save model (filed dogfeed 2026-05-27)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
 
@@ -3556,6 +3557,47 @@ agree on the new contrast level so the contact is legible on every
 formation colour.
 
 **When to revisit.** Next visual polish pass.
+Filed from dogfeed session 2026-05-27.
+
+## 144. Accept-all (litho) writes directly to DB — wire it through the dirty/manual-save model (Tier G)
+
+**What.** Owner dogfeed 2026-05-27: "accept all - auto saves - we
+need to wire it through a dirty/manual save flow".  Today the bulk
+"Accept all" path in ``useGeologicalModel.handleAcceptAllBulkLitho``
+(and the single-accept ``handleAcceptLithoSuggestion``) POSTs the
+generated contacts straight to ``accept_litho_suggestions``, so the
+DB row count goes up before the user has had a chance to review +
+explicitly save.  This violates the project-wide two-stage save
+contract (see ``memory/project_two_stage_save_model.md``): per-
+project decisions should mark the project dirty and only land in
+the DB + ``.gmproj`` on File → Save.
+
+**Why deferred.** The two-stage model lives at the metadata layer
+today; contact mutations were always direct-to-DB.  Wiring accept
+flows through it touches the application layer (the accept use
+case becomes a STAGED commit), the bus (a new staged-contacts
+buffer next to ``ghostsByAnchor``), the lifecycle dirty bag, and
+the .gmproj bundle restore path (so a half-accepted-but-unsaved
+session can be replayed on next open).  Substantial — touches
+every layer.
+
+**Open design questions:**
+* Does the staged commit live in-memory only, or in a session-
+  scoped DB table that the .gmproj round-trip can capture?
+* The same model should probably extend to every contact mutation
+  (drag/PATCH, delete, copy-drag, pinch-out, …), not just the
+  litho accept flows.  Scoping it just to litho accept is a half-
+  measure; doing it for all contact mutations is a bigger refactor.
+* Litho ghost state (``ghostsByAnchor``) is already in-memory and
+  pre-DB — the staged-accept could just keep the contact in ghost
+  state with an ``accepted-but-unsaved`` flag, then commit the
+  batch on File → Save.
+
+**When to revisit.** Sequenced with #142-B / #142-C deferred slices
++ any other "user expected this to be reversible" dogfeed reports.
+Likely a multi-session feature.  Pair with #142's path-B follow-
+through so the staged accept + the ghost-follows-contact-depth
+visual stay aligned.
 Filed from dogfeed session 2026-05-27.
 
 ## (end)
