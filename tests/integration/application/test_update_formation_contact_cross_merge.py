@@ -432,17 +432,23 @@ async def test_reanchor_skips_cross_merge(db_session: AsyncSession, project: Pro
 
 
 # ---------------------------------------------------------------------------
-# Case 9 — Litho model: cross-merge triggers resolver + lens detection
+# Case 9 — Litho model: cross-merge is DISABLED entirely (owner directive 2026-05-27)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_litho_model_cascade_runs(db_session: AsyncSession, project: ProjectOrm) -> None:
-    """Cross-merge on a litho model fires ResolveLithoInstances + DetectLithoLenses.
+async def test_litho_model_cross_merge_disabled(
+    db_session: AsyncSession, project: ProjectOrm
+) -> None:
+    """Litho contacts skip cross-merge — peer contacts survive a depth-crossing drag.
 
-    We verify the cascade ran by checking that no LithoLensOrm row was
-    spuriously left behind (the lens detector reconciles after the contact
-    delete) and that the use case completes without error.
+    Owner directive 2026-05-27: "delete the merge/collapse on accepted
+    lithos (when dragging one boundary over another) — quick-and-dirty
+    merging is for suggestions; once accepted, the user must remove via
+    explicit right-click verbs".  Previously this case asserted the
+    cascade fired and peer ``c_b`` was deleted; now it pins the
+    inverse: ``c_b`` survives and all three contacts remain on the
+    borehole at the new depths.
     """
     geo = _geo_model(project)
     litho = _litho_model(project, geo)
@@ -461,25 +467,29 @@ async def test_litho_model_cascade_runs(db_session: AsyncSession, project: Proje
     db_session.add_all([c_a, c_b, c_c])
     await db_session.commit()
 
-    # Drag c_c UP from 12 → 5 → crosses c_b (7 ∈ [5, 12)): c_b deleted, c_c survives at 5.
+    # Drag c_c UP from 12 → 5 → on a geological model this would cross
+    # c_b (7 ∈ [5, 12)) and delete it.  On a litho model the cross-merge
+    # block is bypassed entirely: c_c commits at depth 5, c_b stays.
     uc = UpdateFormationContact(db_session)
     result = await uc.execute(c_c.id, {"depth_top_m": 5.0})
 
     assert result is not None
     assert not uc.absorbed
 
-    # Cascade must not raise; lens detector reconciles (no lens topology here → 0 rows).
+    # All three contacts remain; c_c now at 5, others unchanged.
+    remaining = await _all_contacts_on_anchor(db_session, litho.id, bh.id)
+    depths = {c.depth_top_m for c in remaining}
+    assert depths == {3.0, 5.0, 7.0}
+
+    # No lens rows materialised — the resolver/lens-detector cascade
+    # only fired on cross-merge deletions, and that path is now dead
+    # for litho contacts.
     lens_rows = (
         (await db_session.execute(select(LithoLensOrm).where(LithoLensOrm.model_id == litho.id)))
         .scalars()
         .all()
     )
     assert len(lens_rows) == 0
-
-    # c_b must be gone; c_a and c_c (at 5) survive.
-    remaining = await _all_contacts_on_anchor(db_session, litho.id, bh.id)
-    depths = {c.depth_top_m for c in remaining}
-    assert depths == {3.0, 5.0}
 
 
 # ---------------------------------------------------------------------------
