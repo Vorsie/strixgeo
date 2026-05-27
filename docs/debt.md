@@ -36,7 +36,7 @@ subdivision is built on top of it. Priority order:
 * **#146** — remaining grey surfaces (labels, contact strip lines, legend, Geology3DViewer, exports) still pull formation.color (filed dogfeed 2026-05-27)
 * **#147** — RESOLVED 2026-05-27 (immediate-clear of lithoContacts on model switch + pill unit count scoped to this-model contacts + refetch formations on model delete)
 * **#148** — RESOLVED 2026-05-27 (inspector pill + roster are now model-scoped via #147 follow-up; the "1 unit retained" symptom can no longer render. Toast wording is accurate after the same fix)
-* **#149** — RESOLVED 2026-05-27 v3 (straddle-split retired too; one ghost = one contact regardless of geo-boundary crossings; parent_fid taken from ghost's TOP depth. v1 was the merge-on-accept attempt [reverted]; v2 disabled the merge; v3 disables the split. The verbatim-copy rule is now fully realized: N ghosts in → N contacts out). See [[feedback-litho-accept-verbatim-copy]]
+* **#149** — OPEN; double SAND/SILT units after Accept-litho. v1 (accept-time same-litho merge) reverted; v2 (no merge, straddle kept) shipped but doubling persists; v3 (straddle-split also retired) reverted per owner directive "i want it to split on the geologic boundary but that is not what was happening here". The actual doubling cause is NOT straddle and NOT segmenter-merge drift — investigation pending. See [[feedback-litho-accept-verbatim-copy]]
 * **#153** — accept-all-bulk wall-clock is 5–10 s on the oudenaarde-shape project; per-investigation HTTP loop with N×project_formations SELECT + N×commit. Profile before optimising (combined endpoint vs caching vs parallel) (filed dogfeed 2026-05-27)
 * **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
 * **#151** — RESOLVED 2026-05-27 (right-click menu on litho band → Remove; on empty space → Add new suggestion)
@@ -3720,7 +3720,7 @@ correct all along; the bug was on the consumer side.
 **No code change for #148 specifically.**  Symptom can no longer
 render after the #147 follow-up landed.
 
-## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G) — RESOLVED 2026-05-27 v3
+## 149. Double SAND / SILT units after Accept-litho (Tier G — OPEN)
 
 **What.** Owner dogfeed 2026-05-27 reported "double sand or silt
 units" appearing in the inspector after Accept-litho, even when
@@ -3755,20 +3755,74 @@ warning toast and the "N stale-TIN fallback" pill never fire
 under the new rule (next cleanup pass can drop the fields
 entirely).
 
-**Owner directive 2026-05-27 (verbatim):** "how hard can it be
-to just take the merged litho's from suggestions and make them
-permanent".
+**v3 reverted same day.** Owner re-dogfed and clarified: "i want
+it to split on the geologic boundary but that is not what was
+happening here".  Straddle-split is the wanted behaviour — the
+three-level model needs to assign each interval to its geo
+formation, and a ghost crossing the boundary geologically IS
+two stratigraphic units (one in the upper formation, one in the
+lower).  The doubling the owner saw is from some OTHER mechanism
+(filed as #154).
+
+**Final state (v2).** ``AcceptLithoSuggestions.execute`` neither
+merges adjacent same-litho ghosts (Suggest-time only) nor
+adds any v1-style merge pass.  Straddle-split inside the loop
+is unchanged — one ghost crossing a geology boundary → two
+contacts under different parent_fids.
 
 **Tests.** AC1 (two adjacent SAND ghosts → 2 contacts), AC2
 (one merged SAND ghost → 1 contact), AC3 (SAND/KLEI/SAND triple
-→ 3 contacts) pin the no-merge half (v2).  A2 (ghost spanning
-boundary → 1 contact at top parent) and A3 (stale TIN no longer
-triggers fallback) pin the no-split half (v3).
+→ 3 contacts) pin the verbatim-copy / no-merge invariant.  A2
+(ghost spanning boundary → 2 contacts under upper + lower
+parent_fids) and A3 (stale TIN falls back to depth-ordering)
+pin the straddle behaviour.
 
-**Lesson.** The pending-ghost view IS the user's intent.  Any
-accept-time reshape — merge OR split — silently undoes user
-editing or surprises with auto-generated units.  Memory:
-[[feedback-litho-accept-verbatim-copy]] (updated v3).
+**Lesson (so far).** The pending-ghost view IS the user's intent
+for adjacency, but the three-level model's geo-parent assignment
+runs on top of the verbatim copy.  Don't conflate the two:
+merging adjacent same-litho ghosts is reshape; straddle-split
+on a geo boundary is the model's correctness rule.  Memory:
+[[feedback-litho-accept-verbatim-copy]].
+
+**Still open: actual doubling cause.**  After v2 ships the
+verbatim-copy rule and v3 is reverted (straddle restored), the
+owner reports the doubling still happens in some scenario —
+"i'm still seeing some double sand or silt units after i click
+accept litho, how hard can it be to just take the merged litho's
+from suggestions and make them permanent ... i want it to split
+on the geologic boundary but that is not what was happening
+here".  AcceptLithoSuggestions has exactly one place that
+creates new ``GeologicalFormation`` rows
+(``_create_litho_formation``).  Two formations from "one ghost"
+can only come from:
+
+* **Straddle-split** — RULED OUT per owner directive.
+* **Admixture-sig drift across investigations.**  The
+  find-or-create key is
+  ``(parent_formation_id, lithology, canonical_admixture_signature)``.
+  Two ghosts on different investigations with the SAME lithology
+  but slightly different aggregated admixtures land in different
+  formation rows — most plausible candidate for bulk-accept
+  scenarios where the "same" SAND layer running through 5
+  boreholes produces 5 formation rows.
+* **A re-accept missing idempotency.**  ``_find_or_create_contact``
+  keys on ``(model_id, formation_id, depth_top_m, anchor)``.
+  Float drift between consecutive accepts of the "same" ghost
+  would create a duplicate contact — same formation though, so
+  visually it would be ONE band with an interior boundary, NOT
+  two units in the inspector.  Probably not the cause.
+* **Auto-populate vs Suggest aggregation mismatch.**  When
+  auto-populate fires before Suggest, observation layers might
+  already create formations with one admixture shape; then
+  Suggest segments aggregate differently and the accept lands
+  in a NEW formation row instead of reusing the existing one.
+
+**When to revisit.** Future dogfeed — owner to reproduce + share
+an example of the two units' admixture tooltips so we can see
+whether the sigs actually differ.  Once the cause is identified,
+the fix likely lives in the segmenter aggregation (stabilise
+the admixture signature) or in the find-or-create key (relax
+admixture matching).
 
 ## 153. Accept-all-bulk wall-clock is 5–10 s on oudenaarde-shape projects (Tier G)
 
