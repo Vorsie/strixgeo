@@ -1048,6 +1048,9 @@ export function useGeologicalModel({
     if (!project || !activeLithoModel) {
       setLithoContacts([])
       setLithoSurfacesByFormationId(new Map())
+      setGhostsByAnchor(new Map())
+      setFocusedSuggestAnchorId(null)
+      setLithoStaleTinSessionCount(0)
       return
     }
     // Debt #147 — clear stale state IMMEDIATELY when activeLithoModel
@@ -1060,8 +1063,20 @@ export function useGeologicalModel({
     // period; we should never show them under a different model's
     // header.  The new fetch then populates with B's actual contents
     // (typically 0 for a freshly-created model).
+    //
+    // Debt #147 follow-up (2026-05-27): also reset the suggestion-ghost
+    // bundle + focused-anchor pointer + stale-TIN session counter so a
+    // freshly-created model presents a clean section canvas (no leftover
+    // pending ghost columns from the prior model's "Suggest litho"
+    // sweep, no stale fallback counter).  Mirrors the same triad
+    // ``handleClearLithoModel`` resets — the architectural reasoning is
+    // identical (these are ephemeral overlays scoped to the model the
+    // user is currently editing).
     setLithoContacts([])
     setLithoSurfacesByFormationId(new Map())
+    setGhostsByAnchor(new Map())
+    setFocusedSuggestAnchorId(null)
+    setLithoStaleTinSessionCount(0)
     let cancelled = false
     const projectId = project.id
     const modelId = activeLithoModel.id
