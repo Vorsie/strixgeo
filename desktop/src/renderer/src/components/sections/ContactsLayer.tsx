@@ -724,31 +724,28 @@ export default function ContactsLayer({
     formationName: string
   } | null>(null)
 
-  // Debt #151 — litho-axis band/empty-space right-click menu.  Single
-  // surface, two modes: ``remove`` (when the right-click landed on a
-  // per-column litho band) carries the band's contact id; ``add`` (on
-  // empty column space) carries the click depth + anchor info so the
-  // caller can open the LithoCompositionPickerDialog there.
-  const [lithoBandMenu, setLithoBandMenu] = useState<
-    | {
-        clientX: number
-        clientY: number
-        mode: 'remove'
-        contactId: string
-        formationName: string
-      }
-    | {
-        clientX: number
-        clientY: number
-        mode: 'add'
-        anchorKind: 'cpt' | 'borehole'
-        anchorId: string
-        anchorName: string
-        elevationM: number
-        depth_m: number
-      }
-    | null
-  >(null)
+  // Debt #151 — right-click on a litho band opens the Remove menu.
+  // (Dogfeed refinement 2026-05-27: the "Add" gesture moved to a
+  // LEFT-click on the band itself; the empty-space capture rect was
+  // removed.  Single mode now.)
+  const [lithoBandMenu, setLithoBandMenu] = useState<{
+    clientX: number
+    clientY: number
+    contactId: string
+    formationName: string
+  } | null>(null)
+
+  // Debt #151 dogfeed refinement 2026-05-27 — merge popup.  After a
+  // delete removes a contact between two same-lithology neighbours,
+  // a follow-up confirm offers to also delete the deeper-neighbour
+  // (collapsing the now-redundant boundary into one continuous
+  // same-lithology band).  Pre-computed at delete time from the
+  // PRE-deletion contact snapshot — the deferred onDeleteContact
+  // call may not have rewritten state yet when the popup opens.
+  const [lithoMergePending, setLithoMergePending] = useState<{
+    redundantContactId: string
+    lithoCode: string
+  } | null>(null)
 
   // ---- Selection model -------------------------------------------
   // Component-local — selection is transient UI state, not a
@@ -1488,6 +1485,17 @@ export default function ContactsLayer({
       // extends to test bottom).
       contactId: string
       formationName: string
+      // Debt #151 dogfeed refinement 2026-05-27: left-click on a band
+      // opens the picker for "Insert new layer here".  These fields
+      // let the click handler compute the click depth + pass the
+      // right anchor info to ``onRequestAddLithoSuggestion`` without
+      // a second placedColumns lookup.
+      anchorKind: 'cpt' | 'borehole'
+      anchorId: string
+      anchorName: string
+      anchorElevationM: number
+      anchorSurfaceY: number
+      anchorPxPerMetre: number
     }
     if (!perColumnBandsFromContacts) {
       return [] as LithoBand[]
@@ -1500,7 +1508,7 @@ export default function ContactsLayer({
     const nameById = new Map(formations.map(f => [f.id, f.name]))
     const out: LithoBand[] = []
     for (const col of placedColumns) {
-      const item = col.proj.item as { id: string; elevation_m: number | null }
+      const item = col.proj.item as { id: string; name: string; elevation_m: number | null }
       if (item.elevation_m === null) continue
       const surfaceLevel = item.elevation_m
       const anchorId = item.id
@@ -1511,6 +1519,17 @@ export default function ContactsLayer({
       if (colContacts.length === 0) continue
       const halfW = col.width / 2
       const x = col.nudgedX - halfW
+      const surfaceY = levelToScreen(surfaceLevel)
+      const oneMetreDown = levelToScreen(surfaceLevel - 1)
+      const pxPerMetre = oneMetreDown - surfaceY
+      const anchorMeta = {
+        anchorKind: col.kind,
+        anchorId,
+        anchorName: item.name,
+        anchorElevationM: item.elevation_m as number,
+        anchorSurfaceY: surfaceY,
+        anchorPxPerMetre: pxPerMetre,
+      } as const
       // Between-contact bands.
       for (let i = 0; i < colContacts.length - 1; i++) {
         const top = colContacts[i]
@@ -1531,6 +1550,7 @@ export default function ContactsLayer({
           color,
           contactId: top.id,
           formationName: nameById.get(top.formation_id) ?? '',
+          ...anchorMeta,
         })
       }
       // Dogfeed 2026-05-27: the deepest contact's formation continues
@@ -1559,6 +1579,7 @@ export default function ContactsLayer({
             color: lastColor,
             contactId: last.id,
             formationName: nameById.get(last.formation_id) ?? '',
+            ...anchorMeta,
           })
         }
       }
@@ -2691,59 +2712,15 @@ export default function ContactsLayer({
           )}
         </g>
       ))}
-      {/* Debt #151 — per-column right-click capture rect.  Spans the
-          full plot area on each column when ``perColumnBandsFromContacts``
-          is on.  Rendered BEHIND the litho bands so the band's own
-          contextmenu handler fires first when the click lands on a
-          band; clicks on empty space fall through to this rect's
-          contextmenu handler in ``add`` mode. */}
-      {perColumnBandsFromContacts
-        && placedColumns.map(col => {
-          const item = col.proj.item as {
-            id: string
-            name: string
-            elevation_m: number | null
-          }
-          if (item.elevation_m === null) return null
-          const surface = surfaceYForColumn(col, levelToScreen)
-          if (surface.surfaceElevationM === null || surface.pxPerMetre === 0) return null
-          const halfW = col.width / 2
-          return (
-            <rect
-              key={`pc-rclick-${item.id}`}
-              data-testid={`per-column-rclick-capture-${item.id}`}
-              x={col.nudgedX - halfW}
-              y={plotTop}
-              width={col.width}
-              height={plotBottom - plotTop}
-              fill="transparent"
-              pointerEvents="all"
-              onContextMenu={e => {
-                e.preventDefault()
-                e.stopPropagation()
-                const rect = e.currentTarget.getBoundingClientRect()
-                const svgY = plotTop + (e.clientY - rect.top)
-                const depth = (svgY - surface.surfaceY) / surface.pxPerMetre
-                if (depth < 0) return
-                setLithoBandMenu({
-                  clientX: e.clientX,
-                  clientY: e.clientY,
-                  mode: 'add',
-                  anchorKind: col.kind,
-                  anchorId: item.id,
-                  anchorName: item.name,
-                  elevationM: item.elevation_m as number,
-                  depth_m: depth,
-                })
-              }}
-            />
-          )
-        })}
       {/* Debt #142 follow-up — per-column litho bands.  Drawn even
           earlier than the cross-column formationFillBands so on the
           litho axis the user reads a per-column lithology stack
-          underneath everything else.  Empty list off the litho axis
-          (the prop is gated by the caller). */}
+          underneath everything else.
+          Debt #151 dogfeed refinement 2026-05-27: bands are now the
+          single click surface for Add — LEFT-click opens the picker
+          at the click depth (replaces the prior empty-space right-
+          click capture rect).  Right-click still opens the remove
+          menu.  Empty-space gestures are gone. */}
       {perColumnLithoBands.map(band => (
         <rect
           key={`pc-litho-${band.key}`}
@@ -2755,23 +2732,49 @@ export default function ContactsLayer({
           fill={band.color}
           fillOpacity={bandFillOpacity}
           stroke="none"
-          // Debt #151 — bands intercept right-click so "Remove" mode
-          // wins over "Add" mode (capture rect underneath).  Left-
-          // click / drag / hover still fall through (pointerEvents=auto
-          // for SVG attribute but the rect carries no other handlers).
           pointerEvents="auto"
+          style={onRequestAddLithoSuggestion ? { cursor: 'pointer' } : undefined}
           onContextMenu={e => {
             e.preventDefault()
             e.stopPropagation()
             setLithoBandMenu({
               clientX: e.clientX,
               clientY: e.clientY,
-              mode: 'remove',
               contactId: band.contactId,
               formationName: band.formationName,
             })
           }}
-        />
+          onClick={
+            onRequestAddLithoSuggestion
+              ? e => {
+                  e.stopPropagation()
+                  if (band.anchorElevationM === null) return
+                  // Use ownerSVGElement's bounding rect to map clientY
+                  // into svg-coords — works in both real browser and
+                  // jsdom (which returns 0 for everything).  Depth =
+                  // (svg-Y - surfaceY) / pxPerMetre, mirroring the
+                  // drag handler's depth math.
+                  const svg = e.currentTarget.ownerSVGElement
+                  if (!svg) return
+                  const svgRect = svg.getBoundingClientRect()
+                  const svgY = e.clientY - svgRect.top
+                  const depth = (svgY - band.anchorSurfaceY) / band.anchorPxPerMetre
+                  if (depth < 0) return
+                  onRequestAddLithoSuggestion(
+                    band.anchorKind,
+                    band.anchorId,
+                    depth,
+                    band.anchorName,
+                    band.anchorElevationM,
+                  )
+                }
+              : undefined
+          }
+        >
+          {onRequestAddLithoSuggestion && (
+            <title>Click to insert new layer here · right-click to remove</title>
+          )}
+        </rect>
       ))}
       {/* Filled coloured bands between adjacent formation tops.
           Drawn FIRST so every other section element (CPT curves,
@@ -3281,21 +3284,15 @@ export default function ContactsLayer({
         })()}
     </g>
 
-    {/* Debt #151 — litho band / empty-space right-click menu.
+    {/* Debt #151 — litho band right-click menu (Remove only).
         Portalled to document.body so it sits above all section
-        chrome.  Single surface, two modes: ``remove`` (the band's
-        own contextmenu) and ``add`` (empty-space capture rect). */}
+        chrome.  Add gesture moved to LEFT-click on the band itself
+        (dogfeed refinement 2026-05-27). */}
     {lithoBandMenu
       && createPortal(
         <>
-          {/* Backdrop to dismiss on outside click — pointer-events
-              auto on the menu itself, none on this scrim layer. */}
           <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 2147483646,
-            }}
+            style={{ position: 'fixed', inset: 0, zIndex: 2147483646 }}
             onClick={() => setLithoBandMenu(null)}
             onContextMenu={e => {
               e.preventDefault()
@@ -3316,64 +3313,113 @@ export default function ContactsLayer({
               minWidth: 200,
             }}
           >
-            {lithoBandMenu.mode === 'remove' ? (
-              <button
-                type="button"
-                data-testid="litho-band-remove"
-                onClick={() => {
-                  if (lithoBandMenu.mode !== 'remove') return
-                  setDeletePending({
-                    contactId: lithoBandMenu.contactId,
-                    formationName: lithoBandMenu.formationName,
-                  })
-                  setLithoBandMenu(null)
-                }}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '6px 12px',
-                  textAlign: 'left',
-                  fontSize: 12,
-                  color: 'var(--color-text-danger, #f87171)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                Remove this litho unit
-              </button>
-            ) : (
-              <button
-                type="button"
-                data-testid="litho-band-add"
-                onClick={() => {
-                  if (lithoBandMenu.mode !== 'add') return
-                  onRequestAddLithoSuggestion?.(
-                    lithoBandMenu.anchorKind,
-                    lithoBandMenu.anchorId,
-                    lithoBandMenu.depth_m,
-                    lithoBandMenu.anchorName,
-                    lithoBandMenu.elevationM,
-                  )
-                  setLithoBandMenu(null)
-                }}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '6px 12px',
-                  textAlign: 'left',
-                  fontSize: 12,
-                  color: 'var(--color-text-primary, #e2e8f0)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                Add new suggestion here
-              </button>
-            )}
+            <button
+              type="button"
+              data-testid="litho-band-remove"
+              onClick={() => {
+                setDeletePending({
+                  contactId: lithoBandMenu.contactId,
+                  formationName: lithoBandMenu.formationName,
+                })
+                setLithoBandMenu(null)
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '6px 12px',
+                textAlign: 'left',
+                fontSize: 12,
+                color: 'var(--color-text-danger, #f87171)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              Remove this litho unit
+            </button>
           </div>
         </>,
+        document.body,
+      )}
+
+    {/* Debt #151 dogfeed refinement 2026-05-27 — same-lithology merge
+        prompt.  Fires after a delete completes when the resulting
+        adjacency leaves two contacts that share a ``litho_main_soil_code``
+        on the same anchor.  Confirming triggers a SECOND
+        onDeleteContact on the redundant below-neighbour. */}
+    {lithoMergePending && onDeleteContact
+      && createPortal(
+        <div
+          data-testid="litho-merge-confirm-dialog"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 2147483647,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--color-surface-overlay, #1e293b)',
+              border: '1px solid var(--color-border-default, #334155)',
+              borderRadius: 6,
+              padding: 20,
+              minWidth: 360,
+              color: 'var(--color-text-primary, #e2e8f0)',
+            }}
+          >
+            <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+              Merge adjacent {lithoMergePending.lithoCode} layers?
+            </h2>
+            <p style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 16, color: 'var(--color-text-secondary, #94a3b8)' }}>
+              Removing that contact left two {lithoMergePending.lithoCode}{' '}
+              units adjacent.  Merging deletes the now-redundant
+              boundary so they read as one continuous {lithoMergePending.lithoCode}{' '}
+              band.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                data-testid="litho-merge-cancel"
+                onClick={() => setLithoMergePending(null)}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: 12,
+                  borderRadius: 4,
+                  background: 'var(--color-surface-page, #0f172a)',
+                  border: '1px solid var(--color-border-default, #334155)',
+                  color: 'var(--color-text-primary, #e2e8f0)',
+                  cursor: 'pointer',
+                }}
+              >
+                Keep separate
+              </button>
+              <button
+                type="button"
+                data-testid="litho-merge-confirm"
+                onClick={() => {
+                  const redundantId = lithoMergePending.redundantContactId
+                  setLithoMergePending(null)
+                  void onDeleteContact(redundantId)
+                }}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: 12,
+                  borderRadius: 4,
+                  background: 'var(--color-accent, #2563eb)',
+                  border: 'none',
+                  color: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                Merge layers
+              </button>
+            </div>
+          </div>
+        </div>,
         document.body,
       )}
 
@@ -3491,8 +3537,50 @@ export default function ContactsLayer({
         formationName={deletePending.formationName}
         onConfirm={() => {
           const id = deletePending.contactId
+          // Debt #151 dogfeed refinement 2026-05-27 — detect
+          // same-lithology adjacency on the PRE-deletion snapshot so
+          // the popup can fire immediately after the delete fires.
+          // The redundant boundary is the deeper of the two
+          // matching-litho neighbours; deleting it collapses the
+          // pair into one continuous band.
+          const pre = contacts.find(c => c.id === id)
+          let mergeCandidate: {
+            redundantContactId: string
+            lithoCode: string
+          } | null = null
+          if (pre) {
+            const anchor = pre.borehole_id ?? pre.cpt_id
+            if (anchor) {
+              const lithoByFormation = new Map(
+                formations.map(f => [f.id, f.litho_main_soil_code ?? null]),
+              )
+              const peers = contacts
+                .filter(c => (c.borehole_id ?? c.cpt_id) === anchor && c.id !== id)
+                .slice()
+                .sort((a, b) => a.depth_top_m - b.depth_top_m)
+              const above = peers
+                .filter(c => c.depth_top_m < pre.depth_top_m)
+                .at(-1)
+              const below = peers.find(c => c.depth_top_m > pre.depth_top_m)
+              if (above && below) {
+                const aboveLitho = lithoByFormation.get(above.formation_id)
+                const belowLitho = lithoByFormation.get(below.formation_id)
+                if (
+                  aboveLitho !== null
+                  && aboveLitho !== undefined
+                  && aboveLitho === belowLitho
+                ) {
+                  mergeCandidate = {
+                    redundantContactId: below.id,
+                    lithoCode: aboveLitho,
+                  }
+                }
+              }
+            }
+          }
           setDeletePending(null)
           void onDeleteContact(id)
+          if (mergeCandidate) setLithoMergePending(mergeCandidate)
         }}
         onCancel={() => setDeletePending(null)}
       />
