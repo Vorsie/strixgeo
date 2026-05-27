@@ -118,11 +118,28 @@ class UpdateFormationContact(GroundModelLogger):
         old_model_id = pre.model_id
         old_formation_id = pre.formation_id
 
+        # Fetch the model kind once.  Cross-merge runs on the geological
+        # axis only; litho contacts skip it per owner directive
+        # 2026-05-27: "delete the merge/collapse on accepted lithos
+        # (when dragging one boundary over another) — quick-and-dirty
+        # merging is for suggestions; once accepted, the user must
+        # remove/add via explicit right-click verbs".  The model row
+        # is still needed downstream for the litho-cascade gate, so
+        # this fetch replaces the later one at line ~225.
+        model = await self._session.get(GeologicalModelOrm, old_model_id)
+        # ``getattr`` guards against test mocks that stub ``GeologicalModelOrm``
+        # with a SimpleNamespace lacking ``kind``; production rows always have it.
+        is_litho_model = getattr(model, "kind", None) == "lithostratigraphic"
+
         # ------------------------------------------------------------------ #
         # Cross-merge: depth-only patches that cross peer contacts on the    #
         # same anchor are resolved by deleting the crossed contacts.          #
         # Re-anchor patches (borehole_id / cpt_id / formation_id changing)   #
         # skip this block entirely.                                            #
+        #                                                                      #
+        # Litho contacts skip cross-merge entirely (owner directive            #
+        # 2026-05-27).  The user can drag past peers but no auto-delete       #
+        # fires; explicit right-click "Remove" is the destructive verb.       #
         # ------------------------------------------------------------------ #
         patch_keys = set(patch.keys())
         is_depth_only = "depth_top_m" in patch_keys and not patch_keys & {
@@ -133,7 +150,7 @@ class UpdateFormationContact(GroundModelLogger):
 
         deleted_any = False  # True when any peer was deleted by cross-merge.
 
-        if is_depth_only and patch["depth_top_m"] != pre.depth_top_m:
+        if is_depth_only and patch["depth_top_m"] != pre.depth_top_m and not is_litho_model:
             old_depth = pre.depth_top_m
             new_depth = float(patch["depth_top_m"])
 
@@ -222,8 +239,10 @@ class UpdateFormationContact(GroundModelLogger):
         # deleted.  Runs before commit so it is part of the same transaction. #
         # ------------------------------------------------------------------ #
         if deleted_any:
-            model = await self._session.get(GeologicalModelOrm, old_model_id)
-            if model is not None and model.kind == "lithostratigraphic":
+            # ``model`` was fetched at the top of execute for the
+            # cross-merge gate; reuse it here.
+            if is_litho_model:
+                assert model is not None  # is_litho_model implies non-None
                 # Import lazily to avoid circular-import at module load (both
                 # use cases import from groundmodel.application).
                 from groundmodel.application.detect_litho_lenses import DetectLithoLenses
