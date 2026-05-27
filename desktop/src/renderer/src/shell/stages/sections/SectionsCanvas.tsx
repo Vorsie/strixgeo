@@ -33,6 +33,9 @@ import type {
 import type {
   ContactGestureState,
 } from '../../../components/sections/CorrelationEdgesOverlay'
+import LithoGeoSnapDialog from '../../../components/LithoGeoSnapDialog'
+import { findGeoSnapCandidates } from '../../../utils/lithoGeoSnap'
+import type { FormationContactResponse } from '../../../api/client'
 import CompanionOfferDialog from '../../../components/sections/CompanionOfferDialog'
 import InspectLensBodyPanel from '../../../components/sections/InspectLensBodyPanel'
 import type { InspectLensBodyTarget } from '../../../components/sections/InspectLensBodyPanel'
@@ -956,6 +959,123 @@ export default function SectionsCanvas(): JSX.Element {
     [handleAcceptLithoSuggestion, selectedSection, applyUpdatedSection],
   )
 
+  // ── Debt #134 — litho ↔ geological snap prompt ──────────────────────
+  //
+  // When a litho-contact drag commits within tolerance of a geological
+  // contact on the same investigation, a 3-option prompt opens so the
+  // user picks the direction of the snap (snap litho, move geo with a
+  // rebuild cascade, or keep them separate).
+  //
+  // Tolerance is hard-coded at 0.20 m for the MVP slice; the configurable
+  // ``view_state.litho_segmenter.litho_snap_tolerance_m`` settings field
+  // is filed as deferred work in the closing commit.
+  const LITHO_GEO_SNAP_TOLERANCE_M = 0.2
+  const [lithoGeoSnapPrompt, setLithoGeoSnapPrompt] = useState<{
+    lithoContactId: string
+    rawDepthM: number
+    candidates: readonly FormationContactResponse[]
+  } | null>(null)
+  const [lithoGeoSnapBusy, setLithoGeoSnapBusy] = useState(false)
+
+  // Snap-aware wrapper around ``handleUpdateContactDepth``.  Commits the
+  // litho contact at the raw drag depth first (so the user sees the drag
+  // result immediately), then — on the litho axis only — checks for any
+  // geological contact within tolerance.  If one or more candidates
+  // exist, opens the prompt; otherwise the wrapper is a no-op past the
+  // initial PATCH.
+  const handleLithoSnapAwareUpdateContactDepth = useCallback(
+    async (contactId: string, newDepthM: number, snapped: boolean): Promise<void> => {
+      await handleUpdateContactDepth(contactId, newDepthM, snapped)
+      if (!isLitho) return
+      const dragged = lithoContacts.find(c => c.id === contactId)
+      if (!dragged) return
+      const anchorId = dragged.borehole_id ?? dragged.cpt_id
+      if (!anchorId) return
+      const candidates = findGeoSnapCandidates(
+        newDepthM,
+        anchorId,
+        contacts,
+        LITHO_GEO_SNAP_TOLERANCE_M,
+      )
+      if (candidates.length === 0) return
+      setLithoGeoSnapPrompt({
+        lithoContactId: contactId,
+        rawDepthM: newDepthM,
+        candidates,
+      })
+    },
+    [handleUpdateContactDepth, isLitho, lithoContacts, contacts],
+  )
+
+  const handleSnapLithoToGeo = useCallback(
+    async (geoContactId: string): Promise<void> => {
+      if (lithoGeoSnapBusy || lithoGeoSnapPrompt === null) return
+      const geo = lithoGeoSnapPrompt.candidates.find(c => c.id === geoContactId)
+      if (!geo) return
+      setLithoGeoSnapBusy(true)
+      try {
+        // Second PATCH on the litho contact, snapping it to the geo depth.
+        // ``snapped=true`` marks the source/confidence on the litho row.
+        await handleUpdateContactDepth(
+          lithoGeoSnapPrompt.lithoContactId,
+          geo.depth_top_m,
+          true,
+        )
+      } catch (err) {
+        toast('error', `Snap failed: ${(err as Error).message}`)
+      } finally {
+        setLithoGeoSnapBusy(false)
+        setLithoGeoSnapPrompt(null)
+      }
+    },
+    [lithoGeoSnapBusy, lithoGeoSnapPrompt, handleUpdateContactDepth, toast],
+  )
+
+  const handleMoveGeoToLitho = useCallback(
+    async (geoContactId: string): Promise<void> => {
+      if (lithoGeoSnapBusy || lithoGeoSnapPrompt === null) return
+      const geo = lithoGeoSnapPrompt.candidates.find(c => c.id === geoContactId)
+      if (!geo || !project) return
+      const oldDepth = geo.depth_top_m
+      const lithoDepth = lithoGeoSnapPrompt.rawDepthM
+      setLithoGeoSnapBusy(true)
+      // No "in progress" toast — the dialog stays open with all buttons
+      // disabled (busy=true) which already signals work-in-flight.  A
+      // success / error toast lands at the end.
+      try {
+        await handleUpdateContactDepth(geoContactId, lithoDepth, false)
+        await api.geology.rebuildSurfaces(project.id, geo.model_id)
+        await handleLoadBackdropSurfaces(geo.model_id)
+        toast('success', 'Geological contact moved; surfaces rebuilt.')
+      } catch (err) {
+        toast('error', `Move failed: ${(err as Error).message}`)
+        // Best-effort rollback of the geological-contact depth.  Swallow
+        // a secondary failure — the user already saw the primary error.
+        try {
+          await handleUpdateContactDepth(geoContactId, oldDepth, false)
+        } catch {
+          // intentionally empty — rollback is best-effort
+        }
+      } finally {
+        setLithoGeoSnapBusy(false)
+        setLithoGeoSnapPrompt(null)
+      }
+    },
+    [
+      lithoGeoSnapBusy,
+      lithoGeoSnapPrompt,
+      project,
+      handleUpdateContactDepth,
+      handleLoadBackdropSurfaces,
+      toast,
+    ],
+  )
+
+  const handleSnapDialogCancel = useCallback((): void => {
+    if (lithoGeoSnapBusy) return
+    setLithoGeoSnapPrompt(null)
+  }, [lithoGeoSnapBusy])
+
   // Phase-1.5 manual litho composition picker — new-unit path.
   //
   // WHY a dedicated callback at this boundary:
@@ -1391,7 +1511,7 @@ export default function SectionsCanvas(): JSX.Element {
           // sectionAwareCreateContact early-return guard even runs. The previous
           // guard was too late in the callback chain.
           onCreateContact={isLitho ? undefined : sectionAwareCreateContact}
-          onUpdateContactDepth={handleUpdateContactDepth}
+          onUpdateContactDepth={handleLithoSnapAwareUpdateContactDepth}
           onDeleteContact={handleDeleteContact}
           onBatchUpdateContacts={handleBatchUpdateContacts}
           onBatchCreateContacts={sectionAwareBatchCreateContacts}
@@ -1553,6 +1673,18 @@ export default function SectionsCanvas(): JSX.Element {
             onClose={() => setCompanionOffer(null)}
           />
         )}
+        {/* Litho ↔ geological snap prompt (debt #134) — fires after a
+            litho-contact drag commits within tolerance of a geological
+            contact on the same investigation. */}
+        <LithoGeoSnapDialog
+          open={lithoGeoSnapPrompt !== null}
+          candidates={lithoGeoSnapPrompt?.candidates ?? []}
+          lithoDepthM={lithoGeoSnapPrompt?.rawDepthM ?? 0}
+          onSnapToGeo={(id) => void handleSnapLithoToGeo(id)}
+          onMoveGeoToLitho={(id) => void handleMoveGeoToLitho(id)}
+          onCancel={handleSnapDialogCancel}
+          busy={lithoGeoSnapBusy}
+        />
       </>
     )
   }
