@@ -53,6 +53,7 @@ import type {
   GeologicalFormationResponse,
 } from '../../api/client'
 import { formatLithoDisplayName } from '../../utils/lithoLabels'
+import { LITHOLOGY_COLORS } from '../../utils/lithoConstants'
 import { sliceTin, type SectionLine2D } from '../../utils/sliceTin'
 import {
   computeTriangleConfidence,
@@ -1416,7 +1417,18 @@ export default function ContactsLayer({
     if (!perColumnBandsFromContacts) {
       return [] as { key: string; x: number; y: number; width: number; height: number; color: string }[]
     }
-    const colorById = new Map(formations.map(f => [f.id, f.color]))
+    // Litho formations are created by ``accept_litho_suggestions.py``
+    // with ``color="#9ca3af"`` (grey placeholder; the long-standing
+    // "Phase 2 assigns per lithology" comment never landed).  Override
+    // with the per-lithology colour table when the formation carries
+    // a ``litho_main_soil_code``; falls back to ``formation.color`` for
+    // mixed-source formations that don't have a litho code.
+    const colorById = new Map<string, string>()
+    for (const f of formations) {
+      const litho = f.litho_main_soil_code
+      const lithoColor = litho ? LITHOLOGY_COLORS[litho] : undefined
+      colorById.set(f.id, lithoColor ?? f.color)
+    }
     const out: { key: string; x: number; y: number; width: number; height: number; color: string }[] = []
     for (const col of placedColumns) {
       const item = col.proj.item as { id: string; elevation_m: number | null }
