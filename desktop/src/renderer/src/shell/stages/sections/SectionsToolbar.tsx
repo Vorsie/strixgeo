@@ -112,6 +112,20 @@ export default function SectionsToolbar(): JSX.Element {
 
   const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null
 
+  // Debt #139 — the Correlate gesture needs ≥1 litho contact visible on the
+  // section to have anything clickable.  CorrelationEdgesOverlay paints no
+  // hit-rects when ``contacts`` is empty, so entering the mode on a freshly-
+  // drawn section silently does nothing.  Block entry at the toolbar and let
+  // the section-canvas hint pill explain why.  The check intersects the
+  // active litho model's contacts with the section's seeded ids — matching
+  // the same explicit-content filter SectionsCanvas applies at render-time.
+  const sectionHasLithoContacts = useMemo(() => {
+    if (!selectedSection) return false
+    const seeded = new Set(selectedSection.seeded_formation_contact_ids ?? [])
+    if (seeded.size === 0) return false
+    return lithoContacts.some(c => seeded.has(c.id))
+  }, [selectedSection, lithoContacts])
+
   // Sections need a projected METRIC horizontal CRS — along-distance is
   // a Euclidean distance in CRS units, so degrees (EPSG:4326) silently
   // produce garbage geometry (debt #31). Gate on the supported-CRS
@@ -788,15 +802,25 @@ export default function SectionsToolbar(): JSX.Element {
             icon={<GitMerge size={13} />}
             label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate'}
             onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
-            disabled={!activeLithoModel || !hasSection}
+            // While correlate mode is on, keep the button clickable so the
+            // user can exit even if the section has no contacts (debt #139,
+            // CT8) — otherwise the only escape is the Esc keybind which is
+            // not discoverable.
+            disabled={
+              !activeLithoModel
+              || !hasSection
+              || (!correlateMode && !sectionHasLithoContacts)
+            }
             title={
               !activeLithoModel
                 ? 'Create a lithostratigraphic model first'
                 : !hasSection
                   ? 'Open a cross-section to correlate units'
-                  : correlateMode
-                    ? 'Exit correlate mode (Esc)'
-                    : 'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them'
+                  : !correlateMode && !sectionHasLithoContacts
+                    ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+                    : correlateMode
+                      ? 'Exit correlate mode (Esc)'
+                      : 'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them'
             }
             // reason: correlateMode active = visually distinct from idle.
             // We repurpose the amber style (which reads as "attention needed"
