@@ -286,18 +286,28 @@ async def test_a1_within_formation_creates_one_contact() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a2_straddle_split_creates_two_contacts() -> None:
-    """A suggestion spanning a geology boundary is split into two contacts."""
-    # Two geology contacts at investigation: UPPER_FORMATION tops at 0.0m,
-    # LOWER_FORMATION tops at 3.0m.  Suggestion is [0.0, 6.0] → straddle at 3.0m.
+async def test_a2_ghost_spanning_boundary_creates_one_contact_at_top_parent() -> None:
+    """A ghost spanning a geology boundary makes ONE contact (no split) — #149 v3.
+
+    The legacy straddle-split behaviour produced two contacts under two
+    different ``parent_formation_id``s (rendered as two stacked SAND units
+    in the inspector — owner dogfeed 2026-05-27).  Retired in favour of
+    the verbatim-copy rule: every ghost = exactly one contact, parent =
+    geo formation at the ghost's TOP depth.
+
+    Setup mirrors the legacy A2: UPPER tops at 0.0 m, LOWER tops at 3.0 m,
+    ghost is [0.0, 6.0] (would have straddled at 3.0).  New result: a
+    single contact, parent = UPPER (ghost's top sits in UPPER), zero
+    splits, zero fallbacks.
+    """
     geo_contacts = [
         SimpleNamespace(depth_top_m=0.0, formation_id=UPPER_FORMATION_ID),
         SimpleNamespace(depth_top_m=3.0, formation_id=LOWER_FORMATION_ID),
     ]
     session = _make_session(
-        surface_rows=[],  # no TIN → depth-order fallback
+        surface_rows=[],
         geo_contacts_at_inv=geo_contacts,
-        existing_contact_ids=[None, None],  # two contacts to create
+        existing_contact_ids=[None],  # one ghost → one find-or-create
     )
     uc = _use_case(session)
 
@@ -309,53 +319,57 @@ async def test_a2_straddle_split_creates_two_contacts() -> None:
         borehole_id=BOREHOLE_ID,
     )
 
-    assert result.straddle_split_count == 1
-    # stale_tin_fallback_count is 1 because no TIN was available.
-    assert result.stale_tin_fallback_count == 1
-    # Two contacts — one per parent formation.
-    assert len(result.created_contact_ids) == 2
+    # No split — verbatim copy.
+    assert result.straddle_split_count == 0
+    assert result.stale_tin_fallback_count == 0
+    assert len(result.created_contact_ids) == 1
     assert result.found_contact_ids == []
 
 
 # ---------------------------------------------------------------------------
-# A3 — stale TIN fallback: TIN present but stale → WARNING + depth fallback
+# A3 — verbatim copy is stable when TIN is stale
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_a3_stale_tin_fallback_warns_and_still_splits() -> None:
-    """Stale TIN surfaces fall back to depth-ordering with a WARNING logged."""
-    # Provide a surface ORM stub that is stale and has no vertices.
+async def test_a3_stale_tin_does_not_trigger_split_fallback() -> None:
+    """Stale TIN no longer triggers the legacy fallback path (#149 v3).
+
+    Pre-retirement the boundary-detection branch dropped to depth-ordering
+    when the parent's TIN was stale or absent, incrementing
+    ``stale_tin_fallback_count`` and logging a WARNING.  After the
+    verbatim-copy rule the fallback is unreachable: a ghost spanning a
+    boundary stays as one contact, parent assigned at the TOP depth, and
+    ``stale_tin_fallback_count`` is always 0.
+
+    Pin the new behaviour so any future re-introduction of straddle-split
+    logic surfaces here.
+    """
     stale_surface = SimpleNamespace(
         formation_id=UPPER_FORMATION_ID,
         model_id=GEO_MODEL_ID,
         is_stale=True,
-        vertices=[],  # empty → _tin_from_surface_orm returns None
+        vertices=[],
         triangles=[],
     )
     geo_contacts = [
         SimpleNamespace(depth_top_m=0.0, formation_id=UPPER_FORMATION_ID),
         SimpleNamespace(depth_top_m=4.0, formation_id=LOWER_FORMATION_ID),
     ]
-
-    # _load_geology_surfaces returns keyed dict — patch scalars result.
     session = _make_session(
         surface_rows=[stale_surface],
         geo_contacts_at_inv=geo_contacts,
-        existing_contact_ids=[None, None],
+        existing_contact_ids=[None],  # one ghost → one find-or-create
     )
     session.execute = AsyncMock(
         side_effect=[
-            # surfaces query — scalars().all() returns the stale surface
             _execute_all_result([stale_surface]),
-            # geo contacts query
             _execute_all_result(geo_contacts),
-            # two contact exists-checks → None (create both)
             _execute_result(None),
-            _execute_result(None),
-            # _recompute_litho_display_orders: contacts, formations, parents
             _execute_all_result([]),
             _execute_all_result([]),
+            _execute_all_result([]),
+            # R7 inference hook fires once (one affected formation).
             _execute_all_result([]),
         ]
     )
@@ -369,10 +383,9 @@ async def test_a3_stale_tin_fallback_warns_and_still_splits() -> None:
         borehole_id=BOREHOLE_ID,
     )
 
-    assert result.straddle_split_count == 1
-    # Stale TIN triggers the fallback counter.
-    assert result.stale_tin_fallback_count >= 1
-    assert len(result.created_contact_ids) == 2
+    assert result.straddle_split_count == 0
+    assert result.stale_tin_fallback_count == 0
+    assert len(result.created_contact_ids) == 1
 
 
 # ---------------------------------------------------------------------------
