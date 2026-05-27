@@ -58,7 +58,8 @@ describe('insertManualGhostLayer', () => {
     )
     expect(result.suggestions).toHaveLength(1)
     expect(result.suggestions[0].depth_top_m).toBe(3)
-    expect(result.suggestions[0].depth_base_m).toBe(3.01)
+    // Dogfeed 2026-05-27: 0.01 → 0.20 (20 cm visible band).
+    expect(result.suggestions[0].depth_base_m).toBeCloseTo(3.2, 5)
     expect(result.suggestions[0].suggested_lithology).toBe('KLEI')
     expect(result.suggestions[0].source).toBe('manual_pick')
     expect(result.suggestions[0].confidence).toBe('medium')
@@ -72,15 +73,19 @@ describe('insertManualGhostLayer', () => {
     const g = ghost([L(0, 2), L(4, 6)])
     const result = insertManualGhostLayer(g, 'cpt', 10, 2, 'VEEN', [])
     expect(result.suggestions).toHaveLength(3)
-    // Sorted: 0–2, 2–2.01, 4–6
+    // Sorted: 0–2, 2–2.20, 4–6 (dogfeed 2026-05-27: 0.01 → 0.20)
     expect(result.suggestions[1].depth_top_m).toBe(2)
-    expect(result.suggestions[1].depth_base_m).toBeCloseTo(2.01, 5)
+    expect(result.suggestions[1].depth_base_m).toBeCloseTo(2.2, 5)
     expect(result.suggestions[1].suggested_lithology).toBe('VEEN')
   })
 
-  it('M3 — depth_base is always depth_top + 0.01', () => {
+  it('M3 — depth_base is always depth_top + 0.20 (20 cm visible band)', () => {
+    // Owner directive 2026-05-27 dogfeed refinement: "inserts a 20 cm
+    // band".  Was 0.01 sentinel (1 cm — invisible at typical zoom,
+    // drag handles overlapped).  0.20 gives the ghost both visible
+    // height and grab-able separate top/base handles.
     const result = insertManualGhostLayer(undefined, 'borehole', 5, 7.5, 'SILT', [])
-    expect(result.suggestions[0].depth_base_m - result.suggestions[0].depth_top_m).toBeCloseTo(0.01, 5)
+    expect(result.suggestions[0].depth_base_m - result.suggestions[0].depth_top_m).toBeCloseTo(0.2, 5)
   })
 
   it('M4 — existing accepted/rejected preserved', () => {
