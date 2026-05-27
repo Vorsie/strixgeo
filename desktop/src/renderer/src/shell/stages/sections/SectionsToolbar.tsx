@@ -793,19 +793,22 @@ export default function SectionsToolbar(): JSX.Element {
               />
             </>
           )}
-          {/* Correlate mode toggle — arms the two-click connect gesture.
-              Enabled iff a litho model is active AND a section is open.
-              Active state rendered with accent background.
-              Clears correlate mode + armed source on axis switch (via
-              setSectionModelAxis which now wraps the raw setter). */}
-          <ToolbarButton
+          {/* Correlation triad collapsed into a SplitToolbarButton
+              (#141 dogfeed 2026-05-27).  Primary verb = Correlate mode
+              toggle (single click to enter/exit — preserves the existing
+              ergonomics CT4/CT5 pin).  Caret items = Auto-correlate +
+              Accept correlations.  Three buttons → one toolbar slot.
+              The mode-active affordance (amber tint when correlateMode
+              is on) stays on the primary half so the user always sees
+              "you're in correlate mode" without opening the menu. */}
+          <SplitToolbarButton
             icon={<GitMerge size={13} />}
             label={correlateMode ? 'Correlate · click 2 bands' : 'Correlate'}
             onClick={() => (correlateMode ? exitCorrelateMode() : enterCorrelateMode())}
-            // While correlate mode is on, keep the button clickable so the
-            // user can exit even if the section has no contacts (debt #139,
-            // CT8) — otherwise the only escape is the Esc keybind which is
-            // not discoverable.
+            // While correlate mode is on, keep the primary clickable so
+            // the user can exit even with 0 contacts on the section
+            // (debt #139 CT8); otherwise the only escape is Esc, which
+            // isn't discoverable.
             disabled={
               !activeLithoModel
               || !hasSection
@@ -822,77 +825,49 @@ export default function SectionsToolbar(): JSX.Element {
                       ? 'Exit correlate mode (Esc)'
                       : 'Enter correlate mode — click a unit band on one investigation, then a matching unit on another to link them'
             }
-            // reason: correlateMode active = visually distinct from idle.
-            // We repurpose the amber style (which reads as "attention needed"
-            // here, not "unsaved") because it makes the active mode obvious
-            // without adding a new token. Amber = ongoing action in progress.
             amber={correlateMode}
-          />
-          {/* Auto-correlate — #127: fire the domain algorithm across the
-              whole model; inserts source='auto' edges in bulk. Enabled
-              iff a litho model is active; does NOT require an open
-              section (model-level operation).
-              When auto edges already exist a confirmation dialog appears
-              (Slice 4 Half-A). */}
-          <ToolbarButton
-            icon={<Zap size={13} />}
-            label={autoCorrelating ? 'Correlating…' : 'Auto-correlate'}
-            onClick={() => { void handleAutoCorrelateWithCheck() }}
-            // Debt #139 dogfeed follow-up — same gate as the Correlate +
-            // Accept-correlations verbs: no clickable hit-rects to
-            // generate edges between when the section has no contacts.
-            // Engineer's mental scope is "this section", so a single
-            // visual gate across all three correlation verbs reads
-            // cleaner than three independently-gated buttons.
-            disabled={
-              !activeLithoModel
-              || autoCorrelating
-              || !sectionHasLithoContacts
-            }
-            busy={autoCorrelating}
-            testid="litho-auto-correlate"
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : !sectionHasLithoContacts
-                  ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
-                  : autoCorrelating
-                    ? 'Running auto-correlate…'
-                    : 'Auto-correlate: match contacts at neighbouring investigations within a depth + distance tolerance — inserts unapproved edges across the whole model. Use "Accept correlations" to approve.'
-            }
-          />
-          {/* Accept correlations (#133 Task 19) — approve all unapproved
-              contact-level edges in the active section, commit lens bodies,
-              recompute ordinals.  Enabled iff a litho model is active AND a
-              section is selected; the section scopes the accept to the
-              engineer's current view.  Unapproved edges render dashed amber;
-              after accept they turn solid emerald. */}
-          <ToolbarButton
-            icon={<CheckCheck size={13} />}
-            label={acceptingCorrelations ? 'Accepting…' : 'Accept correlations'}
-            onClick={() => { void handleAcceptCorrelations() }}
-            // Debt #139 dogfeed follow-up — share the Correlate gate so
-            // the three correlation verbs dim together when there's
-            // nothing on the section to correlate / approve.
-            disabled={
-              !activeLithoModel
-              || !hasSection
-              || acceptingCorrelations
-              || !sectionHasLithoContacts
-            }
-            busy={acceptingCorrelations}
-            testid="litho-accept-correlations"
-            title={
-              !activeLithoModel
-                ? 'Create a lithostratigraphic model first'
-                : !hasSection
-                  ? 'Open a cross-section to accept correlations'
-                  : !sectionHasLithoContacts
-                    ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
-                    : acceptingCorrelations
-                      ? 'Accepting correlations…'
-                      : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals'
-            }
+            testid="correlate-mode"
+            items={[
+              {
+                icon: <Zap size={13} />,
+                label: autoCorrelating ? 'Correlating…' : 'Auto-correlate',
+                onClick: () => { void handleAutoCorrelateWithCheck() },
+                disabled:
+                  !activeLithoModel
+                  || autoCorrelating
+                  || !sectionHasLithoContacts,
+                title:
+                  !activeLithoModel
+                    ? 'Create a lithostratigraphic model first'
+                    : !sectionHasLithoContacts
+                      ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+                      : autoCorrelating
+                        ? 'Running auto-correlate…'
+                        : 'Auto-correlate: match contacts at neighbouring investigations within a depth + distance tolerance — inserts unapproved edges across the whole model. Use "Accept correlations" to approve.',
+                testid: 'litho-auto-correlate',
+              },
+              {
+                icon: <CheckCheck size={13} />,
+                label: acceptingCorrelations ? 'Accepting…' : 'Accept correlations',
+                onClick: () => { void handleAcceptCorrelations() },
+                disabled:
+                  !activeLithoModel
+                  || !hasSection
+                  || acceptingCorrelations
+                  || !sectionHasLithoContacts,
+                title:
+                  !activeLithoModel
+                    ? 'Create a lithostratigraphic model first'
+                    : !hasSection
+                      ? 'Open a cross-section to accept correlations'
+                      : !sectionHasLithoContacts
+                        ? 'Accept litho suggestions to enable correlation — 0 accepted contacts on this section'
+                        : acceptingCorrelations
+                          ? 'Accepting correlations…'
+                          : 'Accept all unapproved contact-level correlation edges in this section — commits lens bodies and recomputes ordinals',
+                testid: 'litho-accept-correlations',
+              },
+            ]}
           />
           {/* Materialise lens companions (#133 Task 20) — model-level
               operation that creates perpendicular companion sections for
