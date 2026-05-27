@@ -29,7 +29,7 @@ subdivision is built on top of it. Priority order:
 * **#139** — RESOLVED 2026-05-27 (CanvasHints correlate-blocked pill + toolbar gate)
 * **#140** — Accept-all-bulk silently auto-correlates → surprises user with amber edges (filed dogfeed 2026-05-27; needs design decision)
 * **#141** — combine 3 correlation toolbar buttons into a grouped/dropdown affordance (UX polish — filed dogfeed 2026-05-27)
-* **#142** — accepted litho-ghost renders at OLD suggestion depth after committed contact is dragged (filed dogfeed 2026-05-27)
+* **#142** — RESOLVED 2026-05-27 (accepted ghost hidden + pending wears hatching overlay)
 * **#143** — accepted litho contacts have low visibility on the litho axis (polish — filed dogfeed 2026-05-27)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
@@ -3507,43 +3507,6 @@ existing test layout (CT1-CT11 + ACW1-ACW3 + S5-* assume separate
 buttons by testid).
 
 **When to revisit.** Next UX polish pass on the Sections toolbar.
-Filed from dogfeed session 2026-05-27.
-
-## 142. Accepted litho-ghost renders at OLD suggestion depth after committed contact is dragged (Tier G)
-
-**What.** Once a litho suggestion is accepted, a committed
-``FormationContact`` is created at the suggested depth.  The
-``LithoSuggestionGhostColumns`` overlay keeps rendering the ACCEPTED
-ghost layer rect + ✓ tick at the suggestion's *raw* ``depth_top_m``,
-even after the user drags the committed contact to a new depth.
-Result: two visual markers — one stuck at the original suggestion
-depth (ghost ✓ tick + frozen rect), one at the dragged depth (the
-real committed contact).  Owner dogfeed 2026-05-27: "when I move
-one, the original accepted contact stays on top and it doesn't
-rerender".
-
-**Why deferred.** ``LithoSuggestionGhostColumns.tsx`` line 1342+
-renders accepted indices with ``dragHandlesEnabled=false`` but does
-NOT skip the rect itself.  Line 2271-2283 paints the ✓ tick at
-``topY = levelToScreen(surfaceElevationM - suggestion.depth_top_m)``
-— always the raw suggestion depth.  Two fix paths:
-
-* **(a) Skip the rect entirely for accepted indices.**  The
-  committed contact is the source of truth post-accept; the ghost
-  has served its purpose.  Simpler but loses the "this was
-  suggested at depth X" visual cue.
-* **(b) Sync the accepted-ghost depth to the committed contact's
-  current depth.**  Needs a stable link from ghost-index ↔
-  committed-contact-id so the renderer can look up the live depth.
-
-The label-suppression comment at line 2285-2288 ("Suppressed once
-the layer is accepted: the committed contact band underneath now
-carries the real label") already acknowledges the dual-render
-problem — they hid the LABEL but left the rect + ✓.  Path (a) is
-the natural completion of that prior decision.
-
-**When to revisit.** Before next dogfeed session — first-pass user
-encounter mistakes the stuck ghost for an un-deleted duplicate.
 Filed from dogfeed session 2026-05-27.
 
 ## 143. Accepted litho contacts have low visibility on the litho axis (Tier E — polish)
