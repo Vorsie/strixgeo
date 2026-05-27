@@ -86,6 +86,7 @@ export default function DeleteContactConfirmDialog({
             size="md"
             onClick={onConfirm}
             disabled={busy}
+            data-testid="delete-contact-confirm"
           >
             Delete contact
           </Button>
