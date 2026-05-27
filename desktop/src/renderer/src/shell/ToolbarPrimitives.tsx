@@ -349,6 +349,12 @@ interface SplitToolbarButtonProps {
    *  ``PrimaryToolbarButton``) — for true primary verbs. Default
    *  false = same plain style as ``ToolbarButton``. */
   primary?: boolean
+  /** Render the primary half with amber tint — mirrors
+   *  ``ToolbarButton``'s amber for mode-active affordances (e.g. a
+   *  toggleable mode that is currently ON).  Mutually exclusive with
+   *  ``primary`` (amber wins on the rare collision because the
+   *  active-mode signal is the more user-relevant one). */
+  amber?: boolean
   /** Secondary actions surfaced under the caret. Empty = caret hidden
    *  (degenerates to a plain ToolbarButton). */
   items: readonly ToolbarDropdownItem[]
@@ -392,6 +398,7 @@ export function SplitToolbarButton({
   title,
   busy,
   primary,
+  amber,
   items,
   testid,
 }: SplitToolbarButtonProps): JSX.Element {
@@ -428,8 +435,27 @@ export function SplitToolbarButton({
   // primary verb right now") + pointer cursor + hover so the user
   // sees the button responds to hover. Cursor-not-allowed only when
   // truly disabled (no fallback to offer).
-  const primaryActsAsCaretClassname = !!disabled && items.length > 0
-  const primaryClasses = primary
+  // Primary-as-caret fallback only fires when the primary is disabled
+  // AND at least one menu item is enabled — i.e. there is somewhere
+  // useful for the user to land if they click the primary by accident.
+  // When every item shares the same gate as the primary (all disabled
+  // together — e.g. the Sections #141 correlation triad gated on
+  // ``sectionHasLithoContacts``), the fallback would only lead to a
+  // dead menu and should NOT make the primary appear clickable.
+  const primaryActsAsCaretClassname = !!disabled && items.some(i => !i.disabled)
+  // Amber wins over primary when both are set — the mode-active signal
+  // (amber) is more user-relevant than the primary-verb accent fill.
+  const primaryClasses = amber
+    ? [
+        'flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-l text-xs font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        disabled
+          ? primaryActsAsCaretClassname
+            ? 'text-status-amber hover:bg-surface-app cursor-pointer'
+            : 'text-status-amber/60 cursor-not-allowed'
+          : 'text-status-amber hover:bg-surface-app',
+      ].join(' ')
+    : primary
     ? [
         'flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-l text-xs font-medium transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
@@ -449,7 +475,13 @@ export function SplitToolbarButton({
           : 'text-text-secondary hover:bg-surface-app hover:text-text-primary',
       ].join(' ')
 
-  const caretClasses = primary
+  const caretClasses = amber
+    ? [
+        'flex items-center px-1.5 py-1 rounded-r text-xs transition-colors border-l border-border-subtle',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'text-status-amber hover:bg-surface-app',
+      ].join(' ')
+    : primary
     ? [
         'flex items-center px-1.5 py-1 rounded-r text-xs transition-colors border-l border-accent-hover/30',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
@@ -466,9 +498,11 @@ export function SplitToolbarButton({
   // caret has items the user can still reach, repurpose the primary
   // button as a second click target for the caret dropdown. Pre-fix
   // the user read the whole control as inert and gave up before
-  // hunting for the small ▾. When ``items`` is empty there is no
-  // fallback to offer; the button is truly disabled.
-  const primaryActsAsCaret = !!disabled && items.length > 0
+  // hunting for the small ▾. When ``items`` is empty OR every item
+  // shares the primary's gate (all disabled together — the #141
+  // correlation triad case), no fallback fires; the button is truly
+  // disabled.
+  const primaryActsAsCaret = !!disabled && items.some(i => !i.disabled)
   const primaryButtonDisabled = !!disabled && !primaryActsAsCaret
   return (
     <>
