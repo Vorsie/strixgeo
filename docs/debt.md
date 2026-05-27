@@ -43,6 +43,10 @@ subdivision is built on top of it. Priority order:
 * **#152** — RESOLVED 2026-05-27 (hard 10 cm clamp + near-cursor popup on litho contact drag)
 * **#76** — RESOLVED 2026-05-25 (straddle split toast wired)
 * **#133** — PHASE 1 SHIPPED 2026-05-26 (schema + endpoints + gesture + renderer); Phase 2 (auto-correlate + lens detection) and Phase 3 (migration + retire old model) remain open
+* **#134-A** — RESOLVED 2026-05-27 (litho-geo snap tolerance moved onto ``view_state.litho_segmenter.litho_snap_tolerance_m`` + Settings → Litho segmenter NumberRow; default 0.20 m, range 0.01-5.0 m)
+* **#134-B** — RESOLVED 2026-05-27 (in-flight drag-readout snap indicator — amber "↦ snap on release: 12.34 m" line + dot on the litho axis when the cursor is within ±tolerance of a geo contact on the same investigation)
+* **#134-C** — single-suggestion path RESOLVED 2026-05-27 (handleAcceptLithoSuggestion returns the API result; the wrapper runs findGeoSnapCandidates against the accepted depth and opens the LithoGeoSnapDialog for the new contact id). Bulk paths split out as #134-C-bulk
+* **#134-C-bulk** — OPEN; extend the post-accept snap check to accept-all-focused + bulk-one + bulk-all paths. Needs (a) a stable per-suggestion → created_contact_id mapping across straddle splits, and (b) a queue UI to surface N candidates one at a time without flooding the user (filed dogfeed 2026-05-27)
 
 ### ═══ GEOTECH-STAGE GATE — everything below waits ═══
 
@@ -3312,6 +3316,46 @@ the index).  Surfacing N snap candidates would also need a queue UI
 to prompt them one at a time without flooding the user.  Owner
 directive: ship single-path first, revisit if bulk-path slivers
 become a dogfeed pain point.
+
+## 134-C-bulk. Litho-geo snap check on bulk accept paths (Tier G — split out from #134-C)
+
+**What.** Extend the post-accept ``findGeoSnapCandidates`` check
+(landed for the single-suggestion path 2026-05-27) to the three
+bulk accept paths in ``useGeologicalModel.ts``:
+
+* ``handleAcceptAllLithoSuggestions`` — accept every non-rejected
+  ghost on the focused investigation.
+* ``handleAcceptBulkLitho`` — accept one ghost on any anchor in
+  bulk mode.
+* ``handleAcceptAllBulkLitho`` — accept all non-rejected ghosts
+  across every bulk anchor (the corridor-wide sweep).
+
+**Why split out.** Two non-trivial sub-problems past the single-path
+shape:
+
+* **Stable suggestion → created-contact-id mapping.**  The accept
+  endpoint returns a flat ``created_contact_ids`` list.  For a
+  straddle split, one input suggestion produces two contacts; for
+  an idempotent re-accept, it produces zero (the id lands in
+  ``found_contact_ids`` instead).  The post-check needs to know,
+  per input suggestion, which contact id (if any) it should snap.
+  The cleanest server-side fix is to return a per-suggestion
+  result object alongside the flat lists: ``[{ suggestion_idx,
+  created_contact_ids: [...], found_contact_ids: [...], straddled:
+  bool }]``.  That's a schema change + a router/use-case touch.
+* **Queue UI.**  A corridor accept-all can produce N candidates
+  across multiple investigations.  Opening N modal dialogs in
+  sequence (the way the single path does) floods the user.
+  Options: (a) a single grouped dialog listing every candidate
+  with per-row snap/move-geo/skip controls, (b) a queue ribbon at
+  the top of the section that pops candidates one at a time with
+  "skip rest", (c) a bulk-snap toast that defers individual
+  resolution to drag-time.  Owner decision needed before code.
+
+**When to revisit.** When dogfeed shows users hitting bulk-accept
+slivers despite the drag-path prompt working.  Pair with #134-C-
+bulk and the underlying schema decision on per-suggestion result
+objects.
 
 ## 135. Two correlation edges from one contact for lens topology — RESOLVED 2026-05-26
 
