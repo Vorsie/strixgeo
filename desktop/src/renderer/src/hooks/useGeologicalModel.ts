@@ -3888,10 +3888,16 @@ export function useGeologicalModel({
         // path stays clean for the bulk-segmenter suggest-and-accept
         // flow where restoration is not needed — adjacent suggestions
         // already tile the column.)
+        // #149 — forward the project's same-litho merge toggle so accept
+        // honours the same rule as the segmenter pass that produced the
+        // ghost.  Without this a post-suggest edit (split/insert/absorb)
+        // could leave two adjacent same-litho ghosts that re-merge at
+        // accept time when the user expects them merged.
         const body = {
           ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
           section_id: sectionId ?? null,
           suggestions: [layer],
+          merge_same_lithology: readLithoSegmenterPrefs(project.view_state).mergeSameLithology,
         }
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
@@ -4021,6 +4027,7 @@ export function useGeologicalModel({
           ...(anchorKind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
           section_id: sectionId ?? null,
           suggestions: pendingLayers,
+          merge_same_lithology: readLithoSegmenterPrefs(project.view_state).mergeSameLithology,
         }
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
@@ -4301,6 +4308,7 @@ export function useGeologicalModel({
           ...(ghost.kind === 'cpt' ? { cpt_id: anchorId } : { borehole_id: anchorId }),
           section_id: sectionId ?? null,
           suggestions: [layer],
+          merge_same_lithology: readLithoSegmenterPrefs(project.view_state).mergeSameLithology,
         }
         const result = await api.geology.acceptLithoSuggestions(
           project.id,
@@ -4433,6 +4441,7 @@ export function useGeologicalModel({
             // runs after the full loop so inference is O(formations × sections)
             // instead of O(N × formations × sections).
             defer_inference: true,
+            merge_same_lithology: readLithoSegmenterPrefs(project.view_state).mergeSameLithology,
           }
           const result = await api.geology.acceptLithoSuggestions(
             project.id,
