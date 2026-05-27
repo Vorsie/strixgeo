@@ -58,7 +58,10 @@ from groundmodel.application.materialize_wedge_tips_for_formation import (
 from groundmodel.application.recompute_formation_absences_for_formation import (
     RecomputeFormationAbsencesForFormation,
 )
-from groundmodel.domain.services.litho_segmentation import LithoLayerSuggestion
+from groundmodel.domain.services.litho_segmentation import (
+    LithoLayerSuggestion,
+    merge_adjacent_same_lithology,
+)
 from groundmodel.domain.services.tin_surface import TinSurface, evaluate_tin_at
 from groundmodel.domain.value_objects.admixture import Admixture
 from groundmodel.infrastructure.db.models.borehole_orm import BoreholeOrm
@@ -202,6 +205,7 @@ class AcceptLithoSuggestions(GroundModelLogger):
         section_id: UUID | None = None,
         defer_inference: bool = False,
         create_formation_only: bool = False,
+        merge_same_lithology: bool = True,
     ) -> AcceptLithoResult:
         """Accept a list of litho suggestions for one investigation.
 
@@ -250,6 +254,25 @@ class AcceptLithoSuggestions(GroundModelLogger):
             key rather than creating a duplicate (Bug 2 dogfeed 2026-05-26).
 
             Default ``False`` preserves the original per-accept behaviour.
+        merge_same_lithology : bool
+            When ``True`` (default — mirrors the segmenter default), run
+            ``merge_adjacent_same_lithology`` on the input list BEFORE the
+            find-or-create loop.  This catches the case where pending
+            suggestions have drifted from the segmenter's merged shape
+            (user editing — split / insert / absorb — between Suggest and
+            Accept) by re-collapsing adjacent same-lithology segments so
+            two stacked SAND ghosts produce one SAND contact.  When
+            ``False`` the input is honoured verbatim: two adjacent SAND
+            ghosts produce two adjacent SAND contacts (the user split
+            them intentionally and the same-litho merge is opt-out).
+            Pairs with the ``merge_same_lithology`` toggle in the
+            project's ``view_state.litho_segmenter`` bag — the frontend
+            forwards the same value the user picked at Suggest time so
+            both halves of the Suggest→Accept flow share one rule.
+
+            Owner directive 2026-05-27 (#149 fix): "do it like for the
+            suggestion — 2 separate sand layers stay separate, 1 big sand
+            layer (after consciously merging) can't revert to 2 again."
 
         Returns
         -------
@@ -271,7 +294,24 @@ class AcceptLithoSuggestions(GroundModelLogger):
             f"{'cpt' if cpt_id else 'borehole'}={cpt_id or borehole_id}, "
             f"{len(suggestions)} suggestion(s)"
             + (" [create_formation_only]" if create_formation_only else "")
+            + (" [merge_same_lithology=False]" if not merge_same_lithology else "")
         )
+
+        # Same-lithology adjacency merge (#149) — re-run the segmenter's
+        # final pass on the input so pending ghosts that drifted from the
+        # merged shape (post-Suggest user edits: split / insert / absorb)
+        # collapse back to one segment per same-lithology run.  No-op when
+        # the toggle is off or the input has < 2 items.  The helper is
+        # idempotent on already-merged input (a re-accept of merged
+        # suggestions runs through unchanged).
+        if merge_same_lithology and len(suggestions) > 1:
+            pre_count = len(suggestions)
+            suggestions = merge_adjacent_same_lithology(suggestions)
+            if len(suggestions) != pre_count:
+                self.info(
+                    f"merge_adjacent_same_lithology collapsed input "
+                    f"{pre_count} → {len(suggestions)} suggestion(s)"
+                )
 
         # --- Load litho model + resolve parent geology model id -------------
         litho_model = await self._session.get(GeologicalModelOrm, litho_model_id)
