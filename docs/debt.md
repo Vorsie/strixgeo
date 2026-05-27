@@ -3661,51 +3661,6 @@ pin.  Backend fix (#145) eventually obsoletes all of them.
 on the next polish pass.
 Filed from dogfeed session 2026-05-27.
 
-## 147. Delete litho model + create new → old contacts reappear (Tier G — needs repro)
-
-**What.** Owner dogfeed 2026-05-27:
-
-> "when i create new stratigraphic model after delete through
-> garbage bin icon, all contacts reappear, (Lithology model
-> new New)"
-
-Repro path (per the screenshot):
-1. In the Build-litho stage, open a litho model that has 823
-   committed contacts across 30 units.
-2. Click the trash-icon "Delete model" button → confirm.
-3. Click "+ New" → the new model shows 823 contacts, 30 units
-   instead of 0/0.
-
-**Resolved 2026-05-27.** Three coupled fixes:
-
-1. The ``[project, activeLithoModel]`` effect in
-   ``useGeologicalModel`` only cleared ``lithoContacts`` when the
-   active model went to ``null``; A → B direct transitions left
-   stale contacts during the new fetch window (and could leave
-   them indefinitely on a slow/failed refetch).  Now a synchronous
-   ``setLithoContacts([])`` + ``setLithoSurfacesByFormationId(new Map())``
-   at the top of the effect (commit d05100cf).
-
-2. The inspector pill's unit count was reading
-   ``lithoFormations.length`` (project-scoped vocabulary, includes
-   formations that survived the delete cascade).  Re-scoped to
-   ``new Set(lithoContacts.map(c => c.formation_id)).size`` so a
-   freshly-created empty model shows "0 contacts, 0 units"
-   (commit c8f34319).
-
-3. ``handleDeleteLithoModel`` refreshed the models list but NOT
-   the formations list.  The backend deletes litho formations
-   exclusive to the deleted model, but the frontend's
-   ``formations`` state stayed stale → LithologyInspector's
-   INSTANCES section kept rendering the 69 deleted units under
-   the new model.  Added ``refetchFormations()`` after
-   ``refreshModels()`` in the delete handler (commit c1ff322f).
-
-Backend delete cascades (model_id CASCADE on FormationContactOrm
-+ ORM ``cascade="all, delete-orphan"`` + the model-aware vocabulary
-rule in ``GeologyRepository.delete_model``) were correct already —
-confirmed by reading the schema.
-
 ## 148. Clear button leaves one unit + misleading toast (Tier G)
 
 **What.** Owner dogfeed 2026-05-27 (screenshot): after clicking
