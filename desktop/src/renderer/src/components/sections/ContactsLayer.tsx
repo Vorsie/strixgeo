@@ -63,6 +63,7 @@ import { SNAP_TOLERANCE_PX } from './cptChannels'
 import DeleteContactConfirmDialog from '../DeleteContactConfirmDialog'
 import HoverReadoutCard from './HoverReadoutCard'
 import { buildFillBand, columnMaxDepthM, columnsBetween, type PlacedColumn } from './utils'
+import { findGeoSnapCandidates } from '../../utils/lithoGeoSnap'
 
 interface Props {
   contacts: readonly FormationContactResponse[]
@@ -293,6 +294,15 @@ interface Props {
    *  disable.  Leave undefined on the geological axis (cross-merge
    *  there absorbs the dragger; clamping would prevent that working). */
   contactDragClampMinThicknessM?: number
+  /** Litho ↔ geological snap tolerance (m) for the in-flight drag
+   *  indicator (debt #134-B).  When a litho contact is being dragged
+   *  AND the current depth lands within ±this distance of any
+   *  ``referenceContacts`` entry on the same anchor, the drag readout
+   *  gets a small "snap on release" badge so the user can predict
+   *  the post-release prompt.  Leave undefined on the geological axis
+   *  (and on the litho axis when ``referenceContacts`` are absent —
+   *  no Sync-geology yet → no candidates to indicate). */
+  geoSnapToleranceM?: number
   /** Right-click on empty column space on the litho axis (the
    *  ``perColumnBandsFromContacts`` capture rect's "Add" menu item)
    *  fires this callback.  Wires through to the existing
@@ -687,6 +697,7 @@ export default function ContactsLayer({
   perColumnBandsFromContacts = false,
   pendingGhostRangesByAnchorId,
   contactDragClampMinThicknessM,
+  geoSnapToleranceM,
   onRequestAddLithoSuggestion,
   sectionLine,
   alongMToScreenX,
@@ -3385,10 +3396,17 @@ export default function ContactsLayer({
       {/* Drag readout — depth + mTAW always, plus qc + Rf when the
           contact is anchored at a CPT (mirrors ContactPickBar so the
           drag flow surfaces the same depth-series values as the
-          hover-pick flow). Same card shape used elsewhere. */}
+          hover-pick flow). Same card shape used elsewhere.
+
+          Debt #134-B: when the litho axis supplies a snap tolerance +
+          referenceContacts (the geological backdrop), the readout
+          gains a "↦ snap on release: 12.34 m" line whenever the
+          current drag depth falls within ±tolerance of a geo contact
+          on the same anchor — telegraphing that the post-release
+          prompt will fire so the user can re-aim BEFORE letting go. */}
       {drag !== null && (() => {
         const elevation = drag.surfaceElevationM - drag.currentDepthM
-        const lines = [
+        const lines: { text: string; color: string }[] = [
           { text: `depth ${drag.currentDepthM.toFixed(2)} m`, color: drag.color },
           {
             text: `${elevation >= 0 ? '+' : ''}${elevation.toFixed(2)} m TAW`,
@@ -3408,8 +3426,35 @@ export default function ContactsLayer({
             })
           }
         }
+        // Debt #134-B: pre-release snap-zone hint.  Only fires when
+        // the parent has provided a geo-snap tolerance AND a non-empty
+        // referenceContacts set (geological backdrop on the litho
+        // axis).  Picks the nearest candidate so the readout reflects
+        // exactly which depth the prompt would offer first.
+        let geoSnapHintText: string | null = null
+        if (
+          geoSnapToleranceM !== undefined &&
+          referenceContacts !== undefined &&
+          referenceContacts.length > 0
+        ) {
+          const cands = findGeoSnapCandidates(
+            drag.currentDepthM,
+            drag.anchorId,
+            referenceContacts,
+            geoSnapToleranceM,
+          )
+          if (cands.length > 0) {
+            geoSnapHintText = `↦ snap on release: ${cands[0].depth_top_m.toFixed(2)} m`
+          }
+        }
+        if (geoSnapHintText !== null) {
+          // ``status-amber``-equivalent hex so the badge reads as
+          // "telegraph, not yet committed" — same family of cue the
+          // amber tints elsewhere use for in-progress / about-to-fire.
+          lines.push({ text: geoSnapHintText, color: '#b45309' })
+        }
         return (
-          <g pointerEvents="none">
+          <g pointerEvents="none" data-testid="contact-drag-readout">
             <HoverReadoutCard
               x={drag.segRightX + 8}
               y={drag.surfaceY + drag.currentDepthM * drag.pxPerMetre}
@@ -3417,6 +3462,17 @@ export default function ContactsLayer({
               plotBottom={drag.plotBottom}
               lines={lines}
             />
+            {geoSnapHintText !== null && (
+              <rect
+                data-testid="geo-snap-indicator"
+                x={drag.segRightX + 4}
+                y={drag.surfaceY + drag.currentDepthM * drag.pxPerMetre - 1}
+                width={3}
+                height={3}
+                fill="#b45309"
+                pointerEvents="none"
+              />
+            )}
           </g>
         )
       })()}
