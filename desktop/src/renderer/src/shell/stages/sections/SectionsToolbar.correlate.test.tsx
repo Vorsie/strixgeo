@@ -33,6 +33,8 @@ import { ShellContext } from '../../ShellContext'
 import type { ShellContextValue } from '../../ShellContext'
 import { api } from '../../../api/client'
 import type {
+  CrossSectionResponse,
+  FormationContactResponse,
   GeologicalModelResponse,
   LithoContactCorrelationEdge,
 } from '../../../api/client'
@@ -134,6 +136,13 @@ function makeCtx(overrides: {
   sectionModelAxis?: 'geological' | 'lithostratigraphic'
   setSectionModelAxis?: (axis: 'geological' | 'lithostratigraphic') => void
   selectedSectionId?: string | null
+  /** Section row's seeded_formation_contact_ids. Defaults to ['c-1'] when
+   *  ``selectedSectionId`` is set so existing CT4/CT5 stay enabled with
+   *  the new debt-#139 gate (button needs ≥1 litho contact on section). */
+  sectionSeededContactIds?: string[]
+  /** Active litho model contacts. Defaults to ``[{ id: 'c-1', ... }]`` so the
+   *  default intersection with sectionSeededContactIds yields one hit. */
+  lithoContacts?: FormationContactResponse[]
   correlateMode?: boolean
   enterCorrelateMode?: () => void
   exitCorrelateMode?: () => void
@@ -144,6 +153,23 @@ function makeCtx(overrides: {
   const enterCorrelateMode = overrides.enterCorrelateMode ?? vi.fn()
   const exitCorrelateMode = overrides.exitCorrelateMode ?? vi.fn()
   const toastFn = overrides.toast ?? vi.fn()
+  const sectionSeededContactIds = overrides.sectionSeededContactIds ?? ['c-1']
+  const lithoContacts =
+    overrides.lithoContacts ??
+    ([
+      {
+        id: 'c-1',
+        app_project_id: 'proj-1',
+        geological_model_id: 'model-litho-1',
+        formation_id: 'f-1',
+        cpt_id: null,
+        borehole_id: 'bh-1',
+        depth_top_m: 1.0,
+        source: 'manual',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ] as unknown as FormationContactResponse[])
 
   return {
     project: {
@@ -234,7 +260,7 @@ function makeCtx(overrides: {
       activeLithoModel: overrides.activeLithoModel ?? null,
       handleCreateLithoModel: async () => null,
       handleActivateLithoModel: async () => {},
-      lithoContacts: [],
+      lithoContacts,
       lithoFormations: [],
       lithoSurfacesByFormationId: new Map(),
       handleCreateLithoContact: noopAsync,
@@ -308,7 +334,13 @@ function makeCtx(overrides: {
     },
     sections: {
       sections: overrides.selectedSectionId
-        ? [{ id: overrides.selectedSectionId, name: 'S1' } as import('../../../api/client').CrossSectionResponse]
+        ? [
+            {
+              id: overrides.selectedSectionId,
+              name: 'S1',
+              seeded_formation_contact_ids: sectionSeededContactIds,
+            } as CrossSectionResponse,
+          ]
         : [],
       selectedSectionId: overrides.selectedSectionId ?? null,
       drawingSection: false,
@@ -504,6 +536,66 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
       }),
     )
     const btn = screen.getByRole('button', { name: /click 2 bands/i })
+    fireEvent.click(btn)
+    expect(exitCorrelateMode).toHaveBeenCalledOnce()
+  })
+
+  // Debt #139 — entering correlate mode on a section with zero litho
+  // contacts produces no clickable hit-rects (CorrelationEdgesOverlay
+  // only renders gesture rects when contacts.length > 0).  Gate the
+  // toolbar button so the failure mode is discoverable.
+  it('CT7: Correlate button disabled when section has 0 litho contacts', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        // Section selected but no contacts seeded → nothing to correlate.
+        sectionSeededContactIds: [],
+        lithoContacts: [],
+      }),
+    )
+    const btn = screen.getByRole('button', { name: 'Correlate' })
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveAttribute(
+      'title',
+      expect.stringMatching(/accept litho suggestions/i),
+    )
+  })
+
+  it('CT7b: Correlate button disabled when model has contacts but NONE on this section', () => {
+    // Litho model has a contact, but the section did not seed it — the
+    // explicit-content invariant hides it from this view, so correlate
+    // mode would still find nothing clickable.
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        sectionSeededContactIds: [],
+      }),
+    )
+    expect(screen.getByRole('button', { name: 'Correlate' })).toBeDisabled()
+  })
+
+  it('CT8: still clickable to EXIT when correlateMode is already on, even with 0 contacts', () => {
+    // Once in correlate mode, the button must remain usable so the user
+    // can leave it.  Disabling here would trap the user in a mode they
+    // cannot exit via the toolbar.
+    const exitCorrelateMode = vi.fn()
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        sectionSeededContactIds: [],
+        lithoContacts: [],
+        correlateMode: true,
+        exitCorrelateMode,
+      }),
+    )
+    const btn = screen.getByRole('button', { name: /click 2 bands/i })
+    expect(btn).not.toBeDisabled()
     fireEvent.click(btn)
     expect(exitCorrelateMode).toHaveBeenCalledOnce()
   })
