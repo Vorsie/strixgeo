@@ -600,6 +600,56 @@ describe('SectionsToolbar Correlate button (Slice 4)', () => {
     expect(exitCorrelateMode).toHaveBeenCalledOnce()
   })
 
+  // Debt #139 dogfeed follow-up (2026-05-27) — owner asked for the
+  // Auto-correlate + Accept-correlations buttons to share the
+  // Correlate button's "no litho contacts on section" gate.  All three
+  // correlation verbs are contextually scoped to "this section", so
+  // disabling them together when the section is empty matches user
+  // expectation (a single visual story, not three independently-
+  // gated buttons).
+  it('CT9: Auto-correlate button disabled when section has 0 litho contacts', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        sectionSeededContactIds: [],
+        lithoContacts: [],
+      }),
+    )
+    expect(screen.getByTestId('litho-auto-correlate')).toBeDisabled()
+  })
+
+  it('CT10: Accept correlations button disabled when section has 0 litho contacts', () => {
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+        sectionSeededContactIds: [],
+        lithoContacts: [],
+      }),
+    )
+    expect(screen.getByTestId('litho-accept-correlations')).toBeDisabled()
+  })
+
+  it('CT11: Auto-correlate tooltip drops the stale "dip-transfer" wording', () => {
+    // Phase 2+3 of debt #133 moved auto-correlate from the formation-
+    // level dip-transfer algorithm to the contact-level depth+distance
+    // matcher (``AutoCorrelateContactEdges``).  The tooltip referred to
+    // the old algorithm by name until dogfeed 2026-05-27 flagged it.
+    renderWith(
+      makeCtx({
+        sectionModelAxis: 'lithostratigraphic',
+        activeLithoModel: makeLithoModel(),
+        selectedSectionId: 'sec-1',
+      }),
+    )
+    const btn = screen.getByTestId('litho-auto-correlate')
+    expect(btn.getAttribute('title') ?? '').not.toMatch(/dip[- ]transfer|dip correction/i)
+    expect(btn.getAttribute('title') ?? '').toMatch(/contact/i)
+  })
+
   it('CT6: switching axis to geological calls setSectionModelAxis("geological")', () => {
     const setSectionModelAxis = vi.fn()
     renderWith(
