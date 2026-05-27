@@ -1,7 +1,7 @@
 // Behaviour tests for ContactsLayer — the formation-contact
 // polyline overlay on the cross-section.
 
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type {
@@ -130,6 +130,7 @@ function renderLayer(
     referenceContacts?: readonly FormationContactResponse[]
     bandFillOpacity?: number
     perColumnBandsFromContacts?: boolean
+    contactDragClampMinThicknessM?: number
   } = {},
 ) {
   return render(
@@ -156,6 +157,7 @@ function renderLayer(
         referenceContacts={extras.referenceContacts}
         bandFillOpacity={extras.bandFillOpacity}
         perColumnBandsFromContacts={extras.perColumnBandsFromContacts}
+        contactDragClampMinThicknessM={extras.contactDragClampMinThicknessM}
       />
     </svg>,
   )
@@ -1861,6 +1863,147 @@ describe('ContactsLayer', () => {
     expect(
       container.querySelectorAll('[data-testid^="per-column-litho-band-"]').length,
     ).toBe(0)
+  })
+
+  // Debt #152 — litho-axis contact drag must clamp at 10 cm from
+  // adjacent contacts now that cross-merge is off (commit 9d4a01db,
+  // 2026-05-27 owner directive).  Without the clamp, a runaway drag
+  // creates zero-thickness or inverted units in the DB.
+  it('CL1: contact drag clamps at (next.depth - minThickness) when dragging DOWN', () => {
+    // Two contacts on the same anchor at 3 m and 5 m.  Drag c-top
+    // DOWN with no min thickness → would commit at the cursor depth.
+    // With min thickness 0.10, the drag commits AT MOST at 5 - 0.10
+    // = 4.90 — 10 cm above the lower contact's top.
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-top', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-bot', borehole_id: 'bh-1', depth_top_m: 5 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth, contactDragClampMinThicknessM: 0.1 },
+    )
+    const stripTop = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-top"]',
+    )!
+    fireEvent.mouseDown(stripTop, { clientY: 0, button: 0 })
+    // pxPerMetre=1 in the test fixture → drag 100 px down attempts
+    // to commit at raw depth = 3 + 1 = 4.  Within bound (4.90), so
+    // commits unchanged.
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 1, buttons: 1, bubbles: true }),
+      )
+    })
+    // Drag a further 5 px → raw depth 4 + 5 = ... wait pxPerMetre=1
+    // means 5 px = 5 m, so raw = 3 + 5 = 8.  Bound at 4.90 → clamp.
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 5, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    // Final commit clamped at 5 - 0.10 = 4.90.
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(4.9, 5)
+  })
+
+  it('CL2: contact drag clamps at (prev.depth + minThickness) when dragging UP', () => {
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-top', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-bot', borehole_id: 'bh-1', depth_top_m: 5 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth, contactDragClampMinThicknessM: 0.1 },
+    )
+    const stripBot = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-bot"]',
+    )!
+    fireEvent.mouseDown(stripBot, { clientY: 0, button: 0 })
+    // Drag c-bot UP to depth 0 → raw = 5 - 5 = 0.  Bound at 3 + 0.10
+    // = 3.10 → clamp at 3.10.
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: -5, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(3.1, 5)
+  })
+
+  it('CL3: clamp is absent when prop is undefined (geological-axis behaviour unchanged)', () => {
+    const onUpdateContactDepth = vi.fn().mockResolvedValue(undefined)
+    const contacts = [
+      makeContact({ id: 'c-top', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-bot', borehole_id: 'bh-1', depth_top_m: 5 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth }, // no contactDragClampMinThicknessM
+    )
+    const stripTop = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-top"]',
+    )!
+    fireEvent.mouseDown(stripTop, { clientY: 0, button: 0 })
+    // Drag 8 m down past c-bot — no clamp → commits at raw depth.
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 8, buttons: 1, bubbles: true }),
+      )
+    })
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    expect(onUpdateContactDepth).toHaveBeenCalledTimes(1)
+    // No clamp → raw depth 11 commits unchanged.
+    expect(onUpdateContactDepth.mock.calls[0][1]).toBeCloseTo(11, 5)
+  })
+
+  it('CL4: clamp-hit pops a small popup near the drag readout', () => {
+    const contacts = [
+      makeContact({ id: 'c-top', borehole_id: 'bh-1', depth_top_m: 3 }),
+      makeContact({ id: 'c-bot', borehole_id: 'bh-1', depth_top_m: 5 }),
+    ]
+    const { container } = renderLayer(
+      contacts,
+      [makeFormation({ name: 'X' })],
+      [makeBoreholePlaced('bh-1', 100)],
+      undefined,
+      { onUpdateContactDepth: vi.fn().mockResolvedValue(undefined), contactDragClampMinThicknessM: 0.1 },
+    )
+    const stripTop = container.querySelector(
+      '[data-testid="contact-drag-strip"][data-contact-id="c-top"]',
+    )!
+    fireEvent.mouseDown(stripTop, { clientY: 0, button: 0 })
+    act(() => {
+      document.dispatchEvent(
+        new MouseEvent('mousemove', { clientY: 10, buttons: 1, bubbles: true }),
+      )
+    })
+    // Popup is portalled to document.body — query via screen rather
+    // than the test's render container.
+    expect(screen.queryByTestId('contact-drag-clamp-popup')).not.toBeNull()
+    act(() => {
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    })
+    // Drag ends → popup gone.
+    expect(screen.queryByTestId('contact-drag-clamp-popup')).toBeNull()
   })
 
   it('PC4: per-column bands extend below the deepest contact to test bottom (#142 follow-up)', () => {
