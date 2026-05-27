@@ -1243,9 +1243,28 @@ export default function LithoSuggestionGhostColumns({
   const editingCommitted = editIdx !== null ? edits?.get(editIdx) : undefined
   const editorOpen = editingLayer !== null
 
+  // Debt #142 — diagonal-line pattern for the PENDING-state overlay.
+  // Once a layer is accepted it's hidden entirely; pending layers wear
+  // this hatching so the user reads "still suggestion, awaiting your
+  // accept/reject" at a glance, distinct from the solid fill of a
+  // committed contact band.  Unique id per investigation so two
+  // sibling ghost-column instances (single-anchor + bulk) don't
+  // collide on the same SVG-wide id.
+  const hatchPatternId = `litho-pending-hatch-${investigationId}`
   return (
     <>
     <g data-testid="litho-suggestion-ghosts">
+      <defs>
+        <pattern
+          id={hatchPatternId}
+          patternUnits="userSpaceOnUse"
+          width={6}
+          height={6}
+          patternTransform="rotate(45)"
+        >
+          <line x1={0} y1={0} x2={0} y2={6} stroke="#000000" strokeOpacity={0.28} strokeWidth={1.4} />
+        </pattern>
+      </defs>
       {/* Column header — "Litho" label above the plot top. */}
       <text
         x={left + ghostWidth / 2}
@@ -1341,9 +1360,20 @@ export default function LithoSuggestionGhostColumns({
         )
         const accepted = acceptedIndices.has(idx)
         const rejected = rejectedIndices.has(idx)
+        // Debt #142 — once a layer is accepted, the committed
+        // FormationContact takes over as the source of truth.  The
+        // ghost rect was previously frozen-in-place at the raw
+        // suggestion depth, which read as a "phantom" contact at the
+        // OLD position once the user dragged the committed contact.
+        // Skip the layer entirely so the committed contact stands
+        // alone.  ``acceptedIndices`` is still consulted by the
+        // bounds-walk helpers (which compute neighbours from
+        // suggestions, not from rendered rects), so drag clamping
+        // across an accepted layer keeps working.
+        if (accepted) return null
         // Drag handles only when onEdit is wired AND the layer is
-        // still pending. Accepted/rejected layers are frozen.
-        const dragHandlesEnabled = onEdit !== undefined && !accepted && !rejected
+        // still pending. Rejected layers are frozen.
+        const dragHandlesEnabled = onEdit !== undefined && !rejected
         // Debt #85: render the boundary hit-strip at this layer's BASE
         // only when both this layer AND the next layer are pending,
         // and onInsertLayer is wired. (No strip below the last layer;
@@ -1370,6 +1400,7 @@ export default function LithoSuggestionGhostColumns({
               plotBottom={plotBottom}
               accepted={accepted}
               rejected={rejected}
+              hatchPatternId={hatchPatternId}
               onAccept={onAccept}
               onReject={onReject}
               onUnreject={onUnreject}
@@ -1948,6 +1979,7 @@ function LithoSuggestionLayer({
   onCopyMouseDown,
   isCopyHoverTarget,
   formationNameById,
+  hatchPatternId,
 }: {
   layer: LithoLayerSuggestion
   idx: number
@@ -1987,6 +2019,10 @@ function LithoSuggestionLayer({
    *  outline so the user sees a valid drop target. */
   isCopyHoverTarget?: boolean
   formationNameById: ReadonlyMap<string, string>
+  /** SVG ``<pattern>`` id defined in the parent <defs>.  Overlaid as a
+   *  hatching fill on pending layers (debt #142) so the user reads
+   *  "still suggestion, awaiting your accept/reject" at a glance. */
+  hatchPatternId: string
 }): JSX.Element | null {
   // Convert depth-below-surface to mTAW using the investigation's elevation.
   const topMTaw = surfaceElevationM - layer.depth_top_m
@@ -2173,6 +2209,26 @@ function LithoSuggestionLayer({
       >
         <title>{tooltip}</title>
       </rect>
+
+      {/* Debt #142 — diagonal-hatch overlay on PENDING layers.  Marks
+          "still suggestion" so the user can distinguish a pending
+          ghost (action required) from the solid colour of a
+          committed contact band underneath.  Sentinel, accepted, and
+          rejected layers skip the overlay (accepted is unreachable
+          here — parent early-returns; kept in the gate for safety).
+          ``pointerEvents: none`` so the overlay never intercepts the
+          underlying rect's drag/click handlers. */}
+      {!accepted && !rejected && !isSentinel && (
+        <rect
+          data-testid={`litho-pending-hatch-${idx}`}
+          x={left}
+          y={topY}
+          width={width}
+          height={height}
+          fill={`url(#${hatchPatternId})`}
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
 
       {/* Diagonal cross-out on rejected layers. */}
       {rejected && (
