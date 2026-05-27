@@ -778,6 +778,27 @@ export default function ContactsLayer({
     lithoCode: string
   } | null>(null)
 
+  // Debt #151 dogfeed refinement 2026-05-27 — auto-dismiss the
+  // litho band/empty-space context menu on any wheel-zoom or Esc.
+  // Without this the menu's ``position: fixed`` keeps it pinned to
+  // its original screen coords while the user scrolls/zooms; the
+  // menu detaches from the underlying section content and reads as
+  // a "random" floating menu (owner: "sometimes i get this random
+  // add new suggestion here box when zooming or so").
+  useEffect(() => {
+    if (lithoBandMenu === null) return
+    const dismiss = (): void => setLithoBandMenu(null)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') dismiss()
+    }
+    document.addEventListener('wheel', dismiss, { capture: true })
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('wheel', dismiss, { capture: true })
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [lithoBandMenu])
+
   // ---- Selection model -------------------------------------------
   // Component-local — selection is transient UI state, not a
   // persisted decision. Resets on section close / unmount.
@@ -3097,9 +3118,50 @@ export default function ContactsLayer({
           underneath. */}
       {layers.map(rawLayer => {
         const layer = applyDragOverride(rawLayer)
-        const labelY = (layer.bodyTopY + layer.bodyBottomY) / 2
-        const layerHeight = layer.bodyBottomY - layer.bodyTopY
-        const showLabel = layerHeight >= LAYER_LABEL_MIN_HEIGHT_PX
+        // Debt #151 dogfeed refinement 2026-05-27 — when a pending
+        // ghost overlaps the slab's depth range, shift the label to
+        // the LARGEST visible (non-ghost) sub-piece so the user sees
+        // the original formation's name on the piece it actually
+        // covers, not floating over the ghost.  Subtract the ghost
+        // ranges in depth space, convert each surviving piece to
+        // screen y-coords, pick the tallest.
+        const ghostHoles = pendingGhostRangesByAnchorId?.get(layer.anchorId) ?? []
+        let labelY = (layer.bodyTopY + layer.bodyBottomY) / 2
+        let labelPieceHeight = layer.bodyBottomY - layer.bodyTopY
+        if (ghostHoles.length > 0) {
+          // Convert the slab's bodyTopY / bodyBottomY back to depth in
+          // metres (the geometric inverse of levelToScreen) so we can
+          // subtract ghost holes in depth-space, then convert each
+          // surviving piece back to screen y.
+          const topDepthM = (layer.bodyTopY - layer.surfaceY) / layer.pxPerMetre
+          const baseDepthM = (layer.bodyBottomY - layer.surfaceY) / layer.pxPerMetre
+          let pieces: Array<{ topM: number; baseM: number }> = [
+            { topM: topDepthM, baseM: baseDepthM },
+          ]
+          for (const hole of ghostHoles) {
+            pieces = pieces.flatMap(p => {
+              if (hole.depth_base_m <= p.topM || hole.depth_top_m >= p.baseM) return [p]
+              const out: Array<{ topM: number; baseM: number }> = []
+              if (hole.depth_top_m > p.topM) out.push({ topM: p.topM, baseM: hole.depth_top_m })
+              if (hole.depth_base_m < p.baseM) out.push({ topM: hole.depth_base_m, baseM: p.baseM })
+              return out
+            })
+          }
+          if (pieces.length > 0) {
+            // Pick the tallest surviving piece.
+            const best = pieces.reduce((a, b) =>
+              b.baseM - b.topM > a.baseM - a.topM ? b : a,
+            )
+            const yTop = layer.surfaceY + best.topM * layer.pxPerMetre
+            const yBot = layer.surfaceY + best.baseM * layer.pxPerMetre
+            labelY = (yTop + yBot) / 2
+            labelPieceHeight = Math.abs(yBot - yTop)
+          } else {
+            // Entire slab eaten by a ghost — hide the label.
+            labelPieceHeight = 0
+          }
+        }
+        const showLabel = labelPieceHeight >= LAYER_LABEL_MIN_HEIGHT_PX
         const labelWidth = layer.segRightX - layer.segLeftX
         const display = showLabel ? truncateToWidth(layer.formationName, labelWidth) : ''
         const isDragged = drag !== null && drag.contactId === layer.contactId
