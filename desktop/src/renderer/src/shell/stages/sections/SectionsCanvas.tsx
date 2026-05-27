@@ -1097,6 +1097,27 @@ export default function SectionsCanvas(): JSX.Element {
       anchorId: string,
       depthM: number,
     ): Promise<{ formationId: string } | null> => {
+      // Debt #151 dogfeed refinement 2026-05-27 (owner): "how about we
+      // don't wire it through the suggestion and it immediately
+      // becomes an accepted litho layer, user can always right click
+      // delete anyway".
+      //
+      // Direct-insert flow.  Replaces the previous
+      // create-formation-only → ghost → user-accepts chain.  Two
+      // accept-litho-suggestions calls fire in sequence:
+      //
+      //   1. Top contact at ``depthM`` with the user's chosen
+      //      lithology + admixtures.  The new band starts here.
+      //   2. Restoration contact at ``depthM + 0.20`` with the
+      //      SURROUNDING band's lithology + admixtures (found via the
+      //      deepest existing litho contact whose ``depth_top_m <=
+      //      depthM``).  The original band continues underneath.
+      //
+      // Result: 3 visible bands instead of 2 (original split into
+      // top + bottom pieces, new layer in between).  No pending-ghost
+      // state; the user can right-click → Remove to undo, and the
+      // existing same-litho merge popup re-merges the surrounding
+      // pieces if the user removes the new one.
       if (!activeLithoModel || !selectedSection) {
         log.warn('section', 'handleManualLithoUnitCreate: no active litho model or section')
         return null
@@ -1115,91 +1136,138 @@ export default function SectionsCanvas(): JSX.Element {
         parent_formation_id: null
         spans_boundary: false
       }
-      // create_formation_only=true: create (or find) the formation row for
-      // this soil code + admixtures WITHOUT creating any contact row. The
-      // depth_top_m / depth_base_m are still used for parent-formation
-      // inference (TIN sampling at the anchor's x/y). No section seeding
-      // occurs so updated_section is always null here — do NOT call
-      // applyUpdatedSection. The ghost-extend-accept call that follows
-      // (handleCreateManualLithoGhost → user drags → ghost-accept) creates
-      // the actual contact at the dragged depth. The find-or-create key
-      // guarantees the ghost-accept finds the same formation rather than
-      // duplicating it (Bug 2 dogfeed 2026-05-26).
-      const suggestionsOut: ManualSuggestion[] = [
-        {
-          depth_top_m: depthM,
-          // Debt #151 dogfeed refinement 2026-05-27: "click an
-          // accepted litho → insert new layer here → inserts a 20 cm
-          // band".  The 0.01 was a sentinel because depth_base_m
-          // didn't matter for TIN inference; now it shapes the
-          // user-visible inserted-ghost thickness, so 0.20 m gives
-          // the requested 20 cm band the user can then accept or
-          // resize.
-          depth_base_m: depthM + 0.2,
-          suggested_lithology: mainCode,
-          suggested_nad_class: null,
-          mean_qc_mpa: null,
-          dr_pct: null,
-          confidence: 'medium',
-          source: 'manual_pick',
-          suggested_admixtures: admixtures,
-          parent_formation_id: null,
-          spans_boundary: false,
-        },
-      ]
-      const payload = {
-        [anchorKind === 'cpt' ? 'cpt_id' : 'borehole_id']: anchorId,
-        suggestions: suggestionsOut,
-        create_formation_only: true,
+
+      // Snapshot the surrounding formation BEFORE we mutate any
+      // contacts.  Surrounding = deepest existing litho contact whose
+      // ``depth_top_m <= depthM`` (the band the click sits inside).
+      const peers = lithoContacts
+        .filter(c => (c.borehole_id ?? c.cpt_id) === anchorId)
+        .slice()
+        .sort((a, b) => a.depth_top_m - b.depth_top_m)
+      let surroundingContact: typeof peers[number] | null = null
+      for (const c of peers) {
+        if (c.depth_top_m <= depthM) surroundingContact = c
+        else break
+      }
+      const surroundingFormation = surroundingContact !== null
+        ? formations.find(f => f.id === surroundingContact?.formation_id)
+            ?? lithoFormations.find(f => f.id === surroundingContact?.formation_id)
+            ?? null
+        : null
+
+      const topSuggestion: ManualSuggestion = {
+        depth_top_m: depthM,
+        depth_base_m: depthM + 0.2,
+        suggested_lithology: mainCode,
+        suggested_nad_class: null,
+        mean_qc_mpa: null,
+        dr_pct: null,
+        confidence: 'medium',
+        source: 'manual_pick',
+        suggested_admixtures: admixtures,
+        parent_formation_id: null,
+        spans_boundary: false,
       }
 
       log.debug(
         'section',
-        `handleManualLithoUnitCreate: litho_model=${activeLithoModel.id} ` +
-          `anchor=${anchorKind}/${anchorId} depth=${depthM.toFixed(2)}m soil=${mainCode}`,
+        `handleManualLithoUnitCreate (direct-insert): litho_model=${activeLithoModel.id} ` +
+          `anchor=${anchorKind}/${anchorId} depth=${depthM.toFixed(2)}m soil=${mainCode} ` +
+          `surrounding=${surroundingFormation?.litho_main_soil_code ?? '(none)'}`,
       )
 
       try {
-        const result = await api.geology.acceptLithoSuggestions(
+        // 1. Insert the user's chosen layer (top contact at depthM).
+        const topResult = await api.geology.acceptLithoSuggestions(
           project.id,
           activeLithoModel.id,
-          payload,
+          {
+            [anchorKind === 'cpt' ? 'cpt_id' : 'borehole_id']: anchorId,
+            section_id: selectedSection.id,
+            suggestions: [topSuggestion],
+          },
         )
-
-        // No applyUpdatedSection here: create_formation_only=true means no
-        // contact was created → updated_section is always null → the seeded
-        // set is unchanged. The ghost-accept that follows seeds the contact.
-
+        if (topResult.updated_section != null) {
+          applyUpdatedSection(topResult.updated_section)
+        }
         const formationId =
-          result.created_formation_ids[0] ?? result.found_formation_ids[0] ?? null
+          topResult.created_formation_ids[0] ?? topResult.found_formation_ids[0] ?? null
         if (formationId === null) {
           log.warn(
             'section',
-            'handleManualLithoUnitCreate: no formation id in response (created=[], found=[])',
+            'handleManualLithoUnitCreate: no formation id in top-insert response',
           )
           return null
         }
 
-        // Refetch formations so the new formation (with litho_main_soil_code set)
-        // is available in the ghost overlay's formation lookup.
-        refetchFormations()
+        // 2. Restoration contact at depthM + 0.20 carrying the
+        //    surrounding band's lithology + admixtures.  Skip if no
+        //    surrounding (e.g. inserting at the top of a column with
+        //    no prior litho contacts above) — the new band simply
+        //    extends downward to the next existing contact (or the
+        //    test bottom), which is the right behaviour when there's
+        //    nothing to restore.  Skip if the surrounding is the
+        //    SAME as the user's pick (a same-litho restoration would
+        //    be a no-op cosmetic duplicate).
+        if (
+          surroundingFormation?.litho_main_soil_code != null
+          && surroundingFormation.litho_main_soil_code !== mainCode
+        ) {
+          const restorationSuggestion: ManualSuggestion = {
+            depth_top_m: depthM + 0.2,
+            depth_base_m: depthM + 0.21, // sentinel — only depth_top_m matters for the new contact
+            suggested_lithology: surroundingFormation.litho_main_soil_code,
+            suggested_nad_class: null,
+            mean_qc_mpa: null,
+            dr_pct: null,
+            confidence: 'medium',
+            source: 'manual_pick',
+            suggested_admixtures: (surroundingFormation.litho_admixtures ?? []).map(a => ({
+              soil_code: a.soil_code,
+              amount: a.amount,
+              locally: a.locally,
+            })),
+            parent_formation_id: null,
+            spans_boundary: false,
+          }
+          try {
+            const restoreResult = await api.geology.acceptLithoSuggestions(
+              project.id,
+              activeLithoModel.id,
+              {
+                [anchorKind === 'cpt' ? 'cpt_id' : 'borehole_id']: anchorId,
+                section_id: selectedSection.id,
+                suggestions: [restorationSuggestion],
+              },
+            )
+            if (restoreResult.updated_section != null) {
+              applyUpdatedSection(restoreResult.updated_section)
+            }
+            log.success(
+              'section',
+              `handleManualLithoUnitCreate restoration ok at depth=${(depthM + 0.2).toFixed(2)}m ` +
+                `lithology=${surroundingFormation.litho_main_soil_code}`,
+            )
+          } catch (err) {
+            log.warn(
+              'section',
+              'handleManualLithoUnitCreate: restoration acceptLithoSuggestions failed — the new layer\'s bottom boundary is missing',
+              err,
+            )
+          }
+        }
 
-        // Place a ghost at the click depth — the user drags it to the desired
-        // depth, then accepts; that ghost-accept creates the real contact.
-        const cpt = visibleCpts.find(c => c.id === anchorId)
-        const surfaceElevationM =
-          cpt?.elevation_m ??
-          visibleBoreholes.find(b => b.id === anchorId)?.elevation_m ??
-          null
-        handleCreateManualLithoGhost(anchorKind, anchorId, surfaceElevationM, depthM, formationId)
+        // Refresh formations + litho contacts so the new contacts
+        // land in local state.
+        refetchFormations()
 
         log.success(
           'section',
-          `handleManualLithoUnitCreate: ghost placed formationId=${formationId}`,
+          `handleManualLithoUnitCreate: layer committed formationId=${formationId}`,
         )
         return { formationId }
       } catch (err) {
-        log.warn('section', 'handleManualLithoUnitCreate: acceptLithoSuggestions failed', err)
+        log.warn('section', 'handleManualLithoUnitCreate: top-insert acceptLithoSuggestions failed', err)
         return null
       }
     },
@@ -1209,9 +1277,9 @@ export default function SectionsCanvas(): JSX.Element {
       project.id,
       applyUpdatedSection,
       refetchFormations,
-      handleCreateManualLithoGhost,
-      visibleCpts,
-      visibleBoreholes,
+      lithoContacts,
+      formations,
+      lithoFormations,
     ],
   )
 
