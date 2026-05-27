@@ -1128,7 +1128,14 @@ export default function SectionsCanvas(): JSX.Element {
       const suggestionsOut: ManualSuggestion[] = [
         {
           depth_top_m: depthM,
-          depth_base_m: depthM + 0.01, // sentinel extent — only depth_top_m matters for TIN inference
+          // Debt #151 dogfeed refinement 2026-05-27: "click an
+          // accepted litho → insert new layer here → inserts a 20 cm
+          // band".  The 0.01 was a sentinel because depth_base_m
+          // didn't matter for TIN inference; now it shapes the
+          // user-visible inserted-ghost thickness, so 0.20 m gives
+          // the requested 20 cm band the user can then accept or
+          // resize.
+          depth_base_m: depthM + 0.2,
           suggested_lithology: mainCode,
           suggested_nad_class: null,
           mean_qc_mpa: null,

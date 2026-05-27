@@ -828,8 +828,11 @@ describe('Manual litho unit creation — handleManualLithoUnitCreate', () => {
     expect(payload.suggestions).toHaveLength(1)
     expect(payload.suggestions[0].suggested_lithology).toBe('ZAND')
     expect(payload.suggestions[0].source).toBe('manual_pick')
-    // depth_base = depth_top + 0.01 (sentinel extent for TIN inference only)
-    expect(payload.suggestions[0].depth_base_m).toBeCloseTo(5.51)
+    // depth_base = depth_top + 0.20 (dogfeed refinement 2026-05-27:
+    // click-on-band → Insert inserts a 20 cm band the user can then
+    // accept or resize).  Previously 0.01 (sentinel extent for TIN
+    // inference only); now user-visible.
+    expect(payload.suggestions[0].depth_base_m).toBeCloseTo(5.7)
 
     // (b) applyUpdatedSection MUST NOT be called — no contact was created.
     expect(applyUpdatedSection).not.toHaveBeenCalled()
