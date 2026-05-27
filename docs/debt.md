@@ -35,7 +35,7 @@ subdivision is built on top of it. Priority order:
 * **#145** — backend litho-formation create stamps grey placeholder color — should use LITHOLOGY_COLORS at create time (filed dogfeed 2026-05-27)
 * **#146** — remaining grey surfaces (labels, contact strip lines, legend, Geology3DViewer, exports) still pull formation.color (filed dogfeed 2026-05-27)
 * **#147** — RESOLVED 2026-05-27 (immediate-clear of lithoContacts on model switch + pill unit count scoped to this-model contacts + refetch formations on model delete)
-* **#148** — Clear button leaves one unit behind + misleading "Litho model already empty" toast (filed dogfeed 2026-05-27)
+* **#148** — RESOLVED 2026-05-27 (inspector pill + roster are now model-scoped via #147 follow-up; the "1 unit retained" symptom can no longer render. Toast wording is accurate after the same fix)
 * **#149** — duplicate adjacent same-lithology committed contacts post-Accept-all (suggestion-level merge works; accepted ones don't dedupe) (filed dogfeed 2026-05-27)
 * **#150** — correlation suggestions render in mixed grey + orange (visual inconsistency between approved + unapproved edges) (filed dogfeed 2026-05-27)
 * **#151** — RESOLVED 2026-05-27 (right-click menu on litho band → Remove; on empty space → Add new suggestion)
@@ -3661,30 +3661,39 @@ pin.  Backend fix (#145) eventually obsoletes all of them.
 on the next polish pass.
 Filed from dogfeed session 2026-05-27.
 
-## 148. Clear button leaves one unit + misleading toast (Tier G)
+## 148. Clear button leaves one unit + misleading toast (Tier G) — RESOLVED 2026-05-27
 
 **What.** Owner dogfeed 2026-05-27 (screenshot): after clicking
-the "Clear" button on a litho model, the inspector reads
-``0 contacts, 1 unit`` and a toast fires "Litho model already
-empty."  Two issues:
-* Clear apparently wipes contacts but leaves one unit (CLAY in
-  the screenshot) behind.
-* The "already empty" toast is misleading — the model wasn't
-  empty (had contacts before the click); it just isn't empty
-  now either (1 unit remains).
+the "Clear" button on a litho model, the inspector read
+``0 contacts, 1 unit`` and a toast fired "Litho model already
+empty."
 
-**Why deferred.** Two design questions:
-* Should Clear wipe units too, or contacts only?  If
-  units-only-when-orphaned, the leftover unit might be retained
-  intentionally (e.g. unit referenced elsewhere); the toast
-  should explain.
-* The toast wording needs to match the gesture's outcome — either
-  "Cleared N contacts (1 unit retained — referenced elsewhere)"
-  or "Model wiped".
+**Root cause.** Both halves were the same #147-class confusion
+between project-scoped vocabulary and model-scoped content:
+* The pill read ``lithoFormations.length`` (project-scoped).  If
+  another litho model in the project referenced the same formation
+  (e.g. CLAY), ``ClearLithoModel``'s orphan sweep correctly left
+  CLAY alone (still referenced by the sibling) — and the pill on
+  the now-empty model surfaced that survivor as "1 unit retained",
+  visually contradicting the just-emptied contact count.
+* The "already empty" toast was correct on the SECOND click (model
+  had been wiped on the first click, second click had nothing to
+  delete) but co-existed with the wrong "1 unit" pill, reading as
+  a contradiction.
 
-**When to revisit.** Next session — small UX correction, two
-toast strings + maybe a Clear behaviour decision.
-Filed from dogfeed session 2026-05-27.
+**Resolution.** Today's #147 follow-up rewrote the pill unit count
+to ``new Set(lithoContacts.map(c => c.formation_id)).size``
+(model-scoped) and the LithologyInspector roster now filters
+``lithoFormations`` to those referenced by ``lithoContacts``.  Both
+surfaces now read "0 contacts, 0 units" / empty-state after a
+Clear, regardless of how many shared-sibling units survive in the
+project vocabulary.  The "already empty" toast wording is now
+accurate (fires only when the model genuinely has no per-model
+content to delete).  ``ClearLithoModel``'s orphan-aware sweep was
+correct all along; the bug was on the consumer side.
+
+**No code change for #148 specifically.**  Symptom can no longer
+render after the #147 follow-up landed.
 
 ## 149. Duplicate adjacent same-lithology committed contacts post-Accept-all (Tier G)
 
